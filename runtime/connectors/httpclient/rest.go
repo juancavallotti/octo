@@ -52,9 +52,6 @@ type restSettings struct {
 	Query map[string]string `json:"query" octo:"label=Query"`
 	// Request headers; each value is a CEL expression.
 	Headers map[string]string `json:"headers" octo:"label=Headers"`
-	// CEL expression for a credential to forward on this request, sent verbatim
-	// as the Authorization header. Only for a connector whose auth is disabled.
-	Auth string `json:"auth" octo:"label=Forwarded credential,type=cel"`
 	// CEL expression for the request body.
 	Body string `json:"body" octo:"label=Body,type=cel"`
 	// How the body is sent. raw sends the evaluated body as-is: a string verbatim,
@@ -112,7 +109,6 @@ type processor struct {
 	headers     map[string]*expr.Program
 	body        *expr.Program
 	bodyType    string
-	auth        *expr.Program // nil unless a credential is forwarded
 	failOnError bool
 	statusVar   string
 	env         map[string]any
@@ -138,7 +134,7 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 	if err != nil {
 		return nil, err
 	}
-	headers, auth, err := compileRESTHeaders(cfg, conn, deps)
+	headers, err := compileMap(deps.Resources, cfg.Headers)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +172,6 @@ func newREST(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 		headers:     headers,
 		body:        body,
 		bodyType:    bodyType,
-		auth:        auth,
 		failOnError: failOnError,
 		statusVar:   statusVar,
 		env:         expr.EnvActivation(deps.Env),
@@ -200,28 +195,6 @@ func resolveConnector(name string, deps core.BlockDeps) (*Connector, error) {
 		return nil, fmt.Errorf("rest block: connector %q is not an http-client", name)
 	}
 	return conn, nil
-}
-
-// compileRESTHeaders compiles the block's header expressions and its forwarded
-// credential together, because the two are one decision: Authorization is refused
-// in headers precisely because auth is the setting that carries it.
-func compileRESTHeaders(
-	cfg restSettings, conn *Connector, deps core.BlockDeps,
-) (map[string]*expr.Program, *expr.Program, error) {
-	for name := range cfg.Headers {
-		if err := refuseAuthorizationHeader(name, "rest"); err != nil {
-			return nil, nil, err
-		}
-	}
-	headers, err := compileMap(deps.Resources, cfg.Headers)
-	if err != nil {
-		return nil, nil, err
-	}
-	auth, err := compileCredential(cfg.Auth, conn, "rest", deps.Resources)
-	if err != nil {
-		return nil, nil, err
-	}
-	return headers, auth, nil
 }
 
 // compileMap compiles each value of a name->expression map into a message program.
@@ -260,9 +233,6 @@ func (p *processor) Process(ctx context.Context, msg *types.Message) (*types.Mes
 		return nil, fmt.Errorf("rest build request: %w", err)
 	}
 	if err := p.applyHeaders(req, activation); err != nil {
-		return nil, err
-	}
-	if err := applyCredential(p.auth, req, activation, "rest"); err != nil {
 		return nil, err
 	}
 	applyBodyContentType(req, body)

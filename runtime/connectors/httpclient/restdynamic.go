@@ -62,9 +62,6 @@ type restDynamicSettings struct {
 	Query string `json:"query" octo:"label=Query,type=cel"`
 	// CEL expression evaluating to a map of request headers.
 	Headers string `json:"headers" octo:"label=Headers,type=cel"`
-	// CEL expression for a credential to forward on this request, sent verbatim
-	// as the Authorization header. Only for a connector whose auth is disabled.
-	Auth string `json:"auth" octo:"label=Forwarded credential,type=cel"`
 	// CEL expression for the request body.
 	Body string `json:"body" octo:"label=Body,type=cel"`
 	// How the body is sent. raw sends the evaluated body as-is: a string verbatim,
@@ -91,7 +88,6 @@ type dynamicProcessor struct {
 	query        *expr.Program // nil when no query expression is configured
 	headers      *expr.Program // nil when no header expression is configured
 	body         *expr.Program // nil when no body expression is configured
-	auth         *expr.Program // nil unless a credential is forwarded
 	bodyType     string
 	allowMethods []string // empty allows any of allowedMethods
 	pathPrefix   string
@@ -135,10 +131,6 @@ func newRESTDynamic(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		env:         expr.EnvActivation(deps.Env),
 	}
 	if err := processor.compileExpressions(cfg, deps); err != nil {
-		return nil, err
-	}
-	processor.auth, err = compileCredential(cfg.Auth, conn, "rest-dynamic", deps.Resources)
-	if err != nil {
 		return nil, err
 	}
 
@@ -220,9 +212,6 @@ func (p *dynamicProcessor) Process(ctx context.Context, msg *types.Message) (*ty
 		return nil, fmt.Errorf("rest-dynamic build request: %w", err)
 	}
 	if err := p.applyHeaders(req, activation); err != nil {
-		return nil, err
-	}
-	if err := applyCredential(p.auth, req, activation, "rest-dynamic"); err != nil {
 		return nil, err
 	}
 	applyBodyContentType(req, body)
@@ -343,20 +332,24 @@ func (p *dynamicProcessor) buildQuery(activation map[string]any) (url.Values, er
 
 // applyHeaders evaluates the header expression to a map and sets each entry.
 //
-// Authorization is refused, and here that matters more than it does on rest: the
-// header names are themselves data, so admitting it would put the choice of
-// credential in the hands of whatever produced the message. A credential still
-// travels — through the auth setting, which is written by whoever wrote the flow
-// and is checked at startup against the connector not having one of its own.
+// Authorization is one of them. A flow acting on behalf of its caller has a
+// credential that is not configuration -- it arrives with the message -- and the
+// connector's auth setting, fixed at startup, cannot express it. The connector
+// already gives way to a request that carries its own Authorization, so the two
+// do not contend: a header set here means the block's credential is used, and a
+// block that sets none gets the connector's.
+//
+// The header names being data is the reason this was once refused. But the
+// expression producing them is written in the flow definition, by the same person
+// who chose the connector and its baseURL, and it is the connector's baseURL --
+// with allowMethods and pathPrefix beside it -- that bounds where a credential
+// can be sent. Refusing the name bought nothing that those bound.
 func (p *dynamicProcessor) applyHeaders(req *http.Request, activation map[string]any) error {
 	entries, err := evalStringMap(p.headers, activation, "headers")
 	if err != nil {
 		return err
 	}
 	for name, value := range entries {
-		if err := refuseAuthorizationHeader(name, "rest-dynamic"); err != nil {
-			return err
-		}
 		req.Header.Set(name, value)
 	}
 	return nil

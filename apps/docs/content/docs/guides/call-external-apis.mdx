@@ -3,6 +3,8 @@ title: "Call External APIs"
 description: "Use the HTTP client with auth, retries, and response caching."
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+
 In this guide you call an external HTTP API from a flow with the `http-client`
 connector and the `rest` block, then layer on authentication, retries, and
 response caching. It follows
@@ -207,13 +209,12 @@ Rather than a fallback credential path that behaves differently on a laptop than
 in production, the scheme is switched off by configuration and the difference
 stays visible in the environment.
 
-### Forward the caller's credential
+### Call as the caller, not as the deployment
 
 Every scheme above describes a credential known at startup. When the flow calls
 the upstream *as its caller* — relaying a bearer token that came in with the
-request, or one an earlier block minted — the credential is not configuration, it
-is data on the message. Put it in the block's `auth` setting, which is sent
-verbatim as the `Authorization` header:
+request, or one an earlier block minted — the credential is data on the message,
+not configuration. Set the `Authorization` header on the block:
 
 ```yaml
     source:
@@ -225,53 +226,16 @@ verbatim as the `Authorization` header:
     process:
       - type: rest
         settings:
-          connector: orders             # no auth of its own
+          connector: orders
           path: /v1/me
-          auth: 'vars["Authorization"]'
+          headers:
+            Authorization: 'vars["Authorization"]'
 ```
 
-This works only through a connector whose own `auth` is disabled: a connector
-that authenticates already has a credential, and a message may not replace it.
-An empty result sends no header at all, so a flow where only some callers are
-authenticated needs no branch. See
-[Forwarding a credential](/reference/connectors/http#forwarding-a-credential) for
-the full rules and the trust question to ask before turning it on.
+`rest-dynamic` takes it the same way, as one entry in its rendered header map.
 
-## Retry rate-limited requests
-
-When an upstream returns `429 Too Many Requests`, the connector retries
-automatically: it honors the `Retry-After` header when present and otherwise
-backs off exponentially. Tune it on the connector:
-
-```yaml
-    settings:
-      baseURL: https://api.example.com
-      retry:
-        maxAttempts: 5     # total attempts including the first; <=1 disables retrying
-        maxBackoff: 10s    # upper bound on each wait (also caps a large Retry-After)
-```
-
-The defaults are 3 attempts with waits capped at 30s.
-
-## Cache responses
-
-The response cache is opt-in and applies to GET requests only, keyed by the
-full URL:
-
-```yaml
-      cache:
-        enabled: true
-        ttl: 60s           # default 60s
-        maxEntries: 256    # default 256
-```
-
-A request that matches a fresh cache entry is served from memory without
-touching the network — ideal for polling flows like this one, or for fan-out
-flows that hit the same lookup endpoint for many messages.
-
-## Where to go next
-
-- [Build a REST API](/guides/rest-api) — serve HTTP instead of calling it.
-- [Object Storage and Caching](/guides/object-storage-and-caching) — cache computed results, not just HTTP responses.
-- [Scheduled Jobs](/guides/scheduled-jobs) — more on the cron source driving this flow.
-- [Integration blocks reference](/reference/blocks/integration) — the `rest` block in full.
+<Callout type="info">
+If a block sets an `Authorization` header itself, the connector leaves it alone —
+per-request auth wins over the connector default. So one connector can serve both
+its own calls and calls made for a caller.
+</Callout>
