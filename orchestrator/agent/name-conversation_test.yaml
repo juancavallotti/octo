@@ -1,0 +1,94 @@
+flow: name-conversation
+
+# Naming a conversation — the one thing the runtime cannot do for itself.
+#
+# The runtime records the conversation now: uncompacted, per integration, and
+# listable. What it cannot do is decide what the exchange was ABOUT, because that
+# is a judgement and a judgement is a model call. So this flow is the whole
+# remnant of what used to be three flows and two hand-kept KV objects, and what is
+# worth pinning about it is the expensive half: that naming costs exactly one
+# model call, and only on the conversation's first exchange.
+#
+# HONEST LIMIT. The orchestrator is not running under an invoke, so the read that
+# decides "does this need a name" is mocked. That is the whole branch, and mocking
+# it is how both sides of it get exercised — a conversation still wearing the
+# runtime's fallback label, and one a previous run already named.
+
+env:
+  LLM_CONNECTOR_TYPE: llm-anthropic
+  LLM_API_KEY: sk-ant-not-a-real-key
+  LLM_MODEL: claude-sonnet-4-6
+  ORCHESTRATOR_URL: http://127.0.0.1:9
+  OCTO_DEPLOYMENT_ID: dep-1
+  AGENT_WORKSPACE: /tmp
+  AGENT_OCTO_BIN: /bin/echo
+  AGENT_DOLPHIN_BIN: /bin/echo
+  AGENT_CURL_BIN: /bin/echo
+  AGENT_FIND_BIN: /bin/echo
+  AGENT_JQ_BIN: /bin/echo
+
+# Nothing here should reach the orchestrator or a provider. The default read
+# reports an unnamed conversation, which is the case worth defaulting to.
+mocks:
+  name-conversation.read-thread:
+    default:
+      body: { threadKey: t-1, title: "", turnCount: 2 }
+  name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
+    default:
+      body: { title: Listing the integrations }
+  name-conversation.needs-a-name[then].name-or-give-up[process].save-title:
+    default:
+      body: {}
+
+inputs:
+  an exchange:
+    data:
+      threadId: t-1
+      question: list my integrations
+      answer: You have three.
+
+cases:
+  - name: a conversation with no name of its own gets one, in one model call
+    input: an exchange
+    spies:
+      name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
+        count: 1
+      name-conversation.needs-a-name[then].name-or-give-up[process].save-title:
+        count: 1
+
+  # The runtime labels a new conversation with the first line of its opening turn,
+  # so "still wearing the thread key" and "empty" both mean unnamed. Anything else
+  # is a name somebody already paid for.
+  - name: a conversation that already has a name is not named again
+    input: an exchange
+    mocks:
+      name-conversation.read-thread:
+        default:
+          body: { threadKey: t-1, title: Deploying the orders integration, turnCount: 4 }
+    spies:
+      name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
+        count: 0
+      name-conversation.needs-a-name[then].name-or-give-up[process].save-title:
+        count: 0
+
+  - name: a conversation still wearing the runtime's fallback label is named
+    input: an exchange
+    mocks:
+      name-conversation.read-thread:
+        default:
+          body: { threadKey: t-1, title: t-1, turnCount: 2 }
+    spies:
+      name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
+        count: 1
+
+  # A conversation with the runtime's own fallback name is a small loss; a worker
+  # that dies over a title is not. The record is already stored by then.
+  - name: a model having a bad minute does not fail the worker
+    input: an exchange
+    mocks:
+      name-conversation.needs-a-name[then].name-or-give-up[process].write-title:
+        default:
+          error: the model is having a bad minute
+    spies:
+      name-conversation.needs-a-name[then].name-or-give-up[process].save-title:
+        count: 0

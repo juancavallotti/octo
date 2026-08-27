@@ -1,15 +1,29 @@
 /**
- * Dr. Octo's record of what has been said to him, as typed operations.
+ * Dr. Octo's past conversations, as the panel shows them.
  *
- * These reach the agent's own deployment rather than the orchestrator, which is
- * why they do not go through `call()` in this folder's transport: that one is
- * bound to ORCHESTRATOR_URL, and the agent's address is resolved per install.
- * Everything else about the layering holds — no verb and no path shape leaves
- * this module, and every failure comes back as an ActionResult.
+ * These used to reach the agent's own pod: the runtime had nowhere to keep a
+ * durable transcript, so he recorded one himself into KV and served it from his
+ * own flows. That meant reading somebody's history needed the agent deployed and
+ * healthy, and it meant the record lived under the deployment that wrote it — so
+ * reinstalling him destroyed every conversation on the install (#362).
+ *
+ * Now it comes from the orchestrator's agent-memory tables, which are keyed on
+ * the integration and survive a redeploy. The wire types below are unchanged, so
+ * the panel did not have to move with them; the mapping happens here.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
-import { resolveAgentUrl, forgetAgentUrl } from "./agentUrl";
+import { type ActionResult } from "@octo/http";
+import { fetchAgentStatus } from "./agentUrl";
+import { listThreads, readThread, type MemoryTurn } from "./agentMemory";
+
+/**
+ * The agent id Dr. Octo declares in his own definition.
+ *
+ * A constant rather than a lookup because it is part of his definition, not of an
+ * install: every Dr. Octo is this agent. An install where someone has edited it is
+ * supported, and is also not something the panel can guess at.
+ */
+export const DR_OCTO_AGENT_ID = "dr-octo";
 
 /** One past conversation, as a list shows it. */
 export interface ConversationRow {
@@ -32,47 +46,80 @@ export interface Conversation {
   turns: ConversationTurn[];
 }
 
-/** The person asking, which is the only thing either endpoint is keyed on. */
+/** The person asking, which is what either listing is scoped to. */
 export interface Asker {
   id: string;
   name: string;
 }
 
-/**
- * Every past conversation this person has had, most recent last.
- *
- * The order is the recorder's — it appends — and the caller sorts, because a list
- * of a few dozen rows is cheaper to sort in the browser than to keep sorted in an
- * object that is rewritten on every exchange.
- */
+/** Every past conversation this person has had, most recently active first. */
 export async function listConversations(user: Asker): Promise<ActionResult<ConversationRow[]>> {
-  const result = await ask<{ items?: ConversationRow[] }>("/conversations", user);
+  const integration = await integrationId();
+  if (!integration.ok) return integration;
+
+  const result = await listThreads(integration.id, DR_OCTO_AGENT_ID, { userId: user.id });
   if (!result.ok) return result;
-  return { ok: true, data: result.data.items ?? [] };
+  return {
+    ok: true,
+    data: result.data.threads.map((t) => ({
+      id: t.threadKey,
+      title: t.title || t.threadKey,
+      updatedAt: t.lastActivityAt,
+    })),
+  };
 }
 
-/** One past conversation. A thread this person does not have reads as an empty one. */
-export function readConversation(user: Asker, threadId: string): Promise<ActionResult<Conversation>> {
-  return ask<Conversation>(`/conversations/${encodeURIComponent(threadId)}`, user);
+/** One past conversation, to replay into the panel. */
+export async function readConversation(
+  user: Asker,
+  threadId: string,
+): Promise<ActionResult<Conversation>> {
+  const integration = await integrationId();
+  if (!integration.ok) return integration;
+
+  // A conversation that is not there now comes back as an error rather than as an
+  // empty one. That is a change from the KV-backed version, where a missing object
+  // read as its default and there was no way to tell "no such conversation" from
+  // "a conversation with nothing in it". The panel only opens rows from a listing
+  // it has just fetched, so the case is one that genuinely went wrong.
+  const result = await readThread(integration.id, DR_OCTO_AGENT_ID, threadId);
+  if (!result.ok) return result;
+
+  // Scoped to the asker here rather than in the query, because the route is
+  // addressed by thread and a conversation belongs to one person. Someone reading
+  // a thread key that is not theirs gets nothing — the same answer the
+  // agent-served version gave, which keyed its object on the authenticated user.
+  if (result.data.thread.userId && result.data.thread.userId !== user.id) {
+    return { ok: true, data: { threadId, title: "", turns: [] } };
+  }
+  return {
+    ok: true,
+    data: {
+      threadId,
+      title: result.data.thread.title ?? "",
+      turns: result.data.turns.map(toTurn),
+    },
+  };
 }
+
+/** Map a stored turn onto the two roles the panel renders. */
+function toTurn(turn: MemoryTurn): ConversationTurn {
+  return { role: turn.role === "user" ? "user" : "agent", text: turn.text };
+}
+
+type IntegrationResult = { ok: true; id: string } | { ok: false; error: string };
 
 /**
- * Post to one of the agent's read endpoints.
+ * Which integration Dr. Octo is installed as.
  *
- * They are POSTs and not GETs because the identity travels in the body, written
- * server-side exactly as the chat route writes it — the agent keys its record on
- * the user id, so a client that could choose one could read anyone's
- * conversations. Nothing else is sent.
+ * Read from his status rather than configured, for the same reason his address
+ * is: it is whatever the install produced. Unlike the address it is not cached
+ * here — the status lookup behind it already is.
  */
-async function ask<T>(path: string, user: Asker): Promise<ActionResult<T>> {
-  const agent = await resolveAgentUrl();
-  if (!agent.ok) return { ok: false, error: agent.error };
-
-  const result = await requestJson<T>("POST", `${agent.url}${path}`, { user });
-  if (!result.ok) {
-    // The address came from a cached status, and a pod that has since been
-    // replaced answers nothing. Drop it so the next attempt resolves again.
-    forgetAgentUrl();
+async function integrationId(): Promise<IntegrationResult> {
+  const status = await fetchAgentStatus();
+  if (!status?.integrationId) {
+    return { ok: false, error: "the agent is not installed" };
   }
-  return result;
+  return { ok: true, id: status.integrationId };
 }

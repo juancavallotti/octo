@@ -261,18 +261,18 @@ cases:
     expect:
       body: {}
     spies:
-      # And nothing is recorded. A stop carries no question and produces no
-      # answer, so a record of one would be a row in somebody's list of past
-      # conversations with nothing in it. The stop request's flow ends at the
-      # agent block — RequestStop short-circuits the chain — which is what makes
-      # this hold; the assertion is here because it holds by consequence rather
-      # than by construction.
-      chat.record-exchange: { count: 0 }
+      # And nothing is queued for naming. A stop carries no question and produces
+      # no answer, so naming one would be a model call to describe an exchange
+      # that did not happen. The stop request's flow ends at the agent block —
+      # RequestStop short-circuits the chain — which is what makes this hold; the
+      # assertion is here because it holds by consequence rather than by
+      # construction.
+      chat.name-exchange: { count: 0 }
 
-  # The conversation record is written from a wire-tap, so what goes on the queue
-  # is both halves of the exchange — the question the agent never sees again once
-  # it answers, and the answer itself. Getting either wrong shows up as a list of
-  # conversations that cannot be replayed.
+  # The runtime records the conversation; this tap carries the exchange only so it
+  # can be NAMED, which needs both halves — the question the agent never sees
+  # again once it answers, and the answer itself. Getting either wrong shows up as
+  # a list of conversations named after the wrong thing.
   - name: the exchange is tapped whole, question and answer together
     input: a question
     mocks:
@@ -284,12 +284,11 @@ cases:
       # closing SSE frame, and a fork branch's clone is what keeps it that way.
       body: You have three integrations.
     spies:
-      chat.record-exchange[process].tap[record].send-record:
+      chat.name-exchange[process].tap[record].send-record:
         count: 1
         records:
           - input:
               that:
-                - 'body.userKey == "u-1"'
                 - 'body.threadId == "t-1"'
                 - 'body.question == "list my integrations"'
                 - 'body.answer == "You have three integrations."'
@@ -297,16 +296,17 @@ cases:
   # `answer: text` asks for prose and does not guarantee it: the agent decodes a
   # final answer that happens to parse as JSON whatever the format says, so an
   # answer of "42" or one the model fenced arrives as a number or a map. This is
-  # the case that caught it — the record was built with string(), which does not
-  # take a map, so the exchange went unrecorded and the only trace was a warning.
-  - name: an answer that parsed as JSON is still recorded
+  # the case that caught it — the payload was built with string(), which does not
+  # take a map, so the exchange reached the namer as nothing at all and the only
+  # trace was a warning.
+  - name: an answer that parsed as JSON still reaches the namer
     input: a question
     mocks:
       chat.dr-octo:
         default:
           body: { answer: You have three integrations. }
     spies:
-      chat.record-exchange[process].tap[record].send-record:
+      chat.name-exchange[process].tap[record].send-record:
         count: 1
         records:
           - input:
