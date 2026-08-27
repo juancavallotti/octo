@@ -120,6 +120,9 @@ type memorySession struct {
 	// fresh says this run opened the conversation, which is the one moment the
 	// engine has any business naming it. See recordTurn.
 	fresh bool
+	// blind says the stored working memory could not be read, so this run is
+	// carrying on without knowing what was there. See loadWorking.
+	blind bool
 
 	// Checkpoint debounce state. lastAt and lastSize describe the last write.
 	mu        sync.Mutex
@@ -207,10 +210,17 @@ func (s *memorySession) loadWorking(ctx context.Context) (memoryEnvelope, error)
 	}
 	wm, ok, err := s.store.LoadWorking(ctx, s.ref)
 	if err != nil {
-		// A store that cannot be read must not take the conversation with it. Carry on
-		// from the legacy blob, or from nothing, rather than failing the run.
-		slog.Warn("ai-agent could not load working memory; continuing without it",
+		// A store that cannot be read must not take the conversation with it: the run
+		// carries on from nothing rather than failing.
+		//
+		// But it must not SAVE either. This run has no idea what was stored, so its
+		// transcript is the current exchange alone — and writing that back would
+		// replace a conversation somebody has been having with the last thing they
+		// said, over a transient read failure. Blind is how the save path knows to
+		// leave it alone.
+		slog.Warn("ai-agent could not load working memory; continuing without it, and will not overwrite it",
 			"block", s.agent.name, "agent", s.ref.AgentID, "thread", s.thread, "error", err)
+		s.blind = true
 		return memoryEnvelope{}, nil
 	}
 	if ok {
@@ -277,6 +287,11 @@ func (s *memorySession) offerCheckpoint(
 // version conflict re-reads and retries once: another replica of this agent
 // wrote in between, and the latest state is the one worth keeping.
 func (s *memorySession) writeWorking(ctx context.Context, env memoryEnvelope, iter int) error {
+	if s.blind {
+		// See loadWorking: this run never learned what was stored, so what it holds is
+		// not the conversation — it is the tail of one.
+		return nil
+	}
 	env.Version = memoryVersion
 	payload, err := json.Marshal(env)
 	if err != nil {
@@ -400,13 +415,17 @@ func (s *memorySession) memoryPreamble(ctx context.Context) []core.LLMMessage {
 	b.WriteString("What you have previously chosen to remember about this person:\n")
 	shown := 0
 	for _, m := range memories {
+		// Checked before the write and enforced during it. A single memory can be
+		// longer than the whole budget — nothing bounds what an agent chooses to
+		// remember — so a loop that only checked the running total would blow past the
+		// cap by the size of one entry, which is exactly the entry most worth capping.
 		if shown >= preambleMaxMemories || b.Len() >= preambleMaxChars {
 			break
 		}
 		b.WriteString("- ")
 		b.WriteString(m.Name)
 		b.WriteString(": ")
-		b.WriteString(m.Value)
+		b.WriteString(clipRunes(m.Value, preambleMaxChars-b.Len()))
 		b.WriteString("\n")
 		shown++
 	}
@@ -454,7 +473,10 @@ func validateAgentMemoryConfig(cfg types.BlockConfig) error {
 		return fmt.Errorf("ai-agent history must be %q or %q, got %q",
 			historyRecord, historyOff, cfg.History)
 	}
-	if cfg.AgentID == "" {
+	// Trimmed, because the builder trims: an agentId of "   " that passed validation
+	// would reach configureAgentStore as empty, and the block would quietly lose the
+	// history it had just been told to keep.
+	if strings.TrimSpace(cfg.AgentID) == "" {
 		switch {
 		case cfg.History == historyRecord:
 			return errors.New(
@@ -744,4 +766,24 @@ func rejectMemoryToolCollision(tools []core.LLMTool) error {
 		}
 	}
 	return nil
+}
+
+// clipRunes cuts text to at most n bytes on a rune boundary, marking the cut when
+// one happens.
+//
+// Runes rather than bytes because the result is put in front of a model: an
+// invalid sequence is not a smaller string, it is a string with a replacement
+// character where a word was. A non-positive budget yields nothing.
+func clipRunes(text string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(text) <= n {
+		return text
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(text[:cut]) + "…"
 }

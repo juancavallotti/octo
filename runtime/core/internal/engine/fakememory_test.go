@@ -25,6 +25,9 @@ type fakeMemory struct {
 	// failWorking makes SaveWorking fail, so a test can assert that a store the
 	// runtime cannot write to costs the record and not the conversation.
 	failWorking bool
+	// failLoad makes LoadWorking fail, so a test can assert that a run which never
+	// learned what was stored does not then write over it.
+	failLoad bool
 	// semantic is what Capabilities reports.
 	semantic bool
 }
@@ -72,6 +75,9 @@ func (m *fakeMemory) thread(ref core.MemoryRef) *fakeThread {
 func (m *fakeMemory) LoadWorking(_ context.Context, ref core.MemoryRef) (core.WorkingMemory, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failLoad {
+		return core.WorkingMemory{}, false, errFakeMemory
+	}
 	t, ok := m.threads[threadID(ref)]
 	if !ok || !t.hasWM {
 		return core.WorkingMemory{}, false, nil

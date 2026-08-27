@@ -234,8 +234,14 @@ type AgentMemory interface {
 // deployment.
 type noopAgentMemory struct{}
 
-func (noopAgentMemory) Enabled() bool                                         { return false }
-func (noopAgentMemory) Capabilities() MemoryCapabilities                      { return MemoryCapabilities{} }
+func (noopAgentMemory) Enabled() bool                    { return false }
+func (noopAgentMemory) Capabilities() MemoryCapabilities { return MemoryCapabilities{} }
+
+// The deletes report success where the writes report ErrMemoryDisabled, and the
+// asymmetry is deliberate. A write that vanishes is a lie; a delete against a
+// store that has never held anything has achieved exactly what the caller asked
+// for. Erasure is the one operation that must not report false success — and with
+// no store, there is no copy left behind to be wrong about.
 func (noopAgentMemory) DeleteThread(context.Context, MemoryRef) error         { return nil }
 func (noopAgentMemory) DeleteMemory(context.Context, MemoryRef, string) error { return nil }
 
