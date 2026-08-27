@@ -4,6 +4,20 @@ version: '3'
 # Their tasks are available under a namespace, e.g. `task runtime:test`,
 # `task platform:dev`. The thin aggregators below preserve the short top-level
 # targets (`task lint`, `task test`, ...) used by CI and day-to-day work.
+# Local, gitignored, and read before anything runs.
+#
+# It exists for values that cannot live in a committed file because they are
+# credentials — today that is EMBEDDINGS_API_KEY, which decides whether
+# `task cluster:deploy` brings up the embedding server. Task exports whatever it
+# finds here into the environment of every command below, which is what puts it
+# where devspace.yaml's `source: env` var can see it.
+#
+# A missing .env is not an error: every variable it would carry is optional, and
+# a checkout with no .env deploys a cluster with no embedding server.
+#
+# See .env.example for the whole set.
+dotenv: ['.env']
+
 includes:
   runtime:
     taskfile: ./runtime/Taskfile.yml
@@ -52,7 +66,7 @@ env:
 # the target of a deploy/purge/dev command.
 vars:
   KCTX: k3d-octo
-  # The eight images the orchestrator and the chart expect to find already in the
+  # The nine images the orchestrator and the chart expect to find already in the
   # node's containerd. Declared once because three tasks need the same list, and a
   # list that drifts between them is how a cluster ends up holding a subset of it.
   # Nothing pulls these: they exist only in the local docker daemon, so an image
@@ -60,7 +74,7 @@ vars:
   CLUSTER_IMAGES: >-
     octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev
     octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
-    octo-agenticrunner:dev
+    octo-agenticrunner:dev octo-embeddings:dev
 
   # Every image task below copies host-built binaries in rather than compiling
   # them, and this is the flag pair that says so. A NAMED build context, because
@@ -89,6 +103,12 @@ tasks:
       # end-to-end tests: the unit tests above prove the engine works, these prove a flow
       # someone might actually copy still does what its comments say.
       - task: runtime:test:samples
+      # The two apps this repo ships as images rather than as samples: the platform
+      # agent and the embedding server. Neither is reachable from the samples glob,
+      # and each runs on its own config directory — dolphin merges directories that
+      # are passed together.
+      - task: runtime:test:agent
+      - task: runtime:test:embeddings
       - task: platform:test
       - task: standalone:test
       - task: orchestrator:test
@@ -277,7 +297,7 @@ tasks:
         echo "✓ linux/{{.ARCH}} binaries in dist/bin/linux_{{.ARCH}}"
 
   cluster:images:
-    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/devruntime/agenticrunner images and load them into the k3d 'octo' cluster
+    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/devruntime/agenticrunner/embeddings images and load them into the k3d 'octo' cluster
     cmds:
       # Compile every Go binary once, on the host, for the node's architecture —
       # then the eight builds below only copy them in. Left to the Dockerfiles,
@@ -307,6 +327,10 @@ tasks:
       # `runner: agentic`. Its own Dockerfile rather than a GOTAGS arm of the one
       # above, because it carries three binaries on a base with a shell.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
+      # The embedding server: the standalone binary plus one small app. Standalone
+      # because it needs no cluster services, and depending on the orchestrator
+      # would make it unavailable exactly when the orchestrator is being diagnosed.
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-embeddings:dev -f embeddings/Dockerfile .
       # Load the images straight into the cluster's containerd (no registry needed).
       - k3d image import {{.CLUSTER_IMAGES}} -c octo
       # Then prove they landed, and are still there. A gap never surfaces here: it
@@ -374,6 +398,10 @@ tasks:
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t octo-devruntime:dev -f runtime/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
+      # The embedding server: the standalone binary plus one small app. Standalone
+      # because it needs no cluster services, and depending on the orchestrator
+      # would make it unavailable exactly when the orchestrator is being diagnosed.
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-embeddings:dev -f embeddings/Dockerfile .
       # No verify step to match cluster:images: that check reads the k3d node's
       # containerd, and a kind node is a different name and a different runtime.
       - kind load docker-image --name octo {{.CLUSTER_IMAGES}}
@@ -391,6 +419,10 @@ tasks:
 
   cluster:dev:
     desc: Bring up the cluster, then run DevSpace dev mode (hot reload + tailed logs)
+    # Inherits EMBEDDINGS_API_KEY through cluster:deploy below — see the note
+    # there. The embedding server has no dev image and no hot reload: it is one
+    # small app that changes when its config does, so a `task cluster:deploy`
+    # rebuild is the whole of its dev loop.
     cmds:
       # Ensure the cluster + Postgres + schema are up (idempotent), then load the
       # dev images and hand off to `devspace dev`, which swaps the app pods for
@@ -402,6 +434,14 @@ tasks:
 
   cluster:deploy:
     desc: Spin up the local k3d (k3s) cluster and deploy platform, Postgres, orchestrator
+    # EMBEDDINGS_API_KEY is the one thing this task reads from your shell rather
+    # than from a committed file, because it is a credential. Set it and the
+    # embedding server comes up too, so searching agent memory ranks by meaning:
+    #
+    #   EMBEDDINGS_API_KEY=sk-... task cluster:deploy
+    #
+    # Unset is the default and is a supported way to run locally — search matches
+    # text. See the vars block in devspace.yaml.
     cmds:
       - task: cluster:preflight
       - |
@@ -439,7 +479,7 @@ tasks:
       # missing namespace, so the task reported success while nothing restarted —
       # which is the same silence the missing octo-logs above produced.
       - |
-        for dep in octo-platform octo-orchestrator octo-logs; do
+        for dep in octo-platform octo-orchestrator octo-logs octo-embeddings; do
           if ! kubectl --context {{.KCTX}} -n octo-dev get deployment "$dep" >/dev/null 2>&1; then
             echo "· $dep not deployed yet, skipping restart"
             continue
@@ -451,6 +491,15 @@ tasks:
         echo "✓ cluster up:"
         echo "    platform      http://localhost:3000"
         echo "    orchestrator  http://localhost:8090/healthz  (and /db-version)"
+        if [ -n "$EMBEDDINGS_API_KEY" ]; then
+          echo "    embeddings    deployed (agent memory search ranks by meaning)"
+        else
+          # Said every run, because the absence is silent otherwise: search still
+          # works, it just matches text, and the difference only shows up as
+          # results that are not as good as expected.
+          echo "    embeddings    not deployed — set EMBEDDINGS_API_KEY and re-run"
+          echo "                  to rank agent memory search by meaning"
+        fi
         echo "  pods: kubectl get pods -n octo-dev"
 
   cluster:stop:
@@ -1127,7 +1176,7 @@ tasks:
           echo "image:"
           echo "  registry: {{.IMAGE_BASE}}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner; do
+          for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner embeddings; do
             repo="octo-${c}-paas"
             ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
             digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"

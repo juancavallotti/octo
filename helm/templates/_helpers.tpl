@@ -59,6 +59,10 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "logs") }}
 {{- end }}
 
+{{- define "octo.embeddings.serviceName" -}}
+{{- include "octo-common.componentName" (dict "root" . "component" "embeddings") }}
+{{- end }}
+
 {{- define "octo.auth.secretName" -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "auth") }}
 {{- end }}
@@ -164,6 +168,18 @@
 */}}
 {{- define "octo.logs.url" -}}
 {{- printf "http://%s.%s:%d" (include "octo.logs.serviceName" .) .Release.Namespace (int .Values.logs.service.port) -}}
+{{- end }}
+
+{{/*
+  The embedding server's in-cluster base URL. Empty when the component is not
+  deployed, which is how the orchestrator (and through it every integration pod)
+  learns that this installation has no embedding server: an unset variable rather
+  than an address that refuses.
+*/}}
+{{- define "octo.embeddings.url" -}}
+{{- if .Values.embeddings.enabled -}}
+{{- printf "http://%s.%s:%d" (include "octo.embeddings.serviceName" .) .Release.Namespace (int .Values.embeddings.service.port) -}}
+{{- end -}}
 {{- end }}
 
 {{/*

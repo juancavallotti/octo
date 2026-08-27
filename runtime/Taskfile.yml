@@ -66,6 +66,22 @@ tasks:
     cmds:
       - ../bin/dolphin test ../orchestrator/agent/*_test.yaml
 
+  test:embeddings:
+    desc: Run the dolphin test suite over the embedding server app
+    deps: [build]
+    # OCTO_PATH for the same reason test:agent gives, and its own target for the
+    # same reason too: the app lives at the repo root, which the samples glob does
+    # not reach.
+    #
+    # Its suites are listed rather than globbed into one run on purpose. Passing
+    # dolphin more than one config directory merges them, and a mock naming a flow
+    # from the other one then fails as "no flow named …" — see how test:agent
+    # names exactly one directory.
+    env:
+      OCTO_PATH: ../bin
+    cmds:
+      - ../bin/dolphin test ../embeddings/*_test.yaml
+
   # Both CLIs. Kept as an aggregator rather than one task that builds both, so that
   # `bin/octo` — which the docs drift check shells out to — is still produced by a
   # task of its own.

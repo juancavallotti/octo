@@ -206,6 +206,62 @@ orchestrator:
 # Telemetry aggregator. It consumes both internal.logs and internal.traces, and
 # serves the query API behind them — the name is historical, and tracked as its
 # own issue rather than a rename mid-stack.
+# The embedding server: text in, vectors out, for anything on this installation
+# that needs them — today, ranking a search of agent memory by meaning instead of
+# by words.
+#
+# OFF BY DEFAULT, and off is a supported way to run. With no key there is no
+# component and no EMBEDDINGS_URL, and searching agent memory falls back to
+# matching text. Nothing else changes: the same query, the same shape of results.
+#
+# WHY THIS IS A CHART VALUE AND NOT AN ADMIN SETTING. The model cannot be changed
+# once anything has been embedded. Vectors carry no record of which model made
+# them, so a store holding two models' vectors cannot be ranked coherently —
+# keeping one embedding space at a time is what makes that simplification safe.
+# Changing `model` below means re-embedding everything already stored, which the
+# backfill will do, at whatever your provider charges for the whole store again.
+# A control with that consequence does not belong behind a Save button.
+#
+# WHY IT IS A SERVICE AND NOT A LIBRARY. It holds the provider key so that no
+# integration pod has to. Every pod is given the URL — an embedding is cheap and
+# grants access to nothing — but the key stays here.
+embeddings:
+  enabled: false
+  repository: octo-embeddings-paas
+  image: {}
+  # It holds no state, so replicas are purely throughput. Raise it if a large
+  # backfill is the thing you are waiting on.
+  replicas: 1
+
+  # Which provider connector the server builds: llm-openai, llm-gemini or
+  # llm-openrouter.
+  #
+  # llm-anthropic is not a valid value and cannot be made one — Anthropic has no
+  # embeddings API, so the connector does not implement the capability and the
+  # flow is refused when it is BUILT. That is a clear startup failure rather than
+  # a surprise on the first embed.
+  connectorType: llm-openai
+
+  # The embedding model, provider-specific. Read the note above before changing
+  # it on an installation that has already embedded anything.
+  model: text-embedding-3-small
+
+  # The stored vector width. It MUST match the `vector(N)` columns in
+  # sql/schema.sql, which are indexed and therefore fixed at schema time. It is
+  # requested of the provider (most embeddings APIs take a desired-dimensions
+  # parameter); a model that cannot produce this width fails the call and says so.
+  dimensions: 1536
+
+  # The provider API key. Required when enabled, unless existingSecret names one
+  # you manage yourself.
+  apiKey: ""
+  existingSecret: ""
+  existingSecretKey: apiKey
+
+  service:
+    port: 8092
+    annotations: {}
+
 logs:
   repository: octo-logs-paas
   image: {}

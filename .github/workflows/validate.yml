@@ -53,6 +53,9 @@ jobs:
       # Separate from the samples because it lives under orchestrator/ — inside the
       # binary's embed root, not the samples tree.
       - run: task runtime:test:agent
+      # The embedding server, on the same terms: an octo app that ships as an
+      # image, living at the repo root rather than in the samples tree.
+      - run: task runtime:test:embeddings
       # The service modules. Each gets its own steps rather than an entry in a
       # list, because this job enumerates what it runs — and what it enumerates is
       # the whole guarantee. `orchestrator` and `logs` were missing here until

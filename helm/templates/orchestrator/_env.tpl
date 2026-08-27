@@ -47,6 +47,16 @@
        rather than deploying an agent that half works. */}}
 - name: LOGS_URL
   value: {{ include "octo.logs.url" . | quote }}
+{{- if .Values.embeddings.enabled }}
+{{- /* The embedding server. The orchestrator uses it directly — the backfill
+       sweep and the query side of a semantic search both run next to the vectors
+       — and it also injects this same address into every integration pod, so a
+       flow can embed text without the installation handing out a provider key.
+       Absent when there is no embedding server, which is what makes agent-memory
+       search fall back to matching text rather than failing. */}}
+- name: EMBEDDINGS_URL
+  value: {{ include "octo.embeddings.url" . | quote }}
+{{- end }}
 {{- if .Values.nats.enabled }}
 # In-cluster NATS broker for cross-node pub-sub. Set so the URL is
 # discoverable; consumers land with the pub-sub migration.

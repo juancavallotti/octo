@@ -1,4 +1,4 @@
-# Cloud Build pipeline: build the eight octo images and the OCI Helm chart, push
+# Cloud Build pipeline: build the nine octo images and the OCI Helm chart, push
 # everything to Artifact Registry, then (optionally) roll the cluster by applying the
 # Terraform release root. Provisioned and triggered by deploy/terraform/infra
 # (enable_cloudbuild=true); the trigger supplies _IMAGE_BASE/_REGION, maps _TAG to the
@@ -92,18 +92,25 @@ steps:
     name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:latest", "-f", "runtime/Dockerfile.agentic", "."]
+  # The embedding server: the standalone binary plus one small app, baked in. Its
+  # own Dockerfile because it carries an app as well as a binary, and standalone
+  # because it needs no cluster services — see embeddings/Dockerfile.
+  - id: build-embeddings
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-embeddings-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-embeddings-paas:latest", "-f", "embeddings/Dockerfile", "."]
 
   # Push the images explicitly (not via the trailing `images:` block) so they are in
   # the registry *before* the deploy step's octo-pull reads them by tag.
   - id: push-images
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-devruntime", "build-agenticrunner"]
+    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-devruntime", "build-agenticrunner", "build-embeddings"]
     args:
       - -c
       - |
         set -e
-        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-devruntime-paas octo-agenticrunner-paas; do
+        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-devruntime-paas octo-agenticrunner-paas octo-embeddings-paas; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done
@@ -130,7 +137,7 @@ steps:
           echo "image:"
           echo "  registry: ${_IMAGE_BASE}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner; do
+          for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner embeddings; do
             repo="octo-$${c}-paas"
             # RepoDigests can carry entries for more than one repository, so match
             # this image's rather than trusting the first element.
@@ -237,10 +244,20 @@ steps:
         # release/terraform.tfvars is gitignored, so it is absent in the build
         # checkout. Pass the config via -var from substitutions ($PROJECT_ID is a
         # Cloud Build built-in); repository_id/namespace/wildcard_tls/cluster_issuer
-        # /postgres_host_path use their (correct) defaults, and the OIDC issuer,
-        # client id and secret are read back from oidc.json in the state bucket —
-        # they are credentials and have no business in a build substitution. The
-        # provider's display name is the exception: it is a label on a button.
+        # /postgres_host_path use their (correct) defaults, and the credentials are
+        # read back from the state bucket — they have no business in a build
+        # substitution:
+        #
+        #   release/oidc.json        issuer, client id, client secret
+        #   release/embeddings.json  provider, model, dimensions, API key
+        #
+        # Both are seeded by a local `task deploy` and rewritten identically by
+        # every CI apply, so an automated deploy neither loses them nor needs them
+        # passed. Nothing about either is a trigger substitution, which is what
+        # keeps turning embeddings on from being an infra apply.
+        #
+        # The OIDC provider's display name is the one exception: it is a label on
+        # a button, not a credential, so it travels as a substitution.
         CHART_VERSION="$(awk '/^version:/ {print $$2}' helm/Chart.yaml)"
         # Keep the exact coordinates this release deployed, so a rollback can
         # reproduce them without re-deriving digests from a tag that has since moved.
