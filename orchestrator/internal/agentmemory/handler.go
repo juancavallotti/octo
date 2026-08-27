@@ -277,7 +277,9 @@ func (h *Handler) getRuntimeThread(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// A zero-limit page: the thread row is wanted and the turns are not.
+	// The smallest page the reader accepts, because the thread row is what is
+	// wanted and the turns are not. A limit of 0 would read as "unset" and hand
+	// back the default page of two hundred turns.
 	transcript, err := h.svc.ReadThread(ctx, ref, Page{Limit: 1})
 	if err != nil {
 		h.writeError(w, err)
