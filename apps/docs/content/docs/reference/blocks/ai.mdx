@@ -478,13 +478,20 @@ The runtime records a conversation but will not name one: what an exchange was *
       - type: ai-mapping
         settings:
           connector: llm-fast
-          answer: text
           prompt: >-
-            Name this conversation in at most six words, as a topic rather than a
-            sentence. If there is nothing to name, answer with an empty string.
-          input: '"Question: " + body.question + "\n\nAnswer: " + body.answer'
+            You are given one exchange: the question a person asked and the answer
+            they got. Name the conversation it opens, in at most six words, as a
+            topic rather than a sentence. If there is nothing to name, return an
+            empty title.
+          outputSchema:
+            type: object
+            properties:
+              title: { type: string }
+            required: [title]
   tools: [...]
 ```
+
+[`ai-mapping`](/ai/ai-mapping) hands the model the **whole body** and replaces it with the JSON that comes back, so there is no input expression here and no plain-text mode — declaring an `outputSchema` is how you get a shape you can rely on. A chain built on a block that answers with a string works equally well; both shapes are read.
 
 It runs **once per conversation**, on the exchange that opens it, and only for an agent with an `agentId` — without one there is no durable conversation to name, so declaring the slot is a build error rather than a model call whose answer is discarded.
 
@@ -496,7 +503,9 @@ The body it receives:
 | `answer` | What the agent answered, rendered as prose even when it decoded as JSON. Empty when the run ended without one |
 | `threadKey`, `agentId`, `userId` | Which conversation this is. Context for the prompt — the chain does no writing |
 
-Whatever **string** it returns becomes the title; a `{"title": "..."}` map is accepted too. Returning an empty string names nothing, which is the right answer for a greeting that was never going anywhere. A chain that *fails* falls back to the opening question truncated to 80 characters — a failure has said nothing, unlike an empty answer, which has.
+Two shapes are read back, and which one you get is decided by the block you reached for: the **string** a transform or a `set-payload` leaves in the body, or the `{"title": "..."}` map an `ai-mapping` produces. An empty title, in either shape, names nothing — the right answer for a greeting that was never going anywhere.
+
+A chain that *fails* is different from one that answered emptily, and is treated differently: the failure is logged and the title falls back to the opening question truncated to 80 characters. An empty answer has said something; a failure has not.
 
 <Callout>
 **The engine does the writing, and that is the point of the slot.** It is already holding the conversation's reference, and the memory store knows how to record a title on whichever tier it is: standalone writes it into the thread's `thread.json`, the platform calls the orchestrator. A chain that had to write the title itself would need the key handed out, would have to rebuild a route from it, and would be addressing a store it is running inside.

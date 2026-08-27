@@ -482,10 +482,14 @@ func correlationOf(msg *types.Message) string {
 
 // nameFromBody reads a title out of whatever the chain answered with.
 //
-// A string is the expected shape and an ai-mapping produces one. A map is
-// accepted for the `{"title": "..."}` an author will reasonably write, because
-// discovering that only prose works — after paying for the model call — is a
-// worse lesson than accepting both.
+// Both shapes are expected, and which one you get is decided by the block the
+// author reached for. ai-mapping always parses the model's reply as JSON, so a
+// chain built on it answers with `{"title": "..."}`; a chain that ends in a
+// plain transform or a set-payload answers with the string itself. Accepting
+// both is what keeps the slot from dictating which block goes in it.
+//
+// An empty title, in either shape, is an answer rather than a failure: it says
+// this exchange is not worth naming.
 func nameFromBody(body any) string {
 	switch v := body.(type) {
 	case string:
