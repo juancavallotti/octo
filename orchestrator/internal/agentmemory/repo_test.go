@@ -560,3 +560,41 @@ func TestSplitSearchTermsSeparatesExclusions(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchFallsBackToTextWhenNothingIsEmbedded is the mid-backfill case, and
+// the reason searchSemantic reports "not ok" rather than an empty result.
+//
+// A deployment that has just turned embeddings on has a store full of text and no
+// vectors. Semantic search over it correctly returns nothing, and a search that
+// stopped there would look broken for as long as the backlog took.
+func TestSearchFallsBackToTextWhenNothingIsEmbedded(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	ref := testRef(t, r, "support", "thread-1", "alice")
+
+	if _, err := r.AppendTurns(ctx, ref, []Turn{
+		{Role: "user", Text: "my refund never arrived"},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Nothing embedded, so the vector index has nothing to answer with.
+	hits, err := r.SearchVector(ctx, ref.IntegrationID, Query{
+		AgentID: "support", UserID: "alice",
+	}, make([]float32, storedVectorDims))
+	if err != nil {
+		t.Fatalf("vector search: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("nothing is embedded, so nothing should rank, got %d", len(hits))
+	}
+	// The text index still answers, which is what the caller falls through to.
+	textHits, err := r.SearchText(ctx, ref.IntegrationID, Query{
+		AgentID: "support", UserID: "alice", Text: "refund",
+	})
+	if err != nil {
+		t.Fatalf("text search: %v", err)
+	}
+	if len(textHits) == 0 {
+		t.Error("the text index should still answer while the backfill drains")
+	}
+}

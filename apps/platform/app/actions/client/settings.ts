@@ -58,6 +58,39 @@ export interface LlmSettingsInput {
   model: string;
 }
 
+/**
+ * The site-wide embedding configuration, and how far the backfill has got.
+ *
+ * `embedded` and `pending` are here because "configured" and "search is semantic"
+ * are not the same statement: everything written before a provider was set up has
+ * no vector until the sweep reaches it, and an operator who has just turned this
+ * on deserves to see that happening rather than wonder why search has not changed.
+ */
+export interface EmbeddingStatus {
+  settings: EmbeddingSettings;
+  embedded: number;
+  pending: number;
+  encryptionAvailable: boolean;
+}
+
+/** The stored embedding settings. Never includes the API key. */
+export interface EmbeddingSettings {
+  provider: string;
+  model: string;
+  /** The vector width every stored embedding has. Fixed by the schema. */
+  dimensions: number;
+  configured: boolean;
+  last4?: string;
+  updatedAt?: string | null;
+}
+
+/** One embedding settings save. `apiKey` behaves as in {@link EmailSettingsInput}. */
+export interface EmbeddingSettingsInput {
+  apiKey?: string;
+  provider: string;
+  model: string;
+}
+
 /** The provider's id for a queued message. */
 export interface SentMessage {
   messageId: string;
@@ -87,4 +120,23 @@ export function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<ActionResult<LlmSettings>> {
   return call<LlmSettings>("PUT", "/settings/llm", input);
+}
+
+export function getEmbeddingSettings(): Promise<ActionResult<EmbeddingStatus>> {
+  return call<EmbeddingStatus>("GET", "/settings/embedding");
+}
+
+export function saveEmbeddingSettings(
+  input: EmbeddingSettingsInput,
+): Promise<ActionResult<EmbeddingSettings>> {
+  return call<EmbeddingSettings>("PUT", "/settings/embedding", input);
+}
+
+/**
+ * Turn embeddings off. Stored vectors are left alone — they cost nothing where
+ * they are, and turning the same model back on should not mean re-embedding a
+ * whole history.
+ */
+export function clearEmbeddingSettings(): Promise<ActionResult<void>> {
+  return call<void>("DELETE", "/settings/embedding");
 }

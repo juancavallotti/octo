@@ -16,6 +16,9 @@ export type {
   EmailSettingsInput,
   LlmSettings,
   LlmSettingsInput,
+  EmbeddingStatus,
+  EmbeddingSettings,
+  EmbeddingSettingsInput,
   SentMessage,
   TestEmailInput,
 } from "@/app/actions/client/settings";
@@ -25,6 +28,9 @@ import type {
   EmailSettingsInput,
   LlmSettings,
   LlmSettingsInput,
+  EmbeddingStatus,
+  EmbeddingSettings,
+  EmbeddingSettingsInput,
   SentMessage,
   TestEmailInput,
 } from "@/app/actions/client/settings";
@@ -62,4 +68,21 @@ export async function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<LlmSettings> {
   return unwrap(await actions.saveLlmSettings(input));
+}
+
+/** Read the embedding configuration and how far the backfill has got. */
+export async function getEmbeddingSettings(): Promise<EmbeddingStatus> {
+  return unwrap(await actions.getEmbeddingSettings());
+}
+
+/** Save the embedding settings. `apiKey` behaves as in {@link saveEmailSettings}. */
+export async function saveEmbeddingSettings(
+  input: EmbeddingSettingsInput,
+): Promise<EmbeddingSettings> {
+  return unwrap(await actions.saveEmbeddingSettings(input));
+}
+
+/** Turn embeddings off. Stored vectors are left where they are. */
+export async function clearEmbeddingSettings(): Promise<void> {
+  await unwrap(await actions.clearEmbeddingSettings());
 }

@@ -17,6 +17,9 @@ import type {
   EmailSettingsInput,
   LlmSettings,
   LlmSettingsInput,
+  EmbeddingStatus,
+  EmbeddingSettings,
+  EmbeddingSettingsInput,
   SentMessage,
   TestEmailInput,
 } from "./client/settings";
@@ -45,4 +48,18 @@ export async function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<ActionResult<LlmSettings>> {
   return withWrite(() => client.saveLlmSettings(input));
+}
+
+export async function getEmbeddingSettings(): Promise<ActionResult<EmbeddingStatus>> {
+  return withRead(() => client.getEmbeddingSettings());
+}
+
+export async function saveEmbeddingSettings(
+  input: EmbeddingSettingsInput,
+): Promise<ActionResult<EmbeddingSettings>> {
+  return withWrite(() => client.saveEmbeddingSettings(input));
+}
+
+export async function clearEmbeddingSettings(): Promise<ActionResult<void>> {
+  return withWrite(() => client.clearEmbeddingSettings());
 }

@@ -1,0 +1,150 @@
+/**
+ * The agent memory viewer. What is asserted here is mostly what the viewer
+ * deliberately does NOT do — there is no way to edit a remembered fact, and
+ * nothing destructive happens without asking.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+// Declared through vi.hoisted because vi.mock is lifted above the file's own
+// statements: a factory closing over an ordinary const reads it before it exists.
+const model = vi.hoisted(() => ({
+  listMemoryIntegrations: vi.fn(),
+  listMemoryAgents: vi.fn(),
+  listMemoryThreads: vi.fn(),
+  readMemoryThread: vi.fn(),
+  deleteMemoryThread: vi.fn(),
+  listAgentUserMemories: vi.fn(),
+  deleteAgentUserMemory: vi.fn(),
+  searchAgentMemory: vi.fn(),
+}));
+const confirm = vi.hoisted(() => vi.fn());
+
+vi.mock("@/app/model/agentMemory", () => model);
+vi.mock("@/app/components/ConfirmDialog", () => ({ useConfirm: () => confirm }));
+
+import AgentMemoryManager from "./AgentMemoryManager";
+
+/** Pick the integration and agent, which everything else is gated behind. */
+async function choose() {
+  render(<AgentMemoryManager />);
+  const integration = await screen.findByLabelText(/^Integration/);
+  await userEvent.selectOptions(integration, "int-1");
+  const agent = await screen.findByLabelText(/^Agent/);
+  await waitFor(() => expect(screen.getByRole("option", { name: /dr-octo/ })).toBeTruthy());
+  await userEvent.selectOptions(agent, "dr-octo");
+}
+
+beforeEach(() => {
+  confirm.mockResolvedValue(true);
+  model.listMemoryIntegrations.mockResolvedValue([{ id: "int-1", name: "Dr. Octo" }]);
+  model.listMemoryAgents.mockResolvedValue([
+    { agentId: "dr-octo", threadCount: 2, lastActivityAt: "2026-08-02T00:00:00Z" },
+  ]);
+  model.listMemoryThreads.mockResolvedValue({
+    threads: [
+      {
+        agentId: "dr-octo",
+        threadKey: "t-1",
+        userId: "u-1",
+        title: "Deploying",
+        version: 1,
+        turnCount: 2,
+        createdAt: "2026-08-01T00:00:00Z",
+        lastActivityAt: "2026-08-02T00:00:00Z",
+      },
+    ],
+  });
+  model.readMemoryThread.mockResolvedValue({
+    thread: { threadKey: "t-1", title: "Deploying", userId: "u-1", turnCount: 2 },
+    turns: [
+      { seq: 1, role: "user", text: "how do I deploy?", createdAt: "2026-08-01T00:00:00Z" },
+      { seq: 2, role: "assistant", text: "roll it out", createdAt: "2026-08-01T00:00:01Z" },
+    ],
+  });
+  model.listAgentUserMemories.mockResolvedValue([
+    {
+      name: "prefers-go",
+      value: "Prefers Go examples.",
+      version: 1,
+      createdAt: "2026-08-01T00:00:00Z",
+      updatedAt: "2026-08-01T00:00:00Z",
+    },
+  ]);
+  model.deleteMemoryThread.mockResolvedValue(undefined);
+  model.deleteAgentUserMemory.mockResolvedValue(undefined);
+});
+
+afterEach(() => vi.clearAllMocks());
+
+describe("AgentMemoryManager", () => {
+  it("lists an agent's conversations once one is chosen", async () => {
+    await choose();
+    await screen.findByText("Deploying");
+    expect(screen.getByText(/2 turns/)).toBeTruthy();
+  });
+
+  it("shows a conversation uncompacted, with both sides", async () => {
+    await choose();
+    await userEvent.click(await screen.findByText("Deploying"));
+    await screen.findByText("how do I deploy?");
+    expect(screen.getByText("roll it out")).toBeTruthy();
+  });
+
+  it("shows what the agent remembers about the person in the conversation", async () => {
+    await choose();
+    await userEvent.click(await screen.findByText("Deploying"));
+    await screen.findByText("Prefers Go examples.");
+    expect(screen.getByText(/Remembered about u-1/)).toBeTruthy();
+  });
+
+  // The deliberate omission. An operator rewriting what an agent believes about
+  // somebody, with no audit trail, should be asked for explicitly.
+  it("offers no way to edit a remembered fact", async () => {
+    await choose();
+    await userEvent.click(await screen.findByText("Deploying"));
+    await screen.findByText("Prefers Go examples.");
+    expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /forget prefers-go/i })).toBeTruthy();
+  });
+
+  it("asks before erasing a conversation", async () => {
+    await choose();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /erase the conversation deploying/i }),
+    );
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(model.deleteMemoryThread).toHaveBeenCalledWith("int-1", "dr-octo", "t-1");
+  });
+
+  it("does not erase when the confirmation is declined", async () => {
+    confirm.mockResolvedValue(false);
+    await choose();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /erase the conversation deploying/i }),
+    );
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(model.deleteMemoryThread).not.toHaveBeenCalled();
+  });
+
+  it("searches conversations and remembered facts together", async () => {
+    model.searchAgentMemory.mockResolvedValue([
+      { kind: "turn", threadKey: "t-1", text: "how do I deploy?", seq: 1, score: 0.9 },
+      { kind: "user", name: "prefers-go", text: "Prefers Go examples.", score: 0.7 },
+    ]);
+    await choose();
+    await userEvent.type(await screen.findByLabelText("Search agent memory"), "deploy");
+    await userEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await screen.findByText("conversation");
+    expect(screen.getByText(/remembered · prefers-go/)).toBeTruthy();
+  });
+
+  it("says so when an agent has recorded nothing", async () => {
+    model.listMemoryThreads.mockResolvedValue({ threads: [] });
+    await choose();
+    await screen.findByText(/has not recorded a conversation yet/);
+  });
+});

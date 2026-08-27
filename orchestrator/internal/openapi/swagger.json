@@ -829,6 +829,61 @@
                 },
                 "type": "object"
             },
+            "embedding.Settings": {
+                "properties": {
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "dimensions": {
+                        "type": "integer"
+                    },
+                    "last4": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "embedding.Status": {
+                "properties": {
+                    "embedded": {
+                        "type": "integer"
+                    },
+                    "encryptionAvailable": {
+                        "description": "EncryptionAvailable says whether a key can be stored at all. Without an\nencryption key the provider and model still save and the form still works —\nit is storing a credential that is refused, rather than performed in the\nclear — so the page has to be able to say so before someone types one.",
+                        "type": "boolean"
+                    },
+                    "pending": {
+                        "type": "integer"
+                    },
+                    "settings": {
+                        "$ref": "#/components/schemas/embedding.Settings"
+                    }
+                },
+                "type": "object"
+            },
+            "embedding.Update": {
+                "properties": {
+                    "apiKey": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "folder.folderRequest": {
                 "properties": {
                     "name": {
@@ -5998,6 +6053,98 @@
                     }
                 },
                 "summary": "Send a test message",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/settings/embedding": {
+            "delete": {
+                "description": "Clears the provider, model and key. Stored vectors are left alone: they cost nothing\nwhere they are, and turning the same model back on should not mean re-embedding a\nwhole history. Search falls back to full text immediately.",
+                "responses": {
+                    "204": {
+                        "description": "cleared"
+                    }
+                },
+                "summary": "Turn embeddings off",
+                "tags": [
+                    "settings"
+                ]
+            },
+            "get": {
+                "description": "Which provider and model agent memory is vectorized with, and how far the backfill\nhas got. The API key is never returned — only whether one is stored and its last\nfour characters.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/embedding.Status"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Read the embedding settings",
+                "tags": [
+                    "settings"
+                ]
+            },
+            "put": {
+                "description": "Omitting apiKey keeps the stored one, so changing the model does not destroy the\ncredentials — except when the provider changes, where a key that authenticates\nagainst the old one is cleared rather than left reporting itself as configured.\n\nChanging the MODEL with rows already embedded is a user error the platform does not\nmigrate for: stored vectors carry no record of which model produced them, so a table\nholding two models' vectors is not searchable either way.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/embedding.Update",
+                                        "summary": "body",
+                                        "description": "The settings"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The settings",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/embedding.Settings"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the provider, model or key is not usable"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a key was supplied with no encryption configured"
+                    }
+                },
+                "summary": "Save the embedding settings",
                 "tags": [
                     "settings"
                 ]
