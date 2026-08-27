@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"unicode/utf8"
 	"time"
+	"unicode/utf8"
 
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 )
