@@ -139,27 +139,73 @@ func TestForwardedCredentialRefusedWhenConnectorAuthenticates(t *testing.T) {
 	}
 }
 
-// A credential carrying CRLF would end the header line and let whatever produced
-// the message append headers of its own.
+// A credential carrying CR or LF would end the header line and let whatever
+// produced the message append headers of its own.
+//
+// The leading and trailing cases are here because the guard has to run on the
+// value exactly as rendered: trimming first would strip them out of view and
+// admit a value nobody inspected.
 func TestForwardedCredentialRejectsHeaderInjection(t *testing.T) {
+	// The offending values are assembled from parts rather than written as one
+	// literal -- gosec reads a credential-shaped string literal as a hardcoded
+	// secret, and the point of each of these is the CR/LF, not the token.
+	crlf := "\r\n"
+	for name, relayed := range map[string]string{
+		"embedded": "Bearer x" + crlf + "X-Admin: true",
+		"leading":  crlf + "Bearer x",
+		"trailing": "Bearer x" + crlf,
+		"bare lf":  "Bearer x\nX-Admin: true",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var seen string
+			srv := authRecorder(&seen)
+			defer srv.Close()
+
+			proc, err := newREST(types.Settings{
+				"connector": "api", "path": "/things", "auth": "body.relayed",
+			}, restDeps(t, srv.URL))
+			if err != nil {
+				t.Fatalf("newREST: %v", err)
+			}
+
+			_, err = proc.Process(context.Background(),
+				restMessage(t, map[string]any{"relayed": relayed}))
+			if err == nil {
+				t.Fatal("Process succeeded, want a rejection")
+			}
+			if !strings.Contains(err.Error(), "carriage return") {
+				t.Errorf("error = %v, want it to name the offending characters", err)
+			}
+			if seen != "" {
+				t.Errorf("the request went out carrying %q; it should not have been made", seen)
+			}
+		})
+	}
+}
+
+// A credential is sent exactly as rendered, so an upstream that is particular
+// about its scheme gets what the flow wrote rather than a cleaned-up copy.
+//
+// The assertion is on interior spacing rather than surrounding whitespace: HTTP
+// defines the space around a header value as optional whitespace, so a receiving
+// parser strips it in transit whatever we send. That is the wire's normalisation,
+// not ours.
+func TestForwardedCredentialIsSentVerbatim(t *testing.T) {
 	var seen string
 	srv := authRecorder(&seen)
 	defer srv.Close()
 
 	proc, err := newREST(types.Settings{
-		"connector": "api", "path": "/things", "auth": "body.token",
+		"connector": "api", "path": "/things", "auth": `"Bearer  spaced-out"`,
 	}, restDeps(t, srv.URL))
 	if err != nil {
 		t.Fatalf("newREST: %v", err)
 	}
-
-	_, err = proc.Process(context.Background(),
-		restMessage(t, map[string]any{"token": "Bearer x\r\nX-Admin: true"}))
-	if err == nil {
-		t.Fatal("Process succeeded, want a rejection")
+	if _, err := proc.Process(context.Background(), restMessage(t, nil)); err != nil {
+		t.Fatalf("Process: %v", err)
 	}
-	if !strings.Contains(err.Error(), "carriage return") {
-		t.Errorf("error = %v, want it to name the offending characters", err)
+	if seen != "Bearer  spaced-out" {
+		t.Errorf("Authorization = %q, want the credential unaltered", seen)
 	}
 }
 

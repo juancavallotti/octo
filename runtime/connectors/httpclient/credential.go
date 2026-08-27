@@ -55,7 +55,9 @@ func compileCredential(source string, conn *Connector, block string, res core.Re
 // instead of at the upstream that gets to decide.
 //
 // The rendered value is the whole header value, scheme included, so forwarding an
-// inbound header is the identity case and nothing has to guess at a scheme.
+// inbound header is the identity case and nothing has to guess at a scheme. It is
+// sent exactly as rendered: an upstream particular about its scheme gets what the
+// flow wrote, not a cleaned-up copy.
 func applyCredential(program *expr.Program, req *http.Request, activation map[string]any, block string) error {
 	if program == nil {
 		return nil
@@ -71,15 +73,16 @@ func applyCredential(program *expr.Program, req *http.Request, activation map[st
 	if err != nil {
 		return fmt.Errorf("%s auth: %w", block, err)
 	}
-	rendered = strings.TrimSpace(rendered)
-	if rendered == "" {
-		return nil
-	}
 	// The value is data by construction. A CR or LF in it would end the header
 	// line and let whatever produced the message append headers of its own to the
-	// upstream request.
+	// upstream request. This runs on the value exactly as rendered, before
+	// anything below can trim a leading or trailing one out of view: a guard that
+	// inspects a cleaned-up copy is not guarding the value being sent.
 	if strings.ContainsAny(rendered, "\r\n") {
 		return fmt.Errorf("%s auth: the credential contains a carriage return or line feed", block)
+	}
+	if strings.TrimSpace(rendered) == "" {
+		return nil
 	}
 	req.Header.Set("Authorization", rendered)
 	return nil
