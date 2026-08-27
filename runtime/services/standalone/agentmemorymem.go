@@ -111,7 +111,14 @@ func (s *memoryOnlyStore) listThreads(
 	agentID, userID string, page core.Page,
 ) ([]core.Thread, string, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	rows := s.allThreads(agentID, userID)
+	s.mu.Unlock()
+	return pageThreads(rows, page)
+}
+
+// allThreads returns every one of an agent's conversations in listing order. The
+// caller holds the lock. See agentMemory.allThreads for why this is separate.
+func (s *memoryOnlyStore) allThreads(agentID, userID string) []core.Thread {
 	rows := make([]core.Thread, 0, len(s.threads))
 	for _, t := range s.threads {
 		if t.meta.AgentID != agentID || (userID != "" && t.meta.UserID != userID) {
@@ -120,7 +127,7 @@ func (s *memoryOnlyStore) listThreads(
 		rows = append(rows, t.meta)
 	}
 	sortThreads(rows)
-	return pageThreads(rows, page)
+	return rows
 }
 
 func (s *memoryOnlyStore) readThread(
