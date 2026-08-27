@@ -486,3 +486,36 @@ func TestSearchTextKeepsQuotedPhrases(t *testing.T) {
 		t.Errorf("a quoted phrase should match only the phrase, got %+v", hits)
 	}
 }
+
+// TestSearchTextKeepsNegationsRequired is the bug the OR rewrite introduced and
+// this pins shut.
+//
+// A negation renders as `& !'march'`, so turning every & into | made
+// "refund -march" mean 'refund' OR NOT 'march' — which matches every document
+// that does not say march, i.e. almost all of them. An exclusion has to stay a
+// requirement even though the joins between positive terms relax.
+func TestSearchTextKeepsNegationsRequired(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	ref := testRef(t, r, "support", "thread-1", "")
+
+	if _, err := r.AppendTurns(ctx, ref, []Turn{
+		{Role: "user", Text: "a refund in march"},
+		{Role: "user", Text: "a refund in april"},
+		{Role: "assistant", Text: "nothing to do with money at all"},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	hits, err := r.SearchText(ctx, ref.IntegrationID, Query{
+		AgentID: "support", Text: "refund -march",
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("want only the april refund, got %d hits: %+v", len(hits), hits)
+	}
+	if !strings.Contains(hits[0].Text, "april") {
+		t.Errorf("the excluded term should still exclude, got %q", hits[0].Text)
+	}
+}
