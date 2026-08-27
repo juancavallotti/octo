@@ -67,9 +67,9 @@ Keep this internal. The orchestrator is ClusterIP in the chart and trusts its ca
 
 ## Platform agent
 
-`/platform/admin/agent` is one page for one task: the models the platform's **own agent** runs on, and his deployment. These were three separate tabs — LLM provider, Embeddings, Platform agent — and nothing else on the installation reads either setting, so the split only hid the requirement between them. He will not install without an LLM provider, and now the page that refuses is the page holding the field.
+`/platform/admin/agent` is one page for one task: the model the platform's **own agent** reasons with, and his deployment. These were two separate tabs, and nothing else on the installation reads the provider setting — so the split only hid the requirement between them. He will not install without an LLM provider, and now the page that refuses is the page holding the field.
 
-Two sections, in the order they are needed: **Models** first, **Deployment** second.
+Two sections, in the order they are needed: the **LLM provider** first, the **Deployment** second. Embeddings are not here: they configure how agent memory is *searched* rather than how the agent reasons, they are not configured on this platform at all, and what is left to say about them is [reported where the searching happens](/platform/agent-memory).
 
 ### LLM provider
 
@@ -89,21 +89,25 @@ Model is free text on purpose: model names turn over faster than releases of thi
 This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
 </Callout>
 
-### Embeddings (optional)
+### Deployment
 
-Whether searching agent memory ranks by **meaning** or by **words**. Leave it out and search works — it matches text, using Postgres full-text. Deploy the embedding server and the same search ranks by embedding similarity instead. Nothing else changes: the same query, the same results shape, and no flow or block has to be edited.
+The second section of the same page installs, updates, traces or removes him, and sets his **turn limit** — how many tool-calling turns one answer may take. The limit sits inside the deployment card with the buttons that roll the same pods, because that is what it is: a property of this deployment, not another site setting. See [The Platform Agent](/platform/agent) for what he does and how to change him.
 
-This section **reports**; it does not configure. What it shows is whether there is an embedding server, what it says it is using, and how far the backfill has got.
+## Embeddings (optional)
+
+Whether searching [agent memory](/platform/agent-memory) ranks by **meaning** or by **words**. Leave it out and search works — it matches text, using Postgres full-text. Deploy the embedding server and the same search ranks by embedding similarity instead. Nothing else changes: the same query, the same results shape, and no flow or block has to be edited.
 
 <Callout type="warn">
-**Embedding configuration is deploy-time, not a setting.** It moved out of this page on purpose.
+**Embedding configuration is deploy-time, and there is no page for it.** There was one, briefly, and it was wrong twice over.
 
 The model cannot be changed once anything has been embedded: vectors carry no record of which model produced them, so a store holding two models' vectors cannot be ranked coherently, and keeping one embedding space at a time is what makes that simplification safe rather than a corruption waiting for someone to click Save. A control whose correct use is "never" does not belong behind a Save button, however loud the confirmation dialog.
 
-There was a second problem, and it is the one that settled it: nothing read the value until the orchestrator restarted. Saving on a page and then wondering why nothing changed is worse than not offering the control.
+The second problem settled it: nothing read the value until the orchestrator restarted. Saving on a page and then wondering why nothing changed is worse than not offering the control at all.
+
+What survived is a **report**, and it lives on the [agent memory page](/platform/agent-memory) rather than here — it says whether search ranks by meaning, which model, and how much is still waiting for a vector. That belongs where somebody searches.
 </Callout>
 
-#### The embedding server
+### The embedding server
 
 Embeddings are produced by a small octo app the chart deploys — `embeddings/config.yaml`, an `ai-embed` block behind an HTTP route. It is a service rather than a library for one reason: it holds the provider API key, so that **no integration pod has to**.
 
@@ -128,17 +132,13 @@ On a Terraform deploy the same settings are `embeddings_*` variables on the rele
 
 The embedding server appears on [Platform services](#platform-services) like any other dependency. "Not configured" there is the ordinary answer, not a gap.
 
-#### The backfill
+### The backfill
 
 Deploying the server does not make search semantic — it makes it *become* semantic. Everything written before it existed has no vector, so a background sweep in the orchestrator works through them, newest first: the most recent conversations are vectorized first, because those are the ones anyone is about to search.
 
-The page shows how far it has got. While it runs, a search may be answered by either index — the vector one when it has something to match, the text one when it does not — and you cannot tell from the results, deliberately.
+The [agent memory page](/platform/agent-memory) shows how much is left. While the sweep runs, a search may be answered by either index — the vector one when it has something to match, the text one when it does not — and you cannot tell from the results, deliberately.
 
 The sweep is paced on purpose (64 rows every 5 seconds). A large installation turning this on has a history of hundreds of thousands of items, and an unpaced backfill would send all of it to a paid API in one burst.
-
-### Deployment
-
-The second section of the same page installs, updates, traces or removes him, and sets his **turn limit** — how many tool-calling turns one answer may take. The limit sits inside the deployment card with the buttons that roll the same pods, because that is what it is: a property of this deployment, not a fourth site setting. See [The Platform Agent](/platform/agent) for what he does and how to change him.
 
 ## How a save handles the API key
 
