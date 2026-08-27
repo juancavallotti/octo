@@ -1,0 +1,67 @@
+flow: platform-operator
+
+# The operator specialist, driven directly. Same shape and the same reasoning as
+# integration-builder_test.yaml beside it — see there for why these are flows.
+#
+# This one carries the only unrestricted octo_api in the app, so "it builds" is
+# worth more here than anywhere else in the file: a broken tool schema on this
+# agent is a broken write path for the whole platform, and nothing else invokes
+# it until somebody asks Dr. Octo to change something.
+
+env:
+  LLM_CONNECTOR_TYPE: llm-anthropic
+  LLM_API_KEY: sk-ant-not-a-real-key
+  LLM_MODEL: claude-sonnet-4-6
+  ORCHESTRATOR_URL: http://127.0.0.1:9
+  AGENT_WORKSPACE: /tmp
+  AGENT_OCTO_BIN: /bin/echo
+  AGENT_DOLPHIN_BIN: /bin/echo
+  AGENT_CURL_BIN: /bin/echo
+  AGENT_FIND_BIN: /bin/echo
+  AGENT_JQ_BIN: /bin/echo
+
+inputs:
+  a brief:
+    vars: { toolScope: "u-1/t-1/platform_operator" }
+    data:
+      task: Scale the seneca-quote deployment to two replicas.
+      context: ""
+
+cases:
+  - name: the operator is invocable on its own, and answers with what it did
+    input: a brief
+    mocks:
+      platform-operator.operator:
+        default:
+          body: Scaled to 2. It reports running.
+    expect:
+      body: Scaled to 2. It reports running.
+    spies:
+      platform-operator.operator:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.task.contains("seneca-quote")'
+
+  - name: the tool scope crosses the flow boundary
+    input: a brief
+    mocks:
+      platform-operator.operator:
+        default:
+          body: ok
+    expect:
+      vars: { toolScope: "u-1/t-1/platform_operator" }
+
+  # `complete`, not `stream`, and the distinction is the point rather than an
+  # incidental detail of the message. Only the coordinator streams: it is answering
+  # an SSE route a person is watching. A specialist's answer is read by another
+  # agent as one tool result, so there is nobody to show tokens to and the buffered
+  # call is the right one. If this ever said `stream`, a delegation would be paying
+  # for a streaming connection whose frames are dropped on the floor.
+  - name: the operator builds, and calls the model on the buffered path
+    input: a brief
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'
