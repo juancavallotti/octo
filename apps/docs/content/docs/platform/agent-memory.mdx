@@ -23,7 +23,7 @@ Open a conversation and its two forms sit behind tabs of their own, because they
 
 **Transcript** is the durable record: what was asked and what was answered, in order, and **never compacted**. Once a turn is written it is not touched again. A question the agent never got back to is badged rather than hidden.
 
-**Working memory** is what the agent still carries into its next turn — the same conversation after pruning or summarizing to fit the model's context window. It reports how many tokens it holds, how large it is, which iteration it was checkpointed at, and its version.
+**Working memory** is what the agent still carries into its next turn — the same conversation after pruning or summarizing to fit the model's context window. It reports how many tokens it holds, how large it is, which iteration it was checkpointed at, and its version. It also holds what the transcript never does: the tool calls and their results, named on the messages that carry them, which on a working agent is usually most of what fills the context.
 
 Reading them side by side is how you answer *"why doesn't it remember what I told it?"*. A conversation whose transcript runs to forty turns and whose working memory holds six is one where the model genuinely no longer knows how it started, and the panels say so plainly. Before they sat together there was no way to tell that from a bug.
 
