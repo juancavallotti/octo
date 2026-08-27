@@ -163,8 +163,9 @@ func (m *fakeMemory) SetTitle(_ context.Context, ref core.MemoryRef, title strin
 func (m *fakeMemory) Memories(_ context.Context, ref core.MemoryRef) ([]core.UserMemory, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var out []core.UserMemory
-	for _, mem := range m.memories[userScope(ref)] {
+	stored := m.memories[userScope(ref)]
+	out := make([]core.UserMemory, 0, len(stored))
+	for _, mem := range stored {
 		out = append(out, mem)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -234,7 +235,7 @@ func (m *fakeMemory) Search(_ context.Context, q core.MemoryQuery) ([]core.Memor
 }
 
 // turnsFor returns a thread's recorded turns, for assertions.
-func (m *fakeMemory) turnsFor(agentID, thread string) []core.Turn {
+func (m *fakeMemory) turnsFor(agentID, thread string) []core.Turn { //nolint:unparam // thread is the addressing, not a knob
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.threads[agentID+"\x00"+thread]

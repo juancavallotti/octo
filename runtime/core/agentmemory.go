@@ -106,6 +106,7 @@ type UserMemory struct {
 // MemoryScope selects what a search looks at.
 type MemoryScope string
 
+// The scopes a search can be narrowed to.
 const (
 	MemoryScopeAll   MemoryScope = ""      // turns and user memories
 	MemoryScopeTurns MemoryScope = "turns" // conversation history only
@@ -172,6 +173,11 @@ type Page struct {
 // silently lost. AppendTurns is the exception, and deliberately: appends to a
 // conversation commute, so demanding a version would make two writers fight over
 // a log that has no conflict to detect.
+//
+// One method per operation across three stores. Splitting it would give a caller
+// three interfaces to hold and every provider three types to wire, for one store.
+//
+//nolint:interfacebloat // one method per operation; see above
 type AgentMemory interface {
 	// Enabled reports whether this store can hold anything. A disabled store reads
 	// empty and its writes return ErrMemoryDisabled.

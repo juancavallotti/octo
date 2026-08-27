@@ -15,8 +15,8 @@ import (
 
 // storeAgentConfig builds a memory-enabled ai-agent that has opted into the
 // first-class store by naming itself.
-func storeAgentConfig(agentID, threadIDExpr string) types.BlockConfig {
-	cfg := memoryAgentConfig(threadIDExpr)
+func storeAgentConfig(agentID string) types.BlockConfig {
+	cfg := memoryAgentConfig(`"thread-1"`)
 	cfg.AgentID = agentID
 	return cfg
 }
@@ -42,7 +42,7 @@ func runStoreAgent(
 // names itself records what was asked and what it answered into durable history,
 // separately from the working memory it will later compact.
 func TestAgentStoreRecordsCompletedTurn(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.Input = `"how do I get a refund?"`
 	mem, _, _ := runStoreAgent(t, cfg, endTurnResp("ask billing"))
 
@@ -65,7 +65,7 @@ func TestAgentStoreRecordsCompletedTurn(t *testing.T) {
 // makes: a conversation it just opened gets a label so a list has something to
 // show. A better title is a model call and belongs to the flow that wants it.
 func TestAgentStoreTitlesNewConversation(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.Input = `"how do I get a refund?\nsecond line is dropped"`
 	mem, _, _ := runStoreAgent(t, cfg, endTurnResp("ask billing"))
 
@@ -77,7 +77,7 @@ func TestAgentStoreTitlesNewConversation(t *testing.T) {
 // TestAgentStoreSavesWorkingMemory checks that the transcript reaches the store
 // rather than the legacy KV blob once an agent has named itself.
 func TestAgentStoreSavesWorkingMemory(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	mem, kv, _ := runStoreAgent(t, cfg, endTurnResp("done"))
 
 	wm, ok, err := mem.LoadWorking(context.Background(),
@@ -120,7 +120,7 @@ func TestAgentStoreMigratesLegacyTranscript(t *testing.T) {
 	var seen []any
 	conn := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("new answer")}}
 	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(conn),
-		storeAgentConfig("support", `"thread-1"`))
+		storeAgentConfig("support"))
 	if _, err := block.Process(ctx, aiMessage(t)); err != nil {
 		t.Fatalf("process: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestAgentStoreUnnamedAgentUsesLegacyPath(t *testing.T) {
 // TestAgentStoreHistoryOff checks that a block can keep working memory without
 // recording anything a person could later read.
 func TestAgentStoreHistoryOff(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.History = historyOff
 	mem, _, _ := runStoreAgent(t, cfg, endTurnResp("done"))
 
@@ -170,7 +170,7 @@ func TestAgentStoreHistoryOff(t *testing.T) {
 // in another agent's tool slot works a thread its caller minted for it, and
 // recording those would accumulate a conversation row per delegation forever.
 func TestAgentStoreVolatileImpliesHistoryOff(t *testing.T) {
-	cfg := storeAgentConfig("specialist", `"thread-1"`)
+	cfg := storeAgentConfig("specialist")
 	cfg.MemoryVolatile = true
 	mem, _, _ := runStoreAgent(t, cfg, endTurnResp("done"))
 
@@ -182,7 +182,7 @@ func TestAgentStoreVolatileImpliesHistoryOff(t *testing.T) {
 // TestAgentStoreVolatileCanStillOptIntoHistory checks that the implication is a
 // default and not a rule: an author who wants both can say so.
 func TestAgentStoreVolatileCanStillOptIntoHistory(t *testing.T) {
-	cfg := storeAgentConfig("specialist", `"thread-1"`)
+	cfg := storeAgentConfig("specialist")
 	cfg.MemoryVolatile = true
 	cfg.History = historyRecord
 	mem, _, _ := runStoreAgent(t, cfg, endTurnResp("done"))
@@ -195,7 +195,7 @@ func TestAgentStoreVolatileCanStillOptIntoHistory(t *testing.T) {
 // TestAgentStoreRecordsUnansweredQuestion checks that a run which ends without
 // an answer still leaves the question in the record. Somebody asked it.
 func TestAgentStoreRecordsUnansweredQuestion(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.Input = `"will this ever finish?"`
 	cfg.MaxIterations = 1
 	cfg.Default = &types.FlowConfig{Process: []types.BlockConfig{{Type: "record", Name: "guard"}}}
@@ -227,7 +227,7 @@ func TestAgentStoreSaveFailureDoesNotFailTheRun(t *testing.T) {
 	var seen []any
 	conn := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("answered anyway")}}
 	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(conn),
-		storeAgentConfig("support", `"thread-1"`))
+		storeAgentConfig("support"))
 	ctx, mem, _ := withFakeMemory(context.Background())
 	mem.failWorking = true
 
@@ -283,7 +283,7 @@ func TestAgentStoreConfigRequiresAgentID(t *testing.T) {
 // remember something, then find it in the next run's request without having to
 // ask for it.
 func TestAgentUserMemoryRoundTrip(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.UserID = `"alice"`
 	cfg.UserMemory = true
 
@@ -324,7 +324,7 @@ func TestAgentUserMemoryRoundTrip(t *testing.T) {
 // the request rather than the conversation: stored with it, a memory corrected
 // between runs would sit in working memory beside stale copies of itself.
 func TestAgentUserMemoryStaysOutOfTheTranscript(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.UserID = `"alice"`
 	cfg.UserMemory = true
 
@@ -351,7 +351,7 @@ func TestAgentUserMemoryStaysOutOfTheTranscript(t *testing.T) {
 // TestAgentUserMemoryForget checks that forgetting reaches the store, since a
 // memory that survives being forgotten is worse than one never kept.
 func TestAgentUserMemoryForget(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.UserID = `"alice"`
 	cfg.UserMemory = true
 
@@ -379,7 +379,7 @@ func TestAgentUserMemoryForget(t *testing.T) {
 // TestAgentUserMemoryRememberReplaces checks that telling an agent something it
 // already believes corrects the belief rather than failing.
 func TestAgentUserMemoryRememberReplaces(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.UserID = `"alice"`
 	cfg.UserMemory = true
 
@@ -407,7 +407,7 @@ func TestAgentUserMemoryRememberReplaces(t *testing.T) {
 // TestAgentMemoryToolNameCollision checks the build refuses to hand the model two
 // tools with one name, one of which it could never reach.
 func TestAgentMemoryToolNameCollision(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.UserID = `"alice"`
 	cfg.UserMemory = true
 	cfg.Tools = []types.ToolConfig{toolBranch(rememberToolName, "shadows the built-in", nil)}
@@ -460,7 +460,7 @@ func requestMentions(msgs []core.LLMMessage, text string) bool {
 // rejects that collision when userMemory is on, so a flow declaring a "remember"
 // branch and no user memory builds — and must still reach its branch.
 func TestAgentMemoryToolNamesAreNotClaimedWhenOff(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.Tools = []types.ToolConfig{toolBranch(rememberToolName, "the flow's own tool", nil)}
 
 	var seen []any
@@ -483,7 +483,7 @@ func TestAgentMemoryToolNamesAreNotClaimedWhenOff(t *testing.T) {
 // agent with a long history with somebody would reach the provider's window
 // before reading a word of the conversation.
 func TestAgentMemoryPreambleIsBounded(t *testing.T) {
-	cfg := storeAgentConfig("support", `"thread-1"`)
+	cfg := storeAgentConfig("support")
 	cfg.UserID = `"alice"`
 	cfg.UserMemory = true
 
