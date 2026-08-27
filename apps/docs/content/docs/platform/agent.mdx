@@ -84,14 +84,14 @@ Every exchange is recorded as it happened, under a name he writes for the conver
 
 What comes back is what was **said** — your messages and his answers. The reasoning and the tool calls belonged to the run and went with it.
 
-That record is deliberately **not** his memory. Memory is compacted — a long conversation has its early turns replaced by a summary of them, which is what keeps the model's context affordable — so it is the working set rather than the conversation you had. Only one of the two can be read back to you, and it is this one.
+That record is deliberately **not** his memory. Memory is compacted — a long conversation has its early turns replaced by a summary of them, which is what keeps the model's context affordable — so it is the working set rather than the conversation you had. Both are readable, side by side, on [the memory page](/platform/agent-memory); only one of them is what you actually said, and it is this one.
 
-The record is written from a wire-tap: the exchange goes onto an internal queue and the answer returns, so naming a conversation (which is a small model call, once per conversation) never delays a reply. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
+The record is the **runtime's**, written by the engine as the run completes rather than assembled by the flow. Naming it is the one part the runtime will not decide — what an exchange was about is a judgement — so that is a small model call in a [`nameThread`](/reference/blocks/ai#naming-a-conversation) slot, made once, on the first exchange, and the engine writes what comes back. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
 
 Two limits worth knowing:
 
 - **A message you send mid-answer is not in the replay.** It reaches the run — that is what steering is — and he takes it into account, but the record is written once per completed run and holds the question that started it. The answer reflects your follow-up; the transcript does not show you making it.
-- **Naming can fail, and the record does not.** A provider having a bad minute leaves the conversation named after its first question instead. A worse name, not a worse record.
+- **Naming can fail, and the record does not.** A provider having a bad minute leaves the conversation named after its first question instead. A worse name, not a worse record. A conversation he decides is not worth naming — a greeting, a test message — is left unnamed on purpose, and listed by its first question.
 
 ## Update him
 
