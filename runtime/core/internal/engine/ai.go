@@ -963,29 +963,51 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 			return out, nil
 		}
 
-		results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, &current, branchBase, sess)
-		messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
-
-		// The transcript is replayable again here and nowhere earlier in the body: the
-		// tool calls the model just made now have their results beside them. A
-		// checkpoint taken between the two would store a turn whose results do not
-		// exist and never will, which is the malformed shape stoppedTranscript exists
-		// to avoid. Debounced, and detached so a stop does not abandon a half-write.
-		sess.offerCheckpoint(saveCtx, messages, meter, iter)
-
-		// Halt rather than start another iteration, which would call the model again
-		// and overwrite the body with the next tool call's arguments. A tool branch
-		// runs on the shared message so its flag is already there; the events path
-		// runs on its own, so its stop has to be carried over.
-		switch {
-		case run.stopRequested():
-			return a.haltOnSignal(saveCtx, sess, messages, current, iter, meter)
-		case stopped || current.StopRequested():
-			return a.halt(saveCtx, sess, messages, current, iter, "a tool branch stopped the run", meter)
+		var halted *types.Message
+		messages, halted, err = a.takeToolTurn(
+			runCtx, saveCtx, sess, resp, &current, branchBase, messages, meter, run, iter)
+		if halted != nil || err != nil {
+			return halted, err
 		}
 	}
 
 	return a.outOfTurns(ctx, runCtx, saveCtx, sess, current, messages, meter, run)
+}
+
+// takeToolTurn dispatches the tools the model asked for, checkpoints what that
+// produced, and says whether the run should stop rather than take another turn.
+//
+// A non-nil message means the run ended here; nil means carry on with the
+// returned transcript.
+func (a *aiAgent) takeToolTurn(
+	runCtx, saveCtx context.Context, sess *memorySession, resp *core.LLMResponse,
+	current **types.Message, branchBase string, messages []core.LLMMessage,
+	meter *contextMeter, run *agentRun, iter int,
+) ([]core.LLMMessage, *types.Message, error) {
+	results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, current, branchBase, sess)
+	messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
+
+	// The transcript is replayable again here and nowhere earlier in the turn: the
+	// tool calls the model just made now have their results beside them. A
+	// checkpoint taken between the two would store a turn whose results do not exist
+	// and never will, which is the malformed shape stoppedTranscript exists to
+	// avoid. Debounced, and detached so a stop does not abandon a half-write.
+	sess.offerCheckpoint(saveCtx, messages, meter, iter)
+
+	// Halt rather than start another iteration, which would call the model again and
+	// overwrite the body with the next tool call's arguments. A tool branch runs on
+	// the shared message so its flag is already there; the events path runs on its
+	// own, so its stop has to be carried over.
+	switch {
+	case run.stopRequested():
+		out, err := a.haltOnSignal(saveCtx, sess, messages, *current, iter, meter)
+		return messages, out, err
+	case stopped || (*current).StopRequested():
+		out, err := a.halt(saveCtx, sess, messages, *current, iter,
+			"a tool branch stopped the run", meter)
+		return messages, out, err
+	}
+	return messages, nil, nil
 }
 
 // outOfTurns ends a run that spent its whole iteration budget without reaching an

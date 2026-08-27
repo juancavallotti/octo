@@ -280,7 +280,7 @@ func (s *memorySession) writeWorking(ctx context.Context, env memoryEnvelope, it
 	env.Version = memoryVersion
 	payload, err := json.Marshal(env)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode working memory: %w", err)
 	}
 	wm := core.WorkingMemory{
 		Version:   s.version,

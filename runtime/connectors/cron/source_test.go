@@ -36,7 +36,9 @@ func (fakeServices) Topics() core.Topics { return core.NoopTopics() }
 func (fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
 
 //nolint:ireturn // implements core.RuntimeServices
-func (fakeServices) Traces() core.TracePublisher   { return core.NoopTracer() }
+func (fakeServices) Traces() core.TracePublisher { return core.NoopTracer() }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
 func (fakeServices) AgentMemory() core.AgentMemory { return core.NoopAgentMemory() }
 func (fakeServices) Close() error                  { return nil }
 
