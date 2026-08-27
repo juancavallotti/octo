@@ -141,9 +141,35 @@ export async function readConversation(
   };
 }
 
-/** Map a stored turn onto the two roles the panel renders. */
+/**
+ * The marker Dr. Octo's own `input` expression puts between the question and the
+ * context it appends to it.
+ *
+ * It is a literal here because it is a literal there: his definition builds the
+ * string, so this is the other half of one decision made in one place.
+ */
+const CONTEXT_MARKER = "\n\n---\nContext, not part of the question.";
+
+/**
+ * Map a stored turn onto the two roles the panel renders, dropping the context
+ * the panel itself caused to be there.
+ *
+ * Dr. Octo's `input` expression appends the page someone is on and the routes he
+ * may send them to, because the model needs both. The runtime records the turn it
+ * was given, **verbatim and on purpose**: agent memory stores what was sent and
+ * returns it as sent, since there is no way to anticipate what a later reader
+ * wants from it. The operator's memory viewer shows exactly that, and should.
+ *
+ * So the trimming happens HERE, and only here. This module is Dr. Octo's — it
+ * already names his agent id and composes his thread keys — and the shape being
+ * trimmed is the shape his own definition built. Doing it in the runtime, or in
+ * the memory store, or in the generic viewer would teach the platform one agent's
+ * prompt layout and destroy the record for everybody else's.
+ */
 function toTurn(turn: MemoryTurn): ConversationTurn {
-  return { role: turn.role === "user" ? "user" : "agent", text: turn.text };
+  const cut = turn.text.indexOf(CONTEXT_MARKER);
+  const text = cut === -1 ? turn.text : turn.text.slice(0, cut).trimEnd();
+  return { role: turn.role === "user" ? "user" : "agent", text };
 }
 
 type IntegrationResult = { ok: true; id: string } | { ok: false; error: string };
