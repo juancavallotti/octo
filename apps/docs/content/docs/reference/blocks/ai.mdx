@@ -40,6 +40,7 @@ Lets an LLM accomplish a task by calling flow branches as tools, one or more tim
 | `userMemory` | `bool` | No | `false` | Give the agent `remember`, `forget` and `search_memory` tools so it can keep curated facts about a person and carry them into later conversations. Requires `agentId` and `userId`. |
 | `tools` | list | Yes | — | Tool branches (below). At least one required. |
 | `skills` | list | No | — | Loadable instruction resources (below). |
+| `nameThread` | flow | No | — | Names a conversation, once, on the exchange that opened it (below). Requires `agentId`. |
 | `events` | flow | No | — | Observer path, run once per agent event with the event as the body (below). |
 | `emit` | string list | No | — | Which event types reach `events`. Empty emits every type the block can produce. |
 | `stream` | bool | No | `false` | Drive the provider's streaming API so model output reaches `events` as it is produced. Requires `events` and a provider that streams. |
@@ -463,3 +464,42 @@ Behavior notes:
           required: true
       resource: greet
 ```
+
+## Naming a conversation
+
+The runtime records a conversation but will not name one: what an exchange was *about* is a judgement, and a judgement is a model call. `nameThread` is where that call goes.
+
+```yaml
+- type: ai-agent
+  agentId: support
+  memoryThreadId: body.threadId
+  nameThread:
+    process:
+      - type: ai-mapping
+        settings:
+          connector: llm-fast
+          answer: text
+          prompt: >-
+            Name this conversation in at most six words, as a topic rather than a
+            sentence. If there is nothing to name, answer with an empty string.
+          input: '"Question: " + body.question + "\n\nAnswer: " + body.answer'
+  tools: [...]
+```
+
+It runs **once per conversation**, on the exchange that opens it, and only for an agent with an `agentId` — without one there is no durable conversation to name, so declaring the slot is a build error rather than a model call whose answer is discarded.
+
+The body it receives:
+
+| Field | |
+| --- | --- |
+| `question` | What was asked, before the agent replaced the body with its answer |
+| `answer` | What the agent answered, rendered as prose even when it decoded as JSON. Empty when the run ended without one |
+| `threadKey`, `agentId`, `userId` | Which conversation this is. Context for the prompt — the chain does no writing |
+
+Whatever **string** it returns becomes the title; a `{"title": "..."}` map is accepted too. Returning an empty string names nothing, which is the right answer for a greeting that was never going anywhere. A chain that *fails* falls back to the opening question truncated to 80 characters — a failure has said nothing, unlike an empty answer, which has.
+
+<Callout>
+**The engine does the writing, and that is the point of the slot.** It is already holding the conversation's reference, and the memory store knows how to record a title on whichever tier it is: standalone writes it into the thread's `thread.json`, the platform calls the orchestrator. A chain that had to write the title itself would need the key handed out, would have to rebuild a route from it, and would be addressing a store it is running inside.
+</Callout>
+
+An agent with no `nameThread` still gets a title: the opening question, truncated. That is not a judgement about anything — it is there so a list has something to show.

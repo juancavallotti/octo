@@ -382,6 +382,11 @@ type aiAgentMeta struct {
 	// Observer path, run once per agent event with the event as the message body.
 	// Its result is discarded, so it reports on the run without taking part in it.
 	Events *struct{} `json:"events" octo:"label=Events,type=flow"`
+	// Names a conversation, once, on the exchange that opened it. It is handed the
+	// question and the answer and whatever string it returns becomes the title;
+	// returning nothing names nothing. The engine does the writing, so this chain
+	// never has to know where the conversation is stored. Needs an agentId.
+	NameThread *struct{} `json:"nameThread" octo:"label=Name conversation,type=flow"`
 	// Named, described branches wired to the model as callable functions.
 	Tools *struct{} `json:"tools" octo:"label=Tools,type=tool-list,required"`
 	// Named instruction resources the agent can load on demand. Each skill's name

@@ -39,6 +39,21 @@ func runStoreAgent(
 	return mem, kv, out
 }
 
+// buildStoreAgent builds an agent and returns the build error, for the cases
+// where refusing to build IS the behaviour under test.
+func buildStoreAgent(t *testing.T, cfg types.BlockConfig) (core.MessageProcessor, error) {
+	t.Helper()
+	var seen []any
+	conn := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("done")}}
+	block, err := (&builder{
+		reg: agentRegistry(&seen), pool: pool.New(0, 0), deps: depsLLM(conn),
+	}).block(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return block.Processor, nil
+}
+
 // TestAgentStoreRecordsCompletedTurn is the headline behaviour: an agent that
 // names itself records what was asked and what it answered into durable history,
 // separately from the working memory it will later compact.
@@ -72,6 +87,90 @@ func TestAgentStoreTitlesNewConversation(t *testing.T) {
 
 	if got := mem.titleOf("support", "thread-1"); got != "how do I get a refund?" {
 		t.Errorf("title should be the first line of the opening turn, got %q", got)
+	}
+}
+
+// TestAgentStoreNamesWithTheChain checks the nameThread slot: whatever it
+// returns becomes the title, and the ENGINE is what writes it.
+//
+// That division is the point of the slot. Naming is a model call, so which model
+// and which prompt belong to the flow author. Where the conversation lives is the
+// engine's, so the chain never sees a thread key, never composes a route, and
+// never talks to a store it is already inside — which is exactly what the queue
+// and callback this replaced spent its time doing, and got wrong.
+func TestAgentStoreNamesWithTheChain(t *testing.T) {
+	cfg := storeAgentConfig("support")
+	cfg.Input = `"how do I get a refund?"`
+	cfg.NameThread = &types.FlowConfig{Process: []types.BlockConfig{{
+		Type:     "tool",
+		Settings: types.Settings{"result": `"Refund, politely asked"`},
+	}}}
+	mem, _, _ := runStoreAgent(t, cfg, endTurnResp("ask billing"))
+
+	if got := mem.titleOf("support", "thread-1"); got != "Refund, politely asked" {
+		t.Errorf("the chain's answer should be the title, got %q", got)
+	}
+}
+
+// TestAgentStoreNameChainCanDecline checks that an empty answer names nothing
+// rather than falling back to the opening question.
+//
+// A chain that returned nothing has said something: this exchange is not worth a
+// name. Overriding that with the first line of the question would be ignoring it,
+// and the fallback exists for agents that declare no chain at all.
+func TestAgentStoreNameChainCanDecline(t *testing.T) {
+	cfg := storeAgentConfig("support")
+	cfg.Input = `"how do I get a refund?"`
+	cfg.NameThread = &types.FlowConfig{Process: []types.BlockConfig{{
+		Type:     "tool",
+		Settings: types.Settings{"result": `""`},
+	}}}
+	mem, _, _ := runStoreAgent(t, cfg, endTurnResp("ask billing"))
+
+	if got := mem.titleOf("support", "thread-1"); got != "" {
+		t.Errorf("an empty answer should name nothing, got %q", got)
+	}
+}
+
+// TestAgentStoreNameChainFailureFallsBack checks that a naming chain which blows
+// up costs a good title and nothing else.
+//
+// The person already has their answer by the time this runs, so taking the run
+// down over a label would be a poor trade. It falls back to the truncation rather
+// than to nothing, because a failed chain has said nothing — unlike one that
+// answered with an empty string, which has.
+func TestAgentStoreNameChainFailureFallsBack(t *testing.T) {
+	cfg := storeAgentConfig("support")
+	cfg.Input = `"how do I get a refund?"`
+	cfg.NameThread = &types.FlowConfig{Process: []types.BlockConfig{{
+		Type:     "tool",
+		Settings: types.Settings{"fail": true},
+	}}}
+	mem, _, out := runStoreAgent(t, cfg, endTurnResp("ask billing"))
+
+	if got := mem.titleOf("support", "thread-1"); got != "how do I get a refund?" {
+		t.Errorf("a failed chain should fall back to the opening turn, got %q", got)
+	}
+	// And the run still produced its answer.
+	if out == nil {
+		t.Error("a failed naming chain must not fail the run")
+	}
+}
+
+// TestAgentStoreNameThreadNeedsAnAgentID checks the slot is refused without one.
+//
+// Without an agentId there is no first-class store, so there is nothing a title
+// could be written to. A block that accepted the slot anyway would pay for a
+// model call per conversation and discard every answer.
+func TestAgentStoreNameThreadNeedsAnAgentID(t *testing.T) {
+	cfg := storeAgentConfig("support")
+	cfg.AgentID = ""
+	cfg.NameThread = &types.FlowConfig{Process: []types.BlockConfig{{
+		Type:     "set-payload",
+		Settings: types.Settings{"value": `"anything"`},
+	}}}
+	if _, err := buildStoreAgent(t, cfg); err == nil {
+		t.Error("nameThread without an agentId should fail the build")
 	}
 }
 
@@ -633,5 +732,31 @@ func TestNewAgentBlockBuildsWithoutAnAgentID(t *testing.T) {
 	// the runtime still defaults it to recording once an agent is named.
 	if err := validateAgentConfig(memoryAgentConfig(`"thread-1"`)); err != nil {
 		t.Errorf("a new ai-agent with no agentId should build: %v", err)
+	}
+}
+
+// TestAgentStoreNamesAnUnansweredConversation pins what happens when a run ends
+// without an answer — stopped, refused, out of turns.
+//
+// It still names it, and the chain is told the answer is empty. That is the
+// honest arrangement: the question WAS asked and is recorded, so the conversation
+// exists and a list has to show something for it. Whether an unanswered exchange
+// is worth a name is a judgement, and judgements are the chain's — it can return
+// nothing and get nothing, which is exactly what a "hi" that was cut off deserves.
+func TestAgentStoreNamesAnUnansweredConversation(t *testing.T) {
+	cfg := storeAgentConfig("support")
+	cfg.Input = `"how do I get a refund?"`
+	cfg.NameThread = &types.FlowConfig{Process: []types.BlockConfig{{
+		Type:     "tool",
+		Settings: types.Settings{"result": `"Refund, unanswered"`},
+	}}}
+	mem, _, _ := runStoreAgent(t, cfg, endTurnResp(""))
+
+	turns := mem.turnsFor("support", "thread-1")
+	if len(turns) == 0 {
+		t.Fatal("the question should be recorded even unanswered")
+	}
+	if got := mem.titleOf("support", "thread-1"); got != "Refund, unanswered" {
+		t.Errorf("an unanswered conversation is still named, got %q", got)
 	}
 }

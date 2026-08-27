@@ -281,6 +281,9 @@ var reservedBranches = map[string]func(*types.BlockConfig) *[]types.BlockConfig{
 	core.BranchDefault:  func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Default) },
 	core.BranchOnReject: func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.OnReject) },
 	core.BranchEvents:   func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Events) },
+	core.BranchNameThread: func(b *types.BlockConfig) *[]types.BlockConfig {
+		return subChain(b.NameThread)
+	},
 	core.BranchBuildResponse: func(b *types.BlockConfig) *[]types.BlockConfig {
 		return subChain(b.BuildResponse)
 	},
