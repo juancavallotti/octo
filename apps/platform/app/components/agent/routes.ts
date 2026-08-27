@@ -17,28 +17,61 @@ export interface RouteHint {
 }
 
 export const ROUTE_CATALOGUE: readonly RouteHint[] = [
-  { path: "/platform", description: "The dashboard: shortcuts to everything below." },
-  { path: "/platform/integrations", description: "Every integration, as a file tree." },
+  {
+    path: "/platform",
+    description: "The dashboard: shortcuts to everything below.",
+  },
+  {
+    path: "/platform/integrations",
+    description: "Every integration, as a file tree.",
+  },
   {
     path: "/platform/i/{integrationId}",
-    description: "One integration in the editor: its flows, resources and tests.",
+    description:
+      "One integration in the editor: its flows, resources and tests.",
   },
-  { path: "/platform/deployments", description: "Running deployments, their pods and status." },
-  { path: "/platform/traces", description: "Traces of flow runs, when tracing is on." },
-  { path: "/platform/logs", description: "Logs across deployments." },
-  { path: "/platform/queues", description: "Queues and their pending messages." },
-  { path: "/platform/objects", description: "The KV store's objects, by namespace." },
-  { path: "/platform/secrets", description: "Cluster secrets available to deployments." },
-  { path: "/platform/new", description: "Create a new integration." },
-  { path: "/platform/account", description: "The signed-in user's own API keys." },
-  { path: "/platform/admin", description: "Site-wide settings for this installation." },
-  { path: "/platform/admin/email", description: "The email provider the platform sends through." },
   {
-    path: "/platform/admin/llm",
-    description: "The LLM provider, model and API key the platform agent reasons with.",
+    path: "/platform/deployments",
+    description: "Running deployments, their pods and status.",
+  },
+  {
+    path: "/platform/traces",
+    description: "Traces of flow runs, when tracing is on.",
+  },
+  { path: "/platform/logs", description: "Logs across deployments." },
+  {
+    path: "/platform/queues",
+    description: "Queues and their pending messages.",
+  },
+  {
+    path: "/platform/objects",
+    description: "The KV store's objects, by namespace.",
+  },
+  {
+    path: "/platform/memory",
+    description:
+      "What agents have recorded: their conversations, and the facts they keep about people.",
+  },
+  {
+    path: "/platform/secrets",
+    description: "Cluster secrets available to deployments.",
+  },
+  { path: "/platform/new", description: "Create a new integration." },
+  {
+    path: "/platform/account",
+    description: "The signed-in user's own API keys.",
+  },
+  {
+    path: "/platform/admin",
+    description: "Site-wide settings for this installation.",
+  },
+  {
+    path: "/platform/admin/email",
+    description: "The email provider the platform sends through.",
   },
   {
     path: "/platform/admin/agent",
-    description: "Install, update, trace or remove the platform agent.",
+    description:
+      "The platform agent: the LLM and embedding providers he runs on, and installing, updating, tracing or removing him.",
   },
 ] as const;

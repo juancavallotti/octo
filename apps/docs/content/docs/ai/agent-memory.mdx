@@ -305,7 +305,7 @@ Storage is the deployment's business, not the flow's:
 | | Working memory | Conversation history | User memory | Search |
 | --- | --- | --- | --- | --- |
 | **Standalone** | `$OCTO_STORAGE_DIR/agent-memory/{agent}/threads/{thread}/working.json` | `.../turns.jsonl` | `.../users/{user}.json` | Keyword |
-| **Platform** | Orchestrator database | Orchestrator database | Orchestrator database | Semantic when an embedding provider is configured, keyword otherwise |
+| **Platform** | Orchestrator database | Orchestrator database | Orchestrator database | Semantic when the embedding server is deployed, keyword otherwise |
 
 On standalone the directory *is* the index — listing an agent's conversations
 is a directory read, with no second file to keep in step. An `octo invoke` with

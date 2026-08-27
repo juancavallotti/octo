@@ -1,6 +1,6 @@
 ---
 title: "Admin Settings"
-description: "Site-wide configuration: email delivery and the platform's LLM provider."
+description: "Site-wide configuration: email delivery, and the models and deployment of the platform agent."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -65,9 +65,15 @@ It returns `{"messageId": "..."}` on success, and `409` until email is configure
 Keep this internal. The orchestrator is ClusterIP in the chart and trusts its callers; there is deliberately no browser-facing route to it.
 </Callout>
 
-## LLM provider
+## Platform agent
 
-`/platform/admin/llm` configures the model the platform's **own agent** reasons with: provider, model, and API key.
+`/platform/admin/agent` is one page for one task: the models the platform's **own agent** runs on, and his deployment. These were three separate tabs — LLM provider, Embeddings, Platform agent — and nothing else on the installation reads either setting, so the split only hid the requirement between them. He will not install without an LLM provider, and now the page that refuses is the page holding the field.
+
+Two sections, in the order they are needed: **Models** first, **Deployment** second.
+
+### LLM provider
+
+The model the agent reasons with, and the one thing he cannot run without: provider, model, and API key.
 
 | Field | Notes |
 | --- | --- |
@@ -83,45 +89,56 @@ Model is free text on purpose: model names turn over faster than releases of thi
 This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
 </Callout>
 
-## Embeddings
+### Embeddings (optional)
 
-`/platform/admin/embedding` decides whether searching agent memory ranks by **meaning** or by **words**.
+Whether searching agent memory ranks by **meaning** or by **words**. Leave it out and search works — it matches text, using Postgres full-text. Deploy the embedding server and the same search ranks by embedding similarity instead. Nothing else changes: the same query, the same results shape, and no flow or block has to be edited.
 
-Leave it unconfigured and search works — it matches text, using Postgres full-text. Configure a provider and the same search ranks by embedding similarity instead. Nothing else changes: the same query, the same results shape, and no flow or block has to be edited.
-
-| Field | Notes |
-| --- | --- |
-| Provider | `OpenAI`, `Google`, or `OpenRouter`. **Anthropic is absent because it has no embeddings API** — this is not the same list as the LLM one above. |
-| Model | Free text, prefilled with that provider's default. It must produce 1536-dimension vectors. |
-| API key | Write-only, same handling as the other keys. |
+This section **reports**; it does not configure. What it shows is whether there is an embedding server, what it says it is using, and how far the backfill has got.
 
 <Callout type="warn">
-**Changing the provider or model discards every stored vector.** They carry no record of which model produced them, so a store holding two models' vectors cannot be searched coherently — keeping one embedding space at a time is what makes that simplification safe rather than a corruption waiting to happen. Turning embeddings **off** discards them too, for the same reason: with no configuration, nothing records what made them.
+**Embedding configuration is deploy-time, not a setting.** It moved out of this page on purpose.
 
-Nothing is lost but the vectors. The text is untouched, search falls back to matching it, and the backfill rebuilds — which costs whatever your provider charges for the whole store again. The page asks first and says how much is at stake.
+The model cannot be changed once anything has been embedded: vectors carry no record of which model produced them, so a store holding two models' vectors cannot be ranked coherently, and keeping one embedding space at a time is what makes that simplification safe rather than a corruption waiting for someone to click Save. A control whose correct use is "never" does not belong behind a Save button, however loud the confirmation dialog.
+
+There was a second problem, and it is the one that settled it: nothing read the value until the orchestrator restarted. Saving on a page and then wondering why nothing changed is worse than not offering the control.
 </Callout>
 
-### The backfill
+#### The embedding server
 
-Configuring a provider does not make search semantic — it makes it *become* semantic. Everything written before that moment has no vector, so a background sweep works through it, oldest requests last: the most recent conversations are vectorized first, because those are the ones anyone is about to search.
+Embeddings are produced by a small octo app the chart deploys — `embeddings/config.yaml`, an `ai-embed` block behind an HTTP route. It is a service rather than a library for one reason: it holds the provider API key, so that **no integration pod has to**.
 
-The page shows how far it has got. While it is running, a search may be answered by either index — the vector one when it has something to match, the text one when it does not — and you cannot tell from the results, deliberately.
+Every deployment pod is given its address as `EMBEDDINGS_URL`, which means any integration on the installation can embed text. That is deliberate. An embedding reads nothing, writes nothing and costs a fraction of a cent, so handing out the URL crosses no boundary — and it is what makes handing out the key unnecessary. (Contrast `LOGS_URL`, which *is* a grant: stored telemetry is other integrations' data.)
 
-The sweep is rate-limited on purpose. A large installation turning this on has a history of hundreds of thousands of items, and an unpaced backfill would send all of it to a paid API in one burst.
+Turn it on in the Helm values:
 
-Turning embeddings off discards the stored vectors, so turning them back on re-embeds the store. That is the price of not tracking which model made which vector — and the alternative, a per-row model, buys nothing: a store holding two models' vectors is unsearchable either way, and ranking only the matching subset would silently halve the results rather than fail.
+```yaml
+embeddings:
+  enabled: true
+  connectorType: llm-openai   # or llm-gemini, llm-openrouter
+  model: text-embedding-3-small
+  dimensions: 1536
+  apiKey: "sk-..."            # or existingSecret
+```
 
-## Agent memory
+`connectorType` has no Anthropic option and cannot be given one — Anthropic has no embeddings API, so the connector does not implement the capability and the flow is refused when it is **built**. That is a startup failure naming the problem rather than a surprise on the first embed.
 
-`/platform/admin/memory` reads what agents have actually recorded: the conversations they have had, and the facts they chose to keep about the people in them.
+`dimensions` must match the `vector(N)` columns in `sql/schema.sql`, which are indexed and therefore fixed at schema time. It is *requested* of the provider — most embeddings APIs take a desired-dimensions parameter — and a model that cannot produce that width fails the call and says so.
 
-Pick an integration, then an agent. The agent list is what has **stored** something, not what a definition declares — an agent appears once it has recorded a conversation.
+On a Terraform deploy the same settings are `embeddings_*` variables on the release root. The key is persisted to the state bucket as `release/embeddings.json`, the same mechanism the OIDC credentials use, so a Cloud Build deploy — which has no `terraform.tfvars` — reads it back instead of tearing the server down.
 
-Conversations here are **uncompacted**. That is the difference between this and what the agent still carries: working memory is pruned or summarized to fit the model's context window, and this record is not touched again once written. A question the agent never got back to is badged rather than hidden.
+The embedding server appears on [Platform services](#platform-services) like any other dependency. "Not configured" there is the ordinary answer, not a gap.
 
-You can read, search, erase a conversation, and forget one remembered fact. You cannot **edit** a remembered fact, and that is deliberate: an operator rewriting what an agent believes about a person, with no audit trail and nothing in the conversation explaining the change, is a capability that should be asked for explicitly rather than fall out of a viewer.
+#### The backfill
 
-Erasing reaches everything — the transcript, the working state the agent would have resumed from, and the conversation itself. See [Agent Memory](/ai/agent-memory) for what an agent has to declare for any of this to be recorded.
+Deploying the server does not make search semantic — it makes it *become* semantic. Everything written before it existed has no vector, so a background sweep in the orchestrator works through them, newest first: the most recent conversations are vectorized first, because those are the ones anyone is about to search.
+
+The page shows how far it has got. While it runs, a search may be answered by either index — the vector one when it has something to match, the text one when it does not — and you cannot tell from the results, deliberately.
+
+The sweep is paced on purpose (64 rows every 5 seconds). A large installation turning this on has a history of hundreds of thousands of items, and an unpaced backfill would send all of it to a paid API in one burst.
+
+### Deployment
+
+The second section of the same page installs, updates, traces or removes him, and sets his **turn limit** — how many tool-calling turns one answer may take. The limit sits inside the deployment card with the buttons that roll the same pods, because that is what it is: a property of this deployment, not a fourth site setting. See [The Platform Agent](/platform/agent) for what he does and how to change him.
 
 ## How a save handles the API key
 
@@ -141,13 +158,9 @@ Both forms submit every field on every save, so any other design would mean edit
 
 ## Storage
 
-The email, LLM and embedding settings are rows in the `site_settings` table — `key = 'email'`, `'llm'` and `'embedding'`, each a jsonb document. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
+The email and LLM settings are rows in the `site_settings` table — `key = 'email'` and `'llm'`, each a jsonb document. Embeddings are not among them: nothing about them is stored, because nothing about them is a setting. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
 
-Agent memory is the exception: it has real tables (`agent_threads`, `agent_working_memory`, `agent_turns`, `agent_user_memories`), because it is data rather than configuration and has to be queried, paged and searched. They are keyed on the **integration** rather than the deployment, so a conversation survives a redeploy.
-
-## Platform agent
-
-Use `/platform/admin/agent` to install, update, trace or remove the platform's own agent — the one thing that consumes the LLM settings above. See [The Platform Agent](/platform/agent) for what it does and how to change it.
+What agents *remember* is not configuration and is not here: it has its own tables and its own section of the platform. See [Agent Memory](/platform/agent-memory).
 
 ## Data retention
 
@@ -177,8 +190,8 @@ Two behaviours worth knowing, both explained in [Traces](/platform/traces#retent
 ## Platform services
 
 `/platform/admin/health` is the one page in this section that reports rather than
-configures. It asks the orchestrator whether it can currently reach the four
-things this installation runs on:
+configures. It asks the orchestrator whether it can currently reach the five
+things this installation may run on:
 
 | Service | What stops working without it |
 | --- | --- |
@@ -186,6 +199,9 @@ things this installation runs on:
 | Redis | The fold that keeps streamed traces small. See [Redis](/deploy/helm#redis). |
 | NATS | Live updates — deployment status, and the telemetry runtimes ship to the aggregator. |
 | Kubernetes | Deploying anything. Without it the platform is an editor and a database. |
+| Embeddings | Ranking a search of agent memory by meaning. Without it, search matches text. |
+
+Embeddings is the only one an installation may simply not have, and "Not configured" there is the ordinary answer rather than a gap to explain — the other four are how the platform runs. Only a server that was deployed and does not answer is a fault.
 
 Each check is **one round trip**, and the page says so. That is enough to prove a
 dependency answered and no more: Postgres answering says nothing about

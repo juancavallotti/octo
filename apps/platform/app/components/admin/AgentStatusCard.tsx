@@ -33,7 +33,10 @@ const STATE_STYLES: Record<string, string> = {
  * rather than the state that is missing. Each one is somebody's next action, so
  * each names where to take it.
  */
-export const BLOCKED_REASONS: Record<string, { text: string; href?: string; cta?: string }> = {
+export const BLOCKED_REASONS: Record<
+  string,
+  { text: string; href?: string; cta?: string }
+> = {
   kubernetes: {
     text: "This orchestrator has no cluster access, so it cannot deploy anything. The agent runs as a normal deployment, so it needs the same in-cluster access every integration does.",
   },
@@ -42,7 +45,11 @@ export const BLOCKED_REASONS: Record<string, { text: string; href?: string; cta?
   },
   llm_key: {
     text: "No LLM provider key is stored, so there is no model for the agent to reason with.",
-    href: "/platform/admin/llm",
+    // The provider is now the section directly above this card rather than another
+    // page, so this scrolls rather than navigates. It is still a link and still
+    // named, because the reason has to say where to go even when the answer is
+    // "just up there".
+    href: "#llm-heading",
     cta: "Configure the LLM provider",
   },
 };
@@ -62,10 +69,16 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export default function AgentStatusCard({
   status,
   actions,
+  footer,
 }: {
   status: AgentStatus;
   /** The buttons for this state, rendered at the top right of the panel. */
   actions: ReactNode;
+  /**
+   * Settings that belong to this deployment, rendered under a rule at the foot of
+   * the panel. Falsy renders nothing, so a caller can pass a condition directly.
+   */
+  footer?: ReactNode;
 }) {
   const blocked = status.blocked ? BLOCKED_REASONS[status.blocked] : undefined;
 
@@ -91,7 +104,9 @@ export default function AgentStatusCard({
             Edited
           </span>
         )}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {actions}
+        </div>
       </header>
 
       <div className="flex flex-col gap-3 px-3 py-3">
@@ -136,9 +151,18 @@ export default function AgentStatusCard({
           </div>
         ) : (
           <p className="text-xs text-zinc-500">
-            Installing creates him as an integration, publishes a version from the
-            bundle this orchestrator ships, and deploys him with no external route.
+            Installing creates him as an integration, publishes a version from
+            the bundle this orchestrator ships, and deploys him with no external
+            route.
           </p>
+        )}
+
+        {/* Negative margins so the rule spans the panel rather than the padding
+            box, which is what makes it read as part of the card. */}
+        {footer && (
+          <div className="-mx-3 -mb-3 border-t border-black/10 px-3 py-3 dark:border-white/10">
+            {footer}
+          </div>
         )}
       </div>
     </div>

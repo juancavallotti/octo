@@ -33,6 +33,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template. It is the only one that carries no secrets, and it is
+# the file somebody copies before they have anything to keep out of git.
+!.env.example
 
 # vercel
 .vercel

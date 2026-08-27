@@ -1,4 +1,5 @@
 import {
+  BrainCircuit,
   Database,
   KeyRound,
   LayoutDashboard,
@@ -18,7 +19,12 @@ import {
  * between sections.
  */
 export const MANAGEMENT_SECTIONS = [
-  { key: "dashboard", label: "Dashboard", href: "/platform", icon: LayoutDashboard },
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    href: "/platform",
+    icon: LayoutDashboard,
+  },
   {
     key: "integrations",
     label: "Integrations",
@@ -31,9 +37,25 @@ export const MANAGEMENT_SECTIONS = [
     href: "/platform/deployments",
     icon: Rocket,
   },
-  { key: "objects", label: "Object Store", href: "/platform/objects", icon: Database },
-  { key: "secrets", label: "Secrets", href: "/platform/secrets", icon: KeyRound },
+  {
+    key: "objects",
+    label: "Object Store",
+    href: "/platform/objects",
+    icon: Database,
+  },
+  {
+    key: "secrets",
+    label: "Secrets",
+    href: "/platform/secrets",
+    icon: KeyRound,
+  },
   { key: "queues", label: "Queues", href: "/platform/queues", icon: Network },
+  {
+    key: "memory",
+    label: "Agent memory",
+    href: "/platform/memory",
+    icon: BrainCircuit,
+  },
   { key: "logs", label: "Logs", href: "/platform/logs", icon: ScrollText },
   { key: "traces", label: "Traces", href: "/platform/traces", icon: Waypoints },
 ] as const;

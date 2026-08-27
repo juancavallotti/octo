@@ -23,10 +23,10 @@ describe("AdminNav", () => {
   // The hub's own href prefixes every other page, so a plain startsWith would
   // light Overview everywhere. Longest match wins instead.
   it("marks only the deepest matching section as current", () => {
-    pathname.mockReturnValue("/platform/admin/llm");
+    pathname.mockReturnValue("/platform/admin/agent");
     render(<AdminNav />);
 
-    expect(screen.getByRole("link", { name: "LLM provider" }).getAttribute("aria-current")).toBe(
+    expect(screen.getByRole("link", { name: "Platform agent" }).getAttribute("aria-current")).toBe(
       "page",
     );
     expect(screen.getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBeNull();
