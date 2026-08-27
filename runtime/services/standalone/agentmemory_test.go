@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -348,7 +349,7 @@ func TestAgentMemoryTolerantOfATruncatedTurn(t *testing.T) {
 		t.Fatalf("append: %v", err)
 	}
 	path := filepath.Join(m.threadDir(r), turnsFile)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, filePerm)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, filePerm) //nolint:gosec // a path this test built
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -446,7 +447,7 @@ func TestAgentMemoryConcurrentWorkingWrites(t *testing.T) {
 			}
 			// A conflict is a legitimate outcome; a corrupt file is not.
 			_, _ = m.SaveWorking(ctx, r, core.WorkingMemory{
-				Version: current.Version, Payload: []byte{byte('0' + i)},
+				Version: current.Version, Payload: []byte(strconv.Itoa(i)),
 			})
 		}(i)
 	}

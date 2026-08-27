@@ -217,35 +217,11 @@ func (s *memoryOnlyStore) search(q core.MemoryQuery) ([]core.MemoryHit, error) {
 	defer s.mu.Unlock()
 
 	var hits []core.MemoryHit
-	if q.Scope != core.MemoryScopeTurns && q.UserID != "" {
-		for _, m := range s.snapshotMemories(q.AgentID, q.UserID) {
-			if score := scoreText(m.Value+" "+m.Name, words); score > 0 {
-				hits = append(hits, core.MemoryHit{
-					Kind: core.MemoryHitUser, Name: m.Name, Text: m.Value, Score: score,
-				})
-			}
-		}
+	if q.Scope != core.MemoryScopeTurns {
+		hits = append(hits, s.searchMemories(q, words)...)
 	}
 	if q.Scope != core.MemoryScopeUser {
-		for _, t := range s.threads {
-			if t.meta.AgentID != q.AgentID {
-				continue
-			}
-			if q.UserID != "" && t.meta.UserID != q.UserID {
-				continue
-			}
-			if q.ThreadKey != "" && t.meta.ThreadKey != q.ThreadKey {
-				continue
-			}
-			for _, turn := range t.turns {
-				if score := scoreText(turn.Text, words); score > 0 {
-					hits = append(hits, core.MemoryHit{
-						Kind: core.MemoryHitTurn, ThreadKey: t.meta.ThreadKey,
-						Text: turn.Text, Seq: turn.Seq, Score: score,
-					})
-				}
-			}
-		}
+		hits = append(hits, s.searchTurns(q, words)...)
 	}
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].Score != hits[j].Score {
@@ -258,4 +234,52 @@ func (s *memoryOnlyStore) search(q core.MemoryQuery) ([]core.MemoryHit, error) {
 		limit = len(hits)
 	}
 	return hits[:limit], nil
+}
+
+// searchMemories scores one person's curated memories. The caller holds the lock.
+func (s *memoryOnlyStore) searchMemories(q core.MemoryQuery, words []string) []core.MemoryHit {
+	if q.UserID == "" {
+		return nil
+	}
+	var hits []core.MemoryHit
+	for _, m := range s.snapshotMemories(q.AgentID, q.UserID) {
+		if score := scoreText(m.Value+" "+m.Name, words); score > 0 {
+			hits = append(hits, core.MemoryHit{
+				Kind: core.MemoryHitUser, Name: m.Name, Text: m.Value, Score: score,
+			})
+		}
+	}
+	return hits
+}
+
+// searchTurns scores the agent's conversations. The caller holds the lock.
+func (s *memoryOnlyStore) searchTurns(q core.MemoryQuery, words []string) []core.MemoryHit {
+	var hits []core.MemoryHit
+	for _, t := range s.threads {
+		if !matchesScope(t.meta, q) {
+			continue
+		}
+		for _, turn := range t.turns {
+			if score := scoreText(turn.Text, words); score > 0 {
+				hits = append(hits, core.MemoryHit{
+					Kind: core.MemoryHitTurn, ThreadKey: t.meta.ThreadKey,
+					Text: turn.Text, Seq: turn.Seq, Score: score,
+				})
+			}
+		}
+	}
+	return hits
+}
+
+// matchesScope reports whether a conversation is one the query is asking about.
+func matchesScope(t core.Thread, q core.MemoryQuery) bool {
+	switch {
+	case t.AgentID != q.AgentID:
+		return false
+	case q.UserID != "" && t.UserID != q.UserID:
+		return false
+	case q.ThreadKey != "" && t.ThreadKey != q.ThreadKey:
+		return false
+	}
+	return true
 }
