@@ -146,6 +146,7 @@ var errListingIsPlatformOnly = errors.New(
 
 // LoadWorking reads a conversation's live context.
 func (c *agentMemory) LoadWorking(ctx context.Context, ref core.MemoryRef) (core.WorkingMemory, bool, error) {
+	//nolint:bodyclose // drainClose (deferred below) closes the body
 	resp, err := c.do(ctx, http.MethodGet, c.threadURL(ref, "/working"), nil, nil, memoryTimeout)
 	if err != nil {
 		return core.WorkingMemory{}, false, err
@@ -187,6 +188,7 @@ func (c *agentMemory) SaveWorking(
 		"X-Agent-Tokens":    strconv.Itoa(wm.Tokens),
 		"Content-Type":      "application/octet-stream",
 	}
+	//nolint:bodyclose // drainClose (deferred below) closes the body
 	resp, err := c.do(ctx, http.MethodPut, c.threadURL(ref, "/working"),
 		bytes.NewReader(wm.Payload), headers, memoryTimeout)
 	if err != nil {
@@ -218,13 +220,6 @@ type turnWire struct {
 	CreatedAt time.Time       `json:"createdAt,omitempty"`
 }
 
-func (t turnWire) toCore() core.Turn {
-	return core.Turn{
-		Seq: t.Seq, Role: core.LLMRole(t.Role), Text: t.Text,
-		Tokens: t.Tokens, Attrs: t.Attrs, CreatedAt: t.CreatedAt,
-	}
-}
-
 // AppendTurns records completed turns.
 func (c *agentMemory) AppendTurns(
 	ctx context.Context, ref core.MemoryRef, turns []core.Turn,
@@ -241,26 +236,6 @@ func (c *agentMemory) AppendTurns(
 	err := c.json(ctx, http.MethodPost, c.threadURL(ref, "/turns"),
 		map[string]any{"turns": wire}, &out, memoryTimeout)
 	return out.Version, err
-}
-
-// threadWire is a conversation on the wire.
-type threadWire struct {
-	AgentID        string    `json:"agentId"`
-	ThreadKey      string    `json:"threadKey"`
-	UserID         string    `json:"userId"`
-	Title          string    `json:"title"`
-	Version        int64     `json:"version"`
-	TurnCount      int       `json:"turnCount"`
-	CreatedAt      time.Time `json:"createdAt"`
-	LastActivityAt time.Time `json:"lastActivityAt"`
-}
-
-func (t threadWire) toCore() core.Thread {
-	return core.Thread{
-		AgentID: t.AgentID, ThreadKey: t.ThreadKey, UserID: t.UserID, Title: t.Title,
-		Version: t.Version, TurnCount: t.TurnCount,
-		CreatedAt: t.CreatedAt, LastActivityAt: t.LastActivityAt,
-	}
 }
 
 // ListThreads returns an agent's conversations.
@@ -287,6 +262,7 @@ func (c *agentMemory) ReadThread(
 // DeleteThread erases a conversation: its working memory, its turns and the
 // conversation itself. This is what clear-agent-memory reaches.
 func (c *agentMemory) DeleteThread(ctx context.Context, ref core.MemoryRef) error {
+	//nolint:bodyclose // drainClose (deferred by the caller) closes the body
 	resp, err := c.do(ctx, http.MethodDelete, c.threadURL(ref, ""), nil, nil, memoryTimeout)
 	if err != nil {
 		return err
@@ -343,6 +319,7 @@ func (c *agentMemory) PutMemory(
 		headerVersion:  strconv.FormatInt(expectedVersion, 10),
 		"Content-Type": "application/json",
 	}
+	//nolint:bodyclose // drainClose (deferred below) closes the body
 	resp, err := c.do(ctx, http.MethodPut, c.userURL(ref, "/"+url.PathEscape(name)),
 		bytes.NewReader(body), headers, memoryTimeout)
 	if err != nil {
@@ -362,6 +339,7 @@ func (c *agentMemory) PutMemory(
 
 // DeleteMemory forgets one curated memory.
 func (c *agentMemory) DeleteMemory(ctx context.Context, ref core.MemoryRef, name string) error {
+	//nolint:bodyclose // drainClose (deferred by the caller) closes the body
 	resp, err := c.do(ctx, http.MethodDelete, c.userURL(ref, "/"+url.PathEscape(name)),
 		nil, nil, memoryTimeout)
 	if err != nil {
@@ -451,6 +429,7 @@ func (c *agentMemory) json(
 		body = bytes.NewReader(encoded)
 		headers["Content-Type"] = "application/json"
 	}
+	//nolint:bodyclose // drainClose (deferred by the caller) closes the body
 	resp, err := c.do(ctx, method, endpoint, body, headers, timeout)
 	if err != nil {
 		return err
@@ -484,5 +463,8 @@ type cancelOnClose struct {
 func (c *cancelOnClose) Close() error {
 	err := c.ReadCloser.Close()
 	c.cancel()
-	return err
+	if err != nil {
+		return fmt.Errorf("agent memory: close response: %w", err)
+	}
+	return nil
 }
