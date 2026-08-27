@@ -116,18 +116,37 @@ func (r *Repo) SaveWorking(ctx context.Context, ref Ref, w Working) (int64, erro
 	if err != nil {
 		return 0, err
 	}
+	// Two arms, and they have to be separate statements rather than an upsert.
+	//
+	// An upsert cannot express "create only when the caller expected to create":
+	// its insert always fires, so a write stating version 5 against working memory
+	// that has since been erased would land as a fresh row at version 1 and report
+	// success. That is the lost update optimistic concurrency exists to catch, and
+	// erasure makes it reachable rather than hypothetical.
+	//
+	// So: update when the version still matches, insert only when the caller said
+	// 0, and neither matching is the conflict. A stored version is never 0 — a row
+	// is only ever created at 1 — so the two arms cannot both fire.
 	var version int64
 	err = tx.QueryRow(ctx,
-		`INSERT INTO agent_working_memory (thread_id, version, iteration, tokens, payload)
-		 VALUES ($1, 1, $3, $4, $5)
-		 ON CONFLICT (thread_id) DO UPDATE
-		    SET version    = agent_working_memory.version + 1,
-		        iteration  = EXCLUDED.iteration,
-		        tokens     = EXCLUDED.tokens,
-		        payload    = EXCLUDED.payload,
-		        updated_at = now()
-		  WHERE agent_working_memory.version = $2
-		 RETURNING version`,
+		`WITH updated AS (
+		     UPDATE agent_working_memory
+		        SET version    = version + 1,
+		            iteration  = $3,
+		            tokens     = $4,
+		            payload    = $5,
+		            updated_at = now()
+		      WHERE thread_id = $1 AND version = $2
+		     RETURNING version
+		 ), inserted AS (
+		     INSERT INTO agent_working_memory (thread_id, version, iteration, tokens, payload)
+		     SELECT $1, 1, $3, $4, $5 WHERE $2::bigint = 0
+		     ON CONFLICT (thread_id) DO NOTHING
+		     RETURNING version
+		 )
+		 SELECT version FROM updated
+		 UNION ALL
+		 SELECT version FROM inserted`,
 		threadID, w.Version, w.Iteration, w.Tokens, w.Payload,
 	).Scan(&version)
 	if err != nil {
@@ -429,17 +448,31 @@ func (r *Repo) Memories(ctx context.Context, ref Ref) ([]UserMemory, error) {
 // PutMemory creates or updates one curated memory, with the same
 // optimistic-concurrency shape as SaveWorking.
 func (r *Repo) PutMemory(ctx context.Context, ref Ref, name, value string, expectedVersion int64) (int64, error) {
+	// The same two arms as SaveWorking, and for the same reason: a correction
+	// stating a version that was forgotten in between must be told it is stale, not
+	// quietly re-created. embedding is cleared on every change — a vector for text
+	// that no longer exists is worse than no vector, because search would rank on
+	// it.
 	var version int64
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO agent_user_memories (integration_id, agent_id, user_id, name, value, version)
-		 VALUES ($1, $2, $3, $4, $5, 1)
-		 ON CONFLICT (integration_id, agent_id, user_id, name) DO UPDATE
-		    SET value      = EXCLUDED.value,
-		        version    = agent_user_memories.version + 1,
-		        updated_at = now(),
-		        embedding  = NULL
-		  WHERE agent_user_memories.version = $6
-		 RETURNING version`,
+		`WITH updated AS (
+		     UPDATE agent_user_memories
+		        SET value      = $5,
+		            version    = version + 1,
+		            updated_at = now(),
+		            embedding  = NULL
+		      WHERE integration_id = $1 AND agent_id = $2 AND user_id = $3
+		        AND name = $4 AND version = $6
+		     RETURNING version
+		 ), inserted AS (
+		     INSERT INTO agent_user_memories (integration_id, agent_id, user_id, name, value, version)
+		     SELECT $1, $2, $3, $4, $5, 1 WHERE $6::bigint = 0
+		     ON CONFLICT (integration_id, agent_id, user_id, name) DO NOTHING
+		     RETURNING version
+		 )
+		 SELECT version FROM updated
+		 UNION ALL
+		 SELECT version FROM inserted`,
 		ref.IntegrationID, ref.AgentID, ref.UserID, name, value, expectedVersion,
 	).Scan(&version)
 	if err != nil {
@@ -469,13 +502,26 @@ func (r *Repo) DeleteMemory(ctx context.Context, ref Ref, name string) error {
 // is what integration deletion calls: there is no foreign key doing it, by the
 // same choice logs and traces make, so the cleanup is explicit and visible.
 func (r *Repo) DeleteForIntegration(ctx context.Context, integrationID string) error {
-	if _, err := r.pool.Exec(ctx,
+	// One transaction, because a half-done sweep is worse than a failed one: the
+	// caller logs and does not retry, so conversations gone with the curated
+	// memories left behind would leave rows with no owner and no way to reach them
+	// through an API that addresses everything by integration.
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("agent memory: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
 		`DELETE FROM agent_threads WHERE integration_id = $1`, integrationID); err != nil {
 		return fmt.Errorf("agent memory: delete threads: %w", err)
 	}
-	if _, err := r.pool.Exec(ctx,
+	if _, err := tx.Exec(ctx,
 		`DELETE FROM agent_user_memories WHERE integration_id = $1`, integrationID); err != nil {
 		return fmt.Errorf("agent memory: delete memories: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("agent memory: commit: %w", err)
 	}
 	return nil
 }
