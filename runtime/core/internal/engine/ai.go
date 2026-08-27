@@ -919,6 +919,7 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	// corrected between runs would sit in working memory beside stale copies of
 	// itself.
 	preamble := sess.memoryPreamble(ctx)
+	preambleTokens := estimateTokens(preamble)
 	// Everything that has to outlive a stop runs on this one: by the time the run
 	// is saving its memory, runCtx is already cancelled.
 	//
@@ -933,7 +934,10 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	current := msg
 	for iter := 0; iter < a.maxIterations; iter++ {
 		messages = a.injectPending(runCtx, current, messages, iter, run)
-		messages = a.fitContext(runCtx, current, messages, iter, meter)
+		// The preamble is reserved rather than fitted: it rides in front of every
+		// request but is not part of the transcript, so the conversation has to fit
+		// what is left after it.
+		messages = a.fitContext(runCtx, current, messages, iter, meter, preambleTokens)
 		// What was sent, paired below with what the provider says it read. The two
 		// together are what let the meter separate the run's fixed overhead from the
 		// conversation that varies.

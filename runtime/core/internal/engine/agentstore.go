@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -63,6 +64,20 @@ const (
 // titleMaxLen bounds the title minted from a conversation's first turn. It is a
 // label in a list, not a summary.
 const titleMaxLen = 80
+
+// preambleMaxMemories and preambleMaxChars bound what the memory preamble puts
+// in front of every request.
+//
+// Unbounded, this grows without limit and is spent on every turn of every run:
+// an agent that has been talking to somebody for a year would arrive at the
+// provider's window before it had read a word of the conversation. The cap is
+// per-request rather than on what is stored, because forgetting something on the
+// agent's behalf is not the runtime's call — what does not fit is still there,
+// and search_memory is how the model reaches it.
+const (
+	preambleMaxMemories = 50
+	preambleMaxChars    = 8 << 10
+)
 
 // turnAttrs is the JSON an engine attaches to a stored turn: what it does not
 // say in its text. Unanswered marks a question the run never got back to, which
@@ -383,12 +398,23 @@ func (s *memorySession) memoryPreamble(ctx context.Context) []core.LLMMessage {
 	}
 	var b strings.Builder
 	b.WriteString("What you have previously chosen to remember about this person:\n")
+	shown := 0
 	for _, m := range memories {
+		if shown >= preambleMaxMemories || b.Len() >= preambleMaxChars {
+			break
+		}
 		b.WriteString("- ")
 		b.WriteString(m.Name)
 		b.WriteString(": ")
 		b.WriteString(m.Value)
 		b.WriteString("\n")
+		shown++
+	}
+	if shown < len(memories) {
+		// Said rather than silently dropped: the model is about to answer as if this
+		// were everything it knows, and it has a tool for reaching the rest.
+		fmt.Fprintf(&b, "\n(%d more are stored; use %s to look them up.)\n",
+			len(memories)-shown, searchMemoryToolName)
 	}
 	b.WriteString("\nUse it when it is relevant. Do not repeat it back unprompted.")
 	return []core.LLMMessage{{Role: core.LLMRoleUser, Text: b.String()}}
@@ -403,7 +429,14 @@ func titleFor(opening string) string {
 		title = title[:i]
 	}
 	if len(title) > titleMaxLen {
-		title = strings.TrimSpace(title[:titleMaxLen])
+		// Back up to a rune start: cutting mid-rune would store an invalid UTF-8
+		// sequence, and the first thing to encode it would turn the cut character
+		// into a replacement glyph.
+		cut := titleMaxLen
+		for cut > 0 && !utf8.RuneStart(title[cut]) {
+			cut--
+		}
+		title = strings.TrimSpace(title[:cut])
 	}
 	return title
 }
@@ -544,12 +577,19 @@ func userMemoryTools() []core.LLMTool {
 func (a *aiAgent) runMemoryTool(
 	ctx context.Context, call core.LLMToolCall, sess *memorySession,
 ) (core.LLMToolResult, bool) {
+	// Only an agent that was actually handed these tools may claim their names. A
+	// flow that declared its own "remember" branch and never asked for user memory
+	// keeps it: the builder only rejects that collision when userMemory is on, so
+	// intercepting here regardless would break a flow that builds fine.
+	if !a.userMemory {
+		return core.LLMToolResult{}, false
+	}
 	switch call.Name {
 	case rememberToolName, forgetToolName, searchMemoryToolName:
 	default:
 		return core.LLMToolResult{}, false
 	}
-	if !sess.active() || !a.userMemory {
+	if !sess.active() {
 		return errorResult(call, "memory is not available to this agent"), true
 	}
 	var args struct {

@@ -23,18 +23,29 @@ import (
 // problem anyway — it is the tenth tool result that is.
 func (a *aiAgent) fitContext(
 	ctx context.Context, msg *types.Message, messages []core.LLMMessage, iter int, meter *contextMeter,
+	reserved int,
 ) []core.LLMMessage {
 	if meter.measured() == 0 || a.contextMaxTokens <= 0 {
 		return messages
 	}
+	// The budget the conversation actually gets, after whatever rides in front of
+	// it on every request. The user-memory preamble is sent with each turn but is
+	// not part of the transcript, so a budget that did not subtract it would let
+	// the conversation grow into space the request has already spent — and the
+	// provider, not the compactor, would be the one to notice.
+	budget := a.contextMaxTokens - reserved
+	if budget <= 0 {
+		budget = 1
+	}
 	before := meter.predict(estimateTokens(messages))
-	if before <= a.contextMaxTokens {
+	if before <= budget {
 		return messages
 	}
 	// Announced before the work, not after it. The summarize strategy makes a
 	// model call, so this can take seconds, and a reader with only an
 	// after-the-fact event sees an unexplained stall.
-	a.report(ctx, msg, iter, eventCompactionStart, compactionFields(a.memoryCompaction, before, a.contextMaxTokens))
+	a.report(ctx, msg, iter, eventCompactionStart,
+		compactionFields(a.memoryCompaction, before, budget))
 	trace := beginTrace()
 
 	// Two ends of the conversation are not the compactor's to touch. The trailing
@@ -58,15 +69,15 @@ func (a *aiAgent) fitContext(
 
 	fixed := meter.sizeOf(estimateTokens(messages[:opening])) +
 		meter.sizeOf(estimateTokens(messages[keep:]))
-	budget := a.contextMaxTokens - fixed
-	if budget <= 0 {
+	headBudget := budget - fixed
+	if headBudget <= 0 {
 		slog.Warn("ai-agent cannot fit its context: the current turn alone exceeds the budget",
-			"block", a.name, "tokens", before, "budget", a.contextMaxTokens)
+			"block", a.name, "tokens", before, "budget", budget)
 		a.endCompaction(ctx, trace, msg, iter, before, before, 0)
 		return messages
 	}
 
-	compacted := compactMemory(ctx, a.caller, msg, head, budget, a.memoryCompaction, meter)
+	compacted := compactMemory(ctx, a.caller, msg, head, headBudget, a.memoryCompaction, meter)
 	// Copied rather than appended in place: compactMemory returns a sub-slice of
 	// the head, whose capacity runs on into the protected tail, so appending to it
 	// would write over the very messages this is preserving.

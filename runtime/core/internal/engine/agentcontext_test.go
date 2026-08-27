@@ -146,7 +146,7 @@ func TestAgentDoesNotCompactUnderBudget(t *testing.T) {
 func TestFitContextWaitsForAMeasurement(t *testing.T) {
 	a := &aiAgent{contextMaxTokens: 1}
 	msgs := []core.LLMMessage{{Role: core.LLMRoleUser, Text: strings.Repeat("a", 4000)}}
-	if got := a.fitContext(context.Background(), nil, msgs, 0, newContextMeter()); len(got) != len(msgs) {
+	if got := a.fitContext(context.Background(), nil, msgs, 0, newContextMeter(), 0); len(got) != len(msgs) {
 		t.Errorf("fitContext compacted before any turn was measured: %d messages", len(got))
 	}
 }
