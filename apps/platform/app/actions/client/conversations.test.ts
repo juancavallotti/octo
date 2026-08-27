@@ -82,19 +82,28 @@ describe("listConversations", () => {
     expect(result.ok).toBe(false);
   });
 
-  // A title is what a list shows. A conversation the runtime opened but nothing
-  // has named yet still has to be pickable.
-  it("falls back to the thread key when nothing has named the conversation", async () => {
+  /**
+   * A title is what a list shows, and a conversation with none still has to be
+   * pickable.
+   *
+   * An unnamed conversation is one the agent DECIDED not to name — a greeting, a
+   * test message — since a naming chain that fails falls back to the opening
+   * question instead. So it is labelled as untitled rather than by its key: a raw
+   * thread id tells a reader nothing and reads like the name failed.
+   */
+  it("labels a conversation nothing has named rather than showing its id", async () => {
     vi.stubGlobal(
       "fetch",
       respondWith(200, {
-        threads: [{ threadKey: "t-9", title: "", lastActivityAt: "2026-08-02T00:00:00Z" }],
+        threads: [
+          { threadKey: "u-1/t-9", title: "", lastActivityAt: "2026-08-02T00:00:00Z" },
+        ],
       }),
     );
     const result = await listConversations(ada);
     expect(result).toEqual({
       ok: true,
-      data: [{ id: "t-9", title: "t-9", updatedAt: "2026-08-02T00:00:00Z" }],
+      data: [{ id: "t-9", title: "Untitled conversation", updatedAt: "2026-08-02T00:00:00Z" }],
     });
   });
 });
