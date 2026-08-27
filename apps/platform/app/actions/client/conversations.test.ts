@@ -141,6 +141,56 @@ describe("readConversation", () => {
     );
   });
 
+  /**
+   * The panel drops the context it caused to be there.
+   *
+   * Dr. Octo's `input` expression appends the page and the route catalogue,
+   * because the model needs them. The runtime records the turn verbatim and
+   * should: memory stores what was sent and returns it as sent, and the operator's
+   * memory viewer shows exactly that. Trimming belongs to the surface that built
+   * the string — this module, which is already his.
+   */
+  it("drops the context Dr. Octo appends, leaving what was asked", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith(200, {
+        thread: { threadKey: "u-1/t-1", title: "Deploying", userId: "u-1" },
+        turns: [
+          {
+            seq: 1,
+            role: "user",
+            text:
+              "how do I deploy?\n\n---\nContext, not part of the question. The user is " +
+              'on page /platform. Pages you may navigate to:\n{"routes":[]}',
+            createdAt: "2026-08-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    const result = await readConversation(ada, "t-1");
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.turns[0].text).toBe("how do I deploy?");
+  });
+
+  // A turn with no context appended is passed through untouched — most agents
+  // never produce one, and this must not go looking for a shape to strip.
+  it("leaves a turn that carries no appended context alone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith(200, {
+        thread: { threadKey: "u-1/t-1", userId: "u-1" },
+        turns: [
+          { seq: 1, role: "user", text: "just a question", createdAt: "2026-08-01T00:00:00Z" },
+        ],
+      }),
+    );
+
+    const result = await readConversation(ada, "t-1");
+    if (!result.ok) throw new Error(result.error);
+    expect(result.data.turns[0].text).toBe("just a question");
+  });
+
   // The route is addressed by thread, so the scoping the listing does by query has
   // to be done again here — otherwise a thread key is enough to read somebody
   // else's conversation.
