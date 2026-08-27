@@ -20,6 +20,7 @@ import {
 import type { Integration } from "@/app/model/orchestrator";
 import { MemoryPickers } from "./MemoryPickers";
 import { MemorySearch } from "./MemorySearch";
+import { SearchRanking } from "./SearchRanking";
 import { ThreadList } from "./ThreadList";
 import { ThreadTranscript } from "./ThreadTranscript";
 import { UserMemoryList } from "./UserMemoryList";
@@ -218,6 +219,7 @@ export default function AgentMemoryManager() {
           to keep about the people in them. Conversations are stored uncompacted, so this
           is what was actually said — not the shortened version the model still carries.
         </p>
+        <SearchRanking />
 
         {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
 

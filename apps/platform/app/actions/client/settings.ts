@@ -67,10 +67,12 @@ export interface LlmSettingsInput {
  * a store holding two models' cannot be ranked coherently. A control that must
  * never be touched does not belong behind a Save button.
  *
- * `embedded` and `pending` are here because "configured" and "search is semantic"
- * are not the same statement: everything written before the server existed has no
- * vector until the sweep reaches it, and an operator deserves to see that
- * happening rather than wonder why search has not changed.
+ * `pending` is here because "configured" and "search is semantic" are not the same
+ * statement: everything written before the server existed has no vector until the
+ * sweep reaches it, and an operator deserves to see that happening rather than
+ * wonder why search has not changed. There is no matching `embedded` total —
+ * counting rows that already have a vector cannot use an index, so it read both
+ * memory tables end to end every time the page loaded.
  */
 export interface EmbeddingStatus {
   /** Whether this installation has an embedding server at all. */
@@ -82,7 +84,7 @@ export interface EmbeddingStatus {
   dimensions?: number;
   /** The transport error when it did not answer. */
   detail?: string;
-  embedded: number;
+  /** Stored items still waiting for a vector. Zero when the sweep is caught up. */
   pending: number;
 }
 

@@ -10,13 +10,14 @@ import (
 )
 
 // requestTimeoutHTTP bounds the work behind one status request: a health probe
-// against the embedding server plus two counting queries.
+// against the embedding server plus one counting query.
 const requestTimeoutHTTP = 10 * time.Second
 
-// Counter reports how much of the store has been vectorized. *agentmemory.Repo
-// satisfies it; it is an interface so this package does not depend on that one.
+// Counter reports how much of the store is still waiting to be vectorized.
+// *agentmemory.Repo satisfies it; it is an interface so this package does not
+// depend on that one.
 type Counter interface {
-	EmbeddingCounts(ctx context.Context) (embedded, pending int, err error)
+	PendingCount(ctx context.Context) (int, error)
 }
 
 // Handler serves the embedding status.
@@ -37,8 +38,8 @@ type Handler struct {
 	counter Counter
 }
 
-// NewHandler returns the status handler. A nil counter reports no counts, which
-// is what an orchestrator with no database has to say.
+// NewHandler returns the status handler. A nil counter reports nothing pending,
+// which is what an orchestrator with no database has to say.
 func NewHandler(client *Client, counter Counter) *Handler {
 	return &Handler{client: client, counter: counter}
 }
@@ -51,17 +52,20 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // statusResponse is what the admin page renders.
 type statusResponse struct {
 	Status
-	// Embedded and Pending are the backfill's progress. Configuring a provider
-	// does not make search semantic; it makes it become semantic, and these are
-	// how far that has got.
-	Embedded int `json:"embedded"`
-	Pending  int `json:"pending"`
+	// Pending is what is left of the backfill. Configuring a provider does not
+	// make search semantic; it makes it become semantic, and this is how much is
+	// still waiting. Zero is the ordinary answer and says nothing is outstanding.
+	//
+	// Deliberately not paired with an "embedded" total: counting rows that HAVE a
+	// vector cannot use an index, so it read both tables end to end on every load
+	// to draw a progress bar.
+	Pending int `json:"pending"`
 }
 
 // get reports the embedding server's configuration and the backfill's progress.
 //
 // @Summary     Embedding status
-// @Description Whether this installation has an embedding server, what it is configured to use, and how much of agent memory has been vectorized. Read only: the provider, model and key are deploy-time chart values, because changing the model discards every stored vector.
+// @Description Whether this installation has an embedding server, what it is configured to use, and how much of agent memory is still waiting to be vectorized. Read only: the provider, model and key are deploy-time chart values, because changing the model discards every stored vector.
 // @Tags        settings
 // @Produce     json
 // @Success     200 {object} statusResponse
@@ -72,14 +76,14 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 	out := statusResponse{Status: h.client.Check(ctx)}
 	if h.counter != nil {
-		embedded, pending, err := h.counter.EmbeddingCounts(ctx)
+		pending, err := h.counter.PendingCount(ctx)
 		if err != nil {
-			// The counts are the least of what this page says, and the half that
-			// matters — whether the server is there and answering — is already in
-			// hand. Reported, and served without them.
-			slog.Warn("embedding status: counts unavailable", "error", err)
+			// The count is the least of what this says, and the half that matters —
+			// whether the server is there and answering — is already in hand.
+			// Reported, and served without it.
+			slog.Warn("embedding status: pending count unavailable", "error", err)
 		} else {
-			out.Embedded, out.Pending = embedded, pending
+			out.Pending = pending
 		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
