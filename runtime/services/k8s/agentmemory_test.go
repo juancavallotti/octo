@@ -33,7 +33,12 @@ func (s *memoryServer) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// EscapedPath, not Path: the server decodes %2F back into a slash, so the
 		// decoded form cannot tell an escaped key from one that really spans segments.
-		s.paths = append(s.paths, r.Method+" "+r.URL.EscapedPath())
+		// The query is kept too — who a write is for travels there.
+		recorded := r.Method + " " + r.URL.EscapedPath()
+		if r.URL.RawQuery != "" {
+			recorded += "?" + r.URL.RawQuery
+		}
+		s.paths = append(s.paths, recorded)
 		if s.notFound {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -168,6 +173,56 @@ func TestK8sMemoryEscapesPathSegments(t *testing.T) {
 	}
 	if gotAgent != "dr octo" {
 		t.Errorf("the agent id should arrive intact, got %q", gotAgent)
+	}
+}
+
+// TestK8sMemoryNamesTheUserOnEveryThreadWrite is a regression, and the bug it
+// pins was silent in the worst way: everything was recorded and nothing was lost,
+// but the orchestrator attributes a conversation to a person on the first write
+// that names one, and no write named one. So every thread was stored belonging to
+// nobody, and the platform — which lists a person's conversations by exactly that
+// attribution — showed an empty history over a full one.
+//
+// Both writes are checked, not just the append, because either can be the first
+// to touch a conversation: a checkpoint lands mid-run, before any turn completes.
+func TestK8sMemoryNamesTheUserOnEveryThreadWrite(t *testing.T) {
+	srv := &memoryServer{}
+	m := newTestMemory(t, srv)
+	ctx := context.Background()
+	ref := core.MemoryRef{AgentID: "dr-octo", ThreadKey: "t-1", UserID: "user/alice"}
+
+	if _, err := m.SaveWorking(ctx, ref, core.WorkingMemory{Payload: []byte("{}")}); err != nil {
+		t.Fatalf("save working: %v", err)
+	}
+	if _, err := m.AppendTurns(ctx, ref, []core.Turn{{Role: core.LLMRoleUser, Text: "hello"}}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	for _, path := range srv.paths {
+		if !strings.Contains(path, "userId=user%2Falice") {
+			t.Errorf("every thread write should say who it is for, got %q", path)
+		}
+	}
+}
+
+// TestK8sMemoryOmitsTheUserWhenThereIsNone keeps the parameter out of the URL
+// entirely for an agent that serves nobody in particular, rather than sending an
+// empty one. The orchestrator never overwrites an attribution with nothing, so
+// this is about the request being honest rather than about the outcome.
+func TestK8sMemoryOmitsTheUserWhenThereIsNone(t *testing.T) {
+	srv := &memoryServer{}
+	m := newTestMemory(t, srv)
+	ref := core.MemoryRef{AgentID: "dr-octo", ThreadKey: "t-1"}
+
+	if _, err := m.AppendTurns(context.Background(), ref, []core.Turn{
+		{Role: core.LLMRoleUser, Text: "hello"},
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	for _, path := range srv.paths {
+		if strings.Contains(path, "userId") {
+			t.Errorf("an agent serving nobody should send no user, got %q", path)
+		}
 	}
 }
 
