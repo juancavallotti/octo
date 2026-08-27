@@ -25,6 +25,7 @@ import type {
   MemoryTranscript,
   ThreadQuery,
   UserMemory,
+  WorkingMemory,
 } from "./client/agentMemory";
 import type { Integration } from "@/app/model/orchestrator";
 
@@ -61,6 +62,14 @@ export async function readMemoryThread(
   threadKey: string,
 ): Promise<ActionResult<MemoryTranscript>> {
   return withWrite(() => client.readThread(integrationId, agentId, threadKey));
+}
+
+export async function readMemoryWorking(
+  integrationId: string,
+  agentId: string,
+  threadKey: string,
+): Promise<ActionResult<WorkingMemory>> {
+  return withWrite(() => client.readWorkingMemory(integrationId, agentId, threadKey));
 }
 
 export async function deleteMemoryThread(

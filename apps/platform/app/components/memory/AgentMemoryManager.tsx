@@ -10,12 +10,14 @@ import {
   listMemoryIntegrations,
   listMemoryThreads,
   readMemoryThread,
+  readMemoryWorking,
   searchAgentMemory,
   type MemoryAgent,
   type MemoryHit,
   type MemoryThread,
   type MemoryTranscript,
   type UserMemory,
+  type WorkingMemory,
 } from "@/app/model/agentMemory";
 import type { Integration } from "@/app/model/orchestrator";
 import { MemoryPickers } from "./MemoryPickers";
@@ -23,6 +25,7 @@ import { MemorySearch } from "./MemorySearch";
 import { SearchRanking } from "./SearchRanking";
 import { ThreadList } from "./ThreadList";
 import { ThreadTranscript } from "./ThreadTranscript";
+import { WorkingMemoryPanel } from "./WorkingMemoryPanel";
 import { UserMemoryList } from "./UserMemoryList";
 
 /**
@@ -48,6 +51,7 @@ export default function AgentMemoryManager() {
   const [agentId, setAgentId] = useState("");
   const [threads, setThreads] = useState<MemoryThread[]>([]);
   const [selected, setSelected] = useState<MemoryTranscript | null>(null);
+  const [working, setWorking] = useState<WorkingMemory | null>(null);
   const [memories, setMemories] = useState<UserMemory[]>([]);
   const [hits, setHits] = useState<MemoryHit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +108,7 @@ export default function AgentMemoryManager() {
     setAgents([]);
     setThreads([]);
     setSelected(null);
+    setWorking(null);
     setMemories([]);
     setHits(null);
     if (next) listMemoryAgents(next).then(setAgents, fail);
@@ -114,6 +119,7 @@ export default function AgentMemoryManager() {
     agentRef.current = next;
     setAgentId(next);
     setSelected(null);
+    setWorking(null);
     setMemories([]);
     setHits(null);
     loadThreads(integrationId, next);
@@ -136,10 +142,20 @@ export default function AgentMemoryManager() {
 
     setBusy(true);
     setError(null);
+    setWorking(null);
     try {
-      const transcript = await readMemoryThread(forIntegration, forAgent, threadKey);
+      // The transcript and the live context are read together and shown together,
+      // because the interesting fact is the DIFFERENCE between them: one is
+      // uncompacted and the other is whatever survived compaction. In parallel,
+      // since neither read depends on the other and this is a page someone is
+      // waiting on.
+      const [transcript, live] = await Promise.all([
+        readMemoryThread(forIntegration, forAgent, threadKey),
+        readMemoryWorking(forIntegration, forAgent, threadKey),
+      ]);
       if (stale()) return;
       setSelected(transcript);
+      setWorking(live);
       // A conversation names the person it was with, which is the only handle the
       // curated memories are addressed by — so they can only be loaded once one is
       // open. An agent that serves nobody in particular has none.
@@ -244,6 +260,7 @@ export default function AgentMemoryManager() {
               />
               <div className="flex flex-col gap-4">
                 <ThreadTranscript transcript={selected} busy={busy} />
+                {!busy && <WorkingMemoryPanel working={working} />}
                 {selected?.thread.userId && (
                   <UserMemoryList
                     userId={selected.thread.userId}

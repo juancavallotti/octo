@@ -286,6 +286,23 @@ ignored.
 Two blocks declaring the same `agentId` share one memory. That is what replicas
 of one logical agent want, and what two different agents almost never do.
 
+### Naming a conversation
+
+The runtime records a conversation and will not name one: what an exchange was
+*about* is a judgement, and a judgement is a model call. Add a
+[`nameThread`](/reference/blocks/ai#naming-a-conversation) slot and that call goes
+there — it runs once, on the exchange that opens a conversation, is handed the
+question and the answer, and whatever it returns becomes the title.
+
+The engine does the writing, which is the point of it being a slot rather than a
+flow you call yourself: it is already holding the conversation's reference, and
+the store knows how to record a title on whichever tier it is. Standalone writes
+it into the thread's `thread.json`; the platform records it on the row.
+
+Returning an empty title names nothing, which is the right answer for a greeting
+that was never going anywhere. Without the slot a conversation still gets a title
+— the opening question, truncated — so a list always has something to show.
+
 ### What user memory gives the model
 
 With `userMemory: true` the agent gets `remember`, `forget` and `search_memory`.
@@ -313,7 +330,16 @@ no `OCTO_STORAGE_DIR` keeps the same structure in process and leaves nothing
 behind.
 
 Every write carries a version, and a write against a version something else has
-moved past is refused rather than silently winning.
+moved past is refused rather than silently winning — so two replicas of one agent
+retry against what the other wrote instead of overwriting it. Appending turns is
+the deliberate exception: appends commute, so the sequence numbers come from the
+store and there is no version to conflict over.
+
+On the platform a conversation is also attributed to the person it was with,
+taken from `userId` on the first write that names one and never reassigned by a
+later write that does not. That attribution is what lets a chat panel list one
+person's conversations — an agent that records history without a `userId` records
+it belonging to nobody, and nothing that lists by person will find it.
 
 Clearing a conversation reaches all of it. Give [clear-agent-memory](/reference/blocks/ai#clear-agent-memory)
 the same `agentId` and it removes the working memory, the recorded turns and the

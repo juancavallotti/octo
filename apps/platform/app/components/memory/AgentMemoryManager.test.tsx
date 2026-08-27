@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // Declared through vi.hoisted because vi.mock is lifted above the file's own
@@ -15,6 +15,7 @@ const model = vi.hoisted(() => ({
   listMemoryAgents: vi.fn(),
   listMemoryThreads: vi.fn(),
   readMemoryThread: vi.fn(),
+  readMemoryWorking: vi.fn(),
   deleteMemoryThread: vi.fn(),
   listAgentUserMemories: vi.fn(),
   deleteAgentUserMemory: vi.fn(),
@@ -70,6 +71,18 @@ beforeEach(() => {
       { seq: 2, role: "assistant", text: "roll it out", createdAt: "2026-08-01T00:00:01Z" },
     ],
   });
+  // Compacted relative to the transcript above — one message where two turns were
+  // said — because that gap is what the panel exists to make visible.
+  model.readMemoryWorking.mockResolvedValue({
+    found: true,
+    version: 3,
+    iteration: 2,
+    tokens: 1200,
+    updatedAt: "2026-08-01T00:00:01Z",
+    bytes: 2048,
+    readable: true,
+    payload: JSON.stringify({ v: 1, messages: [{ Role: "user", Text: "how do I deploy?" }] }),
+  });
   model.listAgentUserMemories.mockResolvedValue([
     {
       name: "prefers-go",
@@ -95,8 +108,48 @@ describe("AgentMemoryManager", () => {
   it("shows a conversation uncompacted, with both sides", async () => {
     await choose();
     await userEvent.click(await screen.findByText("Deploying"));
-    await screen.findByText("how do I deploy?");
-    expect(screen.getByText("roll it out")).toBeTruthy();
+    // Scoped to the transcript, because the working-memory panel beside it shows
+    // some of the same text on purpose — that overlap IS the comparison.
+    const transcript = await screen.findByRole("region", { name: "Transcript" });
+    await waitFor(() => expect(within(transcript).getByText("how do I deploy?")).toBeTruthy());
+    expect(within(transcript).getByText("roll it out")).toBeTruthy();
+  });
+
+  /**
+   * The live context, next to the record.
+   *
+   * The assertion that matters is the DIFFERENCE: the transcript holds both turns
+   * and working memory holds one, which is what compaction did. An operator
+   * asking "why doesn't it remember what I told it" is asking to see exactly this,
+   * and before the panel existed there was no way to answer them.
+   */
+  it("shows what the agent still carries beside what it said", async () => {
+    await choose();
+    await userEvent.click(await screen.findByText("Deploying"));
+
+    const live = await screen.findByRole("region", { name: "Working memory" });
+    await waitFor(() => expect(within(live).getByText("how do I deploy?")).toBeTruthy());
+    expect(within(live).queryByText("roll it out")).toBeNull();
+    expect(within(live).getByText(/1,200 tokens/)).toBeTruthy();
+  });
+
+  // A conversation that ended cleanly keeps its transcript and nothing to resume
+  // from. Said plainly rather than rendered as an empty box, which reads as a bug.
+  it("says so plainly when a conversation carries no live context", async () => {
+    model.readMemoryWorking.mockResolvedValue({
+      found: false,
+      version: 0,
+      iteration: 0,
+      tokens: 0,
+      updatedAt: "",
+      bytes: 0,
+      readable: false,
+    });
+    await choose();
+    await userEvent.click(await screen.findByText("Deploying"));
+
+    const live = await screen.findByRole("region", { name: "Working memory" });
+    await waitFor(() => expect(within(live).getByText(/no live context/)).toBeTruthy());
   });
 
   it("shows what the agent remembers about the person in the conversation", async () => {

@@ -30,8 +30,13 @@ export function ThreadTranscript({
       </div>
     );
   }
+  // Labelled, because the working-memory panel beside this one deliberately shows
+  // overlapping text and "which of the two is this" has to be answerable.
   return (
-    <div className="rounded-lg border border-black/10 dark:border-white/10">
+    <section
+      aria-label="Transcript"
+      className="rounded-lg border border-black/10 dark:border-white/10"
+    >
       <div className="border-b border-black/10 px-4 py-3 dark:border-white/10">
         <h2 className="text-sm font-medium">
           {transcript.thread.title || transcript.thread.threadKey}
@@ -71,6 +76,6 @@ export function ThreadTranscript({
           Showing the first {transcript.turns.length} turns of a longer conversation.
         </p>
       )}
-    </div>
+    </section>
   );
 }
