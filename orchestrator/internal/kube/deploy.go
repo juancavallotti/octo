@@ -87,6 +87,11 @@ const (
 	// tracing, and unlike tracing it is a grant: the definition's author asks for it,
 	// but whoever deploys decides.
 	envLogs = "LOGS_URL"
+
+	// envEmbeddings is the embedding server's in-cluster address. Injected into
+	// every pod when the installation has one, because an embedding grants access
+	// to nothing and the alternative is a provider key in every pod.
+	envEmbeddings = "EMBEDDINGS_URL"
 )
 
 // Spec describes the workload to create for one deployment.
@@ -561,6 +566,14 @@ func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 	}
 	if c.runtimeServices.NATSURL != "" {
 		env = append(env, corev1.EnvVar{Name: envNATSURL, Value: c.runtimeServices.NATSURL})
+	}
+	// The embedding server, reached directly by the pod as NATS and Redis are.
+	// Emitted only when the installation has one; without it a flow that wants
+	// vectors finds no address rather than an empty one that fails per call.
+	if c.runtimeServices.EmbeddingsURL != "" {
+		env = append(env, corev1.EnvVar{
+			Name: envEmbeddings, Value: c.runtimeServices.EmbeddingsURL,
+		})
 	}
 	// Redis, reached directly by the pod exactly as NATS is — the volatile KV tier
 	// has no database and no encryption key, so routing it through the orchestrator

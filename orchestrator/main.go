@@ -406,6 +406,11 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		// Only reaches the pods that were granted the observability API, so an
 		// orchestrator without it disables that grant rather than degrading anything.
 		LogsURL: os.Getenv("LOGS_URL"),
+		// The embedding server, reaching every pod rather than only the granted ones.
+		// An embedding reads nothing and writes nothing, so there is no boundary to
+		// gate — and every pod holding the URL is what makes it unnecessary for any
+		// pod to hold the provider key.
+		EmbeddingsURL: os.Getenv("EMBEDDINGS_URL"),
 	}
 }
 
@@ -620,14 +625,30 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		agentmemory.NewHandler(agentMemorySvc).Register(mux)
 
 		// The optional vector half. Everything above works without it; this only
-		// changes how a search ranks. The credential is read per call rather than
-		// held, because an operator turns embeddings on and off without restarting.
-		embeddingSvc := embedding.NewService(
-			embedding.NewRepo(database.Pool()), cipher, agentMemoryRepo)
-		embedding.NewHandler(embeddingSvc).Register(mux)
-		agentMemorySvc.WithEmbedder(embedding.NewAdapter(embeddingSvc), agentMemoryRepo)
+		// changes how a search ranks.
+		//
+		// No credential and no provider code here. Both live on the embedding
+		// server, a small octo app the chart deploys when a key is configured, and
+		// this orchestrator reaches it by URL alone. That is what keeps the
+		// provider key in one pod instead of in every pod, and what keeps the
+		// runtime's own ai-embed block the single implementation of talking to an
+		// embeddings API.
+		//
+		// An installation with no embedding server sets nothing here and loses
+		// nothing but ranking: the sweep finds itself unconfigured and stops
+		// asking, and search matches text.
+		embeddings := embedding.FromEnv()
+		agentMemorySvc.WithEmbedder(embeddings, agentMemoryRepo)
 		agentMemorySvc.StartBackfill(ctx)
-		slog.Info("embedding routes registered", "endpoints", "GET/PUT/DELETE /settings/embedding")
+		// Read only. What it reports is whether there is a server, what it says it
+		// is using, and how far the backfill has got — there is nothing to write,
+		// because the provider, model and key are chart values on the server.
+		embedding.NewHandler(embeddings, agentMemoryRepo).Register(mux)
+		if embeddings.Configured(ctx) {
+			slog.Info("embedding server configured", "url", os.Getenv("EMBEDDINGS_URL"))
+		} else {
+			slog.Info("no embedding server; agent memory search will match text")
+		}
 
 		slog.Info("agent memory routes registered",
 			"endpoints", "GET/PUT /deployments/{id}/agent-memory/..., "+
@@ -801,6 +822,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		redisProbe(redisClient),
 		natsProbe,
 		kubeProbe,
+		embeddingsProbe(),
 	)).Register(mux)
 	slog.Info("health routes registered", "endpoints", "GET /settings/health")
 
@@ -812,6 +834,24 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	slog.Info("storage routes registered", "endpoints", "GET /settings/storage")
 
 	return mux, nil
+}
+
+// embeddingsProbe checks the embedding server, or nil when there is none.
+//
+// Nil rather than a probe that always fails, because those are different answers
+// and the page shows them differently: an installation with no embedding server
+// is running a supported way, not a broken one. Only a server that was deployed
+// and does not answer is a fault.
+//
+// The probe reads the server's /healthz, which reports what it is configured to
+// do without doing any of it. Embedding something to find out whether the
+// provider key is good would bill somebody every time the page refreshed.
+func embeddingsProbe() func(context.Context) error {
+	client := embedding.FromEnv()
+	if !client.Configured(context.Background()) {
+		return nil
+	}
+	return client.Probe
 }
 
 // databasePool returns the connection pool, or nil when this orchestrator is
