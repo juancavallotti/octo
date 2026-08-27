@@ -1,6 +1,6 @@
 ---
 title: "Agent Memory"
-description: "Per-thread conversation memory, compaction, and durable user facts."
+description: "Working memory, durable conversation history, and curated user memory."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -244,7 +244,90 @@ message through unchanged:
           value: '{"cleared": true}'
 ```
 
+## First-class memory: `agentId`
+
+Everything above is one object: the transcript the model replays, compacted to
+fit a budget. That object is doing two jobs badly. It is the agent's working
+context, so it has to shrink — and it is the only record of the conversation, so
+shrinking it destroys what a person would want to read back.
+
+Give the block an `agentId` and the runtime stores three separate things
+instead:
+
+```yaml
+      - type: ai-agent
+        name: support
+        connector: claude
+        agentId: support-agent          # opts into first-class memory
+        memoryThreadId: body.threadId
+        userId: body.userId             # who is on the other side
+        userMemory: true                # remember/forget/search_memory tools
+        prompt: |
+          Help the customer.
+        tools: [...]
+```
+
+| | What it is | Compacted? |
+| --- | --- | --- |
+| **Working memory** | The transcript the model re-reads, checkpointed during the run so an interrupted agent resumes where it was | Yes — `contextMaxTokens` and `memoryCompaction` govern it |
+| **Conversation history** | The turn-level record a *person* reads, and the platform lists and replays | **Never** |
+| **User memory** | Curated facts the agent chose to keep about someone, carried into later conversations | n/a — the agent writes and deletes these deliberately |
+
+<Callout type="warn">
+`agentId` is stated by you and never derived from the block's position. An
+address is a position in a file, so a name derived from it would make renaming
+the block — or moving it into another branch — silently destroy every
+conversation stored under it. For the same reason it is opt-in: an agent
+without one behaves exactly as it did before, and `history: record` or
+`userMemory: true` without one is a build error rather than a setting quietly
+ignored.
+</Callout>
+
+Two blocks declaring the same `agentId` share one memory. That is what replicas
+of one logical agent want, and what two different agents almost never do.
+
+### What user memory gives the model
+
+With `userMemory: true` the agent gets `remember`, `forget` and `search_memory`.
+What it has already remembered is placed in **every request**, so it does not
+have to call a tool to find out what it knows — an agent that has to remember to
+remember mostly does not. The preamble is bounded and is never written into the
+transcript, so correcting a memory between runs replaces it rather than leaving
+stale copies behind in working memory.
+
+This is the built-in replacement for the hand-rolled fact store described in the
+next section. If you are starting now, use `userMemory`.
+
+### Where it is stored
+
+Storage is the deployment's business, not the flow's:
+
+| | Working memory | Conversation history | User memory | Search |
+| --- | --- | --- | --- | --- |
+| **Standalone** | `$OCTO_STORAGE_DIR/agent-memory/{agent}/threads/{thread}/working.json` | `.../turns.jsonl` | `.../users/{user}.json` | Keyword |
+| **Platform** | Orchestrator database | Orchestrator database | Orchestrator database | Semantic when an embedding provider is configured, keyword otherwise |
+
+On standalone the directory *is* the index — listing an agent's conversations
+is a directory read, with no second file to keep in step. An `octo invoke` with
+no `OCTO_STORAGE_DIR` keeps the same structure in process and leaves nothing
+behind.
+
+Every write carries a version, and a write against a version something else has
+moved past is refused rather than silently winning.
+
+Clearing a conversation reaches all of it. Give [clear-agent-memory](/reference/blocks/ai#clear-agent-memory)
+the same `agentId` and it removes the working memory, the recorded turns and the
+thread itself — a clear that reached only one of them would report success over
+a readable copy.
+
 ## The second layer: durable facts
+
+<Callout>
+This section predates `userMemory` above, which does the same job as a built-in.
+It is kept because the pattern is still a good worked example of flow-backed
+tools, and because deployments running it should be able to read how it works.
+New agents should use `userMemory`.
+</Callout>
 
 Conversation memory is a transcript with a budget — it fades as it is
 compacted, and it is scoped to one thread. For facts that should survive
