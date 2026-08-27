@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -424,5 +425,64 @@ func TestRepoMemoryConflictsAfterForgetting(t *testing.T) {
 	}
 	if _, err := r.PutMemory(ctx, ref, "lang", "Prefers Rust.", 0); err != nil {
 		t.Fatalf("storing it afresh should work: %v", err)
+	}
+}
+
+// TestSearchTextOrsItsTerms is the difference between a recall aid and a cliff.
+//
+// websearch_to_tsquery ANDs bare words, so a query naming two things no single
+// turn contains matched nothing — which is most natural-language queries. Found
+// on a live store: "rollout deployment" matched two obviously relevant turns and
+// returned neither. ts_rank still ranks, so a turn containing both terms sorts
+// above one containing either.
+func TestSearchTextOrsItsTerms(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	ref := testRef(t, r, "support", "thread-1", "")
+
+	if _, err := r.AppendTurns(ctx, ref, []Turn{
+		{Role: "user", Text: "how do I roll out a deployment?"},
+		{Role: "assistant", Text: "use the rollout button on the integration"},
+		{Role: "assistant", Text: "a rollout replaces the running deployment"},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	hits, err := r.SearchText(ctx, ref.IntegrationID, Query{
+		AgentID: "support", Text: "rollout deployment",
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) < 2 {
+		t.Fatalf("a two-term query should reach turns matching either, got %d", len(hits))
+	}
+	// And ranking still prefers the turn that has both terms over one with either.
+	if !strings.Contains(hits[0].Text, "rollout") || !strings.Contains(hits[0].Text, "deployment") {
+		t.Errorf("the turn matching both terms should rank first, got %q", hits[0].Text)
+	}
+}
+
+// TestSearchTextKeepsQuotedPhrases checks the rewrite only relaxes the joins
+// between terms: a quoted phrase is still a phrase, not two OR'd words.
+func TestSearchTextKeepsQuotedPhrases(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	ref := testRef(t, r, "support", "thread-1", "")
+
+	if _, err := r.AppendTurns(ctx, ref, []Turn{
+		{Role: "user", Text: "roll out the change"},
+		{Role: "assistant", Text: "out of the roll there is nothing"},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	hits, err := r.SearchText(ctx, ref.IntegrationID, Query{
+		AgentID: "support", Text: `"roll out"`,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) != 1 || !strings.Contains(hits[0].Text, "roll out the change") {
+		t.Errorf("a quoted phrase should match only the phrase, got %+v", hits)
 	}
 }

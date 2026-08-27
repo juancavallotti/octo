@@ -537,8 +537,21 @@ func (r *Repo) SearchText(ctx context.Context, integrationID string, q Query) ([
 	if limit <= 0 || limit > maxSearchLimit {
 		limit = defaultSearchLimit
 	}
+	// The terms are OR'd, not AND'd, and ts_rank does the rest.
+	//
+	// websearch_to_tsquery ANDs bare words, which is right for a search box and
+	// wrong for this: an agent asking "deployment rollout problems" wants the turns
+	// about deployments and rollouts, ranked, not nothing because no single turn
+	// contains all three. Verified on a live store — that exact query matched two
+	// obviously relevant turns and returned neither.
+	//
+	// Rewriting the operator rather than switching parser keeps what websearch is
+	// good at: a quoted "roll out" stays a phrase, and a leading - stays a negation.
+	// It only relaxes the joins between terms, which is the part that was a cliff.
 	rows, err := r.pool.Query(ctx,
-		`WITH q AS (SELECT websearch_to_tsquery('simple', $4) AS tsq)
+		`WITH q AS (
+		     SELECT replace(websearch_to_tsquery('simple', $4)::text, '&', '|')::tsquery AS tsq
+		 )
 		 SELECT kind, thread_key, name, text, seq, score FROM (
 		     SELECT 'turn'::varchar AS kind, t.thread_key, ''::varchar AS name,
 		            tn.text, tn.seq,
