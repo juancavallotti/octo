@@ -3,8 +3,6 @@ title: "Call External APIs"
 description: "Use the HTTP client with auth, retries, and response caching."
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
-
 In this guide you call an external HTTP API from a flow with the `http-client`
 connector and the `rest` block, then layer on authentication, retries, and
 response caching. It follows
@@ -209,10 +207,35 @@ Rather than a fallback credential path that behaves differently on a laptop than
 in production, the scheme is switched off by configuration and the difference
 stays visible in the environment.
 
-<Callout type="info">
-If a `rest` block sets an `Authorization` header itself, the connector leaves
-it alone — per-request auth wins over the connector default.
-</Callout>
+### Forward the caller's credential
+
+Every scheme above describes a credential known at startup. When the flow calls
+the upstream *as its caller* — relaying a bearer token that came in with the
+request, or one an earlier block minted — the credential is not configuration, it
+is data on the message. Put it in the block's `auth` setting, which is sent
+verbatim as the `Authorization` header:
+
+```yaml
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /me
+        headers: [Authorization]        # arrives as vars.Authorization
+    process:
+      - type: rest
+        settings:
+          connector: orders             # no auth of its own
+          path: /v1/me
+          auth: 'vars["Authorization"]'
+```
+
+This works only through a connector whose own `auth` is disabled: a connector
+that authenticates already has a credential, and a message may not replace it.
+An empty result sends no header at all, so a flow where only some callers are
+authenticated needs no branch. See
+[Forwarding a credential](/reference/connectors/http#forwarding-a-credential) for
+the full rules and the trust question to ask before turning it on.
 
 ## Retry rate-limited requests
 
