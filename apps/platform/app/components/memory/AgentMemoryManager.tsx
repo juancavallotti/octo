@@ -32,10 +32,12 @@ import { UserMemoryList } from "./UserMemoryList";
  * with no audit trail and nothing in the conversation explaining the change, is a
  * feature that should be asked for explicitly.
  *
- * It lives in the admin section rather than under an integration because an
- * operator opening this is usually asking "what does this agent know", not
- * "what does this one integration know" — and because the integrations route is
- * an optional catch-all that a nested page would collide with.
+ * It is a top-level platform section rather than a page under an integration
+ * because an operator opening this is usually asking "what does this agent know",
+ * not "what does this one integration know" — and because the integrations route
+ * is an optional catch-all that a nested page would collide with. It is not under
+ * Admin either: admin is settings that belong to the installation, and this is
+ * data that belongs to integrations, read the way logs and traces are.
  */
 export default function AgentMemoryManager() {
   const confirm = useConfirm();

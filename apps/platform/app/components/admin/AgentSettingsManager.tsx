@@ -22,8 +22,12 @@ import { SecondaryButton } from "./fields";
  * The agent is deployed as an ordinary integration, so most of what an operator
  * might want here already exists elsewhere: logs and scaling are on the deployment,
  * the definition is in the editor. What is left is the lifecycle, which is this
- * page, and the two settings that are not deployment settings — tracing, and how
+ * section, and the two settings that are not deployment settings — tracing, and how
  * many turns one of his runs may take.
+ *
+ * It is the *second* section of the platform agent page: the models he needs are
+ * configured above it, in the order they are needed, because an install is refused
+ * outright until the LLM provider is set.
  *
  * The buttons live in AgentActions and the turn limit in AgentTurnLimit: this file
  * is the state machine — load, run, refresh, confirm — and reading it used to mean
@@ -101,7 +105,9 @@ export default function AgentSettingsManager() {
   const rollout = async () => {
     if (!canAct || blocked) return;
     const ok = await confirm({
-      title: status?.updateAvailable ? "Roll out the update?" : "Reinstall from stock?",
+      title: status?.updateAvailable
+        ? "Roll out the update?"
+        : "Reinstall from stock?",
       // The edited case used to read as a threat, which overstated it: the live
       // definition is frozen as its own version before it is replaced, so the edits
       // are recoverable rather than lost. Saying which version, and that it can be
@@ -137,63 +143,69 @@ export default function AgentSettingsManager() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-6 py-5">
-      <div className="mx-auto w-full max-w-2xl">
-        <h1 className="text-lg font-semibold">Platform agent</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Dr. Octo answers questions about this installation and helps build
-          integrations. He is deployed as an ordinary integration from a definition
-          this orchestrator ships — so you can open him in the editor and change the
-          prompt, the tools or the skills, and the usual logs, traces and scaling all
-          work on him.
-        </p>
+    <section aria-labelledby="deployment-heading" className="mt-8">
+      <h2 id="deployment-heading" className="text-base font-semibold">
+        Deployment
+      </h2>
+      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+        He is deployed as an ordinary integration from a definition this
+        orchestrator ships &mdash; so you can open him in the editor and change
+        the prompt, the tools or the skills, and the usual logs, traces and
+        scaling all work on him.
+      </p>
 
-        {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
 
-        {status === null && loadFailed ? (
-          <SecondaryButton onClick={retry} disabled={busy}>
-            Try again
-          </SecondaryButton>
-        ) : status === null ? (
-          <p className="mt-4 text-sm text-zinc-500">Loading…</p>
-        ) : (
-          <>
-            <AgentStatusCard
-              status={status}
-              actions={
-                <AgentActions
-                  status={status}
-                  canAct={canAct}
-                  onInstall={install}
-                  onRollout={rollout}
-                  onToggleTracing={toggleTracing}
-                  onRemove={remove}
-                />
-              }
-            />
-
-            {deployed && (
-              <p className="mt-2 text-xs text-zinc-500">
-                Turning tracing on or off replaces the agent&rsquo;s pods: the runtime
-                reads the setting when it starts, so it cannot be changed in place.
-                Traces then appear under Traces like any other integration&rsquo;s.
-              </p>
-            )}
-
-            {/* Keyed on what is in force so a successful apply remounts the field
-                seeded from what came back, rather than syncing it in an effect
-                that would fight anyone typing mid-roll-out. */}
-            {deployed && (
-              <AgentTurnLimit
-                key={status.maxIterations ?? "default"}
-                value={status.maxIterations}
-                disabled={!canAct}
-                onApply={applyTurns}
+      {status === null && loadFailed ? (
+        <SecondaryButton onClick={retry} disabled={busy}>
+          Try again
+        </SecondaryButton>
+      ) : status === null ? (
+        <p className="mt-4 text-sm text-zinc-500">Loading…</p>
+      ) : (
+        <>
+          <AgentStatusCard
+            status={status}
+            actions={
+              <AgentActions
+                status={status}
+                canAct={canAct}
+                onInstall={install}
+                onRollout={rollout}
+                onToggleTracing={toggleTracing}
+                onRemove={remove}
               />
-            )}
-          </>
-        )}
-      </div>
-    </div>
+            }
+            // The turn limit is a property of this deployment, not of the section
+            // around it, so it belongs inside the card with the buttons that
+            // change the same pods. It sat below as a page-level field, which read
+            // as a third setting unrelated to the agent above it.
+            //
+            // Keyed on what is in force so a successful apply remounts the field
+            // seeded from what came back, rather than syncing it in an effect that
+            // would fight anyone typing mid-roll-out.
+            footer={
+              deployed && (
+                <AgentTurnLimit
+                  key={status.maxIterations ?? "default"}
+                  value={status.maxIterations}
+                  disabled={!canAct}
+                  onApply={applyTurns}
+                />
+              )
+            }
+          />
+
+          {deployed && (
+            <p className="mt-2 text-xs text-zinc-500">
+              Turning tracing on or off replaces the agent&rsquo;s pods: the
+              runtime reads the setting when it starts, so it cannot be changed
+              in place. Traces then appear under Traces like any other
+              integration&rsquo;s.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }

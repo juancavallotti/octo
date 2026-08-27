@@ -123,7 +123,7 @@ describe("useAgentChat", () => {
   it("routes a navigate frame to the callback", async () => {
     fetchMock.mockResolvedValue(
       sseResponse(
-        'event: navigate\ndata: {"path":"/platform/admin/llm","reason":"here"}\n\n' +
+        'event: navigate\ndata: {"path":"/platform/admin/agent","reason":"here"}\n\n' +
           frames({ type: "text", text: "Taking you there." }),
       ),
     );
@@ -133,7 +133,7 @@ describe("useAgentChat", () => {
     act(() => result.current.send("where is the llm key"));
 
     await waitFor(() => expect(result.current.busy).toBe(false));
-    expect(onNavigate).toHaveBeenCalledWith({ path: "/platform/admin/llm", reason: "here" });
+    expect(onNavigate).toHaveBeenCalledWith({ path: "/platform/admin/agent", reason: "here" });
   });
 
   // The agent's definition is editable, so the panel is the only guaranteed guard

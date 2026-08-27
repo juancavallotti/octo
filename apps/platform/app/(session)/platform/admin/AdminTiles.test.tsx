@@ -10,9 +10,6 @@ describe("AdminTiles", () => {
     expect(screen.getByRole("link", { name: /Email/ }).getAttribute("href")).toBe(
       "/platform/admin/email",
     );
-    expect(screen.getByRole("link", { name: /LLM provider/ }).getAttribute("href")).toBe(
-      "/platform/admin/llm",
-    );
     expect(screen.getByRole("link", { name: /Platform agent/ }).getAttribute("href")).toBe(
       "/platform/admin/agent",
     );

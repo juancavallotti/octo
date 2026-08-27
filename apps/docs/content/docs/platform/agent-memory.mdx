@@ -1,0 +1,20 @@
+---
+title: "Agent Memory"
+description: "Read what agents have recorded: their conversations, and the facts they keep about people."
+---
+
+`/platform/memory` reads what agents have actually recorded: the conversations they have had, and the facts they chose to keep about the people in them.
+
+It is a platform section rather than an admin page, and the distinction is worth stating: nothing here configures anything. This is **data that belongs to integrations**, read the same way [logs](/platform/logs-api-reference), [traces](/platform/traces) and [stored objects](/platform/kv-and-storage) are. What an agent has to declare before any of it is recorded is in [Agent Memory](/ai/agent-memory); what the embedding server changes about searching it is in [Admin settings](/platform/admin-settings).
+
+Pick an integration, then an agent. The agent list is what has **stored** something, not what a definition declares — an agent appears once it has recorded a conversation.
+
+Conversations here are **uncompacted**. That is the difference between this and what the agent still carries: working memory is pruned or summarized to fit the model's context window, and this record is not touched again once written. A question the agent never got back to is badged rather than hidden.
+
+You can read, search, erase a conversation, and forget one remembered fact. You cannot **edit** a remembered fact, and that is deliberate: an operator rewriting what an agent believes about a person, with no audit trail and nothing in the conversation explaining the change, is a capability that should be asked for explicitly rather than fall out of a viewer.
+
+Erasing reaches everything — the transcript, the working state the agent would have resumed from, and the conversation itself.
+
+## Where it is stored
+
+Agent memory has real tables — `agent_threads`, `agent_working_memory`, `agent_turns`, `agent_user_memories` — rather than rows in `site_settings`, because it is data rather than configuration and has to be queried, paged and searched. They are keyed on the **integration** rather than the deployment, so a conversation survives a redeploy.

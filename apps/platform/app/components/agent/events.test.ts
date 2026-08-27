@@ -149,8 +149,8 @@ describe("parseAgentEvent", () => {
 
 describe("parseNavigateEvent", () => {
   it("accepts a site-relative path", () => {
-    expect(parseNavigateEvent('{"path":"/platform/admin/llm","reason":"the key lives here"}')).toEqual(
-      { path: "/platform/admin/llm", reason: "the key lives here" },
+    expect(parseNavigateEvent('{"path":"/platform/admin/agent","reason":"the key lives here"}')).toEqual(
+      { path: "/platform/admin/agent", reason: "the key lives here" },
     );
   });
 

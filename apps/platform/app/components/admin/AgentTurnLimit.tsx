@@ -6,7 +6,7 @@ import { Field, INPUT, SecondaryButton } from "./fields";
 /**
  * How many tool-calling turns one of the agent's answers may take.
  *
- * Its own component because it is the only *edited* setting on the agent page —
+ * Its own component because it is the only *edited* setting on the deployment card —
  * everything else there is a button — and because the empty case carries a rule
  * worth stating once: blank means "no override", and the agent's own definition
  * decides. That is the only way back to the shipped default once a number has been
@@ -55,7 +55,7 @@ export default function AgentTurnLimit({
   const changed = draft.trim() !== applied;
 
   return (
-    <div className="mt-5 border-t border-black/10 pt-4 dark:border-white/10">
+    <div>
       <Field
         label="Turn limit"
         hint="How many tool-calling turns one answer may take before he gives up. Leave it empty to use the limit his definition ships with. Applying it replaces his pods, the same as tracing."

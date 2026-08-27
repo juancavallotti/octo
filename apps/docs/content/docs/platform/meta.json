@@ -13,6 +13,7 @@
     "api-reference",
     "logs-api-reference",
     "agent",
+    "agent-memory",
     "event-bus",
     "traces"
   ],

@@ -113,7 +113,7 @@ describe("AgentSettingsManager", () => {
       ),
     );
     expect(screen.getByRole("link", { name: /Configure the LLM provider/ }).getAttribute("href")).toBe(
-      "/platform/admin/llm",
+      "#llm-heading",
     );
   });
 

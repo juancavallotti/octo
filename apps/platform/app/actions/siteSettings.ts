@@ -18,8 +18,6 @@ import type {
   LlmSettings,
   LlmSettingsInput,
   EmbeddingStatus,
-  EmbeddingSettings,
-  EmbeddingSettingsInput,
   SentMessage,
   TestEmailInput,
 } from "./client/settings";
@@ -50,16 +48,13 @@ export async function saveLlmSettings(
   return withWrite(() => client.saveLlmSettings(input));
 }
 
-export async function getEmbeddingSettings(): Promise<ActionResult<EmbeddingStatus>> {
-  return withRead(() => client.getEmbeddingSettings());
-}
-
-export async function saveEmbeddingSettings(
-  input: EmbeddingSettingsInput,
-): Promise<ActionResult<EmbeddingSettings>> {
-  return withWrite(() => client.saveEmbeddingSettings(input));
-}
-
-export async function clearEmbeddingSettings(): Promise<ActionResult<void>> {
-  return withWrite(() => client.clearEmbeddingSettings());
+/**
+ * The embedding server's status. A read, and the only embedding call there is:
+ * the provider, model and key are chart values on that server, so there is
+ * nothing here to write.
+ */
+export async function getEmbeddingStatus(): Promise<
+  ActionResult<EmbeddingStatus>
+> {
+  return withRead(() => client.getEmbeddingStatus());
 }
