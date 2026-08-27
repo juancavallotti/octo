@@ -377,6 +377,10 @@ flows:
         # orchestrator had just started — to set a string.
         nameThread:
           process:
+            # The body arriving here is the exchange: threadKey, agentId, userId,
+            # question and answer. ai-mapping hands the whole body to the model and
+            # replaces it with what comes back, so there is no input expression —
+            # reshaping the body IS what this block does.
             - type: ai-mapping
               name: name-it
               settings:
@@ -385,17 +389,32 @@ flows:
                 # it. Paying reasoning-model rates to summarise one exchange is the
                 # kind of cost that only shows up on the bill.
                 prompt: >-
-                  Name this conversation in at most six words, as a topic rather
-                  than a sentence — "Rolling out the orders integration", not
-                  "The user asked how to roll out an integration". No quotes, no
-                  trailing period, no preamble.
+                  You are given one exchange: the question a person asked and the
+                  answer they got. Name the conversation it opens.
 
-                  If there is nothing to name — a greeting, a test message,
-                  small talk that went nowhere — answer with an empty string
-                  rather than inventing a topic.
-                answer: text
-                input: >-
-                  "Question: " + body.question + "\n\nAnswer: " + body.answer
+                  At most six words, a topic rather than a sentence — "Rolling out
+                  the orders integration", not "The user asked how to roll out an
+                  integration". No quotes, no trailing period, no preamble.
+
+                  If there is nothing to name — a greeting, a test message, small
+                  talk that went nowhere — return an empty title. An empty title
+                  leaves the conversation unnamed, which is the right outcome; do
+                  not invent a topic to avoid it.
+                # The shape is enforced rather than asked for. Without it this block
+                # returned the model's prose, ai-mapping refused to parse it as
+                # JSON, and every conversation fell back to being named after the
+                # raw question it opened with — which looked enough like a title
+                # that nobody noticed the model was not being listened to.
+                outputSchema:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                      description: The conversation's name, or empty to leave it unnamed.
+                  required: [title]
+                  additionalProperties: false
+                outputExample:
+                  title: Rolling out the orders integration
 
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
 
