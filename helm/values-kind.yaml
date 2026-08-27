@@ -60,6 +60,14 @@ devruntime:
 agenticrunner:
   repository: octo-agenticrunner
 
+# The embedding server. Still off by default, here as everywhere: it needs a
+# provider key, and there is no sensible local default for one. Turn it on with
+#   --set embeddings.enabled=true --set embeddings.apiKey=sk-...
+# Left off, searching agent memory matches text instead of ranking by meaning,
+# which is a supported way to run rather than a degraded one.
+embeddings:
+  repository: octo-embeddings
+
 # kind ships no ingress controller at all. The NodePorts above are mapped to the
 # host by deploy/kind/cluster.yaml's extraPortMappings.
 ingress:

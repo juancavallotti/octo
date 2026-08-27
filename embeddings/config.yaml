@@ -1,0 +1,127 @@
+service:
+  name: embeddings
+
+# The embedding server.
+#
+# One job: turn text into vectors, over HTTP, for anything on this installation
+# that needs them. It exists so that the provider API key lives in exactly one
+# pod instead of in every pod, and so that the code that talks to an embeddings
+# API is written once — here, as the runtime's own `ai-embed` block and its
+# provider connectors — rather than again in Go inside the orchestrator.
+#
+# It is an octo app rather than a Go service for that second reason. The runtime
+# already knows how to call OpenAI, Gemini and OpenRouter embeddings endpoints
+# and how to bill the call; a hand-rolled client in the orchestrator was a second
+# implementation of all of it, with its own provider switch to keep in step.
+#
+# WHY EVERY POD MAY CALL THIS. The URL is injected into every deployment, so any
+# integration on the installation can embed text. That is deliberate and it is
+# the point of the split: an embedding is cheap, it grants access to nothing, and
+# handing out this URL is not handing out the API key. The alternative — a key in
+# every pod — is the thing being avoided.
+#
+# CONFIGURED BY ENVIRONMENT, NOT BY A SETTINGS PAGE. The model is fixed at
+# deploy time because it cannot be changed afterwards: vectors carry no record of
+# which model produced them, so a store holding two models' vectors cannot be
+# ranked coherently. A control that must never be touched is not a setting, and
+# putting it on an admin page would only promise otherwise. It is a chart value.
+
+env:
+  # Which provider connector to build. The value fills a connector's *type*, which
+  # is the one substitution trick this file depends on — three connectors cannot
+  # be declared instead, because each would fail startup on an empty apiKey.
+  #
+  # llm-anthropic is not a valid value here and cannot be made one: Anthropic has
+  # no embeddings API, so the connector does not implement the capability and
+  # ai-embed refuses it when the flow is BUILT. That is a startup failure with a
+  # clear message rather than a runtime surprise.
+  - name: EMBEDDING_CONNECTOR_TYPE # llm-openai | llm-gemini | llm-openrouter
+    required: true
+  - name: EMBEDDING_API_KEY
+    required: true
+    secret: true
+  - name: EMBEDDING_MODEL
+    required: true
+  # The stored vector width, requested of the provider rather than assumed of it.
+  # Most embeddings APIs take a desired-dimensions parameter; a model that cannot
+  # honour this one fails the call, and the failure is reported rather than
+  # guarded against here — there is no list of which model can do what that would
+  # not go stale.
+  - name: EMBEDDING_DIMENSIONS
+    default: "1536"
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+  - name: provider
+    type: ${EMBEDDING_CONNECTOR_TYPE}
+    settings:
+      apiKey: ${EMBEDDING_API_KEY}
+
+flows:
+  # POST /embed  {"input": ["some text", "some more"]}
+  #           -> {"vectors": [[...], [...]], "model": "...", "dimensions": 1536}
+  #
+  # Always a batch, even for one text: a caller that has one thing to embed can
+  # send a list of one, and a route with two shapes would need both to be handled
+  # by every caller. The backfill sweep sends sixty-four at a time.
+  - name: embed
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /embed
+        methods: [POST]
+        timeout: 60s
+    process:
+      - type: ai-embed
+        name: vectorize
+        settings:
+          connector: provider
+          # A list, so ai-embed makes one batched provider call and writes a list
+          # of vectors in the same order.
+          text: body.input
+          model: ${EMBEDDING_MODEL}
+          dimensions: ${EMBEDDING_DIMENSIONS}
+          resultVar: vectors
+
+      - type: set-payload
+        name: reply
+        settings:
+          value: >-
+            {"vectors": vars.vectors,
+             "model": env.EMBEDDING_MODEL,
+             "dimensions": ${EMBEDDING_DIMENSIONS}}
+
+  # GET /healthz — what this server is configured to do, without doing it.
+  #
+  # Shallow on purpose, and the same shallowness the platform's other health
+  # checks admit to: it proves the process is up and answering, not that the
+  # provider is reachable or that the key is good. Embedding to find out would
+  # bill somebody every time an admin page refreshed.
+  #
+  # It reports the model and width so that a mismatch between this server and the
+  # column it fills is diagnosable from one request.
+  - name: healthz
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /healthz
+        methods: [GET]
+    process:
+      - type: set-payload
+        name: reply
+        settings:
+          value: >-
+            {"status": "ok",
+             "model": env.EMBEDDING_MODEL,
+             "dimensions": ${EMBEDDING_DIMENSIONS}}
