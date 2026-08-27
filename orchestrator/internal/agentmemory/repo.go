@@ -208,6 +208,10 @@ func (r *Repo) AppendTurns(ctx context.Context, ref Ref, turns []Turn) (int64, e
 		if marshalErr != nil {
 			return 0, fmt.Errorf("agent memory: encode turn attrs: %w", marshalErr)
 		}
+		// created_at is left to the column default on purpose: the store assigns it,
+		// as it assigns seq. A caller-supplied time would be the runtime's clock rather
+		// than the database's, so two replicas of one agent would interleave turns
+		// stamped from two clocks — and a turn's order is already carried by seq.
 		rows = append(rows, []any{threadID, base + int64(i) + 1, turn.Role, turn.Text, turn.Tokens, attrs})
 	}
 	if _, err := tx.CopyFrom(ctx,
@@ -548,9 +552,17 @@ func (r *Repo) SearchText(ctx context.Context, integrationID string, q Query) ([
 	// Rewriting the operator rather than switching parser keeps what websearch is
 	// good at: a quoted "roll out" stays a phrase, and a leading - stays a negation.
 	// It only relaxes the joins between terms, which is the part that was a cliff.
+	//
+	// The lookahead is load-bearing, and a naive replace gets it catastrophically
+	// wrong: a negation renders as `& !'march'`, so turning every & into |
+	// makes "refund -march" mean 'refund' OR NOT 'march' — which matches every
+	// document that does not say march, i.e. almost all of them. Only the joins
+	// BETWEEN positive terms relax; an exclusion stays a requirement.
 	rows, err := r.pool.Query(ctx,
 		`WITH q AS (
-		     SELECT replace(websearch_to_tsquery('simple', $4)::text, '&', '|')::tsquery AS tsq
+		     SELECT regexp_replace(
+		         websearch_to_tsquery('simple', $4)::text, '& (?!!)', '| ', 'g'
+		     )::tsquery AS tsq
 		 )
 		 SELECT kind, thread_key, name, text, seq, score FROM (
 		     SELECT 'turn'::varchar AS kind, t.thread_key, ''::varchar AS name,

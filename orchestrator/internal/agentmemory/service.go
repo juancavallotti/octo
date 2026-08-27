@@ -274,9 +274,29 @@ func (s *Service) DeleteMemory(ctx context.Context, ref Ref, name string) error 
 	return s.store.DeleteMemory(ctx, ref, name)
 }
 
-// DeleteForIntegration removes everything an integration's agents remember.
+// DeleteForIntegration removes everything an integration's agents remember, and
+// forgets the deployment mappings that pointed at it.
+//
+// Dropping the cache is what closes the window where a pod still finishing a run
+// writes memory for an integration that has just been deleted. It does not close
+// it completely — a write already past the lookup still lands, and the row is
+// then an orphan — but that is the same bargain logs, traces and kv_store all
+// make, and it is why cleanup here is explicit rather than a cascade. Without
+// this the window was the cache's whole hour.
 func (s *Service) DeleteForIntegration(ctx context.Context, integrationID string) error {
+	s.forgetIntegration(integrationID)
 	return s.store.DeleteForIntegration(ctx, integrationID)
+}
+
+// forgetIntegration drops every cached deployment mapping for an integration.
+func (s *Service) forgetIntegration(integrationID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for deployment, hit := range s.cached {
+		if hit.id == integrationID {
+			delete(s.cached, deployment)
+		}
+	}
 }
 
 // Search returns the memory most relevant to a query.
@@ -288,6 +308,14 @@ func (s *Service) DeleteForIntegration(ctx context.Context, integrationID string
 func (s *Service) Search(ctx context.Context, integrationID string, q Query) ([]Hit, error) {
 	if err := validIdentifier("agentId", q.AgentID, true); err != nil {
 		return nil, err
+	}
+	switch q.Scope {
+	case ScopeAll, ScopeTurns, ScopeUser:
+	default:
+		// Refused rather than treated as "search everything": an unrecognised scope is
+		// a caller asking for something this does not do, and quietly widening the
+		// search is the answer least likely to be what they meant.
+		return nil, fmt.Errorf("%w: unknown search scope %q", ErrInvalidRef, q.Scope)
 	}
 	if strings.TrimSpace(q.Text) == "" {
 		return []Hit{}, nil

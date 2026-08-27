@@ -211,13 +211,18 @@ func (c *agentMemory) SaveWorking(
 
 // turnWire is one turn on the wire. It mirrors the orchestrator's shape rather
 // than core.Turn's, so a field added to one is a deliberate change to both.
+//
+// No createdAt, deliberately: the store stamps a turn as it stamps its sequence
+// number. Sending one would be this pod's clock rather than the database's, so
+// two replicas of one agent would interleave turns timed by two clocks — and the
+// order is already carried by seq. Carrying the field and never filling it was
+// worse than not having it, which is how it came to be read as a bug.
 type turnWire struct {
-	Seq       int64           `json:"seq,omitempty"`
-	Role      string          `json:"role"`
-	Text      string          `json:"text"`
-	Tokens    int             `json:"tokens,omitempty"`
-	Attrs     json.RawMessage `json:"attrs,omitempty"`
-	CreatedAt time.Time       `json:"createdAt,omitempty"`
+	Seq    int64           `json:"seq,omitempty"`
+	Role   string          `json:"role"`
+	Text   string          `json:"text"`
+	Tokens int             `json:"tokens,omitempty"`
+	Attrs  json.RawMessage `json:"attrs,omitempty"`
 }
 
 // AppendTurns records completed turns.
@@ -332,6 +337,12 @@ func (c *agentMemory) PutMemory(
 		return parseVersion(resp.Header.Get(headerVersion)), nil
 	case http.StatusConflict:
 		return 0, core.ErrVersionConflict
+	case http.StatusNotFound:
+		// Same reading as SaveWorking's: this route has no innocent 404 — a memory
+		// that does not exist yet is a create, not a miss — so it means the
+		// orchestrator does not serve these routes.
+		c.markUnavailable()
+		return 0, core.ErrMemoryDisabled
 	default:
 		return 0, statusError("agent memory put", resp)
 	}
