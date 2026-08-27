@@ -160,6 +160,8 @@ With `userMemory: true` the model is handed three tools:
 
 There is deliberately **no `recall` tool**. What the agent already knows about someone is context it needs *before* it can tell whether it needs it, and an agent that has to remember to remember mostly does not. So stored memories are placed in the request every turn, and never in the transcript — a preamble folded into the conversation would be persisted with it, and a memory corrected between runs would then sit in working memory beside stale copies of itself.
 
+What is placed there is **bounded**, and does not grow without limit: the most recent memories up to a fixed count and byte budget, with a single oversized one clipped rather than allowed to carry the request past it. The agent is told how many were left out, and reaches them with `search_memory`. The preamble is also charged against `contextMaxTokens` — it is reserved out of the budget before the conversation is fitted to what remains, so it cannot quietly push a run past the model's window.
+
 ### The opening turn
 
 By default the agent's first user message hands the model the whole input body as

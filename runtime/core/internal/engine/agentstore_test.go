@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -520,5 +521,117 @@ func TestTitleForTrimsOnARuneBoundary(t *testing.T) {
 	got := titleFor(strings.Repeat("é", titleMaxLen))
 	if !utf8.ValidString(got) {
 		t.Errorf("title should stay valid UTF-8, got %q", got)
+	}
+}
+
+// TestAgentStoreDoesNotOverwriteWhatItCouldNotRead is the data-loss case.
+//
+// A run whose load failed has no idea what was stored, so its transcript is the
+// current exchange alone. Writing that back would replace a conversation somebody
+// has been having with the last thing they said — over a transient read failure.
+func TestAgentStoreDoesNotOverwriteWhatItCouldNotRead(t *testing.T) {
+	ctx, mem, _ := withFakeMemory(context.Background())
+	ref := core.MemoryRef{AgentID: "support", ThreadKey: "thread-1"}
+
+	// A conversation already in progress.
+	prior := memoryEnvelope{Version: memoryVersion, Messages: []core.LLMMessage{
+		{Role: core.LLMRoleUser, Text: "a long conversation"},
+		{Role: core.LLMRoleAssistant, Text: "with real history in it"},
+	}}
+	encoded, err := json.Marshal(prior)
+	if err != nil {
+		t.Fatalf("encode prior: %v", err)
+	}
+	if _, err := mem.SaveWorking(ctx, ref, core.WorkingMemory{Payload: encoded}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	mem.failLoad = true
+	var seen []any
+	conn := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("answered blind")}}
+	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(conn), storeAgentConfig("support"))
+	if _, err := block.Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("a store that cannot be read must not fail the run: %v", err)
+	}
+
+	mem.failLoad = false
+	wm, ok, err := mem.LoadWorking(ctx, ref)
+	if err != nil || !ok {
+		t.Fatalf("the stored conversation should still be there: ok=%v err=%v", ok, err)
+	}
+	env, err := decodeMemory(wm.Payload)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !hasAssistantText(env.Messages, "with real history in it") {
+		t.Error("a failed load let the run overwrite the conversation it could not see")
+	}
+}
+
+// TestAgentMemoryPreambleClipsOneOversizedMemory checks the cap is enforced
+// during the write and not only before it. Nothing bounds what an agent chooses
+// to remember, so a single memory can be longer than the whole budget — and that
+// is exactly the one worth capping.
+func TestAgentMemoryPreambleClipsOneOversizedMemory(t *testing.T) {
+	cfg := storeAgentConfig("support")
+	cfg.UserID = `"alice"`
+	cfg.UserMemory = true
+
+	ctx, mem, _ := withFakeMemory(context.Background())
+	ref := core.MemoryRef{AgentID: "support", UserID: "alice"}
+	if _, err := mem.PutMemory(ctx, ref, "essay", strings.Repeat("x", preambleMaxChars*3), 0); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var seen []any
+	conn := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("ok")}}
+	block := mustBuildAI(t, agentRegistry(&seen), depsLLM(conn), cfg)
+	if _, err := block.Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(conn.calls) == 0 {
+		t.Fatal("want a model call")
+	}
+	// Generous slack for the framing around the memories; the point is that one
+	// entry cannot carry the request past the budget by its own length.
+	if got := len(conn.calls[0].Messages[0].Text); got > preambleMaxChars*2 {
+		t.Errorf("one oversized memory should be clipped, preamble is %d bytes", got)
+	}
+}
+
+// TestAgentStoreRejectsWhitespaceAgentID checks validation trims what the builder
+// trims. An agentId of "   " that passed here would reach the builder as empty,
+// and the block would quietly lose the history it had just been told to keep.
+func TestAgentStoreRejectsWhitespaceAgentID(t *testing.T) {
+	cfg := memoryAgentConfig(`"thread-1"`)
+	cfg.AgentID = "   "
+	cfg.History = historyRecord
+	if err := validateAgentConfig(cfg); err == nil {
+		t.Fatal("a whitespace-only agentId should be refused, not trimmed to nothing")
+	}
+}
+
+// TestNewAgentBlockBuildsWithoutAnAgentID is the editor's path.
+//
+// The editor seeds a new block with every field that declares a schema default,
+// so a default on `history` would write `history: record` into a block that has
+// no agentId yet — a flow that does not build, produced by dropping a block on a
+// canvas. The runtime's default lives in the builder instead, where it can see
+// whether there is an agent to record under.
+func TestNewAgentBlockBuildsWithoutAnAgentID(t *testing.T) {
+	field, ok := reflect.TypeFor[aiAgentMeta]().FieldByName("History")
+	if !ok {
+		t.Fatal("aiAgentMeta has no History field")
+	}
+	if tag := field.Tag.Get("octo"); strings.Contains(tag, "default=") {
+		t.Errorf("history must not carry a schema default — the editor seeds every field "+
+			"that declares one, so a new ai-agent would be born with history set and no "+
+			"agentId, which does not build. Tag: %s", tag)
+	}
+
+	// And the pairing that proves it: the block the editor would create builds, and
+	// the runtime still defaults it to recording once an agent is named.
+	if err := validateAgentConfig(memoryAgentConfig(`"thread-1"`)); err != nil {
+		t.Errorf("a new ai-agent with no agentId should build: %v", err)
 	}
 }

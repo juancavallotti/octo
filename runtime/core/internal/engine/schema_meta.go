@@ -342,8 +342,14 @@ type aiAgentMeta struct {
 	// Whether completed turns are recorded to durable conversation history. Unlike
 	// working memory this record is never compacted, so it stays readable after the
 	// agent has summarized its own context away. Requires an agent ID.
-	//nolint:lll // the enum tag (options + default) is inherently longer than 120 cols
-	History string `json:"history" octo:"label=Conversation history,type=enum,enum=record|off,default=record"`
+	//
+	// Deliberately carries NO schema default, though the runtime's default is
+	// "record". The editor seeds a new block with every field that declares one, so
+	// a default here would write `history: record` into a block that has no agentId
+	// yet — which is a flow that does not build, produced by dropping a block on a
+	// canvas. The runtime applies the default in configureAgentStore instead, where
+	// it can see whether there is an agent to record under.
+	History string `json:"history" octo:"label=Conversation history,type=enum,enum=record|off"`
 	// Give the agent remember/forget/search_memory tools so it can keep curated
 	// facts about the person it is talking to and carry them into later
 	// conversations. Requires an agent ID and a user ID.
