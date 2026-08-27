@@ -83,7 +83,7 @@ func registerClearAgentMemory() {
 		Category:    core.CategoryProcessor,
 		Group:       groupAILLM,
 		Icon:        "BrainCog",
-		Description: "Erase an ai-agent conversation thread's stored memory by its thread id.",
+		Description: "Erase an ai-agent conversation thread's stored memory, working state and recorded history.",
 		Config:      reflect.TypeFor[clearAgentMemorySettings](),
 	})
 }
@@ -361,11 +361,24 @@ func summarizeTurns(
 type clearAgentMemorySettings struct {
 	// CEL expression for the thread id whose memory is cleared.
 	ThreadID string `json:"threadId" octo:"label=Thread ID,type=cel,required"`
+	// The agent whose conversation is being erased, matching the ai-agent block's
+	// agentId. Required to reach a conversation stored in the first-class memory
+	// store, since that is keyed by agent as well as thread; omit it for an agent
+	// that declares no agentId.
+	AgentID string `json:"agentId" octo:"label=Agent ID"`
 }
 
-// clearAgentMemory removes a thread's stored transcript from the user KV namespace.
+// clearAgentMemory removes a thread's stored conversation.
+//
+// It clears both arrangements, because "forget me" is the one operation that
+// must not half-succeed: the pre-store KV transcript in either durability tier,
+// and — when an agentId names one — the first-class store's working memory, its
+// durable turn record and its thread row. A clear that reached only one of them
+// would report success while leaving a readable copy behind, which is the exact
+// failure this block exists to prevent.
 type clearAgentMemory struct {
 	threadID *expr.Program
+	agentID  string
 	env      map[string]any
 }
 
@@ -382,7 +395,11 @@ func newClearAgentMemory(raw types.Settings, deps core.BlockDeps) (core.MessageP
 	if err != nil {
 		return nil, err
 	}
-	return &clearAgentMemory{threadID: threadID, env: expr.EnvActivation(deps.Env)}, nil
+	return &clearAgentMemory{
+		threadID: threadID,
+		agentID:  strings.TrimSpace(cfg.AgentID),
+		env:      expr.EnvActivation(deps.Env),
+	}, nil
 }
 
 // Process evaluates the thread id and deletes its memory unconditionally (version
@@ -403,6 +420,17 @@ func (p *clearAgentMemory) Process(ctx context.Context, msg *types.Message) (*ty
 		if err := kv.Delete(ctx, namespace, memoryKey(threadID), 0); err != nil {
 			return nil, fmt.Errorf("clear-agent-memory %q: %w", threadID, err)
 		}
+	}
+	if p.agentID == "" {
+		return msg, nil
+	}
+	store := core.RuntimeServicesFromContext(ctx).AgentMemory()
+	if !store.Enabled() {
+		return msg, nil
+	}
+	ref := core.MemoryRef{AgentID: p.agentID, ThreadKey: threadID}
+	if err := store.DeleteThread(ctx, ref); err != nil {
+		return nil, fmt.Errorf("clear-agent-memory %q: %w", threadID, err)
 	}
 	return msg, nil
 }

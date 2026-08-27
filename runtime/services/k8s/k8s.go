@@ -205,6 +205,11 @@ func (s *Services) LogSink() slog.Handler { return s.logSink }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Traces() core.TracePublisher { return s.traces }
 
+// AgentMemory returns the module's agent-memory store.
+//
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (s *Services) AgentMemory() core.AgentMemory { return core.NoopAgentMemory() }
+
 // Close releases the store client's idle connections and the NATS connection.
 // Leader-election campaigns are bound to the context passed to Acquire and stop
 // when the runtime stops.

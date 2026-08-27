@@ -226,6 +226,15 @@ type RuntimeServices interface {
 	Topics() Topics
 	//nolint:ireturn // returns the ResourceLoader interface blocks and env loading depend on
 	Resources() ResourceLoader
+	// AgentMemory returns where this module keeps what an agent remembers: a file
+	// tree in the standalone module, the orchestrator's database in the k8s one.
+	// It is an accessor rather than an optional side interface for the same reason
+	// Queues and Traces are — no module can reasonably lack somewhere to put it,
+	// only somewhere different. It is never nil: a module without an
+	// implementation returns NoopAgentMemory, whose Enabled reports false.
+	//
+	//nolint:ireturn // returns the AgentMemory interface the engine depends on
+	AgentMemory() AgentMemory
 	// Traces returns where this module publishes trace records: a file for the
 	// standalone module, a broker subject for the k8s one. It is an accessor
 	// rather than an optional side interface (cf. LogShipper) because every
@@ -266,6 +275,9 @@ func (noopRuntimeServices) Resources() ResourceLoader { return NoopResourceLoade
 
 //nolint:ireturn // satisfies the RuntimeServices interface
 func (noopRuntimeServices) Traces() TracePublisher { return NoopTracer() }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (noopRuntimeServices) AgentMemory() AgentMemory { return NoopAgentMemory() }
 
 func (noopRuntimeServices) Close() error { return nil }
 

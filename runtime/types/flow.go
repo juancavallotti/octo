@@ -167,6 +167,40 @@ type BlockConfig struct {
 	// CEL expression resolved to the thread id whose transcript is loaded before
 	// the run and saved after. Empty disables memory.
 	MemoryThreadID string `yaml:"memoryThreadId,omitempty"`
+	// AgentID names the logical agent, and opts an "ai-agent" into the runtime's
+	// first-class memory store: durable conversation history that is never
+	// compacted, working memory checkpointed during the run, and — with
+	// UserMemory — curated facts about a person.
+	//
+	// It is stated, never derived. Deriving it from the block's address was tried
+	// and rejected (issue #359): an address is a position in a file, so renaming
+	// the block or moving it into another branch — edits that change nothing about
+	// the conversation — would silently destroy every conversation it had. For the
+	// same reason it is opt-in: an agent without one keeps the older per-thread
+	// transcript and stores no durable history, rather than quietly accumulating a
+	// person's history under a key an edit can lose.
+	//
+	// It must be unique across the agents that share a deployment. Two blocks
+	// declaring the same AgentID share one memory, which is what replicas of one
+	// logical agent want and what two different agents almost never do.
+	AgentID string `yaml:"agentId,omitempty"`
+	// UserID is a CEL expression resolving to the person an "ai-agent" is talking
+	// to. It scopes user memory and labels stored conversations so the platform can
+	// list one person's threads. Empty means the agent serves no particular
+	// person, and UserMemory is then unavailable.
+	UserID string `yaml:"userId,omitempty"`
+	// History is whether an "ai-agent" records its completed turns to durable
+	// conversation history: "record" (the default) or "off".
+	//
+	// An enum and not a bool because flow YAML is decoded permissively and a Go
+	// bool cannot express a default of true — an absent key and an explicit
+	// "false" arrive identically. Answer and MemoryCompaction have the same shape
+	// for the same reason.
+	History string `yaml:"history,omitempty"`
+	// UserMemory gives an "ai-agent" the remember/forget/search_memory tools, so it
+	// can keep curated facts about the person it is talking to and carry them into
+	// later conversations. Requires AgentID and UserID.
+	UserMemory bool `yaml:"userMemory,omitempty"`
 	// StopWhen is a boolean CEL condition that ends the run already working on this
 	// message's conversation instead of starting one — a header, a body field,
 	// whatever the caller uses to say "stop". It is meaningless without
