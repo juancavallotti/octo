@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/juancavallotti/octo/runtime/core"
 )
@@ -327,13 +328,28 @@ func (m *agentMemory) ListThreads(
 	if m.mem != nil {
 		return m.mem.listThreads(agentID, userID, page)
 	}
+	rows, err := m.allThreads(agentID, userID)
+	if err != nil {
+		return nil, "", err
+	}
+	return pageThreads(rows, page)
+}
+
+// allThreads reads every one of an agent's conversations, in listing order.
+//
+// It is separate from ListThreads because a search has to see all of them, and
+// asking the paged listing for "everything" has no honest spelling — a limit of
+// zero or below means "use the default", so a caller trying to say unlimited
+// silently gets the first page and reports its findings as if they were the
+// whole store.
+func (m *agentMemory) allThreads(agentID, userID string) ([]core.Thread, error) {
 	dir := filepath.Join(m.root, encodeName(agentID), threadsDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, "", nil
+			return nil, nil
 		}
-		return nil, "", fmt.Errorf("reading %s: %w", dir, err)
+		return nil, fmt.Errorf("reading %s: %w", dir, err)
 	}
 	rows := make([]core.Thread, 0, len(entries))
 	for _, e := range entries {
@@ -354,7 +370,7 @@ func (m *agentMemory) ListThreads(
 		rows = append(rows, t.toCore())
 	}
 	sortThreads(rows)
-	return pageThreads(rows, page)
+	return rows, nil
 }
 
 // sortThreads orders a listing: most recently active first, thread key breaking
@@ -375,7 +391,7 @@ func pageThreads(rows []core.Thread, page core.Page) ([]core.Thread, string, err
 	if limit <= 0 {
 		limit = defaultPageLimit
 	}
-	start := 0
+	start, found := 0, false
 	if page.Cursor != "" {
 		after, err := base64.RawURLEncoding.DecodeString(page.Cursor)
 		if err != nil {
@@ -383,9 +399,16 @@ func pageThreads(rows []core.Thread, page core.Page) ([]core.Thread, string, err
 		}
 		for i := range rows {
 			if rows[i].ThreadKey == string(after) {
-				start = i + 1
+				start, found = i+1, true
 				break
 			}
+		}
+		if !found {
+			// The conversation the cursor named is gone — deleted between two pages, or
+			// from a listing that no longer exists. Treated as exhausted rather than as
+			// "start again", because starting again is what turns a page-until-empty
+			// loop into a loop that never ends.
+			return nil, "", nil
 		}
 	}
 	if start >= len(rows) {
@@ -427,15 +450,23 @@ func pageTurns(turns []core.Turn, page core.Page) ([]core.Turn, string) {
 	if limit <= 0 {
 		limit = defaultPageLimit
 	}
-	start := 0
+	start, found := 0, false
 	if page.Cursor != "" {
-		if after, err := base64.RawURLEncoding.DecodeString(page.Cursor); err == nil {
-			for i := range turns {
-				if fmt.Sprint(turns[i].Seq) == string(after) {
-					start = i + 1
-					break
-				}
+		after, err := base64.RawURLEncoding.DecodeString(page.Cursor)
+		if err != nil {
+			return nil, ""
+		}
+		for i := range turns {
+			if fmt.Sprint(turns[i].Seq) == string(after) {
+				start, found = i+1, true
+				break
 			}
+		}
+		if !found {
+			// Same decision as pageThreads: a cursor naming a turn that is no longer
+			// there is exhausted, not a restart. A truncated transcript would otherwise
+			// replay itself from turn one forever.
+			return nil, ""
 		}
 	}
 	if start >= len(turns) {
@@ -581,7 +612,7 @@ func (m *agentMemory) DeleteMemory(_ context.Context, ref core.MemoryRef, name s
 // is deliberately simple — how many of the query's words a candidate contains,
 // damped by its length so a long turn does not win by containing everything —
 // and it is the fallback every store owes rather than an attempt at relevance.
-func (m *agentMemory) Search(ctx context.Context, q core.MemoryQuery) ([]core.MemoryHit, error) {
+func (m *agentMemory) Search(_ context.Context, q core.MemoryQuery) ([]core.MemoryHit, error) {
 	if m.mem != nil {
 		return m.mem.search(q)
 	}
@@ -604,7 +635,7 @@ func (m *agentMemory) Search(ctx context.Context, q core.MemoryQuery) ([]core.Me
 		}
 	}
 	if q.Scope != core.MemoryScopeUser {
-		turnHits, err := m.searchTurns(ctx, q, words)
+		turnHits, err := m.searchTurns(q, words)
 		if err != nil {
 			return nil, err
 		}
@@ -620,9 +651,9 @@ func (m *agentMemory) Search(ctx context.Context, q core.MemoryQuery) ([]core.Me
 
 // searchTurns scans the recent tail of each of the agent's conversations.
 func (m *agentMemory) searchTurns(
-	ctx context.Context, q core.MemoryQuery, words []string,
+	q core.MemoryQuery, words []string,
 ) ([]core.MemoryHit, error) {
-	threads, _, err := m.ListThreads(ctx, q.AgentID, q.UserID, core.Page{Limit: -1})
+	threads, err := m.allThreads(q.AgentID, q.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -651,11 +682,14 @@ func (m *agentMemory) searchTurns(
 // queryWords splits a query into the lowercase words a candidate is scored on.
 func queryWords(text string) []string {
 	fields := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !('a' <= r && r <= 'z' || '0' <= r && r <= '9')
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
 	out := fields[:0]
 	for _, f := range fields {
-		if len(f) > 1 {
+		// Runes, not bytes: a two-character word in a non-Latin script is several
+		// bytes long, and a byte-length floor would keep words it should drop while
+		// an ASCII-only split predicate dropped the whole query.
+		if len([]rune(f)) > 1 {
 			out = append(out, f)
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -459,4 +460,85 @@ func TestAgentMemoryConcurrentWorkingWrites(t *testing.T) {
 	if len(got.Payload) != 1 {
 		t.Errorf("the stored payload is not one writer's: %q", got.Payload)
 	}
+}
+
+// TestAgentMemorySearchCoversEveryThread guards the bug where search asked the
+// paged listing for "everything" with a negative limit, got the default page,
+// and reported its findings as though it had read the whole store.
+func TestAgentMemorySearchCoversEveryThread(t *testing.T) {
+	bothStores(t, func(t *testing.T, m *agentMemory) {
+		ctx := context.Background()
+		const threads = defaultPageLimit * 2
+		for i := range threads {
+			r := ref("support", fmt.Sprintf("t%03d", i), "alice")
+			if _, err := m.AppendTurns(ctx, r, []core.Turn{
+				{Role: core.LLMRoleUser, Text: "the needle is here"},
+			}); err != nil {
+				t.Fatalf("seed %d: %v", i, err)
+			}
+		}
+		hits, err := m.Search(ctx, core.MemoryQuery{
+			AgentID: "support", UserID: "alice", Text: "needle", Limit: threads,
+		})
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		if len(hits) != threads {
+			t.Errorf("search should reach every conversation, found %d of %d", len(hits), threads)
+		}
+	})
+}
+
+// TestAgentMemoryCursorForADeletedThread checks that a cursor naming a
+// conversation that has since been deleted ends the listing rather than
+// restarting it — a page-until-empty loop must terminate.
+func TestAgentMemoryCursorForADeletedThread(t *testing.T) {
+	bothStores(t, func(t *testing.T, m *agentMemory) {
+		ctx := context.Background()
+		for _, key := range []string{"a", "b", "c", "d"} {
+			if _, err := m.AppendTurns(ctx, ref("support", key, ""), []core.Turn{
+				{Role: core.LLMRoleUser, Text: "hi"},
+			}); err != nil {
+				t.Fatalf("seed %s: %v", key, err)
+			}
+		}
+		rows, next, err := m.ListThreads(ctx, "support", "", core.Page{Limit: 2})
+		if err != nil || next == "" {
+			t.Fatalf("want a first page with a cursor: %d rows, next=%q, err=%v", len(rows), next, err)
+		}
+		for _, row := range rows {
+			if err := m.DeleteThread(ctx, ref("support", row.ThreadKey, "")); err != nil {
+				t.Fatalf("delete %s: %v", row.ThreadKey, err)
+			}
+		}
+		after, next2, err := m.ListThreads(ctx, "support", "", core.Page{Limit: 2, Cursor: next})
+		if err != nil {
+			t.Fatalf("second page: %v", err)
+		}
+		if len(after) != 0 || next2 != "" {
+			t.Errorf("a cursor whose thread is gone should end the listing, got %d rows next=%q",
+				len(after), next2)
+		}
+	})
+}
+
+// TestAgentMemorySearchHandlesNonLatinText checks that a query outside a-z is
+// tokenized at all. An ASCII-only split predicate silently returned nothing.
+func TestAgentMemorySearchHandlesNonLatinText(t *testing.T) {
+	bothStores(t, func(t *testing.T, m *agentMemory) {
+		ctx := context.Background()
+		r := ref("support", "thread-1", "alice")
+		if _, err := m.AppendTurns(ctx, r, []core.Turn{
+			{Role: core.LLMRoleUser, Text: "le remboursement au café n'est jamais arrivé"},
+		}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		hits, err := m.Search(ctx, core.MemoryQuery{AgentID: "support", Text: "café"})
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		if len(hits) == 0 {
+			t.Error("an accented query should still match")
+		}
+	})
 }
