@@ -359,6 +359,44 @@ flows:
         userId: vars.userKey
         userMemory: true
 
+        # Naming a conversation, which is the one thing about it the runtime
+        # cannot decide: what an exchange was ABOUT is a judgement, and a
+        # judgement is a model call.
+        #
+        # It runs once, on the exchange that opens a conversation, and it is
+        # handed that exchange — question and answer — as its body. Whatever
+        # string it returns becomes the name. Returning nothing names nothing,
+        # which is the right answer for a "hi" that was never going anywhere.
+        #
+        # The engine does the writing, and that is the whole reason this is a slot
+        # rather than a flow of its own. It is holding the conversation's
+        # reference already; the store knows how to record a title on whichever
+        # tier it is. What this replaced put the exchange on a queue, read it back
+        # in a separate flow, rebuilt a thread key from parts, escaped a slash into
+        # it, and called the orchestrator over HTTP from inside the deployment the
+        # orchestrator had just started — to set a string.
+        nameThread:
+          process:
+            - type: ai-mapping
+              name: name-it
+              settings:
+                connector: llm-fast
+                # llm-fast, not llm: a title is six words and nobody is waiting on
+                # it. Paying reasoning-model rates to summarise one exchange is the
+                # kind of cost that only shows up on the bill.
+                prompt: >-
+                  Name this conversation in at most six words, as a topic rather
+                  than a sentence — "Rolling out the orders integration", not
+                  "The user asked how to roll out an integration". No quotes, no
+                  trailing period, no preamble.
+
+                  If there is nothing to name — a greeting, a test message,
+                  small talk that went nowhere — answer with an empty string
+                  rather than inventing a topic.
+                answer: text
+                input: >-
+                  "Question: " + body.question + "\n\nAnswer: " + body.answer
+
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
 
         emit: [thinking, text, tool_call, tool_result, turn_end,
@@ -799,168 +837,8 @@ flows:
                   deployments, flows, logs and traces are my remit. Narrow it down
                   or point me at something concrete and I will have another go."}
 
-      # ------------------------------------------------------ naming the chat
-      #
-      # All that is left of what used to be a whole recording pipeline. The
-      # runtime records the conversation itself now — uncompacted, per
-      # integration, listable — so the only thing this agent still has to do is
-      # give it a name, because naming a conversation is a judgement about what it
-      # was about, and that is a model call the runtime has no business making.
-      #
-      # Still a wire-tap onto a queue, and still for the original reason: the model
-      # call belongs on a worker nobody is waiting on, not in front of a person
-      # watching their answer finish.
-      #
-      # fork gives the branch its own clone, so the payload it builds for the queue
-      # never reaches the body this flow returns — which is the answer, and which
-      # the SSE route sends as its closing frame. handle-errors keeps a broker
-      # having a bad day from failing a chat that already succeeded.
-      - type: handle-errors
-        name: name-exchange
-        process:
-          - type: fork
-            name: tap
-            branches:
-              - name: record
-                process:
-                  # The answer is usually the prose `answer: text` asked for, and is
-                  # not always: the agent decodes a final answer that happens to
-                  # parse as JSON whatever the format setting says, so an answer of
-                  # "42", or one the model fenced, arrives here as a number or a
-                  # map. Rendering it back is what lets the namer read it either way.
-                  - type: set-payload
-                    name: build-record
-                    settings:
-                      value: >-
-                        {"threadKey": vars.threadKey,
-                         "question": vars.question,
-                         "answer": type(body) == string ? body : toJson(body)}
-                  - type: queue-dispatch
-                    name: send-record
-                    settings:
-                      subject: '"conversation-log"'
-        error:
-          - type: log
-            name: naming-failed
-            settings:
-              level: warn
-              message: '"could not queue a conversation for naming: " + vars.error.message'
 
 
-  # ========================================================== naming ========
-  #
-  # What is left of the record. The runtime stores the conversation; the platform
-  # lists and replays it from the orchestrator's own tables. Neither of them can
-  # decide what a conversation should be CALLED — that is a judgement about what
-  # was asked, which is a model call, and a model call belongs to the flow willing
-  # to pay for it rather than to the runtime.
-  #
-  # So this is the whole remnant of what used to be three flows and two hand-kept
-  # KV objects: read one exchange off a queue, name it if it has no name yet, and
-  # write the name back.
-  - name: name-conversation
-    source:
-      type: queue                        # implicit connector — no instance needed
-      settings:
-        subject: conversation-log
-        workers: 1
-    process:
-      - type: set-variable
-        name: exchange
-        settings:
-          name: exchange
-          value: body
-
-      # Only the first exchange of a conversation is named. A later one would cost
-      # a model call to replace a name with a name for the same conversation, and
-      # the first question is what someone recognises it by anyway.
-      # Deployment-scoped, not integration-scoped: a pod knows its deployment and
-      # the orchestrator resolves the rest. It is also the only shape that needs no
-      # new binding — every runtime pod is given OCTO_DEPLOYMENT_ID already.
-      #
-      # failOnError is off because a conversation with no row yet answers 404, and
-      # that is an answer: it has no name, so it needs one.
-      # The key is escaped because it CONTAINS a slash: it is userKey/threadId,
-      # and {threadKey} in the route is a single-segment wildcard. Sent raw it
-      # would read as two segments, match no route, and 404 — which is how this
-      # flow spent its first outing titling a thread nobody wrote to. The runtime's
-      # own client does the same thing with url.PathEscape; the server decodes it
-      # back, so what arrives is the key as written.
-      - type: rest-dynamic
-        name: read-thread
-        settings:
-          connector: octo
-          method: '"GET"'
-          path: >-
-            "/deployments/" + env.OCTO_DEPLOYMENT_ID + "/agent-memory/dr-octo/threads/"
-              + vars.exchange.threadKey.replace("/", "%2F")
-          allowMethods: [GET]
-          failOnError: false
-      - type: set-variable
-        name: keep-thread
-        settings:
-          name: thread
-          value: body
-      - type: if
-        name: needs-a-name
-        # The runtime labels a new conversation with the first line of its opening
-        # turn, so "unnamed" means "still wearing that label" rather than "empty".
-        # Naming it again on every exchange would be a model call to replace a name
-        # with a name for the same conversation.
-        condition: >-
-          !has(vars.thread) || !has(vars.thread.title)
-            || vars.thread.title == ""
-            || vars.thread.title == vars.thread.threadKey
-        then:
-          process:
-            # The one thing that can fail on its own here — a provider having a bad
-            # minute, a model answering something the schema refuses. A conversation
-            # with the runtime's own fallback name is a small loss; a worker that
-            # dies over a title is not.
-            - type: handle-errors
-              name: name-or-give-up
-              process:
-                - type: set-payload
-                  name: title-input
-                  settings:
-                    value: '{"question": vars.exchange.question, "answer": vars.exchange.answer}'
-                - type: ai-mapping
-                  name: write-title
-                  settings:
-                    # llm-fast, not llm: this is the one call on the agent that
-                    # wants no reasoning, and reasoning here costs the answer
-                    # rather than improving it. See the connector's own comment.
-                    connector: llm-fast
-                    prompt: >
-                      Name this conversation the way a person would name it in a list
-                      of their past conversations. Five words at most, no quotes, no
-                      trailing period, no "conversation about". Describe what was
-                      asked, not what was answered. Use the question's own language.
-                    outputExample: '{"title": "Deploying the orders integration"}'
-                    outputSchema: |
-                      {"type": "object", "required": ["title"],
-                       "properties": {"title": {"type": "string", "maxLength": 80}}}
-                    # No per-block ceiling: llm-fast already sets one sized for a
-                    # model that reasons regardless. A tighter one here would be
-                    # the bug this fixed — a title needs a few tokens, but a
-                    # reasoning model needs room to reach them.
-                - type: rest-dynamic
-                  name: save-title
-                  settings:
-                    connector: octo
-                    method: '"PUT"'
-                    path: >-
-                      "/deployments/" + env.OCTO_DEPLOYMENT_ID
-                        + "/agent-memory/dr-octo/threads/"
-                        + vars.exchange.threadKey.replace("/", "%2F") + "/title"
-                    allowMethods: [PUT]
-                    body: 'toJson({"title": body.title})'
-              error:
-                - type: log
-                  name: title-failed
-                  settings:
-                    level: warn
-                    message: '"could not name a conversation: " + vars.error.message'
 
   # --------------------------------------------------------- the specialists
   #
