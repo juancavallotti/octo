@@ -286,6 +286,7 @@ func (m *agentMemory) AppendTurns(
 		return 0, err
 	}
 
+	//nolint:gosec // the path is one this package composed and wrote
 	f, err := os.OpenFile(filepath.Join(dir, turnsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, filePerm)
 	if err != nil {
 		return 0, fmt.Errorf("opening %s: %w", turnsFile, err)
@@ -696,6 +697,13 @@ func queryWords(text string) []string {
 	return out
 }
 
+// lengthDamping is how quickly a candidate's length discounts its score: at this
+// many characters a match counts for half what the same match counts for in a
+// short one. It exists because a long turn is likelier to contain any given word,
+// so it has to contain more of them to rank as high as a short one that is about
+// exactly this.
+const lengthDamping = 1000.0
+
 // scoreText is the share of the query's words a candidate contains, damped by
 // how much text it took to contain them.
 func scoreText(text string, words []string) float64 {
@@ -710,9 +718,7 @@ func scoreText(text string, words []string) float64 {
 		return 0
 	}
 	share := float64(matched) / float64(len(words))
-	// A long turn is likelier to contain any given word, so it has to contain more
-	// of them to rank as high as a short one that is about exactly this.
-	damp := 1.0 + float64(len(text))/1000.0
+	damp := 1.0 + float64(len(text))/lengthDamping
 	return share / damp
 }
 
@@ -723,7 +729,7 @@ func scoreText(text string, words []string) float64 {
 // turn must not make the conversation unreadable. It is the same tolerance the
 // snapshot loader gives a corrupt namespace file, for the same reason.
 func readTurns(path string, tail int) ([]core.Turn, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // the path is one this package wrote
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -772,7 +778,7 @@ func readUserMemories(path string) (storedUserMemories, bool, error) {
 // there is no partial answer worth returning for a versioned object, and reading
 // a corrupt one as "version 0" would overwrite whatever was really there.
 func readJSONFile(path string, into any) (bool, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // the path is one this package wrote
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -839,7 +845,7 @@ func writeAndSync(f *os.File, data []byte) error {
 // syncDirPath flushes a directory, tolerating filesystems that will not. See
 // snapshot.syncDir, whose reasoning this shares.
 func syncDirPath(dir string) error {
-	d, err := os.Open(dir)
+	d, err := os.Open(dir) //nolint:gosec // the directory is one this package composed
 	if err != nil {
 		return fmt.Errorf("opening %s to flush it: %w", dir, err)
 	}
