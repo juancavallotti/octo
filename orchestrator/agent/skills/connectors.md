@@ -107,11 +107,11 @@ finds it with no configuration. Nothing is written until the first frame, so a
     cache: { enabled: true, ttl: 60s }
 ```
 
-`baseURL` is a hard boundary: a block's path cannot change the host. Credentials
-belong in `auth`, never in a block's headers -- `rest` and `rest-dynamic` both
-refuse an `Authorization` header. A credential the flow obtains at runtime (a
-token relayed from the caller) goes in the *block's* `auth` setting instead, and
-only through a connector that declares no `auth` of its own.
+`baseURL` is a hard boundary: a block's path cannot change the host. The
+deployment's own credential belongs in `auth`. A credential the flow obtains at
+runtime -- a token relayed from the caller -- goes on the block's `Authorization`
+header instead; the connector applies its own `auth` only when the request carries
+none, so the two do not contend.
 
 **`type: gcp`** authenticates as the service account the runtime runs as, using
 the GCP metadata server -- no secret to configure. Use it for a runtime on Cloud

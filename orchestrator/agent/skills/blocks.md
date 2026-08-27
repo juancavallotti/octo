@@ -42,7 +42,7 @@ put everything under `settings`.
 
 | Block | Key settings |
 | --- | --- |
-| `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `bodyType` (`raw`\|`multipart`), `auth` (CEL), `failOnError`, `statusVar`. |
+| `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `bodyType` (`raw`\|`multipart`), `failOnError`, `statusVar`. |
 | `rest-dynamic` | Same, but `method`, `path`, `query`, `headers`, `body` are **all** CEL, and `query`/`headers` are one expression evaluating to a whole map. Use when the endpoint itself is data. Also takes `allowMethods` and `pathPrefix`. |
 | `flow-ref` | `flow`, `oneWay` — invoke another flow by name. |
 | `cli-run` | `program` (CEL, absolute path), `args` (CEL list), `allow` (absolute paths; required when `program` depends on the message), `env`, `workDir`, `timeout`, `onExit`, `events`/`emit` (stdout/stderr/exit). Runs a local program; no shell, argv only. |
@@ -51,19 +51,20 @@ put everything under `settings`.
 | `publish-event` | `subject` (CEL), `value` — broadcast to a topic. |
 | `queue-dispatch` | `subject` — send to a queue for competing consumers. |
 
-`auth` forwards a credential the flow obtained at runtime -- a token relayed from
-the inbound request, or one an earlier block minted. It is a CEL expression sent
-**verbatim** as the `Authorization` header (scheme included), and it works only
-through a connector whose own `auth` is disabled; an empty result sends no header.
-Never set `Authorization` through `headers` -- both blocks refuse it.
+To call an API **as the caller** rather than as the deployment, set the
+`Authorization` header on the block -- one entry in `rest`'s `headers` map, or one
+key of `rest-dynamic`'s rendered map. The connector applies its own `auth` only
+when the request carries none, so a block that sets the header uses its own
+credential and one that does not gets the connector's.
 
 ```yaml
 # route declares `headers: [Authorization]`, so the token is in vars
 - type: rest
   settings:
-    connector: upstream          # no auth of its own
+    connector: upstream
     path: /v1/me
-    auth: 'vars["Authorization"]'
+    headers:
+      Authorization: 'vars["Authorization"]'
 ```
 
 To send a file, set `bodyType: multipart` and let `body` evaluate to a parts map -- the same shape `body.parts` holds inbound, so forwarding an upload is `body: 'body.parts'`. Build one with `multipart()` and `.addPart(name, value)`; a scalar is a text field, an object may set `data`, `encoding`, `filename`, `contentType`. The block generates the boundary and sets `Content-Type` itself, so do **not** set that header:

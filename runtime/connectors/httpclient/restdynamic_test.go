@@ -456,11 +456,11 @@ func TestDynamicAllowsDotDotInsideAQueryValue(t *testing.T) {
 	}
 }
 
-// The connector applies its credential only when the request carries none, so a
-// rendered Authorization header replaces it rather than adding to it. On this block
-// the header names are data, so that would hand the choice of credential to
-// whatever produced the message.
-func TestDynamicRefusesARenderedAuthorizationHeader(t *testing.T) {
+// A rendered Authorization header is sent, under either spelling. The connector
+// applies its own credential only when the request carries none, so this replaces
+// it rather than sitting alongside it -- which is the point, and the only way a
+// flow can call an API as the caller who asked it to.
+func TestDynamicSendsARenderedAuthorizationHeader(t *testing.T) {
 	var got echo
 	srv := echoServer(t, &got, http.StatusOK, `{}`)
 
@@ -473,17 +473,15 @@ func TestDynamicRefusesARenderedAuthorizationHeader(t *testing.T) {
 	for _, name := range []string{"Authorization", "authorization"} {
 		got = echo{}
 		_, err := proc.Process(context.Background(), restMessage(t, map[string]any{
-			"headers": map[string]any{name: "Bearer attacker"},
+			"headers": map[string]any{name: "Bearer caller"},
 		}))
-		if err == nil {
-			t.Errorf("want %q refused", name)
+		if err != nil {
+			t.Errorf("Process for %q: %v", name, err)
 			continue
 		}
-		if !strings.Contains(err.Error(), "connector") {
-			t.Errorf("error = %v, want it to point at where a credential belongs", err)
-		}
-		if got.method != "" {
-			t.Errorf("want no request made for %q", name)
+		if got.header.Get("Authorization") != "Bearer caller" {
+			t.Errorf("Authorization for %q = %q, want the rendered credential",
+				name, got.header.Get("Authorization"))
 		}
 	}
 }

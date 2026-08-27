@@ -431,25 +431,22 @@ Keep `maxResponseBytes` in mind when you size the pool: a connection returns to 
 | `method` | enum: `GET` \| `POST` \| `PUT` \| `PATCH` \| `DELETE` \| `HEAD` | No | `GET` | HTTP method. |
 | `path` | string | No | — | Path appended to the connector base URL. |
 | `query` | map of expression | No | — | Query params; each value is a CEL expression. |
-| `headers` | map of expression | No | — | Request headers; each value is a CEL expression. `Authorization` is refused — see [Forwarding a credential](#forwarding-a-credential). |
-| `auth` | expression | No | — | A credential to forward on this request, sent verbatim as the `Authorization` header. Only for a connector whose own `auth` is disabled — see [Forwarding a credential](#forwarding-a-credential). |
+| `headers` | map of expression | No | — | Request headers; each value is a CEL expression. Setting `Authorization` here sends a per-request credential — see [Sending a per-caller credential](#sending-a-per-caller-credential). |
 | `body` | expression | No | — | CEL expression for the request body. A string result is sent verbatim; any other value is JSON-encoded (with `Content-Type: application/json` unless a header overrides it). With `bodyType: multipart` it must evaluate to a parts map instead. |
 | `bodyType` | enum: `raw` \| `multipart` | No | `raw` | How the body is sent. `raw` sends the evaluated body as-is. `multipart` treats it as a parts map and renders a `multipart/form-data` body — see [Sending multipart](#sending-multipart). |
 | `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. |
 | `statusVar` | string | No | `statusCode` | Variable to store the response status code in. |
 
-### Forwarding a credential
+### Sending a per-caller credential
 
-The connector's [`auth`](#authentication-auth) describes a credential that is known
-when the service starts. A flow acting *on behalf of its caller* has no such
-credential: the only one that will do arrives with the message — a bearer token
-relayed from the inbound request, one an earlier block exchanged or minted, one
-read out of the body.
+The connector's [`auth`](#authentication-auth) describes a credential that is
+known when the service starts — the deployment's own. A flow acting *on behalf of
+its caller* has a different one, and it is not configuration: it arrives with the
+message, as a token relayed from the inbound request, or one an earlier block
+exchanged or minted.
 
-The `auth` setting on `rest` and `rest-dynamic` is where that credential goes. It
-is a CEL expression evaluated per message, and its result is sent **verbatim** as
-the `Authorization` header — the whole header value, scheme included, so relaying
-an inbound header is the identity case:
+Set the `Authorization` header, on either block. `rest` takes it as one entry in
+its `headers` map; `rest-dynamic` renders it with the rest of the map:
 
 ```yaml
 flows:
@@ -463,40 +460,28 @@ flows:
     process:
       - type: rest
         settings:
-          connector: upstream         # a connector with no auth of its own
+          connector: upstream
           method: GET
           path: /v1/me
-          auth: 'vars["Authorization"]'
+          headers:
+            Authorization: 'vars["Authorization"]'
 ```
 
-A bare token needs its scheme written in — `auth: '"Bearer " + vars.token'` — and
-any other scheme works the same way, `Basic` and `DPoP` included.
+The value is the whole header, scheme included, so relaying an inbound one is the
+identity case; a bare token needs its scheme written in, as `'"Bearer " + vars.token'`.
 
-**It is only available when the connector's own `auth` is disabled.** A connector
-that authenticates already has a credential, and a message is not something that
-may replace it; a block configured both ways fails at startup, naming the scheme
-the connector uses. Point the block at a connector that carries no `auth` — the
-same `baseURL`, declared twice, is a perfectly ordinary way to have one connector
-for the service's own calls and one for calls it makes for a caller.
-
-An expression that evaluates to null or an empty string sets **no** header, which
-is what makes the credential optional on a flow where only some messages carry
-one: the request goes out unauthenticated and the upstream decides, rather than
-the block failing before it is asked. A credential containing a carriage return
-or line feed is rejected — it would end the header line and let whatever produced
-the message append headers of its own.
-
-For the same reason, an `Authorization` entry in either block's `headers` is
-refused at startup: it would silently replace the connector's credential with no
-record that it did. `auth` is the one place that replacement is declared, and the
-one place it is checked.
+**A block credential and a connector credential do not contend.** The connector
+applies its own only when the request does not already carry an `Authorization`,
+so a block that sets one uses it, and a block that sets none gets the connector's.
+The same connector can therefore serve both kinds of call.
 
 <Callout type="warn">
-  Forwarding sends the caller's credential to the upstream, which can then use it
-  for anything that credential permits. Forward only to an upstream you trust with
-  it, and prefer an exchange — trade the inbound token for a narrower one — when
-  the two are not the same trust domain. `pathPrefix` on `rest-dynamic` bounds
-  what a forwarded credential can be spent on.
+  Sending the caller's credential upstream lets that upstream use it for anything
+  the credential permits. Send it only to an upstream you trust with it, and
+  prefer an exchange — trading the inbound token for a narrower one — when the two
+  are not the same trust domain. On `rest-dynamic`, `pathPrefix` and
+  `allowMethods` bound what a credential can be spent on; the connector's
+  `baseURL` bounds where it can be sent at all.
 </Callout>
 
 ### Sending multipart
@@ -618,8 +603,7 @@ Query and headers differ in shape from `rest`. Each is a **single expression eva
 | `method` | expression | Yes | — | CEL expression for the HTTP method. Rendered, upper-cased, and checked against `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`. |
 | `path` | expression | Yes | — | CEL expression for the path, resolved against the connector's base URL. |
 | `query` | expression | No | — | CEL expression evaluating to a map of query parameters. |
-| `headers` | expression | No | — | CEL expression evaluating to a map of request headers. A rendered `Authorization` is refused. |
-| `auth` | expression | No | — | A credential to forward on this request, as in `rest`. |
+| `headers` | expression | No | — | CEL expression evaluating to a map of request headers, `Authorization` included — see [Sending a per-caller credential](#sending-a-per-caller-credential). |
 | `body` | expression | No | — | CEL expression for the request body, as in `rest`. |
 | `bodyType` | enum: `raw` \| `multipart` | No | `raw` | How the body is sent, as in `rest`. |
 | `allowMethods` | list of string | No | — | Methods this block may issue. Empty allows any of the standard set. |
@@ -634,7 +618,6 @@ A static path is written by whoever wrote the flow. A rendered one is data, so t
 - **The method must be one of the seven above.** Go's HTTP client accepts any token that lexes as a method, so without this the method is whatever produced it.
 - **The path must be a relative reference.** A full URL is refused by name. It would not have worked anyway — the connector resolves the request against its own base URL and takes only the path, query and fragment, so no expression here can reach another host — but it would have been rewritten silently, and a caller who wrote a URL deserves to be told it was ignored rather than have a different request made for them.
 - **The path may not contain a `..` segment.** Paths are joined without normalisation, so `..` escapes a base URL that carries a prefix like `/v1`. The check runs on the parsed path, so `%2e%2e` is refused with the literal form, and a `..` inside a query *value* is left alone — it cannot traverse anything.
-- **A rendered `Authorization` header is refused.** The connector applies its configured credential only when the request does not already carry one, so a rendered `Authorization` would not sit alongside the connector's auth — it would replace it. Here the header *names* are data too, so that would hand the choice of credential to whatever produced the message. Configure a fixed credential under the connector's [`auth`](#authentication-auth), or forward a per-message one with the block's own [`auth` setting](#forwarding-a-credential), which is written by whoever wrote the flow.
 
 `allowMethods` and `pathPrefix` are the restriction you configure on top. Both are empty by default — the block is unrestricted unless you say otherwise — and an `allowMethods` entry that is not an HTTP method fails at startup rather than silently allowing nothing. `pathPrefix` matches on segment boundaries: `/integrations` admits `/integrations` and `/integrations/abc`, but not `/integrations-internal`.
 
