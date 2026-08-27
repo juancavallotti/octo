@@ -96,7 +96,9 @@ Leave it unconfigured and search works — it matches text, using Postgres full-
 | API key | Write-only, same handling as the other keys. |
 
 <Callout type="warn">
-**Changing the model once anything is embedded is a one-way door.** Stored vectors carry no record of which model produced them, so a store holding two models' vectors cannot be searched coherently — and the platform does **not** re-embed for you. The page asks before letting you do it, and tells you how much is already vectorized. If you want a clean switch, turn embeddings off, clear the store's vectors yourself, then configure the new model.
+**Changing the provider or model discards every stored vector.** They carry no record of which model produced them, so a store holding two models' vectors cannot be searched coherently — keeping one embedding space at a time is what makes that simplification safe rather than a corruption waiting to happen. Turning embeddings **off** discards them too, for the same reason: with no configuration, nothing records what made them.
+
+Nothing is lost but the vectors. The text is untouched, search falls back to matching it, and the backfill rebuilds — which costs whatever your provider charges for the whole store again. The page asks first and says how much is at stake.
 </Callout>
 
 ### The backfill
@@ -107,7 +109,7 @@ The page shows how far it has got. While it is running, a search may be answered
 
 The sweep is rate-limited on purpose. A large installation turning this on has a history of hundreds of thousands of items, and an unpaced backfill would send all of it to a paid API in one burst.
 
-Turning embeddings off leaves the stored vectors alone. They cost nothing where they are, and turning the *same* model back on then costs nothing either.
+Turning embeddings off discards the stored vectors, so turning them back on re-embeds the store. That is the price of not tracking which model made which vector — and the alternative, a per-row model, buys nothing: a store holding two models' vectors is unsearchable either way, and ranking only the matching subset would silently halve the results rather than fail.
 
 ## Agent memory
 

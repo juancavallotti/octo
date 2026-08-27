@@ -14,7 +14,7 @@
  * reason.
  */
 
-import { withRead, withWrite } from "./_auth";
+import { withWrite } from "./_auth";
 import * as client from "./client/agentMemory";
 import { listIntegrations as listIntegrationsClient } from "./client/integrations";
 import type { ActionResult } from "@octo/http";
@@ -28,9 +28,17 @@ import type {
 } from "./client/agentMemory";
 import type { Integration } from "@/app/model/orchestrator";
 
-/** Every integration, so the viewer can offer somewhere to look. */
+/**
+ * Every integration, so the viewer can offer somewhere to look.
+ *
+ * Behind the write gate like everything else here, and not the read one. It is a
+ * listing of every integration on the installation by name, reached from a page
+ * whose whole purpose is reading people's conversations — admitting a reader to
+ * the picker while refusing them everything it picks would be a gap rather than a
+ * concession.
+ */
 export async function listMemoryIntegrations(): Promise<ActionResult<Integration[]>> {
-  return withRead(() => listIntegrationsClient());
+  return withWrite(() => listIntegrationsClient());
 }
 
 export async function listMemoryAgents(

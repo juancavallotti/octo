@@ -57,14 +57,10 @@ func TestVectorSearchRanksByDistance(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	pending, err := r.PendingEmbeddings(ctx, 10)
-	if err != nil {
-		t.Fatalf("pending: %v", err)
-	}
-	if len(pending) != 2 {
-		t.Fatalf("both turns should be waiting for a vector, got %d", len(pending))
-	}
-
+	// Filtered to this test's own rows. The sweep is global on purpose — it works
+	// through everything that has no vector, not one integration's share — so what
+	// else is in the database is not this test's business.
+	pending := pendingFor(t, r, ctx, "the near one", "the far one")
 	near, far := fakeVector(0), fakeVector(2)
 	vectors := make([][]float32, len(pending))
 	for i, p := range pending {
@@ -110,10 +106,7 @@ func TestPendingEmbeddingsDrains(t *testing.T) {
 		t.Fatalf("seed memory: %v", err)
 	}
 
-	pending, err := r.PendingEmbeddings(ctx, 10)
-	if err != nil {
-		t.Fatalf("pending: %v", err)
-	}
+	pending := pendingFor(t, r, ctx, "a turn", "Prefers Go.")
 	// Both kinds are swept, since both are searched.
 	kinds := map[string]bool{}
 	for _, p := range pending {
@@ -130,11 +123,7 @@ func TestPendingEmbeddingsDrains(t *testing.T) {
 	if err := r.SaveEmbeddings(ctx, pending, vectors); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	after, err := r.PendingEmbeddings(ctx, 10)
-	if err != nil {
-		t.Fatalf("pending again: %v", err)
-	}
-	if len(after) != 0 {
+	if after := pendingFor(t, r, ctx, "a turn", "Prefers Go."); len(after) != 0 {
 		t.Errorf("the queue should have drained, %d left", len(after))
 	}
 }
@@ -150,21 +139,15 @@ func TestCorrectingAMemoryClearsItsVector(t *testing.T) {
 	if _, err := r.PutMemory(ctx, ref, "lang", "Prefers Go.", 0); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	pending, err := r.PendingEmbeddings(ctx, 10)
-	if err != nil {
-		t.Fatalf("pending: %v", err)
-	}
+	pending := pendingFor(t, r, ctx, "Prefers Go.")
 	if err := r.SaveEmbeddings(ctx, pending, [][]float32{fakeVector(0)}); err != nil {
 		t.Fatalf("embed: %v", err)
 	}
 	if _, err := r.PutMemory(ctx, ref, "lang", "Prefers Rust now.", 1); err != nil {
 		t.Fatalf("correct: %v", err)
 	}
-	after, err := r.PendingEmbeddings(ctx, 10)
-	if err != nil {
-		t.Fatalf("pending: %v", err)
-	}
-	if len(after) != 1 || after[0].Text != "Prefers Rust now." {
+	after := pendingFor(t, r, ctx, "Prefers Rust now.")
+	if len(after) != 1 {
 		t.Errorf("a corrected memory should be waiting for a fresh vector, got %+v", after)
 	}
 }
@@ -184,10 +167,7 @@ func TestEmbeddingCountsReportBothHalves(t *testing.T) {
 	if _, err := r.AppendTurns(ctx, ref, []Turn{{Role: "user", Text: "a turn"}}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	pending, err := r.PendingEmbeddings(ctx, 10)
-	if err != nil {
-		t.Fatalf("pending: %v", err)
-	}
+	pending := pendingFor(t, r, ctx, "a turn")
 	if err := r.SaveEmbeddings(ctx, pending, [][]float32{fakeVector(0)}); err != nil {
 		t.Fatalf("embed: %v", err)
 	}
@@ -198,4 +178,29 @@ func TestEmbeddingCountsReportBothHalves(t *testing.T) {
 	if after != before+1 {
 		t.Errorf("the embedded count should have risen by one, %d then %d", before, after)
 	}
+}
+
+// pendingFor returns the rows awaiting a vector whose text is one of want.
+//
+// PendingEmbeddings is global — the sweep works through everything with no
+// vector, not one integration's share — so a test that asserted on its length
+// would be asserting about every other test's rows too. The batch is asked for
+// large because these rows were just written and the sweep returns newest first.
+func pendingFor(t *testing.T, r *Repo, ctx context.Context, want ...string) []Pending {
+	t.Helper()
+	rows, err := r.PendingEmbeddings(ctx, maxSearchLimit)
+	if err != nil {
+		t.Fatalf("pending embeddings: %v", err)
+	}
+	wanted := make(map[string]bool, len(want))
+	for _, w := range want {
+		wanted[w] = true
+	}
+	var out []Pending
+	for _, row := range rows {
+		if wanted[row.Text] {
+			out = append(out, row)
+		}
+	}
+	return out
 }

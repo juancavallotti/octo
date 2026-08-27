@@ -15,26 +15,27 @@ type repository interface {
 	Mutate(ctx context.Context, fn func(current stored) (stored, error)) error
 }
 
-// counter reports how much of the store has been vectorized. The agent-memory
-// repo satisfies it; it is an interface so this package does not depend on that
-// one for a pair of integers.
-type counter interface {
+// vectors is the stored-vector surface this package needs: how much is embedded,
+// and how to discard it. The agent-memory repo satisfies it; it is an interface so
+// this package does not depend on that one.
+type vectors interface {
 	EmbeddingCounts(ctx context.Context) (embedded, pending int, err error)
+	ClearEmbeddings(ctx context.Context) error
 }
 
 // Service owns the embedding configuration.
 type Service struct {
 	repo    repository
 	cipher  *cryptox.Cipher
-	counter counter
+	vectors vectors
 }
 
 // NewService returns a Service. cipher may be nil, in which case the settings
 // still read and the provider and model still save, but storing an API key is
-// refused rather than performed in the clear. counter may be nil, in which case
-// the status reports no counts.
-func NewService(repo repository, cipher *cryptox.Cipher, c counter) *Service {
-	return &Service{repo: repo, cipher: cipher, counter: c}
+// refused rather than performed in the clear. v may be nil, in which case the
+// status reports no counts and nothing can be discarded.
+func NewService(repo repository, cipher *cryptox.Cipher, v vectors) *Service {
+	return &Service{repo: repo, cipher: cipher, vectors: v}
 }
 
 // EncryptionAvailable reports whether an API key can be stored.
@@ -56,8 +57,8 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	out := Status{Settings: settings, EncryptionAvailable: s.EncryptionAvailable()}
-	if s.counter != nil {
-		embedded, pending, countErr := s.counter.EmbeddingCounts(ctx)
+	if s.vectors != nil {
+		embedded, pending, countErr := s.vectors.EmbeddingCounts(ctx)
 		if countErr != nil {
 			return Status{}, countErr
 		}
@@ -72,17 +73,24 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 // as configured. That is the llm package's reasoning and it holds identically
 // here.
 //
-// What does NOT happen here, deliberately: changing the model does not re-embed
-// anything, and does not clear what is stored. Vectors carry no record of which
-// model produced them, so a table holding two models' vectors is not searchable
-// either way, and ranking only the matching subset would silently halve the
-// results instead of failing. Changing a model with rows already embedded is a
-// user error the platform does not migrate for — the admin page says so at the
-// point of change, which is the only place saying it helps.
+// Changing the provider or the model DISCARDS every stored vector.
+//
+// The platform does not migrate embeddings and does not intend to. What it also
+// must not do is leave two embedding spaces in one store: vectors carry no record
+// of which model produced them, so a table holding both is not searchable either
+// way, and ranking only the matching subset would silently halve the results
+// rather than fail. Keeping the store to one space at a time is what makes the
+// absence of provenance safe rather than a latent corruption.
+//
+// So the vectors go and the sweep rebuilds them from text that is still there.
+// The rows are untouched, search keeps working on the text index throughout, and
+// the only cost is the re-embedding — which is the cost of the change, and is
+// exactly what the admin page warns about before making it.
 func (s *Service) Update(ctx context.Context, u Update) (Settings, error) {
 	if err := validateUpdate(u); err != nil {
 		return Settings{}, err
 	}
+	var spaceChanged bool
 	var saved Settings
 	err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
 		supplied := u.APIKey
@@ -100,25 +108,52 @@ func (s *Service) Update(ctx context.Context, u Update) (Settings, error) {
 			APIKey:    key,
 			UpdatedAt: time.Now().UTC(),
 		}
+		// "Had a space, and it is not this one." A first configuration changes
+		// nothing, because there is nothing embedded to be inconsistent with.
+		spaceChanged = (cur.Provider != "" && cur.Provider != next.Provider) ||
+			(cur.Model != "" && cur.Model != next.Model)
 		saved = next.toSettings()
 		return next, nil
 	})
 	if err != nil {
 		return Settings{}, err
 	}
+	if spaceChanged {
+		// After the settings are written, not before: a discard that ran first and
+		// then failed to save would have thrown the vectors away for a change that
+		// did not happen.
+		if err := s.discardVectors(ctx); err != nil {
+			return Settings{}, err
+		}
+	}
 	return saved, nil
 }
 
-// Clear removes the configuration entirely, which turns semantic search off.
+// discardVectors throws away every stored vector, so the store holds one
+// embedding space at a time. See Update.
+func (s *Service) discardVectors(ctx context.Context) error {
+	if s.vectors == nil {
+		return nil
+	}
+	return s.vectors.ClearEmbeddings(ctx)
+}
+
+// Clear removes the configuration entirely, which turns semantic search off, and
+// discards the stored vectors with it.
 //
-// Stored vectors are left alone. They cost nothing where they are, they are still
-// correct for the model that made them, and turning the same model back on should
-// not mean re-embedding a whole history — which is the one case where a sweep is
-// both expensive and completely unnecessary.
+// Keeping them would be cheaper for the operator who turns the same model back
+// on — and it is the case that makes the absence of provenance unsafe. Once the
+// settings are gone, nothing records which model made those vectors, so the next
+// configuration could be a different model and the store would silently hold two
+// spaces. Discarding is what keeps "there is no per-row model" a simplification
+// rather than a bug waiting for someone to toggle a setting twice.
 func (s *Service) Clear(ctx context.Context) error {
-	return s.repo.Mutate(ctx, func(stored) (stored, error) {
+	if err := s.repo.Mutate(ctx, func(stored) (stored, error) {
 		return stored{UpdatedAt: time.Now().UTC()}, nil
-	})
+	}); err != nil {
+		return err
+	}
+	return s.discardVectors(ctx)
 }
 
 // Reveal returns what the embedder needs to call the provider, including the

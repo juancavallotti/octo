@@ -79,7 +79,7 @@ describe("EmbeddingSettingsManager", () => {
 
   // The one setting here a second change cannot undo: vectors carry no record of
   // which model produced them, and the platform does not re-embed.
-  it("asks before changing the model when something is already embedded", async () => {
+  it("asks before changing the model when something is already embedded, and says what it costs", async () => {
     getEmbeddingSettings.mockResolvedValue(status({ embedded: 500 }));
     render(<EmbeddingSettingsManager />);
     const model = await screen.findByLabelText(/^Model/);
@@ -90,6 +90,7 @@ describe("EmbeddingSettingsManager", () => {
 
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(confirm.mock.calls[0][0].body).toContain("500");
+    expect(confirm.mock.calls[0][0].body).toContain("discarded");
   });
 
   it("does not ask when nothing has been embedded yet", async () => {

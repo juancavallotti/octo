@@ -148,3 +148,36 @@ describe("AgentMemoryManager", () => {
     await screen.findByText(/has not recorded a conversation yet/);
   });
 });
+
+// A late response must not land under a selection it does not belong to. Without
+// the guard the viewer shows one agent's conversation under another agent's name,
+// which is the worst kind of wrong for a tool whose job is telling you what a
+// particular agent knows.
+describe("AgentMemoryManager, when the selection changes mid-request", () => {
+  it("discards a conversation that arrives after the agent was switched", async () => {
+    model.listMemoryAgents.mockResolvedValue([
+      { agentId: "dr-octo", threadCount: 1, lastActivityAt: "2026-08-02T00:00:00Z" },
+      { agentId: "other", threadCount: 1, lastActivityAt: "2026-08-02T00:00:00Z" },
+    ]);
+    // Held open so the switch happens while the read is in flight.
+    let release: (value: unknown) => void = () => {};
+    model.readMemoryThread.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await choose();
+    await userEvent.click(await screen.findByText("Deploying"));
+    await userEvent.selectOptions(screen.getByLabelText(/^Agent/), "other");
+
+    release({
+      thread: { threadKey: "t-1", title: "Deploying", userId: "u-1" },
+      turns: [{ seq: 1, role: "user", text: "belongs to dr-octo", createdAt: "2026-08-01T00:00:00Z" }],
+    });
+
+    await waitFor(() => expect(screen.getByLabelText(/^Agent/)).toHaveValue("other"));
+    expect(screen.queryByText("belongs to dr-octo")).toBeNull();
+  });
+});
