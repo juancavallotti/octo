@@ -58,6 +58,36 @@ export interface LlmSettingsInput {
   model: string;
 }
 
+/**
+ * What the embedding server is configured to do, and how far the backfill has got.
+ *
+ * READ ONLY. The provider, model and key are deploy-time chart values on the
+ * embedding server, not settings — the model cannot be changed once anything has
+ * been embedded, because vectors carry no record of which model produced them and
+ * a store holding two models' cannot be ranked coherently. A control that must
+ * never be touched does not belong behind a Save button.
+ *
+ * `pending` is here because "configured" and "search is semantic" are not the same
+ * statement: everything written before the server existed has no vector until the
+ * sweep reaches it, and an operator deserves to see that happening rather than
+ * wonder why search has not changed. There is no matching `embedded` total —
+ * counting rows that already have a vector cannot use an index, so it read both
+ * memory tables end to end every time the page loaded.
+ */
+export interface EmbeddingStatus {
+  /** Whether this installation has an embedding server at all. */
+  configured: boolean;
+  /** Whether it answered. False with `configured` true is the interesting case. */
+  reachable: boolean;
+  /** What the server reports about itself. Absent when it did not answer. */
+  model?: string;
+  dimensions?: number;
+  /** The transport error when it did not answer. */
+  detail?: string;
+  /** Stored items still waiting for a vector. Zero when the sweep is caught up. */
+  pending: number;
+}
+
 /** The provider's id for a queued message. */
 export interface SentMessage {
   messageId: string;
@@ -87,4 +117,8 @@ export function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<ActionResult<LlmSettings>> {
   return call<LlmSettings>("PUT", "/settings/llm", input);
+}
+
+export function getEmbeddingStatus(): Promise<ActionResult<EmbeddingStatus>> {
+  return call<EmbeddingStatus>("GET", "/settings/embedding");
 }

@@ -42,6 +42,18 @@ const (
 	// exception is a stop request, which propagates and ends the agent — the chain
 	// cannot change what the run produces, but it can say nobody is listening.
 	BranchEvents = "events"
+	// BranchNameThread is the chain an ai-agent runs once, on the exchange that
+	// opened a conversation, to produce a name for it. Its result is a title and
+	// nothing else: the engine takes the string it returns and writes it through
+	// the memory store, so the chain never touches the conversation it names.
+	//
+	// A slot rather than something the engine does itself, because naming is a
+	// model call and which model, with which prompt, is the flow author's to
+	// decide. A slot rather than a queue and a callback, because where the
+	// conversation lives is the engine's to know — it is holding the reference
+	// already, and handing that out only to have it handed back was the shape
+	// this replaced.
+	BranchNameThread = "nameThread"
 )
 
 // BlockLabel is how a block is named in an address: its name, else its type,

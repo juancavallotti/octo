@@ -1,0 +1,10 @@
+{{- /* ClusterIP, and it stays that way. Every pod on the installation may call
+       it — that is the point of the split, since an embedding is cheap and
+       grants access to nothing — but nothing outside the cluster should. */}}
+{{- if .Values.embeddings.enabled }}
+{{- include "octo-common.service" (dict
+      "root" $
+      "component" "embeddings"
+      "type" "ClusterIP"
+      "ports" (list (dict "name" "http" "port" .Values.embeddings.service.port "targetPort" .Values.embeddings.service.port))) }}
+{{- end }}

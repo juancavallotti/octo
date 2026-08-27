@@ -7,7 +7,13 @@ import {
   saveLlmSettings,
   type LlmSettings,
 } from "@/app/model/siteSettings";
-import { ApiKeyField, EncryptionWarning, Field, INPUT, PrimaryButton } from "./fields";
+import {
+  ApiKeyField,
+  EncryptionWarning,
+  Field,
+  INPUT,
+  PrimaryButton,
+} from "./fields";
 import {
   LLM_PROVIDERS,
   modelForProviderChange,
@@ -116,65 +122,65 @@ export default function LlmSettingsManager() {
   const encryptionAvailable = settings?.encryptionAvailable ?? true;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-6 py-5">
-      <div className="mx-auto w-full max-w-2xl">
-        <h1 className="text-lg font-semibold">LLM provider</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          The model the platform&rsquo;s own agent reasons with. This is separate
-          from the keys an integration configures on its own LLM connectors — those
-          are unaffected by anything here.
+    <section aria-labelledby="llm-heading" className="mt-5">
+      <h3 id="llm-heading" className="text-sm font-semibold">
+        LLM provider
+      </h3>
+      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+        The model the agent reasons with, and the one thing he cannot run
+        without. This is separate from the keys an integration configures on its
+        own LLM connectors &mdash; those are unaffected by anything here.
+      </p>
+
+      {!encryptionAvailable && <EncryptionWarning />}
+      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+      {saved && !error && (
+        <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
+          Settings saved.
         </p>
+      )}
 
-        {!encryptionAvailable && <EncryptionWarning />}
-        {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
-        {saved && !error && (
-          <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
-            Settings saved.
-          </p>
-        )}
-
-        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
-          <Field label="Provider">
-            <select
-              value={provider}
-              disabled={busy}
-              onChange={(e) => changeProvider(e.target.value)}
-              className={`${INPUT} w-full`}
-            >
-              {LLM_PROVIDERS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field
-            label="Model"
-            hint="Free text, so a newly released model works without an update here."
+      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
+        <Field label="Provider">
+          <select
+            value={provider}
+            disabled={busy}
+            onChange={(e) => changeProvider(e.target.value)}
+            className={`${INPUT} w-full`}
           >
-            <input
-              value={model}
-              disabled={busy}
-              placeholder={providerById(provider).defaultModel}
-              onChange={(e) => setModel(e.target.value)}
-              className={`${INPUT} w-full font-mono`}
-            />
-          </Field>
+            {LLM_PROVIDERS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-          <ApiKeyField
-            value={apiKey}
-            onChange={setApiKey}
-            configured={settings?.configured ?? false}
-            last4={settings?.last4 ?? ""}
-            disabled={busy || !encryptionAvailable}
-            placeholder={providerById(provider).keyPlaceholder}
-            onRemove={removeKey}
+        <Field
+          label="Model"
+          hint="Free text, so a newly released model works without an update here."
+        >
+          <input
+            value={model}
+            disabled={busy}
+            placeholder={providerById(provider).defaultModel}
+            onChange={(e) => setModel(e.target.value)}
+            className={`${INPUT} w-full font-mono`}
           />
+        </Field>
 
-          <PrimaryButton onClick={save} disabled={!canSave} />
-        </div>
+        <ApiKeyField
+          value={apiKey}
+          onChange={setApiKey}
+          configured={settings?.configured ?? false}
+          last4={settings?.last4 ?? ""}
+          disabled={busy || !encryptionAvailable}
+          placeholder={providerById(provider).keyPlaceholder}
+          onRemove={removeKey}
+        />
+
+        <PrimaryButton onClick={save} disabled={!canSave} />
       </div>
-    </div>
+    </section>
   );
 }

@@ -16,6 +16,7 @@ export type {
   EmailSettingsInput,
   LlmSettings,
   LlmSettingsInput,
+  EmbeddingStatus,
   SentMessage,
   TestEmailInput,
 } from "@/app/actions/client/settings";
@@ -25,6 +26,7 @@ import type {
   EmailSettingsInput,
   LlmSettings,
   LlmSettingsInput,
+  EmbeddingStatus,
   SentMessage,
   TestEmailInput,
 } from "@/app/actions/client/settings";
@@ -48,7 +50,9 @@ export async function saveEmailSettings(
  * Send a test message using the supplied draft, falling back to the stored key
  * when none is supplied.
  */
-export async function sendTestEmail(input: TestEmailInput): Promise<SentMessage> {
+export async function sendTestEmail(
+  input: TestEmailInput,
+): Promise<SentMessage> {
   return unwrap(await actions.sendTestEmail(input));
 }
 
@@ -62,4 +66,9 @@ export async function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<LlmSettings> {
   return unwrap(await actions.saveLlmSettings(input));
+}
+
+/** Read the embedding server's status and how far the backfill has got. */
+export async function getEmbeddingStatus(): Promise<EmbeddingStatus> {
+  return unwrap(await actions.getEmbeddingStatus());
 }

@@ -35,6 +35,7 @@ type reloadNotifier interface {
 type Service struct {
 	repo     repository
 	notifier reloadNotifier
+	memory   memoryCleaner
 }
 
 // Option customizes a Service at construction.
@@ -46,6 +47,26 @@ type Option func(*Service)
 // the editor's save, the integrations list, MCP's update_flow, any API-key client.
 func WithReloadNotifier(n reloadNotifier) Option {
 	return func(s *Service) { s.notifier = n }
+}
+
+// memoryCleaner erases what an integration's agents remembered. It is an
+// interface here rather than a direct dependency so integration deletion does
+// not import the memory package, and so an orchestrator without a database
+// simply has no cleaner rather than a nil one to guard against.
+type memoryCleaner interface {
+	DeleteForIntegration(ctx context.Context, integrationID string) error
+}
+
+// WithAgentMemoryCleaner wires the sweep that removes an integration's agent
+// memory when the integration is deleted.
+//
+// Explicit rather than a foreign key, matching what logs, traces and kv_store
+// do: a cascade would make deleting an integration one long transaction across
+// every conversation its agents ever had. It is also the reason it cannot be
+// forgotten — an integration whose rows outlive it is not an orphan here, it is
+// somebody's conversation history with no owner.
+func WithAgentMemoryCleaner(c memoryCleaner) Option {
+	return func(s *Service) { s.memory = c }
 }
 
 // NewService returns a Service backed by repo.
@@ -134,7 +155,22 @@ func (s *Service) ensureNameFree(ctx context.Context, name, excludeID string) er
 
 // Delete removes an integration.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	// After the row is gone, not before: a sweep that ran first and then failed to
+	// delete the integration would have destroyed the conversations of an
+	// integration that still exists.
+	if s.memory != nil {
+		if err := s.memory.DeleteForIntegration(ctx, id); err != nil {
+			// The integration is already deleted, so failing the caller now would report
+			// a deletion that did happen as one that did not. Logged instead, and the
+			// rows are reachable by integration id if they need sweeping by hand.
+			slog.Error("integration deleted but its agent memory was not swept",
+				"integration", id, "error", err)
+		}
+	}
+	return nil
 }
 
 // validateName enforces a non-empty, length-bounded name.

@@ -19,12 +19,20 @@ import (
 )
 
 // Names of the dependencies reported, in the order the page shows them: storage
-// first, because nothing works without it, then the two brokers, then the cluster.
+// first, because nothing works without it, then the two brokers, then the
+// cluster, then the optional embedding server.
+//
+// Embeddings is last because it is the only one an installation may simply not
+// have. The other four are how the platform runs; without this one, searching
+// agent memory matches text instead of ranking by meaning and everything else is
+// unchanged — which is why "not configured" here is the ordinary answer rather
+// than a gap to explain.
 const (
 	Postgres   = "postgres"
 	Redis      = "redis"
 	NATS       = "nats"
 	Kubernetes = "kubernetes"
+	Embeddings = "embeddings"
 )
 
 // probeTimeout bounds one check. Short on purpose — this is a page an operator
@@ -65,19 +73,20 @@ type namedProbe struct {
 }
 
 // NewService returns a Service that checks whichever probes are non-nil, always
-// reporting all four names so the page's shape does not change with the install.
-func NewService(postgres, redis, nats, kubernetes probe) *Service {
+// reporting all five names so the page's shape does not change with the install.
+func NewService(postgres, redis, nats, kubernetes, embeddings probe) *Service {
 	return &Service{probes: []namedProbe{
 		{Postgres, postgres},
 		{Redis, redis},
 		{NATS, nats},
 		{Kubernetes, kubernetes},
+		{Embeddings, embeddings},
 	}}
 }
 
 // Check runs every probe and reports what came back.
 //
-// Sequential rather than concurrent. Four probes at three seconds each is a
+// Sequential rather than concurrent. Five probes at three seconds each is a
 // worst case nobody reaches — a dependency that is down refuses immediately —
 // and the failure this page exists to diagnose is one dependency being wedged,
 // which is exactly the case where four goroutines racing a shared context makes

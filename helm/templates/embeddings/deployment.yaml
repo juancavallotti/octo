@@ -1,0 +1,29 @@
+{{- /*
+The embedding server: text in, vectors out, for anything on this installation
+that needs them.
+
+Rendered only when a key is configured. With no key there is no component, the
+orchestrator sees no EMBEDDINGS_URL, and searching agent memory ranks by words
+instead of by meaning — which is a supported way to run and not a degraded one.
+
+One replica by default. It holds no state; scale it if the backfill is the thing
+you are waiting on.
+*/}}
+{{- if .Values.embeddings.enabled }}
+{{- include "octo-common.deployment" (dict
+      "root" $
+      "component" "embeddings"
+      "replicas" .Values.embeddings.replicas
+      "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "embeddings"
+        "name" "embeddings"
+        "image" (include "octo-common.image" (dict "root" $ "component" "embeddings"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "embeddings"))
+        "ports" (list (dict "containerPort" .Values.embeddings.service.port))
+        "env" (include "octo.embeddings.env" .)
+        "readinessProbe" (dict
+          "httpGet" (dict "path" "/healthz" "port" .Values.embeddings.service.port)
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}
+{{- end }}

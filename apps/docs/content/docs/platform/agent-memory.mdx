@@ -1,0 +1,54 @@
+---
+title: "Agent Memory"
+description: "Read what agents have recorded: their conversations, what they still carry, and the facts they keep about people."
+---
+
+`/platform/memory` reads what agents have actually recorded: the conversations they have had, what they are still carrying from them, and the facts they chose to keep about the people in them.
+
+It sits beside the [Object Store](/platform/kv-and-storage) rather than under Admin, and the placement is the argument: nothing on this page configures anything. This is **data that belongs to integrations**, read the same way [logs](/platform/logs-api-reference), [traces](/platform/traces) and stored objects are. What an agent has to declare before any of it is recorded is in [Agent Memory](/ai/agent-memory).
+
+Pick an integration, then an agent in the row above the tabs, the way you pick a deployment and a namespace in the object store. The agent list is what has **stored** something, not what a definition declares — an agent appears here once it has recorded a conversation.
+
+Three tabs, because there are three questions and only one of them is about a particular conversation:
+
+| Tab | Answers |
+| --- | --- |
+| **Conversations** | What was said, and what the agent still carries from it |
+| **Facts** | What this agent has kept about one person |
+| **Search** | Where is that thing I remember |
+
+## The transcript and the live context
+
+Open a conversation and its two forms sit behind tabs of their own, because they are two versions of the same conversation and the question is always which one you are reading.
+
+**Transcript** is the durable record: what was asked and what was answered, in order, and **never compacted**. Once a turn is written it is not touched again. A question the agent never got back to is badged rather than hidden.
+
+**Working memory** is what the agent still carries into its next turn — the same conversation after pruning or summarizing to fit the model's context window. It reports how many tokens it holds, how large it is, which iteration it was checkpointed at, and its version. It also holds what the transcript never does: the tool calls and their results, named on the messages that carry them, which on a working agent is usually most of what fills the context.
+
+Reading them side by side is how you answer *"why doesn't it remember what I told it?"*. A conversation whose transcript runs to forty turns and whose working memory holds six is one where the model genuinely no longer knows how it started, and the panels say so plainly. Before they sat together there was no way to tell that from a bug.
+
+The working-memory payload is the **runtime's** serialized form. The orchestrator stores it without parsing it — deliberately, so the engine can change the format without a schema migration — so the viewer decodes it best-effort: the shape it recognizes renders as messages, and anything else falls back to the raw text with the counts still shown.
+
+A conversation that ended cleanly often has no working memory at all. That is ordinary, and the panel says so rather than showing an empty box.
+
+## What you can and cannot do
+
+Facts are addressed by **person** rather than by conversation. The people offered are those on the conversations currently loaded — a page of them rather than everyone the agent has ever spoken to — which is why the picker says so.
+
+You can read, search, erase a conversation, and forget one remembered fact.
+
+You cannot **edit** a remembered fact, and that is deliberate: an operator rewriting what an agent believes about a person, with no audit trail and nothing in the conversation explaining the change, is a capability that should be asked for explicitly rather than fall out of a viewer.
+
+Erasing reaches everything — the transcript, the working memory, and the conversation itself. A delete that reached only one of them would report success over a copy that is still readable.
+
+## Searching
+
+Search covers an agent's recorded turns and the facts it keeps, and has a tab to itself — results are lines of somebody's conversation and deserve the width, and a search box above the list meant that finding something pushed everything else off the page. Opening a hit takes you back to the conversation it came from.
+
+It ranks by **meaning** when the [embedding server](/platform/admin-settings) is deployed and by **words** when it is not; the line under the search box says which, and neither is a degraded mode. It also reports how much is still waiting for a vector, because turning embeddings on does not make search semantic so much as make it *become* semantic — and a search run during that backfill is matched by text.
+
+## Where it is stored
+
+Agent memory has real tables — `agent_threads`, `agent_working_memory`, `agent_turns`, `agent_user_memories` — rather than rows in `site_settings`, because it is data rather than configuration and has to be queried, paged and searched.
+
+They are keyed on the **integration** rather than the deployment, which is what makes a conversation survive a redeploy. A conversation is also attributed to the person it was with, recorded on the first write that names one and never reassigned by a later write that does not — that attribution is what lets the chat panel list your own conversations and nobody else's.

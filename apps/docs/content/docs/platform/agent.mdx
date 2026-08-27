@@ -22,7 +22,7 @@ Installing needs three things. Check them here, or just open the page — it tel
 | --- | --- | --- |
 | Cluster access | He is deployed like any integration | **Install** is disabled; this orchestrator cannot deploy anything |
 | `kv.encryptionKey` | His provider key is read back out of storage to bind onto the deployment | **Install** is disabled — see [Admin settings](/platform/admin-settings) |
-| A stored LLM key | There is no model for him to reason with | **Install** is disabled, with a link to `/platform/admin/llm` |
+| A stored LLM key | There is no model for him to reason with | **Install** is disabled, with a link to the LLM provider section on the same page |
 
 Expect the status page never to fail for a reason you could act on: no cluster, no encryption key and no provider key each arrive as an explanation on the page rather than an error.
 
@@ -84,14 +84,14 @@ Every exchange is recorded as it happened, under a name he writes for the conver
 
 What comes back is what was **said** — your messages and his answers. The reasoning and the tool calls belonged to the run and went with it.
 
-That record is deliberately **not** his memory. Memory is compacted — a long conversation has its early turns replaced by a summary of them, which is what keeps the model's context affordable — so it is the working set rather than the conversation you had. Only one of the two can be read back to you, and it is this one.
+That record is deliberately **not** his memory. Memory is compacted — a long conversation has its early turns replaced by a summary of them, which is what keeps the model's context affordable — so it is the working set rather than the conversation you had. Both are readable, side by side, on [the memory page](/platform/agent-memory); only one of them is what you actually said, and it is this one.
 
-The record is written from a wire-tap: the exchange goes onto an internal queue and the answer returns, so naming a conversation (which is a small model call, once per conversation) never delays a reply. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
+The record is the **runtime's**, written by the engine as the run completes rather than assembled by the flow. Naming it is the one part the runtime will not decide — what an exchange was about is a judgement — so that is a small model call in a [`nameThread`](/reference/blocks/ai#naming-a-conversation) slot, made once, on the first exchange, and the engine writes what comes back. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
 
 Two limits worth knowing:
 
 - **A message you send mid-answer is not in the replay.** It reaches the run — that is what steering is — and he takes it into account, but the record is written once per completed run and holds the question that started it. The answer reflects your follow-up; the transcript does not show you making it.
-- **Naming can fail, and the record does not.** A provider having a bad minute leaves the conversation named after its first question instead. A worse name, not a worse record.
+- **Naming can fail, and the record does not.** A provider having a bad minute leaves the conversation named after its first question instead. A worse name, not a worse record. A conversation he decides is not worth naming — a greeting, a test message — is left unnamed on purpose, and listed by its first question.
 
 ## Update him
 
@@ -228,21 +228,20 @@ Read this before you change him. The whole file is in the editor.
 | Piece | What it does |
 | --- | --- |
 | `chat` flow | An HTTP source on `/chat` with [server-sent events](/reference/connectors/http) enabled, so answers stream a token at a time |
-| `ai-agent` block | The coordinator: streaming, with memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots — see [the two specialists](#the-two-specialists) |
-| `record-conversation` flow | Consumes the wire-tap: appends the exchange to the conversation's record and, on the first message only, asks the model for a name for it |
-| `list-conversations`, `read-conversation` flows | The two read endpoints the panel lists and replays past conversations from |
+| `ai-agent` block | The coordinator: streaming, `agentId: dr-octo`, memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction, and `userMemory` on. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots — see [the two specialists](#the-two-specialists) |
+| `nameThread` slot | On the coordinator, and all that is left of the recording pipeline: on the opening exchange only, asks `llm-fast` for a name for the conversation. The engine writes it — see [Naming a conversation](/reference/blocks/ai#naming-a-conversation). The record itself is the runtime's |
 | `octo_read` | Reads the orchestrator's [API](/platform/api-reference) — `allowMethods: [GET]`, so the coordinator can answer a question but not change anything |
 | `integration_builder` | The first specialist (see [below](#the-two-specialists)): writes a definition and proves it |
 | `platform_operator` | The second specialist: everything that changes the installation, and everything about what already happened |
 | `send_email_report` | Sends an HTML report through the platform's own [email settings](/platform/admin-settings); the sender identity is the installation's, never the model's |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
 | `check_expression` | Evaluates one [CEL](/reference/cel) expression, so he can prove one rather than assert it |
-| `recall_facts`, `remember_fact`, `forget_fact` | What he remembers about you between conversations |
+| `remember`, `forget`, `search_memory` | Built into the runtime rather than written here. What he has already remembered about you is placed in every request, so there is no tool to call to recall it |
 | Skills | Seven documents on flow files, blocks, connectors, expressions, testing, the platform and email reports, loaded on demand rather than sitting in every prompt |
 
 ### The two specialists
 
-The coordinator keeps the cheap things — a read-only API call, a CEL check, navigation, the three facts tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
+The coordinator keeps the cheap things — a read-only API call, a CEL check, navigation, the built-in memory tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
 
 | Specialist | Holds | For |
 | --- | --- | --- |
@@ -267,19 +266,25 @@ What it costs: a delegation is a whole model run, and the panel is quiet while i
 
 Each specialist emits its `tool_call` and `tool_result` events to the same stream the coordinator's go to, so the panel shows what it is doing rather than one chip sitting open for two minutes.
 
-His memory rides the deployment's [KV store](/platform/kv-and-storage), which in a cluster is the orchestrator's own — so conversations survive a pod restart with nothing configured for it.
-
 ### What he remembers
 
-Memory holds a conversation; **facts** hold what outlives one — how you like flows written, which integration is yours, what to call you. Tell him something worth keeping and he stores it; ask him to forget it and he does.
+He uses the runtime's [agent memory](/ai/agent-memory) — `agentId: dr-octo`, with `userMemory` on — so none of this is written in his definition any more. Three things are stored, and they are not the same thing:
+
+| | What it is |
+| --- | --- |
+| **Working memory** | The transcript he re-reads. Compacted as it grows: `memoryCompaction: summarize` folds the early turns into a summary of them |
+| **Conversation history** | What you can come back to. **Never compacted**, so it is what was actually said rather than the shortened version he still carries |
+| **Facts** | What outlives a conversation — how you like flows written, which integration is yours, what to call you |
+
+All three live in the orchestrator's own tables, keyed on the **integration**. That is what makes them survive a redeploy — and a reinstall, which used to destroy every conversation on the installation because the store was scoped to the deployment.
 
 Expect three things of it:
 
-- **Facts are yours.** They are keyed on the user the platform authenticated, which he can neither see nor set — he names a fact, the flow decides whose. Another person's conversation cannot reach them however he is asked.
-- **He keeps the last 200.** Nothing else bounds the list, since he decides what is worth keeping.
-- **Two conversations remembering at once can lose one fact.** The read and the write are separate steps. Say it again if it matters; the cost is a forgotten preference, not a wrong one.
+- **Facts are yours.** They are keyed on the user the platform authenticated, which he can neither see nor set — `userId` is resolved by the flow from an identity the chat route writes server-side. Another person's conversation cannot reach them however he is asked.
+- **He does not have to look them up.** What he has already remembered is placed in every request, so there is no recall tool to call and no turn where he forgets to. Past a bound the rest stay reachable through `search_memory`.
+- **Correcting a fact replaces it.** Remembering under a name that already exists overwrites it, so telling him something has changed works the way saying it does.
 
-Tell him to forget something and he will, but treat that as housekeeping rather than a privacy control: what he already said in a conversation is in that conversation's memory, and a fact he was told not to keep may still be in the transcript. Purging the agent removes both.
+Tell him to forget something and he will, but treat that as housekeeping rather than a privacy control: what he already said in a conversation is in that conversation, and a fact he was told not to keep may still be in the transcript. Erasing the conversation from [the memory viewer](/platform/admin-settings#agent-memory) removes both, and so does purging the agent.
 
 ## Run him yourself
 

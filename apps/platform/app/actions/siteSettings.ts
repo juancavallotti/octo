@@ -17,6 +17,7 @@ import type {
   EmailSettingsInput,
   LlmSettings,
   LlmSettingsInput,
+  EmbeddingStatus,
   SentMessage,
   TestEmailInput,
 } from "./client/settings";
@@ -45,4 +46,15 @@ export async function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<ActionResult<LlmSettings>> {
   return withWrite(() => client.saveLlmSettings(input));
+}
+
+/**
+ * The embedding server's status. A read, and the only embedding call there is:
+ * the provider, model and key are chart values on that server, so there is
+ * nothing here to write.
+ */
+export async function getEmbeddingStatus(): Promise<
+  ActionResult<EmbeddingStatus>
+> {
+  return withRead(() => client.getEmbeddingStatus());
 }

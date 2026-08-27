@@ -1,6 +1,6 @@
 ---
 title: "Admin Settings"
-description: "Site-wide configuration: email delivery and the platform's LLM provider."
+description: "Site-wide configuration: email delivery, and the models and deployment of the platform agent."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -65,9 +65,15 @@ It returns `{"messageId": "..."}` on success, and `409` until email is configure
 Keep this internal. The orchestrator is ClusterIP in the chart and trusts its callers; there is deliberately no browser-facing route to it.
 </Callout>
 
-## LLM provider
+## Platform agent
 
-`/platform/admin/llm` configures the model the platform's **own agent** reasons with: provider, model, and API key.
+`/platform/admin/agent` is one page for one task: the model the platform's **own agent** reasons with, and his deployment. These were two separate tabs, and nothing else on the installation reads the provider setting — so the split only hid the requirement between them. He will not install without an LLM provider, and now the page that refuses is the page holding the field.
+
+Two sections, in the order they are needed: the **LLM provider** first, the **Deployment** second. Embeddings are not here: they configure how agent memory is *searched* rather than how the agent reasons, they are not configured on this platform at all, and what is left to say about them is [reported where the searching happens](/platform/agent-memory).
+
+### LLM provider
+
+The model the agent reasons with, and the one thing he cannot run without: provider, model, and API key.
 
 | Field | Notes |
 | --- | --- |
@@ -82,6 +88,57 @@ Model is free text on purpose: model names turn over faster than releases of thi
 <Callout type="warn">
 This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
 </Callout>
+
+### Deployment
+
+The second section of the same page installs, updates, traces or removes him, and sets his **turn limit** — how many tool-calling turns one answer may take. The limit sits inside the deployment card with the buttons that roll the same pods, because that is what it is: a property of this deployment, not another site setting. See [The Platform Agent](/platform/agent) for what he does and how to change him.
+
+## Embeddings (optional)
+
+Whether searching [agent memory](/platform/agent-memory) ranks by **meaning** or by **words**. Leave it out and search works — it matches text, using Postgres full-text. Deploy the embedding server and the same search ranks by embedding similarity instead. Nothing else changes: the same query, the same results shape, and no flow or block has to be edited.
+
+<Callout type="warn">
+**Embedding configuration is deploy-time, and there is no page for it.** There was one, briefly, and it was wrong twice over.
+
+The model cannot be changed once anything has been embedded: vectors carry no record of which model produced them, so a store holding two models' vectors cannot be ranked coherently, and keeping one embedding space at a time is what makes that simplification safe rather than a corruption waiting for someone to click Save. A control whose correct use is "never" does not belong behind a Save button, however loud the confirmation dialog.
+
+The second problem settled it: nothing read the value until the orchestrator restarted. Saving on a page and then wondering why nothing changed is worse than not offering the control at all.
+
+What survived is a **report**, and it lives on the [agent memory page](/platform/agent-memory) rather than here — it says whether search ranks by meaning, which model, and how much is still waiting for a vector. That belongs where somebody searches.
+</Callout>
+
+### The embedding server
+
+Embeddings are produced by a small octo app the chart deploys — `embeddings/config.yaml`, an `ai-embed` block behind an HTTP route. It is a service rather than a library for one reason: it holds the provider API key, so that **no integration pod has to**.
+
+Every deployment pod is given its address as `EMBEDDINGS_URL`, which means any integration on the installation can embed text. That is deliberate. An embedding reads nothing, writes nothing and costs a fraction of a cent, so handing out the URL crosses no boundary — and it is what makes handing out the key unnecessary. (Contrast `LOGS_URL`, which *is* a grant: stored telemetry is other integrations' data.)
+
+Turn it on in the Helm values:
+
+```yaml
+embeddings:
+  enabled: true
+  connectorType: llm-openai   # or llm-gemini, llm-openrouter
+  model: text-embedding-3-small
+  dimensions: 1536
+  apiKey: "sk-..."            # or existingSecret
+```
+
+`connectorType` has no Anthropic option and cannot be given one — Anthropic has no embeddings API, so the connector does not implement the capability and the flow is refused when it is **built**. That is a startup failure naming the problem rather than a surprise on the first embed.
+
+`dimensions` must match the `vector(N)` columns in `sql/schema.sql`, which are indexed and therefore fixed at schema time. It is *requested* of the provider — most embeddings APIs take a desired-dimensions parameter — and a model that cannot produce that width fails the call and says so.
+
+On a Terraform deploy the same settings are `embeddings_*` variables on the release root. The key is persisted to the state bucket as `release/embeddings.json`, the same mechanism the OIDC credentials use, so a Cloud Build deploy — which has no `terraform.tfvars` — reads it back instead of tearing the server down.
+
+The embedding server appears on [Platform services](#platform-services) like any other dependency. "Not configured" there is the ordinary answer, not a gap.
+
+### The backfill
+
+Deploying the server does not make search semantic — it makes it *become* semantic. Everything written before it existed has no vector, so a background sweep in the orchestrator works through them, newest first: the most recent conversations are vectorized first, because those are the ones anyone is about to search.
+
+The [agent memory page](/platform/agent-memory) shows how much is left. While the sweep runs, a search may be answered by either index — the vector one when it has something to match, the text one when it does not — and you cannot tell from the results, deliberately.
+
+The sweep is paced on purpose (64 rows every 5 seconds). A large installation turning this on has a history of hundreds of thousands of items, and an unpaced backfill would send all of it to a paid API in one burst.
 
 ## How a save handles the API key
 
@@ -101,11 +158,9 @@ Both forms submit every field on every save, so any other design would mean edit
 
 ## Storage
 
-Both features are rows in the `site_settings` table — `key = 'email'` and `key = 'llm'`, each a jsonb document. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
+The email and LLM settings are rows in the `site_settings` table — `key = 'email'` and `'llm'`, each a jsonb document. Embeddings are not among them: nothing about them is stored, because nothing about them is a setting. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
 
-## Platform agent
-
-Use `/platform/admin/agent` to install, update, trace or remove the platform's own agent — the one thing that consumes the LLM settings above. See [The Platform Agent](/platform/agent) for what it does and how to change it.
+What agents *remember* is not configuration and is not here: it has its own tables and its own section of the platform. See [Agent Memory](/platform/agent-memory).
 
 ## Data retention
 
@@ -135,8 +190,8 @@ Two behaviours worth knowing, both explained in [Traces](/platform/traces#retent
 ## Platform services
 
 `/platform/admin/health` is the one page in this section that reports rather than
-configures. It asks the orchestrator whether it can currently reach the four
-things this installation runs on:
+configures. It asks the orchestrator whether it can currently reach the five
+things this installation may run on:
 
 | Service | What stops working without it |
 | --- | --- |
@@ -144,6 +199,9 @@ things this installation runs on:
 | Redis | The fold that keeps streamed traces small. See [Redis](/deploy/helm#redis). |
 | NATS | Live updates — deployment status, and the telemetry runtimes ship to the aggregator. |
 | Kubernetes | Deploying anything. Without it the platform is an editor and a database. |
+| Embeddings | Ranking a search of agent memory by meaning. Without it, search matches text. |
+
+Embeddings is the only one an installation may simply not have, and "Not configured" there is the ordinary answer rather than a gap to explain — the other four are how the platform runs. Only a server that was deployed and does not answer is a fault.
 
 Each check is **one round trip**, and the page says so. That is enough to prove a
 dependency answered and no more: Postgres answering says nothing about

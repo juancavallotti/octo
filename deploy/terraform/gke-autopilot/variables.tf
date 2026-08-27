@@ -167,3 +167,48 @@ variable "deletion_protection" {
   description = "Refuse to destroy the cluster. Off by default: the google provider defaults it ON, which makes `terraform destroy` fail on a cluster whose purpose is to be destroyed."
   default     = false
 }
+
+# --- The embedding server -----------------------------------------------------
+#
+# Optional. With no key there is no embedding server, and searching agent memory
+# ranks by matching text rather than by meaning — a supported way to run, not a
+# degraded one.
+#
+# The server holds the provider key so that no integration pod has to; every pod
+# is given only its URL, which grants nothing an embedding could not already do.
+#
+# The model is deploy-time configuration rather than a setting: vectors carry no
+# record of which model produced them, so a store holding two models' cannot be
+# ranked coherently. Changing embeddings_model on an installation that has
+# embedded anything discards those vectors and re-embeds the store.
+
+variable "embeddings_enabled" {
+  type        = bool
+  description = "Deploy the embedding server, so searching agent memory ranks by meaning. Requires embeddings_api_key."
+  default     = false
+}
+
+variable "embeddings_connector_type" {
+  type        = string
+  description = "Which provider connector the embedding server builds: llm-openai, llm-gemini or llm-openrouter. Not llm-anthropic — Anthropic has no embeddings API, and the server refuses to start rather than failing on the first call."
+  default     = "llm-openai"
+}
+
+variable "embeddings_model" {
+  type        = string
+  description = "Provider-specific embedding model id. Changing it on an installation that has embedded anything discards every stored vector and re-embeds the store."
+  default     = "text-embedding-3-small"
+}
+
+variable "embeddings_dimensions" {
+  type        = number
+  description = "Stored vector width. Must match the vector(N) columns in sql/schema.sql, which are indexed and so fixed at schema time."
+  default     = 1536
+}
+
+variable "embeddings_api_key" {
+  type        = string
+  description = "Provider API key for the embedding server. Held in exactly one pod on the installation, which is the reason the server exists."
+  default     = ""
+  sensitive   = true
+}

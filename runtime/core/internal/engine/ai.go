@@ -518,6 +518,18 @@ type aiAgent struct {
 	// transcript after.
 	memoryThreadID   *expr.Program
 	memoryCompaction string
+	// agentID opts this block into the runtime's first-class memory store. Empty
+	// keeps the older per-thread KV transcript and stores no durable history. It is
+	// stated by the author and never derived; see types.BlockConfig.AgentID.
+	agentID string
+	// userID resolves the person the agent is talking to. Nil when the block names
+	// nobody, which also means user memory is unavailable.
+	userID *expr.Program
+	// history is historyRecord or historyOff: whether completed turns reach the
+	// durable conversation record.
+	history string
+	// userMemory gives the model the remember/forget/search_memory tools.
+	userMemory bool
 	// memoryNamespace is the KV namespace this agent's transcripts live in: the
 	// persistent user namespace, or the volatile one when memoryVolatile is set.
 	memoryNamespace string
@@ -539,6 +551,11 @@ type aiAgent struct {
 	// accepts when the connector has a streaming half to do it with.
 	events    *emitter
 	streaming bool
+	// namer is the chain that names a conversation, nil when the block declares
+	// none. It runs at most once per conversation — on the exchange that opened
+	// it — and what it returns is a title, not a message: the engine writes it
+	// through the store and discards everything else.
+	namer *Flow
 }
 
 // validateAgentConfig rejects an ai-agent block that cannot be built, before any
@@ -563,10 +580,14 @@ func validateAgentConfig(cfg types.BlockConfig) error {
 			"ai-agent memoryMaxTokens is now contextMaxTokens, and budgets the whole " +
 				"prompt (system, tools and conversation) rather than the stored transcript alone")
 	}
+	if err := validateAgentMemoryConfig(cfg); err != nil {
+		return err
+	}
 	return allowSlots(cfg, blockKindAIAgent,
 		"tools", "skills", "default", "connector", "prompt", "guardrail", "input", "answer",
 		"maxIterations", "memoryThreadId", "contextMaxTokens", "memoryCompaction",
-		"stopWhen", "events", "emit", "stream")
+		"stopWhen", "events", "emit", "stream",
+		"agentId", "userId", "history", "userMemory", "nameThread")
 }
 
 //nolint:ireturn // builders intentionally return the MessageProcessor interface
@@ -592,6 +613,12 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 	if len(skills) > 0 {
 		tools = append(tools, loadSkillTool(skills))
 	}
+	if cfg.UserMemory {
+		if err := rejectMemoryToolCollision(tools); err != nil {
+			return nil, err
+		}
+		tools = append(tools, userMemoryTools()...)
+	}
 
 	maxIterations := cfg.MaxIterations
 	if maxIterations <= 0 {
@@ -616,8 +643,10 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 	for _, configure := range []func(*aiAgent, types.BlockConfig) error{
 		b.configureAgentInput,
 		b.configureAgentMemory,
+		b.configureAgentStore,
 		b.configureAgentSignals,
 		b.configureAgentEvents,
+		b.configureAgentNamer,
 		b.configureAgentGuardrail,
 	} {
 		if err := configure(block, cfg); err != nil {
@@ -690,6 +719,28 @@ func (b *builder) configureAgentMemory(block *aiAgent, cfg types.BlockConfig) er
 	if cfg.MemoryVolatile {
 		block.memoryNamespace = core.NamespaceUserVolatile
 	}
+	return nil
+}
+
+// configureAgentNamer wires the chain that names a conversation.
+//
+// Refused without an agentId, and that is the same rule history and user memory
+// already follow: without one there is no first-class store, so there is nothing
+// a title could be written to. Failing here names the fix; failing at the end of
+// the first conversation would name nothing.
+func (b *builder) configureAgentNamer(block *aiAgent, cfg types.BlockConfig) error {
+	if cfg.NameThread == nil {
+		return nil
+	}
+	if strings.TrimSpace(cfg.AgentID) == "" {
+		return errors.New("ai-agent nameThread requires an agentId: " +
+			"without one the agent has no durable conversation to name")
+	}
+	flow, err := b.branch(core.BranchNameThread).subFlow(*cfg.NameThread)
+	if err != nil {
+		return fmt.Errorf("ai-agent nameThread: %w", err)
+	}
+	block.namer = flow
 	return nil
 }
 
@@ -881,10 +932,22 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	run, threadID := claim.run, claim.threadID
 	branchBase := branchScopeBase(threadID, a.runScope)
 
-	messages, meter, err := a.initConversation(ctx, msg, threadID)
+	// One session per run. It carries the working-memory version this run is
+	// writing against, which cannot live on the block: aiAgent is shared by every
+	// message it handles at once, and two conversations sharing a version would
+	// each report the other's write as a conflict.
+	sess := a.newMemorySession(ctx, msg, threadID)
+	messages, meter, err := a.initConversation(ctx, msg, sess)
 	if err != nil {
 		return nil, err
 	}
+	// Read once per run and sent with every turn, but never appended to the
+	// transcript. See memoryPreamble: in the request it is refreshed each run and
+	// stored nowhere; in the conversation it would be persisted, and a memory
+	// corrected between runs would sit in working memory beside stale copies of
+	// itself.
+	preamble := sess.memoryPreamble(ctx)
+	preambleTokens := estimateTokens(preamble)
 	// Everything that has to outlive a stop runs on this one: by the time the run
 	// is saving its memory, runCtx is already cancelled.
 	//
@@ -899,47 +962,80 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	current := msg
 	for iter := 0; iter < a.maxIterations; iter++ {
 		messages = a.injectPending(runCtx, current, messages, iter, run)
-		messages = a.fitContext(runCtx, current, messages, iter, meter)
+		// The preamble is reserved rather than fitted: it rides in front of every
+		// request but is not part of the transcript, so the conversation has to fit
+		// what is left after it.
+		messages = a.fitContext(runCtx, current, messages, iter, meter, preambleTokens)
 		// What was sent, paired below with what the provider says it read. The two
 		// together are what let the meter separate the run's fixed overhead from the
 		// conversation that varies.
 		sent := estimateTokens(messages)
-		resp, callErr := a.callModel(runCtx, iter, current, messages)
+		resp, callErr := a.callModel(runCtx, iter, current, messages, preamble)
 		if callErr != nil {
-			return a.callFailed(saveCtx, threadID, stoppedTranscript(messages, resp),
+			return a.callFailed(saveCtx, sess, stoppedTranscript(messages, resp),
 				current, iter, meter, run, callErr)
 		}
 		meter.observeResponse(sent, resp)
 		messages = append(messages, resp.Raw)
 
 		if resp.StopReason == core.LLMStopRefusal {
-			a.persistMemory(saveCtx, current, threadID, messages, meter, a.memoryCompaction)
+			sess.recordTurn(saveCtx, msg, "", iter+1, "refused")
+			a.persistMemory(saveCtx, current, sess, messages, meter, a.memoryCompaction)
 			return a.fallback(runCtx, current, iter, "model refused")
 		}
 		if len(resp.ToolCalls) == 0 {
-			out := a.tryFinish(runCtx, saveCtx, threadID, current, messages, meter, run, resp, iter)
+			out := a.tryFinish(runCtx, saveCtx, sess, current, messages, meter, run, resp, iter)
 			if out == nil {
 				continue // something arrived mid-answer; the run owes it a turn
 			}
 			return out, nil
 		}
 
-		results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, &current, branchBase)
-		messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
-
-		// Halt rather than start another iteration, which would call the model again
-		// and overwrite the body with the next tool call's arguments. A tool branch
-		// runs on the shared message so its flag is already there; the events path
-		// runs on its own, so its stop has to be carried over.
-		switch {
-		case run.stopRequested():
-			return a.haltOnSignal(saveCtx, threadID, messages, current, iter, meter)
-		case stopped || current.StopRequested():
-			return a.halt(saveCtx, threadID, messages, current, iter, "a tool branch stopped the run", meter)
+		var halted *types.Message
+		messages, halted, err = a.takeToolTurn(
+			runCtx, saveCtx, sess, resp, &current, branchBase, messages, meter, run, iter)
+		if halted != nil || err != nil {
+			return halted, err
 		}
 	}
 
-	return a.outOfTurns(ctx, runCtx, saveCtx, threadID, current, messages, meter, run)
+	return a.outOfTurns(ctx, runCtx, saveCtx, sess, current, messages, meter, run)
+}
+
+// takeToolTurn dispatches the tools the model asked for, checkpoints what that
+// produced, and says whether the run should stop rather than take another turn.
+//
+// A non-nil message means the run ended here; nil means carry on with the
+// returned transcript.
+func (a *aiAgent) takeToolTurn(
+	runCtx, saveCtx context.Context, sess *memorySession, resp *core.LLMResponse,
+	current **types.Message, branchBase string, messages []core.LLMMessage,
+	meter *contextMeter, run *agentRun, iter int,
+) ([]core.LLMMessage, *types.Message, error) {
+	results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, current, branchBase, sess)
+	messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
+
+	// The transcript is replayable again here and nowhere earlier in the turn: the
+	// tool calls the model just made now have their results beside them. A
+	// checkpoint taken between the two would store a turn whose results do not exist
+	// and never will, which is the malformed shape stoppedTranscript exists to
+	// avoid. Debounced, and detached so a stop does not abandon a half-write.
+	sess.offerCheckpoint(saveCtx, messages, meter, iter)
+
+	// Halt rather than start another iteration, which would call the model again and
+	// overwrite the body with the next tool call's arguments. A tool branch runs on
+	// the shared message so its flag is already there; the events path runs on its
+	// own, so its stop has to be carried over.
+	switch {
+	case run.stopRequested():
+		out, err := a.haltOnSignal(saveCtx, sess, messages, *current, iter, meter)
+		return messages, out, err
+	case stopped || (*current).StopRequested():
+		out, err := a.halt(saveCtx, sess, messages, *current, iter,
+			"a tool branch stopped the run", meter)
+		return messages, out, err
+	}
+	return messages, nil, nil
 }
 
 // outOfTurns ends a run that spent its whole iteration budget without reaching an
@@ -956,12 +1052,13 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 // was noticed. What reaches here is a run that worked to its limit and owes its
 // caller an answer, and the guardrail is that answer.
 func (a *aiAgent) outOfTurns(
-	ctx, runCtx, saveCtx context.Context, threadID string,
+	ctx, runCtx, saveCtx context.Context, sess *memorySession,
 	current *types.Message, messages []core.LLMMessage, meter *contextMeter, run *agentRun,
 ) (*types.Message, error) {
 	last := a.maxIterations - 1
 	a.reportUnanswered(runCtx, current, run, last)
-	a.persistMemory(saveCtx, current, threadID, messages, meter, a.memoryCompaction)
+	sess.recordTurn(saveCtx, current, "", a.maxIterations, "max iterations")
+	a.persistMemory(saveCtx, current, sess, messages, meter, a.memoryCompaction)
 	return a.fallback(ctx, current, last, "exceeded max iterations")
 }
 
@@ -974,7 +1071,7 @@ func (a *aiAgent) outOfTurns(
 // instead, which is also what makes a follow-up typed mid-answer behave the way
 // it does in any chat.
 func (a *aiAgent) tryFinish(
-	runCtx, saveCtx context.Context, threadID string, current *types.Message,
+	runCtx, saveCtx context.Context, sess *memorySession, current *types.Message,
 	messages []core.LLMMessage, meter *contextMeter, run *agentRun,
 	resp *core.LLMResponse, iter int,
 ) *types.Message {
@@ -984,7 +1081,8 @@ func (a *aiAgent) tryFinish(
 	slog.Info("ai-agent finished", "block", a.name, "iterations", iter+1)
 	out := foldResult(current, resp.Text)
 	a.report(runCtx, out, iter, eventDone, map[string]any{fieldText: resp.Text})
-	a.persistMemory(saveCtx, current, threadID, messages, meter, a.memoryCompaction)
+	sess.recordTurn(saveCtx, current, resp.Text, iter+1, "")
+	a.persistMemory(saveCtx, current, sess, messages, meter, a.memoryCompaction)
 	return out
 }
 
@@ -995,14 +1093,14 @@ func (a *aiAgent) tryFinish(
 // context is what abandons the call, and each provider client makes its own error
 // out of that — which error it is is not this loop's business to recognize.
 func (a *aiAgent) callFailed(
-	ctx context.Context, threadID string, messages []core.LLMMessage,
+	ctx context.Context, sess *memorySession, messages []core.LLMMessage,
 	current *types.Message, iter int, meter *contextMeter, run *agentRun, callErr error,
 ) (*types.Message, error) {
 	switch {
 	case run.stopRequested():
-		return a.haltOnSignal(ctx, threadID, messages, current, iter, meter)
+		return a.haltOnSignal(ctx, sess, messages, current, iter, meter)
 	case errors.Is(callErr, errEventStop):
-		return a.halt(ctx, threadID, messages, current, iter, "the events path stopped the run", meter)
+		return a.halt(ctx, sess, messages, current, iter, "the events path stopped the run", meter)
 	}
 	return nil, fmt.Errorf("ai-agent: %w", callErr)
 }
@@ -1010,21 +1108,22 @@ func (a *aiAgent) callFailed(
 // haltOnSignal ends the run because someone asked it to, reporting the stop
 // before it goes.
 func (a *aiAgent) haltOnSignal(
-	ctx context.Context, threadID string, messages []core.LLMMessage,
+	ctx context.Context, sess *memorySession, messages []core.LLMMessage,
 	current *types.Message, iter int, meter *contextMeter,
 ) (*types.Message, error) {
 	a.report(ctx, current, iter, eventSignal, map[string]any{fieldSignal: signalStop})
-	return a.halt(ctx, threadID, messages, current, iter, "a stop signal ended the run", meter)
+	return a.halt(ctx, sess, messages, current, iter, "a stop signal ended the run", meter)
 }
 
 // callModel runs one model turn, reporting its boundaries and — when the block
 // streams — its output as it arrives.
 func (a *aiAgent) callModel(
 	ctx context.Context, iter int, current *types.Message, messages []core.LLMMessage,
+	preamble []core.LLMMessage,
 ) (*core.LLMResponse, error) {
 	req := core.LLMRequest{
 		System:     a.system,
-		Messages:   messages,
+		Messages:   withPreamble(preamble, messages),
 		Tools:      a.tools,
 		ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
 	}
@@ -1096,13 +1195,14 @@ func (a *aiAgent) completeTurn(
 // and says whether the events path asked to stop.
 func (a *aiAgent) runTools(
 	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message, branchBase string,
+	sess *memorySession,
 ) ([]core.LLMToolResult, bool) {
 	results := make([]core.LLMToolResult, 0, len(calls))
 	stopped := false
 	for _, call := range calls {
 		stopped = a.report(ctx, *current, iter, eventToolCall, callFields(call)) || stopped
 		var res core.LLMToolResult
-		res, *current = a.runTool(ctx, call, *current, branchBase)
+		res, *current = a.runTool(ctx, call, *current, branchBase, sess)
 		results = append(results, res)
 		stopped = a.report(ctx, *current, iter, eventToolResult, resultFields(call, res)) || stopped
 	}
@@ -1128,17 +1228,20 @@ func (a *aiAgent) report(
 // halt ends the run early with the message as it stands, making sure the stop
 // flag is on it — the events path sets it on its own message, not this one.
 func (a *aiAgent) halt(
-	ctx context.Context, threadID string, messages []core.LLMMessage,
+	ctx context.Context, sess *memorySession, messages []core.LLMMessage,
 	current *types.Message, iter int, reason string, meter *contextMeter,
 ) (*types.Message, error) {
 	slog.Info("ai-agent stopped", "block", a.name, "iterations", iter+1, "reason", reason)
 	current.RequestStop()
+	// The question is recorded even though it was never answered. Somebody asked it,
+	// and a history that shows only the exchanges that went well is not a history.
+	sess.recordTurn(ctx, current, "", iter+1, reason)
 	// Pruned rather than summarized, whatever the block configured. Every path
 	// through here is a run ending early because nobody is waiting for it any
 	// more — a closed connection, a tool branch bailing out, a person pressing
 	// stop — and summarizing costs a real model call. Buying one to tidy up work
 	// that was just abandoned is the wrong instinct.
-	a.persistMemory(ctx, current, threadID, messages, meter, memoryCompactPrune)
+	a.persistMemory(ctx, current, sess, messages, meter, memoryCompactPrune)
 	return current, nil
 }
 
@@ -1147,13 +1250,14 @@ func (a *aiAgent) halt(
 // resolved thread id (empty when memory is disabled) and a context meter carrying
 // whatever the last run measured for that transcript.
 func (a *aiAgent) initConversation(
-	ctx context.Context, msg *types.Message, threadID string,
+	ctx context.Context, msg *types.Message, sess *memorySession,
 ) (messages []core.LLMMessage, meter *contextMeter, err error) {
 	opening, err := a.openingTurn(msg)
 	if err != nil {
 		return nil, nil, err
 	}
-	stored, err := a.loadHistory(ctx, threadID)
+	sess.noteOpening(opening)
+	stored, err := sess.loadWorking(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1239,7 +1343,7 @@ func (a *aiAgent) resolveThread(msg *types.Message) (string, error) {
 // compacted to the budget). It is a no-op when memory is disabled; a save failure
 // is logged rather than failing the flow.
 func (a *aiAgent) persistMemory(
-	ctx context.Context, msg *types.Message, threadID string,
+	ctx context.Context, msg *types.Message, sess *memorySession,
 	transcript []core.LLMMessage, meter *contextMeter, strategy string,
 ) {
 	if a.memoryThreadID == nil {
@@ -1254,8 +1358,15 @@ func (a *aiAgent) persistMemory(
 	// The size stored is the conversation's own, without this run's overhead: the
 	// next run's system prompt and tool set are not necessarily this one's.
 	env := memoryEnvelope{Messages: compacted, Tokens: meter.sizeOfMessages(compacted)}
-	if err := saveMemory(ctx, a.memoryNamespace, threadID, env); err != nil {
-		slog.Warn("ai-agent failed to save memory", "block", a.name, "thread", threadID, "error", err)
+	if sess.active() {
+		if err := sess.writeWorking(ctx, env, sess.lastIteration()); err != nil {
+			slog.Warn("ai-agent failed to save working memory",
+				"block", a.name, "agent", sess.ref.AgentID, "thread", sess.thread, "error", err)
+		}
+		return
+	}
+	if err := saveMemory(ctx, a.memoryNamespace, sess.thread, env); err != nil {
+		slog.Warn("ai-agent failed to save memory", "block", a.name, "thread", sess.thread, "error", err)
 	}
 }
 
@@ -1266,11 +1377,18 @@ func (a *aiAgent) persistMemory(
 // state carries forward.
 func (a *aiAgent) runTool(
 	ctx context.Context, call core.LLMToolCall, current *types.Message, branchBase string,
+	sess *memorySession,
 ) (core.LLMToolResult, *types.Message) {
 	slog.Info("ai-agent tool call", "block", a.name, "tool", call.Name)
 	slog.Debug("ai-agent tool input", "block", a.name, "tool", call.Name, "input", truncForLog(string(call.Input)))
 	if call.Name == skillLoadToolName {
 		return a.loadSkill(ctx, call, current), current
+	}
+	// The built-in memory tools, before the branch lookup, exactly as load_skill is:
+	// they are the agent's own, not something the flow wired, so a branch of the same
+	// name never gets to shadow them. The builder rejects that collision anyway.
+	if res, handled := a.runMemoryTool(ctx, call, sess); handled {
+		return res, current
 	}
 	flow, ok := a.branches[call.Name]
 	if !ok {

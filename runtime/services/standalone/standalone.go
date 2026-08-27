@@ -34,6 +34,7 @@ type Services struct {
 	leases    *leases
 	resources core.ResourceLoader
 	traces    core.TracePublisher
+	memory    *agentMemory
 }
 
 // New returns a standalone services module with a store rooted at storageDir,
@@ -64,6 +65,7 @@ func New(resourceRoot, storageDir string, tracing core.TraceOptions) *Services {
 		leases:    newLeases(time.Now),
 		resources: newResourceLoader(resourceRoot),
 		traces:    traces,
+		memory:    newAgentMemory(storageDir),
 	}
 }
 
@@ -112,6 +114,13 @@ func (s *Services) Resources() core.ResourceLoader { return s.resources }
 //
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Traces() core.TracePublisher { return s.traces }
+
+// AgentMemory returns the module's agent-memory store: a file tree under the
+// storage directory, or process memory when there is no storage directory (the
+// same bargain KV makes, for the same one-shot-invocation reason).
+//
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (s *Services) AgentMemory() core.AgentMemory { return s.memory }
 
 // Close releases resources: outstanding leases, so their renewal goroutines stop;
 // the store, which flushes whatever it had not yet written; and the trace file,

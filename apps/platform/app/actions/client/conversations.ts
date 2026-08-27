@@ -1,15 +1,32 @@
 /**
- * Dr. Octo's record of what has been said to him, as typed operations.
+ * Dr. Octo's past conversations, as the panel shows them.
  *
- * These reach the agent's own deployment rather than the orchestrator, which is
- * why they do not go through `call()` in this folder's transport: that one is
- * bound to ORCHESTRATOR_URL, and the agent's address is resolved per install.
- * Everything else about the layering holds — no verb and no path shape leaves
- * this module, and every failure comes back as an ActionResult.
+ * These used to reach the agent's own pod: the runtime had nowhere to keep a
+ * durable transcript, so he recorded one himself into KV and served it from his
+ * own flows. That meant reading somebody's history needed the agent deployed and
+ * healthy, and it meant the record lived under the deployment that wrote it — so
+ * reinstalling him destroyed every conversation on the install (#362).
+ *
+ * Now it comes from the orchestrator's agent-memory tables, which are keyed on
+ * the integration and survive a redeploy. The wire types below are unchanged, so
+ * the panel did not have to move with them; the mapping happens here.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
-import { resolveAgentUrl, forgetAgentUrl } from "./agentUrl";
+import { type ActionResult } from "@octo/http";
+import { fetchAgentStatus } from "./agentUrl";
+import { listThreads, readThread, type MemoryTurn } from "./agentMemory";
+
+/**
+ * The agent id Dr. Octo declares in his own definition.
+ *
+ * A constant rather than a lookup because it is part of his definition, not of an
+ * install: every Dr. Octo is this agent. An install where someone has edited it is
+ * supported, and is also not something the panel can guess at.
+ */
+export const DR_OCTO_AGENT_ID = "dr-octo";
+
+/** Shown for a conversation the agent chose not to name. */
+const UNTITLED = "Untitled conversation";
 
 /** One past conversation, as a list shows it. */
 export interface ConversationRow {
@@ -32,47 +49,142 @@ export interface Conversation {
   turns: ConversationTurn[];
 }
 
-/** The person asking, which is the only thing either endpoint is keyed on. */
+/** The person asking, which is what either listing is scoped to. */
 export interface Asker {
   id: string;
   name: string;
 }
 
-/**
- * Every past conversation this person has had, most recent last.
- *
- * The order is the recorder's — it appends — and the caller sorts, because a list
- * of a few dozen rows is cheaper to sort in the browser than to keep sorted in an
- * object that is rewritten on every exchange.
- */
+/** Every past conversation this person has had, most recently active first. */
 export async function listConversations(user: Asker): Promise<ActionResult<ConversationRow[]>> {
-  const result = await ask<{ items?: ConversationRow[] }>("/conversations", user);
-  if (!result.ok) return result;
-  return { ok: true, data: result.data.items ?? [] };
-}
+  const integration = await integrationId();
+  if (!integration.ok) return integration;
 
-/** One past conversation. A thread this person does not have reads as an empty one. */
-export function readConversation(user: Asker, threadId: string): Promise<ActionResult<Conversation>> {
-  return ask<Conversation>(`/conversations/${encodeURIComponent(threadId)}`, user);
+  const result = await listThreads(integration.id, DR_OCTO_AGENT_ID, { userId: user.id });
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    data: result.data.threads.map((t) => {
+      // A conversation with no name is one the agent decided was not worth
+      // naming — a greeting, a test message. Falling back to the thread id put a
+      // raw UUID in the list, which tells a reader nothing and looks like the
+      // name failed rather than like there was nothing to name.
+      const id = threadIdOf(t.threadKey, user.id);
+      return { id, title: t.title || UNTITLED, updatedAt: t.lastActivityAt };
+    }),
+  };
 }
 
 /**
- * Post to one of the agent's read endpoints.
+ * How Dr. Octo composes a conversation's key, and how to take it apart again.
  *
- * They are POSTs and not GETs because the identity travels in the body, written
- * server-side exactly as the chat route writes it — the agent keys its record on
- * the user id, so a client that could choose one could read anyone's
- * conversations. Nothing else is sent.
+ * He keys a conversation on the authenticated user AND the thread — see
+ * `resolve-request` in his definition — so that a stolen thread id names a
+ * conversation that does not exist. That is a deliberate property and this does
+ * not undo it: the composition still happens agent-side, and only a request
+ * carrying the right user reaches the right conversation.
+ *
+ * What it undoes is a double application. The panel addresses a conversation by
+ * the id it minted and puts that in `threadId`, which the agent then prefixes.
+ * Handing the panel the STORED key meant the next message was composed out of an
+ * already-composed key — `{user}/{user}/{thread}` — so resuming a conversation
+ * silently started a new one beside it. Everything looked right: the transcript
+ * loaded, the reply arrived, and none of it was in the conversation on screen.
+ *
+ * This is the one place that knows both halves, which is why the mapping lives
+ * here rather than in the panel or in the agent.
  */
-async function ask<T>(path: string, user: Asker): Promise<ActionResult<T>> {
-  const agent = await resolveAgentUrl();
-  if (!agent.ok) return { ok: false, error: agent.error };
+function threadIdOf(threadKey: string, userId: string): string {
+  const prefix = `${userId}/`;
+  return threadKey.startsWith(prefix) ? threadKey.slice(prefix.length) : threadKey;
+}
 
-  const result = await requestJson<T>("POST", `${agent.url}${path}`, { user });
-  if (!result.ok) {
-    // The address came from a cached status, and a pod that has since been
-    // replaced answers nothing. Drop it so the next attempt resolves again.
-    forgetAgentUrl();
+/** The stored key for a conversation the panel addresses by thread id. */
+function threadKeyOf(threadId: string, userId: string): string {
+  return `${userId}/${threadId}`;
+}
+
+/** One past conversation, to replay into the panel. */
+export async function readConversation(
+  user: Asker,
+  threadId: string,
+): Promise<ActionResult<Conversation>> {
+  const integration = await integrationId();
+  if (!integration.ok) return integration;
+
+  // A conversation that is not there now comes back as an error rather than as an
+  // empty one. That is a change from the KV-backed version, where a missing object
+  // read as its default and there was no way to tell "no such conversation" from
+  // "a conversation with nothing in it". The panel only opens rows from a listing
+  // it has just fetched, so the case is one that genuinely went wrong.
+  const result = await readThread(
+    integration.id,
+    DR_OCTO_AGENT_ID,
+    threadKeyOf(threadId, user.id),
+  );
+  if (!result.ok) return result;
+
+  // Scoped to the asker here rather than in the query, because the route is
+  // addressed by thread and a conversation belongs to one person. Someone reading
+  // a thread key that is not theirs gets nothing — the same answer the
+  // agent-served version gave, which keyed its object on the authenticated user.
+  if (result.data.thread.userId && result.data.thread.userId !== user.id) {
+    return { ok: true, data: { threadId, title: "", turns: [] } };
   }
-  return result;
+  return {
+    ok: true,
+    data: {
+      threadId,
+      title: result.data.thread.title ?? "",
+      turns: result.data.turns.map(toTurn),
+    },
+  };
+}
+
+/**
+ * The marker Dr. Octo's own `input` expression puts between the question and the
+ * context it appends to it.
+ *
+ * It is a literal here because it is a literal there: his definition builds the
+ * string, so this is the other half of one decision made in one place.
+ */
+const CONTEXT_MARKER = "\n\n---\nContext, not part of the question.";
+
+/**
+ * Map a stored turn onto the two roles the panel renders, dropping the context
+ * the panel itself caused to be there.
+ *
+ * Dr. Octo's `input` expression appends the page someone is on and the routes he
+ * may send them to, because the model needs both. The runtime records the turn it
+ * was given, **verbatim and on purpose**: agent memory stores what was sent and
+ * returns it as sent, since there is no way to anticipate what a later reader
+ * wants from it. The operator's memory viewer shows exactly that, and should.
+ *
+ * So the trimming happens HERE, and only here. This module is Dr. Octo's — it
+ * already names his agent id and composes his thread keys — and the shape being
+ * trimmed is the shape his own definition built. Doing it in the runtime, or in
+ * the memory store, or in the generic viewer would teach the platform one agent's
+ * prompt layout and destroy the record for everybody else's.
+ */
+function toTurn(turn: MemoryTurn): ConversationTurn {
+  const cut = turn.text.indexOf(CONTEXT_MARKER);
+  const text = cut === -1 ? turn.text : turn.text.slice(0, cut).trimEnd();
+  return { role: turn.role === "user" ? "user" : "agent", text };
+}
+
+type IntegrationResult = { ok: true; id: string } | { ok: false; error: string };
+
+/**
+ * Which integration Dr. Octo is installed as.
+ *
+ * Read from his status rather than configured, for the same reason his address
+ * is: it is whatever the install produced. Unlike the address it is not cached
+ * here — the status lookup behind it already is.
+ */
+async function integrationId(): Promise<IntegrationResult> {
+  const status = await fetchAgentStatus();
+  if (!status?.integrationId) {
+    return { ok: false, error: "the agent is not installed" };
+  }
+  return { ok: true, id: status.integrationId };
 }

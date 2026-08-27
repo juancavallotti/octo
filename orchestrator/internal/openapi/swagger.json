@@ -74,6 +74,236 @@
                 },
                 "type": "object"
             },
+            "agentmemory.AgentSummary": {
+                "properties": {
+                    "agentId": {
+                        "type": "string"
+                    },
+                    "lastActivityAt": {
+                        "type": "string"
+                    },
+                    "threadCount": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.Hit": {
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "score": {
+                        "type": "number"
+                    },
+                    "seq": {
+                        "type": "integer"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "threadKey": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.Query": {
+                "properties": {
+                    "agentId": {
+                        "type": "string"
+                    },
+                    "limit": {
+                        "type": "integer"
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "threadKey": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.Thread": {
+                "properties": {
+                    "agentId": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "lastActivityAt": {
+                        "type": "string"
+                    },
+                    "threadKey": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "turnCount": {
+                        "type": "integer"
+                    },
+                    "userId": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.ThreadPage": {
+                "properties": {
+                    "next": {
+                        "type": "string"
+                    },
+                    "threads": {
+                        "items": {
+                            "$ref": "#/components/schemas/agentmemory.Thread"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.Transcript": {
+                "properties": {
+                    "next": {
+                        "type": "string"
+                    },
+                    "thread": {
+                        "$ref": "#/components/schemas/agentmemory.Thread"
+                    },
+                    "turns": {
+                        "items": {
+                            "$ref": "#/components/schemas/agentmemory.Turn"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.Turn": {
+                "properties": {
+                    "attrs": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "type": "string"
+                    },
+                    "seq": {
+                        "type": "integer"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "tokens": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.UserMemory": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.memoryRequest": {
+                "properties": {
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.titleRequest": {
+                "properties": {
+                    "title": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.turnsRequest": {
+                "properties": {
+                    "turns": {
+                        "items": {
+                            "$ref": "#/components/schemas/agentmemory.Turn"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "agentmemory.workingResponse": {
+                "properties": {
+                    "bytes": {
+                        "description": "Bytes is the payload's real size, which is meaningful even when the payload\nitself is not served.",
+                        "type": "integer"
+                    },
+                    "found": {
+                        "description": "Found distinguishes \"this conversation carries no live context\" from \"there\nis one and here it is\". A conversation that ended cleanly has its transcript\nand nothing to resume from, which is ordinary rather than an error — so this\nroute answers 200 either way and says which, rather than making every caller\ntreat a 404 as a success it has to recognize.",
+                        "type": "boolean"
+                    },
+                    "iteration": {
+                        "type": "integer"
+                    },
+                    "payload": {
+                        "description": "Payload is the runtime's transcript verbatim. Empty when it is not text.",
+                        "type": "string"
+                    },
+                    "readable": {
+                        "description": "Readable says which of those two happened, so a viewer can tell an empty\nworking memory from one it was not given.",
+                        "type": "boolean"
+                    },
+                    "tokens": {
+                        "type": "integer"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "apikey.apiKeyResponse": {
                 "properties": {
                     "createdAt": {
@@ -628,6 +858,34 @@
                     },
                     "replyTo": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "embedding.statusResponse": {
+                "properties": {
+                    "configured": {
+                        "description": "Configured is whether this installation has an embedding server at all.",
+                        "type": "boolean"
+                    },
+                    "detail": {
+                        "description": "Detail is the transport error when it did not answer, or empty.",
+                        "type": "string"
+                    },
+                    "dimensions": {
+                        "type": "integer"
+                    },
+                    "model": {
+                        "description": "Model and Dimensions are what it reports about itself, so a mismatch with\nthe stored vector width is diagnosable from one request.",
+                        "type": "string"
+                    },
+                    "pending": {
+                        "description": "Pending is what is left of the backfill. Configuring a provider does not\nmake search semantic; it makes it become semantic, and this is how much is\nstill waiting. Zero is the ordinary answer and says nothing is outstanding.\n\nDeliberately not paired with an \"embedded\" total: counting rows that HAVE a\nvector cannot use an index, so it read both tables end to end on every load\nto draw a progress bar.",
+                        "type": "integer"
+                    },
+                    "reachable": {
+                        "description": "Reachable is whether it answered. False with Configured true is the\ninteresting case: deployed, and not responding.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -1394,6 +1652,663 @@
                 "summary": "Change a deployment's replica count",
                 "tags": [
                     "deployments"
+                ]
+            }
+        },
+        "/deployments/{id}/agent-memory/{agentId}/search": {
+            "post": {
+                "description": "Conversations and curated memories. Full-text today; semantic ranking replaces the\nranking, not the surface, when an embedding provider is configured.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agentmemory.Query",
+                                        "summary": "body",
+                                        "description": "The query"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The query",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/agentmemory.Hit"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Search an agent's memory (runtime)",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}": {
+            "delete": {
+                "description": "Everything: the working memory, the recorded turns and the conversation itself.\nThis is what clear-agent-memory reaches, so a partial delete would report success\nover a readable copy of what somebody asked to be rid of.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "erased"
+                    }
+                },
+                "summary": "Erase a conversation (runtime)",
+                "tags": [
+                    "agent-memory"
+                ]
+            },
+            "get": {
+                "description": "Metadata only — the title, the turn count, when it was last active. The transcript\nis not served here: a pod knows a deployment rather than an integration, and a\nroute that handed it whole conversations would be one every pod could read every\nconversation through. This exists so a flow can tell an unnamed conversation from a\nnamed one without paying a model call to name it twice.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agentmemory.Thread"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such conversation"
+                    }
+                },
+                "summary": "Read a conversation's metadata (runtime)",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/title": {
+            "put": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agentmemory.titleRequest",
+                                        "summary": "body",
+                                        "description": "The title"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The title",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "named"
+                    }
+                },
+                "summary": "Name a conversation (runtime)",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/turns": {
+            "post": {
+                "description": "The durable record, which is never compacted — unlike working memory, which is.\nSequence numbers are assigned by the server, so two replicas of one agent\ninterleave rather than collide, which is why no expected version is taken.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Who the conversation is with; attributed on first write",
+                        "in": "query",
+                        "name": "userId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agentmemory.turnsRequest",
+                                        "summary": "body",
+                                        "description": "The turns to append"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The turns to append",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "integer"
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "the conversation's new version"
+                    }
+                },
+                "summary": "Append completed turns to a conversation",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/working": {
+            "get": {
+                "description": "The live context an interrupted run resumes from. The body is the runtime's own\nserialized transcript — opaque bytes, not JSON — and the current version comes back\nin X-Object-Version.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the working memory payload",
+                        "headers": {
+                            "X-Object-Version": {
+                                "description": "the version to send back on a conditional write",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no working memory for this conversation"
+                    }
+                },
+                "summary": "Read an agent's working memory",
+                "tags": [
+                    "agent-memory"
+                ]
+            },
+            "put": {
+                "description": "The body is the raw payload. Optimistic concurrency is by header: send\nX-Object-Version with the version you last read, or omit it to create. A write\nagainst a version something else has moved past is refused with 409.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Expected version; omit to create",
+                        "in": "header",
+                        "name": "X-Object-Version",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/octet-stream": {
+                            "schema": {
+                                "format": "binary",
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "written",
+                        "headers": {
+                            "X-Object-Version": {
+                                "description": "the version the write produced",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version did not match"
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the payload is too large"
+                    }
+                },
+                "summary": "Write an agent's working memory",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/deployments/{id}/agent-memory/{agentId}/users/{userId}/memories": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/agentmemory.UserMemory"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Read what an agent remembers about a person (runtime)",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/deployments/{id}/agent-memory/{agentId}/users/{userId}/memories/{name}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The memory's name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "forgotten"
+                    }
+                },
+                "summary": "Forget one curated memory (runtime)",
+                "tags": [
+                    "agent-memory"
+                ]
+            },
+            "put": {
+                "description": "Optimistic concurrency by X-Object-Version, as for working memory: omit it to\ncreate, send the version you read to correct.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The memory's name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Expected version; omit to create",
+                        "in": "header",
+                        "name": "X-Object-Version",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agentmemory.memoryRequest",
+                                        "summary": "body",
+                                        "description": "The memory's value"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The memory's value",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "integer"
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "the new version"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version did not match"
+                    }
+                },
+                "summary": "Store or correct one curated memory (runtime)",
+                "tags": [
+                    "agent-memory"
                 ]
             }
         },
@@ -3261,6 +4176,503 @@
                 ]
             }
         },
+        "/integrations/{id}/agent-memory/agents": {
+            "get": {
+                "description": "So an operator has something to pick from without knowing the ids in advance.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/agentmemory.AgentSummary"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "List the agents that have memory under an integration",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/integrations/{id}/agent-memory/{agentId}/search": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agentmemory.Query",
+                                        "summary": "body",
+                                        "description": "The query"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The query",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/agentmemory.Hit"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Search an agent's memory",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/integrations/{id}/agent-memory/{agentId}/threads": {
+            "get": {
+                "description": "Most recently active first. Paging is a keyset cursor, not an offset: writing to a\nconversation is exactly what reorders this listing, so an offset would skip rows\nconstantly rather than rarely.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only this person's conversations",
+                        "in": "query",
+                        "name": "userId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Continue a previous page",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agentmemory.ThreadPage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "List an agent's conversations",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/integrations/{id}/agent-memory/{agentId}/threads/{threadKey}": {
+            "delete": {
+                "description": "Everything: working memory, recorded turns and the conversation itself.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "erased"
+                    }
+                },
+                "summary": "Erase a conversation",
+                "tags": [
+                    "agent-memory"
+                ]
+            },
+            "get": {
+                "description": "The durable record: what was asked and what was answered, in order and uncompacted.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Continue a previous page",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agentmemory.Transcript"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such conversation"
+                    }
+                },
+                "summary": "Read a conversation",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/integrations/{id}/agent-memory/{agentId}/threads/{threadKey}/title": {
+            "put": {
+                "description": "The runtime labels a new conversation with its opening line. A better title is a\njudgement about what the exchange was about — a model call — so it belongs to\nwhoever wants to pay for it, through this route.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agentmemory.titleRequest",
+                                        "summary": "body",
+                                        "description": "The title"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The title",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "named"
+                    }
+                },
+                "summary": "Name a conversation",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/integrations/{id}/agent-memory/{agentId}/threads/{threadKey}/working": {
+            "get": {
+                "description": "The live context an interrupted run would resume from — the compacted, pruned\nworking copy, as opposed to the durable transcript this conversation's turns hold.\nThe payload is the runtime's own serialized form and is served as-is: the\norchestrator stores it without parsing it, so that the engine can change the format\nwithout a schema migration.\nAnswers 200 whether or not there is one: a conversation that ended cleanly has its\ntranscript and no live context, which is ordinary. Check `found`.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Conversation thread key",
+                        "in": "path",
+                        "name": "threadKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agentmemory.workingResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Read a conversation's working memory",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/integrations/{id}/agent-memory/{agentId}/users/{userId}/memories": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/agentmemory.UserMemory"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Read what an agent remembers about a person",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
+        "/integrations/{id}/agent-memory/{agentId}/users/{userId}/memories/{name}": {
+            "delete": {
+                "description": "There is deliberately no route to EDIT one. An operator rewriting what an agent\nbelieves about a person, with no audit trail, is a feature that should be asked for\nexplicitly rather than fall out of a viewer.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Agent id",
+                        "in": "path",
+                        "name": "agentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The memory's name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "forgotten"
+                    }
+                },
+                "summary": "Forget one curated memory",
+                "tags": [
+                    "agent-memory"
+                ]
+            }
+        },
         "/integrations/{id}/bundle": {
             "get": {
                 "description": "A zip holding the integration's definition and every resource it owns, laid out the\nway the runtime reads them from disk: the definition at the root, each resource at its\nown path-like name, plus an `octo-bundle.json` manifest carrying the display name and\neach resource's kind.",
@@ -4755,6 +6167,27 @@
                     }
                 },
                 "summary": "Send a test message",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/settings/embedding": {
+            "get": {
+                "description": "Whether this installation has an embedding server, what it is configured to use, and how much of agent memory is still waiting to be vectorized. Read only: the provider, model and key are deploy-time chart values, because changing the model discards every stored vector.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/embedding.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Embedding status",
                 "tags": [
                     "settings"
                 ]

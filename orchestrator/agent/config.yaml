@@ -70,6 +70,11 @@ env:
   # a million: this is what the model is billed to re-read on every turn of a long
   # thread, and the compaction is a summary, so the tail of the conversation stays
   # verbatim either way.
+  # Injected into every runtime pod by the orchestrator. Declared here so CEL can
+  # read it: the naming flow addresses agent memory by this deployment, and the
+  # orchestrator resolves the integration the conversation actually belongs to.
+  - name: OCTO_DEPLOYMENT_ID
+    default: ""
   - name: AGENT_MEMORY_TOKENS
     default: "500000"
 
@@ -277,34 +282,32 @@ flows:
       # stolen thread id names a conversation that does not exist. The user block is
       # injected server-side by the chat route and overwritten there, so a forged one
       # in the request never reaches this expression.
-      - type: set-variable
-        name: user-key
+      # Everything the flow needs to know about the request, resolved once.
+      #
+      # One multi-transform rather than four set-variables in a row: that is what
+      # this block is for, and a chain of them is the shape it exists to replace.
+      # The transforms run in order, so threadKey can read the two above it.
+      - type: multi-transform
+        name: resolve-request
         settings:
-          name: userKey
-          value: >-
-            has(body.user) && has(body.user.id) && body.user.id != ""
-              ? body.user.id : "anonymous"
-
-      - type: set-variable
-        name: thread-id
-        settings:
-          name: threadId
-          value: 'has(body.threadId) && body.threadId != "" ? body.threadId : "default"'
-
-      - type: set-variable
-        name: thread-key
-        settings:
-          name: threadKey
-          value: vars.userKey + "/" + vars.threadId
-
-      # The question, kept before the agent replaces the body with its answer. The
-      # conversation record needs both halves and can only see one of them at a
-      # time.
-      - type: set-variable
-        name: keep-question
-        settings:
-          name: question
-          value: 'has(body.message) ? body.message : ""'
+          transforms:
+            # The key is the user the platform authenticated, plus the thread — so
+            # a stolen thread id names a conversation that does not exist. The user
+            # block is injected server-side by the chat route and overwritten
+            # there, so a forged one in the request never reaches this expression.
+            - setVar: userKey
+              value: >-
+                has(body.user) && has(body.user.id) && body.user.id != ""
+                  ? body.user.id : "anonymous"
+            - setVar: threadId
+              value: 'has(body.threadId) && body.threadId != "" ? body.threadId : "default"'
+            - setVar: threadKey
+              value: vars.userKey + "/" + vars.threadId
+            # The question, kept before the agent replaces the body with its
+            # answer. The conversation record needs both halves and can only see
+            # one of them at a time.
+            - setVar: question
+              value: 'has(body.message) ? body.message : ""'
 
       # The agent's input, stated rather than inherited. The email is dropped — it
       # identifies a real person to an external provider and nothing in the prompt
@@ -343,6 +346,81 @@ flows:
         memoryThreadId: vars.threadKey
         contextMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
+
+        # Named, which is what opts him into the runtime's first-class memory:
+        # conversations recorded uncompacted, kept per integration so they survive
+        # a reinstall, and remember/forget/search_memory instead of the three
+        # hand-rolled fact tools this replaced.
+        #
+        # Stated and never derived. A name taken from the block's position would
+        # make renaming this block, or moving it into another branch, silently
+        # destroy every conversation anyone has had with him.
+        agentId: dr-octo
+        userId: vars.userKey
+        userMemory: true
+
+        # Naming a conversation, which is the one thing about it the runtime
+        # cannot decide: what an exchange was ABOUT is a judgement, and a
+        # judgement is a model call.
+        #
+        # It runs once, on the exchange that opens a conversation, and it is
+        # handed that exchange — question and answer — as its body. Whatever
+        # string it returns becomes the name. Returning nothing names nothing,
+        # which is the right answer for a "hi" that was never going anywhere.
+        #
+        # The engine does the writing, and that is the whole reason this is a slot
+        # rather than a flow of its own. It is holding the conversation's
+        # reference already; the store knows how to record a title on whichever
+        # tier it is. What this replaced put the exchange on a queue, read it back
+        # in a separate flow, rebuilt a thread key from parts, escaped a slash into
+        # it, and called the orchestrator over HTTP from inside the deployment the
+        # orchestrator had just started — to set a string.
+        nameThread:
+          process:
+            # The body arriving here is the exchange: threadKey, agentId, userId,
+            # question and answer. ai-mapping hands the whole body to the model and
+            # replaces it with what comes back, so there is no input expression —
+            # reshaping the body IS what this block does.
+            - type: ai-mapping
+              name: name-it
+              settings:
+                connector: llm-fast
+                # llm-fast, not llm: a title is six words and nobody is waiting on
+                # it. Paying reasoning-model rates to summarise one exchange is the
+                # kind of cost that only shows up on the bill.
+                prompt: >-
+                  You are given one exchange: the question a person asked and the
+                  answer they got. Name the conversation it opens.
+
+                  At most six words, a topic rather than a sentence — "Rolling out
+                  the orders integration", not "The user asked how to roll out an
+                  integration". No quotes, no trailing period, no preamble.
+
+                  Name it whenever there is a subject: a question asked, a fact
+                  stated, a task started. An exchange whose reply is short is
+                  still about something — "note that my deploy target is
+                  blueberry" is a conversation about a deploy target.
+
+                  Return an empty title ONLY when there is genuinely no subject:
+                  a bare greeting, a test message, a thanks. An empty title
+                  leaves the conversation unnamed and listed as untitled, so
+                  prefer a plain name over declining — but do not invent a topic
+                  that was never discussed.
+                # The shape is enforced rather than asked for. Without it this block
+                # returned the model's prose, ai-mapping refused to parse it as
+                # JSON, and every conversation fell back to being named after the
+                # raw question it opened with — which looked enough like a title
+                # that nobody noticed the model was not being listened to.
+                outputSchema:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                      description: The conversation's name, or empty to leave it unnamed.
+                  required: [title]
+                  additionalProperties: false
+                outputExample:
+                  title: Rolling out the orders integration
 
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
 
@@ -460,14 +538,17 @@ flows:
           so and say what you would try next; do not fill the gap yourself.
 
 
-          You remember people between conversations. Call recall_facts when the
-          answer might depend on how someone works, and remember_fact — with both
-          a short stable name and the fact itself — when they tell you something
-          worth keeping: how they like flows written, which integration is theirs,
-          what to call them. Remember preferences and context, not the contents of
-          a conversation, and never a credential. If they tell you something has
-          changed, update the fact under the same name; if they ask you to forget
-          something, forget it without arguing.
+          You remember people between conversations. What you have already chosen
+          to remember about someone is given to you at the start of every run — you
+          do not have to ask for it. Call remember, with a short stable name and
+          the fact itself, when they tell you something worth keeping: how they
+          like flows written, which integration is theirs, what to call them.
+          Remember preferences and context, not the contents of a conversation, and
+          never a credential. If something has changed, remember it again under the
+          same name and the new version replaces the old; if they ask you to forget
+          something, call forget without arguing. Call search_memory when the answer
+          depends on something said in an earlier conversation you can no longer
+          see.
 
 
           Write in Markdown — the panel renders it. Fenced code blocks with a language
@@ -549,34 +630,20 @@ flows:
 
           # ------------------------------------------------------- the specialists
           #
-          # Two ai-agent blocks standing in a tool slot, which is all a subagent is
-          # here: a tool whose process chain happens to be another agent, with its
-          # own prompt, its own tool set and its own loop. The coordinator writes a
-          # brief, the specialist works, and one report comes back as the tool
-          # result.
+          # Two tools that delegate to another agent instead of doing the work:
+          # the coordinator writes a brief, a specialist works its own loop with
+          # its own prompt and its own tools, and one report comes back as the
+          # tool result. Both specialists are flows — `integration-builder` and
+          # `platform-operator`, at the bottom of this file — reached from here by
+          # a synchronous flow-ref. Why they are flows and not inline blocks, and
+          # why there are two of them rather than one, is written where they are.
           #
-          # The split is not tidiness. It buys three things that a single
-          # twenty-tool agent could not have:
-          #
-          #   - A prompt each. "How to write a definition and prove it" and "how
-          #     this installation is deployed and diagnosed" are different jobs
-          #     wanting different instructions, and a single prompt carrying both
-          #     is mostly irrelevant on any given turn.
-          #   - A working context each. A builder's loop fills a transcript with
-          #     YAML drafts and test reports; an operator's fills with API
-          #     responses. Kept apart, neither is paying to re-read the other, and
-          #     the conversation the user is actually having stays short — what
-          #     comes back to it is one report, not forty tool results.
-          #   - A boundary. The builder's orchestrator tool is GET-only. The
-          #     coordinator's is GET-only. There is exactly one unrestricted
-          #     octo_api in this file and it is inside the operator, so a write to
-          #     the platform is always a deliberate delegation.
-          #
-          # What it costs: a delegation is a whole model run, and the specialist
-          # starts blind. Both are stated in the coordinator's prompt, because the
-          # failure mode is a thin brief and the second is delegating a question
-          # that one GET would have answered. It is also why the SSE route's
-          # maxDuration is 30m: one turn here can be a whole loop somewhere else.
+          # What matters at this end is the cost, because the coordinator's prompt
+          # has to argue about it: a delegation is a whole model run, and the
+          # specialist starts blind. The failure mode is a thin brief; the second
+          # is delegating a question that one GET would have answered. It is also
+          # why the SSE route's maxDuration is 30m — one turn here can be a whole
+          # loop over there.
           #
           # The builder's two borrowed tools carry a builder_ prefix, and that is a
           # readability choice rather than a requirement: the runtime keeps tool
@@ -608,435 +675,25 @@ flows:
                 }
               }
             process:
-              - type: ai-agent
-                name: builder
-                connector: llm
-                answer: text
-                # A conversation of its own, and a disposable one.
-                #
-                # vars.toolScope is minted by the coordinator's tool call: stable
-                # for as long as the conversation it belongs to, distinct per
-                # tool. So a second delegation in the same chat reaches the same
-                # builder — it still has the definition it drafted a moment ago,
-                # and does not have to be told it twice. A third conversation
-                # gets a fresh one.
-                #
-                # Volatile because a specialist's transcript is scaffolding. It
-                # belongs in the tier that evicts rather than the one the
-                # platform backs up, and losing it costs a re-read of a brief.
-                memoryThreadId: vars.toolScope
-                memoryVolatile: true
-                # Its own ceiling, deliberately not the coordinator's: a delegated
-                # job is a whole loop of its own, and a specialist that runs out of
-                # turns mid-fix hands back half an answer the coordinator then has
-                # to relay as if it were one.
-                maxIterations: 40
-                input: >-
-                  body.task + (has(body.context) && body.context != ""
-                    ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
-                    : "")
-                emit: [tool_call, tool_result]
-                events:
-                  process:
-                    # The specialist's tool calls reach the same panel the
-                    # coordinator's do, so a delegation is watchable rather than a
-                    # chip that sits open for two minutes with nothing under it.
-                    # ifClosed: ignore and not stop — the coordinator's own events
-                    # path already ends the run when the panel closes, and a stop
-                    # raised from inside a tool would follow the coordinator out of
-                    # the tool call it is waiting on.
-                    - type: sse-event
-                      settings:
-                        event: agent
-                        ifClosed: ignore
-                prompt: |
-                  You are the integration builder: the specialist Dr. Octo hands a
-                  definition to. You write octo flow definitions and you prove them
-                  before you answer.
-
-                  You cannot see the chat you were called from, who the user is, or
-                  what was said in it. The brief you were given is what you know,
-                  and your reply is everything that comes back — so it has to stand
-                  on its own.
-
-                  You do remember your own work. A second job in the same
-                  conversation reaches you with your earlier ones still in front of
-                  you: the definition you drafted, the tests you ran, what failed.
-                  Use that rather than starting from nothing — and say when you are
-                  building on it, because the coordinator cannot see it.
-
-                  THE LOOP, and it is not optional:
-
-                    1. Load the skills you need. flow-file for the file's shape,
-                       blocks for what a process chain may contain, connectors for
-                       their settings, expressions for CEL, testing for a suite.
-                       The schema moves faster than your training data. A definition
-                       written from memory is a guess.
-                    2. write_workspace_file the definition to <dir>/config.yaml.
-                    3. write_workspace_file a suite to <dir>/config_test.yaml —
-                       dolphin pairs x.yaml with x_test.yaml beside it.
-                    4. run_flow_tests <dir>. Exit 0 is passed; exit 1 means the FLOW
-                       is wrong, which is the answer you asked for; exit 2 means the
-                       SUITE did not parse, so nothing ran and nothing there is about
-                       your flow — load the testing skill and fix the suite.
-                    5. Fix and run again. invoke_flow when you want to see what one
-                       flow actually returns; builder_check_expression to settle a
-                       CEL question instead of reasoning about one.
-
-                  Two limits to keep straight, and to state in your answer rather
-                  than let a reader assume past. The workspace is scratch: an empty
-                  directory that dies with the pod, so nothing you write there is
-                  saved anywhere. And an invoked flow runs STANDALONE — in-process
-                  KV and queues, no cluster resources, no connectors reaching
-                  anything real. It proves the shape of a definition and the logic
-                  in it, never what a deployment would see.
-
-                  builder_octo_read is a GET against the orchestrator, for reading
-                  what already exists: /integrations for the list, /integrations/{id}
-                  for one definition (the YAML arrives as a string in `definition`),
-                  /integrations/{id}/resources for its env files and templates. Use
-                  it when the brief names an integration instead of quoting it.
-
-                  You cannot save anything. No PUT, no POST, no deploy — that is the
-                  platform operator's job, and the coordinator will delegate it if
-                  the user asks for it. Hand back the definition; do not pretend it
-                  is stored.
-
-                  ANSWER IN MARKDOWN, and answer like a colleague reporting back:
-
-                    - What you built or changed, in a sentence or two.
-                    - The complete definition in a ```yaml fence — complete, not an
-                      excerpt with "..." in it. It is going to be quoted verbatim.
-                    - What you ran and what it said. Name the cases that passed. If
-                      something still fails, say exactly what and why.
-                    - What you could NOT verify, plainly. An untested branch, a
-                      connector that only exists in a cluster, an assumption you had
-                      to make about the brief. This is the most valuable line in the
-                      report; never leave it out to look finished.
-                tools:
-                  # ------------------------------------------------------ workspace
-                  #
-                  # The difference between an agent that can describe a fix and one
-                  # that can try it. It drafts a definition into the workspace,
-                  # invokes it, runs its suite, reads the envelope, and does it
-                  # again — the loop a person gets at a terminal, in the cluster
-                  # where the problem is.
-                  #
-                  # The design rule they all follow: THE MODEL SUPPLIES DATA, THE
-                  # FLOW SUPPLIES ARGV. No string the model chose ever lands where
-                  # it could be read as a flag.
-                  - name: read_workspace_file
-                    description: >
-                      Read a file from your workspace. The path is relative to the
-                      workspace root; a path that leaves it is refused.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["path"],
-                        "properties": {
-                          "path": { "type": "string", "description": "Workspace-relative path, e.g. demo/config.yaml" }
-                        }
-                      }
-                    process:
-                      - type: file-read
-                        settings:
-                          connector: workspace
-                          path: body.path
-                          resultVar: contents
-                      - type: set-payload
-                        settings:
-                          value: '{"path": body.path, "content": vars.contents}'
-
-                  - name: write_workspace_file
-                    description: >
-                      Write a file into your workspace, creating parent directories
-                      as needed. Put a flow in `<dir>/config.yaml` and its suite in
-                      `<dir>/config_test.yaml`, which is the pairing dolphin looks
-                      for. The workspace is scratch and dies with the pod.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["path", "content"],
-                        "properties": {
-                          "path":    { "type": "string", "description": "Workspace-relative path, e.g. demo/config.yaml" },
-                          "content": { "type": "string", "description": "The file's full contents." }
-                        }
-                      }
-                    process:
-                      - type: file-write
-                        settings:
-                          connector: workspace
-                          path: body.path
-                          content: body.content
-                          resultVar: receipt
-                      - type: set-payload
-                        settings:
-                          value: 'vars.receipt'
-
-                  - name: list_workspace
-                    description: >
-                      List everything in your workspace. Takes no arguments — it
-                      returns the whole tree, which is small.
-                    inputSchema: |
-                      { "type": "object", "properties": {} }
-                    process:
-                      # No argument, and that is the design rather than a
-                      # simplification: constant argv puts find's -exec out of reach
-                      # by construction rather than by an allow list.
-                      - type: cli-run
-                        name: find-workspace
-                        program: env.AGENT_FIND_BIN
-                        args: '[".", "-maxdepth", "4", "-not", "-path", "*/.*"]'
-                        allow: ["${AGENT_FIND_BIN}"]
-                        env: [PATH]
-                        workDir: ${AGENT_WORKSPACE}
-                        timeout: ${AGENT_CLI_TIMEOUT}
-                        onExit: continue
-
-                  - name: invoke_flow
-                    description: >
-                      Run one flow from a definition in your workspace, once, and
-                      return what it produced. `dir` is a single workspace directory
-                      name holding the .yaml files; `flow` is the flow's name; `data`
-                      is the request body.
-
-                      The answer is an outcome envelope — {"result":…} if the flow
-                      completed, {"dropped":true} if a filter dropped the message,
-                      {"error":"…"} if it failed. A flow that fails is an answer, not
-                      a failure of this tool.
-
-                      Sources are NOT started, so pass in the body a source would
-                      have. And it runs under the STANDALONE services provider — so
-                      an object-read that is empty here says nothing about the
-                      deployment.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["dir", "flow"],
-                        "properties": {
-                          "dir":  { "type": "string", "description": "Workspace directory holding the definition, e.g. demo. No slashes." },
-                          "flow": { "type": "string", "description": "Name of the flow to invoke." },
-                          "data": { "type": "object", "description": "JSON request body for the flow." }
-                        }
-                      }
-                    process:
-                      - type: if
-                        name: safe-dir
-                        condition: >-
-                          body.dir.matches("^[A-Za-z0-9.][A-Za-z0-9._-]{0,63}$")
-                            && !body.dir.contains("..")
-                        then:
-                          process:
-                            - type: cli-run
-                              name: octo-invoke
-                              program: env.AGENT_OCTO_BIN
-                              # --envelope says "completed", "dropped" and "failed"
-                              # in one JSON object and exits 0 for a flow that
-                              # failed, which is what makes this usable by a model.
-                              args: >-
-                                ["invoke", "--config", body.dir, "--flow", body.flow, "--envelope",
-                                 "--data", toJson(has(body.data) ? body.data : {})]
-                              allow: ["${AGENT_OCTO_BIN}"]
-                              env: [PATH, HOME]
-                              workDir: ${AGENT_WORKSPACE}
-                              timeout: ${AGENT_CLI_TIMEOUT}
-                              onExit: continue
-                        else:
-                          process:
-                            - type: set-payload
-                              name: bad-dir
-                              settings:
-                                value: >-
-                                  {"error": "dir must be a single workspace directory name — no slashes,
-                                  no '..'. Write the definition into a directory first, then pass its name."}
-
-                  - name: run_flow_tests
-                    description: >
-                      Run the dolphin suite for the definitions in a workspace
-                      directory. dolphin pairs each `x.yaml` with the `x_test.yaml`
-                      beside it, so write both and pass the directory.
-
-                      Exit 0 means every case passed. Exit 1 means the FLOWS are
-                      wrong — that is the answer you asked for. Exit 2 means the
-                      suite or the runner is wrong, which is a different problem.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["dir"],
-                        "properties": {
-                          "dir": { "type": "string", "description": "Workspace directory holding the definitions and their suites. No slashes." }
-                        }
-                      }
-                    process:
-                      - type: if
-                        name: safe-dir
-                        condition: >-
-                          body.dir.matches("^[A-Za-z0-9.][A-Za-z0-9._-]{0,63}$")
-                            && !body.dir.contains("..")
-                        then:
-                          process:
-                            - type: cli-run
-                              name: dolphin-test
-                              program: env.AGENT_DOLPHIN_BIN
-                              args: '["test", body.dir]'
-                              allow: ["${AGENT_DOLPHIN_BIN}"]
-                              # OCTO_PATH is what makes dolphin drive the standalone
-                              # octo rather than this pod's k8s entrypoint. Both the
-                              # image variable and this list are required and neither
-                              # is sufficient — drop it and every suite exits 2.
-                              env: [PATH, HOME, OCTO_PATH]
-                              workDir: ${AGENT_WORKSPACE}
-                              timeout: ${AGENT_CLI_TIMEOUT}
-                              onExit: continue
-                            # The exit code in words, because 0/1/2 mean three
-                            # different things and only one is "something went
-                            # wrong". Left bare, a model reads any non-zero as a
-                            # broken tool and apologises instead of fixing the flow.
-                            - type: set-payload
-                              name: verdict
-                              settings:
-                                value: >-
-                                  {
-                                    "verdict": body.exitCode == 0 ? "passed"
-                                      : body.exitCode == 1 ? "the flows are wrong: cases failed — read the report and fix the definition"
-                                      : "the SUITE did not parse, so no flow ran and nothing here is about your flows. Load the testing skill and check the suite's shape against it before editing again.",
-                                    "exitCode": body.exitCode,
-                                    "report": body.stdout,
-                                    "stderr": body.stderr
-                                  }
-                        else:
-                          process:
-                            - type: set-payload
-                              name: bad-dir
-                              settings:
-                                value: >-
-                                  {"error": "dir must be a single workspace directory name — no slashes, no '..'."}
-
-                  - name: builder_check_expression
-                    description: >
-                      Evaluate one CEL expression against a message body and return
-                      the result. Use it to prove an expression before you put it in
-                      a definition.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["expr"],
-                        "properties": {
-                          "expr": { "type": "string", "description": "The CEL expression, e.g. body.items.size() > 0" },
-                          "data": { "type": "object", "description": "The message body to evaluate it against." }
-                        }
-                      }
-                    process:
-                      - type: cli-run
-                        name: octo-eval
-                        program: env.AGENT_OCTO_BIN
-                        args: >-
-                          ["eval", "--expr", body.expr,
-                           "--data", toJson(has(body.data) ? body.data : {})]
-                        allow: ["${AGENT_OCTO_BIN}"]
-                        env: [PATH, HOME]
-                        workDir: ${AGENT_WORKSPACE}
-                        timeout: ${AGENT_CLI_TIMEOUT}
-                        onExit: continue
-
-                  - name: run_command
-                    description: >
-                      Run one of your own programs directly, when the tools above do
-                      not fit the shape of what you need. Programs available: octo,
-                      dolphin, curl, find and jq. Arguments are passed as argv, so
-                      there is no shell: a pipe or a semicolon is a literal
-                      character, not an operator.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["program"],
-                        "properties": {
-                          "program": { "type": "string", "enum": ["octo", "dolphin", "curl", "find", "jq"] },
-                          "args":    { "type": "array", "items": { "type": "string" }, "description": "Arguments, as argv." },
-                          "stdin":   { "type": "string", "description": "Written to the process's standard input." }
-                        }
-                      }
-                    process:
-                      # BE HONEST ABOUT WHAT THIS LIST IS. It is a guardrail, not a
-                      # boundary. `octo` is on it, and `octo invoke` runs whatever
-                      # definition it is pointed at — including one written into the
-                      # workspace a moment earlier, with a `cli-run` block carrying
-                      # no allow list at all. The boundary is the POD.
-                      - type: cli-run
-                        name: run-program
-                        program: >-
-                          body.program == "octo" ? env.AGENT_OCTO_BIN
-                            : body.program == "dolphin" ? env.AGENT_DOLPHIN_BIN
-                            : body.program == "curl" ? env.AGENT_CURL_BIN
-                            : body.program == "find" ? env.AGENT_FIND_BIN
-                            : env.AGENT_JQ_BIN
-                        args: 'has(body.args) ? body.args : []'
-                        stdin: 'has(body.stdin) ? body.stdin : ""'
-                        allow:
-                          - ${AGENT_OCTO_BIN}
-                          - ${AGENT_DOLPHIN_BIN}
-                          - ${AGENT_CURL_BIN}
-                          - ${AGENT_FIND_BIN}
-                          - ${AGENT_JQ_BIN}
-                        env: [PATH, HOME, OCTO_PATH]
-                        workDir: ${AGENT_WORKSPACE}
-                        timeout: ${AGENT_CLI_TIMEOUT}
-                        onExit: continue
-
-                  # The same GET-only read the coordinator holds, so the builder can
-                  # fetch a definition it was asked to change instead of being handed
-                  # one. It cannot save the result, which is the whole point.
-                  - name: builder_octo_read
-                    description: >
-                      Read anything from the orchestrator API — GET only.
-                      /integrations for the list, /integrations/{id} for one
-                      definition, /integrations/{id}/resources for its env files and
-                      templates. Path only, never a full URL. A 4xx comes back as
-                      data rather than an error. Writing is refused here.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["path"],
-                        "properties": {
-                          "path":  { "type": "string", "description": "Path only, e.g. /integrations/abc." },
-                          "query": { "type": "object", "description": "Query parameters." }
-                        }
-                      }
-                    process:
-                      - type: rest-dynamic
-                        settings:
-                          connector: octo
-                          method: '"GET"'
-                          path: body.path
-                          allowMethods: [GET]
-                          query: 'has(body.query) ? body.query : {}'
-                          failOnError: false
-                skills:
-                  - name: flow-file
-                    description: >
-                      The shape of a flow definition: service, env, resources,
-                      connectors, flows, sources and process chains.
-                    resource: flow-file
-                  - name: blocks
-                    description: >
-                      The blocks a process chain can contain — control flow, data,
-                      storage, AI and integration — and what each is for.
-                    resource: blocks
-                  - name: connectors
-                    description: >
-                      The connectors available (HTTP, database, queue, cron, LLM, and
-                      the rest) and the settings each takes.
-                    resource: connectors
-                  - name: expressions
-                    description: >
-                      CEL as octo uses it: the message activation, the octo extension
-                      functions, and where expressions are allowed.
-                    resource: expressions
-                  - name: testing
-                    description: >
-                      Writing dolphin test suites for a flow: cases, inputs, mocks
-                      and spies.
-                    resource: testing
+              # The specialist itself is a flow of its own, called synchronously.
+              #
+              # It could sit inline here — a tool slot takes any process chain, an
+              # ai-agent included — and it did. A flow is better for one reason
+              # that outweighs the indirection: a flow can be invoked on its own.
+              # dolphin can drive `integration-builder` with a brief and assert on
+              # what came back without standing up the coordinator, mocking the
+              # model twice, or reaching the specialist through a tool call it has
+              # to be persuaded to make. samples/cli-agent.yaml puts its command
+              # boundary in a flow for exactly this reason.
+              #
+              # Two-way (the default), because the coordinator is waiting: the
+              # called flow's body becomes this tool's result. The brief and
+              # vars.toolScope both ride across on the cloned message, so the
+              # specialist reads its input exactly as it did inline.
+              - type: flow-ref
+                name: delegate
+                settings:
+                  flow: integration-builder
 
           - name: platform_operator
             description: >
@@ -1059,407 +716,12 @@ flows:
                 }
               }
             process:
-              - type: ai-agent
-                name: operator
-                connector: llm
-                answer: text
-                # Its own conversation, on the same terms as the builder's: the
-                # coordinator mints the scope, and the transcript is scaffolding
-                # rather than history. An investigation that takes two
-                # delegations remembers what the first one found.
-                memoryThreadId: vars.toolScope
-                memoryVolatile: true
-                maxIterations: 32
-                input: >-
-                  body.task + (has(body.context) && body.context != ""
-                    ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
-                    : "")
-                emit: [tool_call, tool_result]
-                events:
-                  process:
-                    - type: sse-event
-                      settings:
-                        event: agent
-                        ifClosed: ignore
-                prompt: |
-                  You are the platform operator: the specialist Dr. Octo hands the
-                  installation to. You read its state and you change it — save,
-                  tag, deploy, roll out, scale, undeploy — and you read the stored
-                  logs and traces that say what already happened.
-
-                  You cannot see the chat you were called from or who is asking. The
-                  brief is what you know; your reply is everything that comes back.
-
-                  You do remember your own work: a second job in the same
-                  conversation reaches you with the earlier ones still in front of
-                  you — the ids you read, what the platform answered, what you
-                  changed. Use it, and say when you are building on it.
-
-                  THE MAP. These are the routes, so you do not have to rediscover
-                  them from the OpenAPI on every call. It is a map and not a
-                  contract: when a call is refused, read_api_docs for that tag is
-                  how you find out what actually changed.
-
-                    integrations
-                      GET    /integrations                      list: id, name
-                      POST   /integrations                      {"name","definition"}
-                      GET    /integrations/{id}                 the WORKING COPY
-                      PUT    /integrations/{id}                 {"name","definition"} — whole replace, there is no patch
-                      DELETE /integrations/{id}
-
-                    resources — env files and templates the integration owns
-                      GET    /integrations/{id}/resources
-                      POST   /integrations/{id}/resources       {"kind":"env"|"template","name","content"}
-                      GET|PUT|DELETE /integrations/{id}/resources/{resourceId}
-
-                    version tags — an immutable freeze of the definition AND its resources
-                      GET    /integrations/{id}/snapshots
-                      POST   /integrations/{id}/snapshots       {"tag":"v4"}
-                      DELETE /snapshots/{id}
-                      GET    /snapshots/{id}/resources[/content]
-
-                    deployments
-                      GET    /integrations/{id}/deployments/options   what a deploy would need — read this FIRST
-                      GET    /integrations/{id}/deployments
-                      POST   /integrations/{id}/deployments
-                             {"snapshotId","replicas","slug","expose":"external","subdomain",
-                              "env":{"NAME":{"value":"..."}|{"secret":"name"}},
-                              "tracing":bool,"observabilityApi":bool,"orchestratorApi":bool,"runner":""}
-                      GET    /deployments/{id}                  status, reason, pods, restart counts
-                      PATCH  /deployments/{id}                  {"replicas":n}
-                      POST   /deployments/{id}/rollout          {"snapshotId","env","tracing"} — omitted keeps current
-                      DELETE /deployments/{id}                  undeploy
-                      GET    /deployments/{id}/pods/{pod}/logs  LIVE output of a pod that still exists
-
-                    a deployment's own storage
-                      GET    /deployments/{id}/namespaces
-                      GET    /deployments/{id}/objects?namespace=
-                      GET|PUT|DELETE /deployments/{id}/objects/{key}
-                      GET|PUT|DELETE /deployments/{id}/kv/{namespace}/{key}
-
-                    the installation
-                      GET    /settings/health                   whether the orchestrator can reach what it needs
-                      GET    /settings/storage                  how full the two stores are
-                      GET|PUT /settings/llm, /settings/email
-                      GET    /secrets                           names only, never values
-                      PUT|DELETE /secrets/{name}
-                      GET|POST /folders, /devruns               folders tree; dev runs of a WORKING COPY
-                      POST   /email/send                        the coordinator's report tool uses this
-
-                    stored history — the logs API, through logs_api, all GET
-                      /logs?deploymentId=&level=&q=&from=&to=&before=&limit=
-                      /traces?deploymentId=&integrationId=&flow=&status=failed&hasLlm=&minDurationMs=&q=&limit=
-                      /traces/{traceId}?bodies=true             the whole run, block by block
-                      /traces/{traceId}/records/{id}
-                      /traces/apps
-
-                  THE THREE THINGS THAT ARE NOT THE SAME THING, and most confusion
-                  is one of them: the INTEGRATION is the working copy and editing it
-                  changes nothing that runs; a VERSION TAG is a frozen copy and
-                  never changes; a DEPLOYMENT runs one tag. So shipping an edit is
-                  always three calls — PUT the definition, POST a snapshot, POST a
-                  rollout onto it (or POST a deployment if there is none). A rollout
-                  keeps the id, address, scale and exposure, and keeps any setting
-                  you omit.
-
-                  Tracing only changes on a rollout — the runtime reads it at
-                  startup. A tag that adds or removes the HTTP source is refused on
-                  a rollout: undeploy and redeploy instead.
-
-                  WHEN SOMETHING WILL NOT START, in this order, because each rules
-                  out the next: GET /deployments/{id} for status, reason and restart
-                  counts; a required env var with no binding, which is refused
-                  before a pod is ever created and names the variables in the error;
-                  the pod logs for a config that will not load; a secret binding
-                  naming a secret that does not exist, which fails the pod and not
-                  the deploy. For anything that is not happening right now, prefer
-                  the traces: a pod's logs vanish with the pod, and a crash loop
-                  replaces it repeatedly. status=failed on /traces goes straight to
-                  the runs that broke.
-
-                  If the logs tools answer that the observability API was not
-                  granted, report that sentence. It is not the same answer as
-                  "nothing found", and only one of the two is true.
-
-                  BEFORE YOU CHANGE ANYTHING. You have write access to a live
-                  installation. Read before you write; do not delete an integration,
-                  a deployment or a secret unless the brief plainly asks for that;
-                  and when a brief is ambiguous about something irreversible, do the
-                  reversible part and say what you did not do. After you change an
-                  integration, call refresh_platform_ui with its id and name so an
-                  open editor offers to reload.
-
-                  ANSWER IN MARKDOWN: what you did, as a short list of the calls
-                  that mattered with the ids they returned; what the platform says
-                  now; and what you deliberately did not do. Quote a status or an
-                  error verbatim rather than paraphrasing it — the coordinator is
-                  going to relay this to the person who asked.
-                tools:
-                  - name: list_api_operations
-                    description: >
-                      List every route the orchestrator API serves — method, path,
-                      summary and tag. Cheap. Read this when the map in your prompt
-                      does not cover what you need.
-                    inputSchema: |
-                      { "type": "object", "properties": {} }
-                    process:
-                      - type: rest
-                        settings:
-                          connector: octo
-                          method: GET
-                          path: /openapi/operations
-
-                  - name: read_api_docs
-                    description: >
-                      Read the orchestrator's OpenAPI description, narrowed to one
-                      tag (from list_api_operations) or one path prefix. Pass one or
-                      the other, never both. Without a filter this is very large.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "properties": {
-                          "tag": { "type": "string", "description": "Keep only operations with this tag." },
-                          "path": { "type": "string", "description": "Keep only routes starting with this prefix." }
-                        }
-                      }
-                    process:
-                      - type: rest
-                        settings:
-                          connector: octo
-                          method: GET
-                          path: /openapi.json
-                          query:
-                            tag: 'has(body.tag) ? body.tag : ""'
-                            path: 'has(body.path) ? body.path : ""'
-
-                  - name: octo_api
-                    description: >
-                      Call the orchestrator API. The map in your prompt covers the
-                      routes; read_api_docs settles anything it does not. Returns the
-                      response body; the HTTP status is in vars.statusCode, and a 4xx
-                      comes back as data rather than an error, so read it and correct
-                      the call.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["method", "path"],
-                        "properties": {
-                          "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
-                          "path":   { "type": "string", "description": "Path only, e.g. /integrations/abc. Never a full URL." },
-                          "query":  { "type": "object", "description": "Query parameters." },
-                          "payload": { "type": "object", "description": "JSON request body." }
-                        }
-                      }
-                    process:
-                      # To restrict what the operator may do, add allowMethods or
-                      # pathPrefix here — this is the one place that decides it.
-                      - type: rest-dynamic
-                        settings:
-                          connector: octo
-                          method: body.method
-                          path: body.path
-                          query: 'has(body.query) ? body.query : {}'
-                          body: 'has(body.payload) ? body.payload : null'
-                          failOnError: false
-
-                  # The three logs tools each open with the same guard. When LOGS_URL
-                  # is still the sentinel, this deployment was never granted the
-                  # observability API, and that sentence is the honest answer —
-                  # cheaper than a request to an address that does not resolve.
-                  - name: list_logs_operations
-                    description: >
-                      List every route the observability API serves — stored logs and
-                      traces. A 404 here means the log aggregator is older than these
-                      tools and serves no description — report that as an
-                      out-of-date service, never as missing access.
-                    inputSchema: |
-                      { "type": "object", "properties": {} }
-                    process:
-                      - type: if
-                        name: observability-granted
-                        condition: env.LOGS_URL != "http://observability-not-granted.invalid"
-                        then:
-                          process:
-                            - type: rest
-                              settings:
-                                connector: logs
-                                method: GET
-                                path: /openapi/operations
-                                failOnError: false
-                        else:
-                          process:
-                            - type: set-payload
-                              name: not-granted
-                              settings:
-                                value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
-
-                  - name: read_logs_docs
-                    description: >
-                      Read the observability API's OpenAPI description, narrowed to
-                      one tag or one path prefix. Pass one or the other, never both.
-                      A 404 means the log aggregator is older than these tools, not
-                      that access is missing.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "properties": {
-                          "tag": { "type": "string", "description": "Keep only operations with this tag." },
-                          "path": { "type": "string", "description": "Keep only routes starting with this prefix." }
-                        }
-                      }
-                    process:
-                      - type: if
-                        name: observability-granted
-                        condition: env.LOGS_URL != "http://observability-not-granted.invalid"
-                        then:
-                          process:
-                            - type: rest
-                              settings:
-                                connector: logs
-                                method: GET
-                                path: /openapi.json
-                                failOnError: false
-                                query:
-                                  tag: 'has(body.tag) ? body.tag : ""'
-                                  path: 'has(body.path) ? body.path : ""'
-                        else:
-                          process:
-                            - type: set-payload
-                              name: not-granted
-                              settings:
-                                value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
-
-                  - name: logs_api
-                    description: >
-                      Query stored logs and traces. This is history — what already
-                      happened, across every deployment. For what a pod is printing
-                      right now, use octo_api instead. A 4xx comes back as data, so
-                      read it and correct the call — a 404 is a wrong path or an
-                      aggregator older than these tools, never a statement about
-                      access.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["path"],
-                        "properties": {
-                          "path":  { "type": "string", "description": "Path only, e.g. /traces. Never a full URL." },
-                          "query": { "type": "object", "description": "Query parameters." }
-                        }
-                      }
-                    process:
-                      - type: if
-                        name: observability-granted
-                        condition: env.LOGS_URL != "http://observability-not-granted.invalid"
-                        then:
-                          process:
-                            # allowMethods costs nothing here: every route this API
-                            # serves is a GET, so the opt-in restriction is simply
-                            # true.
-                            - type: rest-dynamic
-                              settings:
-                                connector: logs
-                                method: '"GET"'
-                                path: body.path
-                                allowMethods: [GET]
-                                query: 'has(body.query) ? body.query : {}'
-                                failOnError: false
-                        else:
-                          process:
-                            - type: set-payload
-                              name: not-granted
-                              settings:
-                                value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
-
-                  - name: http_fetch
-                    description: >
-                      Make an HTTP request to any address this pod can reach, and
-                      return the response with its status. For checking whether an
-                      endpoint is up, what a deployed integration answers, or what an
-                      upstream actually returns. http:// and https:// only. To call
-                      the orchestrator use octo_api instead — that one is
-                      authenticated and bounded, and this is not.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["url"],
-                        "properties": {
-                          "url":     { "type": "string", "description": "Full http:// or https:// URL." },
-                          "method":  { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
-                          "headers": { "type": "object", "description": "Request headers, as a flat name→value object." },
-                          "body":    { "type": "string", "description": "Raw request body, already serialized." }
-                        }
-                      }
-                    process:
-                      # The scheme check runs before anything is spawned and is doing
-                      # more work than it looks like: curl reads file:// and would
-                      # hand back /proc/1/environ, including LLM_API_KEY. A value
-                      # that must start with "http" also cannot start with "-", which
-                      # closes -o, -T, -K and @file.
-                      - type: if
-                        name: http-scheme-only
-                        condition: 'body.url.matches("^https?://")'
-                        then:
-                          process:
-                            - type: cli-run
-                              name: curl
-                              program: env.AGENT_CURL_BIN
-                              args: >-
-                                ["-sS", "--proto", "=http,https", "--proto-redir", "=http,https",
-                                 "--max-time", env.AGENT_HTTP_MAX_TIME, "--max-filesize", "1048576",
-                                 "-w", "\n---\nHTTP %{http_code} %{content_type} %{size_download}b\n",
-                                 "-X", (has(body.method) && body.method != "" ? body.method : "GET")]
-                                + (has(body.headers) ? body.headers.map(k, ["-H", k + ": " + body.headers[k]]).flatten() : [])
-                                + (has(body.body) && body.body != "" ? ["--data-raw", body.body] : [])
-                                + [body.url]
-                              allow: ["${AGENT_CURL_BIN}"]
-                              # PATH and no HOME, deliberately: curl reads
-                              # $HOME/.curlrc, and with HOME unset there is no file.
-                              env: [PATH]
-                              timeout: ${AGENT_CLI_TIMEOUT}
-                              onExit: continue
-                        else:
-                          process:
-                            - type: set-payload
-                              name: bad-scheme
-                              settings:
-                                value: '{"error": "url must start with http:// or https://."}'
-
-                  - name: refresh_platform_ui
-                    description: >
-                      Tell the platform an integration changed, so an editor with it
-                      open offers to reload. Call this after writing an integration.
-                      Fire-and-forget.
-                    inputSchema: |
-                      {
-                        "type": "object",
-                        "required": ["id", "name"],
-                        "properties": {
-                          "id":   { "type": "string", "description": "The integration's id." },
-                          "name": { "type": "string", "description": "The integration's name." }
-                        }
-                      }
-                    process:
-                      # The system: prefix publishes to the platform's own subject
-                      # instead of this deployment's, so no HTTP hop is needed.
-                      - type: publish-event
-                        settings:
-                          subject: '"system:internal.integrations.events"'
-                          value: '{"type": "integration.updated", "id": body.id, "name": body.name}'
-                      - type: set-payload
-                        settings:
-                          value: '{"published": true}'
-                skills:
-                  - name: platform
-                    description: >
-                      How the platform runs an integration: version tags,
-                      deployments, resources, cluster secrets, and what a failing
-                      deployment looks like.
-                    resource: platform
-                  - name: flow-file
-                    description: >
-                      The shape of a flow definition: service, env, resources,
-                      connectors, flows, sources and process chains.
-                    resource: flow-file
+              # Its own flow, on the same terms as the builder's above, and for the
+              # same reason: `platform-operator` can be invoked directly in a test.
+              - type: flow-ref
+                name: delegate
+                settings:
+                  flow: platform-operator
 
           # ---------------------------------------------------------------- email
           #
@@ -1544,104 +806,6 @@ flows:
                 settings:
                   value: '{"navigated": true}'
 
-          # ---------------------------------------------------------------- facts
-          #
-          # What Dr. Octo remembers about a person between conversations. Memory
-          # holds a *conversation*; this holds what outlives one.
-          #
-          # All three keep every fact for a user in a single object at
-          # facts/{userKey}, because core.KV has get, set and delete but no list.
-          # The key is built from vars.userKey, which the model cannot see or set:
-          # it names a fact; the flow decides whose.
-
-          - name: recall_facts
-            description: >
-              Everything you have been told to remember about this user. Read it
-              early when the answer might depend on how they work — do not ask them
-              to repeat something you were already told.
-            inputSchema: |
-              { "type": "object", "properties": {} }
-            process:
-              - type: object-read
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              - type: set-payload
-                settings:
-                  value: '{"facts": vars.userFacts.items}'
-
-          - name: remember_fact
-            description: >
-              Remember something about this user for later conversations. Use a
-              short stable name so the same fact can be updated rather than
-              duplicated — "preferred-model", "main-integration". Remember what
-              they tell you about themselves and how they work, not the contents of
-              this conversation, and not anything secret.
-            inputSchema: |
-              {
-                "type": "object",
-                "required": ["name", "value"],
-                "properties": {
-                  "name":  { "type": "string", "description": "Short stable identifier for the fact." },
-                  "value": { "type": "string", "description": "The fact, in a sentence." }
-                }
-              }
-            process:
-              - type: object-read
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              # Filter-then-append is what makes this an upsert.
-              - type: set-variable
-                name: merge-facts
-                settings:
-                  name: mergedFacts
-                  value: >-
-                    vars.userFacts.items.filter(f, f.name != body.name)
-                    + [{"name": body.name, "value": body.value}]
-
-              # Capped, oldest first: nothing else bounds this list, and it is read
-              # back in full on every recall_facts.
-              - type: object-write
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  value: >-
-                    {"items": size(vars.mergedFacts) > 200
-                      ? vars.mergedFacts.slice(size(vars.mergedFacts) - 200, size(vars.mergedFacts))
-                      : vars.mergedFacts}
-
-              - type: set-payload
-                settings:
-                  value: '{"remembered": body.name}'
-
-          - name: forget_fact
-            description: >
-              Forget a fact by name. Use this when the user says something is no
-              longer true, and when they ask you to forget something.
-            inputSchema: |
-              {
-                "type": "object",
-                "required": ["name"],
-                "properties": {
-                  "name": { "type": "string", "description": "The fact's name, as given to remember_fact." }
-                }
-              }
-            process:
-              - type: object-read
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  as: userFacts
-                  default: '{"items": []}'
-              - type: object-write
-                settings:
-                  key: '"facts/" + vars.userKey'
-                  value: '{"items": vars.userFacts.items.filter(f, f.name != body.name)}'
-              - type: set-payload
-                settings:
-                  value: '{"forgotten": body.name}'
-
         skills:
           - name: flow-file
             description: >
@@ -1698,293 +862,894 @@ flows:
                   deployments, flows, logs and traces are my remit. Narrow it down
                   or point me at something concrete and I will have another go."}
 
-      # ------------------------------------------------------------ the record
-      #
-      # A wire-tap. The exchange goes onto a queue and this flow returns; the
-      # conversation record is written by the flow below, on a worker nobody is
-      # waiting on. That separation is the point: naming a conversation takes a
-      # model call, and a person watching their answer finish should not be
-      # watching it be filed as well.
-      #
-      # It is a record and not the agent's memory. Memory is compacted — summarize
-      # replaces the early turns with a summary of them — so what the engine stores
-      # is the model's working set, not the conversation a person had.
-      #
-      # fork gives the branch its own clone, so the payload it builds for the queue
-      # never reaches the body this flow returns — which is the answer, and which
-      # the SSE route sends as its closing frame. handle-errors keeps a broker that
-      # is having a bad day from failing a chat that already succeeded.
-      - type: handle-errors
-        name: record-exchange
-        process:
-          - type: fork
-            name: tap
-            branches:
-              - name: record
-                process:
-                  # The answer is usually the prose `answer: text` asked for, and is
-                  # not always: the agent decodes a final answer that happens to
-                  # parse as JSON whatever the format setting says, so an answer of
-                  # "42", or one the model fenced, arrives here as a number or a
-                  # map. Rendering it back is what keeps a record of it either way.
-                  - type: set-payload
-                    name: build-record
-                    settings:
-                      value: >-
-                        {"userKey": vars.userKey, "threadId": vars.threadId,
-                         "question": vars.question,
-                         "answer": type(body) == string ? body : toJson(body)}
-                  - type: queue-dispatch
-                    name: send-record
-                    settings:
-                      subject: '"conversation-log"'
-        error:
-          - type: log
-            name: record-failed
-            settings:
-              level: warn
-              message: '"could not record the conversation: " + vars.error.message'
 
-  # ============================================================ the record ====
+
+
+  # --------------------------------------------------------- the specialists
   #
-  # What a person can come back to. Two objects per user, and neither is the
-  # agent's memory:
+  # Two agents, each a flow of its own, each reached from a tool slot on the
+  # coordinator by a synchronous flow-ref. A subagent is a tool whose process
+  # chain happens to be another agent, with its own prompt, its own tool set and
+  # its own loop: the coordinator writes a brief, the specialist works, and one
+  # report comes back as the tool result.
   #
-  #   agent-chat/{userKey}/{threadId}   the conversation as it was had
-  #   agent-threads/{userKey}           one row per conversation, for the list
+  # They are flows rather than inline blocks because a flow is the unit that can
+  # be invoked. dolphin can drive either one with a brief and assert on the
+  # answer — no coordinator, no tool call to provoke, one model to mock instead
+  # of two. Inline, the only way to reach a specialist was through a
+  # conversation that decided to delegate, which is a lot of machinery standing
+  # between a test and the thing it is testing.
   #
-  # The index exists because core.KV has get, set and delete but no list — the
-  # same reason facts live in one object — and because a listing could not carry
-  # a title even if it did. Its rows are what the panel renders before anyone
-  # opens anything.
+  # The split into two specialists is a separate decision from the split into
+  # flows, and it buys three things a single twenty-tool agent could not have:
   #
-  # Both keys are built from the userKey the chat route authenticated, so a
-  # guessed thread id names a conversation that does not exist. The queue message
-  # carries that key rather than re-deriving it, and nothing outside this
-  # deployment can put a message on the subject.
-  - name: record-conversation
-    source:
-      type: queue                        # implicit connector — no instance needed
-      settings:
-        subject: conversation-log
-        # One listener, deliberately. Reading the record and writing it back are
-        # separate blocks, so two exchanges of one conversation handled at the same
-        # moment would both read the same turns and the later write would win — the
-        # same read-modify-write the facts tools carry and for the same reason.
-        # Serialising this replica's recording closes it here; a second replica
-        # could still race one, and the cost is a lost turn in a transcript rather
-        # than a lost answer.
+  #   - A prompt each. "How to write a definition and prove it" and "how this
+  #     installation is deployed and diagnosed" are different jobs wanting
+  #     different instructions, and a single prompt carrying both is mostly
+  #     irrelevant on any given turn.
+  #   - A working context each. A builder's loop fills a transcript with YAML
+  #     drafts and test reports; an operator's fills with API responses. Kept
+  #     apart, neither is paying to re-read the other, and the conversation the
+  #     user is actually having stays short — what comes back to it is one
+  #     report, not forty tool results.
+  #   - A boundary. The builder's orchestrator tool is GET-only. The
+  #     coordinator's is GET-only. There is exactly one unrestricted octo_api in
+  #     this file and it is inside the operator, so a write to the platform is
+  #     always a deliberate delegation.
+  #
+  # What it costs: a delegation is a whole model run, and the specialist starts
+  # blind. Both are stated in the coordinator's prompt, because the failure mode
+  # is a thin brief and the second is delegating a question that one GET would
+  # have answered. It is also why the SSE route's maxDuration is 30m: one turn
+  # there can be a whole loop here.
+  #
+  # Neither declares a source, so neither is reachable from outside — a
+  # specialist is called, never posted to.
+
+  - name: integration-builder
+    process:
+      - type: ai-agent
+        name: builder
+        connector: llm
+        answer: text
+        # A conversation of its own, and a disposable one.
         #
-        # It costs nothing worth having. There is one record write per exchange and
-        # nobody is waiting on it, so the only thing a second listener would buy is
-        # the chance to lose a turn.
-        listeners: 1
-    process:
-      # The body is about to be replaced by the title call, so what the keys are
-      # built from is taken out of it first.
-      - type: set-variable
-        name: hold-user
-        settings:
-          name: userKey
-          value: body.userKey
-      - type: set-variable
-        name: hold-thread
-        settings:
-          name: threadId
-          value: body.threadId
-      - type: set-variable
-        name: hold-exchange
-        settings:
-          name: exchange
-          value: '{"question": body.question, "answer": body.answer}'
-
-      - type: object-read
-        name: read-record
-        settings:
-          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
-          as: record
-          # Whether the object was there is what "this conversation is new" means,
-          # and it is the only thing that decides whether a model is asked for a
-          # title. Everything after the first exchange keeps the one it has.
-          existsVar: recordExists
-          default: '{"title": "", "turns": []}'
-
-      - type: set-variable
-        name: append-turns
-        settings:
-          name: turns
-          value: >-
-            vars.record.turns
-              + [{"role": "user", "text": vars.exchange.question},
-                 {"role": "agent", "text": vars.exchange.answer}]
-
-      # Capped oldest-first, like facts and for the same reason: nothing else
-      # bounds this, it is read back in full on every exchange, and a value that
-      # grows without limit eventually will not write. Two hundred turns is a very
-      # long conversation and a very small object.
-      - type: set-variable
-        name: cap-turns
-        settings:
-          name: turns
-          value: >-
-            size(vars.turns) > 200
-              ? vars.turns.slice(size(vars.turns) - 200, size(vars.turns))
-              : vars.turns
-
-      - type: if
-        name: name-it
-        condition: '!vars.recordExists'
-        then:
+        # vars.toolScope is minted by the coordinator's tool call: stable
+        # for as long as the conversation it belongs to, distinct per
+        # tool. So a second delegation in the same chat reaches the same
+        # builder — it still has the definition it drafted a moment ago,
+        # and does not have to be told it twice. A third conversation
+        # gets a fresh one.
+        #
+        # Volatile because a specialist's transcript is scaffolding. It
+        # belongs in the tier that evicts rather than the one the
+        # platform backs up, and losing it costs a re-read of a brief.
+        memoryThreadId: vars.toolScope
+        memoryVolatile: true
+        # Not recorded. A specialist works a thread its caller minted for
+        # it, so recording those would mint a conversation row per
+        # delegation forever — the accumulation the volatile tier exists to
+        # avoid. (memoryVolatile implies this; written out because the
+        # implication is easy to miss when reading.)
+        history: off
+        # Its own ceiling, deliberately not the coordinator's: a delegated
+        # job is a whole loop of its own, and a specialist that runs out of
+        # turns mid-fix hands back half an answer the coordinator then has
+        # to relay as if it were one.
+        maxIterations: 40
+        input: >-
+          body.task + (has(body.context) && body.context != ""
+            ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
+            : "")
+        emit: [tool_call, tool_result]
+        events:
           process:
-            # A name a person recognises in a list, which is worth one small model
-            # call at the start of a conversation and nothing thereafter. It runs
-            # here rather than in the chat flow precisely because it is a model
-            # call: nobody is waiting on this worker.
-            #
-            # And it is the one thing here that can fail on its own — a provider
-            # having a bad minute, a model that answers something the schema
-            # refuses. The name is the nice half of this flow and the record is the
-            # point, so a failure falls back to the question itself rather than
-            # taking the exchange down with it.
-            - type: handle-errors
-              name: name-or-fall-back
-              process:
-                - type: set-payload
-                  name: title-input
-                  settings:
-                    value: '{"question": vars.exchange.question, "answer": vars.exchange.answer}'
-                - type: ai-mapping
-                  name: write-title
-                  settings:
-                    # llm-fast, not llm: this is the one call on the agent that
-                    # wants no reasoning, and reasoning here costs the answer
-                    # rather than improving it. See the connector's own comment.
-                    connector: llm-fast
-                    prompt: >
-                      Name this conversation the way a person would name it in a list
-                      of their past conversations. Five words at most, no quotes, no
-                      trailing period, no "conversation about". Describe what was
-                      asked, not what was answered. Use the question's own language.
-                    outputExample: '{"title": "Deploying the orders integration"}'
-                    outputSchema: |
-                      {"type": "object", "required": ["title"],
-                       "properties": {"title": {"type": "string", "maxLength": 80}}}
-                    # No per-block ceiling: llm-fast already sets one sized for a
-                    # model that reasons regardless. A tighter one here would be
-                    # the bug this fixed — a title needs a few tokens, but a
-                    # reasoning model needs room to reach them.
-                - type: set-variable
-                  settings:
-                    name: title
-                    value: body.title
-              error:
-                - type: log
-                  name: title-failed
-                  settings:
-                    level: warn
-                    message: '"could not name a conversation: " + vars.error.message'
-                - type: set-variable
-                  settings:
-                    name: title
-                    value: >-
-                      size(vars.exchange.question) > 60
-                        ? vars.exchange.question.substring(0, 60) + "…"
-                        : vars.exchange.question
-        else:
-          process:
-            - type: set-variable
+            # The specialist's tool calls reach the same panel the
+            # coordinator's do, so a delegation is watchable rather than a
+            # chip that sits open for two minutes with nothing under it.
+            # ifClosed: ignore and not stop — the coordinator's own events
+            # path already ends the run when the panel closes, and a stop
+            # raised from inside a tool would follow the coordinator out of
+            # the tool call it is waiting on.
+            - type: sse-event
               settings:
-                name: title
-                value: vars.record.title
+                event: agent
+                ifClosed: ignore
+        prompt: |
+          You are the integration builder: the specialist Dr. Octo hands a
+          definition to. You write octo flow definitions and you prove them
+          before you answer.
 
-      - type: object-write
-        name: write-record
-        settings:
-          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
-          value: '{"title": vars.title, "turns": vars.turns}'
+          You cannot see the chat you were called from, who the user is, or
+          what was said in it. The brief you were given is what you know,
+          and your reply is everything that comes back — so it has to stand
+          on its own.
 
-      # The index carries the moment as well as the name. The object store records
-      # when a value was last written, but only the route that lists every key in
-      # the namespace can read it, and that route cannot return a title — so the
-      # row that has the title carries the timestamp too.
-      - type: object-read
-        name: read-index
-        settings:
-          key: '"agent-threads/" + vars.userKey'
-          as: index
-          default: '{"items": []}'
-      # Filter-then-append is what makes this an upsert: a conversation already in
-      # the list moves to the end with a fresh timestamp rather than appearing
-      # twice.
-      - type: set-variable
-        name: merge-index
-        settings:
-          name: rows
-          value: >-
-            vars.index.items.filter(i, i.id != vars.threadId)
-              + [{"id": vars.threadId, "title": vars.title, "updatedAt": string(now)}]
-      - type: object-write
-        name: write-index
-        settings:
-          key: '"agent-threads/" + vars.userKey'
-          value: >-
-            {"items": size(vars.rows) > 200
-              ? vars.rows.slice(size(vars.rows) - 200, size(vars.rows))
-              : vars.rows}
+          You do remember your own work. A second job in the same
+          conversation reaches you with your earlier ones still in front of
+          you: the definition you drafted, the tests you ran, what failed.
+          Use that rather than starting from nothing — and say when you are
+          building on it, because the coordinator cannot see it.
 
-  # A user's past conversations, most recently written last — the panel sorts. The
-  # user block is written server-side by the chat route, exactly as it is for /chat,
-  # so this reads one person's list and cannot be asked for anyone else's.
-  - name: list-conversations
-    source:
-      connector: api
-      type: http
-      settings:
-        path: /conversations
-        methods: [POST]
-        timeout: 10s
+          THE LOOP, and it is not optional:
+
+            1. Load the skills you need. flow-file for the file's shape,
+               blocks for what a process chain may contain, connectors for
+               their settings, expressions for CEL, testing for a suite.
+               The schema moves faster than your training data. A definition
+               written from memory is a guess.
+            2. write_workspace_file the definition to <dir>/config.yaml.
+            3. write_workspace_file a suite to <dir>/config_test.yaml —
+               dolphin pairs x.yaml with x_test.yaml beside it.
+            4. run_flow_tests <dir>. Exit 0 is passed; exit 1 means the FLOW
+               is wrong, which is the answer you asked for; exit 2 means the
+               SUITE did not parse, so nothing ran and nothing there is about
+               your flow — load the testing skill and fix the suite.
+            5. Fix and run again. invoke_flow when you want to see what one
+               flow actually returns; builder_check_expression to settle a
+               CEL question instead of reasoning about one.
+
+          Two limits to keep straight, and to state in your answer rather
+          than let a reader assume past. The workspace is scratch: an empty
+          directory that dies with the pod, so nothing you write there is
+          saved anywhere. And an invoked flow runs STANDALONE — in-process
+          KV and queues, no cluster resources, no connectors reaching
+          anything real. It proves the shape of a definition and the logic
+          in it, never what a deployment would see.
+
+          builder_octo_read is a GET against the orchestrator, for reading
+          what already exists: /integrations for the list, /integrations/{id}
+          for one definition (the YAML arrives as a string in `definition`),
+          /integrations/{id}/resources for its env files and templates. Use
+          it when the brief names an integration instead of quoting it.
+
+          You cannot save anything. No PUT, no POST, no deploy — that is the
+          platform operator's job, and the coordinator will delegate it if
+          the user asks for it. Hand back the definition; do not pretend it
+          is stored.
+
+          ANSWER IN MARKDOWN, and answer like a colleague reporting back:
+
+            - What you built or changed, in a sentence or two.
+            - The complete definition in a ```yaml fence — complete, not an
+              excerpt with "..." in it. It is going to be quoted verbatim.
+            - What you ran and what it said. Name the cases that passed. If
+              something still fails, say exactly what and why.
+            - What you could NOT verify, plainly. An untested branch, a
+              connector that only exists in a cluster, an assumption you had
+              to make about the brief. This is the most valuable line in the
+              report; never leave it out to look finished.
+        tools:
+          # ------------------------------------------------------ workspace
+          #
+          # The difference between an agent that can describe a fix and one
+          # that can try it. It drafts a definition into the workspace,
+          # invokes it, runs its suite, reads the envelope, and does it
+          # again — the loop a person gets at a terminal, in the cluster
+          # where the problem is.
+          #
+          # The design rule they all follow: THE MODEL SUPPLIES DATA, THE
+          # FLOW SUPPLIES ARGV. No string the model chose ever lands where
+          # it could be read as a flag.
+          - name: read_workspace_file
+            description: >
+              Read a file from your workspace. The path is relative to the
+              workspace root; a path that leaves it is refused.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string", "description": "Workspace-relative path, e.g. demo/config.yaml" }
+                }
+              }
+            process:
+              - type: file-read
+                settings:
+                  connector: workspace
+                  path: body.path
+                  resultVar: contents
+              - type: set-payload
+                settings:
+                  value: '{"path": body.path, "content": vars.contents}'
+
+          - name: write_workspace_file
+            description: >
+              Write a file into your workspace, creating parent directories
+              as needed. Put a flow in `<dir>/config.yaml` and its suite in
+              `<dir>/config_test.yaml`, which is the pairing dolphin looks
+              for. The workspace is scratch and dies with the pod.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path", "content"],
+                "properties": {
+                  "path":    { "type": "string", "description": "Workspace-relative path, e.g. demo/config.yaml" },
+                  "content": { "type": "string", "description": "The file's full contents." }
+                }
+              }
+            process:
+              - type: file-write
+                settings:
+                  connector: workspace
+                  path: body.path
+                  content: body.content
+                  resultVar: receipt
+              - type: set-payload
+                settings:
+                  value: 'vars.receipt'
+
+          - name: list_workspace
+            description: >
+              List everything in your workspace. Takes no arguments — it
+              returns the whole tree, which is small.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              # No argument, and that is the design rather than a
+              # simplification: constant argv puts find's -exec out of reach
+              # by construction rather than by an allow list.
+              - type: cli-run
+                name: find-workspace
+                program: env.AGENT_FIND_BIN
+                args: '[".", "-maxdepth", "4", "-not", "-path", "*/.*"]'
+                allow: ["${AGENT_FIND_BIN}"]
+                env: [PATH]
+                workDir: ${AGENT_WORKSPACE}
+                timeout: ${AGENT_CLI_TIMEOUT}
+                onExit: continue
+
+          - name: invoke_flow
+            description: >
+              Run one flow from a definition in your workspace, once, and
+              return what it produced. `dir` is a single workspace directory
+              name holding the .yaml files; `flow` is the flow's name; `data`
+              is the request body.
+
+              The answer is an outcome envelope — {"result":…} if the flow
+              completed, {"dropped":true} if a filter dropped the message,
+              {"error":"…"} if it failed. A flow that fails is an answer, not
+              a failure of this tool.
+
+              Sources are NOT started, so pass in the body a source would
+              have. And it runs under the STANDALONE services provider — so
+              an object-read that is empty here says nothing about the
+              deployment.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["dir", "flow"],
+                "properties": {
+                  "dir":  { "type": "string", "description": "Workspace directory holding the definition, e.g. demo. No slashes." },
+                  "flow": { "type": "string", "description": "Name of the flow to invoke." },
+                  "data": { "type": "object", "description": "JSON request body for the flow." }
+                }
+              }
+            process:
+              - type: if
+                name: safe-dir
+                condition: >-
+                  body.dir.matches("^[A-Za-z0-9.][A-Za-z0-9._-]{0,63}$")
+                    && !body.dir.contains("..")
+                then:
+                  process:
+                    - type: cli-run
+                      name: octo-invoke
+                      program: env.AGENT_OCTO_BIN
+                      # --envelope says "completed", "dropped" and "failed"
+                      # in one JSON object and exits 0 for a flow that
+                      # failed, which is what makes this usable by a model.
+                      args: >-
+                        ["invoke", "--config", body.dir, "--flow", body.flow, "--envelope",
+                         "--data", toJson(has(body.data) ? body.data : {})]
+                      allow: ["${AGENT_OCTO_BIN}"]
+                      env: [PATH, HOME]
+                      workDir: ${AGENT_WORKSPACE}
+                      timeout: ${AGENT_CLI_TIMEOUT}
+                      onExit: continue
+                else:
+                  process:
+                    - type: set-payload
+                      name: bad-dir
+                      settings:
+                        value: >-
+                          {"error": "dir must be a single workspace directory name — no slashes,
+                          no '..'. Write the definition into a directory first, then pass its name."}
+
+          - name: run_flow_tests
+            description: >
+              Run the dolphin suite for the definitions in a workspace
+              directory. dolphin pairs each `x.yaml` with the `x_test.yaml`
+              beside it, so write both and pass the directory.
+
+              Exit 0 means every case passed. Exit 1 means the FLOWS are
+              wrong — that is the answer you asked for. Exit 2 means the
+              suite or the runner is wrong, which is a different problem.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["dir"],
+                "properties": {
+                  "dir": { "type": "string", "description": "Workspace directory holding the definitions and their suites. No slashes." }
+                }
+              }
+            process:
+              - type: if
+                name: safe-dir
+                condition: >-
+                  body.dir.matches("^[A-Za-z0-9.][A-Za-z0-9._-]{0,63}$")
+                    && !body.dir.contains("..")
+                then:
+                  process:
+                    - type: cli-run
+                      name: dolphin-test
+                      program: env.AGENT_DOLPHIN_BIN
+                      args: '["test", body.dir]'
+                      allow: ["${AGENT_DOLPHIN_BIN}"]
+                      # OCTO_PATH is what makes dolphin drive the standalone
+                      # octo rather than this pod's k8s entrypoint. Both the
+                      # image variable and this list are required and neither
+                      # is sufficient — drop it and every suite exits 2.
+                      env: [PATH, HOME, OCTO_PATH]
+                      workDir: ${AGENT_WORKSPACE}
+                      timeout: ${AGENT_CLI_TIMEOUT}
+                      onExit: continue
+                    # The exit code in words, because 0/1/2 mean three
+                    # different things and only one is "something went
+                    # wrong". Left bare, a model reads any non-zero as a
+                    # broken tool and apologises instead of fixing the flow.
+                    - type: set-payload
+                      name: verdict
+                      settings:
+                        value: >-
+                          {
+                            "verdict": body.exitCode == 0 ? "passed"
+                              : body.exitCode == 1 ? "the flows are wrong: cases failed — read the report and fix the definition"
+                              : "the SUITE did not parse, so no flow ran and nothing here is about your flows. Load the testing skill and check the suite's shape against it before editing again.",
+                            "exitCode": body.exitCode,
+                            "report": body.stdout,
+                            "stderr": body.stderr
+                          }
+                else:
+                  process:
+                    - type: set-payload
+                      name: bad-dir
+                      settings:
+                        value: >-
+                          {"error": "dir must be a single workspace directory name — no slashes, no '..'."}
+
+          - name: builder_check_expression
+            description: >
+              Evaluate one CEL expression against a message body and return
+              the result. Use it to prove an expression before you put it in
+              a definition.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["expr"],
+                "properties": {
+                  "expr": { "type": "string", "description": "The CEL expression, e.g. body.items.size() > 0" },
+                  "data": { "type": "object", "description": "The message body to evaluate it against." }
+                }
+              }
+            process:
+              - type: cli-run
+                name: octo-eval
+                program: env.AGENT_OCTO_BIN
+                args: >-
+                  ["eval", "--expr", body.expr,
+                   "--data", toJson(has(body.data) ? body.data : {})]
+                allow: ["${AGENT_OCTO_BIN}"]
+                env: [PATH, HOME]
+                workDir: ${AGENT_WORKSPACE}
+                timeout: ${AGENT_CLI_TIMEOUT}
+                onExit: continue
+
+          - name: run_command
+            description: >
+              Run one of your own programs directly, when the tools above do
+              not fit the shape of what you need. Programs available: octo,
+              dolphin, curl, find and jq. Arguments are passed as argv, so
+              there is no shell: a pipe or a semicolon is a literal
+              character, not an operator.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["program"],
+                "properties": {
+                  "program": { "type": "string", "enum": ["octo", "dolphin", "curl", "find", "jq"] },
+                  "args":    { "type": "array", "items": { "type": "string" }, "description": "Arguments, as argv." },
+                  "stdin":   { "type": "string", "description": "Written to the process's standard input." }
+                }
+              }
+            process:
+              # BE HONEST ABOUT WHAT THIS LIST IS. It is a guardrail, not a
+              # boundary. `octo` is on it, and `octo invoke` runs whatever
+              # definition it is pointed at — including one written into the
+              # workspace a moment earlier, with a `cli-run` block carrying
+              # no allow list at all. The boundary is the POD.
+              - type: cli-run
+                name: run-program
+                program: >-
+                  body.program == "octo" ? env.AGENT_OCTO_BIN
+                    : body.program == "dolphin" ? env.AGENT_DOLPHIN_BIN
+                    : body.program == "curl" ? env.AGENT_CURL_BIN
+                    : body.program == "find" ? env.AGENT_FIND_BIN
+                    : env.AGENT_JQ_BIN
+                args: 'has(body.args) ? body.args : []'
+                stdin: 'has(body.stdin) ? body.stdin : ""'
+                allow:
+                  - ${AGENT_OCTO_BIN}
+                  - ${AGENT_DOLPHIN_BIN}
+                  - ${AGENT_CURL_BIN}
+                  - ${AGENT_FIND_BIN}
+                  - ${AGENT_JQ_BIN}
+                env: [PATH, HOME, OCTO_PATH]
+                workDir: ${AGENT_WORKSPACE}
+                timeout: ${AGENT_CLI_TIMEOUT}
+                onExit: continue
+
+          # The same GET-only read the coordinator holds, so the builder can
+          # fetch a definition it was asked to change instead of being handed
+          # one. It cannot save the result, which is the whole point.
+          - name: builder_octo_read
+            description: >
+              Read anything from the orchestrator API — GET only.
+              /integrations for the list, /integrations/{id} for one
+              definition, /integrations/{id}/resources for its env files and
+              templates. Path only, never a full URL. A 4xx comes back as
+              data rather than an error. Writing is refused here.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path":  { "type": "string", "description": "Path only, e.g. /integrations/abc." },
+                  "query": { "type": "object", "description": "Query parameters." }
+                }
+              }
+            process:
+              - type: rest-dynamic
+                settings:
+                  connector: octo
+                  method: '"GET"'
+                  path: body.path
+                  allowMethods: [GET]
+                  query: 'has(body.query) ? body.query : {}'
+                  failOnError: false
+        skills:
+          - name: flow-file
+            description: >
+              The shape of a flow definition: service, env, resources,
+              connectors, flows, sources and process chains.
+            resource: flow-file
+          - name: blocks
+            description: >
+              The blocks a process chain can contain — control flow, data,
+              storage, AI and integration — and what each is for.
+            resource: blocks
+          - name: connectors
+            description: >
+              The connectors available (HTTP, database, queue, cron, LLM, and
+              the rest) and the settings each takes.
+            resource: connectors
+          - name: expressions
+            description: >
+              CEL as octo uses it: the message activation, the octo extension
+              functions, and where expressions are allowed.
+            resource: expressions
+          - name: testing
+            description: >
+              Writing dolphin test suites for a flow: cases, inputs, mocks
+              and spies.
+            resource: testing
+
+  - name: platform-operator
     process:
-      - type: set-variable
-        name: user-key
-        settings:
-          name: userKey
-          value: >-
-            has(body.user) && has(body.user.id) && body.user.id != ""
-              ? body.user.id : "anonymous"
-      - type: object-read
-        name: read-index
-        settings:
-          key: '"agent-threads/" + vars.userKey'
-          as: index
-          default: '{"items": []}'
-      - type: set-payload
-        settings:
-          value: '{"items": vars.index.items}'
+      - type: ai-agent
+        name: operator
+        connector: llm
+        answer: text
+        # Its own conversation, on the same terms as the builder's: the
+        # coordinator mints the scope, and the transcript is scaffolding
+        # rather than history. An investigation that takes two
+        # delegations remembers what the first one found.
+        memoryThreadId: vars.toolScope
+        memoryVolatile: true
+        # Not recorded. A specialist works a thread its caller minted for
+        # it, so recording those would mint a conversation row per
+        # delegation forever — the accumulation the volatile tier exists to
+        # avoid. (memoryVolatile implies this; written out because the
+        # implication is easy to miss when reading.)
+        history: off
+        maxIterations: 32
+        input: >-
+          body.task + (has(body.context) && body.context != ""
+            ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
+            : "")
+        emit: [tool_call, tool_result]
+        events:
+          process:
+            - type: sse-event
+              settings:
+                event: agent
+                ifClosed: ignore
+        prompt: |
+          You are the platform operator: the specialist Dr. Octo hands the
+          installation to. You read its state and you change it — save,
+          tag, deploy, roll out, scale, undeploy — and you read the stored
+          logs and traces that say what already happened.
 
-  # One past conversation, as it was had. Not the agent's memory: that is
-  # compacted, so its early turns have been replaced by a summary of them.
-  - name: read-conversation
-    source:
-      connector: api
-      type: http
-      settings:
-        path: /conversations/{threadId}
-        methods: [POST]
-        timeout: 10s
-    process:
-      - type: set-variable
-        name: user-key
-        settings:
-          name: userKey
-          value: >-
-            has(body.user) && has(body.user.id) && body.user.id != ""
-              ? body.user.id : "anonymous"
-      - type: object-read
-        name: read-record
-        settings:
-          key: '"agent-chat/" + vars.userKey + "/" + vars.threadId'
-          as: record
-          default: '{"title": "", "turns": []}'
-      - type: set-payload
-        settings:
-          value: '{"threadId": vars.threadId, "title": vars.record.title, "turns": vars.record.turns}'
+          You cannot see the chat you were called from or who is asking. The
+          brief is what you know; your reply is everything that comes back.
+
+          You do remember your own work: a second job in the same
+          conversation reaches you with the earlier ones still in front of
+          you — the ids you read, what the platform answered, what you
+          changed. Use it, and say when you are building on it.
+
+          THE MAP. These are the routes, so you do not have to rediscover
+          them from the OpenAPI on every call. It is a map and not a
+          contract: when a call is refused, read_api_docs for that tag is
+          how you find out what actually changed.
+
+            integrations
+              GET    /integrations                      list: id, name
+              POST   /integrations                      {"name","definition"}
+              GET    /integrations/{id}                 the WORKING COPY
+              PUT    /integrations/{id}                 {"name","definition"} — whole replace, there is no patch
+              DELETE /integrations/{id}
+
+            resources — env files and templates the integration owns
+              GET    /integrations/{id}/resources
+              POST   /integrations/{id}/resources       {"kind":"env"|"template","name","content"}
+              GET|PUT|DELETE /integrations/{id}/resources/{resourceId}
+
+            version tags — an immutable freeze of the definition AND its resources
+              GET    /integrations/{id}/snapshots
+              POST   /integrations/{id}/snapshots       {"tag":"v4"}
+              DELETE /snapshots/{id}
+              GET    /snapshots/{id}/resources[/content]
+
+            deployments
+              GET    /integrations/{id}/deployments/options   what a deploy would need — read this FIRST
+              GET    /integrations/{id}/deployments
+              POST   /integrations/{id}/deployments
+                     {"snapshotId","replicas","slug","expose":"external","subdomain",
+                      "env":{"NAME":{"value":"..."}|{"secret":"name"}},
+                      "tracing":bool,"observabilityApi":bool,"orchestratorApi":bool,"runner":""}
+              GET    /deployments/{id}                  status, reason, pods, restart counts
+              PATCH  /deployments/{id}                  {"replicas":n}
+              POST   /deployments/{id}/rollout          {"snapshotId","env","tracing"} — omitted keeps current
+              DELETE /deployments/{id}                  undeploy
+              GET    /deployments/{id}/pods/{pod}/logs  LIVE output of a pod that still exists
+
+            a deployment's own storage
+              GET    /deployments/{id}/namespaces
+              GET    /deployments/{id}/objects?namespace=
+              GET|PUT|DELETE /deployments/{id}/objects/{key}
+              GET|PUT|DELETE /deployments/{id}/kv/{namespace}/{key}
+
+            the installation
+              GET    /settings/health                   whether the orchestrator can reach what it needs
+              GET    /settings/storage                  how full the two stores are
+              GET|PUT /settings/llm, /settings/email
+              GET    /secrets                           names only, never values
+              PUT|DELETE /secrets/{name}
+              GET|POST /folders, /devruns               folders tree; dev runs of a WORKING COPY
+              POST   /email/send                        the coordinator's report tool uses this
+
+            stored history — the logs API, through logs_api, all GET
+              /logs?deploymentId=&level=&q=&from=&to=&before=&limit=
+              /traces?deploymentId=&integrationId=&flow=&status=failed&hasLlm=&minDurationMs=&q=&limit=
+              /traces/{traceId}?bodies=true             the whole run, block by block
+              /traces/{traceId}/records/{id}
+              /traces/apps
+
+          THE THREE THINGS THAT ARE NOT THE SAME THING, and most confusion
+          is one of them: the INTEGRATION is the working copy and editing it
+          changes nothing that runs; a VERSION TAG is a frozen copy and
+          never changes; a DEPLOYMENT runs one tag. So shipping an edit is
+          always three calls — PUT the definition, POST a snapshot, POST a
+          rollout onto it (or POST a deployment if there is none). A rollout
+          keeps the id, address, scale and exposure, and keeps any setting
+          you omit.
+
+          Tracing only changes on a rollout — the runtime reads it at
+          startup. A tag that adds or removes the HTTP source is refused on
+          a rollout: undeploy and redeploy instead.
+
+          WHEN SOMETHING WILL NOT START, in this order, because each rules
+          out the next: GET /deployments/{id} for status, reason and restart
+          counts; a required env var with no binding, which is refused
+          before a pod is ever created and names the variables in the error;
+          the pod logs for a config that will not load; a secret binding
+          naming a secret that does not exist, which fails the pod and not
+          the deploy. For anything that is not happening right now, prefer
+          the traces: a pod's logs vanish with the pod, and a crash loop
+          replaces it repeatedly. status=failed on /traces goes straight to
+          the runs that broke.
+
+          If the logs tools answer that the observability API was not
+          granted, report that sentence. It is not the same answer as
+          "nothing found", and only one of the two is true.
+
+          BEFORE YOU CHANGE ANYTHING. You have write access to a live
+          installation. Read before you write; do not delete an integration,
+          a deployment or a secret unless the brief plainly asks for that;
+          and when a brief is ambiguous about something irreversible, do the
+          reversible part and say what you did not do. After you change an
+          integration, call refresh_platform_ui with its id and name so an
+          open editor offers to reload.
+
+          ANSWER IN MARKDOWN: what you did, as a short list of the calls
+          that mattered with the ids they returned; what the platform says
+          now; and what you deliberately did not do. Quote a status or an
+          error verbatim rather than paraphrasing it — the coordinator is
+          going to relay this to the person who asked.
+        tools:
+          - name: list_api_operations
+            description: >
+              List every route the orchestrator API serves — method, path,
+              summary and tag. Cheap. Read this when the map in your prompt
+              does not cover what you need.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              - type: rest
+                settings:
+                  connector: octo
+                  method: GET
+                  path: /openapi/operations
+
+          - name: read_api_docs
+            description: >
+              Read the orchestrator's OpenAPI description, narrowed to one
+              tag (from list_api_operations) or one path prefix. Pass one or
+              the other, never both. Without a filter this is very large.
+            inputSchema: |
+              {
+                "type": "object",
+                "properties": {
+                  "tag": { "type": "string", "description": "Keep only operations with this tag." },
+                  "path": { "type": "string", "description": "Keep only routes starting with this prefix." }
+                }
+              }
+            process:
+              - type: rest
+                settings:
+                  connector: octo
+                  method: GET
+                  path: /openapi.json
+                  query:
+                    tag: 'has(body.tag) ? body.tag : ""'
+                    path: 'has(body.path) ? body.path : ""'
+
+          - name: octo_api
+            description: >
+              Call the orchestrator API. The map in your prompt covers the
+              routes; read_api_docs settles anything it does not. Returns the
+              response body; the HTTP status is in vars.statusCode, and a 4xx
+              comes back as data rather than an error, so read it and correct
+              the call.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["method", "path"],
+                "properties": {
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+                  "path":   { "type": "string", "description": "Path only, e.g. /integrations/abc. Never a full URL." },
+                  "query":  { "type": "object", "description": "Query parameters." },
+                  "payload": { "type": "object", "description": "JSON request body." }
+                }
+              }
+            process:
+              # To restrict what the operator may do, add allowMethods or
+              # pathPrefix here — this is the one place that decides it.
+              - type: rest-dynamic
+                settings:
+                  connector: octo
+                  method: body.method
+                  path: body.path
+                  query: 'has(body.query) ? body.query : {}'
+                  body: 'has(body.payload) ? body.payload : null'
+                  failOnError: false
+
+          # The three logs tools each open with the same guard. When LOGS_URL
+          # is still the sentinel, this deployment was never granted the
+          # observability API, and that sentence is the honest answer —
+          # cheaper than a request to an address that does not resolve.
+          - name: list_logs_operations
+            description: >
+              List every route the observability API serves — stored logs and
+              traces. A 404 here means the log aggregator is older than these
+              tools and serves no description — report that as an
+              out-of-date service, never as missing access.
+            inputSchema: |
+              { "type": "object", "properties": {} }
+            process:
+              - type: if
+                name: observability-granted
+                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                then:
+                  process:
+                    - type: rest
+                      settings:
+                        connector: logs
+                        method: GET
+                        path: /openapi/operations
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-granted
+                      settings:
+                        value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
+
+          - name: read_logs_docs
+            description: >
+              Read the observability API's OpenAPI description, narrowed to
+              one tag or one path prefix. Pass one or the other, never both.
+              A 404 means the log aggregator is older than these tools, not
+              that access is missing.
+            inputSchema: |
+              {
+                "type": "object",
+                "properties": {
+                  "tag": { "type": "string", "description": "Keep only operations with this tag." },
+                  "path": { "type": "string", "description": "Keep only routes starting with this prefix." }
+                }
+              }
+            process:
+              - type: if
+                name: observability-granted
+                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                then:
+                  process:
+                    - type: rest
+                      settings:
+                        connector: logs
+                        method: GET
+                        path: /openapi.json
+                        failOnError: false
+                        query:
+                          tag: 'has(body.tag) ? body.tag : ""'
+                          path: 'has(body.path) ? body.path : ""'
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-granted
+                      settings:
+                        value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
+
+          - name: logs_api
+            description: >
+              Query stored logs and traces. This is history — what already
+              happened, across every deployment. For what a pod is printing
+              right now, use octo_api instead. A 4xx comes back as data, so
+              read it and correct the call — a 404 is a wrong path or an
+              aggregator older than these tools, never a statement about
+              access.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path":  { "type": "string", "description": "Path only, e.g. /traces. Never a full URL." },
+                  "query": { "type": "object", "description": "Query parameters." }
+                }
+              }
+            process:
+              - type: if
+                name: observability-granted
+                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                then:
+                  process:
+                    # allowMethods costs nothing here: every route this API
+                    # serves is a GET, so the opt-in restriction is simply
+                    # true.
+                    - type: rest-dynamic
+                      settings:
+                        connector: logs
+                        method: '"GET"'
+                        path: body.path
+                        allowMethods: [GET]
+                        query: 'has(body.query) ? body.query : {}'
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-granted
+                      settings:
+                        value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
+
+          - name: http_fetch
+            description: >
+              Make an HTTP request to any address this pod can reach, and
+              return the response with its status. For checking whether an
+              endpoint is up, what a deployed integration answers, or what an
+              upstream actually returns. http:// and https:// only. To call
+              the orchestrator use octo_api instead — that one is
+              authenticated and bounded, and this is not.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url":     { "type": "string", "description": "Full http:// or https:// URL." },
+                  "method":  { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
+                  "headers": { "type": "object", "description": "Request headers, as a flat name→value object." },
+                  "body":    { "type": "string", "description": "Raw request body, already serialized." }
+                }
+              }
+            process:
+              # The scheme check runs before anything is spawned and is doing
+              # more work than it looks like: curl reads file:// and would
+              # hand back /proc/1/environ, including LLM_API_KEY. A value
+              # that must start with "http" also cannot start with "-", which
+              # closes -o, -T, -K and @file.
+              - type: if
+                name: http-scheme-only
+                condition: 'body.url.matches("^https?://")'
+                then:
+                  process:
+                    - type: cli-run
+                      name: curl
+                      program: env.AGENT_CURL_BIN
+                      args: >-
+                        ["-sS", "--proto", "=http,https", "--proto-redir", "=http,https",
+                         "--max-time", env.AGENT_HTTP_MAX_TIME, "--max-filesize", "1048576",
+                         "-w", "\n---\nHTTP %{http_code} %{content_type} %{size_download}b\n",
+                         "-X", (has(body.method) && body.method != "" ? body.method : "GET")]
+                        + (has(body.headers) ? body.headers.map(k, ["-H", k + ": " + body.headers[k]]).flatten() : [])
+                        + (has(body.body) && body.body != "" ? ["--data-raw", body.body] : [])
+                        + [body.url]
+                      allow: ["${AGENT_CURL_BIN}"]
+                      # PATH and no HOME, deliberately: curl reads
+                      # $HOME/.curlrc, and with HOME unset there is no file.
+                      env: [PATH]
+                      timeout: ${AGENT_CLI_TIMEOUT}
+                      onExit: continue
+                else:
+                  process:
+                    - type: set-payload
+                      name: bad-scheme
+                      settings:
+                        value: '{"error": "url must start with http:// or https://."}'
+
+          - name: refresh_platform_ui
+            description: >
+              Tell the platform an integration changed, so an editor with it
+              open offers to reload. Call this after writing an integration.
+              Fire-and-forget.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                  "id":   { "type": "string", "description": "The integration's id." },
+                  "name": { "type": "string", "description": "The integration's name." }
+                }
+              }
+            process:
+              # The system: prefix publishes to the platform's own subject
+              # instead of this deployment's, so no HTTP hop is needed.
+              - type: publish-event
+                settings:
+                  subject: '"system:internal.integrations.events"'
+                  value: '{"type": "integration.updated", "id": body.id, "name": body.name}'
+              - type: set-payload
+                settings:
+                  value: '{"published": true}'
+        skills:
+          - name: platform
+            description: >
+              How the platform runs an integration: version tags,
+              deployments, resources, cluster secrets, and what a failing
+              deployment looks like.
+            resource: platform
+          - name: flow-file
+            description: >
+              The shape of a flow definition: service, env, resources,
+              connectors, flows, sources and process chains.
+            resource: flow-file

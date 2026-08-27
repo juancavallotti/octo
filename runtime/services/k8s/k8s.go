@@ -55,6 +55,7 @@ type Services struct {
 	logSink   slog.Handler
 	traces    core.TracePublisher
 	resources core.ResourceLoader
+	memory    *agentMemory
 }
 
 // New builds the k8s provider from the in-cluster config and the orchestrator-
@@ -122,6 +123,7 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 		traces: newTracePublisher(conn, opts.Tracing, deploymentID,
 			os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
 		resources: resources,
+		memory:    newAgentMemory(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
 	}, nil
 }
 
@@ -205,10 +207,20 @@ func (s *Services) LogSink() slog.Handler { return s.logSink }
 //nolint:ireturn // satisfies core.RuntimeServices
 func (s *Services) Traces() core.TracePublisher { return s.traces }
 
+// AgentMemory returns the module's agent-memory store: the orchestrator's
+// database, over the same deployment-scoped HTTP surface KV uses.
+//
+// Keyed on the integration rather than the deployment, which is why a
+// conversation survives an undeploy-then-deploy where kv_store's rows do not.
+//
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (s *Services) AgentMemory() core.AgentMemory { return s.memory }
+
 // Close releases the store client's idle connections and the NATS connection.
 // Leader-election campaigns are bound to the context passed to Acquire and stop
 // when the runtime stops.
 func (s *Services) Close() error {
+	s.memory.close()
 	if err := s.kv.close(); err != nil {
 		slog.Error("k8s: closing the KV store", "error", err)
 	}

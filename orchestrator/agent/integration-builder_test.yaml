@@ -1,0 +1,100 @@
+flow: integration-builder
+
+# The builder specialist, driven directly.
+#
+# This suite is the reason the specialists are flows rather than blocks in a tool
+# slot. As blocks, the only way to reach one was through a conversation that
+# decided to delegate: stand up the coordinator, mock its model into emitting a
+# tool call with a well-formed argument object, mock the specialist's model too,
+# and then assert on something four layers down. As a flow it is invoked by name,
+# with one mock and no coordinator.
+#
+# What is pinned here:
+#
+#   - The specialist BUILDS on its own. That is not free: it carries a dozen
+#     tools with inputSchemas, cli-run allow lists that resolve at build time,
+#     and skill references that must name a declared template resource. Any of
+#     those breaking used to surface on the first delegation in production,
+#     because nothing invoked a specialist until a model asked for one.
+#   - The brief reaches it intact. It crosses a flow-ref, which CLONES the
+#     message, so this is the assertion that the clone carries the tool's
+#     arguments.
+#   - Its answer is the flow's answer, unwrapped — which is what makes it the
+#     tool result the coordinator reads.
+#   - vars.toolScope survives the crossing. It is the specialist's memory thread
+#     id, so if it did not arrive, every delegation in a conversation would open
+#     a fresh transcript and the second one would start blind.
+#
+# What is NOT pinned: the specialist's own loop. Mocking the agent replaces the
+# block and takes its tool sub-flows with it — the same honest limit
+# config_test.yaml states for the coordinator.
+
+env:
+  LLM_CONNECTOR_TYPE: llm-anthropic
+  LLM_API_KEY: sk-ant-not-a-real-key
+  LLM_MODEL: claude-sonnet-4-6
+  ORCHESTRATOR_URL: http://127.0.0.1:9
+  # Same reasoning as config_test.yaml: the workspace must exist because the file
+  # connector stats its root at startup, and the five binaries must resolve
+  # because a cli-run allow list is checked when the flow is BUILT.
+  AGENT_WORKSPACE: /tmp
+  AGENT_OCTO_BIN: /bin/echo
+  AGENT_DOLPHIN_BIN: /bin/echo
+  AGENT_CURL_BIN: /bin/echo
+  AGENT_FIND_BIN: /bin/echo
+  AGENT_JQ_BIN: /bin/echo
+
+inputs:
+  a brief:
+    vars: { toolScope: "u-1/t-1/integration_builder" }
+    data:
+      task: Write a flow that polls /orders every minute and logs the count.
+      context: The user already has an http-client connector named orders.
+
+cases:
+  - name: the builder is invocable on its own, and answers with what it produced
+    input: a brief
+    mocks:
+      integration-builder.builder:
+        default:
+          body: Here is the definition, and dolphin passes 3/3.
+    expect:
+      body: Here is the definition, and dolphin passes 3/3.
+    spies:
+      integration-builder.builder:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.task.startsWith("Write a flow")'
+                - 'body.context.contains("orders")'
+
+  # The memory thread id is a variable the coordinator mints per tool, and the
+  # flow-ref clones the message rather than forwarding it. A clone that dropped
+  # variables would leave every delegation talking to a brand new builder — which
+  # would look like an unhelpful specialist rather than like a bug.
+  - name: the tool scope crosses the flow boundary
+    input: a brief
+    mocks:
+      integration-builder.builder:
+        default:
+          body: ok
+    expect:
+      vars: { toolScope: "u-1/t-1/integration_builder" }
+
+  # Not mocked, so the agent is built and run for real with the model
+  # UNREACHABLE — 127.0.0.1:9 is discard, which refuses offline in milliseconds.
+  # This is the case that proves the whole specialist assembles: its prompt, its
+  # dozen tool schemas, its allow lists and its skill references.
+  # `complete`, not `stream`, and the distinction is the point rather than an
+  # incidental detail of the message. Only the coordinator streams: it is answering
+  # an SSE route a person is watching. A specialist's answer is read by another
+  # agent as one tool result, so there is nobody to show tokens to and the buffered
+  # call is the right one. If this ever said `stream`, a delegation would be paying
+  # for a streaming connection whose frames are dropped on the floor.
+  - name: the builder builds, and calls the model on the buffered path
+    input: a brief
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'

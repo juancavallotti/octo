@@ -37,6 +37,19 @@ flow: chat
 #
 # What is NOT pinned: the frames, emit filtering, the tool loop, memory, and
 # stop-on-disconnect. All of them need a model, a live connection, or both.
+#
+# NAMING moved out of this file, and the reason is the third compounding one. The
+# chain that names a conversation is a SLOT on the agent, so mocking the agent
+# replaces the chain along with it — exactly as it does the tool sub-flows. There
+# is no arrangement here that both avoids the model and exercises the naming
+# chain.
+#
+# It is tested where it lives instead, against a real in-memory store:
+# runtime/core/internal/engine/agentstore_test.go — that the chain's answer
+# becomes the title, that an empty answer names nothing, that a chain which blows
+# up costs a title and not the run, and that the slot is refused without an
+# agentId. What this file still pins is that the slot BUILDS, which is the part a
+# config change breaks.
 
 env:
   LLM_CONNECTOR_TYPE: llm-anthropic
@@ -260,55 +273,12 @@ cases:
       ANTHROPIC_BASE_URL: http://127.0.0.1:9
     expect:
       body: {}
-    spies:
-      # And nothing is recorded. A stop carries no question and produces no
-      # answer, so a record of one would be a row in somebody's list of past
-      # conversations with nothing in it. The stop request's flow ends at the
-      # agent block — RequestStop short-circuits the chain — which is what makes
-      # this hold; the assertion is here because it holds by consequence rather
-      # than by construction.
-      chat.record-exchange: { count: 0 }
-
-  # The conversation record is written from a wire-tap, so what goes on the queue
-  # is both halves of the exchange — the question the agent never sees again once
-  # it answers, and the answer itself. Getting either wrong shows up as a list of
-  # conversations that cannot be replayed.
-  - name: the exchange is tapped whole, question and answer together
-    input: a question
-    mocks:
-      chat.dr-octo:
-        default:
-          body: You have three integrations.
-    expect:
-      # The tap must not disturb what the flow returns: the body here is the
-      # closing SSE frame, and a fork branch's clone is what keeps it that way.
-      body: You have three integrations.
-    spies:
-      chat.record-exchange[process].tap[record].send-record:
-        count: 1
-        records:
-          - input:
-              that:
-                - 'body.userKey == "u-1"'
-                - 'body.threadId == "t-1"'
-                - 'body.question == "list my integrations"'
-                - 'body.answer == "You have three integrations."'
-
-  # `answer: text` asks for prose and does not guarantee it: the agent decodes a
-  # final answer that happens to parse as JSON whatever the format says, so an
-  # answer of "42" or one the model fenced arrives as a number or a map. This is
-  # the case that caught it — the record was built with string(), which does not
-  # take a map, so the exchange went unrecorded and the only trace was a warning.
-  - name: an answer that parsed as JSON is still recorded
-    input: a question
-    mocks:
-      chat.dr-octo:
-        default:
-          body: { answer: You have three integrations. }
-    spies:
-      chat.record-exchange[process].tap[record].send-record:
-        count: 1
-        records:
-          - input:
-              that:
-                - 'body.answer == "{\"answer\":\"You have three integrations.\"}"'
+    # Whether anything is NAMED cannot be asserted here, and the reason is worth
+    # stating rather than leaving as a gap: the naming chain is a slot inside the
+    # agent, so there is no spy address for it that survives mocking the agent —
+    # and the agent itself is crossed on a stop, since it is the block that
+    # handles one.
+    #
+    # Naming on an unanswered run is pinned in agentstore_test.go instead, and it
+    # does happen: the question was asked and is recorded, so the conversation
+    # exists and the chain is handed an empty answer to decide about.

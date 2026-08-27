@@ -8,6 +8,7 @@
     "snapshots",
     "resources-and-secrets",
     "kv-and-storage",
+    "agent-memory",
     "users-and-api-keys",
     "admin-settings",
     "api-reference",

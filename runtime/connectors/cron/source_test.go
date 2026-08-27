@@ -37,7 +37,10 @@ func (fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLo
 
 //nolint:ireturn // implements core.RuntimeServices
 func (fakeServices) Traces() core.TracePublisher { return core.NoopTracer() }
-func (fakeServices) Close() error                { return nil }
+
+//nolint:ireturn // satisfies the RuntimeServices interface
+func (fakeServices) AgentMemory() core.AgentMemory { return core.NoopAgentMemory() }
+func (fakeServices) Close() error                  { return nil }
 
 type fakeLeaderElection struct{ leader bool }
 

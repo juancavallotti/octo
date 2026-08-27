@@ -1,0 +1,80 @@
+flow: embed
+
+# The embedding server, driven without a provider.
+#
+# Mocking the ai-embed block is what makes this suite worth having: the flow's
+# own job is small — take a list, hand it to the block, shape the reply — and
+# that job is exactly what a caller depends on and what nothing else checks. The
+# orchestrator's sweep pairs the returned vectors with database rows
+# POSITIONALLY, so an answer whose order or length drifted would attach one
+# conversation's meaning to another's and nothing would report it.
+#
+# What is pinned:
+#
+#   - The whole config BUILDS, with the connector type filled from an
+#     environment variable. That substitution is the one load-bearing trick here
+#     — three provider connectors cannot be declared instead, because each would
+#     fail startup on an empty apiKey — and if it ever stopped reaching a
+#     connector's `type`, this suite is what says so.
+#   - The reply's shape: vectors in request order, plus the model and width the
+#     server is configured for, which is what makes a mismatch with the stored
+#     vector(N) column diagnosable from one request.
+#   - /healthz answers without touching the provider. It has to: it is polled by
+#     the platform services page, and a probe that embedded something would bill
+#     somebody every time an admin refreshed a tab.
+#
+# What is NOT pinned: talking to a real embeddings API. That is the runtime's
+# ai-embed block and its provider connectors, tested where they live.
+
+env:
+  EMBEDDING_CONNECTOR_TYPE: llm-openai
+  EMBEDDING_API_KEY: sk-not-a-real-key
+  EMBEDDING_MODEL: text-embedding-3-small
+
+inputs:
+  two texts:
+    data:
+      input:
+        - how do I roll out a deployment?
+        - open the integration and press rollout
+
+cases:
+  - name: a batch comes back as vectors in the order it was sent
+    input: two texts
+    mocks:
+      # ai-embed reports through a VARIABLE and leaves the body alone — a vector
+      # is an auxiliary value beside the message, not a replacement for it — so
+      # the mock carries the body through unchanged and supplies the variable the
+      # reply is actually built from.
+      embed.vectorize:
+        default:
+          body:
+            input:
+              - how do I roll out a deployment?
+              - open the integration and press rollout
+          vars:
+            vectors:
+              - [0.1, 0.2]
+              - [0.3, 0.4]
+    expect:
+      body:
+        vectors:
+          - [0.1, 0.2]
+          - [0.3, 0.4]
+        model: text-embedding-3-small
+        dimensions: 1536
+
+  # The width is reported as a NUMBER, not the string the environment carries it
+  # as. A caller comparing it against the schema's vector(1536) would find every
+  # installation mismatched if this were "1536".
+  - name: the reported width is a number
+    input: two texts
+    mocks:
+      embed.vectorize:
+        default:
+          body: { input: ["anything"] }
+          vars:
+            vectors: [[0.1]]
+    expect:
+      that:
+        - 'body.dimensions == 1536'

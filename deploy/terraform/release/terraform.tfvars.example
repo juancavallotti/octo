@@ -1,8 +1,10 @@
 # Variables for the `release` root. Copy to terraform.tfvars (gitignored) and fill in.
 # Terraform loads that filename automatically — no -var-file flag anywhere.
 #
-# Per-deploy values (image_tag, chart_version) are NOT here: they come from the
-# command line, because they change on every deploy rather than per environment.
+# Per-deploy values are NOT here, because they change on every deploy rather than
+# per environment: image_tag and chart_version come from the command line, and
+# image_values_file is passed by Cloud Build (it names the digest-pinned values
+# file that build rendered, so the release installs exactly what it pushed).
 #
 #   task deploy TAG=v0.1.1
 #
@@ -12,6 +14,13 @@
 
 # --- Required ---
 project_id = "your-gcp-project-id"
+
+# The chart version in Artifact Registry. REQUIRED — it has no default, so an
+# apply without it stops and prompts. `task deploy` and Cloud Build both derive it
+# from helm/Chart.yaml and pass it on the command line, which overrides this; it is
+# set here so that a plain `terraform apply` works too. Keep it level with
+# helm/Chart.yaml.
+chart_version = "0.8.7"
 
 domain      = "octo.example.com"
 apps_domain = "apps.example.com"
@@ -33,6 +42,47 @@ apps_domain = "apps.example.com"
 # oidc_write_roles   = ""                        # e.g. "admin,operator"; empty = any signed-in user
 # oidc_roles_claim   = ""                        # override if the IdP uses a non-"roles" claim
 
+# --- Embeddings (optional) ---
+# Deploy the embedding server so searching agent memory ranks by MEANING rather
+# than by words. Leave it out and search still works — it matches text, which is
+# a supported way to run rather than a degraded one.
+#
+# The server is a small octo app that holds the provider API key, so that no
+# integration pod has to. Every deployment pod is given only its URL, which is
+# safe to hand out: an embedding reads nothing, writes nothing, and costs a
+# fraction of a cent.
+#
+# Like the oidc_* values above, the key is seeded into release/embeddings.json in
+# the state bucket so the Cloud Build deploy step (which never sees this
+# gitignored file) reads it back — without that, every automated deploy would
+# tear the server down. Re-run `task deploy` once after changing any embeddings_*
+# value.
+#
+# CHANGING THE MODEL LATER IS NOT A SETTING CHANGE. Vectors carry no record of
+# which model produced them, so a store holding two models' vectors cannot be
+# ranked coherently. Changing embeddings_model on an installation that has
+# embedded anything discards every stored vector and re-embeds the store, at
+# whatever your provider charges for the whole of it again. Search falls back to
+# matching text while the backfill runs; nothing is lost but the vectors.
+# embeddings_enabled        = true
+# embeddings_api_key        = "sk-..."
+# embeddings_connector_type = "llm-openai" # or llm-gemini, llm-openrouter.
+#                                          # NOT llm-anthropic: Anthropic has no
+#                                          # embeddings API, and the server
+#                                          # refuses to start rather than failing
+#                                          # on the first call.
+# embeddings_model          = "text-embedding-3-small"
+# embeddings_dimensions     = 1536         # must match the vector(N) columns in
+#                                          # sql/schema.sql, which are indexed and
+#                                          # so fixed at schema time
+
+# --- Per-deploy, normally passed on the command line ---
+# Listed so this file is the whole set, not because you should set them here.
+# image_tag         = "latest"  # `task deploy TAG=v0.1.1` overrides it
+# image_values_file = ""        # Cloud Build passes the digest-pinned values file
+#                               # it rendered, so the release installs exactly the
+#                               # images that build pushed
+
 # --- Optional overrides (defaults shown) ---
 # region        = "us-west1"
 # zone          = "us-west1-a"
@@ -43,6 +93,22 @@ apps_domain = "apps.example.com"
 # cluster_issuer = "letsencrypt-prod"
 # wildcard_tls   = true # one *.{apps_domain} cert via DNS-01, shared by all
 #                       # subdomains (false falls back to per-host HTTP-01 certs)
+#
+# The IngressClass the editor and every per-integration Ingress are published
+# with. Named here rather than defaulted in the chart because this root is the
+# k3s path and traefik is what k3s bundles, while the chart is published for
+# clusters running anything. Empty falls back to whichever class the cluster
+# marks default.
+# ingress_class = "traefik"
+#
+# Path to the k3s kubeconfig, with the server rewritten to https://{domain}:6443.
+# Produced by `task deploy:kubeconfig`, which is what normally sets this.
+# kubeconfig = "~/.kube/octo-k3s.yaml"
+#
+# Extra chart values files, lowest precedence first. Empty by default: the
+# single-node k3s VM this root targets is what the chart's own defaults already
+# describe, so no profile is needed.
+# values_files = []
 #
 # Where Postgres stores its data on the node. The default is the data disk the
 # infra root attaches and mounts, so the database survives a VM rebuild; that root

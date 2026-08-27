@@ -16,16 +16,17 @@ func byName(deps []Dependency, name string) Dependency {
 	return Dependency{}
 }
 
-// The four rows are always there, whatever this installation has. A page whose
+// The five rows are always there, whatever this installation has. A page whose
 // shape changed with the install would make a missing dependency look like a
-// rendering bug rather than a fact about the deployment.
+// rendering bug rather than a fact about the deployment — which matters most for
+// embeddings, the one an installation may legitimately not have at all.
 func TestCheckAlwaysReportsEveryDependency(t *testing.T) {
-	deps := NewService(nil, nil, nil, nil).Check(context.Background())
+	deps := NewService(nil, nil, nil, nil, nil).Check(context.Background())
 
-	if len(deps) != 4 {
-		t.Fatalf("dependencies = %d, want 4", len(deps))
+	if len(deps) != 5 {
+		t.Fatalf("dependencies = %d, want 5", len(deps))
 	}
-	for _, name := range []string{Postgres, Redis, NATS, Kubernetes} {
+	for _, name := range []string{Postgres, Redis, NATS, Kubernetes, Embeddings} {
 		d := byName(deps, name)
 		if d.Name != name {
 			t.Errorf("%s is missing from the report", name)
@@ -43,7 +44,7 @@ func TestCheckAlwaysReportsEveryDependency(t *testing.T) {
 func TestCheckReportsAReachableDependency(t *testing.T) {
 	ok := func(context.Context) error { return nil }
 
-	deps := NewService(ok, nil, nil, nil).Check(context.Background())
+	deps := NewService(ok, nil, nil, nil, nil).Check(context.Background())
 
 	pg := byName(deps, Postgres)
 	if !pg.Configured || !pg.Reachable {
@@ -59,7 +60,7 @@ func TestCheckReportsAReachableDependency(t *testing.T) {
 func TestCheckReportsWhyADependencyIsUnreachable(t *testing.T) {
 	down := func(context.Context) error { return errors.New("connection refused") }
 
-	deps := NewService(nil, down, nil, nil).Check(context.Background())
+	deps := NewService(nil, down, nil, nil, nil).Check(context.Background())
 
 	rd := byName(deps, Redis)
 	if !rd.Configured {
@@ -82,7 +83,7 @@ func TestCheckBoundsAProbeThatHangs(t *testing.T) {
 	}
 
 	started := time.Now()
-	deps := NewService(nil, nil, nil, hangs).Check(context.Background())
+	deps := NewService(nil, nil, nil, hangs, nil).Check(context.Background())
 	elapsed := time.Since(started)
 
 	if elapsed > probeTimeout*2 {
@@ -95,7 +96,7 @@ func TestCheckBoundsAProbeThatHangs(t *testing.T) {
 }
 
 // A caller that gave up must not be waited on either — the page was closed, and
-// four probes at their own ceiling would outlive the request that asked for them.
+// five probes at their own ceiling would outlive the request that asked for them.
 func TestCheckRespectsACancelledCaller(t *testing.T) {
 	hangs := func(ctx context.Context) error {
 		<-ctx.Done()
@@ -105,7 +106,7 @@ func TestCheckRespectsACancelledCaller(t *testing.T) {
 	cancel()
 
 	started := time.Now()
-	NewService(hangs, hangs, hangs, hangs).Check(ctx)
+	NewService(hangs, hangs, hangs, hangs, hangs).Check(ctx)
 
 	if elapsed := time.Since(started); elapsed > probeTimeout {
 		t.Errorf("Check took %s after the caller cancelled, want it to return at once", elapsed)

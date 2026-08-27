@@ -327,6 +327,50 @@ variable "kv_encryption_key" {
   sensitive   = true
 }
 
+# --- The embedding server -----------------------------------------------------
+#
+# Optional, and off is a supported way to run: with no key there is no embedding
+# server, and searching agent memory ranks by matching text rather than by
+# meaning. Nothing else changes.
+#
+# The model is deploy-time configuration rather than an admin setting, and
+# deliberately so. Vectors carry no record of which model produced them, so a
+# store holding two models' vectors cannot be ranked coherently — one embedding
+# space at a time is what makes that safe. Changing embeddings_model on an
+# installation that has embedded anything discards those vectors and re-embeds
+# the store, at whatever the provider charges for it.
+
+variable "embeddings_enabled" {
+  type        = bool
+  description = "Deploy the embedding server, which turns text into vectors for agent-memory search. Requires embeddings_api_key. Off leaves search matching text, which is supported rather than degraded."
+  default     = false
+}
+
+variable "embeddings_connector_type" {
+  type        = string
+  description = "Which provider connector the embedding server builds: llm-openai, llm-gemini or llm-openrouter. Anthropic is not an option — it has no embeddings API, and the flow is refused at build time rather than failing on the first call."
+  default     = "llm-openai"
+}
+
+variable "embeddings_model" {
+  type        = string
+  description = "Provider-specific embedding model id. Read the note above before changing it on an installation that has already embedded anything."
+  default     = "text-embedding-3-small"
+}
+
+variable "embeddings_dimensions" {
+  type        = number
+  description = "Stored vector width. Must match the vector(N) columns in sql/schema.sql, which are indexed and therefore fixed at schema time. It is requested of the provider; a model that cannot produce this width fails the call and says so."
+  default     = 1536
+}
+
+variable "embeddings_api_key" {
+  type        = string
+  description = "Provider API key for the embedding server. Held in exactly one pod on the installation, which is the reason the server exists — the alternative is a key in every integration's pod."
+  default     = ""
+  sensitive   = true
+}
+
 variable "dev_run_hash_secret" {
   type        = string
   description = "HMAC key deriving every dev run's identity and public hostname. Required by the chart whenever orchestrator.devRuns.enabled is true (the default); generate it once and never rotate it — rotating re-labels every exposed dev run and silently breaks webhooks registered against the old hostname. Any string; no length or encoding requirement."

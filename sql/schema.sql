@@ -562,3 +562,140 @@ CREATE TABLE IF NOT EXISTS llm_price_syncs (
 
 CREATE INDEX IF NOT EXISTS idx_llm_price_syncs_source_time
     ON llm_price_syncs (source, fetched_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Agent memory
+--
+-- What an ai-agent remembers, keyed by the INTEGRATION rather than by the
+-- deployment. That is the whole point of these tables existing separately from
+-- kv_store, whose primary key leads with deployment_id: an integration's stored
+-- working state belongs to the deployment that wrote it and is purged with it,
+-- which is right for a cache and wrong for a conversation somebody had. Undeploy
+-- then deploy — an ordinary recovery move — silently destroyed every
+-- conversation on the installation (#362). Rows here survive it.
+--
+-- The runtime never sends an integration id, because a pod does not have one; it
+-- knows its deployment. The handler resolves deployment -> integration at ingest,
+-- the same immutable relation the traces table resolves the same way.
+--
+-- pgvector supplies the vector type. Embeddings are optional: a NULL embedding
+-- means "not embedded yet", and search falls back to full-text matching when no
+-- embedding provider is configured. The dimension is fixed at 1536 because an
+-- indexable vector column needs a fixed one, so the configured model must emit
+-- 1536 dimensions. Changing the model without re-embedding is a user error the
+-- platform does not migrate for: a table holding vectors from two models is not
+-- searchable either way, and ranking only the matching subset would silently
+-- halve the results instead of failing.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- agent_threads is one conversation. It carries what a listing needs without
+-- reading any of the conversation itself.
+--
+-- No foreign key to integrations, matching logs, traces and kv_store: cleanup is
+-- explicit, in integration.Service.Delete, rather than a cascade that would make
+-- deleting an integration a long transaction over somebody's whole history.
+CREATE TABLE IF NOT EXISTS agent_threads (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    integration_id   uuid        NOT NULL,
+    agent_id         varchar     NOT NULL,
+    thread_key       varchar     NOT NULL,
+    user_id          varchar     NOT NULL DEFAULT '',
+    title            varchar     NOT NULL DEFAULT '',
+    version          bigint      NOT NULL DEFAULT 0,
+    turn_count       integer     NOT NULL DEFAULT 0,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    last_activity_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS agent_threads_key_uniq
+    ON agent_threads (integration_id, agent_id, thread_key);
+
+-- The listing index, ordered as the listing is: most recently active first, id
+-- breaking ties so a keyset cursor cannot skip or repeat a row.
+CREATE INDEX IF NOT EXISTS idx_agent_threads_listing
+    ON agent_threads (integration_id, agent_id, user_id, last_activity_at DESC, id DESC);
+
+-- agent_working_memory is the live context an interrupted run resumes from.
+--
+-- payload is bytea and not jsonb, deliberately. Nothing here ever queries inside
+-- it — it is the runtime's serialized transcript and its shape is the runtime's
+-- business — so jsonb would buy a parse and a TOAST round trip on every read of
+-- a document that can run to hundreds of thousands of tokens, in exchange for
+-- nothing.
+--
+-- version is optimistic concurrency: a write states the version it read, and a
+-- write against a stale one is refused rather than silently winning.
+CREATE TABLE IF NOT EXISTS agent_working_memory (
+    thread_id  uuid PRIMARY KEY REFERENCES agent_threads (id) ON DELETE CASCADE,
+    version    bigint      NOT NULL DEFAULT 0,
+    iteration  integer     NOT NULL DEFAULT 0,
+    tokens     integer     NOT NULL DEFAULT 0,
+    payload    bytea       NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- agent_turns is the durable record: what was asked and what was answered.
+--
+-- Unlike working memory this is NEVER compacted. Working memory shrinks to fit
+-- the model's window, and storing one object and calling it both is what made
+-- "the agent summarized its context" and "the conversation is gone" the same
+-- event.
+--
+-- The cascade to agent_threads is intra-feature integrity rather than the
+-- cross-feature coupling the no-FK rule above is about: erasing a conversation
+-- must reach every part of it, and a delete that left the transcript behind
+-- would report success over a readable copy.
+CREATE TABLE IF NOT EXISTS agent_turns (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    thread_id       uuid        NOT NULL REFERENCES agent_threads (id) ON DELETE CASCADE,
+    seq             bigint      NOT NULL,
+    role            varchar     NOT NULL,
+    text            text        NOT NULL,
+    tokens          integer     NOT NULL DEFAULT 0,
+    attrs           jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    embedding       vector(1536)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS agent_turns_seq_uniq
+    ON agent_turns (thread_id, seq);
+
+CREATE INDEX IF NOT EXISTS idx_agent_turns_text
+    ON agent_turns USING gin (to_tsvector('simple', text));
+
+CREATE INDEX IF NOT EXISTS idx_agent_turns_embedding
+    ON agent_turns USING hnsw (embedding vector_cosine_ops);
+
+-- The backfill queue: everything not embedded yet. A partial index rather than a
+-- column to scan, so turning embeddings on later is a bounded sweep rather than
+-- a full table read.
+CREATE INDEX IF NOT EXISTS idx_agent_turns_unembedded
+    ON agent_turns (thread_id) WHERE embedding IS NULL;
+
+-- agent_user_memories is what an agent chose to keep about a person: curated,
+-- written deliberately through a tool, and carried into later conversations.
+-- It is not a transcript dump, and it is scoped to the agent that learned it.
+CREATE TABLE IF NOT EXISTS agent_user_memories (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    integration_id uuid        NOT NULL,
+    agent_id       varchar     NOT NULL,
+    user_id        varchar     NOT NULL,
+    name           varchar     NOT NULL,
+    value          text        NOT NULL,
+    version        bigint      NOT NULL DEFAULT 0,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    embedding      vector(1536)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS agent_user_memories_name_uniq
+    ON agent_user_memories (integration_id, agent_id, user_id, name);
+
+CREATE INDEX IF NOT EXISTS idx_agent_user_memories_text
+    ON agent_user_memories USING gin (to_tsvector('simple', value));
+
+CREATE INDEX IF NOT EXISTS idx_agent_user_memories_embedding
+    ON agent_user_memories USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS idx_agent_user_memories_unembedded
+    ON agent_user_memories (integration_id) WHERE embedding IS NULL;

@@ -128,6 +128,43 @@ variable "oidc_client_secret" {
   sensitive   = true
 }
 
+# --- The embedding server -----------------------------------------------------
+#
+# Supplied here on a local `task deploy`, and persisted to the state bucket so a
+# Cloud Build deploy — which has no terraform.tfvars — can read the key back. The
+# same mechanism the OIDC credentials use, and for the same reason.
+
+variable "embeddings_enabled" {
+  type        = bool
+  description = "Deploy the embedding server so agent-memory search ranks by meaning. Requires embeddings_api_key. Off leaves search matching text."
+  default     = false
+}
+
+variable "embeddings_connector_type" {
+  type        = string
+  description = "llm-openai, llm-gemini or llm-openrouter. Anthropic has no embeddings API and is refused at flow-build time."
+  default     = "llm-openai"
+}
+
+variable "embeddings_model" {
+  type        = string
+  description = "Provider-specific embedding model id. Changing it on an installation that has embedded anything discards those vectors and re-embeds the store — vectors carry no record of which model made them, so one embedding space at a time is what keeps the store searchable."
+  default     = "text-embedding-3-small"
+}
+
+variable "embeddings_dimensions" {
+  type        = number
+  description = "Stored vector width; must match the vector(N) columns in sql/schema.sql."
+  default     = 1536
+}
+
+variable "embeddings_api_key" {
+  type        = string
+  description = "Provider API key for the embedding server (lands in release state and in the state bucket, not Secret Manager — the same treatment oidc_client_secret gets). Empty on a Cloud Build deploy, which reads the stored one back."
+  default     = ""
+  sensitive   = true
+}
+
 variable "image_values_file" {
   type        = string
   description = "Path to the digest-pinned image values file rendered by cloudbuild.yaml (render-image-values). Cloud Build passes /workspace/dist/values.images.yaml so the release installs exactly the images that build pushed; a local `task deploy` leaves it empty and identifies images by image_tag instead."

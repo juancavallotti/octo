@@ -34,8 +34,13 @@ Lets an LLM accomplish a task by calling flow branches as tools, one or more tim
 | `contextMaxTokens` | int | No | `200000` | Token budget for the whole prompt — system, tools and conversation — measured from what the provider reports it read. The transcript is compacted when the prompt would exceed it, before the turn and again before saving. Applies with or without memory. |
 | `memoryCompaction` | enum `prune` \| `summarize` | No | `prune` | How memory over budget shrinks: `prune` drops the oldest turns; `summarize` folds them into a running summary (an extra model call). |
 | `memoryVolatile` | `bool` | No | `false` | Keep transcripts in the volatile KV tier (Redis in a cluster, process memory standalone) rather than the persistent one. For a conversation whose loss costs nothing — a specialist in another agent's tool slot working a [minted scope](#what-a-tool-branch-is-told) — never for one somebody will ask to see again. |
+| `agentId` | string | No | — | Stable name for this logical agent. Setting it opts the block into **first-class memory**: durable conversation history the platform can list and replay, working memory checkpointed during the run, and — with `userMemory` — curated facts about a person. Without it the agent keeps the older per-thread transcript only. It is stated and never derived; see [why](#why-agentid-is-not-derived). Requires `memoryThreadId`. |
+| `userId` | `expression` (string) | No | — | Who the agent is talking to. Scopes user memory and labels stored conversations, so the platform can list one person's threads. |
+| `history` | enum `record` \| `off` | No | `record` with `agentId` | Whether completed turns are appended to durable conversation history. Unlike working memory this record is **never compacted**, so it stays readable after the agent has summarized its own context away. Requires `agentId`; defaults to `off` when the block declares no `agentId`, and when `memoryVolatile` is set. |
+| `userMemory` | `bool` | No | `false` | Give the agent `remember`, `forget` and `search_memory` tools so it can keep curated facts about a person and carry them into later conversations. Requires `agentId` and `userId`. |
 | `tools` | list | Yes | — | Tool branches (below). At least one required. |
 | `skills` | list | No | — | Loadable instruction resources (below). |
+| `nameThread` | flow | No | — | Names a conversation, once, on the exchange that opened it (below). Requires `agentId`. |
 | `events` | flow | No | — | Observer path, run once per agent event with the event as the body (below). |
 | `emit` | string list | No | — | Which event types reach `events`. Empty emits every type the block can produce. |
 | `stream` | bool | No | `false` | Drive the provider's streaming API so model output reaches `events` as it is produced. Requires `events` and a provider that streams. |
@@ -125,6 +130,38 @@ Behavior notes:
 - On refusal or `maxIterations`, the `default` flow runs; **with no `default` configured, the block errors** so the failure reaches a recovery path.
 - With skills configured, the agent gets an implicit `load_skill(name)` tool; skill bodies are rendered against the current message like any template.
 - Memory is saved best-effort (a save failure logs, it does not fail the flow); wipe a thread with [clear-agent-memory](#clear-agent-memory).
+
+### Working memory and conversation history are not the same thing
+
+Two records, with opposite jobs:
+
+**Working memory** is what the model re-reads. It is bounded by `contextMaxTokens` and compacted — pruned or summarized — whenever the next turn would not fit, and it is checkpointed during the run so an interrupted agent resumes where it was rather than where it started.
+
+**Conversation history** is what a *person* re-reads. It is append-only, never compacted, and it is what the platform lists and replays. Recording it needs an `agentId`, because a durable record has to be stored somewhere that a later edit to the flow cannot move.
+
+Keeping one record and calling it both is what made "the agent summarized its context" and "the conversation is gone" the same event.
+
+### Why `agentId` is not derived
+
+It would be convenient for the runtime to name an agent after its position in the flow, and that was tried. It is wrong: an address is a position in a file, so renaming the block or moving it into another branch — edits that change nothing about the conversation — would silently destroy every conversation stored under it.
+
+So `agentId` is stated by you, and opting in is explicit both ways: an agent without one keeps exactly the behaviour it had before first-class memory existed, and `history: record` or `userMemory: true` without an `agentId` is a build error rather than a setting quietly ignored.
+
+Two blocks declaring the same `agentId` share one memory. That is what replicas of one logical agent want, and what two different agents almost never do.
+
+### User memory
+
+With `userMemory: true` the model is handed three tools:
+
+| Tool | What it does |
+| --- | --- |
+| `remember` | Store a durable fact about this person under a short stable name. Re-using a name replaces that memory, so correcting the agent works. |
+| `forget` | Drop one memory by name. |
+| `search_memory` | Look through earlier conversations and stored memories for something no longer in context. |
+
+There is deliberately **no `recall` tool**. What the agent already knows about someone is context it needs *before* it can tell whether it needs it, and an agent that has to remember to remember mostly does not. So stored memories are placed in the request every turn, and never in the transcript — a preamble folded into the conversation would be persisted with it, and a memory corrected between runs would then sit in working memory beside stale copies of itself.
+
+What is placed there is **bounded**, and does not grow without limit: the most recent memories up to a fixed count and byte budget, with a single oversized one clipped rather than allowed to carry the request past it. The agent is told how many were left out, and reaches them with `search_memory`. The preamble is also charged against `contextMaxTokens` — it is reserved out of the budget before the conversation is fitted to what remains, so it cannot quietly push a run past the model's window.
 
 ### The opening turn
 
@@ -347,6 +384,7 @@ Leaf block: erases an [ai-agent](#ai-agent) conversation thread's stored memory 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `threadId` | `expression` (string) | Yes | — | Evaluated to the thread id whose memory is cleared; matches the agent's `memoryThreadId` value. Both KV tiers are cleared, so a thread written by an agent with `memoryVolatile` is reached without saying so here. |
+| `agentId` | string | No | — | The agent whose conversation is erased, matching its `agentId`. Required to reach a conversation in first-class memory, which is keyed by agent as well as thread — its working memory, its recorded turns and its thread row all go. Omit it for an agent that declares no `agentId`. |
 
 ```yaml
 - name: forget
@@ -426,3 +464,51 @@ Behavior notes:
           required: true
       resource: greet
 ```
+
+## Naming a conversation
+
+The runtime records a conversation but will not name one: what an exchange was *about* is a judgement, and a judgement is a model call. `nameThread` is where that call goes.
+
+```yaml
+- type: ai-agent
+  agentId: support
+  memoryThreadId: body.threadId
+  nameThread:
+    process:
+      - type: ai-mapping
+        settings:
+          connector: llm-fast
+          prompt: >-
+            You are given one exchange: the question a person asked and the answer
+            they got. Name the conversation it opens, in at most six words, as a
+            topic rather than a sentence. If there is nothing to name, return an
+            empty title.
+          outputSchema:
+            type: object
+            properties:
+              title: { type: string }
+            required: [title]
+  tools: [...]
+```
+
+[`ai-mapping`](/ai/ai-mapping) hands the model the **whole body** and replaces it with the JSON that comes back, so there is no input expression here and no plain-text mode — declaring an `outputSchema` is how you get a shape you can rely on. A chain built on a block that answers with a string works equally well; both shapes are read.
+
+It runs **once per conversation**, on the exchange that opens it, and only for an agent with an `agentId` — without one there is no durable conversation to name, so declaring the slot is a build error rather than a model call whose answer is discarded.
+
+The body it receives:
+
+| Field | |
+| --- | --- |
+| `question` | What was asked, before the agent replaced the body with its answer |
+| `answer` | What the agent answered, rendered as prose even when it decoded as JSON. Empty when the run ended without one |
+| `threadKey`, `agentId`, `userId` | Which conversation this is. Context for the prompt — the chain does no writing |
+
+Two shapes are read back, and which one you get is decided by the block you reached for: the **string** a transform or a `set-payload` leaves in the body, or the `{"title": "..."}` map an `ai-mapping` produces. An empty title, in either shape, names nothing — the right answer for a greeting that was never going anywhere.
+
+A chain that *fails* is different from one that answered emptily, and is treated differently: the failure is logged and the title falls back to the opening question truncated to 80 characters. An empty answer has said something; a failure has not.
+
+<Callout>
+**The engine does the writing, and that is the point of the slot.** It is already holding the conversation's reference, and the memory store knows how to record a title on whichever tier it is: standalone writes it into the thread's `thread.json`, the platform calls the orchestrator. A chain that had to write the title itself would need the key handed out, would have to rebuild a route from it, and would be addressing a store it is running inside.
+</Callout>
+
+An agent with no `nameThread` still gets a title: the opening question, truncated. That is not a judgement about anything — it is there so a list has something to show.

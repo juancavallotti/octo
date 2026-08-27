@@ -23,6 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
+	"github.com/juancavallotti/octo/orchestrator/internal/agentmemory"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
 	"github.com/juancavallotti/octo/orchestrator/internal/bundle"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
@@ -31,6 +32,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/email"
+	"github.com/juancavallotti/octo/orchestrator/internal/embedding"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	"github.com/juancavallotti/octo/orchestrator/internal/health"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
@@ -404,6 +406,11 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		// Only reaches the pods that were granted the observability API, so an
 		// orchestrator without it disables that grant rather than degrading anything.
 		LogsURL: os.Getenv("LOGS_URL"),
+		// The embedding server, reaching every pod rather than only the granted ones.
+		// An embedding reads nothing and writes nothing, so there is no boundary to
+		// gate — and every pod holding the URL is what makes it unnecessary for any
+		// pod to hold the provider key.
+		EmbeddingsURL: os.Getenv("EMBEDDINGS_URL"),
 	}
 }
 
@@ -522,6 +529,15 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			resourceOpts = append(resourceOpts, resource.WithReloadNotifier(devrunSvc))
 		}
 
+		// Built before the integration service so deleting an integration can sweep
+		// what its agents remembered. The sweep is explicit rather than a cascade,
+		// matching logs, traces and kv_store — see WithAgentMemoryCleaner.
+		agentMemoryRepo := agentmemory.NewRepo(database.Pool())
+		agentMemorySvc := agentmemory.NewService(
+			agentMemoryRepo,
+			agentmemory.NewDeploymentLookup(database.Pool()),
+		)
+		integrationOpts = append(integrationOpts, integration.WithAgentMemoryCleaner(agentMemorySvc))
 		integrationSvc := integration.NewService(integrationRepo, integrationOpts...)
 		integration.NewHandler(integrationSvc).Register(mux)
 		slog.Info("integration routes registered",
@@ -600,6 +616,43 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		kv.NewObjectHandler(kvSvc).Register(mux)
 		slog.Info("object routes registered",
 			"endpoints", "GET /deployments/{id}/objects, GET/PUT/DELETE /deployments/{id}/objects/{key}")
+
+		// Agent memory, keyed by the integration rather than the deployment — which
+		// is the whole reason it is not kv_store. Two route families over one
+		// service: the runtime names a deployment, because that is the only identity
+		// a pod has, and the platform names an integration, because that is what an
+		// operator is looking at and what the memory belongs to.
+		agentmemory.NewHandler(agentMemorySvc).Register(mux)
+
+		// The optional vector half. Everything above works without it; this only
+		// changes how a search ranks.
+		//
+		// No credential and no provider code here. Both live on the embedding
+		// server, a small octo app the chart deploys when a key is configured, and
+		// this orchestrator reaches it by URL alone. That is what keeps the
+		// provider key in one pod instead of in every pod, and what keeps the
+		// runtime's own ai-embed block the single implementation of talking to an
+		// embeddings API.
+		//
+		// An installation with no embedding server sets nothing here and loses
+		// nothing but ranking: the sweep finds itself unconfigured and stops
+		// asking, and search matches text.
+		embeddings := embedding.FromEnv()
+		agentMemorySvc.WithEmbedder(embeddings, agentMemoryRepo)
+		agentMemorySvc.StartBackfill(ctx)
+		// Read only. What it reports is whether there is a server, what it says it
+		// is using, and how far the backfill has got — there is nothing to write,
+		// because the provider, model and key are chart values on the server.
+		embedding.NewHandler(embeddings, agentMemoryRepo).Register(mux)
+		if embeddings.Configured(ctx) {
+			slog.Info("embedding server configured", "url", os.Getenv("EMBEDDINGS_URL"))
+		} else {
+			slog.Info("no embedding server; agent memory search will match text")
+		}
+
+		slog.Info("agent memory routes registered",
+			"endpoints", "GET/PUT /deployments/{id}/agent-memory/..., "+
+				"GET /integrations/{id}/agent-memory/...")
 
 		// Site-wide settings: the email provider the platform sends through, and the
 		// LLM provider its agent reasons with. Both keep their API key encrypted with
@@ -769,6 +822,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		redisProbe(redisClient),
 		natsProbe,
 		kubeProbe,
+		embeddingsProbe(),
 	)).Register(mux)
 	slog.Info("health routes registered", "endpoints", "GET /settings/health")
 
@@ -780,6 +834,24 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	slog.Info("storage routes registered", "endpoints", "GET /settings/storage")
 
 	return mux, nil
+}
+
+// embeddingsProbe checks the embedding server, or nil when there is none.
+//
+// Nil rather than a probe that always fails, because those are different answers
+// and the page shows them differently: an installation with no embedding server
+// is running a supported way, not a broken one. Only a server that was deployed
+// and does not answer is a fault.
+//
+// The probe reads the server's /healthz, which reports what it is configured to
+// do without doing any of it. Embedding something to find out whether the
+// provider key is good would bill somebody every time the page refreshed.
+func embeddingsProbe() func(context.Context) error {
+	client := embedding.FromEnv()
+	if !client.Configured(context.Background()) {
+		return nil
+	}
+	return client.Probe
 }
 
 // databasePool returns the connection pool, or nil when this orchestrator is

@@ -1,6 +1,6 @@
 ---
 title: "Agent Memory"
-description: "Per-thread conversation memory, compaction, and durable user facts."
+description: "Working memory, durable conversation history, and curated user memory."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -244,7 +244,137 @@ message through unchanged:
           value: '{"cleared": true}'
 ```
 
+## First-class memory: `agentId`
+
+Everything above is one object: the transcript the model replays, compacted to
+fit a budget. That object is doing two jobs badly. It is the agent's working
+context, so it has to shrink — and it is the only record of the conversation, so
+shrinking it destroys what a person would want to read back.
+
+Give the block an `agentId` and the runtime stores three separate things
+instead:
+
+```yaml
+      - type: ai-agent
+        name: support
+        connector: claude
+        agentId: support-agent          # opts into first-class memory
+        memoryThreadId: body.threadId
+        userId: body.userId             # who is on the other side
+        userMemory: true                # remember/forget/search_memory tools
+        prompt: |
+          Help the customer.
+        tools: [...]
+```
+
+| | What it is | Compacted? |
+| --- | --- | --- |
+| **Working memory** | The transcript the model re-reads, checkpointed during the run so an interrupted agent resumes where it was | Yes — `contextMaxTokens` and `memoryCompaction` govern it |
+| **Conversation history** | The turn-level record a *person* reads, and the platform lists and replays. It keeps the agent's opening turn **verbatim** | **Never** |
+| **User memory** | Curated facts the agent chose to keep about someone, carried into later conversations | n/a — the agent writes and deletes these deliberately |
+
+<Callout type="warn">
+`agentId` is stated by you and never derived from the block's position. An
+address is a position in a file, so a name derived from it would make renaming
+the block — or moving it into another branch — silently destroy every
+conversation stored under it. For the same reason it is opt-in: an agent
+without one behaves exactly as it did before, and `history: record` or
+`userMemory: true` without one is a build error rather than a setting quietly
+ignored.
+</Callout>
+
+Two blocks declaring the same `agentId` share one memory. That is what replicas
+of one logical agent want, and what two different agents almost never do.
+
+### The record is kept as it was sent
+
+History records the agent's opening turn verbatim — the text the model was handed,
+whatever the `input` expression made of it.
+
+That is deliberate, and it is worth being explicit about because a conversational
+agent's input usually carries more than was said: the page somebody is on, the
+routes it may send them to, a catalogue the model needs. All of it is recorded.
+
+Memory stores what was sent and returns it as sent. There is no way to anticipate
+what a later reader wants out of a transcript — an audit, a replay, a
+reconstruction of what the model actually saw — and trimming at write time serves
+one reader by destroying the record for every other. A surface that composed
+context into a prompt is the surface that knows how to render it back down, and
+it is the one that should.
+
+### Naming a conversation
+
+The runtime records a conversation and will not name one: what an exchange was
+*about* is a judgement, and a judgement is a model call. Add a
+[`nameThread`](/reference/blocks/ai#naming-a-conversation) slot and that call goes
+there — it runs once, on the exchange that opens a conversation, is handed the
+question and the answer, and whatever it returns becomes the title.
+
+The engine does the writing, which is the point of it being a slot rather than a
+flow you call yourself: it is already holding the conversation's reference, and
+the store knows how to record a title on whichever tier it is. Standalone writes
+it into the thread's `thread.json`; the platform records it on the row.
+
+Returning an empty title names nothing, which is the right answer for a greeting
+that was never going anywhere. Without the slot a conversation still gets a title
+— the opening question, truncated — so a list always has something to show.
+
+### What user memory gives the model
+
+With `userMemory: true` the agent gets `remember`, `forget` and `search_memory`.
+What it has already remembered is placed in **every request**, so it does not
+have to call a tool to find out what it knows — an agent that has to remember to
+remember mostly does not. The preamble is bounded and is never written into the
+transcript, so correcting a memory between runs replaces it rather than leaving
+stale copies behind in working memory.
+
+This is the built-in replacement for the hand-rolled fact store described in the
+next section. If you are starting now, use `userMemory`.
+
+### Where it is stored
+
+Storage is the deployment's business, not the flow's:
+
+| | Working memory | Conversation history | User memory | Search |
+| --- | --- | --- | --- | --- |
+| **Standalone** | `$OCTO_STORAGE_DIR/agent-memory/{agent}/threads/{thread}/working.json` | `.../turns.jsonl` | `.../users/{user}.json` | Keyword |
+| **Platform** | Orchestrator database | Orchestrator database | Orchestrator database | Semantic when the embedding server is deployed, keyword otherwise |
+
+On standalone the directory *is* the index — listing an agent's conversations
+is a directory read, with no second file to keep in step. An `octo invoke` with
+no `OCTO_STORAGE_DIR` keeps the same structure in process and leaves nothing
+behind.
+
+Every write carries a version, and a write against a version something else has
+moved past is refused rather than silently winning — so two replicas of one agent
+retry against what the other wrote instead of overwriting it. Appending turns is
+the deliberate exception: appends commute, so the sequence numbers come from the
+store and there is no version to conflict over.
+
+On the platform a conversation is also attributed to the person it was with,
+taken from `userId` on the first write that names one and never reassigned by a
+later write that does not. That attribution is what lets a chat panel list one
+person's conversations — an agent that records history without a `userId` records
+it belonging to nobody, and nothing that lists by person will find it.
+
+Clearing a conversation reaches all of it. Give [clear-agent-memory](/reference/blocks/ai#clear-agent-memory)
+the same `agentId` and it removes the working memory, the recorded turns and the
+thread itself — a clear that reached only one of them would report success over
+a readable copy.
+
 ## The second layer: durable facts
+
+<Callout>
+This section predates `userMemory` above, which does the same job as a built-in —
+and did it worse, which is why it is a built-in now. The three tools below cost a
+round trip the model had to remember to make, and kept every fact in one KV object
+capped at 200 items because `core.KV` cannot list. It is kept here because the
+pattern is still a good worked example of flow-backed tools, and because
+deployments running it should be able to read how it works.
+
+**Dr. Octo used to be the reference implementation of this.** He is not any more:
+he sets `userMemory: true` and the three flows are gone.
+</Callout>
 
 Conversation memory is a transcript with a budget — it fades as it is
 compacted, and it is scoped to one thread. For facts that should survive

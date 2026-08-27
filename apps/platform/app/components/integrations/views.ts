@@ -1,4 +1,5 @@
 import {
+  BrainCircuit,
   Database,
   KeyRound,
   LayoutDashboard,
@@ -18,7 +19,12 @@ import {
  * between sections.
  */
 export const MANAGEMENT_SECTIONS = [
-  { key: "dashboard", label: "Dashboard", href: "/platform", icon: LayoutDashboard },
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    href: "/platform",
+    icon: LayoutDashboard,
+  },
   {
     key: "integrations",
     label: "Integrations",
@@ -31,8 +37,27 @@ export const MANAGEMENT_SECTIONS = [
     href: "/platform/deployments",
     icon: Rocket,
   },
-  { key: "objects", label: "Object Store", href: "/platform/objects", icon: Database },
-  { key: "secrets", label: "Secrets", href: "/platform/secrets", icon: KeyRound },
+  {
+    key: "objects",
+    label: "Object Store",
+    href: "/platform/objects",
+    icon: Database,
+  },
+  // Beside the Object Store, and that is the argument for where it sits: both are
+  // what a running integration has written down rather than what someone
+  // configured, and an operator reaches for them for the same reason.
+  {
+    key: "memory",
+    label: "Agent memory",
+    href: "/platform/memory",
+    icon: BrainCircuit,
+  },
+  {
+    key: "secrets",
+    label: "Secrets",
+    href: "/platform/secrets",
+    icon: KeyRound,
+  },
   { key: "queues", label: "Queues", href: "/platform/queues", icon: Network },
   { key: "logs", label: "Logs", href: "/platform/logs", icon: ScrollText },
   { key: "traces", label: "Traces", href: "/platform/traces", icon: Waypoints },

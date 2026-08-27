@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, Mail, Sparkles, Trash2 } from "lucide-react";
+import { Activity, Bot, Mail, Trash2 } from "lucide-react";
 import { ShortcutTile } from "../DashboardTiles";
 
 /**
@@ -23,16 +23,11 @@ export const LIVE = [
     subtitle: "Provider key and the address notifications come from",
   },
   {
-    href: "/platform/admin/llm",
-    icon: Sparkles,
-    title: "LLM provider",
-    subtitle: "Provider, model and API key for the platform agent",
-  },
-  {
     href: "/platform/admin/agent",
     icon: Bot,
     title: "Platform agent",
-    subtitle: "Install Dr. Octo, roll out updates, and trace him",
+    subtitle:
+      "The LLM and embedding providers Dr. Octo runs on, and his own deployment",
   },
   {
     href: "/platform/admin/retention",
