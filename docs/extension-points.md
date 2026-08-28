@@ -20,6 +20,7 @@ runtime/
   services/     <- extension point 1: what the runtime IS
     standalone/     provider   (core.RuntimeServices)
     k8s/            provider   (core.RuntimeServices)
+    api/            provider   (core.RuntimeServices, over an operator's HTTP API)
     observability/  hosted     (probes, metrics)
   connectors/   <- extension point 2: what a flow can DO
     http/  cron/  database/  logger/  slack/  ...
