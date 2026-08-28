@@ -116,7 +116,7 @@ func (s *Services) build(_ context.Context, _ services.Options) {
 	s.leases = buildLeases(s.client, s.cfg.InstanceID, s.doc.Features.Leases)
 	s.le = buildLeaderElection(s.client, s.cfg.InstanceID, s.doc.Features.LeaderElection)
 	s.queues = buildQueues(s.client, s.cfg.DeploymentID, s.doc.Features.Queues)
-	s.topics = degradedTopics(s.doc.Features.Topics.featureFlags)
+	s.topics = buildTopics(s.client, s.cfg.InstanceID, s.doc.Features.Topics)
 	s.memory = core.NoopAgentMemory()
 	s.traces = core.NoopTracer()
 }
@@ -234,6 +234,16 @@ func degradedQueues(f featureFlags) core.Queues {
 		return erroringQueues{}
 	}
 	return core.NoopQueues()
+}
+
+// buildTopics resolves the broadcast plane.
+//
+//nolint:ireturn // resolves to core.Topics
+func buildTopics(c *client, subscriber string, f topicFeature) core.Topics {
+	if f.Supported {
+		return newTopics(c, subscriber, f)
+	}
+	return degradedTopics(f.featureFlags)
 }
 
 //nolint:ireturn // resolves to core.Topics
