@@ -175,6 +175,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/slack/slack\.go$
         linters: [gochecknoinits]
+      - path: ^services/api/api\.go$
+        linters: [gochecknoinits]
       - path: ^services/k8s/k8s\.go$
         linters: [gochecknoinits]
       - path: ^services/observability/observability\.go$
