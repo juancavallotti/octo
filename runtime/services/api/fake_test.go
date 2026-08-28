@@ -118,7 +118,7 @@ func (f *fake) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 	}
 	doc := f.discovery
 	f.mu.Unlock()
-	writeJSON(w, http.StatusOK, doc)
+	writeJSON(w, doc)
 }
 
 // url is the fake's base URL.
@@ -165,10 +165,10 @@ func (f *fake) paths() []string {
 	return out
 }
 
-// writeJSON writes a JSON response.
-func writeJSON(w http.ResponseWriter, status int, body any) {
+// writeJSON writes a 200 with a JSON body, which is what every successful route
+// in this contract that returns anything does.
+func writeJSON(w http.ResponseWriter, body any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 

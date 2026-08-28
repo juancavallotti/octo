@@ -59,7 +59,7 @@ func (b *leaseBackend) acquire(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if held, ok := b.claims[in.Name]; ok && held.expires.After(b.now) {
-		writeJSON(w, http.StatusOK, acquireResponse{Acquired: false, Holder: held.holder})
+		writeJSON(w, acquireResponse{Acquired: false, Holder: held.holder})
 		return
 	}
 	b.next++
@@ -71,7 +71,7 @@ func (b *leaseBackend) acquire(w http.ResponseWriter, r *http.Request) {
 	}
 	b.claims[in.Name] = claim
 	b.byID[claim.id] = claim
-	writeJSON(w, http.StatusOK, acquireResponse{Acquired: true, LeaseID: claim.id})
+	writeJSON(w, acquireResponse{Acquired: true, LeaseID: claim.id})
 }
 
 func (b *leaseBackend) renew(w http.ResponseWriter, r *http.Request) {

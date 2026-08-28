@@ -114,7 +114,7 @@ func (s *Services) build(_ context.Context, _ services.Options) {
 	s.secrets = buildSecrets(s.kv, s.doc.Features.Secrets, s.doc.Features.KV)
 	s.resources = buildResources(s.client, s.doc.Features.Resources)
 	s.leases = buildLeases(s.client, s.cfg.InstanceID, s.doc.Features.Leases)
-	s.le = degradedLeaderElection(s.doc.Features.LeaderElection.featureFlags)
+	s.le = buildLeaderElection(s.client, s.cfg.InstanceID, s.doc.Features.LeaderElection)
 	s.queues = degradedQueues(s.doc.Features.Queues.featureFlags)
 	s.topics = degradedTopics(s.doc.Features.Topics.featureFlags)
 	s.memory = core.NoopAgentMemory()
@@ -198,6 +198,16 @@ func degradedLeases(f featureFlags) core.Leases {
 		return erroringLeases{}
 	}
 	return core.NoopLeases()
+}
+
+// buildLeaderElection resolves the campaign-based election.
+//
+//nolint:ireturn // resolves to core.LeaderElection
+func buildLeaderElection(c *client, holder string, f leaderFeature) core.LeaderElection {
+	if f.Supported {
+		return newLeaderElection(c, holder, f)
+	}
+	return degradedLeaderElection(f.featureFlags)
 }
 
 //nolint:ireturn // resolves to core.LeaderElection
