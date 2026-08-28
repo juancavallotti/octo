@@ -80,6 +80,7 @@ Usage:
   octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
   octo schema [--out <path>]                                 Print the editor capability schema as JSON
   octo openapi [--format json] [--out <path>]                Print the platform API contract this runtime expects
+  octo verify-platform-api <url> [--json]                    Check a platform API against that contract (-tags api only)
   octo version                                               Print the version and build date
   octo --help                                                Show this help
 
@@ -212,7 +213,17 @@ OpenAPI flags:
   must implement for a runtime started with RUNTIME_SERVICES_MODULE=api, which is
   how Octo runs on Cloud Run, or against a platform service of your own, or beside
   a sidecar. The YAML carries the prose explaining each route; the JSON is for
-  tooling that will not read it.`
+  tooling that will not read it.
+
+Platform API verification (-tags api builds only):
+  --json             print the report as JSON instead of a table
+
+  "octo verify-platform-api <url>" drives the real client against your
+  implementation and prints, check by check, which contract rules it satisfies. It
+  exits non-zero on any failure, so it belongs in the pipeline that ships your
+  server. The URL may also come from OCTO_PLATFORM_API_URL, so running it inside a
+  deployment needs no argument. It WRITES, under a scratch prefix it names before
+  it starts; point it at staging.`
 
 // dashNote closes the help page. It is separate from usage so hosted-service
 // sections land above it: it is a note about every flag on the page, so it has to
@@ -268,6 +279,11 @@ func run(args []string) error {
 	case "openapi":
 		return openapiCommand(args)
 	default:
+		// A build tag may add commands that only make sense with the provider it
+		// compiles in — see commands_api.go.
+		if extra, ok := extraCommands[cmd]; ok {
+			return extra(args)
+		}
 		return fmt.Errorf(
 			"unknown command %q (expected \"run\", \"invoke\", \"eval\", \"schema\", \"openapi\", or \"version\")",
 			cmd)

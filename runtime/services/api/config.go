@@ -46,6 +46,11 @@ const (
 	schemeHTTP  = "http"
 )
 
+// URLEnvVar names the variable pointing at the platform API. It is exported so a
+// command can set it from an argument and then read the configuration through the
+// same path the runtime does — one way to resolve settings, not two.
+const URLEnvVar = envURL
+
 // Startup policy: what happens when discovery never answers.
 const (
 	// StartupRequire refuses to start. A runtime that cannot reach its platform is
@@ -85,10 +90,12 @@ type Config struct {
 	InstanceID   string
 }
 
-// loadConfig reads the environment. It fails on a missing or unusable base URL,
-// and on a credential this runtime would have to send in the clear; every other
-// setting has a defensible default.
-func loadConfig() (Config, error) {
+// LoadConfig reads the module's environment. It is exported for the verification
+// command, which has to configure the same client the runtime would.
+//
+// It fails on a missing or unusable base URL, and on a credential this runtime
+// would have to send in the clear; every other setting has a defensible default.
+func LoadConfig() (Config, error) {
 	base, err := platformURL(services.EnvString(envURL, ""))
 	if err != nil {
 		return Config{}, err

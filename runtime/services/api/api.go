@@ -75,7 +75,7 @@ type Services struct {
 //
 //nolint:ireturn // satisfies services.Factory (returns core.RuntimeServices)
 func New(ctx context.Context, opts services.Options) (core.RuntimeServices, error) {
-	cfg, err := loadConfig()
+	cfg, err := LoadConfig()
 	if err != nil {
 		return nil, err
 	}

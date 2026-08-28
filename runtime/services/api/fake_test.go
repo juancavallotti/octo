@@ -27,6 +27,10 @@ type fake struct {
 	t   *testing.T
 	srv *httptest.Server
 	mux *http.ServeMux
+	// override is consulted before mux, so a test can replace one route of an
+	// otherwise-correct backend. Registering the same pattern on one ServeMux
+	// panics, which is why this is a second mux rather than a re-registration.
+	override *http.ServeMux
 
 	// discovery is what GET /v1/discovery answers. A test sets it before starting.
 	discovery discoveryDocument
@@ -55,7 +59,7 @@ type recorded struct {
 // newFake starts a fake platform API implementing everything in doc.
 func newFake(t *testing.T, doc discoveryDocument) *fake {
 	t.Helper()
-	f := &fake{t: t, mux: http.NewServeMux(), discovery: doc}
+	f := &fake{t: t, mux: http.NewServeMux(), override: http.NewServeMux(), discovery: doc}
 	f.mux.HandleFunc("GET /v1/discovery", f.handleDiscovery)
 	f.srv = httptest.NewServer(f)
 	t.Cleanup(f.srv.Close)
@@ -100,6 +104,10 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if h, pattern := f.override.Handler(r); pattern != "" {
+		h.ServeHTTP(w, r)
+		return
+	}
 	f.mux.ServeHTTP(w, r)
 }
 
@@ -129,6 +137,12 @@ func (f *fake) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 	doc := f.discovery
 	f.mu.Unlock()
 	writeJSON(w, doc)
+}
+
+// breaks replaces one route on an otherwise-correct backend, so a test can point
+// the harness at an implementation that is wrong in exactly one way.
+func (f *fake) breaks(pattern string, h http.HandlerFunc) {
+	f.override.HandleFunc(pattern, h)
 }
 
 // url is the fake's base URL.

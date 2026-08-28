@@ -15,7 +15,7 @@ func withURL(t *testing.T, url string, env map[string]string) (Config, error) {
 	for k, v := range env {
 		t.Setenv(k, v)
 	}
-	return loadConfig()
+	return LoadConfig()
 }
 
 // A credential over plaintext HTTP is a credential on the wire in the clear, and
