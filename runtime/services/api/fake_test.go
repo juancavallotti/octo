@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -93,9 +94,11 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mux.ServeHTTP(w, r)
 }
 
-// record stores the request for later assertions.
+// record stores the request for later assertions, putting the body back so the
+// handler still sees it.
 func (f *fake) record(r *http.Request) {
 	body := readAll(r)
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests = append(f.requests, recorded{

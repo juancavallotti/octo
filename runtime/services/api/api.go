@@ -110,9 +110,9 @@ func New(ctx context.Context, opts services.Options) (core.RuntimeServices, erro
 // It is populated capability by capability as each is implemented; until then a
 // capability resolves to its unsupported form.
 func (s *Services) build(_ context.Context, _ services.Options) {
-	s.kv = buildKV(s.doc.Features.KV)
+	s.kv = buildKV(s.client, s.doc.Features.KV)
 	s.secrets = buildSecrets(s.kv, s.doc.Features.Secrets, s.doc.Features.KV)
-	s.resources = buildResources(s.doc.Features.Resources)
+	s.resources = buildResources(s.client, s.doc.Features.Resources)
 	s.leases = degradedLeases(s.doc.Features.Leases.featureFlags)
 	s.le = degradedLeaderElection(s.doc.Features.LeaderElection.featureFlags)
 	s.queues = degradedQueues(s.doc.Features.Queues.featureFlags)
@@ -124,9 +124,9 @@ func (s *Services) build(_ context.Context, _ services.Options) {
 // buildKV resolves the key-value store.
 //
 //nolint:ireturn // resolves to core.KV: the store, the no-op, or the refusal
-func buildKV(f kvFeature) core.KV {
+func buildKV(c *client, f kvFeature) core.KV {
 	if f.Supported {
-		return core.NoopKV()
+		return newKVStore(c, f)
 	}
 	return degradedKV(f.featureFlags)
 }
@@ -167,9 +167,9 @@ func buildSecrets(kv core.KV, f secretsFeature, kvf kvFeature) core.SecretStore 
 // buildResources resolves the resource loader.
 //
 //nolint:ireturn // resolves to core.ResourceLoader
-func buildResources(f featureFlags) core.ResourceLoader {
+func buildResources(c *client, f featureFlags) core.ResourceLoader {
 	if f.Supported {
-		return core.NoopResourceLoader{}
+		return newResourceLoader(c)
 	}
 	return degradedResources(f)
 }

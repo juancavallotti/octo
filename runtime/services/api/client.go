@@ -50,6 +50,11 @@ type client struct {
 	http    *http.Client
 	headers http.Header
 
+	// timeout bounds an ordinary call; longTimeout bounds the ones that wait by
+	// design — the queue and topic long polls, and memory search.
+	timeout     time.Duration
+	longTimeout time.Duration
+
 	// tokenFile is re-read when its modification time changes, so a rotated
 	// credential is picked up without a restart. Cloud Run secret volumes and k8s
 	// projected tokens both rotate in place under a running process.
@@ -86,10 +91,12 @@ func newClient(cfg Config) (*client, error) {
 		base: cfg.BaseURL,
 		// The client-level timeout is only a backstop: do sets a per-call deadline,
 		// and the long polls need more room than any single value would give.
-		http:      &http.Client{Transport: tr, Timeout: cfg.LongTimeout + cfg.Timeout},
-		headers:   headers,
-		tokenFile: cfg.TokenFile,
-		token:     cfg.Token,
+		http:        &http.Client{Transport: tr, Timeout: cfg.LongTimeout + cfg.Timeout},
+		headers:     headers,
+		timeout:     cfg.Timeout,
+		longTimeout: cfg.LongTimeout,
+		tokenFile:   cfg.TokenFile,
+		token:       cfg.Token,
 	}, nil
 }
 
