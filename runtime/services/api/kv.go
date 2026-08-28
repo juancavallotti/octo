@@ -18,6 +18,15 @@ import (
 // implemented one has implemented the other.
 const headerVersion = "X-Object-Version"
 
+// The two content types this module sends. Opaque payloads — a KV value, an
+// agent's working memory — go as octet-stream because the platform stores bytes
+// it has no reason to interpret; everything else is JSON.
+const (
+	contentTypeHeader = "Content-Type"
+	contentTypeBytes  = "application/octet-stream"
+	contentTypeJSON   = "application/json"
+)
+
 // kvStore is the key-value store delegated to the platform API.
 //
 // The namespace is a path segment and carries its full suffixed name —
@@ -87,8 +96,8 @@ func (s *kvStore) Set(
 			"limit of %d", len(value), s.maxValueBytes)
 	}
 	headers := map[string]string{
-		headerVersion:  strconv.FormatInt(expectedVersion, 10),
-		"Content-Type": "application/octet-stream",
+		headerVersion:     strconv.FormatInt(expectedVersion, 10),
+		contentTypeHeader: contentTypeBytes,
 	}
 	//nolint:bodyclose // drainClose (deferred below) closes the body
 	resp, err := s.c.do(ctx, routeKVSet, s.entryURL(routeKVSet, namespace, key), value, headers, s.c.timeout)

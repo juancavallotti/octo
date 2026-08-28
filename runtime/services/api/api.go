@@ -117,7 +117,7 @@ func (s *Services) build(_ context.Context, _ services.Options) {
 	s.le = buildLeaderElection(s.client, s.cfg.InstanceID, s.doc.Features.LeaderElection)
 	s.queues = buildQueues(s.client, s.cfg.DeploymentID, s.doc.Features.Queues)
 	s.topics = buildTopics(s.client, s.cfg.InstanceID, s.doc.Features.Topics)
-	s.memory = core.NoopAgentMemory()
+	s.memory = buildAgentMemory(s.client, s.doc.Features.AgentMemory)
 	s.traces = core.NoopTracer()
 }
 
@@ -252,6 +252,17 @@ func degradedTopics(f featureFlags) core.Topics {
 		return erroringTopics{}
 	}
 	return core.NoopTopics()
+}
+
+// buildAgentMemory resolves the agent-memory store. It has no erroring form: the
+// engine branches on Enabled() before it would ever reach a write.
+//
+//nolint:ireturn // resolves to core.AgentMemory
+func buildAgentMemory(c *client, f agentMemoryFeature) core.AgentMemory {
+	if f.Supported {
+		return newAgentMemory(c, f)
+	}
+	return core.NoopAgentMemory()
 }
 
 // warnSpecSkew reports a server speaking a different contract version. It warns

@@ -237,6 +237,16 @@ func (c *client) attempt(
 	return resp, nil
 }
 
+// jsonBody encodes a value for a request that goes through do rather than json —
+// the ones that also need response headers.
+func jsonBody(in any) ([]byte, error) {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return nil, fmt.Errorf("api: encode request: %w", err)
+	}
+	return body, nil
+}
+
 // json issues a request with an optional JSON body and decodes an optional JSON
 // response, mapping the module's shared status semantics.
 func (c *client) json(
@@ -250,7 +260,7 @@ func (c *client) json(
 			return fmt.Errorf("api %s: encode request: %w", routeOp(r), err)
 		}
 		body = encoded
-		headers["Content-Type"] = "application/json"
+		headers[contentTypeHeader] = contentTypeJSON
 	}
 	//nolint:bodyclose // drainClose (deferred below) closes the body
 	resp, err := c.do(ctx, r, endpoint, body, headers, timeout)
