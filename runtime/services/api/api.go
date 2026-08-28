@@ -57,6 +57,7 @@ type Services struct {
 	resources core.ResourceLoader
 	memory    core.AgentMemory
 	traces    core.TracePublisher
+	logSink   slog.Handler
 }
 
 // New builds the provider: it reads the environment, negotiates the contract, and
@@ -109,7 +110,7 @@ func New(ctx context.Context, opts services.Options) (core.RuntimeServices, erro
 //
 // It is populated capability by capability as each is implemented; until then a
 // capability resolves to its unsupported form.
-func (s *Services) build(_ context.Context, _ services.Options) {
+func (s *Services) build(_ context.Context, opts services.Options) {
 	s.kv = buildKV(s.client, s.doc.Features.KV)
 	s.secrets = buildSecrets(s.kv, s.doc.Features.Secrets, s.doc.Features.KV)
 	s.resources = buildResources(s.client, s.doc.Features.Resources)
@@ -118,7 +119,10 @@ func (s *Services) build(_ context.Context, _ services.Options) {
 	s.queues = buildQueues(s.client, s.cfg.DeploymentID, s.doc.Features.Queues)
 	s.topics = buildTopics(s.client, s.cfg.InstanceID, s.doc.Features.Topics)
 	s.memory = buildAgentMemory(s.client, s.doc.Features.AgentMemory)
-	s.traces = core.NoopTracer()
+	s.traces = newTracePublisher(s.client, s.cfg, opts.Tracing, s.doc.Features.Traces)
+	if s.doc.Features.Logs.Supported {
+		s.logSink = newLogSink(s.client, s.cfg)
+	}
 }
 
 // buildKV resolves the key-value store.
