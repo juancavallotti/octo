@@ -32,8 +32,11 @@ var errNoQueues = errors.New("queues: no queue backend configured")
 //
 // In the standalone module queues are in-process (buffered channels); in the k8s
 // module they are backed by NATS (queue-group subscriptions and native request-
-// reply). Delivery is at-most-once: a message published with no live consumer is
-// dropped.
+// reply). In those two, delivery is at-most-once: a message published with no live
+// consumer is dropped. The api module is at-least-once instead, because the
+// platform behind it acknowledges each delivery — a strengthening, so a handler
+// written against at-most-once still works, but one that is not idempotent may see
+// the same message twice.
 type Queues interface {
 	// Publish sends msg to subject for exactly one competing consumer. It does not
 	// wait for, or expect, a reply.
