@@ -262,6 +262,10 @@ func (c *client) json(
 	if err := mapStatus(r, resp); err != nil {
 		return err
 	}
+	// A 204 leaves out at its zero value rather than failing to decode. On the
+	// long polls that is the whole point: 204 is how the server says the poll
+	// expired with nothing to deliver, which is the normal case on an idle
+	// subject and not an error.
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
@@ -374,8 +378,18 @@ func randUnit() float64 {
 	return float64(v) / scale
 }
 
-// sleep waits, or returns early when the context ends.
+// sleep waits, or returns early when the context ends. A non-positive duration
+// still checks the context, so a caller pacing itself against an already-elapsed
+// window does not turn into a loop that never yields.
 func sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("api: %w", ctx.Err())
+		default:
+			return nil
+		}
+	}
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {

@@ -115,7 +115,7 @@ func (s *Services) build(_ context.Context, _ services.Options) {
 	s.resources = buildResources(s.client, s.doc.Features.Resources)
 	s.leases = buildLeases(s.client, s.cfg.InstanceID, s.doc.Features.Leases)
 	s.le = buildLeaderElection(s.client, s.cfg.InstanceID, s.doc.Features.LeaderElection)
-	s.queues = degradedQueues(s.doc.Features.Queues.featureFlags)
+	s.queues = buildQueues(s.client, s.cfg.DeploymentID, s.doc.Features.Queues)
 	s.topics = degradedTopics(s.doc.Features.Topics.featureFlags)
 	s.memory = core.NoopAgentMemory()
 	s.traces = core.NoopTracer()
@@ -216,6 +216,16 @@ func degradedLeaderElection(f featureFlags) core.LeaderElection {
 		return erroringLeaderElection{}
 	}
 	return core.NoopLeaderElection()
+}
+
+// buildQueues resolves the point-to-point plane.
+//
+//nolint:ireturn // resolves to core.Queues
+func buildQueues(c *client, consumerGroup string, f queueFeature) core.Queues {
+	if f.Supported {
+		return newQueues(c, consumerGroup, f)
+	}
+	return degradedQueues(f.featureFlags)
 }
 
 //nolint:ireturn // resolves to core.Queues
