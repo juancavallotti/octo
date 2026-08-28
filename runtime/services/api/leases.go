@@ -10,6 +10,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math"
 	"sync"
@@ -184,9 +185,19 @@ func (h *heldLease) markGone() bool {
 // renew pushes the claim's deadline out for as long as it is held. Losing it is
 // not an error to report anywhere: it is reported by closing Done, which is what
 // the holder gates its work on.
+//
+// A failed renewal is not automatically a lost claim, and the distinction is the
+// whole reason for renewing three times per TTL. A 404 or a 409 is definitive —
+// the claim is somebody else's now, or gone — and gives up immediately. Anything
+// else is a network or a server having a moment, and the claim is still ours
+// until the TTL runs out without a renewal landing, so the loop keeps trying. A
+// runtime that dropped its claim on one refused connection would hand the work
+// to another replica over a blip, which is exactly what the renewal budget
+// exists to prevent.
 func (h *heldLease) renew(ctx context.Context, ttl time.Duration) {
 	ticker := time.NewTicker(ttl / renewDivisor)
 	defer ticker.Stop()
+	lastLanded := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -194,19 +205,46 @@ func (h *heldLease) renew(ctx context.Context, ttl time.Duration) {
 		case <-h.done:
 			return
 		case <-ticker.C:
-			if err := h.extend(ctx, ttl); err != nil {
-				slog.Warn("api: lost a claim, its renewal did not land",
-					"name", h.name, "lease", h.id, "holder", h.owner.holder, "error", err)
-				h.markGone()
+			err := h.extend(ctx, ttl)
+			if err == nil {
+				lastLanded = time.Now()
+				continue
+			}
+			if h.giveUp(err, lastLanded, ttl) {
 				return
 			}
 		}
 	}
 }
 
+// giveUp decides what a failed renewal means, reporting whether the claim is
+// over. It closes Done when it is.
+func (h *heldLease) giveUp(err error, lastLanded time.Time, ttl time.Duration) bool {
+	definitive := errors.Is(err, errAbsent) || isVersionConflict(err)
+	if !definitive && time.Since(lastLanded) < ttl {
+		slog.Warn("api: a claim renewal did not land; retrying while the claim is still ours",
+			"name", h.name, "lease", h.id, "remaining", ttl-time.Since(lastLanded), "error", err)
+		return false
+	}
+	slog.Warn("api: lost a claim",
+		"name", h.name, "lease", h.id, "holder", h.owner.holder,
+		"reason", lossReason(definitive), "error", err)
+	h.markGone()
+	return true
+}
+
+// lossReason names why a claim ended, so the log line says whether somebody took
+// it or this replica simply could not keep up.
+func lossReason(definitive bool) string {
+	if definitive {
+		return "the platform says the claim is no longer ours"
+	}
+	return "no renewal landed within the claim's TTL"
+}
+
 // extend writes a fresh deadline. A 404 or a 409 means the claim is no longer
 // this replica's — expired and taken over, or released behind our back — and both
-// are failures to renew rather than transport problems.
+// are definitive, unlike a transport failure.
 func (h *heldLease) extend(ctx context.Context, ttl time.Duration) error {
 	return h.owner.c.json(ctx, routeLeaseRenew, h.owner.c.url(routeLeaseRenew, h.id),
 		renewRequest{TTLSeconds: seconds(ttl)}, nil, h.owner.c.timeout)

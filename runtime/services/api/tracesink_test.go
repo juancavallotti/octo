@@ -202,3 +202,58 @@ func TestLogShippingFailureIsSwallowed(t *testing.T) {
 	// has nowhere sensible to put it.
 	slog.New(svc.LogSink()).Info("still fine")
 }
+
+// A log call must not wait on the network. Logging happens from wherever the
+// runtime is, a flow's own goroutine included, and a handler that made the
+// request inline would put every one of those behind a slow platform.
+func TestLogCallDoesNotBlockOnTheNetwork(t *testing.T) {
+	f := newFake(t, fullDiscovery())
+	release := make(chan struct{})
+	f.mux.HandleFunc("POST /v1/logs", func(w http.ResponseWriter, _ *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusAccepted)
+	})
+	t.Cleanup(func() { close(release) })
+	svc := newTestServices(t, f, nil)
+
+	logger := slog.New(svc.LogSink())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 10 {
+			logger.Info("a line")
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a log call blocked on a platform that had not answered")
+	}
+}
+
+// The queue drops rather than blocking or growing: a platform that is not
+// answering must not become a runtime that runs out of memory.
+func TestLogQueueDropsWhenFull(t *testing.T) {
+	f := newFake(t, fullDiscovery())
+	release := make(chan struct{})
+	f.mux.HandleFunc("POST /v1/logs", func(w http.ResponseWriter, _ *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusAccepted)
+	})
+	t.Cleanup(func() { close(release) })
+	svc := newTestServices(t, f, nil)
+
+	logger := slog.New(svc.LogSink())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range logQueueDepth * 3 {
+			logger.Info("a line")
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("logging blocked once the queue filled, rather than dropping")
+	}
+}

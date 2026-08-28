@@ -165,7 +165,11 @@ func kvDelete(t *testing.T, namespace string, kv core.KV) {
 	if err := kv.Delete(t.Context(), namespace, key, 0); err != nil {
 		t.Fatalf("Delete err = %v", err)
 	}
-	if _, ok, _ := kv.Get(t.Context(), namespace, key); ok {
+	_, ok, err := kv.Get(t.Context(), namespace, key)
+	if err != nil {
+		t.Fatalf("Get after Delete err = %v, want a clean miss", err)
+	}
+	if ok {
 		t.Fatal("the key survived its delete")
 	}
 }
@@ -220,14 +224,30 @@ func leaseExclusive(t *testing.T, leases core.Leases) {
 	}
 	defer func() { _ = lease.Close() }()
 
-	// The point of a fail-fast claim is that this returns rather than queues.
-	done := make(chan struct{})
+	// Two things at once: that a second claim returns rather than queues, and that
+	// it says "somebody else has it" rather than failing. A caller distinguishes
+	// those — one means go do something else, the other means the question could
+	// not be answered.
+	type answer struct {
+		ok  bool
+		err error
+	}
+	got := make(chan answer, 1)
 	go func() {
-		defer close(done)
-		_, _, _ = leases.Acquire(t.Context(), "contract-exclusive")
+		lease, ok, err := leases.Acquire(t.Context(), "contract-exclusive")
+		if lease != nil {
+			_ = lease.Close()
+		}
+		got <- answer{ok, err}
 	}()
 	select {
-	case <-done:
+	case a := <-got:
+		if a.err != nil {
+			t.Fatalf("second Acquire err = %v, want a decision rather than a failure", a.err)
+		}
+		if a.ok {
+			t.Fatal("the same name was claimed twice")
+		}
 	case <-time.After(contractTimeout):
 		t.Fatal("a second Acquire blocked; core.Leases never waits for a holder")
 	}
@@ -287,4 +307,12 @@ func leaseCancelledContext(t *testing.T, leases core.Leases) {
 	if err := lease.Close(); err != nil {
 		t.Fatalf("Close after the acquiring context was cancelled = %v", err)
 	}
+	// And the claim is really gone, not merely closed locally: a renewal loop
+	// running on the caller's context would have stopped when it was cancelled,
+	// leaving the name held on the backend until it expired.
+	again, ok, err := leases.Acquire(t.Context(), "contract-cancel")
+	if err != nil || !ok {
+		t.Fatalf("Acquire after the cancelled holder closed = (ok %v, err %v), want the claim", ok, err)
+	}
+	_ = again.Close()
 }

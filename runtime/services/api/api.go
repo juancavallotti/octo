@@ -58,6 +58,7 @@ type Services struct {
 	memory    core.AgentMemory
 	traces    core.TracePublisher
 	logSink   slog.Handler
+	logs      *logShipper
 }
 
 // New builds the provider: it reads the environment, negotiates the contract, and
@@ -121,7 +122,7 @@ func (s *Services) build(_ context.Context, opts services.Options) {
 	s.memory = buildAgentMemory(s.client, s.doc.Features.AgentMemory)
 	s.traces = newTracePublisher(s.client, s.cfg, opts.Tracing, s.doc.Features.Traces)
 	if s.doc.Features.Logs.Supported {
-		s.logSink = newLogSink(s.client, s.cfg)
+		s.logSink, s.logs = newLogSink(s.client, s.cfg)
 	}
 }
 
@@ -365,7 +366,7 @@ func (s *Services) Traces() core.TracePublisher { return s.traces }
 // connections.
 //
 // The order matters: the loops stop first so nothing new is published, then the
-// trace publisher drains, then the transport goes. core.TracePublisher does not
+// trace publisher and the log shipper drain, then the transport goes. core.TracePublisher does not
 // name Close — the buffered publisher has one and the no-op does not — so it is
 // type-asserted, as the k8s module does.
 func (s *Services) Close() error {
@@ -373,6 +374,9 @@ func (s *Services) Close() error {
 	var err error
 	if closer, ok := s.traces.(interface{ Close() error }); ok {
 		err = closer.Close()
+	}
+	if s.logs != nil {
+		s.logs.close()
 	}
 	s.client.close()
 	return err

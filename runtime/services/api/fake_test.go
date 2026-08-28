@@ -135,7 +135,7 @@ func (f *fake) last(suffix string) recorded {
 			return f.requests[i]
 		}
 	}
-	f.t.Fatalf("no request recorded with path ending %q; got %v", suffix, f.paths())
+	f.t.Fatalf("no request recorded with path ending %q; got %v", suffix, f.pathsLocked())
 	return recorded{}
 }
 
@@ -158,6 +158,14 @@ func (f *fake) count(method, suffix string) int {
 
 // paths lists what was called, for failure messages.
 func (f *fake) paths() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pathsLocked()
+}
+
+// pathsLocked lists what was called. The caller holds f.mu — which last does, so
+// it cannot go through paths without deadlocking.
+func (f *fake) pathsLocked() []string {
 	out := make([]string, 0, len(f.requests))
 	for _, r := range f.requests {
 		out = append(out, r.method+" "+r.path)

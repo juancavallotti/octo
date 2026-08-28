@@ -163,3 +163,54 @@ func TestTTLSecondsRoundsUp(t *testing.T) {
 		t.Fatalf("seconds(1s) = %d, want 1", got)
 	}
 }
+
+// A blip is not a lost claim. Renewing three times per TTL exists so two may be
+// lost before the claim is at risk, and a runtime that gave up on the first
+// refused connection would hand its work to another replica over nothing.
+func TestLeaseSurvivesATransientRenewalFailure(t *testing.T) {
+	svc, _, b := newLeaseFixture(t)
+	b.mu.Lock()
+	b.renewBlips = 1
+	b.mu.Unlock()
+
+	lease, ok, err := svc.Leases().Acquire(t.Context(), "job", core.WithLeaseTTL(3*time.Second))
+	if err != nil || !ok {
+		t.Fatalf("Acquire = (ok %v, err %v)", ok, err)
+	}
+	defer func() { _ = lease.Close() }()
+
+	// Past two renewal intervals: the first fails, the second must land.
+	select {
+	case <-lease.Done():
+		t.Fatal("the claim was dropped over a single failed renewal")
+	case <-time.After(2500 * time.Millisecond):
+	}
+	if got := b.attempts(); got < 2 {
+		t.Fatalf("renewals attempted = %d, want the loop to have retried", got)
+	}
+}
+
+// A 409 is definitive: somebody else holds the claim now, so there is nothing to
+// retry and Done closes at once rather than after the TTL.
+func TestLeaseGivesUpImmediatelyWhenTakenOver(t *testing.T) {
+	svc, _, b := newLeaseFixture(t)
+
+	// Nine seconds of TTL means renewals every three, so a Done that closes inside
+	// five could only have come from reading the 409 as definitive — waiting the
+	// claim out would take nine.
+	lease, ok, err := svc.Leases().Acquire(t.Context(), "job", core.WithLeaseTTL(9*time.Second))
+	if err != nil || !ok {
+		t.Fatalf("Acquire = (ok %v, err %v)", ok, err)
+	}
+	defer func() { _ = lease.Close() }()
+	b.mu.Lock()
+	b.renewFails = true
+	b.mu.Unlock()
+
+	select {
+	case <-lease.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("Done did not close promptly after the platform said the claim was taken " +
+			"over; a definitive answer must not wait out the TTL")
+	}
+}

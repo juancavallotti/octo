@@ -63,8 +63,14 @@ func threadKey(r *http.Request) string {
 }
 
 func (b *memoryBackend) loadWorking(w http.ResponseWriter, r *http.Request) {
+	// Copied under the lock rather than read after it: the map holds pointers, and
+	// a concurrent save would otherwise be mutating the value this is serializing.
 	b.mu.Lock()
-	wm, ok := b.working[threadKey(r)]
+	stored, ok := b.working[threadKey(r)]
+	var wm fakeWorking
+	if ok {
+		wm = *stored
+	}
 	b.mu.Unlock()
 	if !ok {
 		http.Error(w, "no working memory", http.StatusNotFound)

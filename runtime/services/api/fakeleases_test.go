@@ -16,9 +16,15 @@ type leaseBackend struct {
 	byID   map[string]*fakeClaim
 	next   int
 	now    time.Time
-	// renewFails, when set, refuses every renewal — the way a claim gets lost
-	// without a test having to stop the server.
+	// renewFails, when set, refuses every renewal with a 409 — the definitive
+	// reading, the way a claim is taken over.
 	renewFails bool
+	// renewBlips is how many leading renewals fail with a server error before the
+	// rest land, standing in for a platform having a moment rather than a claim
+	// that is genuinely gone.
+	renewBlips int
+	// renewAttempts counts every renewal the backend saw, blips included.
+	renewAttempts int
 }
 
 type fakeClaim struct {
@@ -80,8 +86,14 @@ func (b *leaseBackend) renew(w http.ResponseWriter, r *http.Request) {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.renewAttempts++
 	if b.renewFails {
 		http.Error(w, "the claim is no longer yours", http.StatusConflict)
+		return
+	}
+	if b.renewBlips > 0 {
+		b.renewBlips--
+		http.Error(w, "briefly unwell", http.StatusInternalServerError)
 		return
 	}
 	claim, ok := b.byID[r.PathValue("leaseId")]
@@ -103,6 +115,13 @@ func (b *leaseBackend) release(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// attempts reports how many renewals the backend saw.
+func (b *leaseBackend) attempts() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.renewAttempts
 }
 
 // holderOf reports who holds a name, for assertions.
