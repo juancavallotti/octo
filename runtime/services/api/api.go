@@ -113,7 +113,7 @@ func (s *Services) build(_ context.Context, _ services.Options) {
 	s.kv = buildKV(s.client, s.doc.Features.KV)
 	s.secrets = buildSecrets(s.kv, s.doc.Features.Secrets, s.doc.Features.KV)
 	s.resources = buildResources(s.client, s.doc.Features.Resources)
-	s.leases = degradedLeases(s.doc.Features.Leases.featureFlags)
+	s.leases = buildLeases(s.client, s.cfg.InstanceID, s.doc.Features.Leases)
 	s.le = degradedLeaderElection(s.doc.Features.LeaderElection.featureFlags)
 	s.queues = degradedQueues(s.doc.Features.Queues.featureFlags)
 	s.topics = degradedTopics(s.doc.Features.Topics.featureFlags)
@@ -180,6 +180,16 @@ func degradedResources(f featureFlags) core.ResourceLoader {
 		return erroringResources{}
 	}
 	return core.NoopResourceLoader{}
+}
+
+// buildLeases resolves the fail-fast claims.
+//
+//nolint:ireturn // resolves to core.Leases
+func buildLeases(c *client, holder string, f leaseFeature) core.Leases {
+	if f.Supported {
+		return newLeases(c, holder, f)
+	}
+	return degradedLeases(f.featureFlags)
 }
 
 //nolint:ireturn // resolves to core.Leases

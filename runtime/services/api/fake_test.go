@@ -38,7 +38,6 @@ type fake struct {
 
 	mu       sync.Mutex
 	requests []recorded
-	calls    map[string]int
 }
 
 // recorded is one request the fake received, for wire-shape assertions.
@@ -53,7 +52,7 @@ type recorded struct {
 // newFake starts a fake platform API implementing everything in doc.
 func newFake(t *testing.T, doc discoveryDocument) *fake {
 	t.Helper()
-	f := &fake{t: t, mux: http.NewServeMux(), discovery: doc, calls: map[string]int{}}
+	f := &fake{t: t, mux: http.NewServeMux(), discovery: doc}
 	f.mux.HandleFunc("GET /v1/discovery", f.handleDiscovery)
 	f.srv = httptest.NewServer(f)
 	t.Cleanup(f.srv.Close)
@@ -105,7 +104,6 @@ func (f *fake) record(r *http.Request) {
 		method: r.Method, path: r.URL.Path, query: r.URL.RawQuery,
 		header: r.Header.Clone(), body: body,
 	})
-	f.calls[r.Method+" "+r.URL.Path]++
 }
 
 // handleDiscovery answers the discovery call, failing the first discoveryFails
@@ -141,11 +139,21 @@ func (f *fake) last(suffix string) recorded {
 	return recorded{}
 }
 
-// count returns how many times a "METHOD /path" was called.
-func (f *fake) count(key string) int {
+// count returns how many requests used method against a path ending in suffix.
+//
+// It matches on a suffix rather than a whole path because the recorded paths are
+// concrete — /v1/leases/lease-1/renew — while the route table holds templates,
+// and a test that compared the two would silently count nothing.
+func (f *fake) count(method, suffix string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.calls[key]
+	var n int
+	for _, r := range f.requests {
+		if r.method == method && strings.HasSuffix(r.path, suffix) {
+			n++
+		}
+	}
+	return n
 }
 
 // paths lists what was called, for failure messages.

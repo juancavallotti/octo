@@ -152,11 +152,11 @@ func TestKVLatchesOffOnNotImplemented(t *testing.T) {
 	if _, err := svc.KV().Set(ctx, core.NamespaceUser, "k", []byte("v"), 0); !errors.Is(err, core.ErrNoKV) {
 		t.Fatalf("Set = %v, want ErrNoKV once the feature latched off", err)
 	}
-	before := f.count("PUT /v1/kv/{namespace}/entry")
+	before := f.count(http.MethodPut, "/entry")
 	if _, err := svc.KV().Set(ctx, core.NamespaceUser, "k", []byte("v"), 0); !errors.Is(err, core.ErrNoKV) {
 		t.Fatalf("Set after latching = %v, want ErrNoKV", err)
 	}
-	if after := f.count("PUT /v1/kv/{namespace}/entry"); after != before {
+	if after := f.count(http.MethodPut, "/entry"); after != before {
 		t.Fatalf("the client called again after latching off (%d then %d)", before, after)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -271,13 +272,22 @@ func (c *client) json(
 }
 
 // errNotImplemented reports a 501 to the caller, which latches the feature off.
-var errNotImplemented = fmt.Errorf("platform API route is not implemented")
+var errNotImplemented = errors.New("platform API route is not implemented")
+
+// errAbsent reports a 404: the addressed thing is not there. Whether that is a
+// failure depends on what was addressed — a missing KV key is a miss, a missing
+// lease is a lost claim — so json returns it and each caller decides.
+var errAbsent = errors.New("the platform API says this does not exist")
+
+// isVersionConflict reports a 409, which several capabilities read as "somebody
+// else got there" rather than as a failure.
+func isVersionConflict(err error) bool { return errors.Is(err, core.ErrVersionConflict) }
 
 // mapStatus turns a response status into the module's shared error vocabulary.
-// 404 is deliberately absent: it means the addressed thing is not there, which
-// each caller reads for itself (a KV miss is not an error, a missing lease is).
 func mapStatus(r route, resp *http.Response) error {
 	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return errAbsent
 	case resp.StatusCode == http.StatusNotImplemented:
 		return errNotImplemented
 	case resp.StatusCode == http.StatusConflict:

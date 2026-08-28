@@ -161,7 +161,7 @@ func TestDiscoveryRetriesWithinTheBudget(t *testing.T) {
 		t.Fatalf("implementation = %q, want the document served after the retries",
 			svc.doc.Implementation.Name)
 	}
-	if got := f.count("GET /v1/discovery"); got != 3 {
+	if got := f.count(http.MethodGet, "/v1/discovery"); got != 3 {
 		t.Fatalf("discovery calls = %d, want 3 (two refusals then the answer)", got)
 	}
 }
