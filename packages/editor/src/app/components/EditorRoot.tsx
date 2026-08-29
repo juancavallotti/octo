@@ -25,6 +25,7 @@ import {
   TestSuiteProvider,
   type TestSuiteStore,
 } from "../providers/TestSuiteProvider";
+import { CanvasZoomProvider } from "../canvas/ZoomContext";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -166,7 +167,15 @@ export default function EditorRoot({
   return (
     <EditorStateProvider>
       <EditorMetaProvider store={meta ?? null} reloadToken={metaToken}>
-        <ConsoleProvider>{tree}</ConsoleProvider>
+        {/* Canvas zoom is mounted here rather than in EditorBody, which returns
+            early for the YAML, Resources and Testing views — a provider there
+            would unmount on every trip to the YAML tab and hand the reader back
+            a canvas at 100%, losing a setting they chose because the flow is too
+            big to read at 100%. The drag overlay and the draggable nodes read it
+            too, and both sit outside the canvas. */}
+        <CanvasZoomProvider>
+          <ConsoleProvider>{tree}</ConsoleProvider>
+        </CanvasZoomProvider>
       </EditorMetaProvider>
     </EditorStateProvider>
   );
