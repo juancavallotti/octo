@@ -39,6 +39,14 @@ export interface RunSink {
   takeMessage: (currentId: string, openedId: string, text: string) => void;
   setFinalAnswer: (turnId: string, answer: string) => void;
   noteTurn: (turnId: string, note: string) => void;
+  /**
+   * The conversation was named mid-run. It belongs to the panel, not a turn.
+   *
+   * The thread comes with it so the caller can check the name is for the
+   * conversation it is showing: a run that named some other thread must not
+   * retitle the one on screen.
+   */
+  nameThread: (title: string, thread?: string) => void;
 }
 
 export async function readRun(
@@ -78,6 +86,13 @@ export async function readRun(
     // is the one frame that moves the run to a new turn: what follows was said
     // because of that message, so it belongs under it rather than appended to the
     // answer it interrupted.
+    // Naming is about the conversation rather than about anything said in it, so
+    // it goes to the panel and never into the transcript.
+    if (event.type === "thread_title") {
+      sink.nameThread(event.title, event.thread);
+      continue;
+    }
+
     if (event.type === "signal") {
       if (event.signal === "context") {
         const opened = nextId();

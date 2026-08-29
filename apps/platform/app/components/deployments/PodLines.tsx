@@ -40,7 +40,10 @@ export default function PodLines({
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${PHASE_DOT[pod.phase] ?? "bg-zinc-400"}`}
             title={pod.phase}
           />
-          <span className="min-w-0 flex-1 truncate font-mono text-zinc-600 dark:text-zinc-300">
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-zinc-600 dark:text-zinc-300"
+            title={pod.name}
+          >
             {pod.name}
           </span>
           <span className="shrink-0 text-zinc-400">{pod.phase}</span>

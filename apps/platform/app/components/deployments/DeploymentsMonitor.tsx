@@ -11,20 +11,38 @@ import {
 import PodLogPanel from "@/app/components/integrations/PodLogPanel";
 import RolloutModal from "@/app/components/integrations/RolloutModal";
 import DeploymentListItem from "./DeploymentListItem";
+import UpgradeNotice from "./UpgradeNotice";
 import { useRollout } from "./useRollout";
+import { needsUpgrade } from "@/app/lib/runtimeRelease";
 
 /**
  * The deployments view: every active deployment across every integration, shown as
- * a list with live per-pod state (polled while the page is open). Unlike the
- * dashboard's read-only tile grid, each row exposes the management actions the
- * dedicated page is for — scale it, roll it over to another version (the same
- * dialog that turns tracing on and off), tail one pod's logs, or open the
- * integration in the manager/editor. Reuses the dashboard's aggregation
+ * a card grid with live per-pod state (polled while the page is open) — two columns
+ * where the viewport is wide enough for them, one below that. Unlike the dashboard's
+ * read-only tile grid, each card exposes the management actions the dedicated page
+ * is for — scale it, roll it over to another version (the same dialog that turns
+ * tracing on and off), tail one pod's logs, or open the integration in the
+ * manager/editor. Reuses the dashboard's aggregation
  * (listAllDeployments) so the page and the dashboard summary stay in sync, and the
  * integrations panel's rollout dialog and log panel so a deployment is operated
  * the same way wherever it is met.
+ *
+ * It also answers the question a fleet raises that a single deployment does not:
+ * which of these are running an older runtime than a deploy made today would get.
+ * A deployment keeps the image it was created with until somebody rolls it over,
+ * so on a cluster that has been upgraded a few times the answer is scattered
+ * across the grid — which is why it is also stated once, at the top.
  */
-export default function DeploymentsMonitor() {
+export default function DeploymentsMonitor({
+  currentRuntime = "",
+}: {
+  /**
+   * The octo runtime this install deploys now, from the page's server-only env.
+   * Empty means it has no way of knowing, and nothing is claimed about any
+   * deployment's runtime being old.
+   */
+  currentRuntime?: string;
+}) {
   const { available, ready } = useOrchestrator();
   const [deployments, setDeployments] = useState<DeployedTile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +108,13 @@ export default function DeploymentsMonitor() {
     [deployments],
   );
 
+  // Which deployments a deploy made today would put on a newer runtime. Derived
+  // rather than held: it is a reading of the list that has just been polled.
+  const behind = useMemo(
+    () => sorted.filter((d) => needsUpgrade(d.runtimeVersion, currentRuntime)),
+    [sorted, currentRuntime],
+  );
+
   // The tags this integration already has running, so the version picker can mark
   // them — the same hint the integrations panel gives, derived from the list this
   // page has loaded anyway.
@@ -144,6 +169,10 @@ export default function DeploymentsMonitor() {
             </p>
           )}
 
+          {behind.length > 0 && (
+            <UpgradeNotice behind={behind} currentRuntime={currentRuntime} onRollOut={rollout.open} />
+          )}
+
           <div className="mt-6">
             {!ready ? null : !available ? (
               <EmptyState
@@ -160,12 +189,13 @@ export default function DeploymentsMonitor() {
                 body="Deploy an integration and it will show up here with live status."
               />
             ) : (
-              <ul className="space-y-3">
+              <ul className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                 {sorted.map((d) => (
                   <DeploymentListItem
                     key={d.id}
                     deployment={d}
                     busy={busy || rollout.busy}
+                    currentRuntime={currentRuntime}
                     onScale={scale}
                     onOpenRollout={rollout.open}
                     onOpenLogs={(dep, podName) =>

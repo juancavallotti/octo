@@ -2,12 +2,14 @@ import AppHeader from "@/app/components/AppHeader";
 import ManagementNav from "@/app/components/ManagementNav";
 import UserMenu from "@/app/components/UserMenu";
 import DeploymentsMonitor from "@/app/components/deployments/DeploymentsMonitor";
+import { CURRENT_RUNTIME_IMAGE, imageTag } from "@/app/lib/runtimeRelease";
 
 /**
  * The deployments route (`/platform/deployments`): every active deployment across
  * all integrations with live status, behind the shared header and section nav. A
- * server component so it can hand the header the server-rendered account tile,
- * matching the sibling routes; the monitor fetches client-side.
+ * server component so it can hand the header the server-rendered account tile and
+ * the runtime this install deploys (read from server-only env), matching the
+ * sibling routes; the monitor fetches the deployments client-side.
  */
 export default function DeploymentsPage() {
   return (
@@ -15,7 +17,7 @@ export default function DeploymentsPage() {
       <AppHeader userMenu={<UserMenu />}>
         <ManagementNav />
       </AppHeader>
-      <DeploymentsMonitor />
+      <DeploymentsMonitor currentRuntime={imageTag(CURRENT_RUNTIME_IMAGE)} />
     </div>
   );
 }

@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, ExternalLink, Tag, Waypoints } from "lucide-react";
+import { ArrowUp, Check, Copy, ExternalLink, Tag, Waypoints } from "lucide-react";
 import type { DeploymentStatus } from "@/app/model/orchestrator";
 import { bareHost } from "./podStats";
+import { needsUpgrade } from "@/app/lib/runtimeRelease";
 
 /**
  * The presentational pieces a deployment row is assembled from: its status badge,
- * the version and tracing pills, a copy-to-clipboard button, and a labelled
- * address line.
+ * the version, runtime and tracing pills, a copy-to-clipboard button, and a
+ * labelled address line.
  *
  * None of them knows what a deployment is — they take a status, a string, a
  * label — which is why they sit apart from the row that arranges them. The two
@@ -47,6 +48,51 @@ export function VersionPill({ tag }: { tag: string }) {
   );
 }
 
+/**
+ * The octo runtime the deployment's pods are running, under the octopus — the same
+ * mark the runtime greets you with when it starts. Distinct from VersionPill,
+ * which is the integration's own version: a deployment keeps the runtime image it
+ * was created with until it is rolled over, so a cluster commonly runs several at
+ * once — and which one a misbehaving deployment is on is the first thing asked
+ * when troubleshooting it.
+ */
+export function RuntimePill({
+  version,
+  image,
+  behind,
+}: {
+  version: string;
+  /** Full image reference, shown on hover; the pill itself wears the tag. */
+  image?: string;
+  /**
+   * The runtime this install deploys now, when this deployment is not on it. Its
+   * presence is what turns the pill into a prompt: a deployment keeps the runtime
+   * it was created with until somebody rolls it over, and nothing else on the page
+   * says that has fallen behind.
+   */
+  behind?: string;
+}) {
+  const tone = behind
+    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+    : "bg-zinc-500/15 text-zinc-600 dark:text-zinc-300";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
+      title={
+        behind
+          ? `Running octo ${version}; this install deploys ${behind}. Roll it out to move it.`
+          : image
+            ? `Runtime image ${image}`
+            : `Runtime ${version}`
+      }
+    >
+      <span aria-hidden>🐙</span>
+      {version}
+      {behind && <ArrowUp size={11} aria-label="needs upgrade" />}
+    </span>
+  );
+}
+
 /** Shown only when tracing is on — its absence is what "off" looks like. */
 export function TracedPill() {
   return (
@@ -61,23 +107,40 @@ export function TracedPill() {
 }
 
 /**
- * The row of pills describing what a deployment is running: its version and
- * whether it is traced. Renders nothing when it has neither, so a card with
- * nothing to say does not grow an empty line.
+ * The row of pills describing what a deployment is running: its version, the
+ * runtime carrying it, and whether it is traced. Renders nothing when it has none
+ * of them, so a card with nothing to say does not grow an empty line.
  */
 export function DeploymentPills({
   tag,
   tracing,
+  runtimeVersion,
+  runtimeImage,
+  currentRuntime,
   className = "",
 }: {
   tag?: string;
   tracing?: boolean;
+  /** The runtime tag the pods report; absent on a workload the cluster can't see. */
+  runtimeVersion?: string;
+  runtimeImage?: string;
+  /** The runtime this install deploys now; "" when it has no way of knowing. */
+  currentRuntime?: string;
   className?: string;
 }) {
-  if (!tag && !tracing) return null;
+  if (!tag && !tracing && !runtimeVersion) return null;
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
       {tag && <VersionPill tag={tag} />}
+      {runtimeVersion && (
+        <RuntimePill
+          version={runtimeVersion}
+          image={runtimeImage}
+          behind={
+            needsUpgrade(runtimeVersion, currentRuntime ?? "") ? currentRuntime : undefined
+          }
+        />
+      )}
       {tracing && <TracedPill />}
     </div>
   );

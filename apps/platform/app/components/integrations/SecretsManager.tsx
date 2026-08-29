@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, Search } from "lucide-react";
+import { filterRanked } from "@octo/util";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   deleteSecret,
@@ -9,7 +10,9 @@ import {
   setSecret,
   type ClusterSecret,
 } from "@/app/model/secrets";
+import { listAllDeployments } from "@/app/model/orchestrator";
 import SecretRow from "./SecretRow";
+import { indexSecretUsage, type SecretUse } from "./secretUsage";
 
 /**
  * Cluster-wide secrets management. Secrets are a shared pool of named values that
@@ -21,6 +24,12 @@ import SecretRow from "./SecretRow";
  * Owns its own load/refresh/error state, mirroring IntegrationsManager's `run()`
  * pattern. A delete the orchestrator refuses (the secret is still referenced by a
  * deployment) offers a force override.
+ *
+ * Which secrets are in use is worked out here rather than asked of the
+ * orchestrator: a deployment's env bindings come back on the deployment, so the
+ * page already has the answer as soon as it has listed them. That listing is
+ * allowed to fail — the secrets themselves are the page, and a cluster it cannot
+ * reach must not empty it — and when it does, no row claims to know.
  */
 
 const INPUT =
@@ -38,6 +47,9 @@ export default function SecretsManager() {
 
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
+  const [query, setQuery] = useState("");
+  /** secret name → the deployments binding it; null until (or unless) known. */
+  const [usage, setUsage] = useState<Map<string, SecretUse[]> | null>(null);
 
   const refresh = useCallback(
     () => listSecrets().then(setSecrets, (e) => setError((e as Error).message)),
@@ -47,6 +59,19 @@ export default function SecretsManager() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Usage is a second, optional read: a failure here leaves the badges off rather
+  // than reporting an error over a page that is otherwise working.
+  useEffect(() => {
+    let live = true;
+    listAllDeployments().then(
+      (ds) => live && setUsage(indexSecretUsage(ds)),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
 
   /** Run a mutation, then refresh; surface failures inline. */
   const run = useCallback(
@@ -63,6 +88,13 @@ export default function SecretsManager() {
       }
     },
     [refresh],
+  );
+
+  // Ranked, not filtered: a dropped or mistyped letter still finds the secret
+  // instead of emptying a list whose names are long and nearly alike.
+  const shown = useMemo(
+    () => filterRanked(secrets, query, (s) => s.name),
+    [secrets, query],
   );
 
   const nameValid = NAME_RE.test(name);
@@ -167,18 +199,37 @@ export default function SecretsManager() {
           </div>
         </div>
 
+        {/* Find a secret */}
+        {secrets.length > 0 && (
+          <div className="mt-4 flex items-center gap-2 rounded-md border border-black/10 px-2 dark:border-white/15">
+            <Search size={14} className="shrink-0 text-zinc-400" />
+            <input
+              value={query}
+              placeholder="Search secrets"
+              aria-label="Search secrets"
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full bg-transparent py-1 text-sm outline-none"
+            />
+          </div>
+        )}
+
         {/* Existing secrets */}
-        <div className="mt-4 flex flex-col gap-1.5">
+        <div className="mt-2 flex flex-col gap-1.5">
           {secrets.length === 0 ? (
             <p className="px-1 py-6 text-center text-sm text-zinc-400">
               No secrets yet.
             </p>
+          ) : shown.length === 0 ? (
+            <p className="px-1 py-6 text-center text-sm text-zinc-400">
+              No secret matches “{query}”.
+            </p>
           ) : (
-            secrets.map((s) => (
+            shown.map((s) => (
               <SecretRow
                 key={s.name}
                 secret={s}
                 busy={busy}
+                usage={usage ? (usage.get(s.name) ?? []) : undefined}
                 onSet={setValueFor}
                 onDelete={remove}
               />

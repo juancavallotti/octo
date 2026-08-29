@@ -13,7 +13,11 @@
  */
 
 import { withWriteUser } from "./_auth";
-import { listConversations as list, readConversation as read } from "./client/conversations";
+import {
+  deleteConversation as erase,
+  listConversations as list,
+  readConversation as read,
+} from "./client/conversations";
 import type { ActionResult } from "@octo/http";
 import type { Conversation, ConversationRow } from "./client/conversations";
 
@@ -23,4 +27,8 @@ export async function listConversations(): Promise<ActionResult<ConversationRow[
 
 export async function readConversation(threadId: string): Promise<ActionResult<Conversation>> {
   return withWriteUser((id, session) => read({ id, name: session.user?.name ?? "" }, threadId));
+}
+
+export async function deleteConversation(threadId: string): Promise<ActionResult<void>> {
+  return withWriteUser((id, session) => erase({ id, name: session.user?.name ?? "" }, threadId));
 }

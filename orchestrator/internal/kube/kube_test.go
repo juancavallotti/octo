@@ -713,6 +713,80 @@ func TestExternalHostAndURL(t *testing.T) {
 	}
 }
 
+// TestStatusReportsRuntimeImage covers which image a deployment is reported to be
+// running: what the pod's runtime container actually pulled, and — before any pod
+// has reported — what the spec asks for.
+func TestStatusReportsRuntimeImage(t *testing.T) {
+	spec := func() *appsv1.Deployment {
+		return &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName("d1"), Namespace: testNamespace},
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "runtime", Image: "octo-runtime:v2"}},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("from the running container", func(t *testing.T) {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1-pod", Namespace: testNamespace, Labels: map[string]string{labelDeploymentID: "d1"}},
+			Status: corev1.PodStatus{
+				Phase:             corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{{Name: "runtime", Image: "octo-runtime:v1"}},
+			},
+		}
+		got, err := testClient(spec(), pod).Status(context.Background(), "d1")
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		// v1, not the v2 the spec has rolled to: v1 is what is serving.
+		if got.RuntimeImage != "octo-runtime:v1" {
+			t.Errorf("RuntimeImage = %q, want octo-runtime:v1", got.RuntimeImage)
+		}
+	})
+
+	t.Run("prefers the pod that is serving", func(t *testing.T) {
+		// A rollout, caught mid-flight: the new pod exists and is not ready (its
+		// image will not pull), while the old one is still answering. The old
+		// image is the true answer, and the new pod is first in the list.
+		rolling := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1-new", Namespace: testNamespace, Labels: map[string]string{labelDeploymentID: "d1"}},
+			Status: corev1.PodStatus{
+				Phase:             corev1.PodPending,
+				ContainerStatuses: []corev1.ContainerStatus{{Name: "runtime", Image: "octo-runtime:v2"}},
+			},
+		}
+		serving := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1-old", Namespace: testNamespace, Labels: map[string]string{labelDeploymentID: "d1"}},
+			Status: corev1.PodStatus{
+				Phase:             corev1.PodRunning,
+				Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+				ContainerStatuses: []corev1.ContainerStatus{{Name: "runtime", Image: "octo-runtime:v1"}},
+			},
+		}
+		got, err := testClient(spec(), rolling, serving).Status(context.Background(), "d1")
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		if got.RuntimeImage != "octo-runtime:v1" {
+			t.Errorf("RuntimeImage = %q, want the serving pod's octo-runtime:v1", got.RuntimeImage)
+		}
+	})
+
+	t.Run("falls back to the spec", func(t *testing.T) {
+		got, err := testClient(spec()).Status(context.Background(), "d1")
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		if got.RuntimeImage != "octo-runtime:v2" {
+			t.Errorf("RuntimeImage = %q, want octo-runtime:v2", got.RuntimeImage)
+		}
+	})
+}
+
 func TestStatusRunningReportsReplicas(t *testing.T) {
 	desired := int32(2)
 	dep := &appsv1.Deployment{

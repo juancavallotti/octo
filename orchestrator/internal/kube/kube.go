@@ -419,11 +419,15 @@ func (c *Client) RunnerEnabled(r Runner) bool {
 	return true
 }
 
-// runnerImage is the image a spec's runner runs. Callers reach it only after
+// RunnerImage is the image a spec's runner runs. Callers reach it only after
 // RunnerEnabled has said yes, so an unconfigured agentic runner cannot arrive
 // here; falling through to the standard image is the safe answer for the zero
 // value and for a Runner that somehow bypassed ParseRunner.
-func (c *Client) runnerImage(r Runner) string {
+//
+// Exported because a deploy records the image it shipped in the deployment's
+// metadata: which runtime a workload was put on is a fact about that deploy, and
+// the cluster stops being able to answer it the moment the workload is gone.
+func (c *Client) RunnerImage(r Runner) string {
 	if r == RunnerAgentic && c.agenticRunnerImage != "" {
 		return c.agenticRunnerImage
 	}

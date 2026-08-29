@@ -28,3 +28,8 @@ export async function listConversations(): Promise<ConversationRow[]> {
 export async function readConversation(threadId: string): Promise<Conversation> {
   return unwrap(await actions.readConversation(threadId));
 }
+
+/** Erase a past conversation. */
+export async function deleteConversation(threadId: string): Promise<void> {
+  return unwrap(await actions.deleteConversation(threadId));
+}

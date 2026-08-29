@@ -373,7 +373,7 @@ func (s *memorySession) recordTurn(
 		return
 	}
 	if s.fresh {
-		s.nameThread(ctx, msg, answered)
+		s.nameThread(ctx, msg, answered, iterations)
 		s.fresh = false
 	}
 	if _, err := s.store.AppendTurns(ctx, s.ref, turns); err != nil {
@@ -405,7 +405,9 @@ func (s *memorySession) recordTurn(
 // listed by its key, which is worse to read and no worse to use — and taking the
 // run down over a label, after the person already has their answer, would be a
 // poor trade.
-func (s *memorySession) nameThread(ctx context.Context, msg *types.Message, answered string) {
+func (s *memorySession) nameThread(
+	ctx context.Context, msg *types.Message, answered string, iterations int,
+) {
 	title := titleFor(s.opening)
 	if s.agent.namer != nil {
 		named, err := s.askForName(ctx, msg, answered)
@@ -429,7 +431,16 @@ func (s *memorySession) nameThread(ctx context.Context, msg *types.Message, answ
 	if err := s.store.SetTitle(ctx, s.ref, title); err != nil {
 		slog.Debug("ai-agent could not title the new conversation",
 			"block", s.agent.name, "thread", s.thread, "error", err)
+		return
 	}
+	// Reported only once it is stored, so what a caller is told is what a later
+	// listing will agree with. The iteration is the run's last: naming happens
+	// after the answer, and stamping it 1 would file the event under the turn the
+	// conversation opened with rather than the one it was named from.
+	s.agent.report(ctx, msg, iterations-1, eventThreadTitle, map[string]any{
+		"title":  title,
+		"thread": s.thread,
+	})
 }
 
 // askForName runs the naming chain over the exchange and returns what it made of

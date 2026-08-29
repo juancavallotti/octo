@@ -135,6 +135,12 @@ type Metadata struct {
 	// deployments created before version tags existed.
 	SnapshotID string `json:"snapshotId,omitempty"`
 	Tag        string `json:"tag,omitempty"`
+	// RuntimeImage is the octo runtime image this deployment was put on, recorded
+	// at deploy/rollout time. Which runtime a workload runs is the first thing
+	// asked when troubleshooting it, and a deployment keeps the image it was
+	// created with until it is rolled over, so a cluster runs several at once.
+	// Empty on deployments created before this was recorded.
+	RuntimeImage string `json:"runtimeImage,omitempty"`
 }
 
 // ParseMetadata unmarshals the metadata jsonb, returning a zero Metadata when

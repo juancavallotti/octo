@@ -134,6 +134,19 @@ describe("parseAgentEvent", () => {
     });
   });
 
+  // A blank name would reach the panel and blank a header that was showing one,
+  // which is worse than never having reported it.
+  it("refuses a thread_title with nothing in it, and trims the one it takes", () => {
+    expect(parseAgentEvent('{"type":"thread_title","title":""}')).toBeNull();
+    expect(parseAgentEvent('{"type":"thread_title","title":"   "}')).toBeNull();
+    expect(parseAgentEvent('{"type":"thread_title","title":" Refunds \\n"}')).toEqual({
+      type: "thread_title",
+      iteration: undefined,
+      title: "Refunds",
+      thread: undefined,
+    });
+  });
+
   it("normalises isError to a boolean rather than passing it through", () => {
     const event = parseAgentEvent('{"type":"tool_result","tool":"t","toolCallId":"c1"}');
 

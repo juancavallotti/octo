@@ -119,7 +119,13 @@ export default function DeploymentRow({
         </div>
       </div>
 
-      <DeploymentPills tag={d.tag} tracing={d.tracing} className="mt-1.5" />
+      <DeploymentPills
+        tag={d.tag}
+        tracing={d.tracing}
+        runtimeVersion={d.runtimeVersion}
+        runtimeImage={d.runtimeImage}
+        className="mt-1.5"
+      />
 
       {d.reason && (
         <div className="mt-1.5 flex items-start gap-1 text-xs text-red-500">

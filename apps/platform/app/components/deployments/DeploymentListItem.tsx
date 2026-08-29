@@ -26,9 +26,11 @@ import PodLines from "./PodLines";
  * to the parent, which performs the call and refreshes — mirroring the in-context
  * DeploymentRow.
  *
- * The version and tracing pills sit under the header for the same reason they do
- * there: the header is a fixed set of controls, and threading variable-width
- * labels through it moved the numbers and actions around.
+ * The card is laid out in bands rather than one wrapping header row, because two
+ * of these sit side by side in the page's grid: identity (status, name, version)
+ * on top, then scale and age, then the address and pods, then the actions pinned
+ * to the bottom so neighbouring cards line their buttons up however many pods they
+ * each report.
  */
 
 const STATUS_STYLES: Record<DeploymentStatus, string> = {
@@ -54,12 +56,15 @@ function logsHref(d: DeployedTile): string {
 export default function DeploymentListItem({
   deployment: d,
   busy,
+  currentRuntime,
   onScale,
   onOpenRollout,
   onOpenLogs,
 }: {
   deployment: DeployedTile;
   busy: boolean;
+  /** The runtime this install deploys now, for the pill to mark an older one. */
+  currentRuntime?: string;
   onScale: (d: DeployedTile, replicas: number) => void;
   /** Open the rollout dialog: change version, env, or tracing. */
   onOpenRollout?: (d: DeployedTile) => void;
@@ -72,12 +77,13 @@ export default function DeploymentListItem({
 
   return (
     <li
-      className="rounded-xl border border-black/10 bg-white/40 p-4 dark:border-white/10 dark:bg-zinc-900/30"
+      className="flex h-full flex-col rounded-xl border border-black/10 bg-white/40 p-4 dark:border-white/10 dark:bg-zinc-900/30"
       title={d.id}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      {/* Identity */}
+      <div className="flex items-center gap-2">
         <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
+          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
             STATUS_STYLES[d.status] ?? "bg-zinc-500/15 text-zinc-500"
           }`}
         >
@@ -86,7 +92,18 @@ export default function DeploymentListItem({
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {d.integrationName}
         </h3>
+        <DeploymentPills
+          tag={d.tag}
+          tracing={d.tracing}
+          runtimeVersion={d.runtimeVersion}
+          runtimeImage={d.runtimeImage}
+          currentRuntime={currentRuntime}
+          className="shrink-0"
+        />
+      </div>
 
+      {/* Scale and age */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <ReplicaStepper
           desired={desired}
           busy={busy}
@@ -107,35 +124,7 @@ export default function DeploymentListItem({
             {age}
           </span>
         )}
-
-        <div className="flex items-center gap-2">
-          {onOpenRollout && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onOpenRollout(d)}
-              title="Change version, environment or tracing"
-              className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[0.04] hover:text-zinc-900 disabled:opacity-50 dark:border-white/15 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
-            >
-              <GitBranch size={13} />
-              Roll out
-            </button>
-          )}
-          <RowAction href={logsHref(d)} icon={ScrollText} label="Logs" />
-          <RowAction
-            href={`/platform/integrations/i/${encodeURIComponent(d.integrationId)}`}
-            icon={SlidersHorizontal}
-            label="Manage"
-          />
-          <RowAction
-            href={`/platform/i/${encodeURIComponent(d.integrationId)}`}
-            icon={Pencil}
-            label="Edit"
-          />
-        </div>
       </div>
-
-      <DeploymentPills tag={d.tag} tracing={d.tracing} className="mt-2" />
 
       {d.reason && (
         <div className="mt-2 flex items-start gap-1 text-xs text-red-500">
@@ -160,6 +149,33 @@ export default function DeploymentListItem({
         <PodLines
           pods={pods}
           onOpenLogs={onOpenLogs ? (pod) => onOpenLogs(d, pod) : undefined}
+        />
+      </div>
+
+      {/* Actions, pinned to the bottom of the card */}
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+        {onOpenRollout && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onOpenRollout(d)}
+            title="Change version, environment or tracing"
+            className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-black/[0.04] hover:text-zinc-900 disabled:opacity-50 dark:border-white/15 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
+          >
+            <GitBranch size={13} />
+            Roll out
+          </button>
+        )}
+        <RowAction href={logsHref(d)} icon={ScrollText} label="Logs" />
+        <RowAction
+          href={`/platform/integrations/i/${encodeURIComponent(d.integrationId)}`}
+          icon={SlidersHorizontal}
+          label="Manage"
+        />
+        <RowAction
+          href={`/platform/i/${encodeURIComponent(d.integrationId)}`}
+          icon={Pencil}
+          label="Edit"
         />
       </div>
     </li>

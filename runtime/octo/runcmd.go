@@ -168,7 +168,7 @@ func runOnce(
 	announceConfig(hosted, config)
 
 	service := runtime.NewService(config, core.DefaultRegistry(), runtime.WithRuntimeServices(svc))
-	go announceWhenReady(ctx, service, health)
+	go announceWhenReady(ctx, service, health, config)
 	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		health.SetState(services.StateStopped)
 		return err
@@ -184,7 +184,9 @@ func runOnce(
 // without doing either if the context is cancelled first, including a failed
 // startup, where the run path surfaces the error and cancels the context on the
 // way out.
-func announceWhenReady(ctx context.Context, service *runtime.Service, health *services.Health) {
+func announceWhenReady(
+	ctx context.Context, service *runtime.Service, health *services.Health, config types.Config,
+) {
 	select {
 	case <-service.Started():
 		// Both channels can be ready at once, and select picks between them at
@@ -195,7 +197,7 @@ func announceWhenReady(ctx context.Context, service *runtime.Service, health *se
 			return
 		}
 		health.SetState(services.StateReady)
-		fmt.Println(readyBanner())
+		fmt.Println(readyBanner(len(config.Flows), len(config.Connectors)))
 	case <-ctx.Done():
 	}
 }
@@ -263,7 +265,7 @@ func runGeneration(
 	announced := make(chan struct{})
 	go func() {
 		defer close(announced)
-		announceWhenReady(runCtx, service, health)
+		announceWhenReady(runCtx, service, health, config)
 	}()
 	go func() { done <- service.Run(runCtx) }()
 

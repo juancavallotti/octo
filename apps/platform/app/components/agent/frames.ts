@@ -131,6 +131,20 @@ export interface SignalEvent extends FrameCommon {
   text?: string;
 }
 
+/**
+ * The conversation being named, which happens once — on the run that opened it,
+ * after the answer has already streamed.
+ *
+ * Without it a panel only learns titles from a listing, so the conversation
+ * somebody is *in* stays nameless until something reloads it.
+ */
+export interface ThreadTitleEvent extends FrameCommon {
+  type: "thread_title";
+  title: string;
+  /** Which conversation was named; a caller may be watching more than one. */
+  thread?: string;
+}
+
 export type AgentEvent =
   | TextEvent
   | ThinkingEvent
@@ -140,6 +154,7 @@ export type AgentEvent =
   | CompactionStartEvent
   | CompactionEndEvent
   | SignalEvent
+  | ThreadTitleEvent
   | DoneEvent
   | ErrorEvent
   | GuardrailEvent;

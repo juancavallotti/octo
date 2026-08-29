@@ -250,6 +250,11 @@ export function reduce(turn: Turn, event: AgentEvent): Turn {
         ? turn
         : push(turn, { kind: "text", iter, text: event.text });
 
+    // Naming the conversation says nothing about the turn it arrived on — the
+    // panel takes it (see readRun), and the transcript is left alone.
+    case "thread_title":
+      return turn;
+
     case "error":
       return { ...turn, note: event.error };
 

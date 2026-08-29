@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
-import { filterRanked } from "@octo/util";
 import { AppPickerPanel } from "./AppPickerPanel";
+import { usePickerSearch } from "./usePickerSearch";
 
 /**
  * Choosing which app to look at, once, for every page that asks.
@@ -82,45 +82,15 @@ export function AppPicker<T>({
   onRefresh,
 }: AppPickerProps<T>) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [cursor, setCursor] = useState(0);
 
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const id = useId();
 
-  const matches = useMemo(
-    () => filterRanked(items, query, toText),
-    [items, query, toText],
-  );
-
-  // Clamped as it is read, not corrected afterwards in an effect: narrowing the
-  // list must not leave a render pointing past the end of it, and the cursor is
-  // held rather than reset so retyping narrows *under* it.
-  const active = Math.min(cursor, Math.max(matches.length - 1, 0));
-
   const close = useCallback((restoreFocus: boolean) => {
     setOpen(false);
-    setQuery("");
     if (restoreFocus) trigger.current?.focus();
   }, []);
-
-  // Opening is what clears the query, not closing: a list that rebuilds itself
-  // while it is going away is a list that flickers.
-  const openPanel = useCallback(() => {
-    setQuery("");
-    setCursor(0);
-    setOpen(true);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) close(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open, close]);
 
   const choose = useCallback(
     (item: T) => {
@@ -130,47 +100,29 @@ export function AppPicker<T>({
     [onSelect, close],
   );
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    const count = matches.length;
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setCursor(count ? (active + 1) % count : 0);
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        setCursor(count ? (active - 1 + count) % count : 0);
-        break;
-      case "Home":
-        e.preventDefault();
-        setCursor(0);
-        break;
-      case "End":
-        e.preventDefault();
-        setCursor(Math.max(count - 1, 0));
-        break;
-      case "Enter":
-        e.preventDefault();
-        if (matches[active]) choose(matches[active]);
-        break;
-      case "Escape":
-        e.preventDefault();
-        close(true);
-        break;
-      case "Tab":
-        // Tabbing out closes rather than trapping — a picker is not a dialog.
-        //
-        // The default is deliberately *not* cancelled. Focus is moved to the
-        // trigger first and the browser then continues the Tab from there, so
-        // forward still goes forward and Shift+Tab still goes back. Cancelling
-        // it and landing on the trigger made Tab walk backwards, since the
-        // trigger precedes the field the key was pressed in. Doing nothing at
-        // all is not an option either: closing unmounts that field in the same
-        // commit, and focus would fall to the body.
-        close(true);
-        break;
-    }
-  };
+  const search = usePickerSearch({
+    items,
+    toText,
+    onChoose: choose,
+    onClose: () => close(true),
+  });
+  const { query, matches, active, reset } = search;
+
+  // Opening is what clears the query, not closing: a list that rebuilds itself
+  // while it is going away is a list that flickers.
+  const openPanel = useCallback(() => {
+    reset();
+    setOpen(true);
+  }, [reset]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) close(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open, close]);
 
   const face = selected ? (renderValue ?? toText)(selected) : null;
 
@@ -203,14 +155,14 @@ export function AppPicker<T>({
             matches={matches}
             sourceCount={items.length}
             active={active}
-            onActivate={setCursor}
+            onActivate={search.setCursor}
             onChoose={choose}
             selectedKey={selected ? toKey(selected) : null}
             toKey={toKey}
             renderRow={renderRow}
             query={query}
-            onQueryChange={setQuery}
-            onKeyDown={onKeyDown}
+            onQueryChange={search.setQuery}
+            onKeyDown={search.onKeyDown}
             idPrefix={id}
             label={label}
             placeholder={placeholder}

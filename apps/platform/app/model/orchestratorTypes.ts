@@ -139,6 +139,12 @@ export interface Deployment {
   env?: Record<string, EnvBindingInput>;
   /** Whether this deployment's pods run with the runtime tracer on. */
   tracing?: boolean;
+  /** The octo runtime image the pods are running, and its tag on its own. Absent
+   * when neither the cluster nor the record knows. It is not the platform's own
+   * version: a deployment keeps the image it was created with until it is rolled
+   * over, so a cluster commonly runs several at once. */
+  runtimeImage?: string;
+  runtimeVersion?: string;
 }
 
 /** How one declared env var is filled at deploy: a literal value or a secret ref. */

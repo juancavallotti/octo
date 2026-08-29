@@ -184,7 +184,7 @@ func TestStandardRunnerPodIsUnchanged(t *testing.T) {
 // image name that is empty.
 func TestAgenticRunnerFallsBackWhenUnconfigured(t *testing.T) {
 	c := testClientFor(testConfig("octo.example.com"))
-	if got := c.runnerImage(RunnerAgentic); got != "octo-runtime:dev" {
+	if got := c.RunnerImage(RunnerAgentic); got != "octo-runtime:dev" {
 		t.Errorf("unconfigured agentic image = %q, want the standard runtime", got)
 	}
 }

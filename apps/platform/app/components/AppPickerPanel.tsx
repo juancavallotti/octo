@@ -28,6 +28,8 @@ export function AppPickerPanel<T>({
   label,
   placeholder,
   empty,
+  notice,
+  align = "left",
 }: {
   matches: readonly T[];
   /** How many items there were before the query, so "none" can say which none. */
@@ -45,6 +47,17 @@ export function AppPickerPanel<T>({
   label: string;
   placeholder: string;
   empty?: ReactNode;
+  /**
+   * Something that went wrong while the panel was open, shown under the search
+   * field. It is not an empty state: the list is still there and still usable,
+   * and taking it away to show the message would lose what the panel is for.
+   */
+  notice?: ReactNode;
+  /**
+   * Which edge the panel hangs from. A trigger at the right of its container — an
+   * icon in a header — would otherwise open a panel running off the screen.
+   */
+  align?: "left" | "right";
 }) {
   const search = useRef<HTMLInputElement>(null);
   const listbox = useRef<HTMLDivElement>(null);
@@ -62,7 +75,11 @@ export function AppPickerPanel<T>({
   }, [active, matches.length]);
 
   return (
-    <div className="absolute left-0 top-full z-40 mt-1 w-[min(28rem,90vw)] overflow-hidden rounded-md border border-black/10 bg-white shadow-lg dark:border-white/15 dark:bg-zinc-900">
+    <div
+      className={`absolute top-full z-40 mt-1 w-[min(28rem,90vw)] overflow-hidden rounded-md border border-black/10 bg-white shadow-lg dark:border-white/15 dark:bg-zinc-900 ${
+        align === "right" ? "right-0" : "left-0"
+      }`}
+    >
       <div className="flex items-center gap-2 border-b border-black/10 px-2 py-1.5 dark:border-white/10">
         <Search size={13} className="shrink-0 text-zinc-400" aria-hidden />
         <input
@@ -80,6 +97,12 @@ export function AppPickerPanel<T>({
           className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
         />
       </div>
+
+      {notice && (
+        <p className="border-b border-black/10 bg-red-500/[0.06] px-3 py-1.5 text-[11px] text-red-500 dark:border-white/10">
+          {notice}
+        </p>
+      )}
 
       <div
         ref={listbox}
