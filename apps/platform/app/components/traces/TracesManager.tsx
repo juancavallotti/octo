@@ -7,7 +7,7 @@ import AppHeader from "@/app/components/AppHeader";
 import ManagementNav from "@/app/components/ManagementNav";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import type { TraceApp, TraceSummary } from "@/app/model/traces";
-import TraceAppList from "./TraceAppList";
+import TraceAppPicker from "./TraceAppPicker";
 import TraceDetail from "./TraceDetail";
 import TraceFilters from "./TraceFilters";
 import TraceList from "./TraceList";
@@ -24,8 +24,12 @@ import { useTraceApps } from "./useTraceApps";
 import { useTraceList } from "./useTraceList";
 
 /**
- * The `/platform/traces` route: the apps that published traces on the left, one
- * app's traces in the middle, and the selected trace's waterfall on the right.
+ * The `/platform/traces` route: one app's traces on the left, chosen from the
+ * picker above them, and the selected trace's waterfall filling the rest.
+ *
+ * The app list used to be a third pane of its own. It is a picker now because the
+ * choice is made once and then stopped thinking about, while the waterfall it was
+ * taking width from is the thing being read the whole time.
  *
  * The selection lives in the URL path and the filters in its query string, and
  * the manager lives in the route's *layout*, so moving between apps and traces
@@ -139,17 +143,16 @@ export default function TracesManager({
       )}
 
       <div className="flex min-h-0 flex-1">
-        <TraceAppList
-          apps={apps.apps}
-          window={apps.window}
-          loading={apps.loading}
-          selectedId={selection.deploymentId}
-          selectedVersion={selection.appVersion}
-          onSelect={selectApp}
-          onRefresh={refresh}
-        />
-
         <div className="flex w-96 shrink-0 flex-col border-r border-black/10 dark:border-white/10">
+          <TraceAppPicker
+            apps={apps.apps}
+            window={apps.window}
+            loading={apps.loading}
+            selectedId={selection.deploymentId}
+            selectedVersion={selection.appVersion}
+            onSelect={selectApp}
+            onRefresh={refresh}
+          />
           <TraceFilters
             value={filters}
             disabled={!selection.deploymentId}
