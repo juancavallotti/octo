@@ -59,6 +59,16 @@ describe("Canvas zoom", () => {
     expect(layer().style.zoom).toBe("1");
   });
 
+  it("fits on whichever axis has run out first", async () => {
+    // jsdom reports every box as 0, which fitZoom answers with 1 — so what this
+    // pins is that Fit is wired and lands somewhere legal, not the factor. The
+    // axis choice is checked in the browser, where boxes have sizes.
+    renderCanvas();
+    await userEvent.click(screen.getByLabelText("Zoom out"));
+    await userEvent.click(screen.getByLabelText("Fit flows in view"));
+    expect(layer().style.zoom).toBe("1");
+  });
+
   it("stops offering to zoom past the ends", async () => {
     renderCanvas();
     const out = screen.getByLabelText("Zoom out");

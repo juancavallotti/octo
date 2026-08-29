@@ -73,15 +73,24 @@ export default function Canvas() {
     return () => element.removeEventListener("wheel", onWheel);
   }, [zoom, setZoom, dragging]);
 
+  // Both axes, smaller wins. Width alone would barely move: the board is a
+  // narrow `w-fit` column, so a flow that has outgrown the window has almost
+  // always outgrown it downwards — which is the case someone presses Fit for.
+  //
   // Measured off the layer rather than tracked: under `zoom` a measured rect is
-  // in drawn pixels, so dividing by the current factor recovers the natural width
+  // in drawn pixels, so dividing by the current factor recovers the natural size
   // without keeping a second copy of it in state.
   const fit = useCallback(() => {
     const element = scroller.current;
     const content = layer.current;
     if (!element || !content) return;
-    const natural = content.getBoundingClientRect().width / zoom;
-    setZoom(fitZoom(natural, element.clientWidth));
+    const box = content.getBoundingClientRect();
+    setZoom(
+      Math.min(
+        fitZoom(box.width / zoom, element.clientWidth),
+        fitZoom(box.height / zoom, element.clientHeight),
+      ),
+    );
   }, [zoom, setZoom]);
 
   useCanvasZoomShortcuts({ fit, disabled: dragging });
