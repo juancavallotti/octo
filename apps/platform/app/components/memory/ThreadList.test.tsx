@@ -11,10 +11,13 @@ import type { MemoryThread } from "@/app/model/agentMemory";
  */
 
 const THREAD: MemoryThread = {
+  agentId: "dr-octo",
   threadKey: "2ab89dca-fc54-44dd-a175-33187e3e7c68/98f1c2",
   title: "",
   userId: "",
+  version: 1,
   turnCount: 16,
+  createdAt: "2026-08-27T10:00:00Z",
   lastActivityAt: "2026-08-27T10:00:00Z",
 };
 
