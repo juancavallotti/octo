@@ -14,7 +14,7 @@
 
 import { type ActionResult } from "@octo/http";
 import { fetchAgentStatus } from "./agentUrl";
-import { listThreads, readThread, type MemoryTurn } from "./agentMemory";
+import { deleteThread, listThreads, readThread, type MemoryTurn } from "./agentMemory";
 
 /**
  * The agent id Dr. Octo declares in his own definition.
@@ -139,6 +139,22 @@ export async function readConversation(
       turns: result.data.turns.map(toTurn),
     },
   };
+}
+
+/**
+ * Erase a conversation: its turns, its working memory and the conversation itself.
+ *
+ * Scoped the way a read is — the key is composed from the asker — so the worst a
+ * wrong thread id can do is name a conversation that does not exist.
+ */
+export async function deleteConversation(
+  user: Asker,
+  threadId: string,
+): Promise<ActionResult<void>> {
+  const integration = await integrationId();
+  if (!integration.ok) return integration;
+
+  return deleteThread(integration.id, DR_OCTO_AGENT_ID, threadKeyOf(threadId, user.id));
 }
 
 /**

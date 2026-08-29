@@ -103,6 +103,20 @@ export function parseAgentEvent(data: string): AgentEvent | null {
     case "compaction_end":
       return { type: "compaction_end", iteration, dropped: num(frame.dropped) };
 
+    // A name only counts if there is one, and `str` alone would let "" and a
+    // line of spaces through — either of which blanks a header that was showing
+    // something, which is the case this is here to prevent.
+    case "thread_title": {
+      const title = str(frame.title) ? frame.title.trim() : "";
+      if (!title) return null;
+      return {
+        type: "thread_title",
+        iteration,
+        title,
+        thread: str(frame.thread) ? frame.thread : undefined,
+      };
+    }
+
     case "signal":
       if (!str(frame.signal)) return null;
       return {

@@ -15,6 +15,12 @@ export interface AgentChat {
   busy: boolean;
   error: string | null;
   /**
+   * What the conversation on screen is called, or null for one nothing has named
+   * yet. It arrives two ways: carried in by the listing that opened a stored
+   * conversation, and reported by the runtime on the run that names a new one.
+   */
+  title: string | null;
+  /**
    * Ask, or steer. A message sent while a run is in flight is handed to that run
    * rather than starting a second one — see {@link steer}.
    */
@@ -22,7 +28,7 @@ export interface AgentChat {
   stop: () => void;
   reset: () => void;
   /** Replace the conversation with a stored one, and continue it. */
-  resume: (threadId: string, turns: Turn[]) => void;
+  resume: (threadId: string, turns: Turn[], title?: string) => void;
 }
 
 /**
@@ -56,6 +62,7 @@ export function useAgentChat(
   } = useTranscript();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   // Steers in flight. They are not the run's request and must not share its
   // controller, but they still have to be cancellable — see steer and dropSteers.
@@ -70,11 +77,24 @@ export function useAgentChat(
     navigate.current = onNavigate;
   }, [onNavigate]);
 
+  const nameThread = useCallback(
+    (named: string, thread?: string) => {
+      if (thread && thread !== readThreadId(userKey)) return;
+      setTitle(named);
+    },
+    [userKey],
+  );
+
   // The transcript's mutators, as the reader wants them. Memoized so a run holds
   // one sink for its whole life rather than a new one per render.
   const sink = useMemo<RunSink>(
-    () => ({ apply, applySignal, takeMessage, setFinalAnswer, noteTurn }),
-    [apply, applySignal, noteTurn, setFinalAnswer, takeMessage],
+    // nameThread is the runtime reporting what it called this conversation, on
+    // the run that opened it — so a new conversation acquires its name mid-run
+    // rather than only on the next listing. A name for some other thread is
+    // dropped: it would retitle the conversation on screen with one that belongs
+    // to a conversation nobody is looking at.
+    () => ({ apply, applySignal, takeMessage, setFinalAnswer, noteTurn, nameThread }),
+    [apply, applySignal, nameThread, noteTurn, setFinalAnswer, takeMessage],
   );
 
   /**
@@ -278,6 +298,7 @@ export function useAgentChat(
     setBusy(false);
     sessionStorage.removeItem(threadKey(userKey));
     replace([]);
+    setTitle(null);
     setError(null);
   }, [dropSteers, replace, userKey]);
 
@@ -287,18 +308,19 @@ export function useAgentChat(
    * not reading it.
    */
   const resume = useCallback(
-    (threadId: string, stored: Turn[]) => {
+    (threadId: string, stored: Turn[], name?: string) => {
       dropSteers();
       abort.current?.abort();
       abort.current = null;
       setBusy(false);
       sessionStorage.setItem(threadKey(userKey), threadId);
       replace(stored);
+      setTitle(name ?? null);
       setError(null);
     },
     [dropSteers, replace, userKey],
   );
 
-  return { turns, busy, error, send, stop, reset, resume };
+  return { turns, busy, error, title, send, stop, reset, resume };
 }
 

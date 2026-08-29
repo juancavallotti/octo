@@ -92,6 +92,50 @@ func TestAgentStoreTitlesNewConversation(t *testing.T) {
 	}
 }
 
+// TestAgentStoreReportsTheTitleItWrote checks that naming a conversation is
+// announced on the events path.
+//
+// The name is written after the answer has already streamed, so a caller that
+// only learns titles from a listing shows the conversation it is *in* as nameless
+// until something reloads it. The event carries the thread too, since a caller
+// may be watching more than one.
+func TestAgentStoreReportsTheTitleItWrote(t *testing.T) {
+	var events []map[string]any
+	var seen []any
+	reg := agentRegistry(&seen)
+	reg.MustRegister("collect", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return processorFunc(func(_ context.Context, m *types.Message) (*types.Message, error) {
+			if body, ok := m.Body.(map[string]any); ok {
+				events = append(events, body)
+			}
+			return m, nil
+		}), nil
+	})
+
+	cfg := storeAgentConfig("support")
+	cfg.Input = `"how do I get a refund?"`
+	cfg.Events = &types.FlowConfig{Process: []types.BlockConfig{{Type: "collect"}}}
+	conn := &scriptedLLM{responses: []*core.LLMResponse{endTurnResp("ask billing")}}
+	block := mustBuildAI(t, reg, depsLLM(conn), cfg)
+	ctx, mem, _ := withFakeMemory(context.Background())
+	if _, err := block.Process(ctx, aiMessage(t)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	named := eventOfType(events, eventThreadTitle)
+	if named == nil {
+		t.Fatalf("naming the conversation was not reported: got %v", typesOf(events))
+	}
+	// The event and the store have to agree, or a panel shows one name and a
+	// listing another.
+	if got, stored := named["title"], mem.titleOf("support", "thread-1"); got != stored {
+		t.Errorf("event says %q, store says %q", got, stored)
+	}
+	if got := named["thread"]; got != "thread-1" {
+		t.Errorf("event named thread %v, want thread-1", got)
+	}
+}
+
 // TestAgentStoreNamesWithTheChain checks the nameThread slot: whatever it
 // returns becomes the title, and the ENGINE is what writes it.
 //

@@ -63,9 +63,17 @@ export default function AgentDrawer({
       className="fixed inset-y-0 right-0 z-40 flex w-[min(32rem,100vw)] flex-col border-l border-black/10 bg-white shadow-2xl dark:border-white/15 dark:bg-zinc-900"
     >
       <header className="flex items-center gap-2 border-b border-black/10 px-3 py-2 dark:border-white/10">
-        <span className="text-sm font-semibold">Dr. Octo</span>
-        <span className="text-xs text-zinc-500">at your service</span>
-        <div className="ml-auto flex items-center gap-2">
+        <span className="shrink-0 text-sm font-semibold">Dr. Octo</span>
+        {/* The conversation on screen, in the space the header has going spare.
+            Nothing when it has no name yet: the runtime names one once there is
+            something to name, and reports it — a placeholder in the meantime
+            would be a label that changes under the reader. */}
+        {chat.title && (
+          <span className="min-w-0 flex-1 truncate text-xs text-zinc-500" title={chat.title}>
+            {chat.title}
+          </span>
+        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {open?.context && <ContextGauge gauge={open.context} />}
           <ConversationList onOpen={chat.resume} />
           <button

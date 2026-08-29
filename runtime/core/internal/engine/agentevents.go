@@ -42,6 +42,12 @@ const (
 	// explain.
 	eventCompactionStart = "compaction_start"
 	eventCompactionEnd   = "compaction_end"
+	// eventThreadTitle is the conversation being named, which happens once, on the
+	// run that opened it. It is reported rather than left to be discovered because
+	// the name is written after the answer has already streamed: a panel that
+	// only learns titles from a listing shows the conversation it is in the middle
+	// of as nameless until someone reloads it.
+	eventThreadTitle = "thread_title"
 	// eventGuardrail is the agent giving up and taking the guardrail.
 	eventGuardrail = "guardrail"
 	// eventDone is the agent finishing with an answer.
@@ -64,7 +70,7 @@ var agentEventKinds = map[string]bool{
 	eventTurnStart: true, eventText: true, eventThinking: true, eventToolInput: true,
 	eventCustom: true, eventToolCall: true, eventToolResult: true, eventTurnEnd: true,
 	eventCompactionStart: true, eventCompactionEnd: true, eventSignal: true,
-	eventGuardrail: true, eventDone: true, eventError: true,
+	eventThreadTitle: true, eventGuardrail: true, eventDone: true, eventError: true,
 }
 
 // deltaKinds maps the provider's canonical stream vocabulary onto agent event

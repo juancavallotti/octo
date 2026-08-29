@@ -84,6 +84,31 @@ describe("useAgentChat", () => {
     ]);
   });
 
+  it("takes the name the runtime gives the conversation it is running", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(frames({ type: "text", text: "three." }, { type: "thread_title", title: "Counting integrations" })),
+    );
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("how many integrations"));
+
+    await waitFor(() => expect(result.current.title).toBe("Counting integrations"));
+  });
+
+  // The panel shows one conversation. A name for another would retitle the one on
+  // screen with a name that belongs somewhere nobody is looking.
+  it("ignores a name reported for a different conversation", async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(frames({ type: "thread_title", title: "Someone else's", thread: "other-thread" })),
+    );
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("hello"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.title).toBeNull();
+  });
+
   it("opens a chip on a tool call and closes it on the result", async () => {
     fetchMock.mockResolvedValue(
       sseResponse(
