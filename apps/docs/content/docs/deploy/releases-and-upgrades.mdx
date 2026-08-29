@@ -64,6 +64,11 @@ jobs in parallel:
   default, standalone-services build) and pushes the same two tags for
   `juancavallotti/octo-runtime`, so integrations can be run from Docker
   without a cluster. See [Docker images](/deploy/docker-images#octo-runtime).
+- **publish-api-runtime** — builds `runtime/Dockerfile` with `GOTAGS=api` and
+  pushes `juancavallotti/octo-api` and `juancavallotti/octo-api-paas` off that
+  one build, so the public image and the private-registry one share a digest.
+  This is the runtime whose platform capabilities come from a server you
+  implement. See [The platform API](/extending/platform-api).
 - **publish-paas-images** — builds the five platform images
   (`octo-platform-paas`, `octo-orchestrator-paas`, `octo-logs-paas`,
   `octo-schema-paas`, `octo-runtime-paas`) multi-arch and pushes them to public

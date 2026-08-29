@@ -2,7 +2,8 @@
   "pages": [
     "index",
     "connectors",
-    "runtime-services"
+    "runtime-services",
+    "platform-api"
   ],
   "title": "Extending"
 }

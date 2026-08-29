@@ -10,8 +10,9 @@ import { OCTO_VERSION } from '@/lib/version';
 Octo builds its images from seven Dockerfiles. Six produce the **platform
 images**, published to public Docker Hub under a `-paas` suffix
 (`juancavallotti/octo-platform-paas`, …) and, in the reference deployment, also
-to Artifact Registry. Two more are **public images** for use without a cluster:
-the standalone editor and the runtime on its own.
+to Artifact Registry. Three more are **public images** for use without this
+cluster: the standalone editor, the runtime on its own, and the runtime that
+delegates its platform capabilities to a server you implement.
 
 The Helm chart's defaults point at the public `-paas` images, so installing the
 chart needs no registry of your own — see [Helm chart](#helm-charts) below.
@@ -26,13 +27,15 @@ chart needs no registry of your own — see [Helm chart](#helm-charts) below.
 | `octo-schema` | `sql/Dockerfile` | `./sql` | Applies `sql/schema.sql` as an install/upgrade Job |
 | `juancavallotti/octo` | `apps/standalone/Dockerfile` | Repo root | Public standalone editor ("try Octo"), no cluster needed |
 | `juancavallotti/octo-runtime` | `runtime/Dockerfile` | Repo root | Public runtime alone: run integrations from Docker, no cluster |
+| `juancavallotti/octo-api` | `runtime/Dockerfile` | Repo root | Public runtime whose platform capabilities come from [an API you implement](/extending/platform-api) |
 
 Every image that contains a Go binary builds from the **repo root**, because the
 Go module is rooted there and a narrower context cannot reach `runtime/`.
 
-The last row shares a Dockerfile with the cluster's `octo-runtime` but not a
-binary: the public image is the default build, the cluster image is built with
-`-tags k8s`. See [octo-runtime](#octo-runtime) below.
+The last three rows share `runtime/Dockerfile` with the cluster's `octo-runtime`
+but not a binary: the cluster image is built with `-tags k8s`, the public runtime
+is the default build, and `octo-api` is built with `-tags api`. See
+[octo-runtime](#octo-runtime) below.
 
 ## Where they are built
 
@@ -71,10 +74,10 @@ Every Dockerfile that carries a Go binary can get it two ways, chosen by the
   `images:ar`.
 
 `runtime/Dockerfile` is the one file where the choice also names a variant, since
-it builds both providers: `prebuilt-k8s` and `prebuilt-standalone` instead of a
-plain `prebuilt` (its `compile` arm still reads `GOTAGS`). One value rather than
-two arguments, so there is no way to ask for the k8s image and get the standalone
-binary.
+it builds every provider: `prebuilt-k8s`, `prebuilt-standalone` and `prebuilt-api`
+instead of a plain `prebuilt` (its `compile` arm still reads `GOTAGS`). One value
+rather than two arguments, so there is no way to ask for the k8s image and get the
+standalone binary.
 
 The reason is build time. Left to the Dockerfiles, one `task cluster:deploy` runs
 the Go compiler ten times across eight images — seven of them on the root module,
@@ -173,7 +176,7 @@ runs as `nonroot`. The default command is
 `octo run --config /etc/octo/integrations`, which loads every `.yaml`/`.yml`
 mounted into that directory.
 
-One Dockerfile, two images, differing only in the `GOTAGS` build arg — which
+One Dockerfile, four images, differing only in the `GOTAGS` build arg — which
 selects the [services provider](/concepts/runtime-services) compiled into the
 binary:
 
@@ -182,6 +185,7 @@ binary:
 | **Cluster** `octo-runtime` | `k8s` (default) | Lease-based leader election, orchestrator-backed KV, NATS queues | Your registry, by `cloudbuild.yaml` |
 | **Public** `juancavallotti/octo-runtime` | *empty* | Standalone: in-process queues, in-memory KV, no external infrastructure | Docker Hub, by the release workflow |
 | **Dev runs** `octo-devruntime` | *empty* | The same standalone provider, published to your registry for the editor's Run | Your registry, by `cloudbuild.yaml` |
+| **Platform API** `juancavallotti/octo-api` | `api` | Every capability delegated to the HTTP server at `OCTO_PLATFORM_API_URL` | Docker Hub, by the release workflow |
 
 The build tags are mutually exclusive, which is why the dev-run image is a
 separate image and not a second tag of the cluster one: run `octo-runtime` with

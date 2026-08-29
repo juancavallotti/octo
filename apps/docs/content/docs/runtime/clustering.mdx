@@ -91,13 +91,15 @@ The runtime does not load-balance HTTP itself. An `http` source binds a server i
 
 ## Recap: standalone vs. clustered
 
-| Service | Standalone (default build) | Clustered (`-tags k8s`) |
-| --- | --- | --- |
-| Queues | In-process buffered channels | NATS queue groups, `octo.<id>.q.<subject>` |
-| Topics | In-process fan-out | NATS subscriptions, `octo.<id>.t.<subject>` |
-| KV / object store | Serialized to `--storage-dir`; volatile namespaces and secrets in memory | Orchestrator HTTP KV (persistent, encrypted secrets); Redis, dialed directly, for volatile namespaces |
-| Leader election | Always leader | Kubernetes Lease per key |
-| Leases | Map under a mutex | Kubernetes Lease per name, `octo-claim-<id>-<hash>` |
-| Log shipping | None (stderr only) | NATS to the central log sink |
+| Service | Standalone (default build) | Clustered (`-tags k8s`) | Platform API (`-tags api`) |
+| --- | --- | --- | --- |
+| Queues | In-process buffered channels | NATS queue groups, `octo.<id>.q.<subject>` | Long poll with ack/nack, at-least-once |
+| Topics | In-process fan-out | NATS subscriptions, `octo.<id>.t.<subject>` | A cursor per subscriber, polled |
+| KV / object store | Serialized to `--storage-dir`; volatile namespaces and secrets in memory | Orchestrator HTTP KV (persistent, encrypted secrets); Redis, dialed directly, for volatile namespaces | Your server, namespace by namespace |
+| Leader election | Always leader | Kubernetes Lease per key | Campaign polling against a TTL |
+| Leases | Map under a mutex | Kubernetes Lease per name, `octo-claim-<id>-<hash>` | Acquire, renew and release against your server |
+| Log shipping | None (stderr only) | NATS to the central log sink | Batched to your server, if it accepts them |
+
+The third column is [the platform API](/extending/platform-api): the same interface, delegated to a server you implement, for running Octo outside Octo's own PaaS.
 
 The build tag selects the module ([Runtime Architecture](/runtime)); the orchestrator sets the environment (`OCTO_DEPLOYMENT_ID`, `NATS_URL`, `ORCHESTRATOR_URL`, pod identity) that the k8s module requires at startup.

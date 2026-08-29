@@ -175,6 +175,14 @@ tasks:
     cmds:
       - pnpm --filter docs build
 
+  docs:openapi:
+    desc: Refresh the downloadable platform API contract under apps/docs/public
+    cmds:
+      - task: runtime:build
+      # The document lives in the binary, so this is a copy — and a copy is
+      # exactly the thing that goes stale, which is why CI diffs it afterwards.
+      - ./bin/octo openapi --out apps/docs/public/octo-platform-api.yaml
+
   docs:check:
     desc: Fail if connector/block docs drift from the runtime registry
     cmds:

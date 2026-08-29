@@ -36,16 +36,19 @@ The runtime discovers its components through two process-wide registries:
 
 Composite block kinds (`handle-errors`, `fork`, `if`, `switch`, `foreach`, `enrich`, and the AI composites) are not in the block registry: the flow builder recognizes them and constructs their typed sub-flows directly.
 
-## Build-tag providers: standalone vs. k8s
+## Build-tag providers
 
-Clustered capabilities — queues, topics, the KV store, leader election, log shipping — sit behind a runtime-services interface with two provider modules, selected at build time:
+Clustered capabilities — queues, topics, the KV store, leader election, log shipping — sit behind a runtime-services interface with three provider modules, selected at build time:
 
 | Build | Provider | Backing |
 | --- | --- | --- |
 | Default (no tags) | `standalone` | In-process queues and topics, in-memory KV, always-leader election, filesystem resources. No external infrastructure. |
 | `-tags k8s` | `k8s` | NATS-backed queues and topics, orchestrator-backed KV, Lease-based leader election, central log shipping. |
+| `-tags api` | `api` | Everything delegated to an HTTP server you implement, named by `OCTO_PLATFORM_API_URL`. |
 
-The default build ships only the standalone provider, keeping Kubernetes client-go and NATS out of the binary — this is what local builds and the standalone image use. The cluster image is built with `-tags k8s` and ships only the k8s provider, so the two images stay disjoint. Flow YAML is identical under both; only the backends differ. See [Clustering](/runtime/clustering).
+The default build ships only the standalone provider, keeping Kubernetes client-go and NATS out of the binary — this is what local builds and the standalone image use. The cluster image is built with `-tags k8s` and ships only the k8s provider, so the images stay disjoint. The `api` build is for running Octo outside Octo's own PaaS — on Cloud Run, or against a platform service of your own — and is documented in [The platform API](/extending/platform-api).
+
+Flow YAML is identical under all three; only the backends differ. See [Clustering](/runtime/clustering).
 
 ## What a runtime instance is
 

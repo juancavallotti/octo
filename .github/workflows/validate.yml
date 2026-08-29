@@ -214,5 +214,10 @@ jobs:
       # docs page claims a type that no longer exists). See AGENTS.md
       # "Documentation policy".
       - run: node scripts/check-docs-drift.mjs
+      # The downloadable platform API contract is a COPY of the one embedded in
+      # the binary, so unlike the drift tests beside it in Go, only a diff can
+      # tell whether it is current.
+      - run: task docs:openapi
+      - run: git diff --exit-code -- apps/docs/public/octo-platform-api.yaml
       # Static-export build doubles as an MDX/broken-link check.
       - run: pnpm --filter docs build

@@ -1,0 +1,1846 @@
+# The Octo Platform API — the contract a runtime running with
+# RUNTIME_SERVICES_MODULE=api expects the server at OCTO_PLATFORM_API_URL to
+# implement.
+#
+# READ THIS FIRST. It is a consumer-defined interface: Octo defines it, you
+# implement it, and the runtime is the only client. You are not obliged to
+# implement all of it. The discovery endpoint is where you say what you did
+# implement, and everything you leave out degrades or refuses on the runtime's
+# side without you writing a line for it. A server that implements discovery and
+# the four KV routes is a legitimate, useful implementation.
+#
+# Five things implementers get wrong. They are called out again at each route,
+# but they are worth knowing before you start:
+#
+#   1. 404 means the addressed thing is absent — this key, this lease, this
+#      conversation. It never means "no such route". A route you have not
+#      implemented answers 501, and the runtime turns that capability off for the
+#      life of the process rather than failing every call.
+#   2. 204 on a receive is the long poll expiring with nothing to deliver. It is
+#      the normal case on an idle subject, not an error. Hold the request open for
+#      the waitSeconds you were sent before answering it; a server that answers
+#      immediately makes the runtime poll as fast as the network allows, and it
+#      paces itself only because it has to defend against exactly that.
+#   3. X-Object-Version: 0 on a write means CREATE. It must fail with 409 if the
+#      object already exists. A positive value must match the current version.
+#      This is what stops a concurrent update being silently lost.
+#   4. Keys, resource names and memory names arrive as QUERY PARAMETERS, not path
+#      segments, because they may contain a slash. Do not move them into the path:
+#      %2F inside a segment is normalized by several proxies and would merge two
+#      distinct keys into one.
+#   5. userId on the agent-memory thread routes is a query parameter and it
+#      matters. Record who a conversation is with on the first write that names
+#      one. Ignoring it stores a complete history attributed to nobody, and the
+#      person's own view of their conversations then shows as empty.
+#
+# There is no push anywhere in this contract, and that is deliberate rather than
+# unfinished. Queues and topics are pull: the runtime long-polls you. That works
+# well for distributing work between replicas of one deployment, which is what
+# Octo's queues are for. It is not an event bus. If something outside needs to
+# TRIGGER a flow, do not try to model it here — give the flow an HTTP source and
+# have your event source call it directly.
+
+openapi: 3.1.0
+
+info:
+  title: Octo Platform API
+  # This is the specVersion the runtime compares against what discovery returns.
+  # A mismatch is a warning on the runtime's side, never a refusal: turning a
+  # working deployment into an outage over a version string helps nobody.
+  version: "1.0"
+  summary: The platform capabilities an Octo runtime delegates to a server you implement.
+  description: |
+    Every platform capability an Octo runtime needs — key/value storage, secrets,
+    resources, leases, leader election, queues, topics, agent memory, traces and
+    logs — reached over HTTP against a server you provide.
+
+    The runtime that speaks this is the `octo-api` image, or any `octo` binary
+    built with `-tags api`. Point it at your server with `OCTO_PLATFORM_API_URL`
+    and set `RUNTIME_SERVICES_MODULE=api`.
+
+    Run `octo verify-platform-api <url>` against your implementation to check it
+    against this document before you deploy it.
+  license:
+    name: Elastic License 2.0
+    identifier: Elastic-2.0
+
+externalDocs:
+  description: The platform API guide, with deployment recipes and a reference implementation.
+  url: https://octopaas.dev/octo/docs/extending/platform-api
+
+servers:
+  - url: "{platformApiUrl}"
+    description: >-
+      Whatever OCTO_PLATFORM_API_URL names — a Cloud Run service, an in-cluster
+      Service, or a sidecar on loopback.
+    variables:
+      platformApiUrl:
+        default: http://127.0.0.1:8080
+
+security:
+  - bearerAuth: []
+  - {}
+
+tags:
+  - name: discovery
+    description: What you implement. Called once at startup.
+  - name: kv
+    description: Versioned key/value storage, including the namespaces secrets live in.
+  - name: resources
+    description: Files a runtime loads by name — .env files and templates.
+  - name: leases
+    description: Exclusive, expiring claims on a name. Never blocks.
+  - name: leaderElection
+    description: One replica at a time, decided by repeated campaigning.
+  - name: queues
+    description: Point-to-point delivery between replicas, with acknowledgement.
+  - name: topics
+    description: Broadcast to every subscriber, each with its own cursor.
+  - name: agentMemory
+    description: What an agent remembers — live context, conversation history, curated user memory.
+  - name: telemetry
+    description: Trace records and log records shipped in batches.
+
+paths:
+  /v1/discovery:
+    get:
+      tags: [discovery]
+      operationId: getDiscovery
+      summary: What this platform implements.
+      description: |
+        Called once, when the runtime starts. Everything else in this document is
+        conditional on what you return here.
+
+        A feature you omit is a feature you have not implemented. The runtime then
+        either degrades it to a no-op — reads miss, writes return a named error —
+        or refuses calls into it outright, and you choose which with the
+        `unsupported` field. Two features refuse by DEFAULT rather than degrade;
+        see the `UnsupportedPolicy` schema for why.
+
+        If the runtime cannot reach this route it retries with backoff for
+        `OCTO_PLATFORM_API_DISCOVERY_BUDGET` (30s by default) before giving up.
+        That window is what lets the runtime start beside your server as a sidecar
+        without caring which container wins the race.
+      responses:
+        "200":
+          description: The capability set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Discovery"
+              examples:
+                everything:
+                  summary: A platform implementing the whole contract
+                  value:
+                    specVersion: "1.0"
+                    implementation: {name: acme-gcp-adapter, version: 1.4.2}
+                    features:
+                      kv: {supported: true, maxValueBytes: 1048576}
+                      secrets: {supported: true, encryptedAtRest: true}
+                      resources: {supported: true}
+                      leases: {supported: true, minTtlSeconds: 1, maxTtlSeconds: 600}
+                      leaderElection: {supported: true, leaseTtlSeconds: 15, renewIntervalSeconds: 5, observeIntervalSeconds: 2}
+                      queues: {supported: true, requestReply: true, pollTimeoutSeconds: 20, maxBatch: 8, ackDeadlineSeconds: 60}
+                      topics: {supported: true, pollTimeoutSeconds: 20, maxBatch: 8}
+                      agentMemory: {supported: true, semantic: false, listThreads: true, readThread: true, search: true}
+                      traces: {supported: true, maxBatch: 256, flushIntervalMillis: 2000}
+                      logs: {supported: true}
+                storageOnly:
+                  summary: >-
+                    A perfectly good minimal implementation: storage, nothing else.
+                    Note that leases and leader election are turned OFF explicitly
+                    rather than omitted, which is the single-instance opt-in.
+                  value:
+                    specVersion: "1.0"
+                    implementation: {name: my-firestore-adapter, version: 0.1.0}
+                    features:
+                      kv: {supported: true}
+                      secrets: {supported: true, encryptedAtRest: true}
+                      leases: {supported: false, unsupported: noop}
+                      leaderElection: {supported: false, unsupported: noop}
+        "501":
+          description: >-
+            You implement nothing. This is a legitimate answer — the runtime starts
+            with every capability degraded rather than refusing to start.
+
+  /v1/kv/{namespace}/entry:
+    parameters:
+      - $ref: "#/components/parameters/Namespace"
+      - $ref: "#/components/parameters/Key"
+    get:
+      tags: [kv]
+      operationId: getEntry
+      summary: Read one value.
+      responses:
+        "200":
+          description: The value, with its current version in X-Object-Version.
+          headers:
+            X-Object-Version:
+              $ref: "#/components/headers/ObjectVersion"
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        "404":
+          description: >-
+            No such key. This is a MISS, not a failure — the runtime reads it as
+            "nothing stored" and carries on. Do not use it to mean the route is
+            unimplemented; that is 501.
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      tags: [kv]
+      operationId: putEntry
+      summary: Write one value, with an optimistic-concurrency check.
+      description: |
+        `X-Object-Version` carries the version the caller believes is current.
+
+        **0 means create.** If the key already exists you must answer 409. A
+        positive value must equal the stored version, or 409 again. Answer with
+        the NEW version in `X-Object-Version`.
+
+        Getting this wrong does not fail loudly — it silently loses concurrent
+        updates, which is precisely what the check exists to prevent.
+      parameters:
+        - $ref: "#/components/parameters/ExpectedVersion"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {type: string, format: binary}
+      responses:
+        "200":
+          description: Written. X-Object-Version is the new version.
+          headers:
+            X-Object-Version:
+              $ref: "#/components/headers/ObjectVersion"
+        "201":
+          description: Created. Treated exactly as 200.
+          headers:
+            X-Object-Version:
+              $ref: "#/components/headers/ObjectVersion"
+        "409": {$ref: "#/components/responses/VersionConflict"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [kv]
+      operationId: deleteEntry
+      summary: Remove one value.
+      description: >-
+        `X-Object-Version: 0` deletes unconditionally; a positive value must match.
+        Deleting a key that is not there is SUCCESS, not 404-as-failure — the
+        caller asked for it to be gone and it is.
+      parameters:
+        - $ref: "#/components/parameters/ExpectedVersion"
+      responses:
+        "204": {description: Deleted.}
+        "200": {description: Deleted. Treated exactly as 204.}
+        "404": {description: There was nothing to delete. The runtime treats this as success.}
+        "409": {$ref: "#/components/responses/VersionConflict"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/resources/content:
+    get:
+      tags: [resources]
+      operationId: getResourceContent
+      summary: Read one resource by kind and name.
+      description: >-
+        Resources are the files a runtime loads by name: `.env` files and
+        templates. They are read once per generation, so there is no watch and no
+        polling — a change reaches a runtime through a redeploy.
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema: {type: string, enum: [env, template]}
+        - name: name
+          in: query
+          required: true
+          description: >-
+            The resource name. It MAY contain slashes, which is why it is a query
+            parameter and not a path segment.
+          schema: {type: string}
+          example: mail/welcome.tmpl
+      responses:
+        "200":
+          description: The resource bytes.
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        "404": {description: No such resource. The runtime reports it as missing, which is not an error.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/leases/acquire:
+    post:
+      tags: [leases]
+      operationId: acquireLease
+      summary: Claim a name, or report who holds it.
+      description: |
+        A lease is an exclusive, expiring claim on a name, and the whole point of
+        it is that this call ANSWERS NOW. It must never block waiting for a holder
+        to finish: a caller that cannot have the name goes and does something else
+        with the message it is holding.
+
+        "Somebody else holds it" is `200` with `acquired: false`, not an error
+        status — it is the expected answer, and an error status invites you to log
+        it as a problem. `409` is accepted too, so reaching for that is not wrong.
+
+        Grant the claim when the name is free, or when the previous holder's TTL
+        has passed without a renewal. A holder that died without releasing must not
+        take the name out of service for good.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AcquireLeaseRequest"}
+      responses:
+        "200":
+          description: The decision — granted or not.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AcquireLeaseResponse"}
+              examples:
+                granted: {value: {acquired: true, leaseId: lease-8f2c, expiresAt: "2026-08-28T17:04:11Z"}}
+                held: {value: {acquired: false, holder: octo-runtime-7b9d-xk21}}
+        "409": {description: Held by somebody else. Read the same as acquired:false.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/leases/{leaseId}/renew:
+    parameters: [{$ref: "#/components/parameters/LeaseID"}]
+    post:
+      tags: [leases]
+      operationId: renewLease
+      summary: Push a claim's deadline out.
+      description: >-
+        Called about three times per TTL while the claim is held. Answer 404 or 409
+        if it is no longer this holder's — the runtime reads either as definitive
+        and gives the claim up at once. Any OTHER failure it treats as transient
+        and retries, until the TTL passes with nothing landing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RenewLeaseRequest"}
+      responses:
+        "204": {description: Renewed.}
+        "404": {description: No such claim. The holder gives it up.}
+        "409": {description: The claim is somebody else's now. The holder gives it up.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/leases/{leaseId}/release:
+    parameters: [{$ref: "#/components/parameters/LeaseID"}]
+    post:
+      tags: [leases]
+      operationId: releaseLease
+      summary: Give a claim back.
+      description: >-
+        Best-effort: the runtime has already stopped treating the claim as held, so
+        a failure here only means the name waits out its TTL instead of freeing
+        immediately.
+      responses:
+        "204": {description: Released.}
+        "404": {description: Already gone. Success.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/leader/{key}/campaign:
+    parameters: [{$ref: "#/components/parameters/LeaderKey"}]
+    post:
+      tags: [leaderElection]
+      operationId: campaignForLeadership
+      summary: Claim a key, or ask whether you still hold it.
+      description: |
+        ONE endpoint serves both the first claim and every renewal, because to a
+        stateless server they are the same question: "I claim this key; do I hold
+        it?" Grant it when the key is free, when the current holder's TTL has
+        expired, or when the caller is already the holder. Refuse otherwise.
+
+        The runtime calls this on a loop — every `renewIntervalSeconds` while it
+        leads, every `observeIntervalSeconds` while it does not.
+
+        **The TTL must be comfortably more than three renew intervals.** A leader
+        that loses contact with you stops asserting leadership one interval later,
+        and that has to happen before its claim expires here, or a successor and it
+        will both believe they hold the key. The runtime shortens a renew interval
+        that is too close to the TTL for exactly this reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CampaignRequest"}
+      responses:
+        "200":
+          description: Whether the caller holds the key.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CampaignResponse"}
+              examples:
+                leading: {value: {leader: true, leaseId: leader-3a91, expiresAt: "2026-08-28T17:04:26Z"}}
+                following: {value: {leader: false, currentLeader: octo-runtime-7b9d-xk21}}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/leader/{key}/resign:
+    parameters: [{$ref: "#/components/parameters/LeaderKey"}]
+    post:
+      tags: [leaderElection]
+      operationId: resignLeadership
+      summary: Give a key up so the next replica does not wait out the TTL.
+      description: Best-effort, like releasing a lease.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ResignRequest"}
+      responses:
+        "204": {description: Resigned.}
+        "404": {description: Not the holder, or already gone. Success.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/queues/{subject}/publish:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [queues]
+      operationId: publishToQueue
+      summary: Send a message to exactly one consumer.
+      description: >-
+        Point-to-point: every replica of a deployment shares one consumer group, so
+        exactly one of them handles each message. Never retried by the runtime — a
+        retried publish would duplicate the message, and the caller cannot see that
+        happen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PublishRequest"}
+      responses:
+        "202": {description: Accepted for delivery.}
+        "200": {description: Accepted. Treated exactly as 202.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/queues/{subject}/request:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [queues]
+      operationId: requestOnQueue
+      summary: Send a message and wait for one reply.
+      description: |
+        Deliver the message with a `replyTo` that a consumer will POST back to
+        `/v1/queues/reply`, hold this request open until that arrives, and return
+        it. Answer `504` if `timeoutSeconds` passes with no reply.
+
+        Only implement this if you declare `queues.requestReply: true`. A runtime
+        told otherwise refuses the call up front with a message naming the flag,
+        which is far kinder than a timeout.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RequestRequest"}
+      responses:
+        "200":
+          description: The reply.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RequestResponse"}
+        "503": {description: Nobody is consuming this subject.}
+        "504": {description: The timeout passed with no reply.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/queues/{subject}/receive:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [queues]
+      operationId: receiveFromQueue
+      summary: Long-poll for messages.
+      description: |
+        **This is the route to read carefully.**
+
+        Hold the request open for up to `waitSeconds`. If a message arrives in that
+        window, return it — up to `maxMessages`. If the window passes with nothing,
+        answer **204**. That 204 is not an error; it is the normal state of an idle
+        subject, and the runtime simply polls again.
+
+        Do not answer 204 immediately when the queue is empty. A server that does
+        turns the poll loop into a busy loop. The runtime defends itself by waiting
+        out the rest of the window it asked for, but that is a defence against a
+        misimplementation, not the intended behaviour.
+
+        Every message you return here is UNACKNOWLEDGED. Hold it invisible for
+        `ackDeadlineSeconds` and redeliver it if no ack arrives — that is what makes
+        delivery at-least-once, and it is how a replica that dies mid-handler does
+        not swallow the message.
+
+        `consumerGroup` is the deployment id. Every replica sends the same one and
+        they compete; two different deployments send different ones and each sees
+        every message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ReceiveRequest"}
+      responses:
+        "200":
+          description: One or more messages, each with the handle needed to settle it.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ReceiveResponse"}
+        "204":
+          description: >-
+            The poll expired with nothing to deliver. THE NORMAL CASE. Not an error,
+            and not something to log.
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/queues/{subject}/ack:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [queues]
+      operationId: ackQueueDeliveries
+      summary: Confirm delivery, so a message is not redelivered.
+      description: >-
+        Sent after a handler returns successfully. A delivery id you do not
+        recognize — already acked, already expired — is not worth an error; answer
+        204.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SettleRequest"}
+      responses:
+        "204": {description: Settled.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/queues/{subject}/nack:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [queues]
+      operationId: nackQueueDeliveries
+      summary: Reject delivery, so a message comes back later.
+      description: >-
+        Sent when a handler failed. **Honour `delaySeconds`.** Without it a message
+        whose handler fails every time is redelivered as fast as the network allows,
+        and one poison message becomes a hot loop against you and against whatever
+        the handler was failing to reach.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SettleRequest"}
+      responses:
+        "204": {description: Settled.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/queues/reply:
+    post:
+      tags: [queues]
+      operationId: replyToRequest
+      summary: Answer a request whose message carried a replyTo.
+      description: >-
+        The other half of `/request`: route this message to whoever is waiting on
+        `replyTo`. The subject is not in the path because a reply is addressed to a
+        pending request, not to a subject.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ReplyRequest"}
+      responses:
+        "204": {description: Delivered to the waiting requester.}
+        "200": {description: Delivered. Treated exactly as 204.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/topics/{subject}/publish:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [topics]
+      operationId: publishToTopic
+      summary: Broadcast a message to every subscriber.
+      description: >-
+        Unlike a queue, every subscription receives every message. `system: true`
+        marks a subject that opted out of deployment scoping — route those to your
+        platform plane rather than to the publishing deployment's own. The flag is
+        there so you never have to parse the subject name to find out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TopicPublishRequest"}
+      responses:
+        "202": {description: Accepted for broadcast.}
+        "200": {description: Accepted. Treated exactly as 202.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/topics/{subject}/subscriptions:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [topics]
+      operationId: createTopicSubscription
+      summary: Register a subscriber and get its cursor.
+      description: |
+        This is what makes fan-out expressible over a pull API. Every subscriber
+        needs its own position in the stream — there is no way to say "each of you
+        receives every message" without naming each of you — so a subscriber
+        registers here, polls against the id you return, and removes it on close.
+
+        On GCP this maps directly onto creating a Pub/Sub subscription.
+
+        Start the cursor at the END of the stream: a new subscriber wants what is
+        published from now on, not the whole history.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SubscribeRequest"}
+      responses:
+        "201":
+          description: The subscription id to poll and ack against.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SubscribeResponse"}
+        "200":
+          description: The subscription id. Treated exactly as 201.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SubscribeResponse"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/topics/{subject}/receive:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [topics]
+      operationId: receiveFromTopic
+      summary: Long-poll one subscription for messages.
+      description: >-
+        Exactly the receive semantics of the queue route above — hold the request
+        open for `waitSeconds`, answer 204 when it expires with nothing — but scoped
+        to one `subscriptionId` and its own cursor rather than to a shared consumer
+        group.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ReceiveRequest"}
+      responses:
+        "200":
+          description: One or more messages for this subscription.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ReceiveResponse"}
+        "204": {description: The poll expired with nothing to deliver. The normal case.}
+        "404": {description: No such subscription — it was removed, or expired.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/topics/{subject}/ack:
+    parameters: [{$ref: "#/components/parameters/Subject"}]
+    post:
+      tags: [topics]
+      operationId: ackTopicDeliveries
+      summary: Advance one subscription's cursor past a delivery.
+      description: >-
+        There is no nack here, deliberately. A topic handler's error is logged and
+        dropped — there is no requester to surface it to — so a delivery is
+        acknowledged whatever the handler did, and holding it back would promise a
+        redelivery that will never be acted on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SettleRequest"}
+      responses:
+        "204": {description: Settled.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/topics/{subject}/subscriptions/{subscriptionId}:
+    parameters:
+      - $ref: "#/components/parameters/Subject"
+      - $ref: "#/components/parameters/SubscriptionID"
+    delete:
+      tags: [topics]
+      operationId: deleteTopicSubscription
+      summary: Remove a subscription.
+      description: >-
+        Sent when a subscription closes. It matters more than releasing a queue
+        consumer does: a durable cursor left behind by every restart accumulates
+        messages nobody will ever read.
+      responses:
+        "204": {description: Removed.}
+        "404": {description: Already gone. Success.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/agent-memory/{agentId}/threads/{threadKey}/working:
+    parameters:
+      - $ref: "#/components/parameters/AgentID"
+      - $ref: "#/components/parameters/ThreadKey"
+      - $ref: "#/components/parameters/UserIDQuery"
+    get:
+      tags: [agentMemory]
+      operationId: loadWorkingMemory
+      summary: Read an agent's live context for a conversation.
+      description: >-
+        The payload is opaque to you — it is the engine's serialized transcript, and
+        keeping you ignorant of its shape is what lets the transcript format change
+        without touching a single implementation. Store and return the bytes.
+      responses:
+        "200":
+          description: The live context, with its version and counters in headers.
+          headers:
+            X-Object-Version: {$ref: "#/components/headers/ObjectVersion"}
+            X-Agent-Iteration: {$ref: "#/components/headers/AgentIteration"}
+            X-Agent-Tokens: {$ref: "#/components/headers/AgentTokens"}
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        "404":
+          description: >-
+            No live context for this conversation. Read as "resume from nothing",
+            which is right for a conversation that has not started.
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      tags: [agentMemory]
+      operationId: saveWorkingMemory
+      summary: Store the live context, creating the conversation if it is new.
+      description: |
+        Same version rules as KV: `X-Object-Version: 0` creates, a positive value
+        must match, 409 otherwise.
+
+        Unlike the read above, a 404 here has no innocent reading — saving CREATES
+        the conversation when it is new, so nothing could legitimately be missing.
+        The runtime treats a 404 on this route as "you do not implement agent
+        memory" and stops using it for the life of the process.
+
+        This is also where the conversation is attributed: if you have no record of
+        who it is with, take it from the `userId` query parameter.
+      parameters: [{$ref: "#/components/parameters/ExpectedVersion"}]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {type: string, format: binary}
+      responses:
+        "200":
+          description: Stored. X-Object-Version is the new version.
+          headers:
+            X-Object-Version: {$ref: "#/components/headers/ObjectVersion"}
+        "201":
+          description: Created. Treated exactly as 200.
+          headers:
+            X-Object-Version: {$ref: "#/components/headers/ObjectVersion"}
+        "409": {$ref: "#/components/responses/VersionConflict"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/agent-memory/{agentId}/threads/{threadKey}/turns:
+    parameters:
+      - $ref: "#/components/parameters/AgentID"
+      - $ref: "#/components/parameters/ThreadKey"
+      - $ref: "#/components/parameters/UserIDQuery"
+    post:
+      tags: [agentMemory]
+      operationId: appendTurns
+      summary: Append to the durable conversation record.
+      description: |
+        This is the record a person reads when they open a past conversation. It is
+        append-only and never compacted — keeping it apart from working memory is
+        the whole point, because making room for the model must not destroy the
+        record.
+
+        **You assign `seq`**, and you assign `createdAt`. Neither crosses the wire
+        on the way in: a turn is recorded at the moment it completes, so the append
+        IS the event and you are the only thing that knows when it happened. Sending
+        a clock over the wire is how two implementations start disagreeing.
+
+        Appends commute, so there is no version to check — two writers on one
+        conversation interleave rather than collide.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AppendTurnsRequest"}
+      responses:
+        "200":
+          description: The conversation's new version.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/VersionResponse"}
+        "404": {description: Read as "you do not implement agent memory", as on the save above.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/agent-memory/{agentId}/threads:
+    parameters: [{$ref: "#/components/parameters/AgentID"}]
+    get:
+      tags: [agentMemory]
+      operationId: listThreads
+      summary: List an agent's conversations, most recently active first.
+      description: >-
+        Only called when you declare `agentMemory.listThreads: true`. It is optional
+        because listing is a tenancy question: you know whose conversations these
+        are and whether one caller should see them all. Leave the flag off and the
+        runtime never asks.
+      parameters:
+        - $ref: "#/components/parameters/UserIDQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of conversations.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ListThreadsResponse"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/agent-memory/{agentId}/threads/{threadKey}:
+    parameters:
+      - $ref: "#/components/parameters/AgentID"
+      - $ref: "#/components/parameters/ThreadKey"
+    get:
+      tags: [agentMemory]
+      operationId: readThread
+      summary: Read a conversation's metadata and a page of its turns.
+      description: "Only called when you declare `agentMemory.readThread: true`."
+      parameters:
+        - $ref: "#/components/parameters/UserIDQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: The conversation and its turns, in order.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ReadThreadResponse"}
+        "404": {description: No such conversation.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [agentMemory]
+      operationId: deleteThread
+      summary: Erase a conversation entirely — metadata, working memory and turns.
+      description: >-
+        Erasure is the one operation that must not report false success. If it is
+        already gone, answer 404 or 204 — the runtime reads both as done — but if
+        you still hold a copy, do not answer either until you do not.
+      parameters: [{$ref: "#/components/parameters/UserIDQuery"}]
+      responses:
+        "204": {description: Erased.}
+        "404": {description: There was nothing to erase. The runtime treats this as success.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/agent-memory/{agentId}/threads/{threadKey}/title:
+    parameters:
+      - $ref: "#/components/parameters/AgentID"
+      - $ref: "#/components/parameters/ThreadKey"
+      - $ref: "#/components/parameters/UserIDQuery"
+    put:
+      tags: [agentMemory]
+      operationId: setThreadTitle
+      summary: Name a conversation.
+      description: >-
+        Separate from the write path because naming a conversation is a judgement
+        the runtime does not make on its own.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SetTitleRequest"}
+      responses:
+        "204": {description: Named.}
+        "200": {description: Named. Treated exactly as 204.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/agent-memory/{agentId}/users/{userId}/memories:
+    parameters:
+      - $ref: "#/components/parameters/AgentID"
+      - $ref: "#/components/parameters/UserIDPath"
+    get:
+      tags: [agentMemory]
+      operationId: listMemories
+      summary: Everything the agent has chosen to remember about a person.
+      description: >-
+        Curated, not a transcript dump: an agent writes these deliberately, through
+        a tool, when something is worth keeping past the conversation it was learned
+        in.
+      responses:
+        "200":
+          description: The person's memories.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MemoriesResponse"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+    put:
+      tags: [agentMemory]
+      operationId: putMemory
+      summary: Create or update one memory by name.
+      description: >-
+        Same version rules as KV, and the same absence of an innocent 404: a memory
+        that does not exist yet is a create, so a 404 here means you do not
+        implement agent memory.
+      parameters:
+        - $ref: "#/components/parameters/MemoryName"
+        - $ref: "#/components/parameters/ExpectedVersion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PutMemoryRequest"}
+      responses:
+        "200":
+          description: Stored. X-Object-Version is the new version.
+          headers:
+            X-Object-Version: {$ref: "#/components/headers/ObjectVersion"}
+        "201":
+          description: Created. Treated exactly as 200.
+          headers:
+            X-Object-Version: {$ref: "#/components/headers/ObjectVersion"}
+        "409": {$ref: "#/components/responses/VersionConflict"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [agentMemory]
+      operationId: deleteMemory
+      summary: Forget one memory by name.
+      parameters: [{$ref: "#/components/parameters/MemoryName"}]
+      responses:
+        "204": {description: Forgotten.}
+        "404": {description: There was nothing to forget. The runtime treats this as success.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/agent-memory/{agentId}/search:
+    parameters: [{$ref: "#/components/parameters/AgentID"}]
+    post:
+      tags: [agentMemory]
+      operationId: searchMemory
+      summary: Find the memory most relevant to a query.
+      description: >-
+        Rank by embedding similarity if you have embeddings, and by text matching if
+        you do not — both are valid, and `agentMemory.semantic` in discovery says
+        which you did, so a UI can tell a person what kind of search they got. Only
+        called when you declare `agentMemory.search: true`. This is the one memory
+        operation that may touch every conversation an agent has, so the runtime
+        gives it a longer timeout.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SearchRequest"}
+      responses:
+        "200":
+          description: The hits, most relevant first.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SearchResponse"}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/traces:
+    post:
+      tags: [telemetry]
+      operationId: publishTraces
+      summary: Accept a batch of trace records.
+      description: >-
+        Fire-and-forget telemetry, batched by size and interval. Accept it quickly:
+        the runtime drops a batch it could not send rather than holding it, because
+        buffering telemetry for a platform that is unwell is how a telemetry problem
+        becomes a memory one. Records are flat — the event's own fields sit beside
+        the deployment and instance that produced it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TraceBatch"}
+      responses:
+        "202": {description: Accepted.}
+        "200": {description: Accepted. Treated exactly as 202.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/logs:
+    post:
+      tags: [telemetry]
+      operationId: publishLogs
+      summary: Accept a batch of log records.
+      description: >-
+        Each record is the JSON object Go's slog produced, passed through untouched,
+        with the deployment and instance as attributes on it. The runtime queues
+        these and ships them from one goroutine, dropping when the queue is full — a
+        log call must never wait on the network, and it never does.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/LogBatch"}
+      responses:
+        "202": {description: Accepted.}
+        "200": {description: Accepted. Treated exactly as 202.}
+        "501": {$ref: "#/components/responses/NotImplemented"}
+        default: {$ref: "#/components/responses/Error"}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        Sent when OCTO_PLATFORM_API_TOKEN or _TOKEN_FILE is configured. Static
+        headers (OCTO_PLATFORM_API_HEADERS) and mTLS are the alternatives, so a
+        deployment on a private network or a mesh need not use this at all.
+
+  headers:
+    ObjectVersion:
+      description: The object's version. 0 on a write means create.
+      schema: {type: integer, format: int64, minimum: 0}
+    AgentIteration:
+      description: How many iterations the agent had run when this context was saved.
+      schema: {type: integer, minimum: 0}
+    AgentTokens:
+      description: How many tokens the saved context occupies.
+      schema: {type: integer, minimum: 0}
+
+  parameters:
+    Namespace:
+      name: namespace
+      in: path
+      required: true
+      description: |
+        The full namespace name, suffix included. Route on the name you were
+        given and nothing else — that is what lets a platform gain a storage tier
+        without this contract changing.
+
+        The six a runtime sends today are `system` and `user` for ordinary
+        storage, `system_secrets` and `user_secrets` for secrets (encrypt these at
+        rest), and `system_volatile` and `user_volatile` for state that is cheap
+        to lose and may be backed by a cache.
+
+        Deliberately NOT a closed enum, which would contradict the paragraph
+        above: a runtime that gains a storage tier would start sending a name an
+        enum had already declared invalid, and the whole point of routing on the
+        name is that this contract does not have to change for that.
+      schema:
+        type: string
+        examples: [user, user_secrets, system_volatile]
+    Key:
+      name: key
+      in: query
+      required: true
+      description: >-
+        The key. It MAY contain slashes, which is why it is a query parameter and
+        not a path segment.
+      schema: {type: string}
+      example: cache/orders/A-1
+    ExpectedVersion:
+      name: X-Object-Version
+      in: header
+      required: false
+      description: >-
+        The version the caller believes is current. 0 (or absent) means create,
+        and must fail with 409 if the object exists.
+      schema: {type: integer, format: int64, minimum: 0, default: 0}
+    Subject:
+      name: subject
+      in: path
+      required: true
+      description: >-
+        The queue or topic subject, percent-encoded. Decode it ONCE — decoding
+        twice would merge `a%2Fb` and `a/b` into one subject.
+      schema: {type: string}
+      example: orders.created
+    LeaseID:
+      name: leaseId
+      in: path
+      required: true
+      description: The id returned when the claim was granted.
+      schema: {type: string}
+    LeaderKey:
+      name: key
+      in: path
+      required: true
+      description: The leader-election key, percent-encoded.
+      schema: {type: string}
+      example: cron.nightly-report
+    SubscriptionID:
+      name: subscriptionId
+      in: path
+      required: true
+      description: The id returned when the subscription was created.
+      schema: {type: string}
+    AgentID:
+      name: agentId
+      in: path
+      required: true
+      description: The logical agent this memory belongs to.
+      schema: {type: string}
+    ThreadKey:
+      name: threadKey
+      in: path
+      required: true
+      description: >-
+        One conversation with the agent. A conversation is addressed by this alone
+        — that is what makes it the same conversation on every write.
+      schema: {type: string}
+    UserIDQuery:
+      name: userId
+      in: query
+      required: false
+      description: |
+        The person on the other side of the conversation, or absent for an agent
+        that serves no particular one.
+
+        It is a query parameter and NOT a path segment on purpose: a user segment
+        would give one conversation a second address, under which a write naming a
+        different user could mint a duplicate.
+
+        Record it on the first write that names one. Ignoring it stores a complete
+        history attributed to nobody, and a person's own view of their
+        conversations then shows as empty.
+      schema: {type: string}
+    UserIDPath:
+      name: userId
+      in: path
+      required: true
+      description: >-
+        The person these curated memories are about. It IS a path segment here,
+        unlike on the thread routes, because a memory belongs to a person — that is
+        its identity, not a qualifier on somebody else's.
+      schema: {type: string}
+    MemoryName:
+      name: name
+      in: query
+      required: true
+      description: >-
+        The agent's own handle for one memory. A query parameter because it may
+        contain slashes.
+      schema: {type: string}
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Continue a listing from where the last page ended. Absent starts at the beginning.
+      schema: {type: string}
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: How many rows to return. Absent means apply your own default.
+      schema: {type: integer, minimum: 1}
+
+  responses:
+    NotImplemented:
+      description: |
+        You do not implement this route.
+
+        The runtime turns the whole capability off for the life of the process and
+        degrades — it does not fail the call and try again. This is the honest
+        answer for a route you have not written, and it is what makes a runtime
+        rolled ahead of your server keep working instead of failing every request.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    VersionConflict:
+      description: >-
+        The caller's expected version is not the current one — either 0 against an
+        object that exists, or a stale positive value. The caller re-reads and
+        retries, so no concurrent update is silently lost.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Error:
+      description: >-
+        Any other failure. The runtime quotes the first 512 bytes of the body into
+        its own error, so put something useful there — the reader is whoever is
+        debugging your implementation.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+
+  schemas:
+    Error:
+      type: object
+      description: >-
+        The error body. `code` is advisory and appears in the runtime's logs; the
+        HTTP status is what it acts on.
+      properties:
+        error:
+          type: object
+          properties:
+            code: {type: string, example: bucket_missing}
+            message: {type: string, example: "bucket 'octo' does not exist"}
+
+    UnsupportedPolicy:
+      type: string
+      enum: [noop, error]
+      description: |
+        What the runtime does with calls into a feature you did not implement.
+        Ignored when `supported` is true.
+
+        `noop` degrades: reads miss, deletes succeed, writes return a named error.
+        `error` refuses every call.
+
+        The DEFAULT is `noop` for everything EXCEPT leases and leaderElection,
+        which default to `error`. That exception is deliberate and it is about
+        correctness rather than strictness. Degrading those two means GRANTING
+        them: a no-op lease hands out every claim and a no-op election makes every
+        replica the leader. Run two instances against that and both will run the
+        work the claim exists to run once, silently. If you genuinely run a single
+        instance, say so with `"unsupported": "noop"` and the single-process
+        semantics are correct again.
+
+    FeatureFlags:
+      type: object
+      description: The part every feature block shares.
+      properties:
+        supported:
+          type: boolean
+          default: false
+          description: Whether you implement this feature's routes. Omitting the block entirely means false.
+        unsupported: {$ref: "#/components/schemas/UnsupportedPolicy"}
+
+    Discovery:
+      type: object
+      description: |
+        What you implement.
+
+        Unknown fields are ignored, and so are features this runtime has never
+        heard of — so a newer server talking to an older runtime is fine, and a
+        feature added to this contract later reaches you as something you simply
+        do not mention.
+      required: [specVersion]
+      properties:
+        specVersion:
+          type: string
+          description: >-
+            The contract version you speak. A mismatch with the runtime's is logged
+            as a warning and nothing more.
+          example: "1.0"
+        implementation:
+          $ref: "#/components/schemas/Implementation"
+        features:
+          $ref: "#/components/schemas/Features"
+
+    Implementation:
+      type: object
+      description: >-
+        Who you are, for the runtime's startup log. It exists so a support
+        conversation can start from "which adapter, which version" rather than
+        from a URL.
+      properties:
+        name: {type: string, example: acme-gcp-adapter}
+        version: {type: string, example: 1.4.2}
+
+    Features:
+      type: object
+      description: >-
+        One block per capability. Durations are integers with the unit in the
+        name rather than duration strings, because you are likely writing
+        TypeScript or Python and "20s" would need a parser in each.
+      properties:
+        kv: {$ref: "#/components/schemas/KVFeature"}
+        secrets: {$ref: "#/components/schemas/SecretsFeature"}
+        resources: {$ref: "#/components/schemas/FeatureFlags"}
+        leases: {$ref: "#/components/schemas/LeaseFeature"}
+        leaderElection: {$ref: "#/components/schemas/LeaderFeature"}
+        queues: {$ref: "#/components/schemas/QueueFeature"}
+        topics: {$ref: "#/components/schemas/TopicFeature"}
+        agentMemory: {$ref: "#/components/schemas/AgentMemoryFeature"}
+        traces: {$ref: "#/components/schemas/TraceFeature"}
+        logs: {$ref: "#/components/schemas/FeatureFlags"}
+
+    KVFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            namespaces:
+              type: array
+              items: {type: string}
+              description: >-
+                Which namespaces you accept, for documentation. The runtime does not
+                gate on this — it sends what a flow asks for and reads your answer.
+            maxValueBytes:
+              type: integer
+              format: int64
+              description: >-
+                The largest value you accept. The runtime checks it before writing,
+                so an oversized value fails naming the limit rather than as an
+                opaque rejection from a proxy.
+              example: 1048576
+
+    SecretsFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            encryptedAtRest:
+              type: boolean
+              description: >-
+                A claim you make about yourself; the runtime cannot verify it, and
+                warns once at startup when it is absent, because writing secrets to
+                a store that does not encrypt them is worth saying out loud.
+          description: |
+            Secrets have no routes of their own. They are KV, written to the
+            `*_secrets` namespaces, and the runtime maps them before the call is
+            made — so implementing KV implements secrets.
+
+            Declaring `supported: false` here while KV works is still meaningful:
+            it says "I store values but not secrets", and the runtime refuses
+            secret access rather than writing them beside everything else.
+
+    LeaseFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            minTtlSeconds:
+              type: integer
+              description: The shortest claim you honour. A shorter request is raised to it.
+              example: 1
+            maxTtlSeconds:
+              type: integer
+              description: The longest claim you honour. A longer request is cut to it.
+              example: 600
+            defaultTtlSeconds:
+              type: integer
+              description: Documentation only — the runtime's caller chooses the TTL.
+              example: 30
+
+    LeaderFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            leaseTtlSeconds:
+              type: integer
+              description: How long a leadership claim survives without a campaign call.
+              default: 15
+            renewIntervalSeconds:
+              type: integer
+              description: >-
+                How often a leader re-campaigns. The runtime shortens anything above
+                a third of the TTL: a leader that cannot renew in time is a split
+                brain.
+              default: 5
+            observeIntervalSeconds:
+              type: integer
+              description: How often a non-leader checks whether the key has freed up.
+              default: 2
+
+    QueueFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            requestReply:
+              type: boolean
+              description: >-
+                Whether you implement /request and /reply. False makes the runtime
+                refuse a Request up front, naming this flag, instead of waiting out
+                a timeout.
+            pollTimeoutSeconds:
+              type: integer
+              description: How long you hold a receive open before answering 204.
+              default: 20
+            maxBatch:
+              type: integer
+              description: >-
+                The most messages one receive may return. This is what creates
+                concurrency: the runtime runs ONE poll per subscription and fans the
+                batch out to its workers, so you see one long-poll connection per
+                subscription rather than one per worker.
+              default: 8
+            ackDeadlineSeconds:
+              type: integer
+              description: How long a delivered message stays invisible before you redeliver it.
+              example: 60
+
+    TopicFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            pollTimeoutSeconds: {type: integer, default: 20}
+            maxBatch: {type: integer, default: 8}
+
+    AgentMemoryFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            semantic:
+              type: boolean
+              description: >-
+                Whether search ranks by embedding similarity rather than text
+                matching. Search works either way; only what it is good at changes,
+                and only a UI has reason to say which.
+            listThreads:
+              type: boolean
+              description: >-
+                Whether you implement listing conversations. Optional because
+                listing is a tenancy question only you can answer.
+            readThread:
+              type: boolean
+              description: Whether you implement reading a conversation's transcript.
+            search:
+              type: boolean
+              description: Whether you implement search. False makes the runtime return no hits rather than fail.
+            maxTurnsPerAppend:
+              type: integer
+              description: >-
+                The most turns in one append. The runtime chunks a longer run rather
+                than sending it as one enormous request.
+              default: 100
+
+    TraceFeature:
+      allOf:
+        - $ref: "#/components/schemas/FeatureFlags"
+        - type: object
+          properties:
+            maxBatch:
+              type: integer
+              description: The most trace records in one batch.
+              default: 256
+            flushIntervalMillis:
+              type: integer
+              description: How long the runtime holds a partial batch before sending it.
+              default: 2000
+
+    Message:
+      type: object
+      description: |
+        One message crossing the queue or topic planes.
+
+        Store and return it whole. `variables` in particular carries the runtime's
+        own bookkeeping alongside a flow's — the trace id that ties one end-to-end
+        invocation together lives in there, and dropping the entries that look
+        internal is exactly how a trace stops surviving the hop through you.
+      properties:
+        eventId:
+          type: string
+          description: Uniquely identifies this message.
+        correlationId:
+          type: string
+          description: Groups related messages across a logical flow. May be absent.
+        variables:
+          type: object
+          additionalProperties: true
+          description: Per-message values. Carry them all, including any beginning with `__`.
+        body:
+          description: >-
+            The payload, as decoded JSON. Opaque to you — any JSON value, or absent
+            for a message with no body.
+        bodySchema:
+          description: The JSON Schema describing body, when the flow set one. Opaque.
+        rawContent:
+          type: boolean
+          description: >-
+            Marks body as carrying a raw non-JSON payload in the shape
+            {contentType, rawData} rather than decoded JSON. It must cross: a raw
+            payload arriving without it is served as JSON on the other side.
+
+    PublishRequest:
+      type: object
+      required: [message]
+      properties:
+        message: {$ref: "#/components/schemas/Message"}
+
+    RequestRequest:
+      type: object
+      required: [message]
+      properties:
+        message: {$ref: "#/components/schemas/Message"}
+        timeoutSeconds:
+          type: integer
+          format: int64
+          description: How long to wait for a reply before answering 504.
+
+    RequestResponse:
+      type: object
+      required: [message]
+      properties:
+        message: {$ref: "#/components/schemas/Message"}
+
+    ReceiveRequest:
+      type: object
+      description: >-
+        One long poll. `consumerGroup` is sent on the queue routes and
+        `subscriptionId` on the topic routes; each plane sends the one that applies.
+      properties:
+        consumerGroup:
+          type: string
+          description: >-
+            The competing-consumer group, which is the deployment id. Every replica
+            of a deployment sends the same one and they share the messages.
+        subscriptionId:
+          type: string
+          description: The topic subscription to poll, and its own cursor.
+        maxMessages:
+          type: integer
+          description: The most messages to return.
+        waitSeconds:
+          type: integer
+          format: int64
+          description: How long to hold this request open before answering 204.
+
+    ReceiveResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items: {$ref: "#/components/schemas/Delivery"}
+
+    Delivery:
+      type: object
+      description: One message plus the handle needed to settle it.
+      required: [deliveryId, message]
+      properties:
+        deliveryId:
+          type: string
+          description: >-
+            Identifies THIS delivery, not the message. A redelivery of the same
+            message may carry a different one.
+        replyTo:
+          type: string
+          description: >-
+            Present when this message came from a /request. The consumer answers by
+            POSTing to /v1/queues/reply with this value.
+        message: {$ref: "#/components/schemas/Message"}
+
+    SettleRequest:
+      type: object
+      description: Acknowledge or reject one or more deliveries.
+      required: [deliveryIds]
+      properties:
+        subscriptionId:
+          type: string
+          description: Sent on the topic ack route, to say whose cursor moves.
+        deliveryIds:
+          type: array
+          items: {type: string}
+        delaySeconds:
+          type: integer
+          format: int64
+          description: >-
+            On a nack, how long to hold the message before redelivering it. Honour
+            it: without a delay, a message whose handler fails every time becomes a
+            hot loop.
+
+    ReplyRequest:
+      type: object
+      required: [replyTo, message]
+      properties:
+        replyTo:
+          type: string
+          description: The value that arrived on the delivery being answered.
+        message: {$ref: "#/components/schemas/Message"}
+
+    TopicPublishRequest:
+      type: object
+      required: [message]
+      properties:
+        message: {$ref: "#/components/schemas/Message"}
+        system:
+          type: boolean
+          description: >-
+            The subject opted out of deployment scoping. Route it to your platform
+            plane rather than to the publishing deployment's own. The flag exists so
+            you never parse the subject name to find out.
+
+    SubscribeRequest:
+      type: object
+      required: [subscriber]
+      properties:
+        subscriber:
+          type: string
+          description: Which runtime instance this subscription belongs to.
+
+    SubscribeResponse:
+      type: object
+      required: [subscriptionId]
+      properties:
+        subscriptionId:
+          type: string
+          description: >-
+            Required. The runtime refuses to start a poll loop without one, rather
+            than looping against a cursor that does not exist.
+
+    AcquireLeaseRequest:
+      type: object
+      required: [name, holder, ttlSeconds]
+      properties:
+        name:
+          type: string
+          description: The name being claimed. Opaque — it is whatever the flow chose.
+        holder:
+          type: string
+          description: Which runtime instance is claiming it.
+        ttlSeconds:
+          type: integer
+          format: int64
+          description: How long the claim survives without a renewal.
+
+    AcquireLeaseResponse:
+      type: object
+      required: [acquired]
+      properties:
+        acquired:
+          type: boolean
+          description: >-
+            Whether the caller now holds the name. False is an ANSWER, not a
+            failure.
+        leaseId:
+          type: string
+          description: Required when acquired is true. Identifies the claim for renew and release.
+        holder:
+          type: string
+          description: Who holds it instead, when acquired is false. For the runtime's logs.
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the claim lapses without a renewal. Informational.
+
+    RenewLeaseRequest:
+      type: object
+      required: [ttlSeconds]
+      properties:
+        ttlSeconds: {type: integer, format: int64}
+
+    CampaignRequest:
+      type: object
+      required: [holder, ttlSeconds]
+      properties:
+        holder:
+          type: string
+          description: Which runtime instance is campaigning.
+        ttlSeconds:
+          type: integer
+          format: int64
+          description: How long leadership survives without another campaign call.
+
+    CampaignResponse:
+      type: object
+      required: [leader]
+      properties:
+        leader:
+          type: boolean
+          description: Whether the caller holds the key right now.
+        leaseId:
+          type: string
+          description: Required when leader is true, so the holder can resign by name.
+        currentLeader:
+          type: string
+          description: Who holds it instead. For the runtime's logs.
+        expiresAt:
+          type: string
+          format: date-time
+
+    ResignRequest:
+      type: object
+      required: [leaseId]
+      properties:
+        leaseId: {type: string}
+
+    Turn:
+      type: object
+      description: One entry in the durable conversation record.
+      required: [role, text]
+      properties:
+        seq:
+          type: integer
+          format: int64
+          description: >-
+            Order within the conversation. YOU assign this on append; it is absent
+            on the way in and present on the way out. That is what lets two writers
+            on one conversation interleave rather than collide.
+        role:
+          type: string
+          description: Who spoke.
+          example: user
+        text: {type: string}
+        tokens: {type: integer}
+        attrs:
+          type: string
+          format: byte
+          description: >-
+            Opaque JSON the engine keeps about the turn — how many iterations it
+            took, whether it was answered. Store the bytes.
+
+    AppendTurnsRequest:
+      type: object
+      required: [turns]
+      properties:
+        turns:
+          type: array
+          items: {$ref: "#/components/schemas/Turn"}
+
+    VersionResponse:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: integer
+          format: int64
+          description: The conversation's version after the append.
+
+    Thread:
+      type: object
+      description: A conversation's metadata — enough to list conversations without reading any.
+      properties:
+        agentId: {type: string}
+        threadKey: {type: string}
+        userId: {type: string}
+        title: {type: string}
+        version: {type: integer, format: int64}
+        turnCount: {type: integer}
+        createdAt: {type: string, format: date-time}
+        lastActivityAt: {type: string, format: date-time}
+
+    ListThreadsResponse:
+      type: object
+      properties:
+        threads:
+          type: array
+          items: {$ref: "#/components/schemas/Thread"}
+        next:
+          type: string
+          description: The cursor for the next page. Empty when the listing is complete.
+
+    ReadThreadResponse:
+      type: object
+      properties:
+        thread: {$ref: "#/components/schemas/Thread"}
+        turns:
+          type: array
+          items: {$ref: "#/components/schemas/Turn"}
+        next:
+          type: string
+          description: The cursor for the next page of turns. Empty when the transcript is complete.
+
+    SetTitleRequest:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string}
+
+    UserMemory:
+      type: object
+      description: One curated fact an agent chose to keep about a person.
+      properties:
+        name:
+          type: string
+          description: The agent's own handle for it, and what an update or a deletion addresses.
+        value: {type: string}
+        version: {type: integer, format: int64}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+
+    MemoriesResponse:
+      type: object
+      properties:
+        memories:
+          type: array
+          items: {$ref: "#/components/schemas/UserMemory"}
+
+    PutMemoryRequest:
+      type: object
+      required: [value]
+      properties:
+        value: {type: string}
+
+    SearchRequest:
+      type: object
+      required: [text]
+      properties:
+        userId:
+          type: string
+          description: Narrow to one person. Absent searches everyone the agent knows.
+        threadKey:
+          type: string
+          description: Narrow to one conversation. Absent searches every conversation the agent has.
+        text: {type: string}
+        scope:
+          type: string
+          enum: ["", turns, user]
+          description: >-
+            Empty searches both the conversation record and curated memories;
+            `turns` searches only the record; `user` only the curated memories.
+        limit: {type: integer}
+
+    SearchResponse:
+      type: object
+      properties:
+        hits:
+          type: array
+          items: {$ref: "#/components/schemas/MemoryHit"}
+
+    MemoryHit:
+      type: object
+      description: One search result.
+      required: [kind, text]
+      properties:
+        kind:
+          type: string
+          enum: [turn, user]
+          description: Which of the two stores it came out of, since the fields that matter differ.
+        threadKey:
+          type: string
+          description: Set when kind is turn.
+        name:
+          type: string
+          description: Set when kind is user.
+        text: {type: string}
+        seq: {type: integer, format: int64}
+        score:
+          type: number
+          format: double
+          description: Relevance, however you rank. Higher is better.
+
+    TraceBatch:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          items: {$ref: "#/components/schemas/TraceRecord"}
+
+    TraceRecord:
+      type: object
+      description: >-
+        One trace event, flattened: the event's own fields sit beside the deployment
+        and instance that produced it, so a consumer sees one flat record rather
+        than an envelope to unwrap. The event's fields are the runtime's and may
+        grow; store what you get.
+      additionalProperties: true
+      properties:
+        deploymentId: {type: string}
+        instance: {type: string}
+
+    LogBatch:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          description: >-
+            Each record is the JSON object Go's slog produced, passed through
+            untouched, carrying `deploymentId` and `instance` as attributes.
+          items:
+            type: object
+            additionalProperties: true

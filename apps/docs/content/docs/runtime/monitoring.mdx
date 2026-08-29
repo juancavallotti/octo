@@ -157,6 +157,8 @@ To give one `Service` its own dispatcher instead of the process-wide one — two
 
 In a cluster deployment (the `-tags k8s` build), the runtime tees its loggers through a central sink: the default logger keeps writing to the pod's stderr with `LOG_LEVEL` applied, and named `logger` connectors keep writing to their own output — and every record is *also* shipped to the platform's log pipeline. Standalone builds ship nothing.
 
+The `-tags api` build tees the same way, to whatever server it was pointed at, when that server's discovery document says it accepts logs — see [The platform API](/extending/platform-api). Records are queued and shipped from one goroutine, and dropped when the queue fills, because a log call must never wait on the network.
+
 The pipeline:
 
 ```
