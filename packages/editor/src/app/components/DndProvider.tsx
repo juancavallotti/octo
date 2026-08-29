@@ -3,6 +3,7 @@
 import { ReactNode, useState } from "react";
 import {
   closestCenter,
+  pointerWithin,
   DndContext,
   DragEndEvent,
   DragOverlay,
@@ -16,6 +17,7 @@ import { findBlock, findFlow } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import { DragData, DropData } from "./dnd";
 import DragPreview from "./DragPreview";
+import { useCanvasZoom } from "../canvas/ZoomContext";
 
 /**
  * A single DndContext spanning the editor body so the palette (drag sources) and
@@ -26,6 +28,7 @@ import DragPreview from "./DragPreview";
  */
 export default function DndProvider({ children }: { children: ReactNode }) {
   const { state, dispatch } = useEditorState();
+  const { zoom, setDragging } = useCanvasZoom();
   const [draggingType, setDraggingType] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -33,6 +36,10 @@ export default function DndProvider({ children }: { children: ReactNode }) {
   );
 
   function handleDragStart(event: DragStartEvent) {
+    // The canvas stops accepting zoom gestures for the duration: dnd-kit measures
+    // its drop targets once, at the start, and resizing them underneath a live
+    // drag leaves the block landing somewhere other than where it was let go.
+    setDragging(true);
     const data = event.active.data.current as DragData | undefined;
     if (data?.source === "palette") {
       setDraggingType(data.blockType);
@@ -44,6 +51,7 @@ export default function DndProvider({ children }: { children: ReactNode }) {
 
   function handleDragEnd(event: DragEndEvent) {
     setDraggingType(null);
+    setDragging(false);
     const { active, over } = event;
     if (!over) return;
     const data = active.data.current as DragData | undefined;
@@ -88,14 +96,33 @@ export default function DndProvider({ children }: { children: ReactNode }) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      // Pointer first, nearest-centre as the fallback. The overlay is rendered
+      // outside the zoomed layer, so comparing its box against drop targets drawn
+      // at another scale drifts by half a card at 25%; where the pointer is does
+      // not depend on scale at all. The fallback still matters — the gaps are
+      // thin, and a pointer between two of them hits neither.
+      collisionDetection={(args) => {
+        const hit = pointerWithin(args);
+        return hit.length ? hit : closestCenter(args);
+      }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onDragCancel={() => setDraggingType(null)}
+      onDragCancel={() => {
+        setDraggingType(null);
+        setDragging(false);
+      }}
     >
       {children}
+      {/* The overlay is a sibling of the canvas rather than a child of it, so it
+          is not inside the zoomed layer and would float a full-size preview over
+          half-size cards. `zoom` rather than a transform so the overlay's own box
+          and its contents agree about how big they are. */}
       <DragOverlay dropAnimation={null}>
-        {draggingType ? <DragPreview blockType={draggingType} /> : null}
+        {draggingType ? (
+          <div style={{ zoom }}>
+            <DragPreview blockType={draggingType} />
+          </div>
+        ) : null}
       </DragOverlay>
     </DndContext>
   );

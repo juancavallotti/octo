@@ -6,6 +6,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BlockNode } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { useCanvasZoom } from "../canvas/ZoomContext";
 import FlowNode from "./FlowNode";
 import BlockRunButton from "./BlockRunButton";
 import BlockDebugButtons from "./BlockDebugButtons";
@@ -41,7 +42,16 @@ export default function NodeShell({
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: block.id, data: { source: "canvas", flowId } });
   const selected = state.selectedBlockId === block.id;
-  const style = { transform: CSS.Translate.toString(transform) };
+  // dnd-kit reports the drag delta in screen pixels, but this translate is
+  // applied inside the zoomed layer, where the browser multiplies it by the zoom
+  // again. Dividing it back out is what keeps the node under the cursor: without
+  // it, at 50% the block moves half as far as the hand does.
+  const { zoom } = useCanvasZoom();
+  const style = {
+    transform: CSS.Translate.toString(
+      transform && { ...transform, x: transform.x / zoom, y: transform.y / zoom },
+    ),
+  };
 
   const select = (e: MouseEvent) => {
     e.stopPropagation();
