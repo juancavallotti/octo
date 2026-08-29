@@ -86,10 +86,16 @@ export default function Dashboard({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-6xl px-6 py-8">
-          <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Your integrations at a glance.
-          </p>
+          {/* Title, with the MCP endpoint sharing the row (when OAuth is configured) */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="min-w-0 sm:flex-1">
+              <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Your integrations at a glance.
+              </p>
+            </div>
+            {mcpUrl && <McpEndpointTile url={mcpUrl} className="sm:flex-1" />}
+          </div>
 
           {/* Shortcuts */}
           <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -132,9 +138,6 @@ export default function Dashboard({
               external
             />
           </div>
-
-          {/* MCP endpoint (only when OAuth is configured) */}
-          {mcpUrl && <McpEndpointTile url={mcpUrl} />}
 
           {/* Deployments */}
           <div className="mt-10 flex items-center gap-2">
