@@ -551,6 +551,13 @@
                     "replicas": {
                         "type": "integer"
                     },
+                    "runtimeImage": {
+                        "description": "RuntimeImage is the octo runtime image the pods are actually running, and\nRuntimeVersion its tag on its own — which runtime a misbehaving deployment is\non is the first thing asked when troubleshooting one, and a deployment that\nwas never rolled over keeps running whatever image it was created with.\nOmitted when the cluster reports no image (an undeployed or unreachable\nworkload).",
+                        "type": "string"
+                    },
+                    "runtimeVersion": {
+                        "type": "string"
+                    },
                     "status": {
                         "type": "string"
                     },

@@ -270,6 +270,15 @@ func (f *fakeKube) ExternalEnabled() bool { return f.externalEnabled }
 
 func (f *fakeKube) RunnerEnabled(r kube.Runner) bool { return !f.runnersDisabled[r] }
 
+// The image a runner resolves to, named after the runner so a test can tell the
+// standard image from the agentic one in recorded metadata.
+func (f *fakeKube) RunnerImage(r kube.Runner) string {
+	if r == kube.RunnerAgentic {
+		return "octo-agentic:test"
+	}
+	return "octo-runtime:test"
+}
+
 func (f *fakeKube) ExternalURL(subdomain string) string {
 	if !f.externalEnabled || subdomain == "" {
 		return ""

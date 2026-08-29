@@ -50,6 +50,11 @@ type Status struct {
 	Reason          string      // terminal failure reason (e.g. ImagePullBackOff), when failed
 	CreatedAt       time.Time   // Deployment creation timestamp (workload age)
 	Pods            []PodStatus // per-pod detail
+	// RuntimeImage is the octo runtime image the pods are running — the image the
+	// containers actually report, so a deployment mid-rollout (or one left behind
+	// on an older image) says what is really serving rather than what the spec
+	// asks for. Falls back to the spec's image while no pod has reported one.
+	RuntimeImage string
 }
 
 // Status reports the live status for a deployment, computed from the Deployment
@@ -106,6 +111,58 @@ func (c *Client) fetchWorkload(ctx context.Context, deploymentID string) (*appsv
 	return dep, pods, nil
 }
 
+// runtimeContainer is the name given to the octo runtime container in every
+// deployment's pod spec (see deploy.go); pods carry other containers only in the
+// dev-run path, which is not what a deployment reports.
+const runtimeContainer = "runtime"
+
+// runtimeImage reports the image the deployment's runtime container is running.
+// A container status is preferred over the pod spec because that is the image the
+// kubelet actually pulled: during a rollout, or while a new image fails to pull,
+// the spec already names the new one while the old one is still serving. The
+// spec is the fallback for a deployment whose pods have not reported yet.
+//
+// A serving pod is asked first, and that ordering is the point rather than a
+// nicety. A rollout has both generations present at once, and the new pod — the
+// one that is unready, crash-looping, or stuck on a pull — is as likely to be
+// first in the list as the old one that is answering traffic. Reporting its image
+// would name a runtime that is not serving anything, on precisely the deployment
+// somebody is looking at because it is misbehaving.
+func runtimeImage(dep *appsv1.Deployment, pods []*corev1.Pod) string {
+	if image := containerImage(pods, func(p *corev1.Pod) bool {
+		return p.Status.Phase == corev1.PodRunning && podReady(p)
+	}); image != "" {
+		return image
+	}
+	// Nothing is serving: any pod that has reported still says more than the spec,
+	// which describes what was asked for rather than what happened.
+	if image := containerImage(pods, func(*corev1.Pod) bool { return true }); image != "" {
+		return image
+	}
+	for _, c := range dep.Spec.Template.Spec.Containers {
+		if c.Name == runtimeContainer {
+			return c.Image
+		}
+	}
+	return ""
+}
+
+// containerImage is the runtime container's image on the first pod that satisfies
+// want, or "" when none does.
+func containerImage(pods []*corev1.Pod, want func(*corev1.Pod) bool) string {
+	for _, p := range pods {
+		if !want(p) {
+			continue
+		}
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.Name == runtimeContainer && cs.Image != "" {
+				return cs.Image
+			}
+		}
+	}
+	return ""
+}
+
 // computeStatus derives a Status from a Deployment and its pods. Pure (no I/O) so
 // it serves both the cache and direct-read paths identically.
 func computeStatus(dep *appsv1.Deployment, pods []*corev1.Pod) Status {
@@ -117,6 +174,7 @@ func computeStatus(dep *appsv1.Deployment, pods []*corev1.Pod) Status {
 	if dep.Spec.Replicas != nil {
 		st.DesiredReplicas = *dep.Spec.Replicas
 	}
+	st.RuntimeImage = runtimeImage(dep, pods)
 	for _, p := range pods {
 		ps := PodStatus{Name: p.Name, Phase: string(p.Status.Phase), Ready: podReady(p)}
 		for _, cs := range p.Status.ContainerStatuses {

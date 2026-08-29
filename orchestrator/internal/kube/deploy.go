@@ -352,7 +352,7 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 					ImagePullSecrets: c.pullSecretRefs(),
 					Containers: []corev1.Container{{
 						Name:            "runtime",
-						Image:           c.runnerImage(spec.Runner),
+						Image:           c.RunnerImage(spec.Runner),
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Env:             c.podEnv(spec),
 						Ports:           ports,

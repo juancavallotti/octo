@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
@@ -86,6 +87,36 @@ type deploymentResponse struct {
 	// Tracing reports whether this deployment's pods run with the runtime tracer on,
 	// so the rollout dialog can seed the switch from what is actually deployed.
 	Tracing bool `json:"tracing"`
+	// RuntimeImage is the octo runtime image the pods are actually running, and
+	// RuntimeVersion its tag on its own — which runtime a misbehaving deployment is
+	// on is the first thing asked when troubleshooting one, and a deployment that
+	// was never rolled over keeps running whatever image it was created with.
+	// Omitted when the cluster reports no image (an undeployed or unreachable
+	// workload).
+	RuntimeImage   string `json:"runtimeImage,omitempty"`
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+}
+
+// imageTag is the tag part of a container image reference, or "" when the
+// reference is untagged or pinned by digest (nothing readable to show). The colon
+// searched for is the last one, and only past the final slash, so a registry with
+// a port (registry:5000/octo/runtime) is not mistaken for a tag.
+func imageTag(image string) string {
+	// A digest-pinned reference names no tag, and its digest is not one: the colon
+	// in `@sha256:…` would otherwise be read as the tag separator and publish a
+	// hash fragment as a version.
+	if strings.Contains(image, "@") {
+		return ""
+	}
+	name := image
+	if i := strings.LastIndex(image, "/"); i >= 0 {
+		name = image[i+1:]
+	}
+	i := strings.LastIndex(name, ":")
+	if i < 0 {
+		return ""
+	}
+	return name[i+1:]
 }
 
 func toResponse(d Deployment) deploymentResponse {
@@ -110,6 +141,16 @@ func toResponse(d Deployment) deploymentResponse {
 		LastUpdated:     d.LastUpdated,
 		Tracing:         settings.Tracing,
 	}
+	// What the pods report wins over what was recorded at deploy time: during a
+	// rollout, or while a new image will not pull, the recorded image is already
+	// the new one while the old one is still serving. The recorded image is what
+	// answers when the cluster cannot — an unreachable or torn-down workload — and
+	// is the only answer for a deployment whose pods have not started yet.
+	resp.RuntimeImage = meta.RuntimeImage
+	if d.Detail.RuntimeImage != "" {
+		resp.RuntimeImage = d.Detail.RuntimeImage
+	}
+	resp.RuntimeVersion = imageTag(resp.RuntimeImage)
 	if !d.Detail.CreatedAt.IsZero() {
 		t := d.Detail.CreatedAt
 		resp.CreatedAt = &t

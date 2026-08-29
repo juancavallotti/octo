@@ -13,6 +13,14 @@
   value: /usr/local/bin/dolphin
 - name: OCTO_RUN_DIR
   value: /app/.octo-run
+{{- /* The runtime image the orchestrator deploys per integration — the SAME value,
+       from the same helper, it is given as RUNTIME_IMAGE. The platform reads it to
+       say which deployments are running an older runtime than this install would
+       give them now. It is passed rather than derived from the chart's appVersion
+       because an operator may pin the runtime to another tag, and a badge computed
+       from the release would then be wrong on every deployment they own. */}}
+- name: RUNTIME_IMAGE
+  value: {{ include "octo-common.image" (dict "root" . "component" "runtime") | quote }}
 # Enables the integration/folder management UI; the editor's BFF proxy
 # fronts the orchestrator at its in-cluster Service DNS.
 - name: ORCHESTRATOR_URL

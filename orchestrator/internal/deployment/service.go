@@ -74,6 +74,9 @@ type kubeClient interface {
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
 	RunnerEnabled(runner kube.Runner) bool
+	// RunnerImage is the image that runner resolves to, recorded in the
+	// deployment's metadata so it survives the workload it describes.
+	RunnerImage(runner kube.Runner) string
 	ExternalURL(subdomain string) string
 	SecretKeyExists(ctx context.Context, name string) (bool, error)
 	// DeploymentIDs is the reconciler's view of the cluster: every deployment this
@@ -328,6 +331,11 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		ExternalURL: externalURL,
 		SnapshotID:  snapID,
 		Tag:         snapTag,
+		// The image this deploy is about to ship, from the same resolution the pod
+		// spec uses — recorded here rather than read back later, because the answer
+		// changes when the orchestrator is upgraded and this deployment's pods do
+		// not move with it.
+		RuntimeImage: s.kube.RunnerImage(runner),
 	})
 	if err != nil {
 		return Deployment{}, err
@@ -849,6 +857,9 @@ func (s *Service) Rollout(
 	// undo, and a rollout is idempotent, so retrying costs nothing.
 	meta.SnapshotID = snap.ID
 	meta.Tag = snap.Tag
+	// A rollout is also where a deployment moves onto whatever runtime image the
+	// orchestrator is configured with now, so the recorded image moves with it.
+	meta.RuntimeImage = s.kube.RunnerImage(resolvedRunner)
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
 		return Deployment{}, fmt.Errorf("rollout %s: marshal metadata: %w", id, err)

@@ -56,12 +56,15 @@ function logsHref(d: DeployedTile): string {
 export default function DeploymentListItem({
   deployment: d,
   busy,
+  currentRuntime,
   onScale,
   onOpenRollout,
   onOpenLogs,
 }: {
   deployment: DeployedTile;
   busy: boolean;
+  /** The runtime this install deploys now, for the pill to mark an older one. */
+  currentRuntime?: string;
   onScale: (d: DeployedTile, replicas: number) => void;
   /** Open the rollout dialog: change version, env, or tracing. */
   onOpenRollout?: (d: DeployedTile) => void;
@@ -89,7 +92,14 @@ export default function DeploymentListItem({
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {d.integrationName}
         </h3>
-        <DeploymentPills tag={d.tag} tracing={d.tracing} className="shrink-0" />
+        <DeploymentPills
+          tag={d.tag}
+          tracing={d.tracing}
+          runtimeVersion={d.runtimeVersion}
+          runtimeImage={d.runtimeImage}
+          currentRuntime={currentRuntime}
+          className="shrink-0"
+        />
       </div>
 
       {/* Scale and age */}
