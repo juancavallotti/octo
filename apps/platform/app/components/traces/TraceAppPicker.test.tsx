@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import TraceAppPicker from "./TraceAppPicker";
 import type { TraceApp } from "@/app/model/traces";
@@ -24,11 +24,6 @@ const APP: TraceApp = {
   droppedRecords: 0,
 };
 
-const WINDOW = {
-  from: "2026-08-08T12:00:00Z",
-  to: "2026-08-09T12:00:00Z",
-};
-
 function renderPicker(
   apps: TraceApp[],
   over: Partial<Parameters<typeof TraceAppPicker>[0]> = {},
@@ -37,7 +32,8 @@ function renderPicker(
   render(
     <TraceAppPicker
       apps={apps}
-      window={WINDOW}
+      window="24h"
+      onWindowChange={vi.fn()}
       loading={false}
       selectedId={null}
       selectedVersion={null}
@@ -54,14 +50,38 @@ async function open() {
   await userEvent.click(screen.getByRole("button", { name: "App" }));
 }
 
+/**
+ * The app rows, scoped to the picker's own list — the window beside it is a
+ * native select, and its options answer to the same role.
+ */
+function appRows() {
+  return within(screen.getByRole("listbox")).getAllByRole("option");
+}
+
 describe("TraceAppPicker", () => {
-  it("names the window its counts were measured over", async () => {
-    // "12 traces" says nothing on its own — an hour and a week are very
-    // different claims, and the service picks the default, not this client.
+  it("offers the window before the app, not after it", async () => {
+    // The app list is counted over the window, so an app is only in it — and
+    // only says "12 traces" — because of a window already chosen. Offered
+    // afterwards it asks someone to pick from a list narrowed by something they
+    // have not been shown yet.
     renderPicker([APP]);
-    expect(screen.getByText("last 24 hours")).toBeInTheDocument();
+    const toolbar = screen.getByLabelText("Window").parentElement!;
+    const controls = [...toolbar.children];
+    expect(controls.indexOf(screen.getByLabelText("Window"))).toBeLessThan(
+      controls.findIndex((c) => c.contains(screen.getByRole("button", { name: "App" }))),
+    );
+
     await open();
     expect(screen.getByText("12 traces")).toBeInTheDocument();
+  });
+
+  it("changes the window without an app being chosen", async () => {
+    // It measures the app list too, so locking it until an app is picked would
+    // put the only way of widening the search behind the thing being looked for.
+    const onWindowChange = vi.fn();
+    renderPicker([], { onWindowChange });
+    await userEvent.selectOptions(screen.getByLabelText("Window"), "7d");
+    expect(onWindowChange).toHaveBeenCalledWith("7d");
   });
 
   it("shows a fully priced app as its cost", async () => {
@@ -115,9 +135,9 @@ describe("TraceAppPicker", () => {
       selectedVersion: "v2.0",
     });
     await open();
-    const current = screen
-      .getAllByRole("option")
-      .filter((o) => o.getAttribute("aria-selected") === "true");
+    const current = appRows().filter(
+      (o) => o.getAttribute("aria-selected") === "true",
+    );
     expect(current).toHaveLength(1);
     expect(current[0]).toHaveTextContent("v2.0");
   });
@@ -132,7 +152,7 @@ describe("TraceAppPicker", () => {
     });
     expect(screen.getByRole("button", { name: "App" })).toHaveTextContent("Orders");
     await open();
-    expect(screen.getByRole("option")).toHaveAttribute("aria-selected", "true");
+    expect(appRows()[0]).toHaveAttribute("aria-selected", "true");
   });
 
   it("finds an app by a name the reader half-remembers", async () => {
@@ -143,8 +163,8 @@ describe("TraceAppPicker", () => {
       { ...APP, appName: "Orders" },
     ]);
     await open();
-    await userEvent.type(screen.getByRole("combobox"), "bling");
-    expect(screen.getAllByRole("option")[0]).toHaveTextContent("Billing");
+    await userEvent.type(screen.getByLabelText("Search app"), "bling");
+    expect(appRows()[0]).toHaveTextContent("Billing");
   });
 
   it("explains an empty list rather than just being empty", async () => {

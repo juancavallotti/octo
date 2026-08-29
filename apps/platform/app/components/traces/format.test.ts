@@ -6,7 +6,6 @@ import {
   formatCost,
   formatDuration,
   formatTokens,
-  formatWindow,
 } from "./format";
 
 describe("formatDuration", () => {
@@ -141,19 +140,6 @@ describe("formatAge", () => {
 
   it("says nothing for an unreadable timestamp", () => {
     expect(formatAge("nope", now)).toBe("—");
-  });
-});
-
-describe("formatWindow", () => {
-  it("describes the span the counts were measured over", () => {
-    expect(formatWindow("2026-08-08T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("last 24 hours");
-    expect(formatWindow("2026-08-09T11:00:00Z", "2026-08-09T12:00:00Z")).toBe("last 1 hour");
-    expect(formatWindow("2026-08-02T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("last 7 days");
-  });
-
-  it("says nothing for a window that is not one", () => {
-    expect(formatWindow("2026-08-09T12:00:00Z", "2026-08-09T12:00:00Z")).toBe("");
-    expect(formatWindow("nope", "also nope")).toBe("");
   });
 });
 

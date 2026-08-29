@@ -195,13 +195,3 @@ export function formatAge(iso: string, now: number = Date.now()): string {
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86_400)}d ago`;
 }
-
-/** The window a set of counts was measured over, in words. */
-export function formatWindow(from: string, to: string): string {
-  const spanMs = Date.parse(to) - Date.parse(from);
-  if (!Number.isFinite(spanMs) || spanMs <= 0) return "";
-  const hours = Math.round(spanMs / 3_600_000);
-  if (hours < 1) return `last ${Math.max(Math.round(spanMs / 60_000), 1)} minutes`;
-  if (hours < 48) return `last ${hours} hour${hours === 1 ? "" : "s"}`;
-  return `last ${Math.round(hours / 24)} days`;
-}

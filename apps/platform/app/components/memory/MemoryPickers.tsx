@@ -50,7 +50,7 @@ export function MemoryPickers({
       label="Integration"
       placeholder="Choose an integration…"
       empty="No integration exists yet."
-      icon={<BrainCircuit size={15} className="shrink-0 text-zinc-400" aria-hidden />}
+      leading={<BrainCircuit size={15} className="shrink-0 text-zinc-400" aria-hidden />}
       accessory={
         integrationId && (
           <>

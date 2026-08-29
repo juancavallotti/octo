@@ -51,7 +51,7 @@ export default function ObjectsToolbar({
       label="Deployment"
       placeholder="Choose a deployment…"
       empty="No deployment is running."
-      icon={<Database size={15} className="shrink-0 text-zinc-400" aria-hidden />}
+      leading={<Database size={15} className="shrink-0 text-zinc-400" aria-hidden />}
       onRefresh={deploymentId ? onRefresh : undefined}
       accessory={
         deploymentId && (

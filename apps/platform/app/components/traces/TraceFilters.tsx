@@ -2,19 +2,17 @@
 
 import { Search, Sparkles, Timer } from "lucide-react";
 import type { TraceStatus } from "@/app/model/traces";
-import {
-  WINDOW_PRESETS,
-  type TraceFilterValues,
-  type WindowPreset,
-} from "./query";
+import type { TraceFilterValues } from "./query";
 
 /**
  * The filter bar over one app's traces.
  *
- * The window sits here rather than beside the app list even though it narrows
- * both, because it is the same window for both by construction — an app row's
- * "12 traces" and the list under it have to be counting the same thing, and two
- * separate controls is the shortest path to them not being.
+ * Everything here narrows a list that only exists once an app has been chosen,
+ * which is why it is all disabled until one has been. The window is the
+ * exception and so it is not here: it measures the app list too, and one window
+ * for both is what keeps an app row's "12 traces" and the list under it counting
+ * the same thing. It sits with the app picker, above this, in the order the two
+ * are decided.
  */
 
 const CONTROL =
@@ -41,13 +39,7 @@ export default function TraceFilters({
   onChange,
 }: {
   value: TraceFilterValues;
-  /**
-   * Whether the *trace-list* controls are inert — they narrow a list that only
-   * exists once an app is chosen. The window is never disabled with them: it
-   * measures the app list too, and locking it until an app is picked would put
-   * the reader's only way of widening the search behind the thing they are
-   * trying to find.
-   */
+  /** Whether the controls are inert, which they are until an app is chosen. */
   disabled?: boolean;
   onChange: (next: TraceFilterValues) => void;
 }) {
@@ -62,19 +54,6 @@ export default function TraceFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-black/10 px-3 py-2 dark:border-white/10">
-      <select
-        aria-label="Window"
-        value={value.window}
-        onChange={(e) => set({ window: e.target.value as WindowPreset })}
-        className={CONTROL}
-      >
-        {WINDOW_PRESETS.map((preset) => (
-          <option key={preset.key} value={preset.key}>
-            {preset.label}
-          </option>
-        ))}
-      </select>
-
       <div className="flex items-center gap-1">
         {STATUSES.map((status) => {
           const on = value.statuses.includes(status.key);

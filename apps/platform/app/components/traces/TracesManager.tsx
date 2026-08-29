@@ -146,7 +146,8 @@ export default function TracesManager({
         <div className="flex w-96 shrink-0 flex-col border-r border-black/10 dark:border-white/10">
           <TraceAppPicker
             apps={apps.apps}
-            window={apps.window}
+            window={filters.window}
+            onWindowChange={(window) => setFilters({ ...filters, window })}
             loading={apps.loading}
             selectedId={selection.deploymentId}
             selectedVersion={selection.appVersion}

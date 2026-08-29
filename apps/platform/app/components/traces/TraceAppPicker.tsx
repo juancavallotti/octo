@@ -3,7 +3,8 @@
 import { AlertTriangle } from "lucide-react";
 import type { TraceApp } from "@/app/model/traces";
 import { AppPicker } from "@/app/components/AppPicker";
-import { describeCost, formatAge, formatWindow } from "./format";
+import { WINDOW_PRESETS, type WindowPreset } from "./query";
+import { describeCost, formatAge } from "./format";
 
 /**
  * The apps that produced traces, and what they cost — the choice you make before
@@ -23,13 +24,17 @@ import { describeCost, formatAge, formatWindow } from "./format";
  * individual trace would be an invention; leaving it out entirely would let a
  * reader draw conclusions from a set they did not know had holes in it.
  *
- * The window is beside the trigger rather than inside a row, because it qualifies
- * every count in the list at once: "12 traces" says nothing until you know
- * whether that was an hour or a week.
+ * The window comes *before* the app, because that is the order the two are
+ * actually decided in: the app list is counted over the window, so an app is
+ * only in it — and only says "12 traces" — because of a window that was already
+ * chosen. Offered afterwards it asked someone to pick from a list narrowed by
+ * something they had not been shown yet, and it was shown twice for the trouble:
+ * once as a label here and once as the filter bar's own control.
  */
 export default function TraceAppPicker({
   apps,
   window,
+  onWindowChange,
   loading,
   selectedId,
   selectedVersion,
@@ -37,15 +42,15 @@ export default function TraceAppPicker({
   onRefresh,
 }: {
   apps: TraceApp[];
-  window: { from: string; to: string } | null;
+  /** How far back both the app list and the traces under it are measured. */
+  window: WindowPreset;
+  onWindowChange: (window: WindowPreset) => void;
   loading: boolean;
   selectedId: string | null;
   selectedVersion: string | null;
   onSelect: (app: TraceApp) => void;
   onRefresh: () => void;
 }) {
-  const span = window ? formatWindow(window.from, window.to) : "";
-
   // Normalized both ways: a deployment from before version tags reports "" and
   // the path omits the segment entirely, so the two spellings of "no version"
   // have to compare equal or that app could never show as the selected one.
@@ -67,8 +72,19 @@ export default function TraceAppPicker({
       }
       renderValue={(app) => <AppFace app={app} />}
       renderRow={(app) => <AppRow app={app} />}
-      accessory={
-        span ? <span className="shrink-0 text-xs text-zinc-400">{span}</span> : null
+      leading={
+        <select
+          aria-label="Window"
+          value={window}
+          onChange={(e) => onWindowChange(e.target.value as WindowPreset)}
+          className="shrink-0 rounded-md border border-black/10 bg-transparent px-1.5 py-1 text-xs outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
+        >
+          {WINDOW_PRESETS.map((preset) => (
+            <option key={preset.key} value={preset.key}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
       }
       label="App"
       placeholder="Choose an app…"
@@ -79,19 +95,32 @@ export default function TraceAppPicker({
   );
 }
 
-/** Name and version, which together are what was picked. */
+/**
+ * Name and version, which together are what was picked.
+ *
+ * The name is what someone recognises the app by, so it gets the room: the
+ * version is a build hash with a tag on the front and cuts down to something
+ * still recognisable, while a truncated name is just a letter.
+ */
 function AppFace({ app }: { app: TraceApp }) {
   return (
     <span className="flex items-baseline gap-2">
-      <span className="min-w-0 truncate">{app.appName || app.deploymentId.slice(0, 8)}</span>
-      {app.appVersion && <VersionBadge version={app.appVersion} />}
+      <span className="shrink-0 truncate">
+        {app.appName || app.deploymentId.slice(0, 8)}
+      </span>
+      {app.appVersion && <VersionBadge version={app.appVersion} shrink />}
     </span>
   );
 }
 
-function VersionBadge({ version }: { version: string }) {
+function VersionBadge({ version, shrink }: { version: string; shrink?: boolean }) {
   return (
-    <span className="shrink-0 rounded bg-black/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-400">
+    <span
+      title={shrink ? version : undefined}
+      className={`rounded bg-black/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-400 ${
+        shrink ? "min-w-0 truncate" : "shrink-0"
+      }`}
+    >
       {version}
     </span>
   );

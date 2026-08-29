@@ -45,6 +45,15 @@ export interface AppPickerProps<T> {
   renderRow: (item: T) => ReactNode;
   /** The trigger's face. Falls back to {@link AppPickerProps.toText}. */
   renderValue?: (item: T) => ReactNode;
+  /**
+   * Leading slot in the toolbar, for a control the choice below depends on.
+   *
+   * It is before the picker rather than after it because reading order is claim
+   * order: traces puts the window here, and the window is what the app list was
+   * counted over — offered afterwards it asks someone to choose from a list
+   * already narrowed by something they have not been shown yet.
+   */
+  leading?: ReactNode;
   /** Trailing slot in the toolbar — where a second axis goes, if there is one. */
   accessory?: ReactNode;
   /** Names the control for a screen reader: "Application". */
@@ -54,7 +63,6 @@ export interface AppPickerProps<T> {
   empty?: ReactNode;
   loading?: boolean;
   onRefresh?: () => void;
-  icon?: ReactNode;
 }
 
 export function AppPicker<T>({
@@ -65,13 +73,13 @@ export function AppPicker<T>({
   toText,
   renderRow,
   renderValue,
+  leading,
   accessory,
   label,
   placeholder = "Search…",
   empty,
   loading = false,
   onRefresh,
-  icon,
 }: AppPickerProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -165,9 +173,13 @@ export function AppPicker<T>({
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-black/10 px-4 py-2.5 dark:border-white/10">
-      {icon}
+      {leading}
 
-      <div ref={root} className="relative min-w-0 max-w-md flex-1">
+      {/* A basis rather than a bare flex-1: with a leading control beside it the
+          trigger was shrinking to a single letter of the app's name, and the
+          toolbar already wraps — a picker on its own line reads, a picker
+          crushed to "D." does not. */}
+      <div ref={root} className="relative min-w-0 max-w-md flex-1 basis-48">
         <button
           ref={trigger}
           type="button"
