@@ -5,14 +5,25 @@
  * sets in its own globals.
  */
 
-/* Dot-grid background for the flow canvas. */
+/*
+ * Dot-grid background for the flow canvas.
+ *
+ * The grid is painted on the scrolling surface, which is deliberately *not*
+ * zoomed — the zoom is on a layer inside it — so the cell has to follow the
+ * factor by hand. Without that the dots keep their size while the flows change
+ * theirs, and the surface stops reading as one that was scaled.
+ */
 .canvas-grid {
   background-image: radial-gradient(
     color-mix(in srgb, var(--foreground) 18%, transparent) 1px,
     transparent 1px
   );
-  background-size: 20px 20px;
-  background-position: -10px -10px;
+  background-size:
+    calc(20px * var(--canvas-zoom, 1))
+    calc(20px * var(--canvas-zoom, 1));
+  background-position:
+    calc(-10px * var(--canvas-zoom, 1))
+    calc(-10px * var(--canvas-zoom, 1));
 }
 
 /**
