@@ -21,6 +21,11 @@
        from the release would then be wrong on every deployment they own. */}}
 - name: RUNTIME_IMAGE
   value: {{ include "octo-common.image" (dict "root" . "component" "runtime") | quote }}
+{{- /* The version that image is, for the same reason the orchestrator gets it:
+       a digest-pinned reference has no tag to read, and this is what a deployment
+       is compared against to decide whether it is behind. */}}
+- name: RUNTIME_VERSION
+  value: {{ include "octo-common.imageVersion" (dict "root" . "component" "runtime") | quote }}
 # Enables the integration/folder management UI; the editor's BFF proxy
 # fronts the orchestrator at its in-cluster Service DNS.
 - name: ORCHESTRATOR_URL

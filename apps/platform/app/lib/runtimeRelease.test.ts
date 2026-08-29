@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { imageTag, needsUpgrade } from "./runtimeRelease";
+import { currentRuntime, imageTag, needsUpgrade } from "./runtimeRelease";
 
 describe("imageTag", () => {
   it("takes the tag, and is not fooled by a registry port", () => {
@@ -51,5 +51,22 @@ describe("needsUpgrade", () => {
   it("claims nothing when either side is unknown", () => {
     expect(needsUpgrade(undefined, "0.8.8")).toBe(false);
     expect(needsUpgrade("0.8.5", "")).toBe(false);
+  });
+});
+
+describe("currentRuntime", () => {
+  it("prefers the configured version over the reference's tag", () => {
+    expect(currentRuntime("0.9.0", "reg/octo-runtime:latest")).toBe("0.9.0");
+  });
+
+  // The case this exists for: the chart pinned the image by digest, so the
+  // reference has no version in it at all.
+  it("carries a digest-pinned install", () => {
+    expect(currentRuntime("0.9.0", "reg/octo-runtime@sha256:abcd")).toBe("0.9.0");
+  });
+
+  it("falls back to the tag, and says nothing when neither knows", () => {
+    expect(currentRuntime("", "reg/octo-runtime:0.8.8")).toBe("0.8.8");
+    expect(currentRuntime("", "reg/octo-runtime@sha256:abcd")).toBe("");
   });
 });

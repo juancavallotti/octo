@@ -48,6 +48,27 @@
 {{- end }}
 
 {{/*
+  The RELEASE a component's image is, as opposed to how it is addressed.
+
+  octo-common.image renders a digest when one is pinned, and a digest carries no
+  version — so an install that pins by digest (an immutable deploy, a terraform
+  plan that resolves tags) leaves nothing downstream able to say which octo a
+  workload is running. The version is still known here: it is the tag that would
+  have been used, and failing that the chart's appVersion, which release-please
+  keeps in step with every other copy of the release in the tree.
+
+  Deliberately not defined for a digest-pinned image with no tag override: the
+  appVersion IS the answer there, because the chart and the image it names ship
+  as one release.
+*/}}
+{{- define "octo-common.imageVersion" -}}
+{{- $global := .root.Values.image | default dict -}}
+{{- $component := (index .root.Values .component) | default dict -}}
+{{- $img := $component.image | default dict -}}
+{{- $img.tag | default $global.tag | default .root.Chart.AppVersion -}}
+{{- end }}
+
+{{/*
   Pull policy for a component: its own image.pullPolicy, else the shared one.
 */}}
 {{- define "octo-common.imagePullPolicy" -}}
