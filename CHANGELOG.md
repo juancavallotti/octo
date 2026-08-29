@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.10](https://github.com/juancavallotti/octo/compare/v0.8.9...v0.8.10) (2026-08-29)
+
+
+### Bug Fixes
+
+* **agent:** let Dr. Octo report the name he gives a conversation ([b7f0041](https://github.com/juancavallotti/octo/commit/b7f00418c113273a9573b506b85868a700f0fb29))
+* **agent:** let Dr. Octo report the name he gives a conversation ([9ef0dcf](https://github.com/juancavallotti/octo/commit/9ef0dcf5ec4e6d2c3f0d20814173fb42349983bc))
+* **platform:** do not show a digest where the runtime version goes ([402b21b](https://github.com/juancavallotti/octo/commit/402b21baa2f964bc06119d63b054802ca505e392))
+* **platform:** do not show a digest where the runtime version goes ([5eae61a](https://github.com/juancavallotti/octo/commit/5eae61a57dc05abeac5ad08d78d61191d34faef3))
+
 ## [0.8.9](https://github.com/juancavallotti/octo/compare/v0.8.8...v0.8.9) (2026-08-29)
 
 

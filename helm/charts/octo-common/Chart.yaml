@@ -8,4 +8,4 @@ description: >-
 type: library
 # Released in lockstep with the octo chart that vendors it, and stamped from the
 # annotation — see the note in helm/Chart.yaml for why the annotation matters.
-version: 0.8.9 # x-release-please-version
+version: 0.8.10 # x-release-please-version
