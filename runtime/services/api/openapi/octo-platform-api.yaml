@@ -7,7 +7,7 @@
 # implement all of it. The discovery endpoint is where you say what you did
 # implement, and everything you leave out degrades or refuses on the runtime's
 # side without you writing a line for it. A server that implements discovery and
-# the four KV routes is a legitimate, useful implementation.
+# the three KV operations is a legitimate, useful implementation.
 #
 # Five things implementers get wrong. They are called out again at each route,
 # but they are worth knowing before you start:

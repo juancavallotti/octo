@@ -45,8 +45,12 @@ type VerifyReport struct {
 	SpecVersion    string         `json:"specVersion"`
 	Implementation implementation `json:"implementation"`
 	// Declared lists the features the discovery document claimed.
-	Declared []string      `json:"declared"`
-	Checks   []CheckResult `json:"checks"`
+	Declared []string `json:"declared"`
+	// ScratchPrefix is the namespace, subject and agent prefix everything this
+	// run wrote sits under. It is reported rather than merely used, because
+	// somebody pointing this at a live system deserves to know what it touched.
+	ScratchPrefix string        `json:"scratchPrefix"`
+	Checks        []CheckResult `json:"checks"`
 }
 
 // Failed reports whether any check failed, which is what the command's exit
@@ -81,6 +85,7 @@ func Verify(ctx context.Context, cfg Config) (VerifyReport, error) {
 		SpecVersion:    doc.SpecVersion,
 		Implementation: doc.Implementation,
 		Declared:       supportedFeatures(doc),
+		ScratchPrefix:  verifyPrefix,
 	}
 	report.Checks = append(report.Checks, checkDiscovery(doc)...)
 	for _, suite := range verifySuites() {
@@ -340,7 +345,8 @@ func (r VerifyReport) Format() string {
 		fmt.Fprintf(&b, "  implementation: %s %s\n", r.Implementation.Name, r.Implementation.Version)
 	}
 	fmt.Fprintf(&b, "  specVersion:    %s (this runtime speaks %s)\n", r.SpecVersion, specVersion)
-	fmt.Fprintf(&b, "  declared:       %s\n\n", declaredList(r.Declared))
+	fmt.Fprintf(&b, "  declared:       %s\n", declaredList(r.Declared))
+	fmt.Fprintf(&b, "  wrote under:    %s\n\n", r.ScratchPrefix)
 
 	var passed, failed, skips int
 	for _, c := range r.Checks {

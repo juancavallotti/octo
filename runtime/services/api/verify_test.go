@@ -202,3 +202,20 @@ func TestVerifyReportFormat(t *testing.T) {
 		}
 	}
 }
+
+// Somebody pointing this at a live system deserves to know what it wrote. The
+// prefix is reported rather than merely used, because both the docs and the CLI
+// help promise it is.
+func TestVerifyReportsWhatItWroteUnder(t *testing.T) {
+	f := fullBackend(t, fastVerify())
+	report, err := Verify(t.Context(), verifyConfig(f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ScratchPrefix != verifyPrefix {
+		t.Fatalf("scratchPrefix = %q, want %q", report.ScratchPrefix, verifyPrefix)
+	}
+	if !strings.Contains(report.Format(), verifyPrefix) {
+		t.Fatalf("the report does not say what it wrote under:\n%s", report.Format())
+	}
+}
