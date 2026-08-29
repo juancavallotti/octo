@@ -424,8 +424,14 @@ flows:
 
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
 
+        # thread_title is emitted for the same reason the rest are: the panel has
+        # no other way to learn it in time. Naming happens on the run that opens a
+        # conversation, AFTER its answer has already streamed, so a panel that only
+        # reads titles from a listing shows the conversation somebody is in as
+        # nameless until something reloads it.
         emit: [thinking, text, tool_call, tool_result, turn_end,
-               compaction_start, compaction_end, signal, done, error, guardrail]
+               compaction_start, compaction_end, signal, thread_title,
+               done, error, guardrail]
         events:
           process:
             - type: sse-event
