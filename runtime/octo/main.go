@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	_ "github.com/juancavallotti/octo/runtime/connectors/cron"
@@ -69,6 +70,10 @@ func teeDefaultLoggerToSink(svc core.RuntimeServices) {
 
 // run dispatches to a subcommand. The default (no subcommand, or a leading flag)
 // is "run", so `cli -config x.yaml` keeps working.
+// commandRun is the default subcommand, so `octo --config x.yaml` keeps working
+// without naming it.
+const commandRun = "run"
+
 // usage is the top-level help page, printed for `octo`, `octo --help`, and a
 // subcommand's --help.
 const usage = `octo — run and invoke octo integration flows
@@ -79,8 +84,6 @@ Usage:
                                                              Call one flow and print its result
   octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
   octo schema [--out <path>]                                 Print the editor capability schema as JSON
-  octo openapi [--format json] [--out <path>]                Print the platform API contract this runtime expects
-  octo verify-platform-api <url> [--json]                    Check a platform API against that contract (-tags api only)
   octo version                                               Print the version and build date
   octo --help                                                Show this help
 
@@ -203,27 +206,7 @@ Schema flags:
   --out <path>       write it to a file instead of stdout
 
   "octo schema --kind debug-config" prints the JSON Schema of a --run-debug-config
-  file, so an editor can complete it and a validator can check it.
-
-OpenAPI flags:
-  --format <fmt>     yaml (default) or json
-  --out <path>       write it to a file instead of stdout
-
-  "octo openapi" prints the platform API contract: the OpenAPI document a server
-  must implement for a runtime started with RUNTIME_SERVICES_MODULE=api, which is
-  how Octo runs on Cloud Run, or against a platform service of your own, or beside
-  a sidecar. The YAML carries the prose explaining each route; the JSON is for
-  tooling that will not read it.
-
-Platform API verification (-tags api builds only):
-  --json             print the report as JSON instead of a table
-
-  "octo verify-platform-api <url>" drives the real client against your
-  implementation and prints, check by check, which contract rules it satisfies. It
-  exits non-zero on any failure, so it belongs in the pipeline that ships your
-  server. The URL may also come from OCTO_PLATFORM_API_URL, so running it inside a
-  deployment needs no argument. It WRITES, under a scratch prefix it names before
-  it starts; point it at staging.`
+  file, so an editor can complete it and a validator can check it.`
 
 // dashNote closes the help page. It is separate from usage so hosted-service
 // sections land above it: it is a note about every flag on the page, so it has to
@@ -236,11 +219,17 @@ const dashNote = `Flags accept one or two dashes (--config or -config).`
 // configure them — so their documentation has to come from them; a flag that
 // exists but is absent from --help may as well not exist.
 func usageText() string {
-	hosted := services.HostedUsage()
-	if hosted == "" {
-		return usage + "\n\n" + dashNote
+	sections := []string{usage}
+	// A module's commands document themselves, for the same reason hosted services
+	// do: a flag that exists but is absent from --help may as well not exist, and
+	// one documented in a build that does not have it is worse.
+	if fromServices := services.CommandUsage(); fromServices != "" {
+		sections = append(sections, fromServices)
 	}
-	return usage + "\n\n" + hosted + "\n\n" + dashNote
+	if hosted := services.HostedUsage(); hosted != "" {
+		sections = append(sections, hosted)
+	}
+	return strings.Join(append(sections, dashNote), "\n\n")
 }
 
 func run(args []string) error {
@@ -261,14 +250,14 @@ func run(args []string) error {
 		return nil
 	}
 
-	cmd := "run"
+	cmd := commandRun
 	if !strings.HasPrefix(args[0], "-") {
 		cmd = args[0]
 		args = args[1:]
 	}
 
 	switch cmd {
-	case "run":
+	case commandRun:
 		return runCommand(args)
 	case "invoke":
 		return invokeCommand(args)
@@ -276,18 +265,24 @@ func run(args []string) error {
 		return evalCommand(args)
 	case "schema", "capabilities":
 		return schemaCommand(args)
-	case "openapi":
-		return openapiCommand(args)
 	default:
-		// A build tag may add commands that only make sense with the provider it
-		// compiles in — see commands_api.go.
-		if extra, ok := extraCommands[cmd]; ok {
-			return extra(args)
+		// A runtime service may bring subcommands with it, so a capability appears
+		// in this binary exactly when the module that can act on it does. See
+		// services.Command.
+		if extra, ok := services.LookupCommand(cmd); ok {
+			return extra.Run(args)
 		}
-		return fmt.Errorf(
-			"unknown command %q (expected \"run\", \"invoke\", \"eval\", \"schema\", \"openapi\", or \"version\")",
-			cmd)
+		return fmt.Errorf("unknown command %q (this binary offers %s)", cmd, knownCommands())
 	}
+}
+
+// knownCommands lists what this binary answers to, built-ins plus whatever the
+// compiled-in modules registered. The error naming them is the only place a
+// reader finds out that this build has, say, no platform API commands.
+func knownCommands() string {
+	names := append([]string{commandRun, "invoke", "eval", "schema", "version"}, services.CommandNames()...)
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // configDir returns the directory a config path is rooted at — the directory

@@ -32,7 +32,10 @@ import (
 // Module is this provider's name, matched against RUNTIME_SERVICES_MODULE.
 const Module = "api"
 
-func init() { registerProvider() }
+func init() {
+	registerProvider()
+	registerCommands()
+}
 
 func registerProvider() { services.Register(Module, New) }
 
