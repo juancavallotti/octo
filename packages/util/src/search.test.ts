@@ -63,6 +63,21 @@ describe("rankSearchString", () => {
     });
   });
 
+  describe("repeated letters in the target", () => {
+    it("takes the tightest run, not the first one", () => {
+      // Greedy from the left takes the 'a' at 0 and the 'b' at 2 and calls that
+      // a gap; the pair at 1 and 2 is adjacent. A name with a doubled letter
+      // should not be demoted for having one.
+      expect(rankSearchString("ab", "aab")).toBe(1);
+    });
+
+    it("still scores a match its first letter cannot start", () => {
+      // "bling" reaches "inventory" through its 'i' and 'n' — there is no 'b' to
+      // enumerate start positions from, and that match has to survive anyway.
+      expect(rankSearchString("bling", "inventory")).toBeGreaterThan(0);
+    });
+  });
+
   // The two defects the original carried, pinned so a future tidy-up cannot
   // reintroduce them.
   describe("letters are consumed, not reused", () => {
