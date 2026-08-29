@@ -92,13 +92,39 @@ func newClient(cfg Config) (*client, error) {
 		base: cfg.BaseURL,
 		// The client-level timeout is only a backstop: do sets a per-call deadline,
 		// and the long polls need more room than any single value would give.
-		http:        &http.Client{Transport: tr, Timeout: cfg.LongTimeout + cfg.Timeout},
+		http: &http.Client{
+			Transport:     tr,
+			Timeout:       cfg.LongTimeout + cfg.Timeout,
+			CheckRedirect: refuseInsecureRedirect,
+		},
 		headers:     headers,
 		timeout:     cfg.Timeout,
 		longTimeout: cfg.LongTimeout,
 		tokenFile:   cfg.TokenFile,
 		token:       cfg.Token,
 	}, nil
+}
+
+// refuseInsecureRedirect stops a redirect from downgrading the connection.
+//
+// net/http drops the Authorization header when a redirect crosses to a different
+// host, but not when it stays on the same one — so an https endpoint answering
+// 302 to its own http:// URL would put the bearer token on the wire in the clear,
+// and nothing in the runtime would notice. Loopback is exempt for the same reason
+// plaintext loopback is allowed at all.
+//
+// The redirect count is left at net/http's default; the scheme is the part worth
+// having an opinion about.
+func refuseInsecureRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil
+	}
+	from, to := via[len(via)-1].URL, req.URL
+	if from.Scheme == schemeHTTPS && to.Scheme != schemeHTTPS && !isLoopback(to.Hostname()) {
+		return fmt.Errorf("api: refusing a redirect from %s to %s: it would downgrade the "+
+			"connection and send this runtime's credentials in the clear", from.Scheme, to.Scheme)
+	}
+	return nil
 }
 
 // configureTLS applies a custom CA and client certificate when configured. Both

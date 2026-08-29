@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -34,6 +36,14 @@ const (
 	envDeploymentID    = "OCTO_DEPLOYMENT_ID"
 	envInstanceID      = "OCTO_INSTANCE_ID"
 	envPodName         = "POD_NAME"
+)
+
+// The schemes this module speaks. Plaintext is allowed to loopback, where a
+// sidecar's bytes never leave the pod, and to anywhere at all when there is no
+// credential to protect.
+const (
+	schemeHTTPS = "https"
+	schemeHTTP  = "http"
 )
 
 // Startup policy: what happens when discovery never answers.
@@ -75,21 +85,20 @@ type Config struct {
 	InstanceID   string
 }
 
-// loadConfig reads the environment. It fails only on a missing base URL: without
-// one there is no platform to ask, and every other setting has a defensible
-// default.
+// loadConfig reads the environment. It fails on a missing or unusable base URL,
+// and on a credential this runtime would have to send in the clear; every other
+// setting has a defensible default.
 func loadConfig() (Config, error) {
-	base := strings.TrimRight(services.EnvString(envURL, ""), "/")
-	if base == "" {
-		return Config{}, fmt.Errorf("api: %s is required: it is the base URL of the platform API "+
-			"this runtime delegates every platform capability to", envURL)
+	base, err := platformURL(services.EnvString(envURL, ""))
+	if err != nil {
+		return Config{}, err
 	}
 	headers, err := parseHeaders(services.EnvString(envHeaders, ""))
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{
-		BaseURL:         base,
+	cfg := Config{
+		BaseURL:         strings.TrimRight(base.String(), "/"),
 		Token:           services.EnvString(envToken, ""),
 		TokenFile:       services.EnvString(envTokenFile, ""),
 		Headers:         headers,
@@ -102,7 +111,83 @@ func loadConfig() (Config, error) {
 		DiscoveryBudget: envDuration(envDiscoveryBudget, defaultDiscoveryBudget),
 		DeploymentID:    services.EnvString(envDeploymentID, ""),
 		InstanceID:      instanceID(),
-	}, nil
+	}
+	if err := requireEncryptedTransport(base, cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// platformURL validates the base URL and strips what must never be there.
+//
+// The parse is not pedantry. This URL is logged at startup and again on every
+// discovery retry, so a credential embedded in it — https://user:pass@host, the
+// shape a copied curl command leaves behind — would be written to the log of
+// every runtime that used it. Rejecting is better than redacting: a URL carrying
+// userinfo means somebody believes that is how this authenticates, and quietly
+// dropping it would leave them with a runtime that cannot log in and no reason
+// why.
+//
+// Query and fragment go for a duller reason: every route appends its own query,
+// so anything here would be silently dropped rather than sent.
+func platformURL(raw string) (*url.URL, error) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		return nil, fmt.Errorf("api: %s is required: it is the base URL of the platform API "+
+			"this runtime delegates every platform capability to", envURL)
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("api: %s is not a URL: %w", envURL, err)
+	}
+	switch {
+	case parsed.Scheme != schemeHTTP && parsed.Scheme != schemeHTTPS:
+		return nil, fmt.Errorf("api: %s must be %s or %s, not %q",
+			envURL, schemeHTTP, schemeHTTPS, parsed.Scheme)
+	case parsed.Host == "":
+		return nil, fmt.Errorf("api: %s names no host", envURL)
+	case parsed.User != nil:
+		return nil, fmt.Errorf("api: %s must not carry credentials in the URL; this runtime "+
+			"logs the URL, so they would end up in the log. Use %s, %s or %s instead",
+			envURL, envToken, envTokenFile, envHeaders)
+	case parsed.RawQuery != "" || parsed.Fragment != "":
+		return nil, fmt.Errorf("api: %s must not carry a query or fragment; every route appends "+
+			"its own query, so anything here would be dropped rather than sent", envURL)
+	}
+	return parsed, nil
+}
+
+// requireEncryptedTransport refuses to send a credential over plaintext HTTP to
+// anywhere but loopback.
+//
+// The sidecar deployment is exactly plaintext HTTP to loopback, so that stays
+// allowed: those bytes never leave the pod, and requiring TLS there would mean
+// issuing a certificate for 127.0.0.1 to protect a hop that has no network on it.
+// Anywhere else, a bearer token over http:// is a credential on the wire in the
+// clear, and no deployment wants that badly enough to be given it silently.
+//
+// A plaintext endpoint with NO credential is left alone: it is somebody's private
+// network, the contract carries no secrets of its own, and refusing it would only
+// push them into setting a token they do not need.
+func requireEncryptedTransport(base *url.URL, cfg Config) error {
+	if cfg.Token == "" && cfg.TokenFile == "" && len(cfg.Headers) == 0 {
+		return nil
+	}
+	if base.Scheme == schemeHTTPS || isLoopback(base.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("api: refusing to send credentials to %s over plaintext %s. "+
+		"Use %s, or point %s at loopback for a sidecar, or unset %s/%s/%s",
+		base.Host, schemeHTTP, schemeHTTPS, envURL, envToken, envTokenFile, envHeaders)
+}
+
+// isLoopback reports whether a host is this machine, where plaintext is fine.
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // startupPolicy resolves the startup behavior, defaulting to require.
