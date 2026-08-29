@@ -11,32 +11,36 @@
   (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, …). Release automation
   derives the changelog and version from these (see [release-process.md](release-process.md)).
 
-## Commit atomically; stop for approval
+## Two gates: the plan, and the push
 
-- Agents implement the planned commits one at a time, in dependency order, and
-  **stop for the human's approval before each `git commit`**. The default is to
-  pause: implement one commit's worth of work, show what changed and that it is
-  green, and wait. Do not chain into the next commit unprompted.
-- The human may waive this for a given task ("just do the whole sequence") — but
-  that is theirs to say, and an unrelated instruction elsewhere is not it.
+The gate exists to protect what is **irreversible or outward-facing**. A local
+commit on a feature branch is neither, so it is not gated. Approving each one in
+turn was the largest source of round-trips on work whose shape was already agreed.
+
+- **The plan is approved before the work starts.** The commit *sequence* is agreed
+  up front — that is where the review value is, and it is what keeps the history
+  atomic.
+- **`git push` and opening a pull request are approved.** Outward-facing, and the
+  point where CI, CodeRabbit and the stack tooling engage anyway.
+- **In between, chain the approved sequence.** Implement and commit it, then
+  present the whole thing: what each commit does and what covers it.
+
+Two cases still stop for approval mid-sequence, and only two:
+
+- A commit that changes an **architectural contract** — a new extension point, a
+  schema or migration, a public runtime type.
+- **Any commit you are not confident about.** "I am unsure" stops. That one is on
+  the agent to notice.
+
+Whatever the pacing:
+
 - Each commit must build and pass its own tests, so the history stays bisectable.
 - Do **not** squash the sequence into one large commit "to save time" — the atomic
   history is the point. Reviewing increment by increment is how the reviewer follows
   how each step builds on the last.
-- After the commits are in place, present a short summary of the sequence: what each
-  commit does and what tests cover it.
-
-## Pushing still requires approval
-
-- Do not run `git push` or open a pull request until the human has reviewed the
-  committed history and confirmed.
 
 ## Review quality
 
 - Explain behavioral changes, not just file changes.
 - Call out test coverage and known risks.
 - Keep follow-up work isolated from unrelated cleanup.
-
-## Baseline exception
-
-- The first baseline commit is direct and does not need a pull request.

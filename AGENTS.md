@@ -19,13 +19,13 @@ Required reading:
 ## Workflow rules (always apply)
 
 - Break every implementation plan down into a sequence of small, logical commits.
-- **Always stop before committing.** Do not run `git commit` or `git push` until the
-  human has reviewed the staged increment and explicitly approved it. Present each
-  increment (what changed, why, test coverage) and wait. This applies even to trivial
-  changes. See [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md).
+- **Two gates: the plan is approved before the work starts, and `git push` /
+  opening a pull request is approved.** In between, chain the agreed sequence. A
+  commit that changes an architectural contract, or one you are not confident
+  about, still stops. See
+  [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md) — which is
+  the policy; this is a pointer to it, not a second copy.
 - Use Conventional Commit messages — release automation depends on them.
-
-The initial baseline is expected to be committed directly, not through a pull request.
 
 ## Documentation policy
 
@@ -59,6 +59,34 @@ it in sync with code **in the same PR** — CI enforces part of this:
   main, so it describes the version users can install. A docs change merged today
   appears publicly at the next release (`docs-pages.yml`, called by
   `release-please.yml`). Every PR still builds the docs in `validate.yml`.
+
+## Layering policy
+
+**Every layer owns the problem it creates.** A problem created higher up the stack
+is never solved lower down.
+
+If a flow's `input` expression fabricates a prompt blob, the surfaces belonging to
+that flow render it back down — not the runtime, not the store, not a generic
+platform view. If an integration needs its own shape handled, the handling lives
+with that integration. The runtime, the orchestrator and the platform UI are shared
+by everything, and must not learn any one implementation's quirks.
+
+Two rules follow, and both are absolute:
+
+- **Do not push a concern down the stack to make a fix easier.** The tell is
+  needing *new shared vocabulary* — a new block setting, a new store field, a new
+  generic flag — to express one caller's shape. When a fix requires that, it is at
+  the wrong layer. Stop and put it where the shape originates.
+- **Do not promote something to the platform on your own judgement.** If a
+  capability genuinely belongs in a shared layer, the repository owner will ask for
+  it to be added there. Proposing it is fine; landing it unasked is not.
+
+The corollary for stored data: **anything durable is written as it was produced and
+read back as it was written.** Agent memory records the turn an agent sent,
+verbatim. Later readers cannot be anticipated — audit, replay, reconstructing what
+a model actually saw — so trimming at write time serves one reader by destroying
+the record for every other. Reshaping happens at the edge, on read, by the surface
+that knows why.
 
 ## Refactoring policy
 
