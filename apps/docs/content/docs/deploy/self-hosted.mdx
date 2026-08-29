@@ -318,9 +318,12 @@ Octo changes; the infrastructure is simply somebody else's.
 engine with a different services provider: every capability — the KV store,
 secrets, queues, leases, leader election — is delegated to an HTTP server you
 implement, typically a second Cloud Run service in front of Firestore, Secret
-Manager and Pub/Sub. Flows stay unchanged, `cron` becomes leader-elected because
-the leases are real, and the KV store is shared because it is yours. You
-implement as much of the contract as you need and the rest degrades. See
+Manager and Pub/Sub. Flows stay unchanged, the KV store is shared because it is
+yours, and `cron` fires once across every instance — but only once you implement
+leader election, which is the one part that does not quietly degrade. Leave it
+out and every campaign is refused rather than granted, on purpose: a no-op
+election makes every instance the leader, which is the scale-to-zero cron problem
+again with a nicer name. Everything else you skip degrades. See
 [The platform API](/extending/platform-api).
 
 The platform's own cluster deployment is the third option, with leader-elected

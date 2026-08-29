@@ -50,7 +50,7 @@ release workflow directly, passing the fresh tag.
 
 ### The release workflow builds and publishes
 
-`.github/workflows/release.yml` runs `release-check` first, then three publish
+`.github/workflows/release.yml` runs `release-check` first, then the publish
 jobs in parallel:
 
 - **release-check** — checks out the tag, runs `task release-check`
