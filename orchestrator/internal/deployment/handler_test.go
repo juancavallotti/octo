@@ -21,9 +21,13 @@ func TestImageTag(t *testing.T) {
 		{"registry:5000/octo/runtime", ""},
 		{"octo-runtime", ""},
 		{"", ""},
-		// The digest's own colon is not a tag separator.
+		// The digest's own colon is not a tag separator, in either spelling: a
+		// deploy pinned by digest gives the first, and the kubelet reports that
+		// pod's image as the second.
 		{"octo-runtime@sha256:abcd", ""},
 		{"ghcr.io/octo/runtime:0.8.8@sha256:abcd", ""},
+		{"sha256:ed08b693c518be5d6995e2e2edd6bb8ab42972a34a2c375cd7e7a85aecf8e210", ""},
+		{"sha512:ed08b693", ""},
 	}
 	for _, tc := range cases {
 		if got := imageTag(tc.image); got != tc.want {

@@ -101,10 +101,13 @@ type deploymentResponse struct {
 // reference is untagged or pinned by digest (nothing readable to show). The colon
 // searched for is the last one, and only past the final slash, so a registry with
 // a port (registry:5000/octo/runtime) is not mistaken for a tag.
+//
+// Both spellings of a digest have to be turned away, because both reach here. A
+// deploy pinned by digest gives `repo@sha256:…`; the kubelet then reports that
+// pod's container image as the bare `sha256:…` with no repository at all, which
+// has no `@` in it and splits into a name of "sha256" and a "tag" of sixty-four
+// hex characters. That is how a digest ends up on screen where a version goes.
 func imageTag(image string) string {
-	// A digest-pinned reference names no tag, and its digest is not one: the colon
-	// in `@sha256:…` would otherwise be read as the tag separator and publish a
-	// hash fragment as a version.
 	if strings.Contains(image, "@") {
 		return ""
 	}
@@ -116,7 +119,17 @@ func imageTag(image string) string {
 	if i < 0 {
 		return ""
 	}
+	if isDigestAlgorithm(name[:i]) {
+		return ""
+	}
 	return name[i+1:]
+}
+
+// isDigestAlgorithm reports whether name is one of the digest algorithms a
+// registry reference can carry, which is what makes `name:hex` a digest rather
+// than a repository and a tag.
+func isDigestAlgorithm(name string) bool {
+	return name == "sha256" || name == "sha512"
 }
 
 func toResponse(d Deployment) deploymentResponse {

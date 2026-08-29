@@ -26,14 +26,18 @@ export const CURRENT_RUNTIME_IMAGE = process.env.RUNTIME_IMAGE ?? "";
  * the tag a deployment reports.
  */
 export function imageTag(image: string): string {
-  // A digest-pinned reference names no tag, and its digest is not one: the colon
-  // in `@sha256:…` would otherwise be read as the tag separator and put a hash
-  // fragment on screen where a version goes.
+  // Both spellings of a digest are turned away, because both occur: a reference
+  // pinned by digest is `repo@sha256:…`, while the kubelet reports that pod's
+  // image as the bare `sha256:…` with no repository — which has no `@` and would
+  // otherwise split into a name of "sha256" and a "tag" of hex.
   if (image.includes("@")) return "";
   const slash = image.lastIndexOf("/");
   const name = slash >= 0 ? image.slice(slash + 1) : image;
   const colon = name.lastIndexOf(":");
-  return colon < 0 ? "" : name.slice(colon + 1);
+  if (colon < 0) return "";
+  const algorithm = name.slice(0, colon);
+  if (algorithm === "sha256" || algorithm === "sha512") return "";
+  return name.slice(colon + 1);
 }
 
 /**
