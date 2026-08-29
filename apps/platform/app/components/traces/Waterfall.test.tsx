@@ -52,8 +52,9 @@ describe("Waterfall", () => {
     // The bar lives in the track cell, which is the row's second gridcell.
     const track = within(stamp).getAllByRole("gridcell")[1];
     const bar = track.firstElementChild as HTMLElement;
-    expect(bar.style.minWidth).toBe("2px");
-    expect(Number.parseFloat(bar.style.width)).toBeGreaterThan(0);
+    // The floor is in the geometry now rather than in a CSS minWidth beside it:
+    // the whole trace is laid out in pixels, so the width can carry it directly.
+    expect(Number.parseFloat(bar.style.width)).toBeGreaterThanOrEqual(2);
   });
 
   it("folds a subtree away and says how much it folded", async () => {

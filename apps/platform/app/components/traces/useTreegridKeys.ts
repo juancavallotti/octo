@@ -9,12 +9,17 @@
  * rather than moving real focus between rows. The rows are plain divs rebuilt on
  * every zoom, and focus that has to survive that is focus that gets lost.
  *
+ * Scrolling the active row into view is deliberately *not* here. A row is as
+ * wide as the whole track now, and what a scroll into view must not disturb —
+ * the horizontal position of the chart — is the caller's scroller, not this
+ * hook's business.
+ *
  * Keys follow the ARIA treegrid pattern — arrows walk and fold the tree, Enter
  * opens a span — with the chart's own two additions: shifted arrows pan the
  * viewport, and Escape fits the whole trace back on screen.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { WaterfallRowModel } from "./chartLayout";
 
 export interface TreegridKeys {
@@ -36,17 +41,6 @@ export function useTreegridKeys(
   // read rather than corrected by an effect after the fact.
   const index = rows.length === 0 ? -1 : Math.min(active, rows.length - 1);
   const row = index < 0 ? undefined : rows[index];
-
-  // Keep the active row in view when the keyboard moves it off screen. Anchored
-  // to the id rather than the index, so folding a branch does not scroll.
-  useEffect(() => {
-    if (!row) return;
-    // Optional right through: scrollIntoView is a browser convenience, absent in
-    // jsdom and in any other non-visual renderer, and moving the cursor must not
-    // depend on being able to scroll to it.
-    const element = document.getElementById(rowElementId(row.node.id));
-    element?.scrollIntoView?.({ block: "nearest" });
-  }, [row]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

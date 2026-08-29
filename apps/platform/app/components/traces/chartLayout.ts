@@ -22,8 +22,154 @@ import type { WaterfallNode } from "./types";
  */
 export const MAX_ROWS = 2000;
 
-/** The narrowest the viewport may be zoomed, so it cannot collapse to nothing. */
-const MIN_SPAN_NS = 100;
+/**
+ * How wide one second of trace is drawn at zoom 1.
+ *
+ * The chart used to stretch whatever it was given to fill the container, which
+ * meant a 100ms trace and a 30s trace were drawn identically. Duration read as a
+ * ratio between siblings and never as a quantity, and two traces could not be
+ * compared by looking at them. At a constant density a 10s trace is exactly ten
+ * times the width of a 1s one, which is the claim a time axis is supposed to
+ * make.
+ */
+const BASE_PX_PER_SECOND = 120;
+const BASE_SCALE = BASE_PX_PER_SECOND / 1e9;
+
+/**
+ * How wide the track is allowed to get.
+ *
+ * Browsers cope with far more than this; layout and paint do not, and a
+ * twenty-minute trace zoomed in would ask for tens of millions of pixels. It
+ * clamps the zoom as well as the width — see {@link maxZoom} — because a factor
+ * that no longer changes the geometry still has to stop counting up, or zooming
+ * back out feels dead for several clicks.
+ */
+export const MAX_TRACK_PX = 200_000;
+
+export const MIN_ZOOM = 0.02;
+export const MAX_ZOOM = 500;
+
+/** Everything the geometry needs that is not the zoom itself. */
+export interface ChartContext {
+  /** How long the whole trace was, in nanoseconds. */
+  spanNs: number;
+  /** How much room the track has on screen, in pixels. */
+  containerPx: number;
+}
+
+/** Where the reader is: how far in, and how far along. */
+export interface Viewport {
+  zoom: number;
+  scrollLeft: number;
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(Math.max(value, low), high);
+}
+
+/** The largest zoom that still fits inside {@link MAX_TRACK_PX}. */
+export function maxZoom({ spanNs }: ChartContext): number {
+  if (!(spanNs > 0)) return MAX_ZOOM;
+  return clamp(MAX_TRACK_PX / (spanNs * BASE_SCALE), MIN_ZOOM, MAX_ZOOM);
+}
+
+export function clampZoom(zoom: number, context: ChartContext): number {
+  if (!Number.isFinite(zoom)) return 1;
+  return clamp(zoom, MIN_ZOOM, maxZoom(context));
+}
+
+/**
+ * How wide to draw the whole trace.
+ *
+ * The `max` against the container is the whole fit-versus-constant rule, and it
+ * is a floor rather than a switch: a trace too short to fill the window fills it,
+ * and everything longer honours the constant density and overflows. There is no
+ * threshold to tune and no discontinuity to cross — with a 900px track the
+ * crossover simply falls around 7.5 seconds.
+ */
+export function trackWidth(zoom: number, { spanNs, containerPx }: ChartContext): number {
+  if (!(spanNs > 0)) return Math.max(containerPx, 0);
+  const constant = spanNs * BASE_SCALE * clampZoom(zoom, { spanNs, containerPx });
+  return clamp(Math.max(constant, containerPx), 0, MAX_TRACK_PX);
+}
+
+/** Drawn pixels per nanosecond at this zoom. */
+export function pxPerNs(zoom: number, context: ChartContext): number {
+  return context.spanNs > 0 ? trackWidth(zoom, context) / context.spanNs : 0;
+}
+
+/** Hold a scroll offset inside the track. */
+export function clampScroll(
+  scrollLeft: number,
+  zoom: number,
+  context: ChartContext,
+): number {
+  const overflow = trackWidth(zoom, context) - context.containerPx;
+  return clamp(scrollLeft, 0, Math.max(overflow, 0));
+}
+
+/** The moment drawn at `px` from the start of the track. */
+export function timeAt(px: number, zoom: number, context: ChartContext): number {
+  const scale = pxPerNs(zoom, context);
+  return scale > 0 ? px / scale : 0;
+}
+
+/**
+ * Zoom about a point given in pixels across the *visible* track, so whatever the
+ * cursor is over stays under the cursor.
+ */
+export function zoomAt(
+  view: Viewport,
+  pointerPx: number,
+  factor: number,
+  context: ChartContext,
+): Viewport {
+  const at = timeAt(view.scrollLeft + pointerPx, view.zoom, context);
+  const zoom = clampZoom(view.zoom * factor, context);
+  return {
+    zoom,
+    scrollLeft: clampScroll(at * pxPerNs(zoom, context) - pointerPx, zoom, context),
+  };
+}
+
+/** Slide the view by a fraction of what is on screen. */
+export function panBy(
+  view: Viewport,
+  fraction: number,
+  context: ChartContext,
+): Viewport {
+  return {
+    ...view,
+    scrollLeft: clampScroll(
+      view.scrollLeft + fraction * context.containerPx,
+      view.zoom,
+      context,
+    ),
+  };
+}
+
+/** The view that puts `[from, to]` across the whole visible track. */
+export function rangeZoom(from: number, to: number, context: ChartContext): Viewport {
+  const width = to - from;
+  if (!(width > 0) || !(context.containerPx > 0)) return fitView(context);
+  const zoom = clampZoom(context.containerPx / (width * BASE_SCALE), context);
+  return { zoom, scrollLeft: clampScroll(from * pxPerNs(zoom, context), zoom, context) };
+}
+
+/** The whole trace, across the whole track: what Escape and Fit go back to. */
+export function fitView(context: ChartContext): Viewport {
+  const { spanNs, containerPx } = context;
+  if (!(spanNs > 0) || !(containerPx > 0)) return { zoom: 1, scrollLeft: 0 };
+  return { zoom: clampZoom(containerPx / (spanNs * BASE_SCALE), context), scrollLeft: 0 };
+}
+
+/** Whether this view is showing the whole trace at once. */
+export function isFitted(view: Viewport, context: ChartContext): boolean {
+  return (
+    view.scrollLeft <= 0.5 &&
+    trackWidth(view.zoom, context) <= context.containerPx + 0.5
+  );
+}
 
 /** One rendered row. */
 export interface WaterfallRowModel {
@@ -86,61 +232,19 @@ function descendants(node: WaterfallNode): number {
 }
 
 /**
- * Where a span's bar sits in the current viewport, as CSS percentages — or null
- * when it is entirely outside and should not be drawn.
+ * Where a span's bar sits on the track, in pixels from its start.
  *
- * A bar that runs off the edge is clipped to the viewport rather than dropped:
- * the parent of what you zoomed into almost always starts before the view does,
- * and a row with no bar at all reads as a row with no time in it.
+ * The whole trace is laid out now, so there is nothing to clip and nothing to
+ * drop: a bar off *screen* is a scroll position, not a fact about the geometry.
+ * What survives is the floor — a 40ns block beside a 3s model call would round
+ * to nothing, and invisible is indistinguishable from absent.
  */
-export function barStyle(
+export function barRect(
   span: Interval,
-  view: Interval,
-): { left: string; width: string } | null {
-  const viewSpan = view.end - view.start;
-  if (viewSpan <= 0) return null;
-  if (span.end < view.start || span.start > view.end) return null;
-
-  const start = Math.max(span.start, view.start);
-  const end = Math.min(span.end, view.end);
-  const left = ((start - view.start) / viewSpan) * 100;
-  // Never zero: a 40ns block beside a 3s model call would otherwise be invisible,
-  // and invisible is indistinguishable from absent. The 2px floor is applied in
-  // CSS, since it cannot be expressed in the same unit as the width.
-  const width = Math.max(((end - start) / viewSpan) * 100, 0.15);
-  return { left: `${left}%`, width: `${Math.min(width, 100 - left)}%` };
-}
-
-/** Hold a viewport inside the trace, preserving its width where possible. */
-export function clampView(view: Interval, bounds: Interval): Interval {
-  const total = bounds.end - bounds.start;
-  const width = Math.min(Math.max(view.end - view.start, MIN_SPAN_NS), total);
-  if (width >= total) return { ...bounds };
-
-  const start = Math.min(Math.max(view.start, bounds.start), bounds.end - width);
-  return { start, end: start + width };
-}
-
-/**
- * Zoom by `factor` about a point given as a fraction across the viewport, so the
- * thing under the cursor stays under the cursor. Factors below 1 zoom in.
- */
-export function zoomAt(
-  view: Interval,
-  fraction: number,
-  factor: number,
-  bounds: Interval,
-): Interval {
-  const width = view.end - view.start;
-  const focus = view.start + width * fraction;
-  const next = Math.min(Math.max(width * factor, MIN_SPAN_NS), bounds.end - bounds.start);
-  return clampView({ start: focus - next * fraction, end: focus - next * fraction + next }, bounds);
-}
-
-/** Slide the viewport by a fraction of its own width. */
-export function panBy(view: Interval, fraction: number, bounds: Interval): Interval {
-  const shift = (view.end - view.start) * fraction;
-  return clampView({ start: view.start + shift, end: view.end + shift }, bounds);
+  scale: number,
+): { left: number; width: number } {
+  const left = span.start * scale;
+  return { left, width: Math.max((span.end - span.start) * scale, 2) };
 }
 
 /** One labelled gridline. */
