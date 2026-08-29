@@ -63,6 +63,14 @@ type client struct {
 	mu        sync.RWMutex
 	token     string
 	tokenMod  time.Time
+
+	// credentialHeaders names the configured extra headers, which are the ones
+	// stripped on a cross-host redirect. They are treated as secret wholesale:
+	// OCTO_PLATFORM_API_HEADERS is the escape hatch for API keys and tenant
+	// secrets, and guessing which of them is sensitive by name would be worse than
+	// protecting all of them. The module's own X-Octo-* headers are not in here
+	// and follow a redirect freely.
+	credentialHeaders []string
 }
 
 // newClient builds the client from the resolved configuration.
@@ -80,51 +88,77 @@ func newClient(cfg Config) (*client, error) {
 	}
 
 	headers := http.Header{}
+	credentialHeaders := make([]string, 0, len(cfg.Headers))
 	for name, value := range cfg.Headers {
 		headers.Set(name, value)
+		credentialHeaders = append(credentialHeaders, name)
 	}
 	if cfg.DeploymentID != "" {
 		headers.Set("X-Octo-Deployment", cfg.DeploymentID)
 	}
 	headers.Set("X-Octo-Instance", cfg.InstanceID)
 
-	return &client{
+	c := &client{
 		base: cfg.BaseURL,
 		// The client-level timeout is only a backstop: do sets a per-call deadline,
 		// and the long polls need more room than any single value would give.
-		http: &http.Client{
-			Transport:     tr,
-			Timeout:       cfg.LongTimeout + cfg.Timeout,
-			CheckRedirect: refuseInsecureRedirect,
-		},
-		headers:     headers,
-		timeout:     cfg.Timeout,
-		longTimeout: cfg.LongTimeout,
-		tokenFile:   cfg.TokenFile,
-		token:       cfg.Token,
-	}, nil
+		http:              &http.Client{Transport: tr, Timeout: cfg.LongTimeout + cfg.Timeout},
+		credentialHeaders: credentialHeaders,
+		headers:           headers,
+		timeout:           cfg.Timeout,
+		longTimeout:       cfg.LongTimeout,
+		tokenFile:         cfg.TokenFile,
+		token:             cfg.Token,
+	}
+	c.http.CheckRedirect = c.checkRedirect
+	return c, nil
 }
 
-// refuseInsecureRedirect stops a redirect from downgrading the connection.
+// checkRedirect decides what a redirect may do with this runtime's credentials.
 //
-// net/http drops the Authorization header when a redirect crosses to a different
-// host, but not when it stays on the same one — so an https endpoint answering
-// 302 to its own http:// URL would put the bearer token on the wire in the clear,
-// and nothing in the runtime would notice. Loopback is exempt for the same reason
-// plaintext loopback is allowed at all.
+// Two things can go wrong, and net/http only protects against half of one of
+// them. It drops the Authorization header when a redirect crosses to another
+// host — but it does not touch arbitrary headers, and OCTO_PLATFORM_API_HEADERS
+// is exactly where an API key or a tenant secret lives. So those follow a
+// redirect anywhere at all unless something stops them.
 //
-// The redirect count is left at net/http's default; the scheme is the part worth
-// having an opinion about.
-func refuseInsecureRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) == 0 {
+//   - Transport: a credential must never land on a plaintext hop that is not
+//     loopback, whatever the request started as. Checking only for a downgrade
+//     FROM https missed the sidecar shape entirely — a loopback server, which is
+//     allowed to hold credentials, redirecting to a plaintext host on the
+//     network.
+//   - Party: a credential belongs to the host it was configured for. On a
+//     cross-host redirect the credential headers are stripped rather than the
+//     request refused, which is what net/http already does for Authorization and
+//     keeps a redirect to a CDN or a canonical hostname working.
+//
+// With nothing configured to protect, redirects are left alone.
+func (c *client) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 || !c.carriesCredentials() {
 		return nil
 	}
-	from, to := via[len(via)-1].URL, req.URL
-	if from.Scheme == schemeHTTPS && to.Scheme != schemeHTTPS && !isLoopback(to.Hostname()) {
-		return fmt.Errorf("api: refusing a redirect from %s to %s: it would downgrade the "+
-			"connection and send this runtime's credentials in the clear", from.Scheme, to.Scheme)
+	to := req.URL
+	if to.Scheme != schemeHTTPS && !isLoopback(to.Hostname()) {
+		return fmt.Errorf("api: refusing a redirect to %s://%s: it would send this runtime's "+
+			"credentials over plaintext to a host that is not loopback", to.Scheme, to.Host)
+	}
+	if to.Host != via[0].URL.Host {
+		for _, name := range c.credentialHeaders {
+			req.Header.Del(name)
+		}
+		req.Header.Del("Authorization")
 	}
 	return nil
+}
+
+// carriesCredentials reports whether this client sends anything worth protecting.
+func (c *client) carriesCredentials() bool {
+	if len(c.credentialHeaders) > 0 || c.tokenFile != "" {
+		return true
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token != ""
 }
 
 // configureTLS applies a custom CA and client certificate when configured. Both

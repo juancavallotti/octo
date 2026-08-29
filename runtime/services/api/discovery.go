@@ -141,7 +141,14 @@ func fetchDiscovery(ctx context.Context, c *client, cfg Config) (discoveryDocume
 		// timeout is the interesting case: a server that accepts the connection and
 		// then says nothing would otherwise hold startup for the full 10-second
 		// request timeout before anyone checked a 50ms budget.
-		doc, err := requestDiscovery(ctx, c, min(cfg.Timeout, time.Until(deadline)))
+		attempt := min(cfg.Timeout, time.Until(deadline))
+		if attempt <= 0 {
+			// Past the budget already. Issuing the request anyway would send one
+			// that is guaranteed to expire before it is answered, which is a
+			// confusing line in somebody's server log for no gain.
+			break
+		}
+		doc, err := requestDiscovery(ctx, c, attempt)
 		if err == nil {
 			return doc, nil
 		}
@@ -150,8 +157,7 @@ func fetchDiscovery(ctx context.Context, c *client, cfg Config) (discoveryDocume
 			return discoveryDocument{}, fmt.Errorf("api: discovery: %w", ctx.Err())
 		}
 		if time.Now().Add(delay).After(deadline) {
-			return discoveryDocument{}, fmt.Errorf("api: the platform API at %s did not answer "+
-				"discovery within %s: %w", cfg.BaseURL, cfg.DiscoveryBudget, lastErr)
+			break
 		}
 		slog.Debug("api: discovery not answered yet, retrying",
 			"url", cfg.BaseURL, "error", err, "in", delay)
@@ -162,6 +168,8 @@ func fetchDiscovery(ctx context.Context, c *client, cfg Config) (discoveryDocume
 			delay = discoveryRetryCap
 		}
 	}
+	return discoveryDocument{}, fmt.Errorf("api: the platform API at %s did not answer "+
+		"discovery within %s: %w", cfg.BaseURL, cfg.DiscoveryBudget, lastErr)
 }
 
 // requestDiscovery makes one discovery call.

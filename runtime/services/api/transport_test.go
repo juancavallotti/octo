@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 )
@@ -101,65 +100,120 @@ func TestMalformedURLsAreRefused(t *testing.T) {
 	}
 }
 
-// net/http keeps the Authorization header across a same-host redirect, so an
-// https endpoint answering 302 to its own http:// URL would put the token on the
-// wire in the clear with nothing noticing.
-func TestRedirectDowngradeIsRefused(t *testing.T) {
-	from := &http.Request{URL: mustURL(t, "https://platform.example/v1/kv/user/entry")}
-	to := &http.Request{URL: mustURL(t, "http://platform.example/v1/kv/user/entry")}
-
-	err := refuseInsecureRedirect(to, []*http.Request{from})
-	if err == nil {
-		t.Fatal("an https to http redirect was allowed")
+// redirectClient builds a client with the given credentials, for the redirect
+// policy tests.
+func redirectClient(t *testing.T, base string, cfg Config) *client {
+	t.Helper()
+	cfg.BaseURL = base
+	cfg.Timeout, cfg.LongTimeout = defaultTimeout, defaultLongTimeout
+	c, err := newClient(cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "downgrade") {
-		t.Fatalf("err = %v, want it to name the downgrade", err)
-	}
+	t.Cleanup(c.close)
+	return c
 }
 
-// The redirects that are fine stay fine.
-func TestAllowedRedirects(t *testing.T) {
+// A credential must never land on a plaintext hop that is not loopback, whatever
+// the request started as.
+//
+// The loopback case is the one an https-only rule missed: a sidecar is ALLOWED to
+// hold credentials over plaintext, so a sidecar redirecting to a plaintext host
+// on the network would have handed them over. And net/http drops Authorization
+// across hosts but never touches custom headers, so an API key from
+// OCTO_PLATFORM_API_HEADERS followed a redirect anywhere at all.
+func TestRedirectToPlaintextIsRefused(t *testing.T) {
 	cases := []struct{ name, from, to string }{
-		{"https to https", "https://a.example/x", "https://b.example/x"},
-		{"http to http", "http://a.example/x", "http://a.example/y"},
-		{"https to loopback", "https://a.example/x", "http://127.0.0.1:8080/x"},
+		{"https to plaintext", "https://a.example/x", "http://b.example/x"},
+		{"loopback to plaintext on the network", "http://127.0.0.1:8080/x", "http://b.example/x"},
+		{"plaintext to plaintext elsewhere", "http://a.example/x", "http://b.example/x"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			from := &http.Request{URL: mustURL(t, tc.from)}
-			to := &http.Request{URL: mustURL(t, tc.to)}
-			if err := refuseInsecureRedirect(to, []*http.Request{from}); err != nil {
-				t.Fatalf("refuseInsecureRedirect = %v, want it allowed", err)
+			c := redirectClient(t, tc.from, Config{Headers: map[string]string{"X-Api-Key": "k"}})
+			err := c.checkRedirect(request(t, tc.to), []*http.Request{request(t, tc.from)})
+			if err == nil {
+				t.Fatal("the redirect was allowed")
+			}
+			if !strings.Contains(err.Error(), "plaintext") {
+				t.Fatalf("err = %v, want it to name the reason", err)
 			}
 		})
+	}
+}
+
+// A credential belongs to the host it was configured for. Crossing hosts strips
+// it rather than refusing, which is what net/http already does for Authorization
+// and keeps a redirect to a canonical hostname working.
+func TestCrossHostRedirectStripsCredentials(t *testing.T) {
+	c := redirectClient(t, "https://a.example", Config{
+		Token:   "s3cret",
+		Headers: map[string]string{"X-Api-Key": "k", "X-Tenant": "acme"},
+	})
+	to := request(t, "https://b.example/x")
+	to.Header.Set("Authorization", "Bearer s3cret")
+	to.Header.Set("X-Api-Key", "k")
+	to.Header.Set("X-Tenant", "acme")
+	to.Header.Set("X-Octo-Instance", "runtime-1")
+
+	if err := c.checkRedirect(to, []*http.Request{request(t, "https://a.example/x")}); err != nil {
+		t.Fatalf("checkRedirect = %v, want the redirect allowed with the credentials removed", err)
+	}
+	for _, name := range []string{"Authorization", "X-Api-Key", "X-Tenant"} {
+		if got := to.Header.Get(name); got != "" {
+			t.Errorf("%s survived a cross-host redirect as %q", name, got)
+		}
+	}
+	// The module's own headers are not credentials and may follow.
+	if to.Header.Get("X-Octo-Instance") == "" {
+		t.Error("X-Octo-Instance was stripped; it identifies the caller, it is not a secret")
+	}
+}
+
+// Same host, same credentials: nothing to strip.
+func TestSameHostRedirectKeepsCredentials(t *testing.T) {
+	c := redirectClient(t, "https://a.example", Config{Headers: map[string]string{"X-Api-Key": "k"}})
+	to := request(t, "https://a.example/moved")
+	to.Header.Set("X-Api-Key", "k")
+
+	if err := c.checkRedirect(to, []*http.Request{request(t, "https://a.example/x")}); err != nil {
+		t.Fatalf("checkRedirect = %v", err)
+	}
+	if to.Header.Get("X-Api-Key") == "" {
+		t.Error("a same-host redirect stripped the credential it was configured with")
+	}
+}
+
+// With nothing to protect, redirects are left alone — including the plaintext
+// ones, which are somebody's private network.
+func TestRedirectsWithoutCredentialsAreLeftAlone(t *testing.T) {
+	c := redirectClient(t, "http://a.example", Config{})
+	if err := c.checkRedirect(request(t, "http://b.example/x"),
+		[]*http.Request{request(t, "http://a.example/x")}); err != nil {
+		t.Fatalf("checkRedirect = %v, want it allowed when there is nothing to leak", err)
 	}
 }
 
 // And the policy is actually installed on the client, not merely defined.
 func TestClientInstallsTheRedirectPolicy(t *testing.T) {
 	downgraded := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Redirect to a non-loopback plaintext host: the shape the policy exists for.
 		http.Redirect(w, r, "http://platform.example.internal/v1/discovery", http.StatusFound)
 	}))
 	t.Cleanup(downgraded.Close)
 
-	c, err := newClient(Config{BaseURL: downgraded.URL, Timeout: defaultTimeout, LongTimeout: defaultLongTimeout})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(c.close)
-
-	err = c.json(t.Context(), routeDiscovery, c.url(routeDiscovery), nil, nil, defaultTimeout)
+	c := redirectClient(t, downgraded.URL, Config{Headers: map[string]string{"X-Api-Key": "k"}})
+	err := c.json(t.Context(), routeDiscovery, c.url(routeDiscovery), nil, nil, defaultTimeout)
 	if err == nil {
-		t.Fatal("the client followed a downgrading redirect")
+		t.Fatal("the client followed a redirect that would have leaked its credentials")
 	}
 }
 
-func mustURL(t *testing.T, raw string) *url.URL {
+// request builds a request for one URL.
+func request(t *testing.T, raw string) *http.Request {
 	t.Helper()
-	parsed, err := url.Parse(raw)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, raw, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return parsed
+	return req
 }

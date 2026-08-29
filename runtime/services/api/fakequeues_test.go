@@ -22,6 +22,11 @@ type queueBackend struct {
 	// pollDelay makes receive hold the request open, so a test can exercise the
 	// empty-poll path without waiting a real poll timeout.
 	pollDelay time.Duration
+	// handedOut counts every delivery ever made, cumulatively. It is deliberately
+	// not derived from the pending and in-flight maps: an acknowledged delivery
+	// leaves both, so a test asserting on a redelivery would race the ack and read
+	// zero.
+	handedOut int
 }
 
 type fakeDelivery struct {
@@ -122,6 +127,7 @@ func (b *queueBackend) receive(w http.ResponseWriter, r *http.Request) {
 	out := receiveResponse{}
 	for _, d := range batch {
 		d.attempts++
+		b.handedOut++
 		b.inflight[d.id] = d
 		out.Messages = append(out.Messages, delivery{
 			DeliveryID: d.id, ReplyTo: d.replyTo, Message: d.msg,
@@ -193,18 +199,9 @@ func (b *queueBackend) reply(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// attempts reports how many times a subject's messages have been handed out.
-func (b *queueBackend) attempts(subject string) int {
+// attempts reports how many deliveries the backend has made, cumulatively.
+func (b *queueBackend) attempts(string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var n int
-	for _, d := range b.pending[subject] {
-		n += d.attempts
-	}
-	for _, d := range b.inflight {
-		if d.subject == subject {
-			n += d.attempts
-		}
-	}
-	return n
+	return b.handedOut
 }
