@@ -1,13 +1,13 @@
 "use client";
 
-import { Database, FolderTree, Lock, Plus, RefreshCw } from "lucide-react";
+import { Database, FolderTree, Plus } from "lucide-react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import { relativeAge } from "@/app/lib/relativeAge";
-import { deploymentLabel } from "./format";
 import { useObjects } from "./useObjects";
 import ObjectEditor from "./ObjectEditor";
+import ObjectsToolbar from "./ObjectsToolbar";
 
 /**
  * The object store browser (`/platform/objects`): pick a deployment, list the keys
@@ -64,59 +64,16 @@ export default function ObjectsManager() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Deployment + namespace pickers + refresh */}
-      <div className="flex items-center gap-2 border-b border-black/10 px-4 py-2.5 dark:border-white/10">
-        <Database size={15} className="shrink-0 text-zinc-400" />
-        <select
-          value={deploymentId ?? ""}
-          onChange={(e) => selectDeployment(e.target.value)}
-          className="min-w-0 max-w-md flex-1 rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/15"
-        >
-          <option value="">Select a deployment…</option>
-          {sortedDeployments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {deploymentLabel(d)}
-            </option>
-          ))}
-        </select>
-        {deploymentId && (
-          <>
-            <span className="shrink-0 text-xs font-medium text-zinc-400">
-              namespace
-            </span>
-            <select
-              value={namespace}
-              onChange={(e) => selectNamespace(e.target.value)}
-              aria-label="Namespace"
-              className="shrink-0 rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/15"
-            >
-              {/* Show the loaded namespaces; until they load, the current one. */}
-              {(namespaces ?? [namespace]).map((ns) => (
-                <option key={ns} value={ns}>
-                  {ns}
-                </option>
-              ))}
-            </select>
-            {secret && (
-              <span
-                className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400"
-                title="Secret namespace: values are hidden; keys can be cleaned up only"
-              >
-                <Lock size={12} />
-                read-only
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={reload}
-              aria-label="Refresh objects"
-              className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-black/[0.05] hover:text-zinc-700 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
-            >
-              <RefreshCw size={14} />
-            </button>
-          </>
-        )}
-      </div>
+      <ObjectsToolbar
+        deployments={sortedDeployments}
+        deploymentId={deploymentId}
+        onSelectDeployment={selectDeployment}
+        namespaces={namespaces}
+        namespace={namespace}
+        onSelectNamespace={selectNamespace}
+        secret={secret}
+        onRefresh={reload}
+      />
 
       {error && (
         <p className="mx-4 mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-500">

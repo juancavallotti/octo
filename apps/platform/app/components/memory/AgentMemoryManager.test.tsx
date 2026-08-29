@@ -42,8 +42,8 @@ async function openTab(name: RegExp | string) {
 /** Pick the integration and agent, which everything else is gated behind. */
 async function choose() {
   render(<AgentMemoryManager />);
-  const integration = await screen.findByLabelText("Integration");
-  await userEvent.selectOptions(integration, "int-1");
+  await userEvent.click(await screen.findByRole("button", { name: "Integration" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Dr. Octo" }));
   const agent = await screen.findByLabelText("Agent");
   await waitFor(() => expect(screen.getByRole("option", { name: /dr-octo/ })).toBeTruthy());
   await userEvent.selectOptions(agent, "dr-octo");
