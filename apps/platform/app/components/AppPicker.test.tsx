@@ -148,6 +148,46 @@ describe("AppPicker", () => {
     expect(screen.getAllByRole("option")).toHaveLength(3);
   });
 
+  it("says it is loading rather than repeating the caller's empty message", async () => {
+    // An empty list mid-fetch is not the empty list that message describes, and
+    // those messages tend to name a cause that would be a guess this early.
+    const user = userEvent.setup();
+    renderPicker({ items: [], loading: true, empty: "Tracing is off by default." });
+
+    await user.click(screen.getByRole("button", { name: "Application" }));
+
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByText("Tracing is off by default.")).toBeNull();
+  });
+
+  it("points at the active option with an id an assistive reader can resolve", async () => {
+    // aria-activedescendant holds one ID reference, and an ID reference cannot
+    // contain whitespace — which a caller's key is free to.
+    const user = userEvent.setup();
+    renderPicker({ toKey: (a: App) => `${a.id} spaced` });
+
+    await user.click(screen.getByRole("button", { name: "Application" }));
+    const target = screen.getByRole("combobox").getAttribute("aria-activedescendant");
+
+    expect(target).toBeTruthy();
+    expect(target).not.toMatch(/\s/);
+    expect(document.getElementById(target!)).toBe(screen.getAllByRole("option")[0]);
+  });
+
+  it("hands focus back to the trigger when Tab closes it", async () => {
+    // Closing unmounts the search field in the same commit, so moving focus
+    // onward from it would drop it to the body and restart the next Tab at the
+    // top of the page.
+    const user = userEvent.setup();
+    renderPicker();
+
+    await user.click(screen.getByRole("button", { name: "Application" }));
+    await user.tab();
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByRole("button", { name: "Application" })).toHaveFocus();
+  });
+
   it("renders the accessory beside the trigger, not behind the selection", () => {
     renderPicker({ accessory: <span>namespace</span> });
     expect(screen.getByText("namespace")).toBeInTheDocument();

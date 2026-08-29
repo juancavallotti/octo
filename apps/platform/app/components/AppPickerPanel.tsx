@@ -75,9 +75,7 @@ export function AppPickerPanel<T>({
           aria-label={`Search ${label.toLowerCase()}`}
           aria-controls={`${idPrefix}-listbox`}
           aria-expanded
-          aria-activedescendant={
-            matches[active] ? `${idPrefix}-${toKey(matches[active])}` : undefined
-          }
+          aria-activedescendant={matches[active] ? optionId(idPrefix, active) : undefined}
           autoComplete="off"
           className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
         />
@@ -105,7 +103,7 @@ export function AppPickerPanel<T>({
             return (
               <div
                 key={key}
-                id={`${idPrefix}-${key}`}
+                id={optionId(idPrefix, index)}
                 role="option"
                 aria-selected={isSelected}
                 data-active={index === active}
@@ -129,4 +127,17 @@ export function AppPickerPanel<T>({
       </div>
     </div>
   );
+}
+
+/**
+ * The DOM id of one option.
+ *
+ * By position rather than by key, because this is where the id is minted and so
+ * this is where its rules apply: `aria-activedescendant` holds a single ID
+ * reference and an ID reference cannot contain whitespace, while a caller's key
+ * is free to — traces keys a row by "<deployment> <version>". Callers should not
+ * have to know that their key ends up in an attribute with a grammar.
+ */
+function optionId(prefix: string, index: number): string {
+  return `${prefix}-option-${index}`;
 }

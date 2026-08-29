@@ -11,7 +11,13 @@ describe("rankSearchString", () => {
   });
 
   it("costs a letter the target does not have", () => {
-    expect(rankSearchString("pora", "asparagus")).toBe(0.75);
+    // 0.6, where the original scored this 0.75 — the same as "pra", which has no
+    // wrong letter at all. A typo has to cost something or the ranking cannot
+    // order a clean query above a mistyped one.
+    expect(rankSearchString("pora", "asparagus")).toBe(0.6);
+    expect(rankSearchString("pra", "asparagus")).toBeGreaterThan(
+      rankSearchString("pora", "asparagus"),
+    );
   });
 
   it("costs a letter the query skipped", () => {

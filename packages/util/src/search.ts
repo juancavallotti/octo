@@ -71,7 +71,13 @@ export function rankSearchString(
   const trailing = q.length - lastMatchedInQuery;
   // `lastIndex` is the last *successful* match rather than the last lookup, so a
   // final letter the target lacks cannot drag the span negative.
-  const span = Math.max(lastIndex + trailing - firstIndex, q.length);
+  //
+  // Every letter the target never had widens the span by one. Without that a
+  // wrong key in the middle of a query is free — "pra" and "pora" both scored
+  // 0.75 against "asparagus" — and a typo that costs nothing is not a typo the
+  // ranking can order around.
+  const missed = q.length - found;
+  const span = Math.max(lastIndex + trailing - firstIndex, q.length) + missed;
   if (span <= 0) return 0;
 
   const packed = found / span;

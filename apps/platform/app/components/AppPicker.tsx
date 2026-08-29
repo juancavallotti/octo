@@ -150,9 +150,13 @@ export function AppPicker<T>({
         close(true);
         break;
       case "Tab":
-        // Tabbing out closes rather than trapping — the accessory is the next
-        // thing someone wants, and a picker is not a dialog.
-        close(false);
+        // Tabbing out closes rather than trapping — a picker is not a dialog.
+        // Focus goes back to the trigger rather than onward: closing unmounts
+        // the search field in the same commit, so letting the browser move from
+        // it drops focus to the body and the next Tab restarts from the top of
+        // the page instead of reaching the accessory.
+        e.preventDefault();
+        close(true);
         break;
     }
   };
@@ -195,7 +199,11 @@ export function AppPicker<T>({
             idPrefix={id}
             label={label}
             placeholder={placeholder}
-            empty={empty ?? (loading ? "Loading…" : undefined)}
+            // Loading wins over the caller's text: an empty list mid-fetch is
+            // not yet the empty list their message describes, and most of those
+            // messages name a cause ("tracing is off by default") that would be
+            // a guess before anything has arrived.
+            empty={loading ? "Loading…" : empty}
           />
         )}
       </div>
