@@ -56,6 +56,14 @@ describe("rankSearchString", () => {
       expect(exact).toBeGreaterThan(longer);
     });
 
+    it("still pays nothing for a match that never happened", () => {
+      // The ratio alone would pay out for a query and a target that merely
+      // happen to be the same length, and 0 has to keep meaning what it says
+      // for a caller's threshold to mean anything.
+      expect(rankSearchString("z", "a", "favor-closer-length")).toBe(0);
+      expect(rankSearchString("zzz", "abc", "favor-closer-length")).toBe(0);
+    });
+
     it("leaves the unbiased score alone", () => {
       expect(rankSearchString("lemon", "lemon")).toBe(
         rankSearchString("lemon", "lemonade"),

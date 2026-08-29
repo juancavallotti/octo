@@ -60,7 +60,11 @@ export function rankSearchString(
     }
   }
 
-  if (bias === "unbiased") return best;
+  // Nothing matched is zero under either bias. The length ratio alone would
+  // otherwise pay out for a query and a target that merely happen to be the same
+  // length — "z" against "a" scored 0.3 — and 0 has to keep meaning what it says
+  // for a caller's threshold to mean anything.
+  if (bias === "unbiased" || best === 0) return best;
 
   const ratio =
     q.length > target.length ? target.length / q.length : q.length / target.length;
