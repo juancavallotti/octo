@@ -15,11 +15,12 @@ import { useRollout } from "./useRollout";
 
 /**
  * The deployments view: every active deployment across every integration, shown as
- * a list with live per-pod state (polled while the page is open). Unlike the
- * dashboard's read-only tile grid, each row exposes the management actions the
- * dedicated page is for — scale it, roll it over to another version (the same
- * dialog that turns tracing on and off), tail one pod's logs, or open the
- * integration in the manager/editor. Reuses the dashboard's aggregation
+ * a card grid with live per-pod state (polled while the page is open) — two columns
+ * where the viewport is wide enough for them, one below that. Unlike the dashboard's
+ * read-only tile grid, each card exposes the management actions the dedicated page
+ * is for — scale it, roll it over to another version (the same dialog that turns
+ * tracing on and off), tail one pod's logs, or open the integration in the
+ * manager/editor. Reuses the dashboard's aggregation
  * (listAllDeployments) so the page and the dashboard summary stay in sync, and the
  * integrations panel's rollout dialog and log panel so a deployment is operated
  * the same way wherever it is met.
@@ -160,7 +161,7 @@ export default function DeploymentsMonitor() {
                 body="Deploy an integration and it will show up here with live status."
               />
             ) : (
-              <ul className="space-y-3">
+              <ul className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                 {sorted.map((d) => (
                   <DeploymentListItem
                     key={d.id}
