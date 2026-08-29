@@ -9,6 +9,7 @@
  * `buildWaterfall` produced.
  */
 
+import { branchUnder } from "./blockPath";
 import type { Interval } from "./timeSpans";
 import type { WaterfallNode } from "./types";
 
@@ -171,6 +172,17 @@ export function isFitted(view: Viewport, context: ChartContext): boolean {
   );
 }
 
+/**
+ * Blocks whose branches are the names of tools an agent may call.
+ *
+ * There is no tool trace kind and no `tool` attribute — the runtime builds each
+ * tool as a branch of the agent block, so `orders.assistant[search_docs].fetch`
+ * is what a tool call looks like on the wire. A branch alone means nothing (`if`
+ * yields `then`/`else`), which is why this has to be read against the block type
+ * of the ancestor that owns it.
+ */
+const TOOL_HOSTS: ReadonlySet<string> = new Set(["ai-agent", "mcp-router"]);
+
 /** One rendered row. */
 export interface WaterfallRowModel {
   node: WaterfallNode;
@@ -179,6 +191,10 @@ export interface WaterfallRowModel {
   collapsed: boolean;
   /** Descendants hidden under it right now; 0 unless collapsed. */
   hidden: number;
+  /** The agent tool this row ran inside, or null when it ran outside one. */
+  tool: string | null;
+  /** Whether this row is the top of that tool's subtree, which is where it is named. */
+  toolRoot: boolean;
 }
 
 export interface FlatWaterfall {
@@ -202,10 +218,19 @@ export function flattenWaterfall(
   const collapsible: string[] = [];
   let cut = 0;
 
-  const walk = (nodes: WaterfallNode[]) => {
+  // The tool context is threaded down the walk rather than recovered per row:
+  // this is already the one pass that visits every node with its parent in hand,
+  // and a row's tool is a fact about the branch it entered on the way here.
+  const walk = (nodes: WaterfallNode[], host: WaterfallNode | null, tool: string | null) => {
     for (const node of nodes) {
       const expandable = node.children.length > 0;
       if (expandable) collapsible.push(node.id);
+
+      // Only asked once per tool: every node under `assistant[search_docs]`
+      // still starts with that prefix, so without the `tool === null` guard the
+      // whole subtree would each claim to be the row where the tool begins.
+      const entered = host && tool === null ? branchUnder(node.path, host.path) : null;
+      const inTool = entered ?? tool;
 
       if (rows.length >= limit) {
         cut += 1 + descendants(node);
@@ -217,11 +242,19 @@ export function flattenWaterfall(
         expandable,
         collapsed: isCollapsed,
         hidden: isCollapsed ? descendants(node) : 0,
+        tool: inTool,
+        toolRoot: entered !== null,
       });
-      if (expandable && !isCollapsed) walk(node.children);
+      if (expandable && !isCollapsed) {
+        // A tool's own subtree is not a new host, so an agent nested inside a
+        // tool starts its own naming and an ordinary block inside one keeps the
+        // tool it is under.
+        const nextHost = TOOL_HOSTS.has(node.record?.blockType ?? "") ? node : host;
+        walk(node.children, nextHost, nextHost === host ? inTool : null);
+      }
     }
   };
-  walk(roots);
+  walk(roots, null, null);
 
   return { rows, cut, collapsible };
 }

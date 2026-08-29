@@ -2,6 +2,7 @@
 
 import { ChevronDown, ChevronRight, Split, TriangleAlert } from "lucide-react";
 import { classifySpan, type WorkClass } from "./blockClasses";
+import { MODEL_KINDS } from "./types";
 import { formatDuration } from "./format";
 import { memo } from "react";
 import { barRect, type WaterfallRowModel } from "./chartLayout";
@@ -69,6 +70,11 @@ function WaterfallRow({
   const failed = Boolean(node.record?.error) || node.kind === "flow.failed";
   // The pinned cell paints over the row's background, so it carries its own copy
   // of it. Hover is a group rule for the same reason.
+  // A tool call is a claim about *structure*, so it is marked structurally. The
+  // bar's colour already says where the time went, and overloading it would make
+  // "this waited on the network" and "this was a tool" the same statement.
+  const tool = row.tool;
+  const model = MODEL_KINDS.has(node.kind) ? node.record?.model : null;
   const tint = selected
     ? "bg-sky-500/10"
     : "bg-white group-hover:bg-black/[0.03] dark:bg-zinc-900 dark:group-hover:bg-white/[0.04]";
@@ -88,7 +94,9 @@ function WaterfallRow({
       <div
         role="gridcell"
         style={{ paddingLeft: `${node.depth * 12 + 4}px`, width: LABEL_PX }}
-        className={`sticky left-0 z-10 flex shrink-0 items-center gap-1 overflow-hidden pr-2 ${tint}`}
+        className={`sticky left-0 z-10 flex shrink-0 items-center gap-1 overflow-hidden pr-2 ${tint} ${
+          tool ? "border-l-2 border-violet-400/60" : ""
+        }`}
       >
         {row.expandable ? (
           <button
@@ -112,6 +120,24 @@ function WaterfallRow({
         >
           {node.label}
         </span>
+
+        {tool && row.toolRoot && (
+          <span
+            title={`tool call: ${tool}`}
+            className="shrink-0 rounded bg-violet-500/10 px-1 font-mono text-[10px] text-violet-600 dark:text-violet-300"
+          >
+            {tool}
+          </span>
+        )}
+
+        {model && (
+          <span
+            title={`served by ${model}`}
+            className="min-w-0 shrink truncate font-mono text-[10px] text-zinc-400"
+          >
+            {model}
+          </span>
+        )}
 
         {row.collapsed && (
           <span className="shrink-0 text-[10px] text-zinc-400">+{row.hidden}</span>
@@ -143,7 +169,7 @@ function WaterfallRow({
       >
         <div
           style={bar}
-          title={tooltip(node, workClass)}
+          title={tooltip(node, workClass, tool)}
           className={`absolute inset-y-1 rounded-sm ${
             failed ? "bg-red-500/70" : CLASS_COLOR[workClass]
           } ${node.inferred ? "border border-dashed border-amber-500/70" : ""}`}
@@ -161,7 +187,11 @@ function WaterfallRow({
  */
 export default memo(WaterfallRow);
 
-function tooltip(node: WaterfallRowModel["node"], workClass: WorkClass): string {
+function tooltip(
+  node: WaterfallRowModel["node"],
+  workClass: WorkClass,
+  tool: string | null,
+): string {
   // An inferred span has no measured duration — the cell shows "—" for exactly
   // that reason, and a tooltip quoting a number here would contradict it with
   // a figure derived from its children.
@@ -169,6 +199,7 @@ function tooltip(node: WaterfallRowModel["node"], workClass: WorkClass): string 
     ? "no outcome recorded; extent inferred from what ran inside it"
     : formatDuration(node.durationNs);
   const lines = [`${node.label} — ${took}`, CLASS_LABEL[workClass]];
+  if (tool) lines.push(`ran inside the agent's ${tool} tool`);
   if (!node.inputMatched) {
     // The runtime is explicit that pre/post pairing is unreliable under a fork.
     // A plausible wrong payload is worse than none: nothing about it looks wrong.

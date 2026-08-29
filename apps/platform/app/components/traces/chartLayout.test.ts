@@ -73,6 +73,64 @@ describe("flattenWaterfall", () => {
   });
 });
 
+describe("agent tool calls", () => {
+  /** An agent that called one tool, which ran two blocks, one of them nested. */
+  function agentTrace() {
+    return buildWaterfall(
+      records(
+        { kind: "block.post-invoke", start: 30, duration: 5, path: "orders.assistant[search_docs].fetch.parse" },
+        { kind: "block.post-invoke", start: 30, duration: 10, path: "orders.assistant[search_docs].fetch" },
+        { kind: "block.post-invoke", start: 50, duration: 10, path: "orders.assistant[send_email].deliver" },
+        { kind: "block.post-invoke", start: 20, duration: 60, path: "orders.assistant", blockType: "ai-agent" },
+        { kind: "block.post-invoke", start: 90, duration: 10, path: "orders.after" },
+        { kind: "flow.completed", start: 0, duration: 100, flow: "orders" },
+      ),
+    ).roots;
+  }
+
+  function toolOf(label: string) {
+    const { rows } = flattenWaterfall(agentTrace(), new Set());
+    return rows.find((r) => r.node.label === label);
+  }
+
+  it("reads the tool a span ran inside off the branch it entered", () => {
+    // There is no tool trace kind and no `tool` attribute — the runtime builds
+    // each tool as a branch of the agent block, so the path is where this lives.
+    expect(toolOf("fetch")?.tool).toBe("search_docs");
+    expect(toolOf("deliver")?.tool).toBe("send_email");
+  });
+
+  it("carries the tool down to everything that ran inside it", () => {
+    expect(toolOf("parse")?.tool).toBe("search_docs");
+  });
+
+  it("names the tool once, at the row where it starts", () => {
+    // Every node under `assistant[search_docs]` still starts with that prefix,
+    // so read naively the whole subtree would each claim to begin the tool.
+    expect(toolOf("fetch")?.toolRoot).toBe(true);
+    expect(toolOf("parse")?.toolRoot).toBe(false);
+  });
+
+  it("claims nothing for a span that ran outside any tool", () => {
+    expect(toolOf("after")?.tool).toBeNull();
+    expect(toolOf("assistant")?.tool).toBeNull();
+  });
+
+  it("does not read an ordinary branch as a tool", () => {
+    // `if` yields then/else and `switch` yields case names. A branch means
+    // "tool" only under a block whose branches are tools.
+    const plain = buildWaterfall(
+      records(
+        { kind: "block.post-invoke", start: 10, duration: 10, path: "orders.check[then].notify" },
+        { kind: "block.post-invoke", start: 5, duration: 30, path: "orders.check", blockType: "if" },
+        { kind: "flow.completed", start: 0, duration: 100, flow: "orders" },
+      ),
+    ).roots;
+    const { rows } = flattenWaterfall(plain, new Set());
+    expect(rows.every((r) => r.tool === null)).toBe(true);
+  });
+});
+
 describe("the time scale", () => {
   it("draws a trace ten times as long ten times as wide", () => {
     // The whole point of a constant density. Stretching each trace to the window

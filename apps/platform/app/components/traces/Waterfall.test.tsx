@@ -157,4 +157,30 @@ describe("Waterfall", () => {
     renderChart();
     expect(screen.queryByRole("button", { name: "Fit (Esc)" })).not.toBeInTheDocument();
   });
+
+  it("names the model a call was served by", () => {
+    // It existed only in a tooltip on an aggregate before, which is invisible on
+    // touch and to a screen reader — and "which model was this one" is a
+    // question about a row, not about the trace.
+    const withModel = buildWaterfall(
+      records(
+        { kind: "llm.turn", start: 10_000, duration: 40_000, path: "orders.ask", model: "claude-opus-5" },
+        { kind: "flow.completed", start: 0, duration: 100_000, flow: "orders" },
+      ),
+    );
+    render(<Waterfall waterfall={withModel} selectedId={null} onSelect={vi.fn()} />);
+    expect(screen.getByText("claude-opus-5")).toBeInTheDocument();
+  });
+
+  it("says which agent tool a span ran inside", () => {
+    const agent = buildWaterfall(
+      records(
+        { kind: "block.post-invoke", start: 30_000, duration: 10_000, path: "orders.assistant[search_docs].fetch" },
+        { kind: "block.post-invoke", start: 20_000, duration: 60_000, path: "orders.assistant", blockType: "ai-agent" },
+        { kind: "flow.completed", start: 0, duration: 100_000, flow: "orders" },
+      ),
+    );
+    render(<Waterfall waterfall={agent} selectedId={null} onSelect={vi.fn()} />);
+    expect(screen.getByTitle("tool call: search_docs")).toBeInTheDocument();
+  });
 });

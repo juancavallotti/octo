@@ -131,3 +131,35 @@ export function blockLabel(path: string): string {
   const segments = parseBlockPath(path);
   return segments.length === 0 ? "" : segments[segments.length - 1].label;
 }
+
+/**
+ * The branch a descendant entered directly under `ancestorPath`, if any.
+ *
+ * An agent's tools are built as branches of the agent block —
+ * `orders.assistant[search_docs].fetch` — so this is how a span says which tool
+ * it belongs to. A branch alone is not enough to mean "tool": `if` yields
+ * `then`/`else` and `switch` yields case names, so the caller has to already
+ * know the ancestor is a block whose branches are tools.
+ *
+ * Returns null for anything that is not a descendant of that exact prefix, and
+ * for a descendant that entered no branch at all — a path this cannot read is a
+ * path this declines to guess about, which is the same contract as the parser
+ * above.
+ */
+export function branchUnder(path: string, ancestorPath: string): string | null {
+  if (!path.startsWith(ancestorPath)) return null;
+  const rest = path.slice(ancestorPath.length);
+  if (!rest.startsWith("[")) return null;
+
+  // Depth-counted rather than indexOf("]"), so a tool whose own name contains
+  // brackets does not truncate here.
+  let depth = 0;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "[") depth++;
+    else if (rest[i] === "]" && --depth === 0) {
+      const branch = rest.slice(1, i);
+      return branch === "" ? null : branch;
+    }
+  }
+  return null;
+}
