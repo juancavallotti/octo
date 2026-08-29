@@ -69,7 +69,10 @@ func (s *kvStore) Get(ctx context.Context, namespace, key string) (core.Entry, b
 		if readErr != nil {
 			return core.Entry{}, false, fmt.Errorf("api kv get: read body: %w", readErr)
 		}
-		version := parseVersion(resp.Header.Get(headerVersion))
+		version, versionErr := requireVersion(routeOp(routeKVGet), resp)
+		if versionErr != nil {
+			return core.Entry{}, false, versionErr
+		}
 		slog.Debug("api kv get hit", "namespace", namespace, "key", key, "version", version)
 		return core.Entry{Value: value, Version: version}, true, nil
 	case http.StatusNotFound:
@@ -108,7 +111,10 @@ func (s *kvStore) Set(
 
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated:
-		version := parseVersion(resp.Header.Get(headerVersion))
+		version, versionErr := requireVersion(routeOp(routeKVSet), resp)
+		if versionErr != nil {
+			return 0, versionErr
+		}
 		slog.Debug("api kv set ok", "namespace", namespace, "key", key, "version", version)
 		return version, nil
 	case http.StatusConflict:
@@ -147,13 +153,46 @@ func (s *kvStore) Delete(ctx context.Context, namespace, key string, expectedVer
 	}
 }
 
-// parseVersion reads a version header, treating a missing or malformed value as 0
-// — which is also the value that means "create" on a write, so a server that does
-// not send the header still round-trips a create.
+// parseVersion reads a version header, treating a missing or malformed value as
+// 0. Use it only where 0 is a legitimate answer — a request the runtime is
+// sending, or a fake reading one back. On a response that succeeded, use
+// requireVersion.
 func parseVersion(s string) int64 {
 	v, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return 0
 	}
 	return v
+}
+
+// requireVersion reads the version off a response that succeeded, where a usable
+// one is not optional.
+//
+// It used to be parseVersion, on the theory that a server which sent no header
+// still round-tripped a create. It does — once. The create returns 0, the caller
+// stores 0, and every later update sends 0, which means CREATE, so the server
+// answers 409 and the object can never be written again. The failure surfaces as
+// a permanent version conflict on a key that plainly exists, which points at
+// everything except the missing header that caused it.
+//
+// So a successful response carrying no version, a malformed one, or one that is
+// not positive is a protocol violation, and it is reported as one at the moment
+// it happens.
+func requireVersion(op string, resp *http.Response) (int64, error) {
+	raw := resp.Header.Get(headerVersion)
+	if raw == "" {
+		return 0, fmt.Errorf("api %s: the platform API answered %s with no %s header; "+
+			"without it this object could be created but never updated", op, resp.Status, headerVersion)
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("api %s: the platform API answered %s with %s: %q, which is not a number",
+			op, resp.Status, headerVersion, raw)
+	}
+	if v <= 0 {
+		return 0, fmt.Errorf("api %s: the platform API answered %s with %s: %d. A stored object's "+
+			"version must be positive — 0 is the value that means \"create\" on the way in",
+			op, resp.Status, headerVersion, v)
+	}
+	return v, nil
 }

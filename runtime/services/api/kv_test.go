@@ -213,3 +213,54 @@ func TestResourceLoaderIsNotAWatcher(t *testing.T) {
 		t.Fatal("the api resource loader must not implement core.ResourceWatcher")
 	}
 }
+
+// A successful write that carries no version is a protocol violation, and it has
+// to be reported as one at the moment it happens.
+//
+// Accepting it looked harmless: the create round-trips, because 0 is what a
+// create sends anyway. But the caller then stores 0 and every later update sends
+// 0, which means CREATE, so the server answers 409 and the object can never be
+// written again — surfacing as a permanent conflict on a key that plainly exists,
+// which points at everything except the missing header that caused it.
+func TestKVRejectsASuccessWithoutAUsableVersion(t *testing.T) {
+	cases := []struct{ name, header string }{
+		{"no header at all", ""},
+		{"not a number", "banana"},
+		{"zero, which means create on the way in", "0"},
+		{"negative", "-3"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake(t, fullDiscovery())
+			f.mux.HandleFunc("PUT "+pathKVEntry, func(w http.ResponseWriter, _ *http.Request) {
+				if tc.header != "" {
+					w.Header().Set(headerVersion, tc.header)
+				}
+				w.WriteHeader(http.StatusOK)
+			})
+			svc := newTestServices(t, f, nil)
+
+			_, err := svc.KV().Set(t.Context(), core.NamespaceUser, "k", []byte("v"), 0)
+			if err == nil {
+				t.Fatal("Set accepted a success with no usable version")
+			}
+			if !strings.Contains(err.Error(), headerVersion) {
+				t.Fatalf("err = %v, want it to name the header", err)
+			}
+		})
+	}
+}
+
+// And the same on a read: an object that exists has a version, and reporting 0
+// for it would send the next write down the create path.
+func TestKVRejectsAReadWithoutAUsableVersion(t *testing.T) {
+	f := newFake(t, fullDiscovery())
+	f.mux.HandleFunc("GET "+pathKVEntry, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("a value with no version"))
+	})
+	svc := newTestServices(t, f, nil)
+
+	if _, _, err := svc.KV().Get(t.Context(), core.NamespaceUser, "k"); err == nil {
+		t.Fatal("Get accepted a hit with no version")
+	}
+}

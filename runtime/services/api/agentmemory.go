@@ -97,7 +97,11 @@ func (m *agentMemory) LoadWorking(
 		if readErr != nil {
 			return core.WorkingMemory{}, false, fmt.Errorf("api agent memory load: read body: %w", readErr)
 		}
-		return workingFrom(resp, payload), true, nil
+		wm, versionErr := workingFrom(resp, payload)
+		if versionErr != nil {
+			return core.WorkingMemory{}, false, versionErr
+		}
+		return wm, true, nil
 	case http.StatusNotFound:
 		// Ambiguous on this one route, and harmlessly so: a conversation with no
 		// working memory yet and a platform that does not serve the route both
@@ -113,15 +117,25 @@ func (m *agentMemory) LoadWorking(
 }
 
 // workingFrom rebuilds working memory from a response's headers and body.
-func workingFrom(resp *http.Response, payload []byte) core.WorkingMemory {
+//
+// The version is required for the reason requireVersion gives: without it the
+// next save sends 0, which means create, and the conversation can never be
+// checkpointed again. The iteration and token counts are not — they are
+// bookkeeping the agent re-derives, and a store that drops them costs a metric
+// rather than a conversation.
+func workingFrom(resp *http.Response, payload []byte) (core.WorkingMemory, error) {
+	version, err := requireVersion(routeOp(routeMemoryLoadWorking), resp)
+	if err != nil {
+		return core.WorkingMemory{}, err
+	}
 	iteration, _ := strconv.Atoi(resp.Header.Get(headerIteration))
 	tokens, _ := strconv.Atoi(resp.Header.Get(headerTokens))
 	return core.WorkingMemory{
-		Version:   parseVersion(resp.Header.Get(headerVersion)),
+		Version:   version,
 		Iteration: iteration,
 		Tokens:    tokens,
 		Payload:   payload,
-	}
+	}, nil
 }
 
 // SaveWorking stores the live context, creating the thread if it is new.
@@ -147,7 +161,7 @@ func (m *agentMemory) SaveWorking(
 
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated:
-		return parseVersion(resp.Header.Get(headerVersion)), nil
+		return requireVersion(routeOp(routeMemorySaveWorking), resp)
 	case http.StatusConflict:
 		return 0, core.ErrVersionConflict
 	// A 404 has no innocent reading on a write: saving creates the thread when it
@@ -403,7 +417,7 @@ func (m *agentMemory) PutMemory(
 
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated:
-		return parseVersion(resp.Header.Get(headerVersion)), nil
+		return requireVersion(routeOp(routeMemoryPut), resp)
 	case http.StatusConflict:
 		return 0, core.ErrVersionConflict
 	// As on SaveWorking, a 404 has no innocent reading here: a memory that does

@@ -302,3 +302,43 @@ func TestMemoryLatchesOffOnNotImplemented(t *testing.T) {
 		t.Fatal("Enabled is still true after the platform answered 501")
 	}
 }
+
+// Working memory carries the same requirement as KV, for the same reason: a save
+// that comes back without a version leaves the caller holding 0, and the next
+// save then means "create" and conflicts forever — so the conversation could be
+// started and never checkpointed again.
+func TestWorkingMemoryRejectsASuccessWithoutAUsableVersion(t *testing.T) {
+	f := newFake(t, fullDiscovery())
+	f.mux.HandleFunc("PUT "+pathMemoryWorking, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK) // no X-Object-Version
+	})
+	svc := newTestServices(t, f, nil)
+
+	_, err := svc.AgentMemory().SaveWorking(t.Context(), testRef(), core.WorkingMemory{})
+	if err == nil {
+		t.Fatal("SaveWorking accepted a success with no version")
+	}
+	if !strings.Contains(err.Error(), headerVersion) {
+		t.Fatalf("err = %v, want it to name the header", err)
+	}
+}
+
+// The counters beside it are not required: an agent re-derives them, and a store
+// that drops them costs a metric rather than a conversation.
+func TestWorkingMemoryToleratesMissingCounters(t *testing.T) {
+	svc, _, _ := newMemoryFixture(t)
+	ctx, ref := t.Context(), testRef()
+
+	if _, err := svc.AgentMemory().SaveWorking(ctx, ref, core.WorkingMemory{
+		Payload: []byte("transcript"),
+	}); err != nil {
+		t.Fatalf("SaveWorking: %v", err)
+	}
+	got, ok, err := svc.AgentMemory().LoadWorking(ctx, ref)
+	if err != nil || !ok {
+		t.Fatalf("LoadWorking = (ok %v, err %v)", ok, err)
+	}
+	if got.Iteration != 0 || got.Tokens != 0 {
+		t.Fatalf("counters = (%d, %d), want the zero values to round-trip", got.Iteration, got.Tokens)
+	}
+}
