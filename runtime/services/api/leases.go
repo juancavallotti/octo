@@ -31,7 +31,11 @@ const releaseTimeout = 5 * time.Second
 
 // leases claims names on the platform API.
 type leases struct {
-	c      *client
+	c *client
+	// module ends when Services.Close is called, so a claim's renewals stop with
+	// the module even though they are deliberately detached from the call that
+	// acquired it.
+	module context.Context //nolint:containedctx // the module's lifetime, not a request's
 	latch  *latch
 	holder string
 	// minTTL and maxTTL are the platform's declared bounds, applied after
@@ -40,9 +44,10 @@ type leases struct {
 	maxTTL time.Duration
 }
 
-func newLeases(c *client, holder string, f leaseFeature) *leases {
+func newLeases(module context.Context, c *client, holder string, f leaseFeature) *leases {
 	return &leases{
 		c:      c,
+		module: module,
 		latch:  &latch{feature: FeatureLeases},
 		holder: holder,
 		minTTL: time.Duration(f.MinTTLSeconds) * time.Second,
@@ -125,8 +130,8 @@ func (l *leases) hold(ctx context.Context, leaseID, name string, ttl time.Durati
 	held := &heldLease{owner: l, id: leaseID, name: name, done: make(chan struct{})}
 	// Renewal outlives the call that acquired the claim — an Acquire's context is
 	// the request's, and the claim is the run's — so it runs on a context detached
-	// from it and cancelled by Close instead.
-	renewCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	// from it, cancelled by Close or by the module shutting down.
+	renewCtx, cancel := bindTo(context.WithoutCancel(ctx), l.module)
 	held.cancel = cancel
 	go held.renew(renewCtx, ttl)
 	return held
@@ -201,6 +206,11 @@ func (h *heldLease) renew(ctx context.Context, ttl time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
+			// The module is shutting down, or Close cancelled us. Either way the
+			// claim stops being renewed, so it stops being held — and a holder
+			// gating work on Done has to hear that rather than carry on against a
+			// claim quietly expiring on the platform.
+			h.markGone()
 			return
 		case <-h.done:
 			return

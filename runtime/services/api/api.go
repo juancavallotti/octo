@@ -42,10 +42,15 @@ type Services struct {
 	cfg    Config
 	doc    discoveryDocument
 
-	// cancel stops every background poll loop this module runs — the queue and
-	// topic receivers, the lease renewals, the leader campaigns. It is the one
+	// cancel ends the module context every background loop is bound to — the queue
+	// and topic receivers, the lease renewals, the leader campaigns. It is the one
 	// structural difference from the other two modules, whose background work
 	// belongs to a library rather than to us.
+	//
+	// Binding matters because those loops are started from a CALLER's context, and
+	// a caller may outlive the module. Each is bound to both (see bindTo), so it
+	// stops at whichever ends first — otherwise Close would return with the module
+	// shut down and its poll loops still running against a closed transport.
 	cancel context.CancelFunc
 
 	le        core.LeaderElection
@@ -92,8 +97,8 @@ func New(ctx context.Context, opts services.Options) (core.RuntimeServices, erro
 	}
 	warnSpecSkew(doc, cfg)
 
-	// The run context is detached from the caller's: New's context bounds startup,
-	// whereas the poll loops must live until Close.
+	// The module context is detached from the caller's: New's context bounds
+	// startup, whereas the background loops must live until Close.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	svc := &Services{client: c, cfg: cfg, doc: doc, cancel: cancel}
 	svc.build(runCtx, opts)
@@ -111,14 +116,14 @@ func New(ctx context.Context, opts services.Options) (core.RuntimeServices, erro
 //
 // It is populated capability by capability as each is implemented; until then a
 // capability resolves to its unsupported form.
-func (s *Services) build(_ context.Context, opts services.Options) {
+func (s *Services) build(runCtx context.Context, opts services.Options) {
 	s.kv = buildKV(s.client, s.doc.Features.KV)
 	s.secrets = buildSecrets(s.kv, s.doc.Features.Secrets, s.doc.Features.KV)
 	s.resources = buildResources(s.client, s.doc.Features.Resources)
-	s.leases = buildLeases(s.client, s.cfg.InstanceID, s.doc.Features.Leases)
-	s.le = buildLeaderElection(s.client, s.cfg.InstanceID, s.doc.Features.LeaderElection)
-	s.queues = buildQueues(s.client, s.cfg.DeploymentID, s.doc.Features.Queues)
-	s.topics = buildTopics(s.client, s.cfg.InstanceID, s.doc.Features.Topics)
+	s.leases = buildLeases(runCtx, s.client, s.cfg.InstanceID, s.doc.Features.Leases)
+	s.le = buildLeaderElection(runCtx, s.client, s.cfg.InstanceID, s.doc.Features.LeaderElection)
+	s.queues = buildQueues(runCtx, s.client, s.cfg.DeploymentID, s.doc.Features.Queues)
+	s.topics = buildTopics(runCtx, s.client, s.cfg.InstanceID, s.doc.Features.Topics)
 	s.memory = buildAgentMemory(s.client, s.doc.Features.AgentMemory)
 	s.traces = newTracePublisher(s.client, s.cfg, opts.Tracing, s.doc.Features.Traces)
 	if s.doc.Features.Logs.Supported {
@@ -190,9 +195,9 @@ func degradedResources(f featureFlags) core.ResourceLoader {
 // buildLeases resolves the fail-fast claims.
 //
 //nolint:ireturn // resolves to core.Leases
-func buildLeases(c *client, holder string, f leaseFeature) core.Leases {
+func buildLeases(module context.Context, c *client, holder string, f leaseFeature) core.Leases {
 	if f.Supported {
-		return newLeases(c, holder, f)
+		return newLeases(module, c, holder, f)
 	}
 	return degradedLeases(f.featureFlags)
 }
@@ -208,9 +213,9 @@ func degradedLeases(f featureFlags) core.Leases {
 // buildLeaderElection resolves the campaign-based election.
 //
 //nolint:ireturn // resolves to core.LeaderElection
-func buildLeaderElection(c *client, holder string, f leaderFeature) core.LeaderElection {
+func buildLeaderElection(module context.Context, c *client, holder string, f leaderFeature) core.LeaderElection {
 	if f.Supported {
-		return newLeaderElection(c, holder, f)
+		return newLeaderElection(module, c, holder, f)
 	}
 	return degradedLeaderElection(f.featureFlags)
 }
@@ -226,9 +231,9 @@ func degradedLeaderElection(f featureFlags) core.LeaderElection {
 // buildQueues resolves the point-to-point plane.
 //
 //nolint:ireturn // resolves to core.Queues
-func buildQueues(c *client, consumerGroup string, f queueFeature) core.Queues {
+func buildQueues(module context.Context, c *client, consumerGroup string, f queueFeature) core.Queues {
 	if f.Supported {
-		return newQueues(c, consumerGroup, f)
+		return newQueues(module, c, consumerGroup, f)
 	}
 	return degradedQueues(f.featureFlags)
 }
@@ -244,9 +249,9 @@ func degradedQueues(f featureFlags) core.Queues {
 // buildTopics resolves the broadcast plane.
 //
 //nolint:ireturn // resolves to core.Topics
-func buildTopics(c *client, subscriber string, f topicFeature) core.Topics {
+func buildTopics(module context.Context, c *client, subscriber string, f topicFeature) core.Topics {
 	if f.Supported {
-		return newTopics(c, subscriber, f)
+		return newTopics(module, c, subscriber, f)
 	}
 	return degradedTopics(f.featureFlags)
 }

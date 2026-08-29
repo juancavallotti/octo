@@ -33,19 +33,23 @@ const nackDelay = 5 * time.Second
 // internal work distribution across replicas and a poor one for being triggered
 // from outside: an external event source should call an HTTP flow instead.
 type queues struct {
-	c             *client
+	c *client
+	// module ends when Services.Close is called, so a subscription started from a
+	// long-lived caller context still stops with the module.
+	module        context.Context //nolint:containedctx // the module's lifetime, not a request's
 	latch         *latch
 	consumerGroup string
 	poll          pollConfig
 	requestReply  bool
 }
 
-func newQueues(c *client, consumerGroup string, f queueFeature) *queues {
+func newQueues(module context.Context, c *client, consumerGroup string, f queueFeature) *queues {
 	if consumerGroup == "" {
 		consumerGroup = defaultConsumerGroup
 	}
 	return &queues{
 		c:             c,
+		module:        module,
 		latch:         &latch{feature: FeatureQueues},
 		consumerGroup: consumerGroup,
 		poll:          resolvePoll("queues", f.PollTimeoutSeconds, f.MaxBatch, c.longTimeout),
@@ -155,13 +159,14 @@ func (q *queues) Subscribe(
 		return nil, unsupportedError(FeatureQueues)
 	}
 	cfg := core.NewSubscribeConfig(opts...)
+	ctx, unbind := bindTo(ctx, q.module)
 	loop := run(ctx, cfg.Listeners, q.poll.timeout,
 		func(ctx context.Context) ([]delivery, error) { return q.receive(ctx, subject) },
 		func(ctx context.Context, d delivery) { q.dispatch(ctx, subject, d, handler) },
 	)
 	slog.Debug("api: subscribed to a queue",
 		"subject", subject, "group", q.consumerGroup, "listeners", cfg.Listeners)
-	return &pollSubscription{loop: loop}, nil
+	return &pollSubscription{loop: loop, unbind: unbind}, nil
 }
 
 // receive makes one long poll. A 204 is not an empty answer to be retried
@@ -258,9 +263,13 @@ func (q *queues) settleFeatureError(err error) error {
 
 // pollSubscription is a handle to a running poll loop. Close stops delivery and
 // drains the workers, so afterwards no handler is still running.
-type pollSubscription struct{ loop *pollLoop }
+type pollSubscription struct {
+	loop   *pollLoop
+	unbind context.CancelFunc
+}
 
 func (s *pollSubscription) Close() error {
 	s.loop.close()
+	s.unbind()
 	return nil
 }

@@ -29,6 +29,23 @@ const (
 	pollTimeoutHeadroom = 5 * time.Second
 )
 
+// bindTo returns a context that ends when EITHER the caller's context or the
+// module's does, and a cancel that releases the link.
+//
+// Every background thing this module starts — a subscription's poll loop, a
+// lease's renewals, a leadership campaign — is started from some caller's
+// context and must also stop when Services.Close is called. Binding to only the
+// caller leaves work running after the module is closed; binding to only the
+// module ignores a caller that finished. This is the pair.
+func bindTo(caller, module context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(caller)
+	release := context.AfterFunc(module, cancel)
+	return ctx, func() {
+		release()
+		cancel()
+	}
+}
+
 // pollConfig is the resolved receive-loop configuration for one plane.
 type pollConfig struct {
 	timeout  time.Duration

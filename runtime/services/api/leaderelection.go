@@ -34,7 +34,9 @@ const (
 // client-go's leader election is itself a poll loop over a Lease object, and this
 // runs the same loop over its own endpoint.
 type leaderElection struct {
-	c      *client
+	c *client
+	// module ends when Services.Close is called; see leases.
+	module context.Context //nolint:containedctx // the module's lifetime, not a request's
 	latch  *latch
 	holder string
 
@@ -43,9 +45,10 @@ type leaderElection struct {
 	observe time.Duration
 }
 
-func newLeaderElection(c *client, holder string, f leaderFeature) *leaderElection {
+func newLeaderElection(module context.Context, c *client, holder string, f leaderFeature) *leaderElection {
 	le := &leaderElection{
 		c:       c,
+		module:  module,
 		latch:   &latch{feature: FeatureLeaderElection},
 		holder:  holder,
 		ttl:     orDefault(f.LeaseTTLSeconds, defaultLeaderTTL),
@@ -98,7 +101,7 @@ func (le *leaderElection) Acquire(ctx context.Context, key string) (core.Leaders
 	if !le.latch.live() {
 		return nil, unsupportedError(FeatureLeaderElection)
 	}
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := bindTo(ctx, le.module)
 	l := &leadership{owner: le, key: key, cancel: cancel, done: make(chan struct{})}
 	slog.Debug("api: starting a leader election campaign",
 		"key", key, "holder", le.holder, "ttl", le.ttl)
@@ -118,6 +121,10 @@ type leadership struct {
 	// Only the campaign goroutine writes it, and only after the campaign has
 	// stopped does Close read it.
 	leaseID string
+	// heldAtExit records whether the campaign still held the key when it stopped,
+	// so Close knows whether there is anything to resign after the flag itself has
+	// been cleared.
+	heldAtExit atomic.Bool
 }
 
 func (l *leadership) IsLeader() bool { return l.leader.Load() }
@@ -129,6 +136,18 @@ func (l *leadership) IsLeader() bool { return l.leader.Load() }
 // for the leader to stop.
 func (l *leadership) campaign(ctx context.Context) {
 	defer close(l.done)
+	// Leadership does not outlive the campaign, on any exit path. The loop can
+	// end because Close cancelled it, or because the context it was started
+	// with was cancelled by somebody else — and on that second path nothing else
+	// clears the flag, so IsLeader would stay true while no renewal was
+	// happening. A caller gating work on it would keep working, and the claim
+	// would expire on the platform, and a second replica would take it.
+	//
+	// heldAtExit remembers what to resign, because clearing the public flag is
+	// exactly what would otherwise tell Close there is nothing to give back.
+	defer func() {
+		l.heldAtExit.Store(l.leader.Swap(false))
+	}()
 	for ctx.Err() == nil {
 		leader := l.claim(ctx)
 		wait := l.owner.observe
@@ -189,7 +208,7 @@ func (l *leadership) transition(leader bool) {
 func (l *leadership) Close() error {
 	l.cancel()
 	<-l.done
-	if !l.leader.Load() || l.leaseID == "" {
+	if !l.heldAtExit.Load() || l.leaseID == "" {
 		return nil
 	}
 	// Resigning is a courtesy that shortens the next replica's wait; the claim
@@ -202,6 +221,5 @@ func (l *leadership) Close() error {
 		slog.Debug("api: could not resign leadership; the claim will expire instead",
 			"key", l.key, "error", err)
 	}
-	l.leader.Store(false)
 	return nil
 }

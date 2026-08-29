@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -118,7 +119,7 @@ func TestLeadershipCloseStopsTheCampaign(t *testing.T) {
 // A renew interval too close to the TTL is a split brain waiting to happen, so it
 // is shortened regardless of what the platform asked for.
 func TestRenewIntervalClampedBelowTheTTL(t *testing.T) {
-	le := newLeaderElection(nil, "me", leaderFeature{
+	le := newLeaderElection(t.Context(), nil, "me", leaderFeature{
 		LeaseTTLSeconds: 15, RenewIntervalSeconds: 14, ObserveIntervalSeconds: 2,
 	})
 	if le.renew > le.ttl/renewIntervalDivisor {
@@ -128,8 +129,54 @@ func TestRenewIntervalClampedBelowTheTTL(t *testing.T) {
 
 // The defaults are client-go's, so failover timing does not change with the module.
 func TestLeaderElectionDefaults(t *testing.T) {
-	le := newLeaderElection(nil, "me", leaderFeature{})
+	le := newLeaderElection(t.Context(), nil, "me", leaderFeature{})
 	if le.ttl != defaultLeaderTTL || le.renew != defaultRenewInterval || le.observe != defaultObserveInterval {
 		t.Fatalf("defaults = (ttl %s, renew %s, observe %s)", le.ttl, le.renew, le.observe)
+	}
+}
+
+// Leadership must not outlive the campaign on ANY exit path.
+//
+// Close clears it, but a caller whose context is cancelled elsewhere leaves the
+// campaign loop without going through Close — and nothing else was clearing the
+// flag. IsLeader would stay true while no renewal was happening, so work gated
+// on it would keep running while the claim expired on the platform and a second
+// replica took the key.
+func TestLeadershipClearsWhenItsContextIsCancelled(t *testing.T) {
+	svc, _ := newLeaderFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+
+	l, err := svc.LeaderElection().Acquire(ctx, "cron")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	awaitLeader(t, l, true, "the key was free")
+
+	// Cancelled by whoever started it, with no Close in sight.
+	cancel()
+	awaitLeader(t, l, false, "leadership survived the campaign that was maintaining it")
+}
+
+// And Close still resigns after that clearing, rather than deciding there was
+// nothing to give back.
+func TestClosingAfterCancellationStillResigns(t *testing.T) {
+	svc, b := newLeaderFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+
+	l, err := svc.LeaderElection().Acquire(ctx, "cron")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	awaitLeader(t, l, true, "the key was free")
+	cancel()
+	awaitLeader(t, l, false, "leadership survived its campaign")
+
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, stillHeld := b.holders["cron"]; stillHeld {
+		t.Fatal("Close did not resign the key it had been holding")
 	}
 }

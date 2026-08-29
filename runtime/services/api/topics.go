@@ -33,15 +33,18 @@ const systemPrefix = "system:"
 // dropped, because a topic has no requester to surface one to, so redelivering
 // would contradict the interface.
 type topics struct {
-	c          *client
+	c *client
+	// module ends when Services.Close is called; see queues.
+	module     context.Context //nolint:containedctx // the module's lifetime, not a request's
 	latch      *latch
 	subscriber string
 	poll       pollConfig
 }
 
-func newTopics(c *client, subscriber string, f topicFeature) *topics {
+func newTopics(module context.Context, c *client, subscriber string, f topicFeature) *topics {
 	return &topics{
 		c:          c,
+		module:     module,
 		latch:      &latch{feature: FeatureTopics},
 		subscriber: subscriber,
 		poll:       resolvePoll("topics", f.PollTimeoutSeconds, f.MaxBatch, c.longTimeout),
@@ -122,6 +125,7 @@ func (t *topics) Subscribe(
 	}
 
 	cfg := core.NewSubscribeConfig(opts...)
+	ctx, unbind := bindTo(ctx, t.module)
 	loop := run(ctx, cfg.Listeners, t.poll.timeout,
 		func(ctx context.Context) ([]delivery, error) {
 			return t.receive(ctx, subject, out.SubscriptionID)
@@ -132,7 +136,9 @@ func (t *topics) Subscribe(
 	)
 	slog.Debug("api: subscribed to a topic",
 		"subject", subject, "subscription", out.SubscriptionID, "listeners", cfg.Listeners)
-	return &topicSubscription{topics: t, subject: subject, id: out.SubscriptionID, loop: loop}, nil
+	return &topicSubscription{
+		topics: t, subject: subject, id: out.SubscriptionID, loop: loop, unbind: unbind,
+	}, nil
 }
 
 // receive makes one long poll against this subscriber's cursor.
@@ -193,6 +199,7 @@ type topicSubscription struct {
 	subject string
 	id      string
 	loop    *pollLoop
+	unbind  context.CancelFunc
 }
 
 // Close stops delivery, drains the workers, and unregisters the subscription.
@@ -202,6 +209,7 @@ type topicSubscription struct {
 // every restart accumulates messages nobody will ever read.
 func (s *topicSubscription) Close() error {
 	s.loop.close()
+	s.unbind()
 	ctx, cancel := context.WithTimeout(context.Background(), s.topics.c.timeout)
 	defer cancel()
 	err := s.topics.c.json(ctx, routeTopicUnsubscribe,
