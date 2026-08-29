@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.8.9](https://github.com/juancavallotti/octo/compare/v0.8.8...v0.8.9) (2026-08-29)
+
+
+### Features
+
+* **core:** export NoopKV and ErrNoKV ([12372dd](https://github.com/juancavallotti/octo/commit/12372dd5f01e94b8a123d76ae43de13120509637))
+* **editor:** fit on whichever axis has run out first ([0b7282c](https://github.com/juancavallotti/octo/commit/0b7282c8dc292510fff51b898d2cb5544e6af994))
+* **editor:** pure zoom arithmetic for the canvas ([04ee541](https://github.com/juancavallotti/octo/commit/04ee541e253278b18877234f28fa6d73e58891fb))
+* **editor:** zoom the flow canvas ([53ece62](https://github.com/juancavallotti/octo/commit/53ece6228942686b0dcece982532b3e7b7ae84d0))
+* **editor:** zoom the flow designer canvas ([4694ad6](https://github.com/juancavallotti/octo/commit/4694ad6214e2f3a98276249829c4c1eab6ef310c))
+* **platform:** add a searchable app picker ([6b9f8ae](https://github.com/juancavallotti/octo/commit/6b9f8aeefa47364615acf585b647918238a299bb))
+* **platform:** draw the trace waterfall at a constant time scale ([859919b](https://github.com/juancavallotti/octo/commit/859919bc3c75bc1bab5b41568733f2fb3b14666c))
+* **platform:** draw the waterfall at a constant time scale ([5d32b99](https://github.com/juancavallotti/octo/commit/5d32b9966bcf567ffafe94219aae4e9e5e3fb064))
+* **platform:** lay the deployments page out two up ([77049dc](https://github.com/juancavallotti/octo/commit/77049dcda4d8bb592534acbbe57b8ac168f913d5))
+* **platform:** name the conversation, and let one be thrown away ([21aed47](https://github.com/juancavallotti/octo/commit/21aed47e2ac6308672661f754c953ccb44cf0cbf))
+* **platform:** name the conversation, and let one be thrown away ([f4a93db](https://github.com/juancavallotti/octo/commit/f4a93db754e9aca6f5313faf0c44612e722f48c9))
+* **platform:** put MCP beside the dashboard title ([943b1a1](https://github.com/juancavallotti/octo/commit/943b1a1055af6acb54474320678ee314a15fb3ee))
+* **platform:** search the secrets, and say which are in use ([1f80835](https://github.com/juancavallotti/octo/commit/1f80835a6a159f227e7bc1bf3b47930e6f1821cc))
+* **platform:** show models and mark agent tool calls ([a35dec6](https://github.com/juancavallotti/octo/commit/a35dec66436a82bf4873129ac4b94074d21e972b))
+* **platform:** show which octo runtime a deployment is on ([5d9f517](https://github.com/juancavallotti/octo/commit/5d9f517799e9e9de43b363e764d91c2b59b130a7))
+* **runtime:** frame the ready banner, and say what is serving ([cede444](https://github.com/juancavallotti/octo/commit/cede4447eba3132a0036cccad669674b4447d961))
+* **services/api:** a conformance harness for the published contract ([f3ccfc2](https://github.com/juancavallotti/octo/commit/f3ccfc2e2a7e75ce902e1ad2f694eae8ad41954c))
+* **services/api:** agent memory ([7aa2327](https://github.com/juancavallotti/octo/commit/7aa2327c4e7be8d53882ef8266bf9e29265d9c75))
+* **services/api:** batched trace and log shipping ([8c77a35](https://github.com/juancavallotti/octo/commit/8c77a35f38b75e96eef8893928f2b5597747e9d2))
+* **services/api:** fail-fast leases ([e72081b](https://github.com/juancavallotti/octo/commit/e72081bc2faadff9c80641142627d561c5e2d052))
+* **services/api:** KV, secrets and resources ([51f7c82](https://github.com/juancavallotti/octo/commit/51f7c8200d9ce50d9555314e2176815844fa47de))
+* **services/api:** leader election by campaign polling ([73af365](https://github.com/juancavallotti/octo/commit/73af3651a700276a849dba40e46528a08438c8cf))
+* **services/api:** message wire format ([ec18781](https://github.com/juancavallotti/octo/commit/ec18781607f87ab2ef5d66c289ad332857440b85))
+* **services/api:** module scaffold, config and discovery ([e6f33f0](https://github.com/juancavallotti/octo/commit/e6f33f0b5b8526e16c9f7d6af2a34977490f2339))
+* **services/api:** queues with long-poll receive and ack/nack ([942df47](https://github.com/juancavallotti/octo/commit/942df47c6cbd3e747d7f43f8154cb4c4e9b9913f))
+* **services/api:** the platform API contract, and octo openapi ([b4e98c8](https://github.com/juancavallotti/octo/commit/b4e98c8c7ff1c2713eab1c1d34dddcddbf215a1a))
+* **services/api:** topics with per-subscriber subscriptions ([54f6836](https://github.com/juancavallotti/octo/commit/54f6836dc32909e4c3ff2f95886fbb01605a7d6f))
+* **services:** let a module bring its own CLI commands ([d37f357](https://github.com/juancavallotti/octo/commit/d37f35766058c3700550b58c05f47f569b5fa504))
+* **util:** add @octo/util with a ranked string search ([fb7612b](https://github.com/juancavallotti/octo/commit/fb7612b1be03c51aa7523c4c2b795db51573e051))
+
+
+### Bug Fixes
+
+* **editor:** keep drag and drop accurate under zoom ([9c39088](https://github.com/juancavallotti/octo/commit/9c39088adebaed8ffd3d3f27d72586db2e25553c))
+* **editor:** refuse a zoom change while a block is being dragged ([e391cbb](https://github.com/juancavallotti/octo/commit/e391cbb34eb4de95e569b80c955572dcf0c859ca))
+* **infra:** pre-pull the embeddings image on the node ([4fa3b63](https://github.com/juancavallotti/octo/commit/4fa3b6337920a29edc966e349120b720cb475320))
+* **infra:** pre-pull the embeddings image on the node ([3fad674](https://github.com/juancavallotti/octo/commit/3fad674de47c073d09ea9c967da56cb94dd67f94))
+* **platform:** address the review of the app picker ([0d05212](https://github.com/juancavallotti/octo/commit/0d05212b61ff422d310812763dc47d5f4a4e00de))
+* **platform:** address the review of the waterfall ([60ae8f9](https://github.com/juancavallotti/octo/commit/60ae8f9af1adf1a2f8e418cfb7ee661bb12ffdf6))
+* **platform:** complete the MemoryThread fixture ([0790dbf](https://github.com/juancavallotti/octo/commit/0790dbff863daf7221e783b34710b021291b418e))
+* **platform:** keep Tab going forwards, and the app name legible ([a244f56](https://github.com/juancavallotti/octo/commit/a244f56c2a11a57d40c4167f8051f04a7dc7580d))
+* **platform:** stop a conversation row overflowing its card ([16f2417](https://github.com/juancavallotti/octo/commit/16f24178d927a35f5089847c26de67bef0b9975f))
+* **services/api:** a redirect must not hand credentials to a plaintext hop or another host ([2ca27c2](https://github.com/juancavallotti/octo/commit/2ca27c223cfbeef8635b5ee13c60052f3bcf51b7))
+* **services/api:** a successful write must carry a usable version ([0ae30e1](https://github.com/juancavallotti/octo/commit/0ae30e15e9d863efbde82aed1452baaa2cf4d121))
+* **services/api:** do not put platform credentials on the wire in the clear ([30c7c00](https://github.com/juancavallotti/octo/commit/30c7c00447374cd3915208cb736daef5efb90980))
+* **services/api:** make Close actually stop the background work ([cc47e55](https://github.com/juancavallotti/octo/commit/cc47e55cf9cf8bd9b54129b6953e6997939df0e9))
+* **services/api:** report the lease release, and stop the namespace enum contradicting itself ([0051ed5](https://github.com/juancavallotti/octo/commit/0051ed5d1d53d822048fcb0f2b5584d7a0dc8c88))
+* **services/api:** report the scratch prefix the verifier wrote under ([3de8493](https://github.com/juancavallotti/octo/commit/3de84939f25dd656c47e9ca2a0e322061174eb6f))
+* **services/api:** survive a blip, and stop logging on the network thread ([593a38f](https://github.com/juancavallotti/octo/commit/593a38fc935043d5c997ecf536b11195e09dbcc3))
+* **services/api:** the remaining review findings ([1fe31cc](https://github.com/juancavallotti/octo/commit/1fe31cc96ac62e5dc16c5f28adf22e20c0e0f0bb))
+* **util:** a match that never happened scores zero under either bias ([6b62711](https://github.com/juancavallotti/octo/commit/6b62711e43830b5f2df7592422d43536c6e05275))
+* **util:** take the tightest run when a letter repeats ([d644ff2](https://github.com/juancavallotti/octo/commit/d644ff2a651e159ab43a390f65c2bb3b8e18751f))
+
+
+### Refactoring
+
+* **platform:** choose the trace window before the app it narrows ([113753c](https://github.com/juancavallotti/octo/commit/113753cc15055db726694694c8ad14e16a7fa07a))
+* **platform:** pick objects and memory scope from the picker ([c15a068](https://github.com/juancavallotti/octo/commit/c15a0684c729647f7a27c0995de8742caeb3de17))
+* **platform:** pick the traces app from the picker ([3a33fe9](https://github.com/juancavallotti/octo/commit/3a33fe9bc62c4956532b7a2ad6885583f8158677))
+
+
+### Documentation
+
+* correct three counts and the scale-to-zero cron claim ([674697d](https://github.com/juancavallotti/octo/commit/674697dbcfa497191d91056301d44e693dd56fe8))
+* every layer owns the problem it creates ([374f523](https://github.com/juancavallotti/octo/commit/374f5234f6758d6759d4fa263f6156e3256ae9ee))
+* one layering rule, and streamline the instructions that contradict each other ([cbdfbc4](https://github.com/juancavallotti/octo/commit/cbdfbc42f5474e5daccf6713e5300b72db172194))
+* **platform:** what the trace chart now draws, and what a row says ([b8633a3](https://github.com/juancavallotti/octo/commit/b8633a3f4379b7153ec78ee0d97352a56b7cd76d))
+* refresh the downloadable contract for the delete-version and proxy notes ([fe7d394](https://github.com/juancavallotti/octo/commit/fe7d394f5e4610375f6882269a5bb208be7c8262))
+* refresh the downloadable platform API contract ([4f85275](https://github.com/juancavallotti/octo/commit/4f85275d3c843b5b10ec3ccebef49a953b5cfcf6))
+* **services/api:** say what a delete's version means, and what a proxy does to a subject ([d53727a](https://github.com/juancavallotti/octo/commit/d53727aa859350b3e9c345699ecb4ffb933fe387))
+* streamline the agent instructions that contradict each other ([ee4aa73](https://github.com/juancavallotti/octo/commit/ee4aa736cc94350840c950799368e01501d9be7f))
+* the CLI-command facet in extension-points ([cff8ee0](https://github.com/juancavallotti/octo/commit/cff8ee06fc7b119084ef02f41ac3774cfb9d89bb))
+* the contract lives in the api build, and the site copy is the front door ([c58717b](https://github.com/juancavallotti/octo/commit/c58717b6692232fd9eaa06e114e4917d195a4bc3))
+* the platform API guide ([b2a8baa](https://github.com/juancavallotti/octo/commit/b2a8baad5edfa6791b147fac8d2de6e0762c5661))
+* the platform API guide ([04e4f0f](https://github.com/juancavallotti/octo/commit/04e4f0fef7764b06f6eecc48910b9045f43feaa5))
+
 ## [0.8.8](https://github.com/juancavallotti/octo/compare/v0.8.7...v0.8.8) (2026-08-27)
 
 
