@@ -12,9 +12,9 @@ import (
 // silently lost.
 var ErrVersionConflict = errors.New("kv: object version conflict")
 
-// errNoKV is returned by the Noop KV's writes: with no store configured there is
+// ErrNoKV is returned by the no-op KV's writes: with no store configured there is
 // nowhere to persist, so failing loudly beats silently dropping the value.
-var errNoKV = errors.New("kv: no store configured")
+var ErrNoKV = errors.New("kv: no store configured")
 
 // Leadership is a handle to an ongoing campaign for a leader-election key. Its
 // IsLeader reports whether this replica currently holds leadership; Close stops
@@ -304,6 +304,13 @@ type alwaysLeader struct{}
 func (alwaysLeader) IsLeader() bool { return true }
 func (alwaysLeader) Close() error   { return nil }
 
+// NoopKV returns a KV with no storage: reads miss and writes return ErrNoKV. A
+// module whose backend does not offer a key-value store uses it so callers get the
+// same degraded behavior everywhere instead of a nil store.
+//
+//nolint:ireturn // returns the KV interface intentionally
+func NoopKV() KV { return noopKV{} }
+
 // noopKV has no storage: reads miss and writes fail loudly. Its method set
 // satisfies both KV and SecretStore, so the no-op services use it for each.
 type noopKV struct{}
@@ -313,10 +320,10 @@ func (noopKV) Get(context.Context, string, string) (Entry, bool, error) {
 }
 
 func (noopKV) Set(context.Context, string, string, []byte, int64) (int64, error) {
-	return 0, errNoKV
+	return 0, ErrNoKV
 }
 
-func (noopKV) Delete(context.Context, string, string, int64) error { return errNoKV }
+func (noopKV) Delete(context.Context, string, string, int64) error { return ErrNoKV }
 
 // noopServices is the shared fallback instance returned when the context carries no
 // services.

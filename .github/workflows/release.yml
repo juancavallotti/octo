@@ -130,6 +130,55 @@ jobs:
             docker.io/juancavallotti/octo-devruntime-paas:${{ steps.ver.outputs.version }}
             docker.io/juancavallotti/octo-devruntime-paas:latest
 
+  # Publish the API-delegating runtime: the flavour whose platform capabilities
+  # all come from an HTTP API the operator implements (RUNTIME_SERVICES_MODULE=api,
+  # OCTO_PLATFORM_API_URL naming the server).
+  #
+  # It is published under both names off one build, the same arrangement and for
+  # the same reason as octo-runtime / octo-devruntime-paas above: the public
+  # octo-api is what somebody runs on Cloud Run or beside their own service, and
+  # octo-api-paas is what a private-registry install of this cluster pulls. Two
+  # independent docker builds of the same source guarantee nothing about their
+  # digests, and there is no version of this where the two should differ.
+  #
+  # One image serves all three deployment shapes — a Cloud Run service, a central
+  # service that pods call, a sidecar's neighbour — because they differ only in
+  # what OCTO_PLATFORM_API_URL points at.
+  publish-api-runtime:
+    needs: release-check
+    if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: ver
+        run: |
+          REF="${{ inputs.tag || github.ref_name }}"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          # The repo root is the build context: the Go module is rooted there.
+          context: .
+          file: runtime/Dockerfile
+          build-args: |
+            GOTAGS=api
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            docker.io/juancavallotti/octo-api:${{ steps.ver.outputs.version }}
+            docker.io/juancavallotti/octo-api:latest
+            docker.io/juancavallotti/octo-api-paas:${{ steps.ver.outputs.version }}
+            docker.io/juancavallotti/octo-api-paas:latest
+
   # Publish the PaaS-side images — the editor, orchestrator, log aggregator,
   # schema applier, and the k8s-flavoured runtime the orchestrator deploys per
   # integration — to public Docker Hub, multi-arch. Previously private, built by
@@ -187,6 +236,9 @@ jobs:
           # NOTE: octo-devruntime-paas is NOT built here. It is byte-for-byte the
           # standalone runtime (GOTAGS=""), so publish-runtime tags it from that one
           # build to guarantee an identical digest — building it again here would not.
+          #
+          # NOTE: octo-api-paas is not built here either, for the same reason:
+          # publish-api-runtime tags it from the single GOTAGS=api build.
     steps:
       - uses: actions/checkout@v4
         with:

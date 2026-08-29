@@ -16,13 +16,17 @@
 #   docker build -t octo-runtime:dev -f runtime/Dockerfile .
 
 # BIN_SOURCE picks where the octo binary comes from. This file is the one place
-# where that choice also has to say WHICH octo, because the two providers are
-# mutually exclusive build tags and both are built from this Dockerfile:
+# where that choice also has to say WHICH octo, because the providers are
+# mutually exclusive build tags and all of them are built from this Dockerfile:
 #
 #   compile              build it here from source, honouring GOTAGS (default k8s).
 #                        The default, and what Cloud Build and release CI use.
 #   prebuilt-k8s         copy the host-built k8s binary.
 #   prebuilt-standalone  copy the host-built standalone binary.
+#   prebuilt-api         copy the host-built api binary — the flavour that
+#                        delegates every platform capability to an
+#                        operator-implemented HTTP API. Build it here instead
+#                        with GOTAGS=api.
 #
 # The variant is folded into BIN_SOURCE rather than left to a second argument
 # beside GOTAGS on purpose: two arguments that each name a provider is two ways
@@ -68,6 +72,10 @@ COPY --from=prebuilt linux_${TARGETARCH}/octo-k8s /out/octo
 FROM scratch AS bin-prebuilt-standalone
 ARG TARGETARCH
 COPY --from=prebuilt linux_${TARGETARCH}/octo /out/octo
+
+FROM scratch AS bin-prebuilt-api
+ARG TARGETARCH
+COPY --from=prebuilt linux_${TARGETARCH}/octo-api /out/octo
 
 FROM bin-${BIN_SOURCE} AS bin
 

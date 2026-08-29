@@ -66,7 +66,7 @@ env:
 # the target of a deploy/purge/dev command.
 vars:
   KCTX: k3d-octo
-  # The nine images the orchestrator and the chart expect to find already in the
+  # The ten images the orchestrator and the chart expect to find already in the
   # node's containerd. Declared once because three tasks need the same list, and a
   # list that drifts between them is how a cluster ends up holding a subset of it.
   # Nothing pulls these: they exist only in the local docker daemon, so an image
@@ -74,7 +74,7 @@ vars:
   CLUSTER_IMAGES: >-
     octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev
     octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
-    octo-agenticrunner:dev octo-embeddings:dev
+    octo-agenticrunner:dev octo-embeddings:dev octo-api:dev
 
   # Every image task below copies host-built binaries in rather than compiling
   # them, and this is the flag pair that says so. A NAMED build context, because
@@ -174,6 +174,17 @@ tasks:
     desc: Static-export the docs site to apps/docs/out
     cmds:
       - pnpm --filter docs build
+
+  docs:openapi:
+    desc: Refresh the downloadable platform API contract under apps/docs/public
+    cmds:
+      # -tags api, because the contract and the command that prints it belong to
+      # the api module: the default binary carries neither, on purpose, so that no
+      # build offers a contract it cannot itself speak.
+      - go build -tags api -o bin/octo-api ./runtime/octo
+      # The document lives in that binary, so this is a copy — and a copy is
+      # exactly the thing that goes stale, which is why CI diffs it afterwards.
+      - ./bin/octo-api openapi --out apps/docs/public/octo-platform-api.yaml
 
   docs:check:
     desc: Fail if connector/block docs drift from the runtime registry
@@ -275,13 +286,16 @@ tasks:
         ld="-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         cd "{{.ROOT_DIR}}"
 
-        # The root module, three ways. octo-k8s and octo are the same package with
-        # mutually exclusive build tags (providers_k8s.go / providers_standalone.go),
-        # which is why they are two files on disk and not one image argument.
+        # The root module, four ways. octo, octo-k8s and octo-api are the same
+        # package with mutually exclusive build tags (providers_standalone.go /
+        # providers_k8s.go / providers_api.go), which is why they are three files on
+        # disk and not one image argument.
         echo "▶ octo            (standalone)"
         go build -trimpath -ldflags "$ld" -o "$out/octo" ./runtime/octo
         echo "▶ octo-k8s        (-tags k8s)"
         go build -trimpath -tags k8s -ldflags "$ld" -o "$out/octo-k8s" ./runtime/octo
+        echo "▶ octo-api        (-tags api)"
+        go build -trimpath -tags api -ldflags "$ld" -o "$out/octo-api" ./runtime/octo
         echo "▶ dolphin"
         go build -trimpath -ldflags "$ld" -o "$out/dolphin" ./runtime/dolphin
 
@@ -331,6 +345,12 @@ tasks:
       # because it needs no cluster services, and depending on the orchestrator
       # would make it unavailable exactly when the orchestrator is being diagnosed.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-embeddings:dev -f embeddings/Dockerfile .
+      # The API-delegating runtime: the flavour whose platform capabilities all come
+      # from an HTTP API somebody else implements (RUNTIME_SERVICES_MODULE=api). It
+      # is one image for three deployment shapes — a Cloud Run service, a central
+      # service pods call, or a sidecar's neighbour — because all three differ only
+      # in what OCTO_PLATFORM_API_URL points at.
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-api -t octo-api:dev -f runtime/Dockerfile .
       # Load the images straight into the cluster's containerd (no registry needed).
       - k3d image import {{.CLUSTER_IMAGES}} -c octo
       # Then prove they landed, and are still there. A gap never surfaces here: it
@@ -398,6 +418,7 @@ tasks:
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t octo-devruntime:dev -f runtime/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-api -t octo-api:dev -f runtime/Dockerfile .
       # The embedding server: the standalone binary plus one small app. Standalone
       # because it needs no cluster services, and depending on the orchestrator
       # would make it unavailable exactly when the orchestrator is being diagnosed.
@@ -556,6 +577,9 @@ tasks:
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}} -f runtime/Dockerfile .
       # The agentic runner has its own Dockerfile, not a BIN_SOURCE arm of the one above.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-agenticrunner-paas:{{.TAG}} -f runtime/Dockerfile.agentic .
+      # prebuilt-api is the -tags api build: the flavour that delegates every
+      # platform capability to an operator-implemented HTTP API.
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-api -t {{.IMAGE_BASE}}/octo-api-paas:{{.TAG}} -f runtime/Dockerfile .
       - docker push {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}}
@@ -564,6 +588,7 @@ tasks:
       - docker push {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-agenticrunner-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-api-paas:{{.TAG}}
 
   images:ttl:
     desc: 'Build the eight octo images from the working tree and push them to ttl.sh for cluster testing (optional PREFIX, TTL)'

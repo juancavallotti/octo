@@ -307,8 +307,27 @@ flows** and reach for managed infrastructure for anything stateful. Instead of a
 outside the container, where it belongs when the container may not exist.
 
 If you genuinely need a durable cron, a shared KV, or queues that outlive an
-instance, that is what the platform's cluster deployment provides: leader-elected
-crons, an orchestrator-backed KV, and NATS-backed queues. See
+instance, there are two ways to get them without giving up serverless.
+
+**Keep the state outside the container.** Cloud Scheduler calling an HTTP flow
+instead of a `cron` source, Firestore or Cloud SQL instead of the KV store, a
+Pub/Sub push subscription pointed at an HTTP flow instead of a queue. Nothing in
+Octo changes; the infrastructure is simply somebody else's.
+
+**Or run the `octo-api` image and give the runtime a platform.** It is the same
+engine with a different services provider: every capability — the KV store,
+secrets, queues, leases, leader election — is delegated to an HTTP server you
+implement, typically a second Cloud Run service in front of Firestore, Secret
+Manager and Pub/Sub. Flows stay unchanged, the KV store is shared because it is
+yours, and `cron` fires once across every instance — but only once you implement
+leader election, which is the one part that does not quietly degrade. Leave it
+out and every campaign is refused rather than granted, on purpose: a no-op
+election makes every instance the leader, which is the scale-to-zero cron problem
+again with a nicer name. Everything else you skip degrades. See
+[The platform API](/extending/platform-api).
+
+The platform's own cluster deployment is the third option, with leader-elected
+crons, an orchestrator-backed KV and NATS-backed queues already built. See
 [Deployment overview](/deploy).
 
 <Callout type="info">

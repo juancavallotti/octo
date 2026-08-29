@@ -92,6 +92,15 @@ steps:
     name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-agenticrunner-paas:latest", "-f", "runtime/Dockerfile.agentic", "."]
+  # The API-delegating runtime: the flavour whose platform capabilities all come
+  # from an HTTP API the operator implements (RUNTIME_SERVICES_MODULE=api). Same
+  # Dockerfile again, with GOTAGS=api — one image for a Cloud Run service, a
+  # central platform service, or a sidecar's neighbour, since those differ only in
+  # what OCTO_PLATFORM_API_URL points at.
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "--build-arg", "GOTAGS=api", "-t", "${_IMAGE_BASE}/octo-api-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-api-paas:latest", "-f", "runtime/Dockerfile", "."]
   # The embedding server: the standalone binary plus one small app, baked in. Its
   # own Dockerfile because it carries an app as well as a binary, and standalone
   # because it needs no cluster services — see embeddings/Dockerfile.
@@ -105,12 +114,12 @@ steps:
   - id: push-images
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-devruntime", "build-agenticrunner", "build-embeddings"]
+    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-devruntime", "build-agenticrunner", "build-embeddings", "build-api"]
     args:
       - -c
       - |
         set -e
-        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-devruntime-paas octo-agenticrunner-paas octo-embeddings-paas; do
+        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-devruntime-paas octo-agenticrunner-paas octo-embeddings-paas octo-api-paas; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done
@@ -137,6 +146,10 @@ steps:
           echo "image:"
           echo "  registry: ${_IMAGE_BASE}"
           echo "  pullPolicy: IfNotPresent"
+          # Chart components only. octo-api-paas is built and pushed above but is
+          # deliberately absent: the chart deploys nothing from it — it is the
+          # image an operator runs outside this cluster, or beside their own
+          # service — so there is no values key for a digest to pin.
           for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner embeddings; do
             repo="octo-$${c}-paas"
             # RepoDigests can carry entries for more than one repository, so match

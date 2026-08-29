@@ -11,7 +11,7 @@ A runtime service is part of what the runtime **is**, rather than something a fl
 This page is about the Go extension point. It shares a name with [Runtime Services](/concepts/runtime-services) in Core Concepts, which is the flow author's view of the same layer — the object store, cache, queues and topics you use from YAML. This page is about how those get *supplied*.
 </Callout>
 
-A service lives in `runtime/services/<name>` and implements one of two facets, or both.
+A service lives in `runtime/services/<name>` and implements one of two facets, or both — and may bring CLI commands alongside either.
 
 | | Provider | Hosted |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ A service lives in `runtime/services/<name>` and implements one of two facets, o
 | Selected by | `RUNTIME_SERVICES_MODULE` | nothing; always on when compiled in |
 | Active at once | exactly one | all of them |
 | Configured by | environment | CLI flags on `octo run` |
-| Examples | `standalone`, `k8s` | `observability` |
+| Examples | `standalone`, `k8s`, `api` | `observability` |
 
 ## The provider facet
 
@@ -39,11 +39,13 @@ func New(ctx context.Context, opts services.Options) (core.RuntimeServices, erro
 
 Every imported provider registers unconditionally and only the selected one wins, which is why a binary can carry several without ambiguity. Which ones it carries is decided by build tag: `runtime/octo/providers_k8s.go` is behind `//go:build k8s`, so client-go and NATS stay out of the default binary entirely.
 
+There are three. `standalone` is the default build; `k8s` is Octo's own PaaS; and `api` delegates every capability to an HTTP server you implement, which is how Octo runs on Cloud Run or against a platform of your own — see [The platform API](/extending/platform-api). The tags are mutually exclusive, so a binary is never ambiguous about which platform it is talking to.
+
 ### Adding a capability is usually the wrong move
 
 `core.RuntimeServices` is already annotated `//nolint:interfacebloat`. Widening it forces every provider to implement something most of them cannot.
 
-The pattern instead is an **optional side interface the caller type-asserts**. `core.LogShipper` is the worked example: the k8s module implements it to ship logs to a central sink, the standalone module does not, and the caller asserts and nil-checks rather than assuming.
+The pattern instead is an **optional side interface the caller type-asserts**. `core.LogShipper` is the worked example: the `k8s` module implements it to ship logs to a central sink and the `api` module ships them to whatever server it was pointed at, while the standalone module has nowhere to ship them and does not implement it at all. The caller asserts and nil-checks rather than assuming.
 
 ```go
 type LogShipper interface {
@@ -121,6 +123,21 @@ func (s *Service) Configured(config types.Config) { /* ... */ }
 
 It is called once per generation — again on every `--watch` reload. A generation is **not** a fresh start: anything you accumulate must survive it. The observability service uses this to pre-create each flow's metric series without ever resetting a counter, because a reset would make `rate()` read a reload as a restart and invent a spike.
 
+## CLI commands
+
+A module may also bring subcommands, registered from the same `init` manifest:
+
+```go
+func init() {
+	registerProvider()
+	registerCommands() // services.RegisterCommand(openAPICommand{}, ...)
+}
+```
+
+`main.go` dispatches any command it does not recognize through the registry, and the help page picks up each command's `Usage()` exactly as it already does for hosted services. Commands are **not** module-selected — like hosted services, one is available whenever its package is compiled in, whatever `RUNTIME_SERVICES_MODULE` says. `octo verify-platform-api` is the reason: you run it to find out whether a server is ready, which is before anyone would set the variable that selects the module talking to it.
+
+The point of registering from the module rather than from `main.go` is that a capability then appears in a binary exactly when the thing that can act on it does. `octo openapi` prints the platform API contract, and in a build with no `api` provider it would be inviting somebody to implement an interface that binary cannot speak — which they would discover only after writing a server.
+
 ## Both facets
 
 Nothing stops a module from implementing both — a provider that also wants to run something for the life of the process registers with `services.Register` *and* `services.RegisterHosted`, with no new machinery.
@@ -128,5 +145,6 @@ Nothing stops a module from implementing both — a provider that also wants to 
 ## See also
 
 - [Observability](/runtime/observability) — the only hosted service today, and the worked example above.
+- [The platform API](/extending/platform-api) — the provider that delegates every capability to a server you implement.
 - [Clustering](/runtime/clustering) — what the k8s provider supplies and why.
 - [Runtime Services](/concepts/runtime-services) — the same layer from a flow author's side.

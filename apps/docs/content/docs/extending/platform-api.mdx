@@ -1,0 +1,490 @@
+---
+title: "The platform API"
+description: "Run Octo on your own platform by implementing one HTTP contract."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+Octo's platform capabilities — the object store, secrets, queues, topics, leases, leader election, agent memory, traces and logs — normally come from the runtime itself or from Octo's own PaaS. The **platform API** is the third option: you implement one HTTP contract, and every one of those capabilities is delegated to you.
+
+It is a consumer-defined interface. Octo defines the contract and is the only client; you implement it against whatever your platform already has. On Google Cloud that is usually Firestore, Secret Manager and Pub/Sub behind a small service of your own. On Kubernetes it can be a central service your pods call, or a sidecar on loopback.
+
+<Callout type="info">
+You do not have to implement all of it. A server that answers the discovery endpoint and the three key/value operations is a legitimate, useful implementation — the rest degrades on the runtime's side without you writing a line for it. See [What happens to what you skip](#what-happens-to-what-you-skip).
+</Callout>
+
+## When to reach for it
+
+| | Reach for |
+| --- | --- |
+| One process, local disk, no infrastructure | the `standalone` provider (the default build) |
+| Octo's own PaaS — the orchestrator, NATS, Kubernetes Leases | the `k8s` provider |
+| Cloud Run, Firebase, your own platform service, a sidecar | **the platform API** |
+
+The first two are described in [Writing a runtime service](/extending/runtime-services). This page is the third.
+
+## Getting it running
+
+Run the `octo-api` image, or any `octo` binary built with `-tags api`, and point it at your server:
+
+```bash
+docker run --rm \
+  -e RUNTIME_SERVICES_MODULE=api \
+  -e OCTO_PLATFORM_API_URL=https://platform.example.internal \
+  -v "$PWD/integrations:/etc/octo/integrations" \
+  juancavallotti/octo-api
+```
+
+A successful start says so, and says what it negotiated:
+
+```text
+INFO api runtime services initialized url=https://platform.example.internal
+     instance=octo-7b9d-xk21 deployment=orders
+     implementation=acme-gcp-adapter implementationVersion=1.4.2
+     features="[kv secrets leases leaderElection queues]"
+INFO runtime services ready module=api
+```
+
+The `features` list is what *your server said it implements*, not what Octo wants. If a capability you expected is missing from that line, your discovery document is where to look.
+
+## The contract
+
+The full contract is an OpenAPI 3.1 document. Start by reading the copy published
+here — **[octo-platform-api.yaml](/octo-platform-api.yaml)** — which is what to
+use while you are still deciding whether to implement it.
+
+Once you are building against a particular runtime, take the copy out of that
+runtime instead. It is carried inside the `octo-api` image, so what you read is
+version-matched to the thing that will call your server rather than to whatever
+this website last published:
+
+```bash
+docker run --rm juancavallotti/octo-api openapi > platform-api.yaml
+docker run --rm juancavallotti/octo-api openapi --format json > platform-api.json
+```
+
+<Callout type="info">
+`octo openapi` exists only in the `-tags api` build, alongside the provider that speaks the contract — the standalone and cluster binaries carry neither. Read the YAML rather than the JSON: the comments are half the document, they say why each route is shaped the way it is, and the JSON rendering drops them.
+</Callout>
+
+## Discovery
+
+Everything begins at `GET /v1/discovery`. The runtime calls it once, at startup, and every other route is conditional on what it returns.
+
+```json
+{
+  "specVersion": "1.0",
+  "implementation": { "name": "acme-gcp-adapter", "version": "1.4.2" },
+  "features": {
+    "kv": { "supported": true, "maxValueBytes": 1048576 },
+    "secrets": { "supported": true, "encryptedAtRest": true },
+    "queues": { "supported": true, "pollTimeoutSeconds": 20, "maxBatch": 8, "ackDeadlineSeconds": 60 },
+    "leases": { "supported": true, "minTtlSeconds": 1, "maxTtlSeconds": 600 },
+    "leaderElection": { "supported": true, "leaseTtlSeconds": 15, "renewIntervalSeconds": 5 }
+  }
+}
+```
+
+Durations are integers with the unit in the name rather than duration strings, because you are likely writing this in TypeScript or Python and `"20s"` would need a parser in each.
+
+Unknown fields are ignored, unknown features are ignored, and a feature you leave out is a feature you have not implemented. That makes the document compatible in both directions that actually occur: a newer server talking to an older runtime is fine, and a capability added to this contract later reaches you as something you simply do not mention.
+
+Discovery is fetched **once**. It is not re-polled, because a capability set that changed under a running process would mean every client re-reading its configuration mid-flight — a lot of machinery for a case that in practice means you redeployed, at which point the runtime's own rollout is the honest signal. What does exist is the 501 latch: any route answering `501 Not Implemented` turns that capability off for the life of the process, logged once. That covers the case that really happens, which is a runtime rolled forward onto routes your server has not grown yet.
+
+If the runtime cannot reach discovery at all it retries with backoff for 30 seconds before giving up, and that window is not incidental — see [the sidecar recipe](#kubernetes-as-a-sidecar).
+
+## What happens to what you skip
+
+An unsupported capability either **degrades** — reads come back empty and writes return a named error — or **refuses** every call, reads included. Most features let you choose with `"unsupported": "noop"` or `"unsupported": "error"`; the defaults, and the three that have no choice, are below.
+
+| Feature | Default when unsupported | What the runtime does |
+| --- | --- | --- |
+| `kv` | degrade | Reads miss; writes and deletes return `kv: no store configured`. |
+| `secrets` | degrade | Secrets are a view over the `*_secrets` namespaces, so a working `kv` keeps them working whatever this says. Set `"unsupported": "error"` to refuse them instead — which is how you say "I store values but not secrets" and have it honoured. |
+| `resources` | degrade | Every `.env` file and template reports missing. |
+| `leases` | **refuse** | Every claim fails with a named error. |
+| `leaderElection` | **refuse** | Every campaign fails with a named error. |
+| `queues` / `topics` | degrade | Publishes fail loudly; subscriptions are inert. |
+| `agentMemory` | degrade, always | Agents keep no memory and take their pre-memory path. |
+| `traces` / `logs` | degrade, always | Nothing is shipped. |
+
+The last two rows say *always* because those three have no refusing mode and
+`"unsupported": "error"` on them is ignored. The engine checks whether memory is
+enabled before it would ever reach a write, and traces and logs are best-effort
+by construction — an erroring version of any of them would differ from the
+degraded one only in code nothing runs.
+
+<Callout type="warn">
+**Leases and leader election refuse by default, and everything else degrades.** That asymmetry is deliberate, and it is about correctness rather than strictness.
+
+Degrading those two means *granting* them. A no-op lease hands out every claim and a no-op election makes every replica the leader — correct semantics for a single process, and exactly wrong behind this module, where you usually have more than one. Two Cloud Run instances would each be told they hold the claim, and both would run the work the claim exists to run once. That failure is silent.
+
+If you genuinely run one instance, say so with `"unsupported": "noop"` and the single-process semantics are right again. The point is that it is a decision you make, not a default you inherit.
+</Callout>
+
+## The five things implementations get wrong
+
+The contract documents every route. These five are what people actually get wrong, and each fails in a way that is hard to trace back:
+
+**`404` means the addressed thing is absent — never "no such route".** A missing key, a released lease, a conversation that does not exist yet. A route you have not implemented answers `501`, and the runtime turns that capability off rather than failing every call against it forever.
+
+**`204` on a receive is the long poll expiring, not an error.** It is the normal state of an idle subject. Hold the request open for the `waitSeconds` you were sent, and answer `204` only when that window passes with nothing to deliver. A server that answers immediately turns every subscription into a busy loop — the runtime defends itself by waiting out the rest of the window, but that is a defence against a mistake, not the intended shape.
+
+**`X-Object-Version: 0` on a write means create.** It must fail with `409` if the object already exists; a positive value must equal the stored version, or `409` again. Getting this wrong does not fail loudly. It silently loses concurrent updates, which is the entire thing the check exists to prevent.
+
+**Keys and names arrive as query parameters, not path segments.** They may contain a slash, and `%2F` inside a path segment is normalized by nginx, by Cloud Run's front end and by several frameworks — which would quietly merge two distinct keys into one. Do not move them into the path.
+
+**`userId` on the agent-memory thread routes matters.** Record who a conversation is with on the first write that names one. Ignoring it stores a complete, correct history attributed to nobody, and the person's own view of their conversations then shows as empty.
+
+## There is no pub/sub here
+
+Queues and topics in this contract are **pull**: the runtime long-polls you, acknowledges what it handled, and rejects what failed. Nothing is ever pushed to the runtime.
+
+That is a good fit for what Octo's queues are actually for — distributing work between the replicas of one deployment, smoothing a burst, running a slow step off the request path. It works well, and the acknowledgement makes delivery at-least-once, which is stronger than the other two providers offer.
+
+It is not an event bus, and you should not try to make it one. If something **outside** needs to trigger a flow, do not model it here. Give the flow an HTTP source and have your event source call it:
+
+```yaml title="orders.yaml (excerpt)"
+sources:
+  - type: http
+    settings:
+      path: /events/order-created
+      method: POST
+```
+
+Then point a Pub/Sub push subscription, an EventArc trigger, a webhook, or anything else that speaks HTTP at that path. That is the supported pattern for external ingress, it needs nothing from this contract, and it gives you the retry and delivery semantics of whatever bus you already run rather than the ones Octo could invent.
+
+<Callout type="info">
+The short version: **pull for work between your own replicas, HTTP for anything arriving from outside.** Topics over this contract exist for internal fan-out, not for subscribing to your platform's event stream.
+</Callout>
+
+## Configuration
+
+Every setting the module reads. Only the first is required.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `OCTO_PLATFORM_API_URL` | — **required** | Your server's base URL. |
+| `OCTO_PLATFORM_API_TOKEN` | empty | Bearer token, sent on every request. |
+| `OCTO_PLATFORM_API_TOKEN_FILE` | empty | Read the token from a file instead, re-read when it changes. Wins over `_TOKEN`. |
+| `OCTO_PLATFORM_API_HEADERS` | empty | Extra static headers as `Name: value`, separated by newlines or commas. |
+| `OCTO_PLATFORM_API_CA_FILE` | empty | A custom CA to trust. |
+| `OCTO_PLATFORM_API_CLIENT_CERT_FILE` | empty | Client certificate, for mTLS. |
+| `OCTO_PLATFORM_API_CLIENT_KEY_FILE` | empty | Client key, for mTLS. |
+| `OCTO_PLATFORM_API_TIMEOUT` | `10s` | Deadline for an ordinary request. |
+| `OCTO_PLATFORM_API_LONG_TIMEOUT` | `60s` | Ceiling for long polls and memory search. |
+| `OCTO_PLATFORM_API_STARTUP` | `require` | `require` fails startup if discovery never answers; `degrade` starts with every capability unavailable. |
+| `OCTO_PLATFORM_API_DISCOVERY_BUDGET` | `30s` | How long to retry discovery before applying the startup policy. |
+| `OCTO_DEPLOYMENT_ID` | empty | Sent as `X-Octo-Deployment` on every request, and used as the queue consumer group so replicas of one deployment compete. What else you scope by it is yours to decide. Reused from the cluster provider, not invented here. |
+| `OCTO_INSTANCE_ID` | `POD_NAME`, else hostname and pid | This replica's identity, for leases and leader election. |
+
+`OCTO_PLATFORM_API_HEADERS` is the escape hatch that keeps the auth model small. Bearer tokens are first-class because most platforms use them, but an API key header, a tenant id, or a service-mesh header would each otherwise need a variable of its own.
+
+`OCTO_INSTANCE_ID` falls back to `POD_NAME` so a Kubernetes Deployment that already projects the downward API gets working leases with no extra wiring. On Cloud Run the hostname is per-instance, and the pid disambiguates two runtimes sharing one.
+
+## Checking your implementation
+
+The `octo-api` image can check a server against the contract and tell you, rule by rule, what it satisfies:
+
+```bash
+docker run --rm juancavallotti/octo-api \
+  verify-platform-api https://platform.example.internal
+```
+
+```text
+Platform API at https://platform.example.internal
+  implementation: acme-gcp-adapter 1.4.2
+  specVersion:    1.0 (this runtime speaks 1.0)
+  declared:       kv secrets queues
+
+  ok    kv             reading an absent key is a miss, not an error
+  ok    kv             version 0 creates
+  FAIL  kv             version 0 over an existing key conflicts
+                       0 means create; writing it over an existing key must answer 409
+  SKIP  leases         leases
+  FAIL  queues         an empty poll waits before answering
+                       the poll returned in 1ms of a declared 20s window. A server that
+                       answers immediately makes the runtime poll as fast as the network allows
+
+  8 passed, 2 failed, 1 skipped
+```
+
+Like `octo openapi`, it is in the `-tags api` build only — it drives the same client the runtime does, so what it checks is what will actually happen. `SKIP` is not a failure — a feature you did not declare is one nothing is sent to. It exits non-zero on any `FAIL`, so it belongs in the pipeline that ships your server, and `--json` gives you the report as data.
+
+<Callout type="warn">
+It writes, under an `octo-verify/` prefix it names before it starts. Point it at staging.
+</Callout>
+
+## A minimal implementation
+
+Discovery and key/value storage — enough to run flows that use the object store and secrets, with everything else degrading. Around a hundred lines in either language.
+
+<Tabs items={['TypeScript', 'Go']}>
+<Tab value="TypeScript">
+
+```ts
+import express from 'express';
+
+const app = express();
+const store = new Map<string, { value: Buffer; version: number }>();
+const keyOf = (ns: string, key: string) => `${ns} ${key}`;
+
+app.get('/v1/discovery', (_req, res) => {
+  res.json({
+    specVersion: '1.0',
+    implementation: { name: 'example', version: '0.1.0' },
+    features: {
+      kv: { supported: true },
+      secrets: { supported: true, encryptedAtRest: true },
+      // Explicit, not omitted: this deployment runs one instance, so granting
+      // every claim is correct. Omitting these would make the runtime refuse.
+      leases: { supported: false, unsupported: 'noop' },
+      leaderElection: { supported: false, unsupported: 'noop' },
+    },
+  });
+});
+
+app.get('/v1/kv/:namespace/entry', (req, res) => {
+  const row = store.get(keyOf(req.params.namespace, String(req.query.key)));
+  if (!row) return res.status(404).end();          // a miss, not a failure
+  res.set('X-Object-Version', String(row.version));
+  res.type('application/octet-stream').send(row.value);
+});
+
+app.put('/v1/kv/:namespace/entry', express.raw({ type: '*/*' }), (req, res) => {
+  const id = keyOf(req.params.namespace, String(req.query.key));
+  const expected = Number(req.get('X-Object-Version') ?? 0);
+  const row = store.get(id);
+  // 0 means create, and must conflict if the key is already there.
+  if ((expected === 0 && row) || (expected !== 0 && row?.version !== expected)) {
+    return res.status(409).end();
+  }
+  const version = (row?.version ?? 0) + 1;
+  store.set(id, { value: req.body, version });
+  res.set('X-Object-Version', String(version)).status(200).end();
+});
+
+app.delete('/v1/kv/:namespace/entry', (req, res) => {
+  const id = keyOf(req.params.namespace, String(req.query.key));
+  const expected = Number(req.get('X-Object-Version') ?? 0);
+  const row = store.get(id);
+  if (row && expected !== 0 && row.version !== expected) return res.status(409).end();
+  store.delete(id);                                 // deleting nothing is success
+  res.status(204).end();
+});
+
+// Anything not implemented: 501, so the runtime turns that capability off
+// rather than failing every call against it.
+app.use((_req, res) => res.status(501).json({ error: { code: 'not_implemented' } }));
+
+app.listen(8080);
+```
+
+</Tab>
+<Tab value="Go">
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"strconv"
+	"sync"
+)
+
+type row struct {
+	value   []byte
+	version int64
+}
+
+var (
+	mu    sync.Mutex
+	store = map[string]row{}
+)
+
+func key(r *http.Request) string {
+	return r.PathValue("namespace") + "|" + r.URL.Query().Get("key")
+}
+
+func expectedVersion(r *http.Request) int64 {
+	v, _ := strconv.ParseInt(r.Header.Get("X-Object-Version"), 10, 64)
+	return v
+}
+
+func main() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /v1/discovery", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"specVersion":    "1.0",
+			"implementation": map[string]string{"name": "example", "version": "0.1.0"},
+			"features": map[string]any{
+				"kv":      map[string]any{"supported": true},
+				"secrets": map[string]any{"supported": true, "encryptedAtRest": true},
+				// Explicit, not omitted: this deployment runs one instance, so
+				// granting every claim is correct. Omitting these would make the
+				// runtime refuse instead.
+				"leases":         map[string]any{"supported": false, "unsupported": "noop"},
+				"leaderElection": map[string]any{"supported": false, "unsupported": "noop"},
+			},
+		})
+	})
+
+	mux.HandleFunc("GET /v1/kv/{namespace}/entry", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		stored, ok := store[key(r)]
+		mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound) // a miss, not a failure
+			return
+		}
+		w.Header().Set("X-Object-Version", strconv.FormatInt(stored.version, 10))
+		_, _ = w.Write(stored.value)
+	})
+
+	mux.HandleFunc("PUT /v1/kv/{namespace}/entry", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		expected := expectedVersion(r)
+
+		mu.Lock()
+		defer mu.Unlock()
+		id := key(r)
+		stored, exists := store[id]
+		// 0 means create, and must conflict if the key is already there.
+		if (expected == 0 && exists) || (expected != 0 && (!exists || stored.version != expected)) {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		stored.version++
+		stored.value = body
+		store[id] = stored
+		w.Header().Set("X-Object-Version", strconv.FormatInt(stored.version, 10))
+	})
+
+	mux.HandleFunc("DELETE /v1/kv/{namespace}/entry", func(w http.ResponseWriter, r *http.Request) {
+		expected := expectedVersion(r)
+
+		mu.Lock()
+		defer mu.Unlock()
+		id := key(r)
+		stored, exists := store[id]
+		if exists && expected != 0 && stored.version != expected {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		delete(store, id) // deleting nothing is success
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// Anything not implemented: 501, so the runtime turns that capability off
+	// rather than failing every call against it.
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotImplemented)
+	})
+
+	_ = http.ListenAndServe(":8080", mux)
+}
+```
+
+</Tab>
+</Tabs>
+
+Run `octo verify-platform-api http://localhost:8080` against either and it should report the key/value checks passing and everything else skipped.
+
+## Deployment recipes
+
+One image serves all three shapes, because they differ only in what `OCTO_PLATFORM_API_URL` points at.
+
+### Cloud Run
+
+Two services: your platform API, and the runtime that calls it.
+
+```bash
+gcloud run deploy platform-api \
+  --image gcr.io/my-project/platform-api \
+  --no-allow-unauthenticated \
+  --timeout 120
+
+gcloud run deploy octo \
+  --image juancavallotti/octo-api \
+  --set-env-vars RUNTIME_SERVICES_MODULE=api,OCTO_PLATFORM_API_URL=https://platform-api-xxxx.run.app \
+  --min-instances 1
+```
+
+Two flags matter more than they look:
+
+**`--timeout` on the *platform API* service must exceed your `pollTimeoutSeconds`.** A long poll is a request held open, and Cloud Run's request timeout will cut it. A 20-second poll behind a 10-second timeout produces an error on every poll rather than the `204` the runtime is waiting for.
+
+**`--min-instances 1` on the runtime, if you use queues at all.** A runtime scaled to zero is a runtime that is not polling, so nothing is consumed until something else wakes it. Cloud Run scales on inbound requests, and a queue consumer has none.
+
+Authenticate with an ID token, or with a static header via `OCTO_PLATFORM_API_HEADERS`.
+
+### Kubernetes, as a central service
+
+One platform-API Service; runtime pods reach it by name.
+
+```yaml title="octo-runtime.yaml (excerpt)"
+env:
+  - name: RUNTIME_SERVICES_MODULE
+    value: api
+  - name: OCTO_PLATFORM_API_URL
+    value: http://platform-api.platform.svc.cluster.local
+  - name: OCTO_INSTANCE_ID
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+```
+
+Leader election works across replicas because each pod sends a distinct identity. `OCTO_INSTANCE_ID` falls back to `POD_NAME`, so projecting either is enough.
+
+### Kubernetes, as a sidecar
+
+Your platform API as a second container, reached over loopback:
+
+```yaml title="octo-runtime.yaml (excerpt)"
+containers:
+  - name: octo
+    image: juancavallotti/octo-api
+    env:
+      - name: RUNTIME_SERVICES_MODULE
+        value: api
+      - name: OCTO_PLATFORM_API_URL
+        value: http://127.0.0.1:8080
+  - name: platform-api
+    image: my-registry/platform-api
+    ports:
+      - containerPort: 8080
+```
+
+Container start order is not guaranteed, so the runtime will usually make its first discovery call before the sidecar is listening. It does not crash: it retries with backoff for `OCTO_PLATFORM_API_DISCOVERY_BUDGET` (30 seconds), which is long enough that the race stops being a race. That is what the budget is for, and it is why the sidecar shape needs no native-sidecar `restartPolicy` and no init container.
+
+## What differs from the other providers
+
+| | `standalone` | `k8s` | `api` |
+| --- | --- | --- | --- |
+| Queue delivery | at-most-once | at-most-once | **at-least-once** |
+| Leader election | always leader | Kubernetes Lease | TTL and campaign polling |
+| Listing agent conversations | yes | no | yes, if you declare it |
+
+**Queue delivery is at-least-once here**, because a delivery is acknowledged after its handler returns and a failed one is handed back. That is a strengthening — a handler written against at-most-once still works — but a handler that is not idempotent may now see the same message twice.
+
+**Leadership is TTL-based.** A leader that loses contact with your server stops asserting leadership one renew interval later, and that has to happen before its claim expires on your side — so a renew interval may be at most a third of the TTL, leaving room for two lost renewals. The runtime shortens one that is too close rather than trusting the document.
+
+**Listing conversations works here and not on `k8s`**, because the cluster provider's pod knows only its deployment and listing is a tenancy question. Your server is your own system, so it can answer it — declare `listThreads` and `readThread` when it should.
+
+## Versioning
+
+`specVersion` names the contract, and this runtime speaks `1.0`. A mismatch is logged as a warning and nothing more: refusing a deployment over a version string turns a working system into an outage over a typo.
+
+Within a major version, Octo does not remove a route, change what a status code means, or make an optional field required. New capability arrives as a new feature block, which reaches you as something you do not mention in discovery — so nothing changes for an implementation that has not grown it yet.
+
+## See also
+
+- [Writing a runtime service](/extending/runtime-services) — the Go extension point behind all three providers.
+- [Runtime Services](/concepts/runtime-services) — the flow author's view of the same layer.
+- [Clustering](/runtime/clustering) — what changes when several replicas run one integration.
+- [Docker images](/deploy/docker-images) — where `octo-api` sits among the published images.

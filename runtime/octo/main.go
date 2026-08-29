@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	_ "github.com/juancavallotti/octo/runtime/connectors/cron"
@@ -69,6 +70,10 @@ func teeDefaultLoggerToSink(svc core.RuntimeServices) {
 
 // run dispatches to a subcommand. The default (no subcommand, or a leading flag)
 // is "run", so `cli -config x.yaml` keeps working.
+// commandRun is the default subcommand, so `octo --config x.yaml` keeps working
+// without naming it.
+const commandRun = "run"
+
 // usage is the top-level help page, printed for `octo`, `octo --help`, and a
 // subcommand's --help.
 const usage = `octo — run and invoke octo integration flows
@@ -214,11 +219,17 @@ const dashNote = `Flags accept one or two dashes (--config or -config).`
 // configure them — so their documentation has to come from them; a flag that
 // exists but is absent from --help may as well not exist.
 func usageText() string {
-	hosted := services.HostedUsage()
-	if hosted == "" {
-		return usage + "\n\n" + dashNote
+	sections := []string{usage}
+	// A module's commands document themselves, for the same reason hosted services
+	// do: a flag that exists but is absent from --help may as well not exist, and
+	// one documented in a build that does not have it is worse.
+	if fromServices := services.CommandUsage(); fromServices != "" {
+		sections = append(sections, fromServices)
 	}
-	return usage + "\n\n" + hosted + "\n\n" + dashNote
+	if hosted := services.HostedUsage(); hosted != "" {
+		sections = append(sections, hosted)
+	}
+	return strings.Join(append(sections, dashNote), "\n\n")
 }
 
 func run(args []string) error {
@@ -239,14 +250,14 @@ func run(args []string) error {
 		return nil
 	}
 
-	cmd := "run"
+	cmd := commandRun
 	if !strings.HasPrefix(args[0], "-") {
 		cmd = args[0]
 		args = args[1:]
 	}
 
 	switch cmd {
-	case "run":
+	case commandRun:
 		return runCommand(args)
 	case "invoke":
 		return invokeCommand(args)
@@ -255,8 +266,23 @@ func run(args []string) error {
 	case "schema", "capabilities":
 		return schemaCommand(args)
 	default:
-		return fmt.Errorf("unknown command %q (expected \"run\", \"invoke\", \"eval\", \"schema\", or \"version\")", cmd)
+		// A runtime service may bring subcommands with it, so a capability appears
+		// in this binary exactly when the module that can act on it does. See
+		// services.Command.
+		if extra, ok := services.LookupCommand(cmd); ok {
+			return extra.Run(args)
+		}
+		return fmt.Errorf("unknown command %q (this binary offers %s)", cmd, knownCommands())
 	}
+}
+
+// knownCommands lists what this binary answers to, built-ins plus whatever the
+// compiled-in modules registered. The error naming them is the only place a
+// reader finds out that this build has, say, no platform API commands.
+func knownCommands() string {
+	names := append([]string{commandRun, "invoke", "eval", "schema", "version"}, services.CommandNames()...)
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // configDir returns the directory a config path is rooted at — the directory

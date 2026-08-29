@@ -20,6 +20,7 @@ runtime/
   services/     <- extension point 1: what the runtime IS
     standalone/     provider   (core.RuntimeServices)
     k8s/            provider   (core.RuntimeServices)
+    api/            provider   (core.RuntimeServices, over an operator's HTTP API)
     observability/  hosted     (probes, metrics)
   connectors/   <- extension point 2: what a flow can DO
     http/  cron/  database/  logger/  slack/  ...
@@ -100,8 +101,8 @@ do not land it unasked. See the layering policy in [AGENTS.md](../AGENTS.md).
 
 ## `services` — what the runtime is
 
-A runtime service supplies the platform the flows run on. It has two facets, and a
-package may implement either, or both.
+A runtime service supplies the platform the flows run on. It has two facets and
+one optional extra, and a package may implement any combination.
 
 ### Provider facet
 
@@ -163,6 +164,30 @@ func init() { services.RegisterHosted(New()) }   // never a no-op
 
 Hosted services are not module-selected: every one compiled in runs. A binary
 chooses which it ships purely by blank import.
+
+### CLI commands
+
+A module may also bring subcommands, registered from its own manifest:
+
+```go
+func init() {
+	registerProvider()
+	registerCommands() // services.RegisterCommand(...)
+}
+```
+
+Like hosted services and unlike providers, commands are never module-selected —
+`octo verify-platform-api` is how you find out whether a server is ready, which
+is before anyone would set the variable that selects the module. `main.go`
+dispatches any command it does not recognize through the registry, and the help
+page picks up each command's `Usage()` the way it already picks up hosted
+services'.
+
+This exists so a capability appears in a binary exactly when the module that can
+act on it does. `octo openapi` prints the platform API contract; in a build with
+no api provider it would invite somebody to implement an interface that binary
+cannot talk to, and they would find out only after writing a server. Registering
+from the module puts that decision where the knowledge is.
 
 Three obligations that are easy to miss:
 
@@ -270,6 +295,8 @@ Does a flow author reference it by name in YAML?
    │  (KV, queues, leases, leader election, …)?      → services: provider facet
    ├─ Does it run for the life of the process with
    │  its own flags?                                  → services: hosted facet
+   ├─ Is it a subcommand only useful when some module
+   │  is compiled in?                                 → services: RegisterCommand
    ├─ Does it only need to watch what flows do?       → EventBus / BlockEvents
    ├─ Does it need to run a nested sub-flow?          → the engine
    └─ Is it a leaf block that owns no resource, binding

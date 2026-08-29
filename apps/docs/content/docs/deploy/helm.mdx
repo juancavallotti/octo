@@ -925,7 +925,7 @@ A CronJob that asks the aggregator, once a night, to delete stored logs and trac
 | `externalRedis.existingSecretKey` | `redis-url` | The key within that Secret. |
 | `redis.maxmemory` | `256mb` | The ceiling the server holds itself to. Keep it **below** any container memory limit, or the kernel gets there before Redis does and the eviction policy never runs. |
 | `redis.maxmemoryPolicy` | `allkeys-lru` | What it does on reaching the ceiling. Evicting the coldest keys costs the folds they held; growing without bound costs the pod. |
-| `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV) or `standalone`. Cluster deploys want `k8s`. |
+| `runtime.servicesModule` | `k8s` | Runtime-services backend injected into integration pods: `k8s` (Lease leader election + orchestrator KV), `standalone`, or `api` ([delegated to a server you implement](/extending/platform-api) — set `runtime.repository` to the `octo-api` image and inject `OCTO_PLATFORM_API_URL` too). Cluster deploys want `k8s`. |
 
 ## Redis
 
