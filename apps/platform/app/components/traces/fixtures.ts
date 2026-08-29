@@ -46,6 +46,8 @@ export interface RecordSpec {
   id?: string;
   attrs?: Record<string, unknown>;
   body?: unknown;
+  /** Which model served the call, on an `llm.turn` or `llm.embed`. */
+  model?: string;
 }
 
 /**
@@ -80,7 +82,7 @@ export function record(spec: RecordSpec): TraceRecord {
     deploymentId: "dep-1",
     appName: "Orders",
     appVersion: "v1.0",
-    model: "",
+    model: spec.model ?? "",
     provider: "",
     inputTokens: null,
     outputTokens: null,

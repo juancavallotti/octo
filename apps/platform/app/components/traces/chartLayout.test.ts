@@ -3,11 +3,18 @@ import { buildWaterfall } from "./buildWaterfall";
 import { records } from "./fixtures";
 import {
   axisTicks,
-  barStyle,
-  clampView,
+  barRect,
+  clampScroll,
+  fitView,
   flattenWaterfall,
+  isFitted,
   MAX_ROWS,
+  MAX_TRACK_PX,
   panBy,
+  pxPerNs,
+  rangeZoom,
+  timeAt,
+  trackWidth,
   zoomAt,
 } from "./chartLayout";
 import type { WaterfallNode } from "./types";
@@ -23,7 +30,10 @@ function tree(): WaterfallNode[] {
   return buildWaterfall(trace).roots;
 }
 
-const VIEW = { start: 0, end: 100 };
+/** A second of trace in a 900px window: 120px/s puts it well inside the width. */
+const SECOND = { spanNs: 1e9, containerPx: 900 };
+/** A minute in the same window: 7200px of track, so it overflows and scrolls. */
+const MINUTE = { spanNs: 60e9, containerPx: 900 };
 
 describe("flattenWaterfall", () => {
   it("walks the tree into rows, deepest last", () => {
@@ -63,63 +73,172 @@ describe("flattenWaterfall", () => {
   });
 });
 
-describe("barStyle", () => {
-  it("places a bar as a fraction of the viewport", () => {
-    expect(barStyle({ start: 25, end: 50 }, VIEW)).toEqual({
-      left: "25%",
-      width: "25%",
-    });
+describe("agent tool calls", () => {
+  /** An agent that called one tool, which ran two blocks, one of them nested. */
+  function agentTrace() {
+    return buildWaterfall(
+      records(
+        { kind: "block.post-invoke", start: 30, duration: 5, path: "orders.assistant[search_docs].fetch.parse" },
+        { kind: "block.post-invoke", start: 30, duration: 10, path: "orders.assistant[search_docs].fetch" },
+        { kind: "block.post-invoke", start: 50, duration: 10, path: "orders.assistant[send_email].deliver" },
+        { kind: "block.post-invoke", start: 20, duration: 60, path: "orders.assistant", blockType: "ai-agent" },
+        { kind: "block.post-invoke", start: 90, duration: 10, path: "orders.after" },
+        { kind: "flow.completed", start: 0, duration: 100, flow: "orders" },
+      ),
+    ).roots;
+  }
+
+  function toolOf(label: string) {
+    const { rows } = flattenWaterfall(agentTrace(), new Set());
+    return rows.find((r) => r.node.label === label);
+  }
+
+  it("reads the tool a span ran inside off the branch it entered", () => {
+    // There is no tool trace kind and no `tool` attribute — the runtime builds
+    // each tool as a branch of the agent block, so the path is where this lives.
+    expect(toolOf("fetch")?.tool).toBe("search_docs");
+    expect(toolOf("deliver")?.tool).toBe("send_email");
+  });
+
+  it("carries the tool down to everything that ran inside it", () => {
+    expect(toolOf("parse")?.tool).toBe("search_docs");
+  });
+
+  it("names the tool once, at the row where it starts", () => {
+    // Every node under `assistant[search_docs]` still starts with that prefix,
+    // so read naively the whole subtree would each claim to begin the tool.
+    expect(toolOf("fetch")?.toolRoot).toBe(true);
+    expect(toolOf("parse")?.toolRoot).toBe(false);
+  });
+
+  it("claims nothing for a span that ran outside any tool", () => {
+    expect(toolOf("after")?.tool).toBeNull();
+    expect(toolOf("assistant")?.tool).toBeNull();
+  });
+
+  it("does not read an ordinary branch as a tool", () => {
+    // `if` yields then/else and `switch` yields case names. A branch means
+    // "tool" only under a block whose branches are tools.
+    const plain = buildWaterfall(
+      records(
+        { kind: "block.post-invoke", start: 10, duration: 10, path: "orders.check[then].notify" },
+        { kind: "block.post-invoke", start: 5, duration: 30, path: "orders.check", blockType: "if" },
+        { kind: "flow.completed", start: 0, duration: 100, flow: "orders" },
+      ),
+    ).roots;
+    const { rows } = flattenWaterfall(plain, new Set());
+    expect(rows.every((r) => r.tool === null)).toBe(true);
+  });
+});
+
+describe("the time scale", () => {
+  it("draws a trace ten times as long ten times as wide", () => {
+    // The whole point of a constant density. Stretching each trace to the window
+    // made a 100ms trace and a 30s trace the same picture, so a duration could
+    // only ever be read as a ratio between siblings — never as a quantity, and
+    // never compared across two traces.
+    const ten = { spanNs: 600e9, containerPx: 900 };
+    expect(trackWidth(1, ten) / trackWidth(1, MINUTE)).toBeCloseTo(10);
+  });
+
+  it("fills the window rather than drawing a short trace as a sliver", () => {
+    // A floor, not a mode: a second at 120px/s would be 120px of an 900px
+    // window, which is a chart nobody can read.
+    expect(trackWidth(1, SECOND)).toBe(900);
+    expect(trackWidth(1, MINUTE)).toBeCloseTo(7200, 6);
+  });
+
+  it("crosses between the two without a step", () => {
+    // 7.5s is exactly where 120px/s reaches 900px, so the two rules have to
+    // agree there or the chart jumps as a trace crosses it.
+    const at = { spanNs: 7.5e9, containerPx: 900 };
+    expect(trackWidth(1, at)).toBe(900);
+    expect(pxPerNs(1, at)).toBeCloseTo(pxPerNs(1, MINUTE), 12);
+  });
+
+  it("will not lay out a track no browser should be asked to paint", () => {
+    const hour = { spanNs: 3600e9, containerPx: 900 };
+    expect(trackWidth(500, hour)).toBe(MAX_TRACK_PX);
+    // And the zoom is clamped with it, or zooming back out feels dead for
+    // several clicks while a factor that changed nothing counts back down.
+    expect(zoomAt({ zoom: 1, scrollLeft: 0 }, 0, 1e6, hour).zoom).toBeLessThan(500);
+  });
+});
+
+describe("barRect", () => {
+  it("places a bar in pixels along the track", () => {
+    const scale = pxPerNs(1, MINUTE);
+    const bar = barRect({ start: 6e9, end: 12e9 }, scale);
+    expect(bar.left).toBeCloseTo(720, 6);
+    expect(bar.width).toBeCloseTo(720, 6);
   });
 
   it("keeps a span too short to see from disappearing", () => {
     // A 40µs block beside a 3s model call rounds to nothing, and nothing on
     // screen is indistinguishable from a block that never ran.
-    const style = barStyle({ start: 10, end: 10.0001 }, { start: 0, end: 1_000_000 })!;
-    expect(Number.parseFloat(style.width)).toBeGreaterThan(0);
+    expect(barRect({ start: 10, end: 10.0001 }, pxPerNs(1, MINUTE)).width).toBe(2);
   });
 
-  it("clips a bar that runs past the edge instead of dropping it", () => {
-    // Zoom into a child and its parent starts before the view does. A row with
-    // no bar at all would read as a row with no time in it.
-    expect(barStyle({ start: -50, end: 50 }, VIEW)).toEqual({ left: "0%", width: "50%" });
-    expect(barStyle({ start: 50, end: 500 }, VIEW)).toEqual({ left: "50%", width: "50%" });
-  });
-
-  it("draws nothing for a span outside the viewport", () => {
-    expect(barStyle({ start: 200, end: 300 }, VIEW)).toBeNull();
-    expect(barStyle({ start: -300, end: -200 }, VIEW)).toBeNull();
+  it("lays out a bar that is off screen rather than dropping it", () => {
+    // There is nothing to clip any more: the whole trace is laid out, and being
+    // off *screen* is a scroll position rather than a fact about the geometry.
+    const scale = pxPerNs(1, MINUTE);
+    expect(barRect({ start: 55e9, end: 60e9 }, scale).left).toBeCloseTo(6600, 6);
   });
 });
 
 describe("the viewport", () => {
-  const bounds = { start: 0, end: 1000 };
-
   it("zooms about the point under the cursor", () => {
-    // Halving the width around the middle leaves the middle where it was.
-    expect(zoomAt(bounds, 0.5, 0.5, bounds)).toEqual({ start: 250, end: 750 });
-    // …and around the left edge keeps the left edge.
-    expect(zoomAt(bounds, 0, 0.5, bounds)).toEqual({ start: 0, end: 500 });
+    const before = timeAt(300, 1, MINUTE);
+    const after = zoomAt({ zoom: 1, scrollLeft: 0 }, 300, 2, MINUTE);
+    expect(timeAt(after.scrollLeft + 300, after.zoom, MINUTE)).toBeCloseTo(before, 6);
   });
 
-  it("never zooms out past the trace", () => {
-    expect(zoomAt({ start: 400, end: 600 }, 0.5, 100, bounds)).toEqual(bounds);
+  it("holds the cursor's moment when it is already scrolled along", () => {
+    const view = { zoom: 4, scrollLeft: 5000 };
+    const before = timeAt(view.scrollLeft + 200, view.zoom, MINUTE);
+    const after = zoomAt(view, 200, 0.8, MINUTE);
+    expect(timeAt(after.scrollLeft + 200, after.zoom, MINUTE)).toBeCloseTo(before, 6);
   });
 
-  it("never zooms in to nothing", () => {
-    const tiny = zoomAt(bounds, 0.5, 1e-9, bounds);
-    expect(tiny.end - tiny.start).toBeGreaterThan(0);
+  it("pans by what is on screen, and stops at the ends", () => {
+    expect(panBy({ zoom: 1, scrollLeft: 0 }, 0.2, MINUTE).scrollLeft).toBe(180);
+    expect(panBy({ zoom: 1, scrollLeft: 0 }, -1, MINUTE).scrollLeft).toBe(0);
+    // 7200px of track in a 900px window leaves 6300px to scroll through.
+    expect(panBy({ zoom: 1, scrollLeft: 0 }, 100, MINUTE).scrollLeft).toBeCloseTo(6300, 6);
   });
 
-  it("pans without changing the width, and stops at the ends", () => {
-    const view = { start: 400, end: 600 };
-    expect(panBy(view, 0.5, bounds)).toEqual({ start: 500, end: 700 });
-    // Pushed past the end, it stops flush against it rather than shrinking.
-    expect(panBy(view, 100, bounds)).toEqual({ start: 800, end: 1000 });
+  it("cannot be scrolled off either end of the track", () => {
+    expect(clampScroll(-500, 1, MINUTE)).toBe(0);
+    expect(clampScroll(99_999, 1, MINUTE)).toBeCloseTo(6300, 6);
+    // A trace that fits has nowhere to scroll to at all.
+    expect(clampScroll(500, 1, SECOND)).toBe(0);
   });
 
-  it("holds a view inside the trace", () => {
-    expect(clampView({ start: -500, end: -300 }, bounds)).toEqual({ start: 0, end: 200 });
-    expect(clampView({ start: -100, end: 5000 }, bounds)).toEqual(bounds);
+  it("puts a dragged range across the whole window", () => {
+    const view = rangeZoom(10e9, 20e9, MINUTE);
+    expect(timeAt(view.scrollLeft, view.zoom, MINUTE)).toBeCloseTo(10e9, 0);
+    expect(timeAt(view.scrollLeft + 900, view.zoom, MINUTE)).toBeCloseTo(20e9, 0);
+  });
+
+  it("fits the whole trace back on screen", () => {
+    const view = fitView(MINUTE);
+    expect(trackWidth(view.zoom, MINUTE)).toBeCloseTo(900, 6);
+    expect(view.scrollLeft).toBe(0);
+    expect(isFitted(view, MINUTE)).toBe(true);
+  });
+
+  it("can fit a trace too long for the ordinary zoom floor", () => {
+    // An hour needs 0.002 to come back on screen. A flat 0.02 floor refused it,
+    // which left Fit as a button that did nothing on exactly the traces someone
+    // most needs it for.
+    const hour = { spanNs: 3600e9, containerPx: 900 };
+    expect(isFitted(fitView(hour), hour)).toBe(true);
+  });
+
+  it("knows a short trace is already fitted, so nothing offers to fit it", () => {
+    expect(isFitted({ zoom: 1, scrollLeft: 0 }, SECOND)).toBe(true);
+    expect(isFitted({ zoom: 1, scrollLeft: 0 }, MINUTE)).toBe(false);
   });
 });
 

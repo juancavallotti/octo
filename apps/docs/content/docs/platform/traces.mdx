@@ -109,6 +109,45 @@ Every record carries the `app_name` and `app_version` stamped by the pod that em
 
 A trace id rides on the message and survives a queue or topic hop, so a flow that dispatches to another integration keeps the same trace. `deployment_id` on the summary is the deployment that *entered* the trace; `deployment_ids` accumulates every deployment that contributed records.
 
+## Reading the chart
+
+A trace's waterfall draws time at a **constant scale** — a fixed number of pixels
+per second — rather than stretching each trace to the width available. Stretching
+made a 100ms trace and a 30s trace the same picture: a bar's length only ever
+said how it compared to its siblings, never how long it took, and two traces
+could not be compared by looking at them. A long execution is now a long chart
+that scrolls sideways, and a ten-second trace is drawn ten times as wide as a
+one-second one.
+
+A trace too short to fill the window still fills it. That is a floor rather than
+a second mode, so nothing changes behaviour as a trace crosses it.
+
+The name and duration stay pinned to the left edge while the track scrolls, since
+on a slow trace the far end of a row is a screenful away from the name it belongs
+to. Scroll or swipe to pan, hold a modifier and use the wheel to zoom about the
+cursor, drag a range on the ruler to zoom into it, and press <kbd>Esc</kbd> — or
+**Fit** — to bring the whole trace back.
+
+### What a row says
+
+A **model call** names the model that served it, beside the block's own name.
+Which model answered is one of the first questions asked of a trace that cost
+more than expected, and the trace summary lists every model the trace used rather
+than hiding them in a tooltip — the same reason the token split is not in one.
+
+A span that ran inside an **agent tool call** is marked, and the first row of each
+tool names it. This is *derived*, not recorded: there is no tool trace kind and no
+tool attribute. The runtime builds each of an agent's tools as a branch of the
+agent block, so `orders.assistant[search_docs].fetch` is what a tool call looks
+like on the wire, and the mark is read back out of that path. A path it cannot
+read is left unmarked rather than guessed at.
+
+The bar's **colour** is unrelated, and deliberately so: colour says where the time
+went — waiting on something outside the process, running inside it, or holding
+work that ran under it — while being a tool call is a fact about structure. One
+channel for both would make "waited on the network" and "was a tool" the same
+statement.
+
 ## Reading tokens
 
 Every model call reports five counts, and three of them are shown wherever a trace is.

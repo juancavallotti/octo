@@ -1,12 +1,14 @@
 /**
- * The app list's data lifecycle: fetch the apps that produced traces in a window,
- * and keep the window the service actually measured over.
+ * The app list's data lifecycle: fetch the apps that produced traces in a window.
  *
- * The window is state rather than a constant because every count in the response
- * is meaningless without it — "12 traces" says nothing until you know whether
- * that is an hour or a week — and because the service, not this client, decides
- * what an unbounded query means. So the request goes out with no bounds by
- * default and the response's echoed from/to is what gets displayed.
+ * Every count in the response is meaningless without that window — "12 traces"
+ * says nothing until you know whether that is an hour or a week — so it is named
+ * on screen. It used to be named by echoing back the from/to the service
+ * reported, because the service decides what an unbounded query means. It is
+ * named by the control that sets it now: the window is chosen beside the app
+ * picker, before the list it narrows, and the client always sends the explicit
+ * bounds that choice resolves to. Displaying an echo of what was just asked for
+ * would be a second answer to a question with one.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -14,8 +16,6 @@ import { listTraceApps, type TraceApp, type TraceWindow } from "@/app/model/trac
 
 export interface TraceApps {
   apps: TraceApp[];
-  /** The window the counts were measured over, as the service reported it back. */
-  window: { from: string; to: string } | null;
   loading: boolean;
   error: string | null;
   refresh: () => void;
@@ -23,7 +23,6 @@ export interface TraceApps {
 
 export function useTraceApps(window: TraceWindow = {}): TraceApps {
   const [apps, setApps] = useState<TraceApp[]>([]);
-  const [measured, setMeasured] = useState<{ from: string; to: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
 
@@ -40,7 +39,6 @@ export function useTraceApps(window: TraceWindow = {}): TraceApps {
       (page) => {
         if (!live) return;
         setApps(page.items);
-        setMeasured({ from: page.from, to: page.to });
         setError(null);
         setLoaded(wanted);
       },
@@ -61,5 +59,5 @@ export function useTraceApps(window: TraceWindow = {}): TraceApps {
   }, [from, to, wanted]);
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
-  return { apps, window: measured, loading: loaded !== wanted, error, refresh };
+  return { apps, loading: loaded !== wanted, error, refresh };
 }

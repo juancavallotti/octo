@@ -92,6 +92,9 @@ importers:
       '@octo/run-host':
         specifier: workspace:*
         version: link:../../packages/run-host
+      '@octo/util':
+        specifier: workspace:*
+        version: link:../../packages/util
       jose:
         specifier: ^6.2.10
         version: 6.2.10
@@ -384,6 +387,18 @@ importers:
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.20.1)(jsdom@30.0.1)(vite@8.0.16(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  packages/util:
     devDependencies:
       '@types/node':
         specifier: ^22.20.1

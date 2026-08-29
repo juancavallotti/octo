@@ -74,7 +74,16 @@ export default function TraceSummaryPanel({
 
         {summary.llmCalls > 0 && (
           <>
-            <Stat label="Model calls" title={summary.models.join(", ")}>
+            {/* The models are on the surface rather than in the tooltip they
+                used to hide in. "Which model was this" is one of the first
+                questions asked of a trace that cost more than expected, and a
+                title attribute is invisible on touch and to a screen reader —
+                the same argument the token split is already split out for. */}
+            <Stat
+              label="Model calls"
+              detail={summary.models.join(" · ")}
+              title={summary.models.join(", ")}
+            >
               {summary.llmCalls}
             </Stat>
 
