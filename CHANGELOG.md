@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.11](https://github.com/juancavallotti/octo/compare/v0.8.10...v0.8.11) (2026-08-29)
+
+
+### Features
+
+* **platform:** record which octo a deployment was put on ([de7db61](https://github.com/juancavallotti/octo/commit/de7db618a117d2c6e4176bae82e9ce2c2ea57219))
+* **platform:** record which octo a deployment was put on ([2a0f4f2](https://github.com/juancavallotti/octo/commit/2a0f4f2d493c30ed03a4adf289bd589ec6ba2a60))
+
 ## [0.8.10](https://github.com/juancavallotti/octo/compare/v0.8.9...v0.8.10) (2026-08-29)
 
 
