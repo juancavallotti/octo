@@ -92,6 +92,9 @@ importers:
       '@octo/run-host':
         specifier: workspace:*
         version: link:../../packages/run-host
+      '@octo/util':
+        specifier: workspace:*
+        version: link:../../packages/util
       jose:
         specifier: ^6.2.10
         version: 6.2.10

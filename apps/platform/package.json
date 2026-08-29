@@ -22,6 +22,7 @@
     "@octo/http": "workspace:*",
     "@octo/mcp": "workspace:*",
     "@octo/run-host": "workspace:*",
+    "@octo/util": "workspace:*",
     "jose": "^6.2.10",
     "lucide-react": "1.33.0",
     "mcp-handler": "^1.1.0",
