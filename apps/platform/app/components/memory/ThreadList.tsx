@@ -53,13 +53,29 @@ export function ThreadList({
             <button
               type="button"
               onClick={() => onOpen(t.threadKey)}
-              className="flex-1 px-3 py-2 text-left"
+              // min-w-0 is what makes the truncation below work at all: a flex
+              // item defaults to min-width:auto and so refuses to shrink under
+              // its own content, and `truncate` on a child of something that
+              // never shrinks never triggers. Without it a thread with no title
+              // — which falls back to its key — widened the row until the list
+              // ran out past the edge of its own card.
+              className="min-w-0 flex-1 px-3 py-2 text-left"
             >
               <span className="block truncate text-sm">{t.title || t.threadKey}</span>
-              <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
-                {t.userId ? `${t.userId} · ` : ""}
-                {t.turnCount} {t.turnCount === 1 ? "turn" : "turns"} ·{" "}
-                {shortDate(t.lastActivityAt)}
+              {/* The person is the part allowed to be cut. Truncating the whole
+                  line would take the turn count and the date with it, and those
+                  are the two things this row exists to say. */}
+              <span className="mt-0.5 flex items-baseline gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {t.userId && (
+                  <>
+                    <span className="min-w-0 truncate">{t.userId}</span>
+                    <span className="shrink-0">·</span>
+                  </>
+                )}
+                <span className="shrink-0">
+                  {t.turnCount} {t.turnCount === 1 ? "turn" : "turns"} ·{" "}
+                  {shortDate(t.lastActivityAt)}
+                </span>
               </span>
             </button>
             <button
