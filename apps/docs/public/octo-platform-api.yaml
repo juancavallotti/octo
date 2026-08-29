@@ -1051,17 +1051,33 @@ components:
       name: X-Object-Version
       in: header
       required: false
-      description: >-
-        The version the caller believes is current. 0 (or absent) means create,
-        and must fail with 409 if the object exists.
+      description: |
+        The version the caller believes is current.
+
+        On a WRITE (PUT), 0 or absent means create, and must fail with 409 if the
+        object already exists; a positive value must equal the stored version.
+
+        On a DELETE, 0 or absent means delete unconditionally — there is no
+        "create" to conflict with, and a caller that wants the name gone does not
+        always know what version it is at. A positive value must still match.
       schema: {type: integer, format: int64, minimum: 0, default: 0}
     Subject:
       name: subject
       in: path
       required: true
-      description: >-
-        The queue or topic subject, percent-encoded. Decode it ONCE — decoding
-        twice would merge `a%2Fb` and `a/b` into one subject.
+      description: |
+        The queue or topic subject, percent-encoded.
+
+        Decode it ONCE. Decoding twice would merge `a%2Fb` and `a/b` into one
+        subject, which is the same class of bug the query parameters elsewhere in
+        this contract exist to avoid.
+
+        Unlike a key, a subject is a path segment, so a proxy in front of you that
+        normalizes `%2F` back to `/` will change it before you see it. Most
+        subjects are dotted names where this never arises. If yours may contain a
+        slash, either turn that normalization off (nginx `merge_slashes off` and
+        friends) or keep slashes out of your subject names — the runtime cannot
+        tell the difference from its side.
       schema: {type: string}
       example: orders.created
     LeaseID:
@@ -1074,7 +1090,10 @@ components:
       name: key
       in: path
       required: true
-      description: The leader-election key, percent-encoded.
+      description: >-
+        The leader-election key, percent-encoded. A path segment, so the same
+        caution about a proxy normalizing `%2F` applies as for a subject — see
+        that parameter.
       schema: {type: string}
       example: cron.nightly-report
     SubscriptionID:
