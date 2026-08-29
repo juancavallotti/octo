@@ -213,6 +213,9 @@ func kubeConfig() (kube.Config, error) {
 	cfg := kube.Config{
 		Namespace:    namespace,
 		RuntimeImage: envOr("RUNTIME_IMAGE", defaultRuntimeImage),
+		// The chart's answer to "which octo is that image", for the installs that
+		// pin it by digest and leave the reference with no tag to read.
+		RuntimeVersion: os.Getenv("RUNTIME_VERSION"),
 		// The agentic runner. Unset — with no default, unlike RUNTIME_IMAGE above —
 		// because an unconfigured runner has to be *refused*, and a default would make
 		// that impossible to detect: an agentic deploy would create pods from an image

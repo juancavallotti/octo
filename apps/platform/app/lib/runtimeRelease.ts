@@ -19,6 +19,23 @@
 export const CURRENT_RUNTIME_IMAGE = process.env.RUNTIME_IMAGE ?? "";
 
 /**
+ * Server-only: the release that image is, as the chart supplies it. It exists
+ * because the reference above often cannot say — an install that pins the runtime
+ * by digest deploys `repo@sha256:…`, which has no tag in it.
+ */
+export const CURRENT_RUNTIME_VERSION = process.env.RUNTIME_VERSION ?? "";
+
+/**
+ * Which octo this install deploys now: the configured version when there is one,
+ * and otherwise whatever tag the image reference carries. Taking them in that
+ * order rather than the reverse means an operator who sets the version explicitly
+ * is believed over a tag that may be `latest`.
+ */
+export function currentRuntime(version: string, image: string): string {
+  return version || imageTag(image);
+}
+
+/**
  * The tag part of a container image reference, or "" when it is untagged or
  * pinned by digest. The colon searched for is the last one, and only past the
  * final slash, so a registry with a port (registry:5000/octo/runtime) is not

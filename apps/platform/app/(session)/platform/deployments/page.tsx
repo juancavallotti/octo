@@ -2,7 +2,11 @@ import AppHeader from "@/app/components/AppHeader";
 import ManagementNav from "@/app/components/ManagementNav";
 import UserMenu from "@/app/components/UserMenu";
 import DeploymentsMonitor from "@/app/components/deployments/DeploymentsMonitor";
-import { CURRENT_RUNTIME_IMAGE, imageTag } from "@/app/lib/runtimeRelease";
+import {
+  CURRENT_RUNTIME_IMAGE,
+  CURRENT_RUNTIME_VERSION,
+  currentRuntime,
+} from "@/app/lib/runtimeRelease";
 
 /**
  * The deployments route (`/platform/deployments`): every active deployment across
@@ -17,7 +21,9 @@ export default function DeploymentsPage() {
       <AppHeader userMenu={<UserMenu />}>
         <ManagementNav />
       </AppHeader>
-      <DeploymentsMonitor currentRuntime={imageTag(CURRENT_RUNTIME_IMAGE)} />
+      <DeploymentsMonitor
+        currentRuntime={currentRuntime(CURRENT_RUNTIME_VERSION, CURRENT_RUNTIME_IMAGE)}
+      />
     </div>
   );
 }

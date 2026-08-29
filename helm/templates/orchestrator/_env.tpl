@@ -6,6 +6,13 @@
   value: {{ .Release.Namespace | quote }}
 - name: RUNTIME_IMAGE
   value: {{ include "octo-common.image" (dict "root" . "component" "runtime") | quote }}
+{{- /* Which octo that image IS. The reference above may be digest-pinned, and a
+       digest names no version — so a deployment made from it would record an
+       address and nothing a person can read. Recorded per deployment at deploy
+       time, which is what makes "this one is on an older runtime" answerable
+       after the orchestrator has moved on. */}}
+- name: RUNTIME_VERSION
+  value: {{ include "octo-common.imageVersion" (dict "root" . "component" "runtime") | quote }}
 {{- /* The agentic runner, for a deployment that asks for `runner: agentic`. Emitted
        with the release's image by default, since that image always ships — and NOT
        emitted at all when the repository is cleared, which is how an operator turns

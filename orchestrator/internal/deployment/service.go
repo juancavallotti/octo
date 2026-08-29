@@ -77,6 +77,9 @@ type kubeClient interface {
 	// RunnerImage is the image that runner resolves to, recorded in the
 	// deployment's metadata so it survives the workload it describes.
 	RunnerImage(runner kube.Runner) string
+	// RuntimeVersion is which octo that image is, for the digest-pinned case
+	// where the reference carries no tag.
+	RuntimeVersion() string
 	ExternalURL(subdomain string) string
 	SecretKeyExists(ctx context.Context, name string) (bool, error)
 	// DeploymentIDs is the reconciler's view of the cluster: every deployment this
@@ -336,6 +339,10 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		// changes when the orchestrator is upgraded and this deployment's pods do
 		// not move with it.
 		RuntimeImage: s.kube.RunnerImage(runner),
+		// Recorded beside the image, because a digest-pinned reference cannot be
+		// read back into a version by anybody — not the API, not the UI, not a
+		// person looking at the pod.
+		RuntimeVersion: s.kube.RuntimeVersion(),
 	})
 	if err != nil {
 		return Deployment{}, err
@@ -860,6 +867,7 @@ func (s *Service) Rollout(
 	// A rollout is also where a deployment moves onto whatever runtime image the
 	// orchestrator is configured with now, so the recorded image moves with it.
 	meta.RuntimeImage = s.kube.RunnerImage(resolvedRunner)
+	meta.RuntimeVersion = s.kube.RuntimeVersion()
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
 		return Deployment{}, fmt.Errorf("rollout %s: marshal metadata: %w", id, err)

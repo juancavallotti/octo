@@ -146,6 +146,9 @@ func (f *fakeSnapshots) ListResources(_ context.Context, _ string) ([]snapshot.R
 
 // fakeKube records calls and returns preset results.
 type fakeKube struct {
+	// runtimeVersion overrides what the chart is pretending to have configured;
+	// empty means the default below.
+	runtimeVersion  string
 	applied         bool
 	applyErr        error
 	rolledOut       bool
@@ -269,6 +272,15 @@ func (f *fakeKube) SecretKeyExists(_ context.Context, name string) (bool, error)
 func (f *fakeKube) ExternalEnabled() bool { return f.externalEnabled }
 
 func (f *fakeKube) RunnerEnabled(r kube.Runner) bool { return !f.runnersDisabled[r] }
+
+// The release those images are, as the chart supplies it — the value that carries
+// an install whose image reference is a digest.
+func (f *fakeKube) RuntimeVersion() string {
+	if f.runtimeVersion != "" {
+		return f.runtimeVersion
+	}
+	return "0.9.0"
+}
 
 // The image a runner resolves to, named after the runner so a test can tell the
 // standard image from the agentic one in recorded metadata.

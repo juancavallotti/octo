@@ -163,7 +163,7 @@ func toResponse(d Deployment) deploymentResponse {
 	if d.Detail.RuntimeImage != "" {
 		resp.RuntimeImage = d.Detail.RuntimeImage
 	}
-	resp.RuntimeVersion = imageTag(resp.RuntimeImage)
+	resp.RuntimeVersion = runtimeVersion(resp.RuntimeImage, meta)
 	if !d.Detail.CreatedAt.IsZero() {
 		t := d.Detail.CreatedAt
 		resp.CreatedAt = &t
@@ -178,6 +178,26 @@ func toResponse(d Deployment) deploymentResponse {
 		}
 	}
 	return resp
+}
+
+// runtimeVersion is which octo a deployment is running, from the best source that
+// has an answer.
+//
+// The tag on the image actually in play comes first: it describes what is
+// running, and during a rollout it is the only one that is current. The version
+// recorded at deploy time comes next, and it is what carries a digest-pinned
+// install — there the reference is `repo@sha256:…`, and no amount of parsing
+// produces a version from it because the version was never in it. A deployment
+// made before either was recorded has neither, and says nothing rather than
+// guessing from the release the orchestrator happens to be on now.
+func runtimeVersion(image string, meta Metadata) string {
+	if tag := imageTag(image); tag != "" {
+		return tag
+	}
+	if meta.RuntimeVersion != "" {
+		return meta.RuntimeVersion
+	}
+	return imageTag(meta.RuntimeImage)
 }
 
 // deploy godoc

@@ -92,6 +92,11 @@ type Client struct {
 	clientset    kubernetes.Interface
 	namespace    string
 	runtimeImage string
+	// runtimeVersion is which octo runtimeImage IS, when the reference itself
+	// cannot say — a digest-pinned image names no tag. Supplied by the chart from
+	// the same release the image was built for. Empty outside a chart install,
+	// where the tag on the reference is the answer.
+	runtimeVersion string
 	// devRuntimeImage is the STANDALONE runtime build, used by dev-run pods. Distinct
 	// from runtimeImage on purpose: that one is built -tags k8s and contains only the
 	// k8s services provider, so it cannot run without the orchestrator, the cluster
@@ -253,6 +258,9 @@ type GatewayRef struct {
 type Config struct {
 	Namespace    string
 	RuntimeImage string
+	// RuntimeVersion is the release RuntimeImage is, for the digest-pinned case
+	// where the reference carries no tag to read.
+	RuntimeVersion string
 	// AgenticRunnerImage is the RunnerAgentic image; "" disables that runner.
 	AgenticRunnerImage string
 	// AgenticRunnerResources sizes its container; the zero value sets none, which
@@ -339,6 +347,7 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		clientset:          cs,
 		namespace:          cfg.Namespace,
 		runtimeImage:       cfg.RuntimeImage,
+		runtimeVersion:     cfg.RuntimeVersion,
 		agenticRunnerImage: cfg.AgenticRunnerImage,
 		agenticResources:   cfg.AgenticRunnerResources,
 		workspaceSize:      parseWorkspaceSize(cfg.AgenticRunnerWorkspaceSize),
@@ -418,6 +427,15 @@ func (c *Client) RunnerEnabled(r Runner) bool {
 	}
 	return true
 }
+
+// RuntimeVersion is the release the deployed runtime image is, as configured.
+// Empty when nothing said, which is the signal to fall back to whatever tag the
+// image reference carries.
+//
+// It is not per-runner: the standard runtime and the agentic runner are built
+// from one release and shipped together, so a deployment on either is on that
+// release.
+func (c *Client) RuntimeVersion() string { return c.runtimeVersion }
 
 // RunnerImage is the image a spec's runner runs. Callers reach it only after
 // RunnerEnabled has said yes, so an unconfigured agentic runner cannot arrive

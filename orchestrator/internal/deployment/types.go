@@ -141,6 +141,11 @@ type Metadata struct {
 	// created with until it is rolled over, so a cluster runs several at once.
 	// Empty on deployments created before this was recorded.
 	RuntimeImage string `json:"runtimeImage,omitempty"`
+	// RuntimeVersion is which octo that image is, recorded beside it because the
+	// reference often cannot say: an install that pins the runtime by digest
+	// deploys `repo@sha256:…`, which names no tag. Empty on deployments made
+	// before it was recorded, and on installs that never configured it.
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
 }
 
 // ParseMetadata unmarshals the metadata jsonb, returning a zero Metadata when
