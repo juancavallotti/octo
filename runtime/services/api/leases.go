@@ -268,9 +268,19 @@ func (h *heldLease) extend(ctx context.Context, ttl time.Duration) error {
 // core.MinLeaseTTL, so this never rounds to zero. Capped because an absurd TTL
 // should not wrap into a negative one — a claim that never expires.
 func seconds(d time.Duration) int64 {
-	s := int64((d + time.Second - 1) / time.Second)
-	if s > math.MaxInt32 {
+	if d <= 0 {
+		return 0
+	}
+	// Quotient and remainder rather than (d + time.Second - 1): the addition
+	// overflows for a duration near the top of the int64 range and rounds UP into
+	// a negative, which would put a negative ttlSeconds on the wire — a claim the
+	// platform would read as already expired, or as never expiring.
+	whole, rest := int64(d/time.Second), d%time.Second
+	if rest > 0 {
+		whole++
+	}
+	if whole > math.MaxInt32 {
 		return math.MaxInt32
 	}
-	return s
+	return whole
 }

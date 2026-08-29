@@ -154,7 +154,9 @@ func (t *topics) receive(ctx context.Context, subject, subscriptionID string) ([
 	if err != nil {
 		if isNotImplemented(err) {
 			t.latch.mark()
-			return nil, nil
+			// Not an empty poll: stop the loop rather than call this route once a
+			// window forever.
+			return nil, errFeatureGone
 		}
 		return nil, err
 	}

@@ -34,9 +34,10 @@ var errNoQueues = errors.New("queues: no queue backend configured")
 // module they are backed by NATS (queue-group subscriptions and native request-
 // reply). In those two, delivery is at-most-once: a message published with no live
 // consumer is dropped. The api module is at-least-once instead, because the
-// platform behind it acknowledges each delivery — a strengthening, so a handler
-// written against at-most-once still works, but one that is not idempotent may see
-// the same message twice.
+// platform behind it acknowledges each delivery and redelivers what was not
+// acknowledged — so a handler that runs there must be idempotent, or deduplicate
+// on EventID, before it applies a side effect. A handler written for at-most-once
+// is not automatically safe under it.
 type Queues interface {
 	// Publish sends msg to subject for exactly one competing consumer. It does not
 	// wait for, or expect, a reply.

@@ -137,7 +137,11 @@ func fetchDiscovery(ctx context.Context, c *client, cfg Config) (discoveryDocume
 	delay := discoveryRetryBase
 	var lastErr error
 	for {
-		doc, err := requestDiscovery(ctx, c, cfg.Timeout)
+		// Bounded by whichever runs out first. A budget shorter than the request
+		// timeout is the interesting case: a server that accepts the connection and
+		// then says nothing would otherwise hold startup for the full 10-second
+		// request timeout before anyone checked a 50ms budget.
+		doc, err := requestDiscovery(ctx, c, min(cfg.Timeout, time.Until(deadline)))
 		if err == nil {
 			return doc, nil
 		}

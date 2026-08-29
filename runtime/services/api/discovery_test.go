@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/services"
@@ -237,5 +238,30 @@ func TestMissingBaseURLIsRefused(t *testing.T) {
 func TestModuleName(t *testing.T) {
 	if Module != "api" {
 		t.Fatalf("Module = %q, want api", Module)
+	}
+}
+
+// The budget bounds the whole attempt, including a request that has connected and
+// gone quiet. Without a per-request deadline a 50ms budget would still wait out
+// the 10-second request timeout before anyone looked at it.
+func TestDiscoveryBudgetBoundsAHangingServer(t *testing.T) {
+	f := newFake(t, fullDiscovery())
+	blocked := make(chan struct{})
+	f.hang = blocked
+	t.Cleanup(func() { close(blocked) })
+
+	t.Setenv(envURL, f.url())
+	t.Setenv(envDiscoveryBudget, "200ms")
+	t.Setenv(envTimeout, "30s") // far longer than the budget
+
+	started := time.Now()
+	_, err := New(t.Context(), services.Options{})
+	elapsed := time.Since(started)
+
+	if err == nil {
+		t.Fatal("New succeeded against a server that never answered")
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("startup took %s against a 200ms budget; the request timeout won instead", elapsed)
 	}
 }

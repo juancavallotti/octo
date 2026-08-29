@@ -197,6 +197,13 @@ type versionResponse struct {
 }
 
 // AppendTurns records completed turns, chunked to the platform's declared limit.
+//
+// Chunking makes the append non-atomic: a failure partway leaves the earlier
+// chunks committed and returns the error, so the conversation holds a prefix of
+// what was asked for. That is the right trade for an append-only record — the
+// turns that landed did happen, and dropping them to make the call all-or-nothing
+// would lose history to a transient failure — but a caller that retries the whole
+// slice will duplicate the prefix.
 func (m *agentMemory) AppendTurns(
 	ctx context.Context, ref core.MemoryRef, turns []core.Turn,
 ) (int64, error) {

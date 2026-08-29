@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -28,6 +29,15 @@ const (
 	// cut off.
 	pollTimeoutHeadroom = 5 * time.Second
 )
+
+// errFeatureGone stops a poll loop for good.
+//
+// A receive route answering 501 marks its latch, but the loop cannot tell that
+// from an idle poll — so every existing subscription would go on calling a route
+// the server has said it does not implement, once per poll window, for the life
+// of the process. This is how the receive says "there will never be anything
+// here", as distinct from "nothing right now".
+var errFeatureGone = errors.New("api: this platform API does not implement the receive route")
 
 // bindTo returns a context that ends when EITHER the caller's context or the
 // module's does, and a cancel that releases the link.
@@ -138,7 +148,7 @@ func poll[T any](
 		started := time.Now()
 		items, err := receive(ctx)
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || errors.Is(err, errFeatureGone) {
 				return
 			}
 			if !backOff(ctx, &delay, err) {

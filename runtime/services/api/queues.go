@@ -184,7 +184,9 @@ func (q *queues) receive(ctx context.Context, subject string) ([]delivery, error
 	if err != nil {
 		if isNotImplemented(err) {
 			q.latch.mark()
-			return nil, nil
+			// Not an empty poll: stop the loop rather than call this route once a
+			// window forever.
+			return nil, errFeatureGone
 		}
 		return nil, err
 	}

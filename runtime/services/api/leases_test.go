@@ -1,6 +1,7 @@
 package api
 
 import (
+	"math"
 	"net/http"
 	"testing"
 	"time"
@@ -212,5 +213,31 @@ func TestLeaseGivesUpImmediatelyWhenTakenOver(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Done did not close promptly after the platform said the claim was taken " +
 			"over; a definitive answer must not wait out the TTL")
+	}
+}
+
+// A near-maximum duration must not round up into a negative. The old form,
+// d + time.Second - 1, overflows there and would put a negative ttlSeconds on the
+// wire — a claim the platform reads as already expired, or as never expiring.
+func TestTTLSecondsDoesNotOverflow(t *testing.T) {
+	cases := []struct {
+		name string
+		in   time.Duration
+		want int64
+	}{
+		{"the largest duration there is", time.Duration(math.MaxInt64), math.MaxInt32},
+		{"a year, well past the int32 cap in nanoseconds", 365 * 24 * time.Hour, 31536000},
+		{"zero", 0, 0},
+		{"negative", -time.Second, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := seconds(tc.in); got != tc.want {
+				t.Fatalf("seconds(%v) = %d, want %d", tc.in, got, tc.want)
+			}
+			if seconds(tc.in) < 0 {
+				t.Fatal("seconds returned a negative")
+			}
+		})
 	}
 }

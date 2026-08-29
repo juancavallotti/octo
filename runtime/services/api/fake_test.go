@@ -35,6 +35,9 @@ type fake struct {
 	discoveryFails int
 	// requireToken, when set, refuses any request without this bearer token.
 	requireToken string
+	// hang, when set, holds every request open until it is closed — a server that
+	// accepts the connection and then says nothing.
+	hang chan struct{}
 
 	mu       sync.Mutex
 	requests []recorded
@@ -89,6 +92,13 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if f.requireToken != "" && r.Header.Get("Authorization") != "Bearer "+f.requireToken {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+	if f.hang != nil {
+		select {
+		case <-f.hang:
+		case <-r.Context().Done():
+			return
+		}
 	}
 	f.mux.ServeHTTP(w, r)
 }

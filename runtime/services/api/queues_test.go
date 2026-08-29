@@ -289,3 +289,36 @@ func TestQueueSubjectIsEscaped(t *testing.T) {
 		t.Fatalf("envelope correlationId = %q", body.Message.CorrelationID)
 	}
 }
+
+// A receive route answering 501 stops the loop for good. Without that the latch
+// marks, the loop reads the empty result as an idle poll, and every existing
+// subscription calls a route the server has said it does not implement once per
+// window for the life of the process.
+func TestSubscriptionStopsPollingAfterNotImplemented(t *testing.T) {
+	// No backend: the receive route is the only one this exercises, and it is the
+	// one answering 501.
+	f := newFake(t, fastPoll())
+	f.mux.HandleFunc("POST /v1/queues/{subject}/receive", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not implemented", http.StatusNotImplemented)
+	})
+	svc := newTestServices(t, f, nil)
+	c := newCollector()
+
+	sub, err := svc.Queues().Subscribe(t.Context(), "orders", c.handle)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer func() { _ = sub.Close() }()
+
+	// Let it discover the 501 and settle.
+	time.Sleep(500 * time.Millisecond)
+	settled := f.count(http.MethodPost, "/receive")
+	time.Sleep(2 * time.Second)
+	if after := f.count(http.MethodPost, "/receive"); after != settled {
+		t.Fatalf("the loop made %d more calls to a route answering 501; it should have stopped",
+			after-settled)
+	}
+	if settled == 0 {
+		t.Fatal("the loop never polled at all, so this proves nothing")
+	}
+}
