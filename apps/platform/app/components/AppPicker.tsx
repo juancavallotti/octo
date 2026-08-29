@@ -159,11 +159,14 @@ export function AppPicker<T>({
         break;
       case "Tab":
         // Tabbing out closes rather than trapping — a picker is not a dialog.
-        // Focus goes back to the trigger rather than onward: closing unmounts
-        // the search field in the same commit, so letting the browser move from
-        // it drops focus to the body and the next Tab restarts from the top of
-        // the page instead of reaching the accessory.
-        e.preventDefault();
+        //
+        // The default is deliberately *not* cancelled. Focus is moved to the
+        // trigger first and the browser then continues the Tab from there, so
+        // forward still goes forward and Shift+Tab still goes back. Cancelling
+        // it and landing on the trigger made Tab walk backwards, since the
+        // trigger precedes the field the key was pressed in. Doing nothing at
+        // all is not an option either: closing unmounts that field in the same
+        // commit, and focus would fall to the body.
         close(true);
         break;
     }

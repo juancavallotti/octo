@@ -174,18 +174,33 @@ describe("AppPicker", () => {
     expect(document.getElementById(target!)).toBe(screen.getAllByRole("option")[0]);
   });
 
-  it("hands focus back to the trigger when Tab closes it", async () => {
-    // Closing unmounts the search field in the same commit, so moving focus
-    // onward from it would drop it to the body and restart the next Tab at the
-    // top of the page.
+  it("closes on Tab without dropping focus to the page", async () => {
+    // Closing unmounts the search field in the same commit, so focus has to be
+    // moved off it deliberately or it falls to the body and the next Tab
+    // restarts from the top of the page.
     const user = userEvent.setup();
-    renderPicker();
+    renderPicker({ accessory: <button type="button">after</button> });
 
     await user.click(screen.getByRole("button", { name: "Application" }));
     await user.tab();
 
     expect(screen.queryByRole("listbox")).toBeNull();
-    expect(screen.getByRole("button", { name: "Application" })).toHaveFocus();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("still goes forward on Tab and back on Shift+Tab", async () => {
+    // Cancelling the key and landing on the trigger made Tab walk *backwards*:
+    // the trigger comes before the field the key was pressed in.
+    const user = userEvent.setup();
+    renderPicker({ accessory: <button type="button">after</button> });
+
+    await user.click(screen.getByRole("button", { name: "Application" }));
+    await user.tab();
+    expect(screen.getByRole("button", { name: "after" })).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Application" }));
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "after" })).not.toHaveFocus();
   });
 
   it("renders the accessory beside the trigger, not behind the selection", () => {

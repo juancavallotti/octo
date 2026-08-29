@@ -105,7 +105,7 @@ export default function TraceAppPicker({
 function AppFace({ app }: { app: TraceApp }) {
   return (
     <span className="flex items-baseline gap-2">
-      <span className="shrink-0 truncate">
+      <span className="min-w-0 truncate">
         {app.appName || app.deploymentId.slice(0, 8)}
       </span>
       {app.appVersion && <VersionBadge version={app.appVersion} shrink />}
@@ -118,7 +118,12 @@ function VersionBadge({ version, shrink }: { version: string; shrink?: boolean }
     <span
       title={shrink ? version : undefined}
       className={`rounded bg-black/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-400 ${
-        shrink ? "min-w-0 truncate" : "shrink-0"
+        // Capped rather than merely shrunk. Weighting the shrink still let a
+        // long version take enough room to clip the name by a few pixels, which
+        // is all "Dr. Octo" needs to become "Dr. Oc…". Half the trigger is the
+        // most a build hash may claim; the floor keeps it from vanishing under a
+        // pathologically long name, so both stay readable at every width.
+        shrink ? "min-w-12 max-w-[50%] truncate" : "shrink-0"
       }`}
     >
       {version}
