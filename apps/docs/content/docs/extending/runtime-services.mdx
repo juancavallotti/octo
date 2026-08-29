@@ -11,7 +11,7 @@ A runtime service is part of what the runtime **is**, rather than something a fl
 This page is about the Go extension point. It shares a name with [Runtime Services](/concepts/runtime-services) in Core Concepts, which is the flow author's view of the same layer — the object store, cache, queues and topics you use from YAML. This page is about how those get *supplied*.
 </Callout>
 
-A service lives in `runtime/services/<name>` and implements one of two facets, or both.
+A service lives in `runtime/services/<name>` and implements one of two facets, or both — and may bring CLI commands alongside either.
 
 | | Provider | Hosted |
 | --- | --- | --- |
@@ -122,6 +122,21 @@ func (s *Service) Configured(config types.Config) { /* ... */ }
 ```
 
 It is called once per generation — again on every `--watch` reload. A generation is **not** a fresh start: anything you accumulate must survive it. The observability service uses this to pre-create each flow's metric series without ever resetting a counter, because a reset would make `rate()` read a reload as a restart and invent a spike.
+
+## CLI commands
+
+A module may also bring subcommands, registered from the same `init` manifest:
+
+```go
+func init() {
+	registerProvider()
+	registerCommands() // services.RegisterCommand(openAPICommand{}, ...)
+}
+```
+
+`main.go` dispatches any command it does not recognize through the registry, and the help page picks up each command's `Usage()` exactly as it already does for hosted services. Commands are **not** module-selected — like hosted services, one is available whenever its package is compiled in, whatever `RUNTIME_SERVICES_MODULE` says. `octo verify-platform-api` is the reason: you run it to find out whether a server is ready, which is before anyone would set the variable that selects the module talking to it.
+
+The point of registering from the module rather than from `main.go` is that a capability then appears in a binary exactly when the thing that can act on it does. `octo openapi` prints the platform API contract, and in a build with no `api` provider it would be inviting somebody to implement an interface that binary cannot speak — which they would discover only after writing a server.
 
 ## Both facets
 

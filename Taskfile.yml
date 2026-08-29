@@ -178,10 +178,13 @@ tasks:
   docs:openapi:
     desc: Refresh the downloadable platform API contract under apps/docs/public
     cmds:
-      - task: runtime:build
-      # The document lives in the binary, so this is a copy — and a copy is
+      # -tags api, because the contract and the command that prints it belong to
+      # the api module: the default binary carries neither, on purpose, so that no
+      # build offers a contract it cannot itself speak.
+      - go build -tags api -o bin/octo-api ./runtime/octo
+      # The document lives in that binary, so this is a copy — and a copy is
       # exactly the thing that goes stale, which is why CI diffs it afterwards.
-      - ./bin/octo openapi --out apps/docs/public/octo-platform-api.yaml
+      - ./bin/octo-api openapi --out apps/docs/public/octo-platform-api.yaml
 
   docs:check:
     desc: Fail if connector/block docs drift from the runtime registry

@@ -50,15 +50,22 @@ The `features` list is what *your server said it implements*, not what Octo want
 
 ## The contract
 
-The full contract is an OpenAPI 3.1 document, and it is carried inside the binary — so the copy you read is version-matched to the runtime you are about to run, rather than to whatever this website last published:
+The full contract is an OpenAPI 3.1 document. Start by reading the copy published
+here — **[octo-platform-api.yaml](/octo-platform-api.yaml)** — which is what to
+use while you are still deciding whether to implement it.
+
+Once you are building against a particular runtime, take the copy out of that
+runtime instead. It is carried inside the `octo-api` image, so what you read is
+version-matched to the thing that will call your server rather than to whatever
+this website last published:
 
 ```bash
-octo openapi > platform-api.yaml
-octo openapi --format json --out platform-api.json
+docker run --rm juancavallotti/octo-api openapi > platform-api.yaml
+docker run --rm juancavallotti/octo-api openapi --format json > platform-api.json
 ```
 
 <Callout type="info">
-Read the YAML rather than the JSON. The comments are half the document: they say why each route is shaped the way it is, and the JSON rendering drops them. A copy is also [downloadable here](/octo-platform-api.yaml).
+`octo openapi` exists only in the `-tags api` build, alongside the provider that speaks the contract — the standalone and cluster binaries carry neither. Read the YAML rather than the JSON: the comments are half the document, they say why each route is shaped the way it is, and the JSON rendering drops them.
 </Callout>
 
 ## Discovery
@@ -203,7 +210,7 @@ Platform API at https://platform.example.internal
   8 passed, 2 failed, 1 skipped
 ```
 
-It drives the same client the runtime does, so what it checks is what will actually happen. `SKIP` is not a failure — a feature you did not declare is one nothing is sent to. It exits non-zero on any `FAIL`, so it belongs in the pipeline that ships your server, and `--json` gives you the report as data.
+Like `octo openapi`, it is in the `-tags api` build only — it drives the same client the runtime does, so what it checks is what will actually happen. `SKIP` is not a failure — a feature you did not declare is one nothing is sent to. It exits non-zero on any `FAIL`, so it belongs in the pipeline that ships your server, and `--json` gives you the report as data.
 
 <Callout type="warn">
 It writes, under an `octo-verify/` prefix it names before it starts. Point it at staging.
