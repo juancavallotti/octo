@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -38,9 +39,12 @@ export interface CanvasZoom {
   /**
    * Whether a block is being dragged right now.
    *
-   * Zoom gestures sit still while it is true: dnd-kit measures its drop targets
-   * once at the start of a drag, and resizing them underneath it would leave the
-   * block landing somewhere other than where it was let go.
+   * While it is true every change above is a no-op: dnd-kit measures its drop
+   * targets once, at the start of a drag, and resizing them underneath it would
+   * leave the block landing somewhere other than where it was let go. The rule
+   * is enforced here rather than at each gesture because there are four ways in
+   * — buttons, wheel, shortcuts, and a keyboard drag that leaves the pointer
+   * free to reach the buttons — and three of them would have to remember.
    */
   dragging: boolean;
   setDragging: (dragging: boolean) => void;
@@ -52,19 +56,27 @@ export function CanvasZoomProvider({ children }: { children: ReactNode }) {
   const [zoom, setZoomRaw] = useState(1);
   const [dragging, setDragging] = useState(false);
 
-  const setZoom = useCallback((next: number) => setZoomRaw(clampZoom(next)), []);
+  // Read through a ref so the gate does not have to be a dependency of every
+  // callback below — a drag starting must not hand the canvas new function
+  // identities and re-register its listeners mid-gesture.
+  const locked = useRef(false);
+  locked.current = dragging;
+  const change = useCallback((next: (z: number) => number) => {
+    if (locked.current) return;
+    setZoomRaw((z) => clampZoom(next(z)));
+  }, []);
 
   const value = useMemo<CanvasZoom>(
     () => ({
       zoom,
-      setZoom,
-      zoomIn: () => setZoomRaw((z) => nextStep(z)),
-      zoomOut: () => setZoomRaw((z) => prevStep(z)),
-      reset: () => setZoomRaw(1),
+      setZoom: (next: number) => change(() => next),
+      zoomIn: () => change(nextStep),
+      zoomOut: () => change(prevStep),
+      reset: () => change(() => 1),
       dragging,
       setDragging,
     }),
-    [zoom, setZoom, dragging],
+    [zoom, change, dragging],
   );
 
   return <ZoomContext.Provider value={value}>{children}</ZoomContext.Provider>;

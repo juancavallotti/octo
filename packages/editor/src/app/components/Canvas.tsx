@@ -25,7 +25,7 @@ import { contentPointAt, fitZoom, scrollToHold } from "../canvas/zoom";
  * element to fake the difference.
  */
 export default function Canvas() {
-  const { zoom, setZoom, dragging } = useCanvasZoom();
+  const { zoom, setZoom } = useCanvasZoom();
   const scroller = useRef<HTMLElement>(null);
   const layer = useRef<HTMLDivElement>(null);
 
@@ -55,9 +55,10 @@ export default function Canvas() {
     const element = scroller.current;
     if (!element) return;
     const onWheel = (e: WheelEvent) => {
+      // Still swallowed while a drag is live, or the browser page-zooms instead;
+      // the zoom change itself is refused by the provider.
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      if (dragging) return;
       const box = element.getBoundingClientRect();
       const px = e.clientX - box.left;
       const py = e.clientY - box.top;
@@ -71,7 +72,7 @@ export default function Canvas() {
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [zoom, setZoom, dragging]);
+  }, [zoom, setZoom]);
 
   // Both axes, smaller wins. Width alone would barely move: the board is a
   // narrow `w-fit` column, so a flow that has outgrown the window has almost
@@ -93,7 +94,7 @@ export default function Canvas() {
     );
   }, [zoom, setZoom]);
 
-  useCanvasZoomShortcuts({ fit, disabled: dragging });
+  useCanvasZoomShortcuts(fit);
 
   return (
     <div className="relative flex-1 min-w-0">
@@ -127,18 +128,11 @@ export default function Canvas() {
  * without it the browser page-zooms as well, and the editor ends up drawn twice
  * as large inside a canvas drawn twice as small.
  */
-function useCanvasZoomShortcuts({
-  fit,
-  disabled,
-}: {
-  fit: () => void;
-  disabled: boolean;
-}) {
+function useCanvasZoomShortcuts(fit: () => void) {
   const { zoomIn, zoomOut, reset } = useCanvasZoom();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (disabled) return;
       // The canvas is full of inline name fields, and "-" is a character in a
       // block name before it is a command.
       const target = e.target as HTMLElement | null;
@@ -176,5 +170,5 @@ function useCanvasZoomShortcuts({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [zoomIn, zoomOut, reset, fit, disabled]);
+  }, [zoomIn, zoomOut, reset, fit]);
 }

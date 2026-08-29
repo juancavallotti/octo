@@ -4,10 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { CanvasZoomProvider, useCanvasZoom } from "./ZoomContext";
 
 function Probe() {
-  const { zoom, zoomIn, zoomOut, reset, setZoom } = useCanvasZoom();
+  const { zoom, zoomIn, zoomOut, reset, setZoom, setDragging } = useCanvasZoom();
   return (
     <div>
       <span data-testid="zoom">{zoom}</span>
+      <button type="button" onClick={() => setDragging(true)}>
+        start drag
+      </button>
       <button type="button" onClick={zoomIn}>
         in
       </button>
@@ -64,6 +67,24 @@ describe("CanvasZoomProvider", () => {
 
     await user.click(screen.getByText("far"));
     expect(zoom()).toBe("2");
+  });
+
+  it("refuses to change while a block is being dragged", async () => {
+    // dnd-kit measures its drop targets once, at the start. A keyboard drag
+    // leaves the pointer free to reach the buttons, so the rule has to live here
+    // rather than at each of the four ways in.
+    const user = userEvent.setup();
+    render(
+      <CanvasZoomProvider>
+        <Probe />
+      </CanvasZoomProvider>,
+    );
+
+    await user.click(screen.getByText("start drag"));
+    await user.click(screen.getByText("out"));
+    await user.click(screen.getByText("far"));
+
+    expect(zoom()).toBe("1");
   });
 
   it("draws at natural size with no provider at all", () => {
