@@ -68,15 +68,32 @@ function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(value, low), high);
 }
 
+/**
+ * The smallest zoom this trace allows.
+ *
+ * MIN_ZOOM, unless the zoom that fits the whole trace is smaller — a floor above
+ * the fit zoom would leave Fit unable to fit. An hour-long trace needs 0.002 to
+ * come back on screen, and a flat 0.02 floor would have refused it and left the
+ * button doing nothing.
+ */
+function minZoom({ spanNs, containerPx }: ChartContext): number {
+  if (!(spanNs > 0) || !(containerPx > 0)) return MIN_ZOOM;
+  return Math.min(MIN_ZOOM, containerPx / (spanNs * BASE_SCALE));
+}
+
 /** The largest zoom that still fits inside {@link MAX_TRACK_PX}. */
-export function maxZoom({ spanNs }: ChartContext): number {
-  if (!(spanNs > 0)) return MAX_ZOOM;
-  return clamp(MAX_TRACK_PX / (spanNs * BASE_SCALE), MIN_ZOOM, MAX_ZOOM);
+export function maxZoom(context: ChartContext): number {
+  if (!(context.spanNs > 0)) return MAX_ZOOM;
+  return clamp(
+    MAX_TRACK_PX / (context.spanNs * BASE_SCALE),
+    minZoom(context),
+    MAX_ZOOM,
+  );
 }
 
 export function clampZoom(zoom: number, context: ChartContext): number {
   if (!Number.isFinite(zoom)) return 1;
-  return clamp(zoom, MIN_ZOOM, maxZoom(context));
+  return clamp(zoom, minZoom(context), maxZoom(context));
 }
 
 /**

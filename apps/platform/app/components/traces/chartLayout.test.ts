@@ -228,6 +228,14 @@ describe("the viewport", () => {
     expect(isFitted(view, MINUTE)).toBe(true);
   });
 
+  it("can fit a trace too long for the ordinary zoom floor", () => {
+    // An hour needs 0.002 to come back on screen. A flat 0.02 floor refused it,
+    // which left Fit as a button that did nothing on exactly the traces someone
+    // most needs it for.
+    const hour = { spanNs: 3600e9, containerPx: 900 };
+    expect(isFitted(fitView(hour), hour)).toBe(true);
+  });
+
   it("knows a short trace is already fitted, so nothing offers to fit it", () => {
     expect(isFitted({ zoom: 1, scrollLeft: 0 }, SECOND)).toBe(true);
     expect(isFitted({ zoom: 1, scrollLeft: 0 }, MINUTE)).toBe(false);
