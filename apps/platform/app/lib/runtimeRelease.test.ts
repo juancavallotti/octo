@@ -12,9 +12,14 @@ describe("imageTag", () => {
     expect(imageTag("registry:5000/octo/runtime")).toBe("");
     expect(imageTag("octo-runtime")).toBe("");
     expect(imageTag("")).toBe("");
-    // The digest's own colon is not a tag separator.
+    // The digest's own colon is not a tag separator, in either spelling: a deploy
+    // pinned by digest gives the first, and the kubelet reports that pod's image
+    // as the second.
     expect(imageTag("octo-runtime@sha256:abcd")).toBe("");
     expect(imageTag("ghcr.io/octo/runtime:0.8.8@sha256:abcd")).toBe("");
+    expect(
+      imageTag("sha256:ed08b693c518be5d6995e2e2edd6bb8ab42972a34a2c375cd7e7a85aecf8e210"),
+    ).toBe("");
   });
 });
 
