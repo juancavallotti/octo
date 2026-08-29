@@ -1026,12 +1026,18 @@ components:
         given and nothing else — that is what lets a platform gain a storage tier
         without this contract changing.
 
-        `system` and `user` are ordinary storage. `*_secrets` hold secrets and
-        should be encrypted at rest. `*_volatile` may be backed by a cache: they
-        hold state that is cheap to lose.
+        The six a runtime sends today are `system` and `user` for ordinary
+        storage, `system_secrets` and `user_secrets` for secrets (encrypt these at
+        rest), and `system_volatile` and `user_volatile` for state that is cheap
+        to lose and may be backed by a cache.
+
+        Deliberately NOT a closed enum, which would contradict the paragraph
+        above: a runtime that gains a storage tier would start sending a name an
+        enum had already declared invalid, and the whole point of routing on the
+        name is that this contract does not have to change for that.
       schema:
         type: string
-        enum: [system, user, system_secrets, user_secrets, system_volatile, user_volatile]
+        examples: [user, user_secrets, system_volatile]
     Key:
       name: key
       in: query

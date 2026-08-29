@@ -189,6 +189,8 @@ func verifyLeases(ctx context.Context, c *client, cfg Config, doc discoveryDocum
 	if err != nil || !ok {
 		return out
 	}
+	// Close is idempotent, so this covers the early returns below without
+	// double-releasing the claim the explicit Close already gave back.
 	defer func() { _ = lease.Close() }()
 
 	// Timed, because "never blocks" is the property, not just "eventually answers".
@@ -203,9 +205,16 @@ func verifyLeases(ctx context.Context, c *client, cfg Config, doc discoveryDocum
 		fmt.Sprintf("the second claim took %s; a caller that cannot have a name goes and does "+
 			"something else, so this must not block", elapsed.Round(time.Millisecond))))
 
-	if err := lease.Close(); err != nil {
+	// Releasing is a check of its own, not a step on the way to one. A release
+	// that failed would otherwise show up as the NEXT check failing, and the
+	// implementer would go looking at the wrong route.
+	releaseErr := lease.Close()
+	out = append(out, check(FeatureLeases, "a claim can be released",
+		releaseErr == nil, detail(releaseErr, "releasing a claim must succeed")))
+	if releaseErr != nil {
 		return out
 	}
+
 	regained, ok, err := first.Acquire(ctx, name, core.WithLeaseTTL(verifyLeaseTTL))
 	out = append(out, check(FeatureLeases, "a released name can be claimed again",
 		err == nil && ok, detail(err, "releasing must actually free the name")))
