@@ -111,6 +111,10 @@ func TestCallSurfacesAPIError(t *testing.T) {
 		{"plain detail", `{"detail":"Unprocessable"}`, "Unprocessable"},
 		{"bare error", `{"error":"rate limited"}`, "rate limited"},
 		{"no message", `{}`, "401"},
+		// A gateway in front of the API answers with HTML, not JSON. The status is
+		// the useful half of that failure and must survive.
+		{"a non-JSON gateway page", `<html><body>502 Bad Gateway</body></html>`, "401"},
+		{"an empty body", ``, "401"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

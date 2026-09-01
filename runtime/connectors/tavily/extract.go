@@ -48,6 +48,9 @@ type extractSettings struct {
 	// Include the image URLs found on each page.
 	IncludeImages bool `json:"includeImages" octo:"label=Include images"`
 	// Fail the flow when Tavily could not extract every URL it was given.
+	// Subordinate to failOnError: failOnError=false means "this block must not
+	// abort my flow", and a partial extraction is a Tavily-side problem like any
+	// other.
 	FailOnPartial bool `json:"failOnPartial" octo:"label=Fail on partial extraction"`
 	// When set, store the response here and leave the body; when empty, the response
 	// becomes the body.
@@ -137,6 +140,11 @@ func (p *extractProcessor) Process(ctx context.Context, msg *types.Message) (*ty
 // configured to insist on a complete extraction. Tavily reports per-URL failures
 // inside a 200, so without this a flow reading results would silently work from
 // fewer pages than it asked for.
+//
+// The result still goes through onCallError, so failOnError=false suppresses it
+// like any other Tavily failure. That precedence is deliberate: failOnError is
+// the block-wide "must not abort my flow" switch, and a setting that overrode it
+// would make the guarantee it offers conditional.
 func (p *extractProcessor) checkPartial(resp map[string]any) error {
 	if !p.failOnPartial {
 		return nil

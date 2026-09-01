@@ -112,7 +112,7 @@ Both accept a bare string as a one-element list, matching Tavily's own tolerance
 | `format` | enum | No | Tavily's `markdown` | `markdown` or `text`. |
 | `chunksPerSource` | int | No | Tavily's default | Maximum content chunks taken from each source (1–5). |
 | `includeImages` | bool | No | `false` | Include the image URLs found on each page. |
-| `failOnPartial` | bool | No | `false` | Fail the flow when Tavily could not extract every URL it was given. |
+| `failOnPartial` | bool | No | `false` | Fail the flow when Tavily could not extract every URL it was given. Subordinate to `failOnError` — see below. |
 | `resultVar` | string | No | — | Store the response here and leave the body. |
 | `failOnError` | bool | No | `true` | Turn a Tavily API error into a flow error. |
 
@@ -120,6 +120,8 @@ Both accept a bare string as a one-element list, matching Tavily's own tolerance
 
 <Callout type="warn">
 Tavily reports per-URL failures **inside a 200**: some URLs land in `results`, the rest in `failed_results`. By default the block passes the whole response through and your flow decides. Set `failOnPartial: true` when working from fewer pages than you asked for is wrong — otherwise a partial extraction reads exactly like a complete one.
+
+`failOnPartial` is subordinate to `failOnError`: with `failOnError: false` the message passes through regardless, because that setting is the block-wide "must not abort my flow" switch and a setting that overrode it would make its guarantee conditional.
 </Callout>
 
 ```yaml
