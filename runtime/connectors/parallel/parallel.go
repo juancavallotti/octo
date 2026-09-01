@@ -1,0 +1,240 @@
+// Package parallel integrates Parallel's web research APIs with flows. Its
+// connector holds the API key and the webhook secret; the blocks it registers run
+// a synchronous search, start an asynchronous task run, and authenticate the
+// callback that run delivers.
+//
+// The two halves are deliberately different shapes. Search answers in the same
+// request. A task run does not: it returns a handle, and the answer arrives later
+// as a webhook posted to a route the flow owns, over the http connector — which
+// is why this connector also verifies signatures, the way slack and notion do.
+package parallel
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/juancavallotti/octo/runtime/connectors/internal/httppool"
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
+)
+
+// init is this module's manifest: the one place that says what importing this
+// package puts into the runtime, in a deterministic order. Each block's own
+// registration lives beside the block as a registerX function called from here.
+func init() {
+	registerConnector()
+	registerSearch()
+}
+
+func registerConnector() {
+	core.MustRegisterConnector("parallel", func() core.Connector {
+		return &Connector{}
+	})
+
+	// Package-level editor defaults: the parallel connector and every parallel-*
+	// block share the Parallel palette group and brand icon unless they set their
+	// own.
+	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: displayName})
+
+	core.RegisterConnectorMeta(core.ConnectorMeta{
+		Type:     "parallel",
+		Label:    displayName,
+		Settings: reflect.TypeFor[connectorSettings](),
+	})
+}
+
+// displayName is the editor-facing label, palette group, and icon for the
+// parallel connector and its blocks.
+const displayName = "Parallel"
+
+const (
+	defaultAPIBaseURL = "https://api.parallel.ai"
+	defaultTimeout    = 30 * time.Second
+	// secretPrefix is the Standard Webhooks marker saying the rest of the secret
+	// is base64-encoded key material rather than the key itself.
+	secretPrefix = "whsec_"
+)
+
+// connectorSettings is the global config decoded from the connector's settings.
+type connectorSettings struct {
+	// Authenticates with the Parallel API; source from ${PARALLEL_API_KEY}. Never logged.
+	APIKey string `json:"apiKey" octo:"label=API key,required"`
+	// Verifies inbound task-run webhooks; required to receive them. Take it from
+	// Settings -> Webhooks on the Parallel platform, whsec_ prefix included.
+	WebhookSecret string `json:"webhookSecret" octo:"label=Webhook secret"`
+	// APIBaseURL overrides the Parallel API base (default https://api.parallel.ai),
+	// mainly so tests can point at a stub server. Not exposed in the editor schema.
+	APIBaseURL string `json:"apiBaseURL"`
+	// Bounds each Parallel API call.
+	Timeout duration `json:"timeout" octo:"label=Timeout,type=string,default=30s"`
+}
+
+// Connector holds Parallel credentials and an HTTP client for the Parallel API.
+// Blocks resolve it by name and either call the API through Call or authenticate
+// an inbound webhook through VerifySignature. It is safe for concurrent use:
+// *http.Client is, and every other field is read-only after Start.
+type Connector struct {
+	client  *http.Client
+	baseURL string
+	apiKey  string
+	// webhookKey is the decoded HMAC key, not the configured string: a Standard
+	// Webhooks secret carries base64 key material behind a whsec_ prefix, and
+	// decoding it once at Start is what turns a malformed secret into a startup
+	// failure instead of a signature that silently never matches.
+	webhookKey []byte
+}
+
+// Start decodes the settings and builds the API client. The webhook secret is
+// optional here — a flow may only ever call the API — but a malformed one is not:
+// it is decoded now so it fails at startup rather than on the first callback.
+func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error {
+	var set connectorSettings
+	if err := config.Settings.Decode(&set); err != nil {
+		return err
+	}
+	if strings.TrimSpace(set.APIKey) == "" {
+		return errors.New("parallel connector requires an \"apiKey\" setting")
+	}
+	key, err := decodeWebhookSecret(set.WebhookSecret)
+	if err != nil {
+		return err
+	}
+
+	timeout := time.Duration(set.Timeout)
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	base := strings.TrimSpace(set.APIBaseURL)
+	if base == "" {
+		base = defaultAPIBaseURL
+	}
+
+	c.baseURL = strings.TrimRight(base, "/")
+	c.apiKey = set.APIKey
+	c.webhookKey = key
+	// A pooled transport: a nil one means http.DefaultTransport, whose idle pool
+	// is two connections per host — see httppool.
+	c.client = httppool.NewClient(timeout)
+	return nil
+}
+
+// decodeWebhookSecret turns a configured secret into HMAC key material. A
+// whsec_-prefixed secret carries base64 key material, which Standard Webhooks
+// says to decode before signing; anything else is used as raw bytes, which is
+// what a secret pasted without its prefix means.
+func decodeWebhookSecret(secret string) ([]byte, error) {
+	secret = strings.TrimSpace(secret)
+	switch {
+	case secret == "":
+		return nil, nil
+	case strings.HasPrefix(secret, secretPrefix):
+		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(secret, secretPrefix))
+		if err != nil {
+			return nil, fmt.Errorf("parallel connector: webhookSecret after %q is not base64: %w", secretPrefix, err)
+		}
+		return key, nil
+	default:
+		return []byte(secret), nil
+	}
+}
+
+// Stop releases nothing: the HTTP client needs no shutdown.
+func (c *Connector) Stop(context.Context) error { return nil }
+
+// HasWebhookSecret reports whether a webhook secret was configured. The verify
+// block asks at build time so a flow that cannot authenticate its callbacks fails
+// to start rather than at the first one.
+func (c *Connector) HasWebhookSecret() bool { return len(c.webhookKey) > 0 }
+
+// Call posts a JSON payload to a Parallel API path ("v1/search",
+// "v1/tasks/runs") and returns the decoded response body. Parallel signals errors
+// with an HTTP status >= 400 carrying a {detail} body, which Call surfaces as a
+// Go error; the decoded body is still returned for context.
+func (c *Connector) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("parallel %s: connector not started", path)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("parallel %s: encode payload: %w", path, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/"+path, bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("parallel %s: build request: %w", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("parallel %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return nil, fmt.Errorf("parallel %s: decode response: %w", path, err)
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return decoded, fmt.Errorf("parallel %s: %s", path, apiErrorMessage(decoded, resp.StatusCode))
+	}
+	return decoded, nil
+}
+
+// apiErrorMessage digs Parallel's error text out of a failed response. It nests
+// the message under detail, as a string or an object, so both are tried before
+// falling back to the status code.
+func apiErrorMessage(body map[string]any, status int) string {
+	switch detail := body["detail"].(type) {
+	case string:
+		if detail != "" {
+			return detail
+		}
+	case map[string]any:
+		for _, key := range []string{"message", "error", "type"} {
+			if msg, _ := detail[key].(string); msg != "" {
+				return msg
+			}
+		}
+	}
+	if msg, _ := body["error"].(string); msg != "" {
+		return msg
+	}
+	return strconv.Itoa(status)
+}
+
+// duration decodes either a Go duration string ("5s") or a numeric nanosecond
+// count from settings, since settings round-trip through JSON.
+type duration time.Duration
+
+// UnmarshalJSON parses a duration from a quoted string ("250ms") or a number.
+func (d *duration) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if s == "null" || s == "" {
+		return nil
+	}
+	if strings.HasPrefix(s, `"`) {
+		parsed, err := time.ParseDuration(strings.Trim(s, `"`))
+		if err != nil {
+			return fmt.Errorf("parse duration: %w", err)
+		}
+		*d = duration(parsed)
+		return nil
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse duration: %w", err)
+	}
+	*d = duration(n)
+	return nil
+}

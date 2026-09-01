@@ -21,6 +21,7 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/connectors/logger"         // registers the "logger" connector and "log" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/mongodb"        // registers the "mongodb" connector and its blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/notion"         // registers the "notion" connector and its blocks
+	_ "github.com/juancavallotti/octo/runtime/connectors/parallel"       // registers the "parallel" connector and its blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/pinecone"       // registers the "pinecone" connector and its blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/queue"          // registers the "queue" connector + source and the "queue-dispatch" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/slack"          // registers the "slack" connector and its blocks

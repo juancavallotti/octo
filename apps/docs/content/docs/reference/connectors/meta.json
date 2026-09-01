@@ -11,7 +11,8 @@
     "slack",
     "notion",
     "llm",
-    "pinecone"
+    "pinecone",
+    "parallel"
   ],
   "title": "Connectors"
 }
