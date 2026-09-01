@@ -1026,6 +1026,31 @@ tasks:
           --set orchestrator.devRuns.enabled=false \
           --set orchestrator.devRuns.hashSecret= \
           --set orchestrator.baseDomain=apps.example.com
+        # The two keys held in a Secret the operator owns instead of given as values.
+        # Both halves matter and neither is provable by a successful render alone:
+        # the chart must create no Secret of its own (a second one would fight the
+        # first over the same name), and no key material may appear in the output at
+        # all — which is the entire reason to use an existing Secret, since Helm keeps
+        # every value it is given in the release history.
+        check_absent kv-existing-secret "name: octo-kv" \
+          --set kv.encryptionKey= --set kv.existingSecret=my-kv \
+          --set kv.existingSecretKey=enc
+        check_contains kv-existing-secret-ref \
+          "name: my-kv" "key: enc" -- \
+          --set kv.encryptionKey= --set kv.existingSecret=my-kv \
+          --set kv.existingSecretKey=enc
+        # The dev-run key from an existing Secret, with the key name left to default.
+        # This is also the one render proving the `required` above does NOT fire when
+        # the value legitimately has nowhere to come from: hashSecret is cleared here.
+        check_contains devruns-existing-secret \
+          "name: my-devruns" "key: dev-run-hash-secret" -- \
+          --set orchestrator.devRuns.hashSecret= \
+          --set orchestrator.devRuns.existingSecret=my-devruns \
+          --set orchestrator.baseDomain=apps.example.com
+        check_absent devruns-existing-no-chart-secret "dev-run-hash-secret: " \
+          --set orchestrator.devRuns.hashSecret= \
+          --set orchestrator.devRuns.existingSecret=my-devruns \
+          --set orchestrator.baseDomain=apps.example.com
         # Retention turned off: the CronJob vanishes entirely. It is the only
         # CronJob the chart has, and the flag's whole job is to remove it, so
         # nothing that asserts a successful render could catch this regressing.

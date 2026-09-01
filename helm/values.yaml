@@ -202,6 +202,12 @@ orchestrator:
     # Any string; its bytes are used as an HMAC key, so there is no length or encoding
     # requirement. 48+ random characters is a sensible choice.
     hashSecret: ""
+    # Or name a Secret you already hold, and the chart creates none and requires no
+    # hashSecret. The same reasoning as kv.existingSecret applies, and harder: this
+    # key must not change, so it must not be somewhere that copies it around. With
+    # this set the value never enters the release history at all.
+    existingSecret: ""
+    existingSecretKey: dev-run-hash-secret
 
 # Telemetry aggregator. It consumes both internal.logs and internal.traces, and
 # serves the query API behind them — the name is historical, and tracked as its
@@ -460,6 +466,14 @@ agenticrunner:
 # works. Terraform generates and supplies it on the platform (held in release state).
 kv:
   encryptionKey: ""
+  # Name an existing Secret holding the key instead, and the chart creates none.
+  # Prefer this: Helm keeps every value it is given in the release history, so an
+  # inline key outlives the revision that introduced it, and it also lives in
+  # whatever wrote the values — a GitOps repository, a pipeline variable, a
+  # deployment record in a panel. This key cannot be rotated to recover from that:
+  # a new one makes every value already written to a secret namespace unreadable.
+  existingSecret: ""
+  existingSecretKey: kv-encryption-key
 
 # Schema applier image (built from sql/Dockerfile); run as a post-install/upgrade
 # hook job to apply sql/schema.sql idempotently.

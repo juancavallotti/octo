@@ -67,12 +67,59 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "auth") }}
 {{- end }}
 
+{{/*
+  Secret and key holding the KV encryption key, and the same pair for the dev-run
+  HMAC key. Two cases each, the same choice the database password already offers:
+  a Secret you already own, or one the chart creates from a value you supply.
+
+  An existing Secret is the better answer for both, and more so than elsewhere.
+  Helm keeps every value it is given in the release history, so an inline key is
+  in a Secret in the namespace for as long as that revision is retained — and it
+  is also in whatever wrote the values: a GitOps repository, a pipeline variable,
+  or, for an operator deploying from a panel, the record of what was deployed.
+  Neither of these keys can be rotated to recover from that: a new KV key makes
+  every value already written to a secret namespace unreadable, and a new dev-run
+  key re-labels every exposed dev run, breaking webhooks registered against the
+  old hostnames. A key that cannot be rotated is one to avoid copying.
+*/}}
 {{- define "octo.kv.secretName" -}}
+{{- if .Values.kv.existingSecret -}}
+{{- .Values.kv.existingSecret -}}
+{{- else -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "kv") }}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.kv.secretKey" -}}
+{{- if .Values.kv.existingSecret -}}
+{{- .Values.kv.existingSecretKey | default "kv-encryption-key" -}}
+{{- else -}}
+kv-encryption-key
+{{- end -}}
+{{- end }}
+
+{{- /* Whether this release has a KV key at all, from either source. The env var,
+       and the Secret when the chart creates one, are both gated on it: with
+       neither set there is no key, secret-namespace writes are rejected, and
+       plain KV still works. */}}
+{{- define "octo.kv.enabled" -}}
+{{- if or .Values.kv.encryptionKey .Values.kv.existingSecret -}}true{{- end -}}
 {{- end }}
 
 {{- define "octo.devRuns.secretName" -}}
+{{- if .Values.orchestrator.devRuns.existingSecret -}}
+{{- .Values.orchestrator.devRuns.existingSecret -}}
+{{- else -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "devruns") }}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.devRuns.secretKey" -}}
+{{- if .Values.orchestrator.devRuns.existingSecret -}}
+{{- .Values.orchestrator.devRuns.existingSecretKey | default "dev-run-hash-secret" -}}
+{{- else -}}
+dev-run-hash-secret
+{{- end -}}
 {{- end }}
 
 {{/*

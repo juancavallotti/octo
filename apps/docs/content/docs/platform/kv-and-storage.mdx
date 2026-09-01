@@ -67,7 +67,7 @@ Two kinds of namespace never reach that directory:
 
 ## Secret namespaces
 
-Namespaces ending in `_secrets` (e.g. `user_secrets`) are **encrypted at rest**: the orchestrator encrypts values with AES-GCM before they reach Postgres and decrypts on read, using the key configured as `KV_ENCRYPTION_KEY` (the Helm chart's `kv.encryptionKey`, a base64-encoded 32-byte AES-256 key). This is what backs the runtime secret store in clustered runs — a flow that writes a secret writes to a secret namespace of this same table.
+Namespaces ending in `_secrets` (e.g. `user_secrets`) are **encrypted at rest**: the orchestrator encrypts values with AES-GCM before they reach Postgres and decrypts on read, using the key configured as `KV_ENCRYPTION_KEY` (the Helm chart's `kv.encryptionKey`, or `kv.existingSecret` naming a Secret that holds it — a base64-encoded 32-byte AES-256 key either way). This is what backs the runtime secret store in clustered runs — a flow that writes a secret writes to a secret namespace of this same table.
 
 Plain namespaces are stored as-is, so ordinary KV traffic pays no encryption cost. When no key is configured, secret-namespace operations are rejected (a 503) while plain KV keeps working.
 
