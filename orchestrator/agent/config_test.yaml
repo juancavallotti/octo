@@ -115,6 +115,22 @@ inputs:
       threadId: t-1
       message: ""
       user: { id: u-1, name: Ada }
+  # A person allowing a web search Dr. Octo asked to run. The panel quotes the id
+  # from the tool_authorization frame; the chat route turns both into headers
+  # server-side, so by the time it is here it is two variables like the stop.
+  an authorization:
+    vars: { X-Agent-Auth-Id: auth_1, X-Agent-Auth: allow }
+    data:
+      threadId: t-1
+      message: ""
+      user: { id: u-1, name: Ada }
+  # The same request denying it. Nothing about "no" travels differently.
+  a denial:
+    vars: { X-Agent-Auth-Id: auth_1, X-Agent-Auth: deny }
+    data:
+      threadId: t-1
+      message: ""
+      user: { id: u-1, name: Ada }
 
 cases:
   # Not mocked, so the agent is built and run for real — with the model UNREACHABLE.
@@ -282,3 +298,38 @@ cases:
     # Naming on an unanswered run is pinned in agentstore_test.go instead, and it
     # does happen: the question was asked and is recorded, so the conversation
     # exists and the chain is handed an empty answer to decide about.
+
+  # An answer is delivered to the run holding the call and this flow stops with an
+  # empty body — including when there is no run, which is this case. A panel cannot
+  # know whether the gate is still open (it may have timed out, or the run may have
+  # been stopped), so a late answer has to be a no-op that answers rather than an
+  # error, exactly as a stop is. No model is called: an answer never starts a run.
+  - name: an authorization for no waiting call returns an empty body without calling the model
+    input: an authorization
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      body: {}
+
+  - name: a denial travels the same way
+    input: a denial
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      body: {}
+
+  # The id is what makes a request an answer rather than a message. Without one the
+  # decision header means nothing, so a stray X-Agent-Auth cannot turn somebody's
+  # question into an authorization — the request runs the agent as usual, which
+  # reaching the unreachable model is what proves.
+  - name: a decision with no id is an ordinary message
+    input:
+      vars: { X-Agent-Auth: allow }
+      data:
+        threadId: t-1
+        message: list my integrations
+        user: { id: u-1, name: Ada }
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic stream: Post "http://127.0.0.1:9/v1/messages"'
