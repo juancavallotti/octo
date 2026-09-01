@@ -48,7 +48,8 @@ type taskRunSettings struct {
 	// CEL expression for the task input: a string, or an object matching the
 	// input schema.
 	Input string `json:"input" octo:"label=Input,type=cel,required"`
-	// CEL expression for a JSON Schema describing the output the task must produce.
+	// CEL expression for the output the task must produce: a JSON Schema object,
+	// or a plain-English description of the answer you want.
 	OutputSchema string `json:"outputSchema" octo:"label=Output schema,type=cel"`
 	// CEL expression for key/value metadata echoed back on the run and its webhook.
 	Metadata string `json:"metadata" octo:"label=Metadata,type=cel"`
@@ -158,7 +159,7 @@ func (p *taskRunProcessor) Process(ctx context.Context, msg *types.Message) (*ty
 // applySchemaAndMetadata evaluates the two optional object expressions onto the
 // payload, each of which must yield an object.
 func (p *taskRunProcessor) applySchemaAndMetadata(payload, activation map[string]any) error {
-	schema, err := evalObject(p.outputSchema, activation)
+	schema, err := evalOutputSchema(p.outputSchema, activation)
 	if err != nil {
 		return fmt.Errorf("parallel-task-run outputSchema: %w", err)
 	}
@@ -173,6 +174,37 @@ func (p *taskRunProcessor) applySchemaAndMetadata(payload, activation map[string
 		payload["metadata"] = metadata
 	}
 	return nil
+}
+
+// evalOutputSchema evaluates the optional output-schema expression into the
+// envelope the Task API expects.
+//
+// output_schema is not a bare JSON Schema: it is a tagged union, and a JSON
+// Schema has to arrive wrapped as {type: "json", json_schema: {...}}. Passing the
+// schema through unwrapped is rejected, because the object's own "type" (usually
+// "object") is not one of the union's tags.
+//
+// A string is passed through untouched — the API documents a bare string as a
+// text schema, which is the cheapest way to say "answer me in prose".
+func evalOutputSchema(program *expr.Program, activation map[string]any) (any, error) {
+	if program == nil {
+		return nil, nil
+	}
+	raw, err := program.Eval(activation)
+	if err != nil {
+		return nil, err
+	}
+	switch schema := raw.(type) {
+	case string:
+		if schema == "" {
+			return nil, nil
+		}
+		return schema, nil
+	case map[string]any:
+		return map[string]any{"type": "json", "json_schema": schema}, nil
+	default:
+		return nil, fmt.Errorf("must evaluate to a JSON Schema object or a description string, got %T", raw)
+	}
 }
 
 // evalObject evaluates an optional expression that must yield an object,

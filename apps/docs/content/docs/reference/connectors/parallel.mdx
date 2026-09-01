@@ -98,7 +98,7 @@ The block **does not wait**. A task run takes far longer than an HTTP request, s
 | `connector` | string | Yes | — | Name of the `parallel` connector to use. |
 | `processor` | string | Yes | — | Parallel processor to run the task on; it selects the depth/cost tier. |
 | `input` | expression | Yes | — | CEL expression for the task input: a string, or an object matching the input schema. |
-| `outputSchema` | expression | No | — | CEL expression for a JSON Schema describing the output the task must produce. |
+| `outputSchema` | expression | No | — | CEL expression for the output the task must produce: a JSON Schema object, or a plain-English description of the answer you want. |
 | `metadata` | expression | No | — | CEL expression for key/value metadata echoed back on the run and its webhook. |
 | `webhookURL` | string | No | — | URL Parallel posts the run's result to. |
 | `eventTypes` | string[] | No | `[task_run.status]` | Event types to deliver to the webhook. |
@@ -116,6 +116,12 @@ The block **does not wait**. A task run takes far longer than an HTTP request, s
     input: body.question
     metadata: '{"correlationId": body.id}'
     webhookURL: ${PARALLEL_WEBHOOK_URL}
+```
+
+`output_schema` is a tagged union in Parallel's API, so a JSON Schema object is sent wrapped as `{"type": "json", "json_schema": …}` — the block does that for you. A string is passed through untouched, which the API reads as a text schema:
+
+```yaml
+    outputSchema: '"a one-paragraph summary with a source URL"'
 ```
 
 Point `webhookURL` at an [http](/reference/connectors/http) source in this same service, and authenticate what arrives there. Use `metadata` to carry your own correlation id: it comes back on the webhook, which is how the callback finds the request that started the run.

@@ -194,6 +194,33 @@ func TestVerifyReadsRawContentBody(t *testing.T) {
 	}
 }
 
+// Bytes that carry a valid signature and still will not parse mean something is
+// wrong. Reporting it beats letting the flow read body.data off the raw envelope.
+func TestVerifyReportsUnparseableSignedBody(t *testing.T) {
+	const notJSON = `{"type":"task_run.status",`
+
+	conn := startConnector(t, map[string]any{"apiKey": "pk-test", "webhookSecret": webhookSecret})
+	proc, err := newVerify(types.Settings{"connector": "parallel"}, depsFor(conn))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+
+	ts := time.Now().Unix()
+	mac := hmac.New(sha256.New, []byte(webhookKey))
+	_, _ = mac.Write([]byte(webhookID + "." + strconv.FormatInt(ts, 10) + "." + notJSON))
+	sig := signatureVersion + "," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	msg := blockMessage(t, nil)
+	msg.Variables.Set(defaultIDHeader, webhookID)
+	msg.Variables.Set(defaultTimestampHeader, strconv.FormatInt(ts, 10))
+	msg.Variables.Set(defaultSignatureHeader, sig)
+	msg.SetRawBody("application/json", notJSON)
+
+	if _, err := proc.Process(context.Background(), msg); err == nil {
+		t.Fatal("expected a correctly signed but unparseable body to be an error")
+	}
+}
+
 func TestVerifyExplicitVarWinsOverRawContent(t *testing.T) {
 	proc, err := newVerify(types.Settings{
 		"connector":  "parallel",

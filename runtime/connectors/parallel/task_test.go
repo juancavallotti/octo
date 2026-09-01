@@ -183,10 +183,16 @@ func TestTaskRunSendsOutputSchemaAndMetadata(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 
+	// output_schema is a tagged union, so a JSON Schema travels wrapped. Sending
+	// the schema bare is rejected: its own "type" is "object", not a union tag.
 	spec, _ := got["task_spec"].(map[string]any)
-	schema, _ := spec["output_schema"].(map[string]any)
+	envelope, _ := spec["output_schema"].(map[string]any)
+	if envelope["type"] != "json" {
+		t.Errorf("task_spec.output_schema.type = %v, want json", envelope["type"])
+	}
+	schema, _ := envelope["json_schema"].(map[string]any)
 	if schema["type"] != "object" {
-		t.Errorf("task_spec.output_schema = %v", spec["output_schema"])
+		t.Errorf("task_spec.output_schema.json_schema = %v, want the schema itself", envelope["json_schema"])
 	}
 	metadata, _ := got["metadata"].(map[string]any)
 	if metadata["correlationId"] != "abc" {
@@ -197,8 +203,32 @@ func TestTaskRunSendsOutputSchemaAndMetadata(t *testing.T) {
 	}
 }
 
+// A bare string is a text schema — the API documents it, and it is the cheapest
+// way to say "answer me in prose".
+func TestTaskRunPassesAStringOutputSchemaThrough(t *testing.T) {
+	var got map[string]any
+	srv := taskStub(t, &got, nil)
+
+	proc, err := newTaskRun(types.Settings{
+		"connector":    "parallel",
+		"processor":    "core",
+		"input":        `"q"`,
+		"outputSchema": `"a one-paragraph summary"`,
+	}, blockDeps(t, srv.URL))
+	if err != nil {
+		t.Fatalf("newTaskRun: %v", err)
+	}
+	if _, err := proc.Process(context.Background(), blockMessage(t, nil)); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	spec, _ := got["task_spec"].(map[string]any)
+	if spec["output_schema"] != "a one-paragraph summary" {
+		t.Errorf("output_schema = %v, want the string untouched", spec["output_schema"])
+	}
+}
+
 func TestTaskRunRejectsNonObjectSchemaAndMetadata(t *testing.T) {
-	for _, field := range []string{"outputSchema", "metadata"} {
+	for _, field := range []string{"metadata"} {
 		var got map[string]any
 		srv := taskStub(t, &got, nil)
 
@@ -215,6 +245,22 @@ func TestTaskRunRejectsNonObjectSchemaAndMetadata(t *testing.T) {
 		if _, err := proc.Process(context.Background(), blockMessage(t, nil)); err == nil {
 			t.Errorf("expected an error when %s does not evaluate to an object", field)
 		}
+	}
+
+	// outputSchema takes an object or a string, so only a third kind is an error.
+	var got map[string]any
+	srv := taskStub(t, &got, nil)
+	proc, err := newTaskRun(types.Settings{
+		"connector":    "parallel",
+		"processor":    "core",
+		"input":        `"q"`,
+		"outputSchema": "42",
+	}, blockDeps(t, srv.URL))
+	if err != nil {
+		t.Fatalf("newTaskRun: %v", err)
+	}
+	if _, err := proc.Process(context.Background(), blockMessage(t, nil)); err == nil {
+		t.Error("expected an error when outputSchema is neither an object nor a string")
 	}
 }
 
