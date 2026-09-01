@@ -822,12 +822,17 @@ adopt. Destroying storage is the infrastructure layer's job.
 | `kv.encryptionKey` | `""` | Base64 32-byte AES-256 key encrypting KV secret namespaces at rest. Empty rejects secret-namespace writes; plain KV still works. See [KV and storage](/platform/kv-and-storage). |
 | `kv.existingSecret` / `.existingSecretKey` | `""` / `kv-encryption-key` | Read that key from a Secret you already own, and the chart creates none. Preferred: every value passed to Helm stays in the release history, and this key cannot be rotated to recover from a leak — a new one makes everything already written to a secret namespace unreadable. Clear `kv.encryptionKey` when you set it; both together is refused. |
 | `auth.oidc.enabled` | `false` | Gate the editor behind OIDC SSO (Auth.js). Disabled, the editor is open. |
-| `auth.oidc.issuer` / `.clientId` / `.clientSecret` | – | IdP details; the secret lands in the chart's auth Secret. Any OIDC provider works — register `{auth.url}/api/auth/callback/oidc` as its redirect URI. |
+| `auth.oidc.issuer` / `.clientId` | – | IdP details, neither of them a credential; both are plain env values on the editor. Any OIDC provider works — register `{auth.url}/api/auth/callback/oidc` as its redirect URI. |
+| `auth.oidc.clientSecret` | – | **Required when SSO is on**, unless `auth.existingSecret` below. Lands in the chart's auth Secret. |
 | `auth.oidc.providerName` / `.providerLogo` | `""` | What the sign-in button calls the provider ("Sign in with …", default `OIDC`) and the mark beside it (default: the issuer's favicon). |
 | `auth.oidc.scopes` | `""` | Space-separated scopes; empty requests `openid profile email`. |
 | `auth.oidc.endpoints.*` | `""` | `authorization` / `token` / `userinfo` / `jwks` overrides, for providers whose discovery document is unusable. Leave empty against a compliant one. |
-| `auth.secret` | `""` | Auth.js session secret (`AUTH_SECRET`). |
+| `auth.secret` | `""` | **Required when SSO is on**, unless `auth.existingSecret` below. Auth.js session secret (`AUTH_SECRET`); `openssl rand -base64 32` mints one. Rendering fails without it rather than producing a Secret with an empty key, which Auth.js rejects at the first sign-in and nowhere earlier. |
+| `auth.existingSecret` | `""` | A Secret you already own carrying **both** credentials, so the chart creates none and requires neither inline value. Preferred, for the reason `kv.existingSecret` gives. Clear `clientSecret` and `secret` when you set it; both together is refused. |
+| `auth.existingSecretClientSecretKey` / `.existingSecretAuthSecretKey` | `oidc-client-secret` / `auth-secret` | Keys within it. The defaults match the chart's own Secret, so a Secret created with those key names needs neither line. |
 | `auth.writeRoles` / `.rolesClaim` | `""` | Roles allowed to mutate, and the ID-token claim carrying them. |
+| `embeddings.apiKey` | `""` | Provider key for the embedding server, when one is deployed. |
+| `embeddings.existingSecret` / `.existingSecretKey` | `""` / `apiKey` | That key from a Secret you already own, and the chart creates none. Clear `apiKey` when you set it; both together is refused. |
 | `orchestrator.devRuns.hashSecret` | `""` | **Required when dev runs are on.** Keys the derivation of every dev run's identity and hostname — see [Dev runs](#dev-runs), which explains why the chart will not generate one. |
 | `orchestrator.devRuns.existingSecret` / `.existingSecretKey` | `""` / `dev-run-hash-secret` | Take that key from a Secret you own instead. Satisfies the requirement above — with it set, `hashSecret` is not needed, and setting both is refused. |
 
@@ -873,12 +878,13 @@ as a child process of whichever platform replica answered the request. That is t
 whole point: the platform app runs several replicas with no session affinity, so a
 run living in one replica's memory is invisible to every other one — status reads
 report "not running", log streams attach to nothing, and a Stop lands on the wrong
-pod. Off by default; a single-replica self-hosted install has no such problem. See
+pod. On by default, since this is the chart that runs several replicas; turn it off
+for a single-replica install, which has no such problem. See
 [Dev runs](/platform/dev-runs) for what the feature does.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `orchestrator.devRuns.enabled` | `false` | Turn the feature on. Renders the two images, the sidecar port, the idle timeout and the key Secret into the orchestrator's environment; without them the orchestrator reports dev runs unavailable and the editor's Run says so. |
+| `orchestrator.devRuns.enabled` | `true` | Turn the feature off, or leave it on. Renders the two images, the sidecar port, the idle timeout and the key Secret into the orchestrator's environment; without them the orchestrator reports dev runs unavailable and the editor's Run says so. |
 | `orchestrator.devRuns.hashSecret` | `""` | **Required.** HMAC key deriving each run's identity and its public hostname from (user, integration). |
 | `orchestrator.devRuns.existingSecret` / `.existingSecretKey` | `""` / `dev-run-hash-secret` | That key from a Secret you already hold. The requirement is on the pair, not on `hashSecret` alone. |
 | `orchestrator.devRuns.idleTimeout` | `60m` | How long a run survives untouched before the orchestrator reaps it. The only bound on how many pods an editing session leaves behind — there is no per-user cap. |
@@ -894,29 +900,45 @@ generated key would be regenerated by any render that cannot read the cluster
 (`helm template`, `--dry-run`, a GitOps pipeline). Generate it once and hold it
 wherever you hold `kv.encryptionKey`.
 
-Holding it in a Secret rather than a values file is the better answer for both,
-and `existingSecret` is how:
+Holding it in a Secret rather than a values file is the better answer for both —
+and for every other credential the chart takes. `existingSecret` is how, and it
+is the same shape everywhere:
 
 ```yaml
+postgres:
+  auth:
+    existingSecret: octo-postgres  # key: postgres-password
 kv:
   existingSecret: octo-kv          # key: kv-encryption-key
+auth:
+  existingSecret: octo-auth        # keys: oidc-client-secret, auth-secret
+embeddings:
+  existingSecret: octo-embeddings  # key: apiKey
 orchestrator:
   devRuns:
     existingSecret: octo-devruns   # key: dev-run-hash-secret
 ```
 
-The chart then creates neither Secret and never sees either value, so no key
-material lands in the release history — only the Secret's name and key, which are
-a reference and not a credential. The same goes for whatever wrote the values,
-which for a GitOps repository or a deployment record in an operations panel
-outlives the release by a long way.
+The chart then creates none of those Secrets and never sees any of the values, so
+no key material lands in the release history — only names and keys, which are
+references and not credentials. The same goes for whatever wrote the values, which
+for a GitOps repository or a deployment record in an operations panel outlives the
+release by a long way.
+
+<Callout type="warn">
+  **`--set-file` and `set_sensitive` do not help.** They change how a value is
+  supplied and how it is printed, not where it ends up: Helm writes every value it
+  is given into the release Secret in the cluster, and keeps it for every retained
+  revision. A reference is the only form that does not.
+</Callout>
 
 Clear the inline value when you switch. Setting both is refused rather than
 resolved by precedence, and the reason is worth stating: suppressing the chart's
 Secret does not unsay the value, because Helm keeps everything it is given in the
-release history whether a template renders it or not. Leaving `encryptionKey` or
-`hashSecret` in place beside an `existingSecret` would keep exactly the copy the
-switch was made to avoid, while reading as though it had been moved.
+release history whether a template renders it or not. Leaving `encryptionKey`,
+`hashSecret`, `apiKey` or the two `auth` values in place beside an
+`existingSecret` would keep exactly the copy the switch was made to avoid, while
+reading as though it had been moved.
 
 Migrating an installation that already has one inline is worth being clear-eyed
 about, too: revisions written before the change still hold what they were given,

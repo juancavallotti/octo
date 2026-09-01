@@ -279,17 +279,60 @@ Per-deploy values (`image_tag`, `chart_version`) come from the command line inst
 | `oidc_write_roles` | `""` | roles allowed to write; empty = any signed-in user |
 | `oidc_roles_claim` | `""` | id-token claim for roles (Auth.js default `roles`) |
 
+### Where the credentials live
+
+There is no Secret Manager here, which is a stated trade rather than an omission.
+The `release` root generates the Postgres password, the Auth.js session secret,
+the KV encryption key and the dev-run HMAC key and holds them in its own state
+(the versioned, encrypted GCS bucket named by `backend.hcl`); the OIDC client
+secret and the embedding provider key are supplied by you and persisted beside
+it, so a Cloud Build deploy — which has no `terraform.tfvars` — can read them
+back.
+
+None of them is passed to Helm. `modules/octo-secrets` installs each one into
+the cluster as a Kubernetes Secret before the chart is applied, and
+`modules/helm-release` passes only its name and key:
+
+| Secret | Chart value it satisfies |
+|---|---|
+| `octo-postgres` | `postgres.auth.existingSecret` |
+| `octo-auth` | `auth.existingSecret` (client secret + session secret) |
+| `octo-kv` | `kv.existingSecret` |
+| `octo-devruns` | `orchestrator.devRuns.existingSecret` |
+| `octo-embeddings` | `embeddings.existingSecret` |
+
+The reason is that Helm keeps every value it is given in the release history.
+`set_sensitive` marks a value secret to Terraform's plan output and does nothing
+about the release Secret Helm writes it into, which is retained per revision, in
+the cluster, and outlives the rotation meant to end it. A reference leaves no
+copy behind.
+
+**Upgrading an installation created before this change.** The namespace used to
+be created by Helm and is now a Terraform resource, so the first apply tries to
+create one that already exists. Import it once:
+
+```bash
+terraform -chdir=deploy/terraform/release import \
+  'module.secrets.kubernetes_namespace_v1.octo[0]' octo
+```
+
+The credentials themselves do not change — they come from the same state — so
+the apply swaps chart values for references and rolls the Deployments once.
+Revisions written before the change still hold what they were given; `helm
+history` and a truncated `--history-max` are how to retire them.
+
 ### Editor SSO (OIDC, optional)
 
 Any OIDC provider that speaks the authorization-code flow will do — Octo ships none
 and privileges none. Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `release/terraform.tfvars`.
 The `release` root consumes these directly (this setup uses no Secret Manager — all
 generated credentials live in the bucket-backed release state) and generates the
-Auth.js session secret. The
-chart creates the `{release}-auth` Secret for the client secret + session secret, and
-the editor gets `OIDC_ISSUER`, `OIDC_CLIENT_ID` (plain), `OIDC_CLIENT_SECRET`,
-`AUTH_SECRET` (from the Secret), plus `AUTH_URL` and `AUTH_TRUST_HOST`. Auth turns on
-automatically once those are present; with `oidc_enabled = false` the editor stays open.
+Auth.js session secret. Both are installed into the cluster as the `octo-auth`
+Secret and named to the chart through `auth.existingSecret`, so neither is a Helm
+value; the editor gets `OIDC_ISSUER`, `OIDC_CLIENT_ID` (plain),
+`OIDC_CLIENT_SECRET`, `AUTH_SECRET` (from that Secret), plus `AUTH_URL` and
+`AUTH_TRUST_HOST`. Auth turns on automatically once those are present; with
+`oidc_enabled = false` the editor stays open.
 
 The client secret and session secret live in the release Terraform state (the GCS
 bucket), consistent with the Postgres password — keep the state bucket locked down.
