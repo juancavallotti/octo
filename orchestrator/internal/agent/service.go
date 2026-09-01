@@ -741,11 +741,29 @@ func (s *Service) webSearchKey(ctx context.Context) (deployment.EnvBinding, erro
 	}
 	key, err := s.webSearch.Reveal(ctx)
 	if err != nil {
+		// Deliberately not the removal path below: a key that could not be read is
+		// not a key that was removed, and deleting the secret on the strength of a
+		// decryption failure would destroy the credential the next roll-out needs.
 		slog.Error("could not read the site's web search key; the agent installs without it",
 			"error", err)
 		return unconfigured, nil
 	}
 	if key == "" {
+		// Nothing is stored, so nothing should be left in the cluster either. Without
+		// this, an installation that configured a key and later removed it kept the
+		// old one as a platform secret until the agent was purged — a live credential
+		// with nothing owning it and no page reporting it.
+		//
+		// force, because the deployment about to be replaced still references it. Not
+		// found is the ordinary case: most installations never stored one.
+		if err := s.secrets.Delete(ctx, webSearchKeySecret, true); err != nil &&
+			!errors.Is(err, secret.ErrNotFound) {
+			// Not fatal. The binding below is the sentinel either way, so the agent
+			// cannot search — what is left is a stale secret, which is worth an
+			// operator's attention rather than a refused roll-out.
+			slog.Error("could not remove the stored web search key secret",
+				"secret", webSearchKeySecret, "error", err)
+		}
 		return unconfigured, nil
 	}
 	if _, err := s.secrets.Create(ctx, webSearchKeySecret, key); err != nil {

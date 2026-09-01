@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -261,8 +262,15 @@ type fakeCredentials struct {
 	reveals  int
 }
 
+// Delete reports a secret that was never written the way the real service does —
+// as ErrNotFound. That is the ordinary outcome for the web search key, which most
+// installations never store, so a fake that answered nil would hide whether the
+// callers tolerate it.
 func (f *fakeSecrets) Delete(_ context.Context, name string, _ bool) error {
 	f.deleted = append(f.deleted, name)
+	if _, ok := f.written[name]; !ok {
+		return secret.ErrNotFound
+	}
 	delete(f.written, name)
 	return nil
 }
@@ -677,6 +685,57 @@ func TestRolloutPicksUpAWebSearchKeySavedAfterTheInstall(t *testing.T) {
 	}
 	if got := h.deployments.rollouts[0].env[envWebSearchKey].Secret; got != webSearchKeySecret {
 		t.Errorf("%s binding = %q, want the secret reference", envWebSearchKey, got)
+	}
+}
+
+// Removing the key in Admin has to remove it from the cluster too. It used to be
+// left behind: the binding went back to the sentinel, so the agent could not search
+// — but the credential itself sat in the shared Secret with nothing owning it and
+// no page reporting it, until somebody purged the whole install.
+func TestRolloutRemovesTheWebSearchSecretWhenTheKeyIsCleared(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+	h.webSearch.key = "parallel-test-key"
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, ok := h.secrets.written[webSearchKeySecret]; !ok {
+		t.Fatal("the install did not store the key, so this test proves nothing")
+	}
+
+	h.webSearch.key = ""
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	if _, ok := h.secrets.written[webSearchKeySecret]; ok {
+		t.Error("the old web search key survived a roll-out with the key removed")
+	}
+	if got := h.deployments.rollouts[0].env[envWebSearchKey].Value; got != WebSearchUnconfigured {
+		t.Errorf("%s = %q, want the sentinel", envWebSearchKey, got)
+	}
+}
+
+// A key that cannot be READ is not a key that was removed. Deleting on a decryption
+// failure would destroy the credential the next roll-out needs, so this one path
+// deliberately leaves the secret alone.
+func TestAKeyThatCannotBeReadLeavesTheSecretAlone(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+	h.webSearch.key = "parallel-test-key"
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	h.webSearch.err = errors.New("decrypt: bad key")
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	if _, ok := h.secrets.written[webSearchKeySecret]; !ok {
+		t.Error("a key that could not be read was deleted; only a removed key should be")
 	}
 }
 
@@ -1443,7 +1502,7 @@ func TestPurgeRemovesTheProviderKeySecret(t *testing.T) {
 		t.Fatalf("Uninstall: %v", err)
 	}
 
-	if len(h.secrets.deleted) == 0 || h.secrets.deleted[0] != llmKeySecret {
+	if !slices.Contains(h.secrets.deleted, llmKeySecret) {
 		t.Errorf("deleted secrets = %v, want %q removed", h.secrets.deleted, llmKeySecret)
 	}
 	if _, ok := h.secrets.written[llmKeySecret]; ok {
@@ -1453,6 +1512,10 @@ func TestPurgeRemovesTheProviderKeySecret(t *testing.T) {
 
 // Undeploying without purge keeps the integration, so it keeps the key it will need
 // when it is deployed again.
+//
+// Asserted on the key itself rather than on an empty delete list: an install with no
+// web search key attempts to remove that secret every time, which is how a key
+// removed in Admin stops existing in the cluster.
 func TestUninstallWithoutPurgeKeepsTheProviderKeySecret(t *testing.T) {
 	h := newHarness(t, true)
 	ctx := context.Background()
@@ -1463,8 +1526,11 @@ func TestUninstallWithoutPurgeKeepsTheProviderKeySecret(t *testing.T) {
 	if err := h.svc.Uninstall(ctx, false); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
-	if len(h.secrets.deleted) != 0 {
-		t.Errorf("deleted secrets = %v, want none", h.secrets.deleted)
+	if slices.Contains(h.secrets.deleted, llmKeySecret) {
+		t.Errorf("deleted secrets = %v, want the provider key kept", h.secrets.deleted)
+	}
+	if _, ok := h.secrets.written[llmKeySecret]; !ok {
+		t.Error("want the provider key still in the cluster")
 	}
 }
 
