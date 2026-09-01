@@ -68,8 +68,8 @@ Every block follows the same convention as [pinecone](/reference/connectors/pine
 | `includeRawContent` | enum | No | `none` (omitted) | `none`, `markdown`, or `text`. Includes each result's full cleaned page content. |
 | `includeDomains` | expression | No | — | CEL expression for a list of domains to restrict the search to. |
 | `excludeDomains` | expression | No | — | CEL expression for a list of domains to exclude. |
-| `country` | string | No | — | Two-letter country code to boost results from; `general` topic only. |
-| `language` | string | No | — | Language to boost results in. |
+| `country` | string | No | — | Country to boost results from, as Tavily's lowercase English name (`united states`, `uruguay`) — **not** an ISO code. `general` topic only. |
+| `language` | string | No | — | Language to boost results in, as an ISO 639-1 code (`en`, `fr`, `zh-cn`). |
 | `resultVar` | string | No | — | Store the response here and leave the body; when empty, the response becomes the body. |
 | `failOnError` | bool | No | `true` | Turn a Tavily API error into a flow error. |
 
@@ -86,6 +86,8 @@ Every block follows the same convention as [pinecone](/reference/connectors/pine
     excludeDomains: '["pinterest.com"]'
     resultVar: hits
 ```
+
+`country` and `language` do not use the same convention as each other, which is easy to get wrong: `country` takes Tavily's own lowercase country **names** from a fixed list, while `language` takes an ISO 639-1 **code**. Both are passed through verbatim, so an unsupported value is rejected by Tavily rather than by the block.
 
 An enum left unset is omitted from the request, so Tavily's own default applies rather than this connector pinning one. `none` on `includeAnswer` and `includeRawContent` means the same thing.
 

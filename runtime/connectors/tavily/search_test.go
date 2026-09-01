@@ -63,7 +63,7 @@ func TestSearchSendsConfiguredOptions(t *testing.T) {
 		"includeRawContent": "markdown",
 		"includeDomains":    `["example.com"]`,
 		"excludeDomains":    "body.blocked",
-		"country":           "uy",
+		"country":           "uruguay",
 		"language":          "es",
 		"resultVar":         "hits",
 	}, blockDeps(t, srv.URL))
@@ -86,7 +86,7 @@ func TestSearchSendsConfiguredOptions(t *testing.T) {
 		"chunks_per_source":   float64(2),
 		"include_answer":      "advanced",
 		"include_raw_content": "markdown",
-		"country":             "uy",
+		"country":             "uruguay",
 		"language":            "es",
 	}
 	for key, value := range want {

@@ -57,9 +57,10 @@ type searchSettings struct {
 	IncludeDomains string `json:"includeDomains" octo:"label=Include domains,type=cel"`
 	// CEL expression for a list of domains to exclude from the search.
 	ExcludeDomains string `json:"excludeDomains" octo:"label=Exclude domains,type=cel"`
-	// Two-letter country code to boost results from; general topic only.
+	// Country to boost results from, as Tavily's lowercase English name — "united
+	// states", "uruguay" — not an ISO code. General topic only.
 	Country string `json:"country" octo:"label=Country"`
-	// Language to boost results in.
+	// Language to boost results in, as an ISO 639-1 code ("en", "fr", "zh-cn").
 	Language string `json:"language" octo:"label=Language"`
 	// When set, store the response here and leave the body; when empty, the response
 	// becomes the body.
