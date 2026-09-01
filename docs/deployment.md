@@ -295,11 +295,11 @@ the cluster as a Kubernetes Secret before the chart is applied, and
 
 | Secret | Chart value it satisfies |
 |---|---|
-| `octo-postgres` | `postgres.auth.existingSecret` |
-| `octo-auth` | `auth.existingSecret` (client secret + session secret) |
-| `octo-kv` | `kv.existingSecret` |
-| `octo-devruns` | `orchestrator.devRuns.existingSecret` |
-| `octo-embeddings` | `embeddings.existingSecret` |
+| `octo-db-password` | `postgres.auth.existingSecret` |
+| `octo-auth-creds` | `auth.existingSecret` (client secret + session secret) |
+| `octo-kv-key` | `kv.existingSecret` |
+| `octo-devrun-key` | `orchestrator.devRuns.existingSecret` |
+| `octo-embeddings-key` | `embeddings.existingSecret` |
 
 The reason is that Helm keeps every value it is given in the release history.
 `set_sensitive` marks a value secret to Terraform's plan output and does nothing
@@ -327,7 +327,7 @@ Any OIDC provider that speaks the authorization-code flow will do — Octo ships
 and privileges none. Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `release/terraform.tfvars`.
 The `release` root consumes these directly (this setup uses no Secret Manager — all
 generated credentials live in the bucket-backed release state) and generates the
-Auth.js session secret. Both are installed into the cluster as the `octo-auth`
+Auth.js session secret. Both are installed into the cluster as the `octo-auth-creds`
 Secret and named to the chart through `auth.existingSecret`, so neither is a Helm
 value; the editor gets `OIDC_ISSUER`, `OIDC_CLIENT_ID` (plain),
 `OIDC_CLIENT_SECRET`, `AUTH_SECRET` (from that Secret), plus `AUTH_URL` and

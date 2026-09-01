@@ -13,11 +13,11 @@ object, replaced in place, and gone when it is destroyed.
 
 | Secret | Key | Chart value it satisfies |
 |---|---|---|
-| `{prefix}-postgres` | `postgres-password` | `postgres.auth.existingSecret` |
-| `{prefix}-auth` | `auth-secret`, `oidc-client-secret` | `auth.existingSecret` |
-| `{prefix}-kv` | `kv-encryption-key` | `kv.existingSecret` |
-| `{prefix}-devruns` | `dev-run-hash-secret` | `orchestrator.devRuns.existingSecret` |
-| `{prefix}-embeddings` | `apiKey` | `embeddings.existingSecret` |
+| `{prefix}-db-password` | `postgres-password` | `postgres.auth.existingSecret` |
+| `{prefix}-auth-creds` | `auth-secret`, `oidc-client-secret` | `auth.existingSecret` |
+| `{prefix}-kv-key` | `kv-encryption-key` | `kv.existingSecret` |
+| `{prefix}-devrun-key` | `dev-run-hash-secret` | `orchestrator.devRuns.existingSecret` |
+| `{prefix}-embeddings-key` | `apiKey` | `embeddings.existingSecret` |
 
 Every credential is optional; an empty value creates no Secret and the matching
 output is `null`, which `modules/helm-release` reads as "emit nothing" so a

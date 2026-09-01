@@ -179,11 +179,11 @@ applied, and `modules/helm-release` passes only the Secret's name and key:
 
 | Secret | Chart value it satisfies |
 |---|---|
-| `octo-postgres` | `postgres.auth.existingSecret` |
-| `octo-auth` | `auth.existingSecret` |
-| `octo-kv` | `kv.existingSecret` |
-| `octo-devruns` | `orchestrator.devRuns.existingSecret` |
-| `octo-embeddings` | `embeddings.existingSecret` |
+| `octo-db-password` | `postgres.auth.existingSecret` |
+| `octo-auth-creds` | `auth.existingSecret` |
+| `octo-kv-key` | `kv.existingSecret` |
+| `octo-devrun-key` | `orchestrator.devRuns.existingSecret` |
+| `octo-embeddings-key` | `embeddings.existingSecret` |
 
 <Callout type="warn">
   Helm keeps every value it is given in the release history. `set_sensitive` marks

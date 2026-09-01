@@ -18,6 +18,21 @@
 # `existingSecretKey` values never have to be passed at all. They are still
 # emitted as outputs rather than assumed on the far side — a default that two
 # modules agree on by coincidence is a default that drifts.
+#
+# Secret NAMES deliberately do not match the chart's. The chart names its own
+# Secrets `{release}-{component}` — `octo-postgres`, `octo-auth`, `octo-kv`,
+# `octo-devruns`, `octo-embeddings` — and a Secret created here under one of
+# those names breaks in two different ways. `{release}-postgres` collides
+# outright, because the chart creates that one whatever the password's source: it
+# also carries the username and database name, so Helm refuses to install over a
+# Secret it does not own. The other four collide only on the way in: an
+# installation migrating from an inline value to a reference has a chart-owned
+# Secret of that name in the previous revision, so the upgrade that stops
+# rendering it DELETES the very Secret the new revision points at.
+#
+# Hence a content-describing suffix on each. `helm template` cannot detect either
+# failure — ownership is a property of the release, not of the rendered manifest —
+# so the naming is the only thing preventing them.
 
 resource "kubernetes_namespace_v1" "octo" {
   count = var.create_namespace ? 1 : 0
@@ -46,7 +61,7 @@ resource "kubernetes_secret_v1" "postgres" {
   count = local.postgres ? 1 : 0
 
   metadata {
-    name      = "${var.name_prefix}-postgres"
+    name      = "${var.name_prefix}-db-password"
     namespace = local.namespace
   }
 
@@ -61,7 +76,7 @@ resource "kubernetes_secret_v1" "auth" {
   count = local.auth ? 1 : 0
 
   metadata {
-    name      = "${var.name_prefix}-auth"
+    name      = "${var.name_prefix}-auth-creds"
     namespace = local.namespace
   }
 
@@ -79,7 +94,7 @@ resource "kubernetes_secret_v1" "kv" {
   count = local.kv ? 1 : 0
 
   metadata {
-    name      = "${var.name_prefix}-kv"
+    name      = "${var.name_prefix}-kv-key"
     namespace = local.namespace
   }
 
@@ -95,7 +110,7 @@ resource "kubernetes_secret_v1" "dev_runs" {
   count = local.dev_runs ? 1 : 0
 
   metadata {
-    name      = "${var.name_prefix}-devruns"
+    name      = "${var.name_prefix}-devrun-key"
     namespace = local.namespace
   }
 
@@ -111,7 +126,7 @@ resource "kubernetes_secret_v1" "embeddings" {
   count = local.embeddings ? 1 : 0
 
   metadata {
-    name      = "${var.name_prefix}-embeddings"
+    name      = "${var.name_prefix}-embeddings-key"
     namespace = local.namespace
   }
 

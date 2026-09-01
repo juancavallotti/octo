@@ -77,17 +77,27 @@ come later, in the steps that turn those features on.)
 
 ```bash
 # Postgres password for the bundled database
-kubectl -n octo create secret generic octo-postgres \
+kubectl -n octo create secret generic octo-db-password \
   --from-literal=postgres-password="$(openssl rand -hex 24)"
 
 # AES-256 key encrypting KV secret namespaces at rest — base64 of 32 raw bytes
-kubectl -n octo create secret generic octo-kv \
+kubectl -n octo create secret generic octo-kv-key \
   --from-literal=kv-encryption-key="$(openssl rand -base64 32)"
 
 # HMAC key deriving every dev run's identity and public hostname
-kubectl -n octo create secret generic octo-devruns \
+kubectl -n octo create secret generic octo-devrun-key \
   --from-literal=dev-run-hash-secret="$(openssl rand -base64 32)"
 ```
+
+<Callout type="info">
+  **The names matter.** They must not be the ones the chart uses for Secrets of
+  its own — `{release}-postgres`, `{release}-auth`, `{release}-kv`,
+  `{release}-devruns`, `{release}-embeddings`. `{release}-postgres` collides on
+  install: the chart creates it regardless of where the password comes from,
+  because it also carries the username and database name. The others collide on
+  migration, deleting the Secret you just pointed the release at. The names used
+  here are clear of all five.
+</Callout>
 
 <Callout type="warn">
   **Back up the KV key and the dev-run key before you go any further, and never
@@ -128,16 +138,16 @@ ingress:
 
 postgres:
   auth:
-    existingSecret: octo-postgres
+    existingSecret: octo-db-password
     existingSecretPasswordKey: postgres-password
 
 kv:
-  existingSecret: octo-kv
+  existingSecret: octo-kv-key
   existingSecretKey: kv-encryption-key
 
 orchestrator:
   devRuns:
-    existingSecret: octo-devruns
+    existingSecret: octo-devrun-key
     existingSecretKey: dev-run-hash-secret
 ```
 
@@ -254,7 +264,7 @@ Then create the auth Secret — both credentials in one Secret, because the char
 reads them from one reference:
 
 ```bash
-kubectl -n octo create secret generic octo-auth \
+kubectl -n octo create secret generic octo-auth-creds \
   --from-literal=oidc-client-secret='<the client secret your provider issued>' \
   --from-literal=auth-secret="$(openssl rand -base64 32)"
 ```
@@ -269,7 +279,7 @@ auth:
     clientId: octo
     # Optional: what the sign-in button calls your provider.
     providerName: Acme SSO
-  existingSecret: octo-auth
+  existingSecret: octo-auth-creds
   # Optional: restrict writes to these roles. Empty means any signed-in user.
   writeRoles: ""
 ```
@@ -340,7 +350,7 @@ ranks by matching text. Both are supported — this is a capability, not a
 degradation.
 
 ```bash
-kubectl -n octo create secret generic octo-embeddings \
+kubectl -n octo create secret generic octo-embeddings-key \
   --from-literal=apiKey='<your provider key>'
 ```
 
@@ -350,7 +360,7 @@ embeddings:
   connectorType: llm-openai   # or llm-gemini, llm-openrouter
   model: text-embedding-3-small
   dimensions: 1536
-  existingSecret: octo-embeddings
+  existingSecret: octo-embeddings-key
   existingSecretKey: apiKey
 ```
 
@@ -467,7 +477,7 @@ redeploy them from the editor to pick up a newer one. See
 Because every credential is a Secret you own, rotation does not involve Helm:
 
 ```bash
-kubectl -n octo create secret generic octo-postgres \
+kubectl -n octo create secret generic octo-db-password \
   --from-literal=postgres-password='<new password>' \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n octo rollout restart deploy,statefulset

@@ -915,17 +915,30 @@ is the same shape everywhere:
 ```yaml
 postgres:
   auth:
-    existingSecret: octo-postgres  # key: postgres-password
+    existingSecret: octo-db-password     # key: postgres-password
 kv:
-  existingSecret: octo-kv          # key: kv-encryption-key
+  existingSecret: octo-kv-key            # key: kv-encryption-key
 auth:
-  existingSecret: octo-auth        # keys: oidc-client-secret, auth-secret
+  existingSecret: octo-auth-creds        # keys: oidc-client-secret, auth-secret
 embeddings:
-  existingSecret: octo-embeddings  # key: apiKey
+  existingSecret: octo-embeddings-key    # key: apiKey
 orchestrator:
   devRuns:
-    existingSecret: octo-devruns   # key: dev-run-hash-secret
+    existingSecret: octo-devrun-key      # key: dev-run-hash-secret
 ```
+
+<Callout type="warn">
+  **Do not name your Secret after one the chart creates.** Those are
+  `{release}-postgres`, `{release}-auth`, `{release}-kv`, `{release}-devruns` and
+  `{release}-embeddings`, and reusing one fails in two ways.
+  `{release}-postgres` collides immediately — the chart creates it whatever the
+  password's source, since it also carries the username and database name, and
+  Helm refuses to install over a Secret it does not own. The other four collide
+  only when you migrate: the previous revision owns a Secret of that name, so the
+  upgrade that stops rendering it **deletes the Secret your new revision points
+  at**. Neither shows up in `helm template` — ownership belongs to the release,
+  not to the manifest — so the name is the only thing preventing them.
+</Callout>
 
 The chart then creates none of those Secrets and never sees any of the values, so
 no key material lands in the release history — only names and keys, which are
