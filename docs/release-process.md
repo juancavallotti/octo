@@ -46,10 +46,34 @@ using Conventional Commits.
 - `publish-runtime` — the runtime-only image, multi-arch, to Docker Hub as
   `juancavallotti/octo-runtime`. Same `runtime/Dockerfile` as the cluster image but
   built with `GOTAGS=` (the default, standalone-services build), so it has no
-  NATS/Kubernetes dependency.
+  NATS/Kubernetes dependency. The same build is also tagged
+  `juancavallotti/octo-devruntime-paas`, so the two share a digest by construction.
+- `publish-api-runtime` — the API-delegating runtime (`GOTAGS=api`), multi-arch, as
+  `juancavallotti/octo-api` and, off the same build, `juancavallotti/octo-api-paas`.
+- `build-paas-images` → `publish-paas-images` — every `-paas` image the Helm chart
+  deploys: the editor, orchestrator, log aggregator, schema applier, embedding
+  server, dev sidecar, agentic runner, and the k8s-flavoured runtime. Each is built
+  once per architecture **on a runner of that architecture** (`ubuntu-latest` and
+  `ubuntu-24.04-arm`) and pushed untagged, by digest; `publish-paas-images` then
+  merges each image's two digests into the tagged multi-arch manifest. Nothing wears
+  `:<version>` or `:latest` until both architectures exist, so a half-finished
+  release publishes nothing users pull by name.
 
-Cloud Build separately publishes the five platform images and the Helm chart on the
-same tag (`cloudbuild.yaml`).
+  Building natively rather than emulating arm64 is not an optimization here. Under
+  QEMU the editor image took 25 minutes on a good run and then stopped finishing at
+  all — 0.8.11 hit the 6-hour job ceiling — which is how the chart came to install a
+  stale editor for two releases.
+
+  The set of images is defined once, in that job's matrix. `task release-check`
+  fails if `helm/values.yaml` names an image the workflow does not publish; that
+  check exists because `octo-embeddings-paas` was missing from the matrix from the
+  day the embedding server landed until 0.8.12, and nothing failed loudly.
+- `publish-charts` — both Helm charts to `ghcr.io/juancavallotti/charts`, after
+  verifying every stamped chart version matches the tag.
+
+Cloud Build publishes the same images and chart into the project's private Artifact
+Registry on the same tag (`cloudbuild.yaml`). Its image list and this workflow's are
+separate lists that must agree; when you add an image, add it to both.
 
 ## Expectations
 

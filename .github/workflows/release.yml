@@ -180,9 +180,10 @@ jobs:
             docker.io/juancavallotti/octo-api-paas:latest
 
   # Publish the PaaS-side images — the editor, orchestrator, log aggregator,
-  # schema applier, and the k8s-flavoured runtime the orchestrator deploys per
-  # integration — to public Docker Hub, multi-arch. Previously private, built by
-  # cloudbuild.yaml into Artifact Registry only (see #199).
+  # schema applier, embedding server, and the k8s-flavoured runtime the
+  # orchestrator deploys per integration — to public Docker Hub, multi-arch.
+  # Previously private, built by cloudbuild.yaml into Artifact Registry only
+  # (see #199).
   #
   # The "-paas" suffix (rather than reusing octo-runtime with a tag or suffix for
   # the k8s build) is deliberate: that image isn't actually k8s-specific tuning,
@@ -194,15 +195,46 @@ jobs:
   # standalone, and the standalone build cannot do leader election — publishing
   # both under one name would be a live incident waiting for whoever pulls the
   # wrong one.
-  publish-paas-images:
+  #
+  # WHY THIS IS SPLIT PER ARCHITECTURE AND MERGED AFTERWARDS. It used to be one
+  # job per image emitting both platforms from an amd64 runner, with arm64 under
+  # QEMU. Every image here but one is Go, which emulates acceptably (~20 min).
+  # octo-platform-paas is not: it runs `pnpm install` and a full Next.js build,
+  # and emulated that took 25 minutes on the run that published 0.8.10 and then
+  # simply never finished on the two runs after it — 0.8.11 was cancelled at the
+  # 6-hour job ceiling, and 0.8.12 was still going at 1h20m. Nothing about the
+  # app changed between those releases (v0.8.10..v0.8.11 touched one page), so
+  # this is not a regression to chase in our code: an emulated Node build was
+  # sitting on the edge of viable and fell off it, and the chart has been
+  # installing a stale editor ever since.
+  #
+  # So each platform builds on a runner of its own architecture — no emulation
+  # anywhere — and pushes an untagged, digest-only image. The merge job below
+  # then assembles the two digests into the tagged multi-arch manifest that
+  # users and the chart actually pull. Nothing is tagged until both halves
+  # exist, so a half-published release cannot appear under :latest.
+  build-paas-images:
     needs: release-check
     if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: read
     strategy:
+      # One image failing should not cancel the others: the merge job skips
+      # whatever is incomplete, and a rerun of just the failed leg finishes it.
+      fail-fast: false
       matrix:
-        include:
+        # Two independent axes, so every image is built on both runners. The
+        # target objects carry what is per-image; the platform objects pair an
+        # architecture with the runner that is native to it.
+        platform:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            # GitHub's hosted arm64 runners, free for public repositories —
+            # which this is. This label is the whole reason the split works.
+            runner: ubuntu-24.04-arm
+        target:
           - image: octo-platform-paas
             context: .
             dockerfile: apps/platform/Dockerfile
@@ -233,6 +265,19 @@ jobs:
             # The repo root is the build context: the Go module is rooted there.
             context: .
             dockerfile: runtime/Dockerfile.agentic
+          # The embedding server: the standalone binary plus one small app, baked
+          # in. Its own Dockerfile because it carries an app as well as a binary,
+          # and the repo root is the build context: the Go module is rooted there.
+          #
+          # It was missing from this list from the day the server was added until
+          # 0.8.12 — the chart named octo-embeddings-paas and Docker Hub had never
+          # heard of it, so turning embeddings on in a public-images install got an
+          # ImagePullBackOff and nothing else went wrong loudly enough to notice.
+          # `task release-check` now fails when the chart names an image this
+          # workflow does not publish.
+          - image: octo-embeddings-paas
+            context: .
+            dockerfile: embeddings/Dockerfile
           # NOTE: octo-devruntime-paas is NOT built here. It is byte-for-byte the
           # standalone runtime (GOTAGS=""), so publish-runtime tags it from that one
           # build to guarantee an identical digest — building it again here would not.
@@ -243,26 +288,99 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: docker/setup-qemu-action@v3
+      # No setup-qemu-action: the runner is already the target architecture, and
+      # registering emulators would only invite the build to use them.
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - id: ver
-        run: |
-          REF="${{ inputs.tag || github.ref_name }}"
-          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          build-args: ${{ matrix.buildArgs || '' }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            docker.io/juancavallotti/${{ matrix.image }}:${{ steps.ver.outputs.version }}
-            docker.io/juancavallotti/${{ matrix.image }}:latest
+          context: ${{ matrix.target.context }}
+          file: ${{ matrix.target.dockerfile }}
+          build-args: ${{ matrix.target.buildArgs || '' }}
+          platforms: linux/${{ matrix.platform.arch }}
+          # Pushed by digest and deliberately untagged: a tag pushed here would
+          # be a single-architecture image wearing the name users pull, for as
+          # long as it took the other architecture to finish. The merge job puts
+          # the tags on, once.
+          outputs: type=image,name=docker.io/juancavallotti/${{ matrix.target.image }},push-by-digest=true,name-canonical=true,push=true
+      # The digest is all the merge job needs; the layers are already in the
+      # registry. One file per image per architecture, named by architecture and
+      # holding the digest, so the merge job can reassemble the tree by directory.
+      - name: Record the digest
+        env:
+          IMAGE: ${{ matrix.target.image }}
+          ARCH: ${{ matrix.platform.arch }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          test -n "$DIGEST"
+          mkdir -p "digests/$IMAGE"
+          echo -n "$DIGEST" > "digests/$IMAGE/$ARCH"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.target.image }}-${{ matrix.platform.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Assemble each image's per-architecture digests into the tagged multi-arch
+  # manifest. This is the step that makes :<version> and :latest exist, so until
+  # it runs a release has published nothing anyone pulls by name.
+  #
+  # One job over every image rather than a matrix mirroring the one above: the
+  # image list would have to be repeated to do that, and a list repeated in two
+  # places is a list that eventually disagrees with itself — which is the exact
+  # failure that left octo-embeddings-paas unpublished. Here the images are
+  # whatever directories the artifacts carry.
+  publish-paas-images:
+    needs: build-paas-images
+    if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: digests
+          pattern: digest-*
+          # Every artifact holds one <image>/<arch> file, so merging them all
+          # into one tree reproduces digests/<image>/{amd64,arm64}.
+          merge-multiple: true
+      - name: Create the multi-arch manifests
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -eu
+          version="${TAG#v}"
+          for dir in digests/*/; do
+            image="$(basename "$dir")"
+            refs=""
+            for arch in amd64 arm64; do
+              # A missing architecture means its build leg failed. Publishing the
+              # tag anyway would quietly ship a half-architecture release, so stop
+              # and let the failed leg be rerun instead.
+              if [ ! -f "$dir$arch" ]; then
+                echo "::error::$image has no $arch digest — its build job did not succeed"
+                exit 1
+              fi
+              refs="$refs docker.io/juancavallotti/$image@$(cat "$dir$arch")"
+            done
+            echo "$image: $refs"
+            # shellcheck disable=SC2086 # refs is a deliberately word-split list.
+            docker buildx imagetools create \
+              -t "docker.io/juancavallotti/$image:$version" \
+              -t "docker.io/juancavallotti/$image:latest" \
+              $refs
+            docker buildx imagetools inspect "docker.io/juancavallotti/$image:$version"
+          done
 
   # Publish both Helm charts to GitHub Container Registry, so the stack can be
   # installed without access to this project's Artifact Registry:
