@@ -1,0 +1,89 @@
+---
+title: "Tavily"
+description: "Agentic web search, content extraction, crawling, and site mapping."
+octo_types:
+  - tavily
+  - tavily-search
+---
+
+The `tavily` connector holds the API key and talks to [Tavily](https://tavily.com), a search API built for LLMs: it returns ranked results with content already cleaned and chunked, so a flow can hand them straight to a model. Pair `tavily-search` with [ai-agent](/reference/blocks/ai) for the common research shape — search the live web, then reason over what came back.
+
+## `tavily` connector
+
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `tavily-search`.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `apiKey` | string | Yes | — | Authenticates with the Tavily API; source it from `${TAVILY_API_KEY}`. Never logged. |
+| `timeout` | duration | No | `30s` | Bounds each Tavily API call. |
+
+An `apiBaseURL` setting also exists to override the API base (default `https://api.tavily.com`), mainly for tests; it is not exposed in the editor.
+
+```yaml
+env:
+  - name: TAVILY_API_KEY
+    required: true
+
+connectors:
+  - name: search
+    type: tavily
+    settings:
+      apiKey: ${TAVILY_API_KEY}
+```
+
+### Error handling
+
+Tavily signals errors with an HTTP status ≥ 400 carrying `{detail: {error}}`. Every block has a `failOnError` setting (default `true`): when true, a Tavily error [fails the flow](/concepts/error-handling); when false, the message passes through unchanged.
+
+### Where the result goes
+
+Every block follows the same convention as [pinecone](/reference/connectors/pinecone): the response becomes the **body**, because it is the payload the next block works on. Set `resultVar` to keep the incoming body and store the response in a variable instead.
+
+## `tavily-search` block
+
+**Tavily Search** — search the live web and return the ranked results, optionally with a synthesized answer.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `tavily` connector to use. |
+| `query` | expression | Yes | — | CEL expression for the search query. |
+| `searchDepth` | enum | No | Tavily's `basic` | `basic`, `advanced`, `fast`, or `ultra-fast`. Trades latency for relevance; `advanced` costs two credits, the rest cost one. |
+| `topic` | enum | No | `general` | `general` (the web) or `news`. |
+| `maxResults` | int | No | `5` | Number of results to return (0–20). |
+| `chunksPerSource` | int | No | Tavily's default | Maximum content chunks taken from each source (1–3). |
+| `includeAnswer` | enum | No | `none` (omitted) | `none`, `basic`, or `advanced`. Asks Tavily to synthesize an answer from the results. |
+| `includeRawContent` | enum | No | `none` (omitted) | `none`, `markdown`, or `text`. Includes each result's full cleaned page content. |
+| `includeDomains` | expression | No | — | CEL expression for a list of domains to restrict the search to. |
+| `excludeDomains` | expression | No | — | CEL expression for a list of domains to exclude. |
+| `country` | string | No | — | Two-letter country code to boost results from; `general` topic only. |
+| `language` | string | No | — | Language to boost results in. |
+| `resultVar` | string | No | — | Store the response here and leave the body; when empty, the response becomes the body. |
+| `failOnError` | bool | No | `true` | Turn a Tavily API error into a flow error. |
+
+```yaml
+- type: tavily-search
+  name: research
+  settings:
+    connector: search
+    query: body.question
+    searchDepth: advanced
+    topic: general
+    maxResults: 8
+    includeAnswer: advanced
+    excludeDomains: '["pinterest.com"]'
+    resultVar: hits
+```
+
+An enum left unset is omitted from the request, so Tavily's own default applies rather than this connector pinning one. `none` on `includeAnswer` and `includeRawContent` means the same thing.
+
+**Response shape** — `query`, `results` (each with `title`, `url`, `content`, `score`, and `raw_content` when requested), `answer` when `includeAnswer` was set, plus `response_time` and `usage`.
+
+A domain-list setting takes a CEL expression, so it can be a literal list, or come from the message:
+
+```yaml
+    includeDomains: body.allowedSites
+```
+
+Both accept a bare string as a one-element list, matching Tavily's own tolerance.
