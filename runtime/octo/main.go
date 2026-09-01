@@ -25,6 +25,7 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/connectors/pinecone"       // registers the "pinecone" connector and its blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/queue"          // registers the "queue" connector + source and the "queue-dispatch" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/slack"          // registers the "slack" connector and its blocks
+	_ "github.com/juancavallotti/octo/runtime/connectors/tavily"         // registers the "tavily" connector and its blocks
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/services"
 	// Build tags decide which runtime-services packages are COMPILED IN: standalone

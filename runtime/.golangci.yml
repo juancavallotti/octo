@@ -177,6 +177,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/slack/slack\.go$
         linters: [gochecknoinits]
+      - path: ^connectors/tavily/tavily\.go$
+        linters: [gochecknoinits]
       - path: ^services/api/api\.go$
         linters: [gochecknoinits]
       - path: ^services/k8s/k8s\.go$

@@ -1,0 +1,191 @@
+---
+title: "Tavily"
+description: "Agentic web search, content extraction, crawling, and site mapping."
+octo_types:
+  - tavily
+  - tavily-search
+  - tavily-extract
+  - tavily-crawl
+  - tavily-map
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `tavily` connector holds the API key and talks to [Tavily](https://tavily.com), a search API built for LLMs: it returns ranked results with content already cleaned and chunked, so a flow can hand them straight to a model. Pair `tavily-search` with [ai-agent](/reference/blocks/ai) for the common research shape — search the live web, then reason over what came back.
+
+## `tavily` connector
+
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `tavily-search`, `tavily-extract`, `tavily-crawl`, `tavily-map`.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `apiKey` | string | Yes | — | Authenticates with the Tavily API; source it from `${TAVILY_API_KEY}`. Never logged. |
+| `timeout` | duration | No | `30s` | Bounds each Tavily API call. Raise it for `tavily-crawl` and `tavily-map`. |
+
+An `apiBaseURL` setting also exists to override the API base (default `https://api.tavily.com`), mainly for tests; it is not exposed in the editor.
+
+[`samples/web-research`](https://github.com/juancavallotti/octo/tree/main/samples/web-research) uses every block on this page.
+
+```yaml
+env:
+  - name: TAVILY_API_KEY
+    required: true
+
+connectors:
+  - name: search
+    type: tavily
+    settings:
+      apiKey: ${TAVILY_API_KEY}
+```
+
+<Callout type="warn">
+`tavily-crawl` and `tavily-map` run server-side for up to 150s — five times the connector's default `timeout`. A flow that uses either must raise it (`timeout: 180s`), or the client gives up before Tavily answers.
+</Callout>
+
+### Error handling
+
+Tavily signals errors with an HTTP status ≥ 400 carrying `{detail: {error}}`. Every block has a `failOnError` setting (default `true`): when true, a Tavily error [fails the flow](/concepts/error-handling); when false, the message passes through unchanged.
+
+### Where the result goes
+
+Every block follows the same convention as [pinecone](/reference/connectors/pinecone): the response becomes the **body**, because it is the payload the next block works on. Set `resultVar` to keep the incoming body and store the response in a variable instead.
+
+## `tavily-search` block
+
+**Tavily Search** — search the live web and return the ranked results, optionally with a synthesized answer.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `tavily` connector to use. |
+| `query` | expression | Yes | — | CEL expression for the search query. |
+| `searchDepth` | enum | No | Tavily's `basic` | `basic`, `advanced`, `fast`, or `ultra-fast`. Trades latency for relevance; `advanced` costs two credits, the rest cost one. |
+| `topic` | enum | No | `general` | `general` (the web) or `news`. |
+| `maxResults` | int | No | `5` | Number of results to return (0–20). |
+| `chunksPerSource` | int | No | Tavily's default | Maximum content chunks taken from each source (1–3). |
+| `includeAnswer` | enum | No | `none` (omitted) | `none`, `basic`, or `advanced`. Asks Tavily to synthesize an answer from the results. |
+| `includeRawContent` | enum | No | `none` (omitted) | `none`, `markdown`, or `text`. Includes each result's full cleaned page content. |
+| `includeDomains` | expression | No | — | CEL expression for a list of domains to restrict the search to. |
+| `excludeDomains` | expression | No | — | CEL expression for a list of domains to exclude. |
+| `country` | string | No | — | Country to boost results from, as Tavily's lowercase English name (`united states`, `uruguay`) — **not** an ISO code. `general` topic only. |
+| `language` | string | No | — | Language to boost results in, as an ISO 639-1 code (`en`, `fr`, `zh-cn`). |
+| `resultVar` | string | No | — | Store the response here and leave the body; when empty, the response becomes the body. |
+| `failOnError` | bool | No | `true` | Turn a Tavily API error into a flow error. |
+
+```yaml
+- type: tavily-search
+  name: research
+  settings:
+    connector: search
+    query: body.question
+    searchDepth: advanced
+    topic: general
+    maxResults: 8
+    includeAnswer: advanced
+    excludeDomains: '["pinterest.com"]'
+    resultVar: hits
+```
+
+`country` and `language` do not use the same convention as each other, which is easy to get wrong: `country` takes Tavily's own lowercase country **names** from a fixed list, while `language` takes an ISO 639-1 **code**. Both are passed through verbatim, so an unsupported value is rejected by Tavily rather than by the block.
+
+An enum left unset is omitted from the request, so Tavily's own default applies rather than this connector pinning one. `none` on `includeAnswer` and `includeRawContent` means the same thing.
+
+**Response shape** — `query`, `results` (each with `title`, `url`, `content`, `score`, and `raw_content` when requested), `answer` when `includeAnswer` was set, plus `response_time` and `usage`.
+
+A domain-list setting takes a CEL expression, so it can be a literal list, or come from the message:
+
+```yaml
+    includeDomains: body.allowedSites
+```
+
+Both accept a bare string as a one-element list, matching Tavily's own tolerance.
+
+## `tavily-extract` block
+
+**Tavily Extract** — pull clean, LLM-ready content out of URLs you already have. This is the half of research search does not cover: following a link the flow was handed.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `tavily` connector to use. |
+| `urls` | expression | Yes | — | CEL expression for the URLs to extract: a single URL, or a list of them. |
+| `query` | expression | No | — | CEL expression for the intent used to rerank the extracted chunks. |
+| `extractDepth` | enum | No | Tavily's `basic` | `basic` or `advanced`. `advanced` costs more and retrieves more. |
+| `format` | enum | No | Tavily's `markdown` | `markdown` or `text`. |
+| `chunksPerSource` | int | No | Tavily's default | Maximum content chunks taken from each source (1–5). |
+| `includeImages` | bool | No | `false` | Include the image URLs found on each page. |
+| `failOnPartial` | bool | No | `false` | Fail the flow when Tavily could not extract every URL it was given. Subordinate to `failOnError` — see below. |
+| `resultVar` | string | No | — | Store the response here and leave the body. |
+| `failOnError` | bool | No | `true` | Turn a Tavily API error into a flow error. |
+
+**Response shape** — `results` (each with `url`, `raw_content`, and `images`/`favicon` when requested) and `failed_results`, the URLs that could not be processed.
+
+<Callout type="warn">
+Tavily reports per-URL failures **inside a 200**: some URLs land in `results`, the rest in `failed_results`. By default the block passes the whole response through and your flow decides. Set `failOnPartial: true` when working from fewer pages than you asked for is wrong — otherwise a partial extraction reads exactly like a complete one.
+
+`failOnPartial` is subordinate to `failOnError`: with `failOnError: false` the message passes through regardless, because that setting is the block-wide "must not abort my flow" switch and a setting that overrode it would make its guarantee conditional.
+</Callout>
+
+```yaml
+- type: tavily-extract
+  name: read-sources
+  settings:
+    connector: search
+    urls: body.results.map(r, r.url)
+    format: markdown
+    failOnPartial: true
+```
+
+## `tavily-crawl` block
+
+**Tavily Crawl** — walk a site from a root URL and return each page's extracted content, optionally steered by a natural-language instruction.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `tavily` connector to use. |
+| `url` | expression | Yes | — | CEL expression for the root URL to crawl from. |
+| `instructions` | expression | No | — | CEL expression for a natural-language instruction steering the crawler. |
+| `maxDepth` | int | No | Tavily's `1` | How far from the root URL to explore (1–5). |
+| `maxBreadth` | int | No | Tavily's `20` | Links to follow per page level (1–500). |
+| `limit` | int | No | Tavily's `50` | Total links processed before stopping. |
+| `selectPaths` | expression | No | — | CEL expression for a list of regexes selecting URL paths to visit. |
+| `excludePaths` | expression | No | — | CEL expression for a list of regexes excluding URL paths. |
+| `selectDomains` | expression | No | — | CEL expression for a list of regexes selecting domains to visit. |
+| `excludeDomains` | expression | No | — | CEL expression for a list of regexes excluding domains. |
+| `allowExternal` | bool | No | `true` | Follow links that leave the root domain. |
+| `extractDepth` | enum | No | Tavily's `basic` | `basic` or `advanced`. |
+| `format` | enum | No | Tavily's `markdown` | `markdown` or `text`. |
+| `resultVar` | string | No | — | Store the response here and leave the body. |
+| `failOnError` | bool | No | `true` | Turn a Tavily API error into a flow error. |
+
+**Response shape** — `base_url` and `results`, each with `url` and `raw_content`.
+
+```yaml
+- type: tavily-crawl
+  name: crawl-docs
+  settings:
+    connector: search
+    url: '"https://docs.example.com"'
+    instructions: '"collect every page describing the API"'
+    maxDepth: 3
+    limit: 200
+    allowExternal: false
+```
+
+## `tavily-map` block
+
+**Tavily Map** — discover a site's link graph from a root URL and return the URLs found, without extracting any content. It is crawl's cheap sibling: use it to decide what is worth crawling or extracting.
+
+It takes the same traversal settings as `tavily-crawl` — `url`, `instructions`, `maxDepth`, `maxBreadth`, `limit`, `selectPaths`, `excludePaths`, `selectDomains`, `excludeDomains`, `allowExternal` — plus `resultVar` and `failOnError`. It has no `extractDepth` or `format`, because it extracts nothing.
+
+**Response shape** — `base_url` and `results`, a flat list of discovered URLs.
+
+```yaml
+- type: tavily-map
+  name: survey
+  settings:
+    connector: search
+    url: body.site
+    maxDepth: 2
+    resultVar: siteUrls
+```

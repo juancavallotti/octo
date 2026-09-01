@@ -1296,6 +1296,115 @@ flows:
 `,
 };
 
+/** Agentic web research with Tavily: search, then read the sources it found. */
+const WEB_RESEARCH: Example = {
+  slug: "web-research",
+  title: "web-research — answer a question from the live web with Tavily",
+  summary:
+    "tavily-search answers a question against the live web and reports through resultVar (so the incoming body survives); tavily-extract then reads the pages behind those results, taking the search's urls straight from vars. A second flow uses tavily-map to survey a site's link graph without extracting anything, and a third uses tavily-crawl to walk it and keep the content. Every tavily block puts its response in the body unless resultVar names a variable. Note the connector's raised timeout: crawl and map run server-side for up to 150s, five times the 30s default. Needs TAVILY_API_KEY.",
+  blocks: [
+    "http (source)",
+    "tavily-search",
+    "tavily-extract",
+    "tavily-map",
+    "tavily-crawl",
+    "set-payload",
+    "tavily (connector)",
+  ],
+  definition: `service:
+  name: web-research
+
+env:
+  - name: TAVILY_API_KEY
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: 8080
+  - name: web
+    type: tavily
+    settings:
+      apiKey: \${TAVILY_API_KEY}
+      # crawl and map run server-side for up to 150s — raise the 30s default
+      timeout: 180s
+  - name: out
+    type: logger
+
+flows:
+  - name: research
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /research
+        methods: [POST]
+    process:
+      - type: tavily-search
+        settings:
+          connector: web
+          query: body.question
+          searchDepth: advanced
+          maxResults: 5
+          includeAnswer: advanced
+          resultVar: search        # keep the body so body.question survives
+      - type: tavily-extract       # read the pages the answer came from
+        settings:
+          connector: web
+          urls: vars.search.results.map(r, r.url)
+          format: markdown
+          failOnPartial: false     # Tavily reports per-URL failures inside a 200
+          resultVar: pages
+      - type: set-payload
+        settings:
+          value: |
+            {
+              "question": body.question,
+              "answer": vars.search.answer,
+              "sources": vars.search.results.map(r, r.url),
+              "pages": vars.pages.results
+            }
+
+  - name: survey                   # map: URLs only, no content — crawl's cheap sibling
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /survey
+        methods: [POST]
+    process:
+      - type: tavily-map
+        settings:
+          connector: web
+          url: body.site
+          maxDepth: 2
+          allowExternal: false
+          resultVar: siteUrls
+      - type: set-payload
+        settings:
+          value: 'vars.siteUrls.results'
+
+  - name: crawl-site               # crawl: walk and extract, steered by an instruction
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /crawl
+        methods: [POST]
+    process:
+      - type: tavily-crawl
+        settings:
+          connector: web
+          url: body.site
+          instructions: body.looking_for
+          maxDepth: 2
+          limit: 25
+          allowExternal: false
+          format: markdown
+`,
+};
+
 /** Parallel research: search now, or start an async run answered by a signed webhook. */
 const PARALLEL_RESEARCH: Example = {
   slug: "parallel-research",
@@ -1402,6 +1511,7 @@ export const EXAMPLES: Example[] = [
   AI_ROUTER,
   SLACK_BOT,
   NOTION_WEBHOOK,
+  WEB_RESEARCH,
   PARALLEL_RESEARCH,
   ENRICH,
   VALIDATE,

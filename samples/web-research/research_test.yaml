@@ -1,0 +1,57 @@
+flow: research
+
+# The sample's headline claim: a question goes out to Tavily once, the answer and
+# its sources come back together, and the pages behind those sources are read
+# without a second search.
+#
+# HONEST LIMITS: every tavily block is mocked, so nothing here says Tavily returns
+# good results — these blocks are pure network calls, and a suite that did not mock
+# them would be testing api.tavily.com, not the flow (.env.test's key is fake on
+# purpose). What is pinned is the wiring: which block feeds which, and what the
+# flow answers with.
+
+mocks:
+  # tavily-search reports through vars.search (the sample sets resultVar), so the
+  # mock supplies the variable and leaves the body alone.
+  research.search:
+    default:
+      # Both blocks set a resultVar, so they pass the body through untouched; the
+      # mock has to say so, since a mock replaces the block outright.
+      body: { question: what is an octopus arm made of }
+      vars:
+        search:
+          query: what is an octopus arm made of
+          answer: Mostly muscle, with no bone at all.
+          results:
+            - { url: "https://a.test/anatomy", title: Anatomy, score: 0.94 }
+            - { url: "https://b.test/muscle", title: Muscle, score: 0.81 }
+
+  research.read-sources:
+    default:
+      body: { question: what is an octopus arm made of }
+      vars:
+        pages:
+          results:
+            - { url: "https://a.test/anatomy", raw_content: "# Anatomy" }
+            - { url: "https://b.test/muscle", raw_content: "# Muscle" }
+          failed_results: []
+
+cases:
+  - name: the answer, its sources, and the pages behind them travel together
+    input:
+      data: { question: what is an octopus arm made of }
+    expect:
+      body:
+        question: what is an octopus arm made of
+        answer: Mostly muscle, with no bone at all.
+        sources:
+          - "https://a.test/anatomy"
+          - "https://b.test/muscle"
+        pages:
+          - { url: "https://a.test/anatomy", raw_content: "# Anatomy" }
+          - { url: "https://b.test/muscle", raw_content: "# Muscle" }
+    spies:
+      # One search, one extract: the sources are read from the search already run,
+      # not by searching again.
+      research.search: { count: 1 }
+      research.read-sources: { count: 1 }

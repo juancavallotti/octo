@@ -1,0 +1,24 @@
+flow: crawl-site
+
+# Crawl is the block that both walks and extracts, so its response is the pages
+# themselves. Nothing reshapes it — the flow answers with what Tavily returned.
+
+mocks:
+  crawl-site.crawl:
+    default:
+      body:
+        base_url: "https://docs.test"
+        results:
+          - { url: "https://docs.test/api", raw_content: "# API" }
+
+cases:
+  - name: each crawled page's extracted content becomes the response
+    input:
+      data: { site: "https://docs.test", looking_for: the API reference }
+    expect:
+      body:
+        base_url: "https://docs.test"
+        results:
+          - { url: "https://docs.test/api", raw_content: "# API" }
+    spies:
+      crawl-site.crawl: { count: 1 }

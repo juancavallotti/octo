@@ -16,6 +16,7 @@ does not exist.
 | `mongodb` | MongoDB | no | `mongodb-*` |
 | `pinecone` | Pinecone | no | `pinecone-*` |
 | `notion` | Notion | no | `notion-*` |
+| `tavily` | Tavily | no | `tavily-*` |
 | `parallel` | Parallel | no | `parallel-*` |
 | `slack` | Slack | yes — events | `slack-*` |
 | `llm-anthropic` | Anthropic | no | AI blocks, by category |

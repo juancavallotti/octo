@@ -1,0 +1,27 @@
+flow: survey
+
+# Map is crawl's cheap sibling: it answers with URLs and reads no page content.
+# That distinction is the reason the block exists, so it is what this pins.
+
+mocks:
+  survey.map-site:
+    default:
+      # map-site sets a resultVar, so it passes the body through untouched.
+      body: { site: "https://docs.test" }
+      vars:
+        siteUrls:
+          base_url: "https://docs.test"
+          results:
+            - "https://docs.test/"
+            - "https://docs.test/api"
+
+cases:
+  - name: the discovered urls become the response
+    input:
+      data: { site: "https://docs.test" }
+    expect:
+      body:
+        - "https://docs.test/"
+        - "https://docs.test/api"
+    spies:
+      survey.map-site: { count: 1 }
