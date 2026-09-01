@@ -15,13 +15,59 @@ variable "name_prefix" {
   default     = "octo"
 }
 
+# --- Which Secrets to create ---
+#
+# Explicit booleans rather than "is the credential non-empty", and that is not a
+# style choice: `count` must be resolvable during PLAN, and a credential minted by
+# random_password/random_bytes is unknown until APPLY. Deriving the count from the
+# value itself makes the whole module unplannable on a first apply — Terraform
+# fails with "Invalid count argument" before creating anything. nonsensitive()
+# does not help: it strips sensitivity, not unknown-ness.
+#
+# Every caller already knows the answer from something plan-known — whether it is
+# on a managed database, whether SSO is enabled — so the flag costs nothing and
+# the values stay free to be unknown.
+#
+# Each flag is paired with a precondition on its resource, checked at apply when
+# the value IS known, so `create_x = true` with an empty credential fails by name
+# instead of writing a Secret with an empty key.
+
+variable "create_postgres_secret" {
+  type        = bool
+  description = "Create the bundled-Postgres password Secret. False on an external-database install, which has no chart-owned password."
+  default     = false
+}
+
+variable "create_auth_secret" {
+  type        = bool
+  description = "Create the editor's auth Secret (session secret + OIDC client secret). False unless SSO is enabled — the editor reads neither otherwise. Both credentials are required when true; one without the other renders an SSO install whose sign-in fails after deployment."
+  default     = false
+}
+
+variable "create_kv_secret" {
+  type        = bool
+  description = "Create the KV encryption key Secret. False leaves encryption off: secret-namespace writes are rejected and plain KV still works."
+  default     = false
+}
+
+variable "create_dev_runs_secret" {
+  type        = bool
+  description = "Create the dev-run HMAC key Secret. Required by the chart whenever dev runs are enabled, which is its default."
+  default     = false
+}
+
+variable "create_embeddings_secret" {
+  type        = bool
+  description = "Create the embedding server's provider-key Secret. False deploys no embedding server, which is an ordinary way to run — agent-memory search then ranks by matching text rather than by meaning."
+  default     = false
+}
+
 # --- The credentials ---
 #
-# Every one of these is optional and empty means "create no Secret": an
-# installation with no embedding server has no provider key, and one on a managed
-# database has no bundled-Postgres password. The corresponding output is null, and
-# the helm-release module emits nothing for it — so the chart falls back to
-# whatever a values file said, which is how a values profile stays able to decide.
+# Supplied for each create_* flag that is true, and ignored otherwise. The output
+# for a flag left false is null, and the helm-release module emits nothing for it —
+# so the chart falls back to whatever a values file said, which is how a values
+# profile stays able to decide.
 #
 # Values, not references. This module is the boundary: a credential is a Terraform
 # value on this side of it and a Secret reference on the other, and nothing

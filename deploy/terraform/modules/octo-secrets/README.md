@@ -26,7 +26,8 @@ values profile keeps its say.
 The module also creates the namespace by default, because a Secret has to exist
 before the chart that references it installs and a namespace Helm has not created
 yet is nowhere to put one. Pass its `namespace` output — and
-`create_namespace = false` — to `modules/helm-release`.
+`create_namespace = false` — to `modules/helm-release`, along with
+`depends_on = [module.secrets]`.
 
 A managed database's password is **not** here: it is issued by the cloud provider
 rather than generated for this installation, so the root that creates the

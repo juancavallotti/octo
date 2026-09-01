@@ -886,9 +886,10 @@ as a child process of whichever platform replica answered the request. That is t
 whole point: the platform app runs several replicas with no session affinity, so a
 run living in one replica's memory is invisible to every other one — status reads
 report "not running", log streams attach to nothing, and a Stop lands on the wrong
-pod. On by default, since this is the chart that runs several replicas; turn it off
-for a single-replica install, which has no such problem. See
-[Dev runs](/platform/dev-runs) for what the feature does.
+pod. On by default, since this is the chart that runs several replicas. Turn it off
+only if you do not want the editor's Run at all — a single replica removes the
+state problem above, not the need for the feature, and disabling it makes Run
+unavailable. See [Dev runs](/platform/dev-runs) for what the feature does.
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -940,11 +941,15 @@ orchestrator:
   not to the manifest — so the name is the only thing preventing them.
 </Callout>
 
-The chart then creates none of those Secrets and never sees any of the values, so
-no key material lands in the release history — only names and keys, which are
-references and not credentials. The same goes for whatever wrote the values, which
-for a GitOps repository or a deployment record in an operations panel outlives the
-release by a long way.
+The chart then never sees any of those values, so no key material lands in the
+release history — only names and keys, which are references and not credentials.
+The same goes for whatever wrote the values, which for a GitOps repository or a
+deployment record in an operations panel outlives the release by a long way.
+
+It creates no Secret of its own for the auth, KV, dev-run or embeddings
+credentials. `{release}-postgres` is the exception and is still created, because
+it also carries the username and database name, which are not credentials — with
+`postgres.auth.existingSecret` set it simply holds those two and no password.
 
 <Callout type="warn">
   **`--set-file` and `set_sensitive` do not help.** They change how a value is

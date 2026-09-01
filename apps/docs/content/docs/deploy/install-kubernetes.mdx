@@ -234,9 +234,7 @@ kubectl -n octo get certificate
 
 ### Open the editor
 
-```bash
-open https://octo.example.com
-```
+Visit `https://octo.example.com` in a browser.
 
 The editor is **open to anyone who can reach it** at this point. That is
 deliberate for a local or private-network install and wrong for a public one —
@@ -392,7 +390,7 @@ the alternative is a provider key in every integration's pod.
 | Schema Job | Applies `sql/schema.sql` | Re-runs idempotently on every upgrade |
 | Retention CronJob | Deletes logs and traces past their policy | Nightly |
 
-Verify the whole thing end to end by building a flow in the editor and deploying
+Verify the whole thing end-to-end by building a flow in the editor and deploying
 it — [Your first flow](/getting-started/first-flow) is the shortest path.
 
 ## Production shape
