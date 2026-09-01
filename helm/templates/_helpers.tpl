@@ -63,8 +63,47 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "embeddings") }}
 {{- end }}
 
+{{/*
+  Secret and keys holding the editor's two authentication credentials: the OIDC
+  client secret and the Auth.js session secret. The same choice every other
+  credential in this chart offers — a Secret you already own, or one the chart
+  creates from values you supply — and for the same reason: Helm keeps every
+  value it is given in the release history, so an inline credential outlives the
+  revision that introduced it.
+
+  Both sources at once is refused rather than resolved by precedence, as it is
+  for kv and devRuns. Suppressing the chart's Secret does not unsay the value;
+  it is still in the release history, and the operator has been told by this
+  chart that it is held elsewhere. Unlike those two these credentials CAN be
+  rotated — re-issue the client secret at the provider, mint a new session
+  secret and everyone signs in again — so the failure is recoverable. It is
+  still a failure worth naming at the one moment somebody is looking.
+*/}}
 {{- define "octo.auth.secretName" -}}
+{{- if and .Values.auth.existingSecret (or .Values.auth.oidc.clientSecret .Values.auth.secret) -}}
+{{- fail "auth.existingSecret is set alongside auth.oidc.clientSecret or auth.secret: clear the inline values. Leaving them keeps both credentials in this release's values — and so in the release history — which is the copy existingSecret exists to avoid. Revisions written before the change still hold them." -}}
+{{- end -}}
+{{- if .Values.auth.existingSecret -}}
+{{- .Values.auth.existingSecret -}}
+{{- else -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "auth") }}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.auth.clientSecretKey" -}}
+{{- if .Values.auth.existingSecret -}}
+{{- .Values.auth.existingSecretClientSecretKey | default "oidc-client-secret" -}}
+{{- else -}}
+oidc-client-secret
+{{- end -}}
+{{- end }}
+
+{{- define "octo.auth.sessionSecretKey" -}}
+{{- if .Values.auth.existingSecret -}}
+{{- .Values.auth.existingSecretAuthSecretKey | default "auth-secret" -}}
+{{- else -}}
+auth-secret
+{{- end -}}
 {{- end }}
 
 {{/*

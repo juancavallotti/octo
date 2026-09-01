@@ -87,7 +87,7 @@
   valueFrom:
     secretKeyRef:
       name: {{ include "octo.auth.secretName" . }}
-      key: oidc-client-secret
+      key: {{ include "octo.auth.clientSecretKey" . }}
 {{- with .Values.auth.oidc.providerName }}
 # What the sign-in button calls the provider ("Sign in with …"); defaults to "OIDC".
 - name: OIDC_PROVIDER_NAME
@@ -126,7 +126,7 @@
   valueFrom:
     secretKeyRef:
       name: {{ include "octo.auth.secretName" . }}
-      key: auth-secret
+      key: {{ include "octo.auth.sessionSecretKey" . }}
 # Callback/cookie origin (the auth-code redirect target). Auth.js builds every
 # callback URL against it, and it must match a redirect URI registered with the
 # identity provider exactly — scheme included.

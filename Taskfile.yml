@@ -963,6 +963,28 @@ tasks:
         check oidc \
           --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
           --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=shh --set auth.secret=shh
+        # The same SSO install with both credentials in a Secret the operator owns.
+        # Three separate assertions, and none of them follows from a render that
+        # merely succeeds: the editor must reference that Secret, the chart must
+        # create no auth Secret of its own to fight it for the name, and no key
+        # material may appear in the output — which is the whole reason to hold
+        # them elsewhere, since Helm keeps every value it is given.
+        check_contains auth-existing-secret \
+          "name: my-auth" "key: client" "key: session" -- \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo \
+          --set auth.existingSecret=my-auth \
+          --set auth.existingSecretClientSecretKey=client \
+          --set auth.existingSecretAuthSecretKey=session
+        check_absent auth-existing-no-chart-secret "oidc-client-secret: " \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo --set auth.existingSecret=my-auth
+        # And the key names left to default, which is what a Secret created the way
+        # the values file documents produces.
+        check_contains auth-existing-default-keys \
+          "key: oidc-client-secret" "key: auth-secret" -- \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo --set auth.existingSecret=my-auth
         check wildcard-tls \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns \
           --set orchestrator.baseDomain=apps.example.com
@@ -1062,6 +1084,19 @@ tasks:
         check_fails devruns-both-sources "clear hashSecret" \
           --set orchestrator.devRuns.existingSecret=my-devruns \
           --set orchestrator.baseDomain=apps.example.com
+        check_fails auth-both-sources  "clear the inline values" \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo --set auth.secret=shh \
+          --set auth.existingSecret=my-auth
+        # SSO on with neither source. Auth.js throws MissingSecret on the first
+        # sign-in rather than at startup, so without this guard the install looks
+        # healthy until somebody tries to log in.
+        check_fails auth-no-secret     "auth.secret is required" \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=shh
+        check_fails auth-no-client-secret "auth.oidc.clientSecret is required" \
+          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
+          --set auth.oidc.clientId=octo --set auth.secret=shh
         # Retention turned off: the CronJob vanishes entirely. It is the only
         # CronJob the chart has, and the flag's whole job is to remove it, so
         # nothing that asserts a successful render could catch this regressing.
