@@ -163,6 +163,53 @@ The `release` root additionally takes `image_tag` (default `latest`) and
 `chart_version` (required, must match the published `helm/Chart.yaml`) — both
 supplied on the command line by `task deploy` or Cloud Build.
 
+### Where the credentials live
+
+There is no Secret Manager in this setup, and that is a deliberate, stated trade
+rather than an omission. The `release` root **generates** the Postgres password,
+the Auth.js session secret, the KV encryption key and the dev-run HMAC key, and
+holds them in its own state — the versioned, encrypted GCS bucket from
+`backend.hcl`. The OIDC client secret and the embedding provider key are supplied
+by you and persisted next to that state, so a Cloud Build deploy (which has no
+`terraform.tfvars`) can read them back.
+
+What the root does **not** do is hand any of them to Helm. `modules/octo-secrets`
+installs each one into the cluster as a Kubernetes Secret before the chart is
+applied, and `modules/helm-release` passes only the Secret's name and key:
+
+| Secret | Chart value it satisfies |
+|---|---|
+| `octo-db-password` | `postgres.auth.existingSecret` |
+| `octo-auth-creds` | `auth.existingSecret` |
+| `octo-kv-key` | `kv.existingSecret` |
+| `octo-devrun-key` | `orchestrator.devRuns.existingSecret` |
+| `octo-embeddings-key` | `embeddings.existingSecret` |
+
+<Callout type="warn">
+  Helm keeps every value it is given in the release history. `set_sensitive` marks
+  a value secret to Terraform's plan output and does nothing about the release
+  Secret Helm writes it into — which is retained per revision, in the cluster, and
+  outlives the rotation that was supposed to end it. A reference is the only form
+  that does not leave a copy behind.
+</Callout>
+
+<Callout type="info">
+  **Upgrading an installation created before this change.** The namespace used to
+  be created by Helm and is now a Terraform resource, so the first apply will try
+  to create one that already exists. Import it once:
+
+  ```bash
+  terraform -chdir=deploy/terraform/release import \
+    'module.secrets.kubernetes_namespace_v1.octo[0]' octo
+  ```
+
+  The credentials themselves do not change — they come from the same state — so
+  the apply replaces chart values with references and rolls the Deployments once.
+  Revisions written before the change still hold what they were given; if that
+  matters, `helm history` and a truncated `--history-max` are the way to retire
+  them.
+</Callout>
+
 ## Publish images and the charts
 
 The node and the Helm provider pull from Artifact Registry, so images and charts

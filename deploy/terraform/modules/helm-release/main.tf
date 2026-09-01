@@ -8,6 +8,22 @@
 # sets explicitly wins over values_files and extra_values. Values a caller needs to
 # own must therefore be ones this module leaves alone (or ones whose variable it
 # can set to the empty "emit nothing" sentinel).
+#
+# NO CREDENTIAL IS PASSED THROUGH HERE, and that is a property to preserve rather
+# than a coincidence of the current variables. Helm keeps every value it is given
+# in the release history — set_sensitive marks a value secret to Terraform's plan
+# output, not to the release Secret Helm writes it into — so a credential passed
+# as a chart value sits in the cluster for as long as the revision carrying it is
+# retained, outliving the rotation that was supposed to end it. Every credential
+# arrives instead as the name of a Secret the caller created, which
+# modules/octo-secrets exists to create. There is no set_sensitive block below,
+# and adding one is the mistake this note is here to prevent.
+
+locals {
+  # The embedding server needs both a decision and a key; without the Secret there
+  # is nothing for the chart to read, and it refuses to render the component.
+  embeddings_on = var.embeddings_enabled && var.embeddings_existing_secret != ""
+}
 
 resource "helm_release" "octo" {
   name             = var.release_name
@@ -76,20 +92,23 @@ resource "helm_release" "octo" {
   }
 
   # --- Database ---
-  # Bundled Postgres (chart creates the Secret + StatefulSet). Skipped entirely on
-  # an external-database install, where there is no chart-owned password to set.
+  # Bundled Postgres. The chart creates the StatefulSet and a Secret carrying the
+  # username and database name; the password comes from a Secret the caller owns,
+  # named here. Skipped entirely on an external-database install, which has no
+  # chart-owned password at all.
   #
   # Both halves of that condition are load-bearing. A caller that sets both — by
   # switching an existing release to a managed instance without clearing the old
-  # password — would otherwise write a now-meaningless credential into Helm's
-  # release history, where it outlives the StatefulSet it belonged to. The
-  # external_database check is what makes "never a password in release history"
-  # a property of this module rather than of every caller.
-  dynamic "set_sensitive" {
-    for_each = var.external_database == null && var.postgres_password != "" ? toset(["postgres.auth.password"]) : toset([])
+  # reference — would otherwise leave the chart reading a Secret belonging to a
+  # StatefulSet that no longer exists.
+  dynamic "set" {
+    for_each = var.external_database == null && var.postgres_existing_secret != "" ? {
+      "postgres.auth.existingSecret"            = var.postgres_existing_secret
+      "postgres.auth.existingSecretPasswordKey" = var.postgres_existing_secret_password_key
+    } : {}
     content {
-      name  = set_sensitive.value
-      value = var.postgres_password
+      name  = set.key
+      value = set.value
     }
   }
 
@@ -214,9 +233,9 @@ resource "helm_release" "octo" {
   }
 
   # --- OIDC SSO ---
-  # When enabled the chart creates the auth Secret and the editor mounts
-  # OIDC_* / AUTH_SECRET. Sensitive values go through set_sensitive so they
-  # are not printed in plans/logs.
+  # When enabled the editor mounts OIDC_* / AUTH_SECRET. The issuer and client id
+  # are not credentials and travel as plain values; the client secret and the
+  # session secret are read from a Secret the caller created, named below.
   set {
     name  = "auth.oidc.enabled"
     value = var.oidc_enabled
@@ -238,17 +257,19 @@ resource "helm_release" "octo" {
     }
   }
 
-  # for_each iterates over the (non-sensitive) Helm key names; the sensitive values
-  # are looked up inside content so the collection itself isn't sensitive — Terraform
-  # rejects sensitive values as for_each arguments.
-  dynamic "set_sensitive" {
-    for_each = var.oidc_enabled ? toset(["auth.oidc.clientSecret", "auth.secret"]) : toset([])
+  # The two credentials, by reference. Emitted only when SSO is on AND a Secret was
+  # named: the chart requires both values when auth.oidc.enabled is true, so a root
+  # that enables SSO without creating the Secret gets that error by name rather
+  # than an editor that renders a sign-in button and fails at the provider.
+  dynamic "set" {
+    for_each = var.oidc_enabled && var.auth_existing_secret != "" ? {
+      "auth.existingSecret"                = var.auth_existing_secret
+      "auth.existingSecretClientSecretKey" = var.auth_existing_secret_client_secret_key
+      "auth.existingSecretAuthSecretKey"   = var.auth_existing_secret_auth_secret_key
+    } : {}
     content {
-      name = set_sensitive.value
-      value = {
-        "auth.oidc.clientSecret" = var.oidc_client_secret
-        "auth.secret"            = var.auth_secret
-      }[set_sensitive.value]
+      name  = set.key
+      value = set.value
     }
   }
 
@@ -258,14 +279,16 @@ resource "helm_release" "octo" {
   # one rather than a broken one.
   set {
     name  = "embeddings.enabled"
-    value = var.embeddings_enabled && var.embeddings_api_key != ""
+    value = local.embeddings_on
   }
 
   dynamic "set" {
-    for_each = nonsensitive(var.embeddings_enabled && var.embeddings_api_key != "") ? {
-      "embeddings.connectorType" = var.embeddings_connector_type
-      "embeddings.model"         = var.embeddings_model
-      "embeddings.dimensions"    = tostring(var.embeddings_dimensions)
+    for_each = local.embeddings_on ? {
+      "embeddings.connectorType"     = var.embeddings_connector_type
+      "embeddings.model"             = var.embeddings_model
+      "embeddings.dimensions"        = tostring(var.embeddings_dimensions)
+      "embeddings.existingSecret"    = var.embeddings_existing_secret
+      "embeddings.existingSecretKey" = var.embeddings_existing_secret_key
     } : {}
     content {
       name  = set.key
@@ -273,36 +296,36 @@ resource "helm_release" "octo" {
     }
   }
 
-  dynamic "set_sensitive" {
-    for_each = nonsensitive(var.embeddings_enabled && var.embeddings_api_key != "") ? toset(["embeddings.apiKey"]) : toset([])
+  # KV secret-namespace encryption key, by reference. Named only when a Secret
+  # exists, so a key-less install leaves encryption disabled (secret-namespace
+  # writes are rejected, plain KV still works) rather than pointing the chart at
+  # nothing.
+  dynamic "set" {
+    for_each = var.kv_existing_secret != "" ? {
+      "kv.existingSecret"    = var.kv_existing_secret
+      "kv.existingSecretKey" = var.kv_existing_secret_key
+    } : {}
     content {
-      name  = set_sensitive.value
-      value = var.embeddings_api_key
+      name  = set.key
+      value = set.value
     }
   }
 
-  # KV secret-namespace encryption key. Supplied only when set so a key-less install
-  # leaves encryption disabled (plain KV still works). set_sensitive keeps it out of
-  # plans/logs.
-  dynamic "set_sensitive" {
-    for_each = nonsensitive(var.kv_encryption_key != "") ? toset(["kv.encryptionKey"]) : toset([])
+  # Dev-run hash secret, by reference. Keys the HMAC deriving every dev run's
+  # identity and public hostname, so the chart's orchestrator.devRuns.enabled (true
+  # by default) refuses to render without it — a root that names no Secret gets
+  # that error rather than a silently unkeyed install, which is the chart's design
+  # and not something to paper over here. Named only when set for the same reason
+  # as the KV key: the empty sentinel means "emit nothing", leaving whatever a
+  # values file said.
+  dynamic "set" {
+    for_each = var.dev_runs_existing_secret != "" ? {
+      "orchestrator.devRuns.existingSecret"    = var.dev_runs_existing_secret
+      "orchestrator.devRuns.existingSecretKey" = var.dev_runs_existing_secret_key
+    } : {}
     content {
-      name  = set_sensitive.value
-      value = var.kv_encryption_key
-    }
-  }
-
-  # Dev-run hash secret. Keys the HMAC deriving every dev run's identity and public
-  # hostname, so the chart's orchestrator.devRuns.enabled (true by default) refuses
-  # to render without it — a root that leaves this empty gets that error rather than
-  # a silently unkeyed install, which is the chart's design and not something to
-  # paper over here. Supplied only when set for the same reason as the KV key: the
-  # empty sentinel means "emit nothing", leaving whatever a values file said.
-  dynamic "set_sensitive" {
-    for_each = nonsensitive(var.dev_run_hash_secret != "") ? toset(["orchestrator.devRuns.hashSecret"]) : toset([])
-    content {
-      name  = set_sensitive.value
-      value = var.dev_run_hash_secret
+      name  = set.key
+      value = set.value
     }
   }
 }

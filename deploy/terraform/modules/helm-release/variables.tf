@@ -176,11 +176,24 @@ variable "certificate_arn" {
 
 # --- Database ---
 
-variable "postgres_password" {
+# --- Credential references -----------------------------------------------------
+#
+# Names and keys, never values. Helm keeps every value it is given in the release
+# history, so a credential passed as a chart value is in the cluster for as long
+# as the revision carrying it is retained. modules/octo-secrets creates these
+# Secrets and outputs exactly these references; an empty name emits nothing and
+# leaves whatever a values file said.
+
+variable "postgres_existing_secret" {
   type        = string
-  description = "Password for the chart's bundled Postgres. Empty emits nothing, which is what an external-database install wants — see external_database."
+  description = "Name of a Secret holding the bundled Postgres password (chart value postgres.auth.existingSecret). Empty emits nothing, which is what an external-database install wants — see external_database. The chart still creates its own Secret for the username and database name; only the password comes from this one."
   default     = ""
-  sensitive   = true
+}
+
+variable "postgres_existing_secret_password_key" {
+  type        = string
+  description = "Key within postgres_existing_secret holding the password."
+  default     = "postgres-password"
 }
 
 variable "postgres_host_path" {
@@ -294,18 +307,22 @@ variable "oidc_provider_name" {
   default     = ""
 }
 
-variable "oidc_client_secret" {
+variable "auth_existing_secret" {
   type        = string
-  description = "OIDC client secret."
+  description = "Name of a Secret holding BOTH the OIDC client secret and the Auth.js session secret (chart value auth.existingSecret). Required in practice when oidc_enabled is true: the chart refuses to render an SSO install with neither this nor the inline values, and the inline values are not something this module will pass."
   default     = ""
-  sensitive   = true
 }
 
-variable "auth_secret" {
+variable "auth_existing_secret_client_secret_key" {
   type        = string
-  description = "Auth.js session secret (AUTH_SECRET)."
-  default     = ""
-  sensitive   = true
+  description = "Key within auth_existing_secret holding the OIDC client secret."
+  default     = "oidc-client-secret"
+}
+
+variable "auth_existing_secret_auth_secret_key" {
+  type        = string
+  description = "Key within auth_existing_secret holding the Auth.js session secret."
+  default     = "auth-secret"
 }
 
 variable "oidc_write_roles" {
@@ -320,11 +337,16 @@ variable "oidc_roles_claim" {
   default     = ""
 }
 
-variable "kv_encryption_key" {
+variable "kv_existing_secret" {
   type        = string
-  description = "Base64-encoded 32-byte AES-256 key for encrypting KV secret namespaces at rest. Empty disables encryption (secret writes rejected, plain KV still works)."
+  description = "Name of a Secret holding the base64-encoded 32-byte AES-256 key that encrypts KV secret namespaces at rest (chart value kv.existingSecret). Empty disables encryption: secret-namespace writes are rejected and plain KV still works."
   default     = ""
-  sensitive   = true
+}
+
+variable "kv_existing_secret_key" {
+  type        = string
+  description = "Key within kv_existing_secret holding the encryption key."
+  default     = "kv-encryption-key"
 }
 
 # --- The embedding server -----------------------------------------------------
@@ -364,16 +386,26 @@ variable "embeddings_dimensions" {
   default     = 1536
 }
 
-variable "embeddings_api_key" {
+variable "embeddings_existing_secret" {
   type        = string
-  description = "Provider API key for the embedding server. Held in exactly one pod on the installation, which is the reason the server exists — the alternative is a key in every integration's pod."
+  description = "Name of a Secret holding the embedding server's provider API key (chart value embeddings.existingSecret). Empty deploys no embedding server even when embeddings_enabled is true — there would be no key for it to read. The key is held in exactly one pod on the installation, which is the reason the server exists: the alternative is a key in every integration's pod."
   default     = ""
-  sensitive   = true
 }
 
-variable "dev_run_hash_secret" {
+variable "embeddings_existing_secret_key" {
   type        = string
-  description = "HMAC key deriving every dev run's identity and public hostname. Required by the chart whenever orchestrator.devRuns.enabled is true (the default); generate it once and never rotate it — rotating re-labels every exposed dev run and silently breaks webhooks registered against the old hostname. Any string; no length or encoding requirement."
+  description = "Key within embeddings_existing_secret holding the provider API key."
+  default     = "apiKey"
+}
+
+variable "dev_runs_existing_secret" {
+  type        = string
+  description = "Name of a Secret holding the HMAC key that derives every dev run's identity and public hostname (chart value orchestrator.devRuns.existingSecret). Required by the chart whenever orchestrator.devRuns.enabled is true, which is the default. Mint the key once and never rotate it — rotating re-labels every exposed dev run and silently breaks webhooks registered against the old hostname."
   default     = ""
-  sensitive   = true
+}
+
+variable "dev_runs_existing_secret_key" {
+  type        = string
+  description = "Key within dev_runs_existing_secret holding the HMAC key."
+  default     = "dev-run-hash-secret"
 }
