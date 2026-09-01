@@ -1,0 +1,149 @@
+service:
+  name: web-research
+
+# A research service built on Tavily: answer a question from the live web, read
+# the pages the answer came from, and survey or crawl a site before deciding what
+# is worth reading. It shows every tavily block in one config.
+#
+# Setup:
+#   1. Create a Tavily API key (https://app.tavily.com) and export it:
+#        export TAVILY_API_KEY=tvly-...
+#   2. Run: go run ./runtime/octo -config samples/web-research/config.yaml
+#   3. Ask a question:
+#        curl -s localhost:8080/research -H 'content-type: application/json' \
+#          -d '{"question":"what is an octopus arm made of"}'
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: TAVILY_API_KEY
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+  - name: web
+    type: tavily
+    settings:
+      apiKey: ${TAVILY_API_KEY}
+      # Crawl and map run server-side for up to 150s — five times the 30s
+      # default — so the client has to be willing to wait that long.
+      timeout: 180s
+
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  # 1. Search the live web and read the sources. tavily-search hands back its
+  #    whole response, so the answer and the results travel together; tavily-extract
+  #    then pulls the full text of the pages behind them.
+  - name: research
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /research
+        methods: [POST]
+    process:
+      - type: tavily-search
+        name: search
+        settings:
+          connector: web
+          query: body.question
+          searchDepth: advanced
+          maxResults: 5
+          includeAnswer: advanced
+          # Keep the incoming body so the question is still readable downstream.
+          resultVar: search
+
+      - type: log
+        name: log-answer
+        settings:
+          logger: out
+          message: '"answered in " + string(size(vars.search.results)) + " sources"'
+
+      # Read the pages the answer came from. urls takes one URL or a list, so the
+      # search results map straight onto it.
+      - type: tavily-extract
+        name: read-sources
+        settings:
+          connector: web
+          urls: vars.search.results.map(r, r.url)
+          format: markdown
+          # A partial extraction is a 200 with failures listed inside it. Here
+          # missing a source is acceptable — the answer already stands on its own.
+          failOnPartial: false
+          resultVar: pages
+
+      - type: set-payload
+        name: answer
+        settings:
+          value: |
+            {
+              "question": body.question,
+              "answer": vars.search.answer,
+              "sources": vars.search.results.map(r, r.url),
+              "pages": vars.pages.results
+            }
+
+  # 2. Survey a site's link graph without reading anything. Map is crawl's cheap
+  #    sibling: it answers with URLs, which is what you want before committing to
+  #    a crawl.
+  #      curl -s localhost:8080/survey -H 'content-type: application/json' \
+  #        -d '{"site":"https://docs.tavily.com"}'
+  - name: survey
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /survey
+        methods: [POST]
+    process:
+      - type: tavily-map
+        name: map-site
+        settings:
+          connector: web
+          url: body.site
+          maxDepth: 2
+          allowExternal: false
+          resultVar: siteUrls
+
+      - type: log
+        name: log-survey
+        settings:
+          logger: out
+          message: '"found " + string(size(vars.siteUrls.results)) + " urls"'
+
+      - type: set-payload
+        name: urls
+        settings:
+          value: 'vars.siteUrls.results'
+
+  # 3. Crawl a site and keep the content, steered by an instruction rather than a
+  #    hand-written path regex.
+  #      curl -s localhost:8080/crawl -H 'content-type: application/json' \
+  #        -d '{"site":"https://docs.tavily.com","looking_for":"the API reference"}'
+  - name: crawl-site
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /crawl
+        methods: [POST]
+    process:
+      - type: tavily-crawl
+        name: crawl
+        settings:
+          connector: web
+          url: body.site
+          instructions: body.looking_for
+          maxDepth: 2
+          limit: 25
+          allowExternal: false
+          format: markdown
