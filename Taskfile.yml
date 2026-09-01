@@ -225,6 +225,28 @@ tasks:
       - test -f .goreleaser.yaml
       - test -f runtime/octo/version.go
       - test -f runtime/dolphin/version.go
+      # A chart that names an image the release never publishes installs into a
+      # permanent ImagePullBackOff, and nothing else notices: the chart packages
+      # clean, the workflow goes green, and the failure surfaces only in whoever
+      # installs it next. octo-embeddings-paas shipped that way. So every octo
+      # repository the chart's defaults name must be published by release.yml.
+      - |
+        missing=
+        for repo in $(grep -oE 'repository: octo-[a-z]+-paas' helm/values.yaml | awk '{print $2}' | sort -u); do
+          # A bare name match would be satisfied by the prose: the workflow's
+          # comments explain why octo-devruntime-paas is tagged off another
+          # build and why octo-embeddings-paas was once missing, so deleting
+          # either image would still look published. Match only the two forms
+          # that actually publish one — a matrix entry, or a pushed tag.
+          if ! grep -Eq "^[[:space:]]*-[[:space:]]+image:[[:space:]]+$repo[[:space:]]*$|^[[:space:]]*docker\.io/juancavallotti/$repo:" .github/workflows/release.yml; then
+            missing="$missing $repo"
+          fi
+        done
+        if [ -n "$missing" ]; then
+          echo "✖ helm/values.yaml names images .github/workflows/release.yml never publishes:$missing" >&2
+          exit 1
+        fi
+        echo "✓ every chart image is published by release.yml"
 
   cluster:preflight:
     desc: Verify docker, k3d and devspace are installed

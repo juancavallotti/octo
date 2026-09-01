@@ -233,6 +233,12 @@ jobs:
             # The repo root is the build context: the Go module is rooted there.
             context: .
             dockerfile: runtime/Dockerfile.agentic
+          # The embedding server: the standalone binary plus one small app, baked
+          # in. Its own Dockerfile because it carries an app as well as a binary,
+          # and the repo root is the build context: the Go module is rooted there.
+          - image: octo-embeddings-paas
+            context: .
+            dockerfile: embeddings/Dockerfile
           # NOTE: octo-devruntime-paas is NOT built here. It is byte-for-byte the
           # standalone runtime (GOTAGS=""), so publish-runtime tags it from that one
           # build to guarantee an identical digest — building it again here would not.
