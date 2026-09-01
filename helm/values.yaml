@@ -204,8 +204,10 @@ orchestrator:
     hashSecret: ""
     # Or name a Secret you already hold, and the chart creates none and requires no
     # hashSecret. The same reasoning as kv.existingSecret applies, and harder: this
-    # key must not change, so it must not be somewhere that copies it around. With
-    # this set the value never enters the release history at all.
+    # key must not change, so it must not be somewhere that copies it around.
+    # Clear hashSecret above when you set this — both together is refused, for the
+    # reason given there. And note what neither can undo: revisions written before
+    # the change still hold whatever value they were given.
     existingSecret: ""
     existingSecretKey: dev-run-hash-secret
 
@@ -467,6 +469,9 @@ agenticrunner:
 kv:
   encryptionKey: ""
   # Name an existing Secret holding the key instead, and the chart creates none.
+  # Clear encryptionKey above when you do — setting both is refused, because Helm
+  # keeps every value it is given in the release history whether a template
+  # renders it or not, so leaving it there keeps the copy this exists to avoid.
   # Prefer this: Helm keeps every value it is given in the release history, so an
   # inline key outlives the revision that introduced it, and it also lives in
   # whatever wrote the values — a GitOps repository, a pipeline variable, a

@@ -1051,6 +1051,17 @@ tasks:
           --set orchestrator.devRuns.hashSecret= \
           --set orchestrator.devRuns.existingSecret=my-devruns \
           --set orchestrator.baseDomain=apps.example.com
+        # Both sources at once. Refused rather than resolved by precedence, because
+        # suppressing the chart's Secret does not unsay the value: Helm keeps every
+        # value it is given in the release history whether a template renders it or
+        # not, so an install with both still has the key where existingSecret was
+        # chosen to keep it from. Neither key can be rotated to recover, which is
+        # what makes a silent precedence rule the wrong answer here.
+        check_fails kv-both-sources    "clear kv.encryptionKey" \
+          --set kv.encryptionKey=inline --set kv.existingSecret=my-kv
+        check_fails devruns-both-sources "clear hashSecret" \
+          --set orchestrator.devRuns.existingSecret=my-devruns \
+          --set orchestrator.baseDomain=apps.example.com
         # Retention turned off: the CronJob vanishes entirely. It is the only
         # CronJob the chart has, and the flag's whole job is to remove it, so
         # nothing that asserts a successful render could catch this regressing.
