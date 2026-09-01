@@ -40,14 +40,16 @@ type searchSettings struct {
 	Objective string `json:"objective" octo:"label=Objective,type=cel,required"`
 	// CEL expression for the search queries to run: one string, or a list.
 	SearchQueries string `json:"searchQueries" octo:"label=Search queries,type=cel,required"`
-	// Latency/quality tradeoff: advanced ~3s, fast ~700ms, turbo ~250ms.
-	Mode string `json:"mode" octo:"label=Mode,type=enum,enum=advanced|fast|turbo"`
-	// Parallel processor to run the search on.
-	Processor string `json:"processor" octo:"label=Processor"`
-	// Number of results to return.
+	// Latency/quality tradeoff: advanced ~3s, basic and fast are quicker, turbo
+	// ~250ms.
+	Mode string `json:"mode" octo:"label=Mode,type=enum,enum=advanced|basic|fast|turbo"`
+	// Upper bound on the number of results (1-20; Parallel defaults to 10).
 	MaxResults int `json:"maxResults" octo:"label=Max results"`
 	// Cap on the characters returned per result.
 	MaxCharsPerResult int `json:"maxCharsPerResult" octo:"label=Max chars per result"`
+	// Cap on the characters returned across every result together. This is the
+	// budget that matters when the results are headed for a model's context.
+	MaxCharsTotal int `json:"maxCharsTotal" octo:"label=Max chars total"`
 	// When set, store the response here and leave the body; when empty, the response
 	// becomes the body.
 	ResultVar string `json:"resultVar" octo:"label=Result variable"`
@@ -85,21 +87,38 @@ func newSearch(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, 
 		return nil, err
 	}
 
-	fixed := map[string]any{}
-	putOptional(fixed, "mode", cfg.Mode)
-	putOptional(fixed, "processor", cfg.Processor)
-	putOptional(fixed, "max_results", cfg.MaxResults)
-	putOptional(fixed, "max_chars_per_result", cfg.MaxCharsPerResult)
-
 	return &searchProcessor{
 		conn:        conn,
 		objective:   objective,
 		queries:     queries,
-		fixed:       fixed,
+		fixed:       searchPayload(cfg),
 		resultVar:   cfg.ResultVar,
 		failOnError: failOnErrorDefault(cfg.FailOnError),
 		env:         expr.EnvActivation(deps.Env),
 	}, nil
+}
+
+// searchPayload folds the message-independent settings into the request fields
+// they map to, once at build time.
+//
+// Only mode and max_chars_total are top-level. The two result-shaping knobs live
+// under advanced_settings, and the request schema is additionalProperties:false —
+// so sending them at the top level is not merely ignored, it fails the whole call
+// with extra_forbidden.
+func searchPayload(cfg searchSettings) map[string]any {
+	payload := map[string]any{}
+	putOptional(payload, "mode", cfg.Mode)
+	putOptional(payload, "max_chars_total", cfg.MaxCharsTotal)
+
+	advanced := map[string]any{}
+	putOptional(advanced, "max_results", cfg.MaxResults)
+	if cfg.MaxCharsPerResult > 0 {
+		advanced["excerpt_settings"] = map[string]any{"max_chars_per_result": cfg.MaxCharsPerResult}
+	}
+	if len(advanced) > 0 {
+		payload["advanced_settings"] = advanced
+	}
+	return payload
 }
 
 // Process evaluates the objective and queries and returns Parallel's response.

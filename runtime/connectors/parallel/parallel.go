@@ -250,10 +250,21 @@ func (c *Connector) Call(ctx context.Context, path string, payload any) (map[str
 	return decoded, nil
 }
 
-// apiErrorMessage digs Parallel's error text out of a failed response. It nests
-// the message under detail, as a string or an object, so both are tried before
-// falling back to the status code.
+// apiErrorMessage digs Parallel's error text out of a failed response.
+//
+// The shape that matters most is {error: {message, detail: {errors: [...]}}}, a
+// request-validation failure. Its top-level message is always the same sentence,
+// so the useful part is the per-field list underneath — without it a rejected
+// field reads as a bare "422" and says nothing about which field was wrong.
 func apiErrorMessage(body map[string]any, status int) string {
+	if wrapped, ok := body["error"].(map[string]any); ok {
+		if msg := wrappedErrorMessage(wrapped); msg != "" {
+			return msg
+		}
+	}
+	if msg, _ := body["error"].(string); msg != "" {
+		return msg
+	}
 	switch detail := body["detail"].(type) {
 	case string:
 		if detail != "" {
@@ -266,10 +277,67 @@ func apiErrorMessage(body map[string]any, status int) string {
 			}
 		}
 	}
-	if msg, _ := body["error"].(string); msg != "" {
-		return msg
-	}
 	return strconv.Itoa(status)
+}
+
+// wrappedErrorMessage renders an {message, detail:{errors}} error object, keeping
+// the per-field list when there is one.
+func wrappedErrorMessage(wrapped map[string]any) string {
+	message, _ := wrapped["message"].(string)
+	fields := validationFields(wrapped)
+	switch {
+	case message != "" && fields != "":
+		return message + " (" + fields + ")"
+	case fields != "":
+		return fields
+	default:
+		return message
+	}
+}
+
+// validationFields renders a validation error's per-field entries as
+// "body.max_results: Extra inputs are not permitted; ...", naming what to change.
+func validationFields(wrapped map[string]any) string {
+	detail, ok := wrapped["detail"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	entries, ok := detail["errors"].([]any)
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, len(entries))
+	for _, raw := range entries {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		msg, _ := entry["msg"].(string)
+		where := joinLoc(entry["loc"])
+		switch {
+		case where != "" && msg != "":
+			parts = append(parts, where+": "+msg)
+		case msg != "":
+			parts = append(parts, msg)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// joinLoc flattens a validation error's loc path (["body","max_results"]) into
+// "body.max_results".
+func joinLoc(raw any) string {
+	items, ok := raw.([]any)
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, ".")
 }
 
 // duration decodes either a Go duration string ("5s") or a numeric nanosecond

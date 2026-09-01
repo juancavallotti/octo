@@ -89,9 +89,9 @@ func TestSearchSendsConfiguredOptions(t *testing.T) {
 		"objective":         `"anything"`,
 		"searchQueries":     `["q"]`,
 		"mode":              "turbo",
-		"processor":         "base",
 		"maxResults":        7,
 		"maxCharsPerResult": 1500,
+		"maxCharsTotal":     9000,
 		"resultVar":         "hits",
 	}, blockDeps(t, srv.URL))
 	if err != nil {
@@ -102,15 +102,27 @@ func TestSearchSendsConfiguredOptions(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 
-	want := map[string]any{
-		"mode":                 "turbo",
-		"processor":            "base",
-		"max_results":          float64(7),
-		"max_chars_per_result": float64(1500),
+	// mode and max_chars_total are top-level; the two result-shaping knobs are
+	// not, and the request schema is additionalProperties:false, so putting them
+	// there fails the whole call.
+	if got["mode"] != "turbo" {
+		t.Errorf("mode = %v, want turbo", got["mode"])
 	}
-	for key, value := range want {
-		if got[key] != value {
-			t.Errorf("request %s = %v, want %v", key, got[key], value)
+	if got["max_chars_total"] != float64(9000) {
+		t.Errorf("max_chars_total = %v, want 9000", got["max_chars_total"])
+	}
+	advanced, _ := got["advanced_settings"].(map[string]any)
+	if advanced["max_results"] != float64(7) {
+		t.Errorf("advanced_settings.max_results = %v, want 7", advanced["max_results"])
+	}
+	excerpt, _ := advanced["excerpt_settings"].(map[string]any)
+	if excerpt["max_chars_per_result"] != float64(1500) {
+		t.Errorf("advanced_settings.excerpt_settings.max_chars_per_result = %v, want 1500",
+			excerpt["max_chars_per_result"])
+	}
+	for _, key := range []string{"max_results", "max_chars_per_result", "processor"} {
+		if _, ok := got[key]; ok {
+			t.Errorf("%s must not be sent top-level: the API rejects it as extra_forbidden", key)
 		}
 	}
 	if out.Variables["hits"] == nil {
@@ -136,7 +148,7 @@ func TestSearchOmitsUnsetOptions(t *testing.T) {
 	if _, err := proc.Process(context.Background(), blockMessage(t, nil)); err != nil {
 		t.Fatalf("Process: %v", err)
 	}
-	for _, key := range []string{"mode", "processor", "max_results", "max_chars_per_result"} {
+	for _, key := range []string{"mode", "max_chars_total", "advanced_settings"} {
 		if _, ok := got[key]; ok {
 			t.Errorf("%s should be omitted when unset, got %v", key, got[key])
 		}
@@ -218,5 +230,60 @@ func TestSearchFailsOnErrorByDefault(t *testing.T) {
 	}
 	if _, err := proc.Process(context.Background(), blockMessage(t, nil)); err == nil {
 		t.Error("expected the API error to abort the flow")
+	}
+}
+
+// A caller that sets only one of the two nested knobs must still get a
+// well-formed advanced_settings, and must not get an empty excerpt_settings.
+func TestSearchNestsEachResultKnobIndependently(t *testing.T) {
+	cases := []struct {
+		name    string
+		setting string
+		value   int
+		assert  func(t *testing.T, advanced map[string]any)
+	}{
+		{"only maxResults", "maxResults", 3, func(t *testing.T, advanced map[string]any) {
+			t.Helper()
+			if advanced["max_results"] != float64(3) {
+				t.Errorf("max_results = %v, want 3", advanced["max_results"])
+			}
+			if _, ok := advanced["excerpt_settings"]; ok {
+				t.Error("excerpt_settings should be absent when maxCharsPerResult is unset")
+			}
+		}},
+		{"only maxCharsPerResult", "maxCharsPerResult", 800, func(t *testing.T, advanced map[string]any) {
+			t.Helper()
+			excerpt, _ := advanced["excerpt_settings"].(map[string]any)
+			if excerpt["max_chars_per_result"] != float64(800) {
+				t.Errorf("excerpt_settings.max_chars_per_result = %v, want 800", excerpt["max_chars_per_result"])
+			}
+			if _, ok := advanced["max_results"]; ok {
+				t.Error("max_results should be absent when maxResults is unset")
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got map[string]any
+			srv := jsonStub(t, &got)
+
+			proc, err := newSearch(types.Settings{
+				"connector":     "parallel",
+				"objective":     `"o"`,
+				"searchQueries": `["q"]`,
+				tc.setting:      tc.value,
+			}, blockDeps(t, srv.URL))
+			if err != nil {
+				t.Fatalf("newSearch: %v", err)
+			}
+			if _, err := proc.Process(context.Background(), blockMessage(t, nil)); err != nil {
+				t.Fatalf("Process: %v", err)
+			}
+			advanced, ok := got["advanced_settings"].(map[string]any)
+			if !ok {
+				t.Fatalf("advanced_settings = %v, want an object", got["advanced_settings"])
+			}
+			tc.assert(t, advanced)
+		})
 	}
 }

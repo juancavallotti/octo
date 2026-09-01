@@ -132,6 +132,15 @@ func TestCallSurfacesAPIError(t *testing.T) {
 		{"detail object", `{"detail":{"message":"quota exceeded"}}`, "quota exceeded"},
 		{"bare error", `{"error":"nope"}`, "nope"},
 		{"no message", `{}`, "401"},
+		// The shape a rejected field actually arrives in. Without the per-field
+		// list this reads as a bare status code and says nothing about what to fix.
+		{"a request-validation failure", `{"type":"error","error":{"message":"Request validation error.",` +
+			`"detail":{"errors":[` +
+			`{"type":"extra_forbidden","loc":["body","max_results"],"msg":"Extra inputs are not permitted"},` +
+			`{"type":"extra_forbidden","loc":["body","max_chars_per_result"],"msg":"Extra inputs are not permitted"}` +
+			`]}}}`,
+			"body.max_results: Extra inputs are not permitted"},
+		{"an error object with no detail", `{"type":"error","error":{"message":"Overloaded"}}`, "Overloaded"},
 		// A gateway in front of the API answers with HTML, not JSON. The status is
 		// the useful half of that failure and must survive.
 		{"a non-JSON gateway page", `<html><body>502 Bad Gateway</body></html>`, "401"},

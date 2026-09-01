@@ -61,10 +61,10 @@ Parallel's search is not a keyword API. An **objective** says, in natural langua
 | `connector` | string | Yes | — | Name of the `parallel` connector to use. |
 | `objective` | expression | Yes | — | CEL expression describing what the search is for. |
 | `searchQueries` | expression | Yes | — | CEL expression for the queries to run: one string, or a list. |
-| `mode` | enum | No | Parallel's `advanced` | `advanced` (~3s, best quality), `fast` (~700ms), or `turbo` (~250ms). |
-| `processor` | string | No | — | Parallel processor to run the search on. |
-| `maxResults` | int | No | Parallel's default | Number of results to return. |
+| `mode` | enum | No | Parallel's `advanced` | `advanced` (best quality), `basic`, `fast`, or `turbo` (~250ms). |
+| `maxResults` | int | No | Parallel's `10` | Upper bound on the number of results (1–20). |
 | `maxCharsPerResult` | int | No | Parallel's default | Cap on the characters returned per result. |
+| `maxCharsTotal` | int | No | Parallel's default | Cap on the characters returned across every result together — the budget that matters when the results are headed for a model's context. |
 | `resultVar` | string | No | — | Store the response here and leave the body; when empty, the response becomes the body. |
 | `failOnError` | bool | No | `true` | Turn a Parallel API error into a flow error. |
 
@@ -77,8 +77,11 @@ Parallel's search is not a keyword API. An **objective** says, in natural langua
     searchQueries: '[body.question]'
     mode: fast
     maxResults: 8
+    maxCharsTotal: 20000
     resultVar: hits
 ```
+
+`maxResults` and `maxCharsPerResult` are sent inside Parallel's `advanced_settings` object rather than at the top level of the request — the block does that nesting for you. It matters because the request schema forbids unknown top-level fields, so getting it wrong fails the whole call rather than being ignored.
 
 **Response shape** — `search_id`, `results` (each with `url`, `title`, `publish_date`, and `excerpts`), plus `warnings`, `usage`, and `session_id`.
 
