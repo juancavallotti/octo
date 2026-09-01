@@ -127,6 +127,13 @@ always volatile and have no setting for it.
 **Pinecone:** `pinecone-query`, `pinecone-upsert`, `pinecone-fetch`,
 `pinecone-delete`.
 
+**Parallel (web research):** `parallel-search`, `parallel-task-run`,
+`parallel-verify-request`. `parallel-search` answers in the request and returns
+its response as the **body**. `parallel-task-run` does not answer: it starts an
+asynchronous run and puts the handle in `vars.parallelRun`, leaving the body
+alone — the result arrives later as a signed webhook, which
+`parallel-verify-request` authenticates over the raw request bytes.
+
 ## The ai-agent block
 
 ```yaml

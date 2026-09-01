@@ -240,3 +240,32 @@ func TestVerifyCustomHeaderVariables(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 }
+
+// samples/parallel-research/callback_test.yaml pins the reject paths with a real
+// signature committed alongside the payload it covers, and its most interesting
+// case is a *correctly signed* request refused for being outside the replay
+// window. That case is only worth anything if the signature is genuinely valid —
+// a typo would silently turn it into a duplicate of the wrong-key case, and the
+// dolphin suite could never tell the difference.
+//
+// So the sample's exact fixture is pinned here, where the clock can be injected:
+// valid at its own timestamp, stale at any real one.
+func TestCommittedSampleSignatureIsRealButStale(t *testing.T) {
+	const (
+		sampleSecret = secretPrefix + "dGVzdC13ZWJob29rLXNlY3JldA=="
+		sampleID     = "msg_stale_1"
+		sampleTS     = "1767225600"
+		sampleSig    = signatureVersion + ",ZMFQE/t5RwjrnZGLz+sItdZStfPyGwi54q5RwTqOjo8="
+		sampleBody   = `{"timestamp":"2026-01-01T00:00:00Z","type":"task_run.status",` +
+			`"data":{"run_id":"run_1","status":"completed","metadata":{"correlationId":"req-1"}}}`
+	)
+	conn := startConnector(t, map[string]any{"apiKey": "pk-test", "webhookSecret": sampleSecret})
+
+	signedAt := time.Unix(1767225600, 0)
+	if !conn.VerifySignature(sampleID, sampleTS, sampleSig, []byte(sampleBody), signedAt) {
+		t.Error("the sample's committed signature should verify at its own timestamp")
+	}
+	if conn.VerifySignature(sampleID, sampleTS, sampleSig, []byte(sampleBody), time.Now()) {
+		t.Error("and must be stale now, which is what the sample's case asserts")
+	}
+}

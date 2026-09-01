@@ -19,6 +19,7 @@
     "serving-html",
     "slack-bot",
     "notion-sync",
+    "async-research",
     "running-commands",
     "ai-web-app",
     "rag-pipeline"

@@ -1,0 +1,89 @@
+flow: callback
+
+# Where a task run's answer arrives — and the reason parallel-verify-request
+# exists: /parallel/events is reachable by anyone, so a request that is not
+# provably from Parallel must not reach the flow behind it.
+#
+# The signatures below are REAL. Parallel signs "<webhook-id>.<webhook-timestamp>.
+# <raw body>" with HMAC-SHA256 keyed by the decoded webhook secret, and .env.test
+# pins that secret, so a suite can compute one. Nothing here is faked past the
+# block under test.
+#
+# HONEST LIMITS: no case here proves the ACCEPT path, and that is a property of
+# the scheme rather than an omission. The signature covers a timestamp inside a
+# five-minute replay window, so a signature committed to a file is stale by
+# definition — the same reason the github-webhook sample CAN commit one (its
+# scheme has no timestamp). The accept path is pinned instead by the Go tests in
+# runtime/connectors/parallel, which inject the clock.
+#
+# What this file does pin is every way a request gets refused, and those hold
+# forever: an unsigned request, a wrongly-signed one, a valid signature over
+# different bytes, and a correctly-signed request that is simply too old.
+#
+# Sources do not run under invoke, so each case seeds what the http source would
+# have produced: the three headers it is told to copy, and vars.rawBody holding
+# the exact request bytes the signature is over.
+
+cases:
+  - name: an unsigned request is rejected and nothing downstream runs
+    input:
+      data: { type: task_run.status }
+      vars:
+        webhook-id: msg_stale_1
+        webhook-timestamp: "1767225600"
+        rawBody: '{"type":"task_run.status"}'
+        # no webhook-signature at all
+    expect:
+      error: invalid request signature
+    spies:
+      callback.log-result: { count: 0 }
+
+  - name: a request signed with the wrong key is rejected
+    input:
+      data: { type: task_run.status }
+      vars:
+        webhook-id: msg_stale_1
+        webhook-timestamp: "1767225600"
+        webhook-signature: v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        rawBody: '{"type":"task_run.status"}'
+    expect:
+      error: invalid request signature
+    spies:
+      callback.log-result: { count: 0 }
+
+  # The five-minute window is what stops a captured signature being replayed
+  # forever. This signature is genuinely valid for these exact bytes — and is
+  # refused anyway, because it was made in January.
+  - name: a correctly signed request from outside the replay window is rejected
+    input:
+      data:
+        timestamp: "2026-01-01T00:00:00Z"
+        type: task_run.status
+        data: { run_id: run_1, status: completed, metadata: { correlationId: req-1 } }
+      vars:
+        webhook-id: msg_stale_1
+        webhook-timestamp: "1767225600"
+        webhook-signature: v1,ZMFQE/t5RwjrnZGLz+sItdZStfPyGwi54q5RwTqOjo8=
+        rawBody: '{"timestamp":"2026-01-01T00:00:00Z","type":"task_run.status","data":{"run_id":"run_1","status":"completed","metadata":{"correlationId":"req-1"}}}'
+    expect:
+      error: invalid request signature
+    spies:
+      callback.log-result: { count: 0 }
+
+  # The signature is over the RAW BYTES, so a payload tampered with after signing
+  # no longer verifies — this is what makes rawBody worth carrying.
+  - name: a valid signature presented over different bytes is rejected
+    input:
+      data:
+        timestamp: "2026-01-01T00:00:00Z"
+        type: task_run.status
+        data: { run_id: run_999, status: completed }
+      vars:
+        webhook-id: msg_stale_1
+        webhook-timestamp: "1767225600"
+        webhook-signature: v1,ZMFQE/t5RwjrnZGLz+sItdZStfPyGwi54q5RwTqOjo8=
+        rawBody: '{"timestamp":"2026-01-01T00:00:00Z","type":"task_run.status","data":{"run_id":"run_999","status":"completed"}}'
+    expect:
+      error: invalid request signature
+    spies:
+      callback.log-result: { count: 0 }
