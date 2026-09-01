@@ -288,6 +288,21 @@ func (f *fakeCredentials) Reveal(context.Context) (llm.Credentials, error) {
 	return f.creds, nil
 }
 
+// fakeWebSearch stands in for websearch.Service: one key, or an error.
+type fakeWebSearch struct {
+	key     string
+	err     error
+	reveals int
+}
+
+func (f *fakeWebSearch) Reveal(context.Context) (string, error) {
+	f.reveals++
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.key, nil
+}
+
 // ---------------------------------------------------------------- harness
 
 type harness struct {
@@ -299,6 +314,7 @@ type harness struct {
 	deployments  *fakeDeployments
 	secrets      *fakeSecrets
 	credentials  *fakeCredentials
+	webSearch    *fakeWebSearch
 }
 
 // newHarness wires the service against fakes, with a cluster unless withCluster is
@@ -316,8 +332,11 @@ func newHarness(t *testing.T, withCluster bool) *harness {
 		credentials: &fakeCredentials{creds: llm.Credentials{
 			Provider: llm.ProviderAnthropic, Model: "claude-sonnet-4-6", APIKey: "sk-ant-test",
 		}},
+		// Unconfigured by default, which is what most installations are: a test
+		// that wants the other case sets the key before installing.
+		webSearch: &fakeWebSearch{},
 	}
-	var opts []Option
+	opts := []Option{WithWebSearch(h.webSearch)}
 	if withCluster {
 		opts = append(opts, WithCluster(h.deployments, h.secrets))
 	}
@@ -569,6 +588,95 @@ func TestInstallBindsTheProviderKeyThroughAClusterSecret(t *testing.T) {
 	// the pod exists.
 	if env[envOrchestrator].Value == "" {
 		t.Errorf("%s must be bound explicitly", envOrchestrator)
+	}
+}
+
+// The web search key is optional, and every way it can be absent has to reach the
+// pod as the sentinel rather than as an empty value — the parallel connector starts
+// eagerly and refuses an empty key, so an empty binding would crash-loop the agent
+// instead of costing him one tool.
+func TestInstallBindsTheWebSearchSentinelWhenThereIsNoKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*harness)
+	}{
+		{"no key stored", func(*harness) {}},
+		{"the key cannot be read", func(h *harness) {
+			h.webSearch.err = errors.New("decrypt: bad key")
+		}},
+		{"no web search service wired at all", func(h *harness) {
+			h.svc = NewService(
+				h.repo, h.integrations, h.resources, h.snapshots, h.credentials,
+				"http://octo-orchestrator:8090", WithCluster(h.deployments, h.secrets),
+			)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, true)
+			tc.setup(h)
+
+			if _, err := h.svc.Install(context.Background(), ""); err != nil {
+				t.Fatalf("Install: %v", err)
+			}
+
+			env := h.deployments.deployed[0].Env
+			if got := env[envWebSearchKey].Value; got != WebSearchUnconfigured {
+				t.Errorf("%s = %q, want the sentinel %q", envWebSearchKey, got, WebSearchUnconfigured)
+			}
+			if env[envWebSearchKey].Secret != "" {
+				t.Errorf("%s must not reference a secret when no key is stored", envWebSearchKey)
+			}
+			if _, ok := h.secrets.written[webSearchKeySecret]; ok {
+				t.Error("want no cluster secret written for a key that does not exist")
+			}
+		})
+	}
+}
+
+// And when there is one it travels the way every other credential does: into a
+// cluster secret, with the binding carrying only its name.
+func TestInstallBindsTheWebSearchKeyThroughAClusterSecret(t *testing.T) {
+	h := newHarness(t, true)
+	h.webSearch.key = "parallel-test-key"
+
+	if _, err := h.svc.Install(context.Background(), ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if got := h.secrets.written[webSearchKeySecret]; got != "parallel-test-key" {
+		t.Errorf("cluster secret = %q, want the web search key written to it", got)
+	}
+	env := h.deployments.deployed[0].Env
+	if env[envWebSearchKey].Secret != webSearchKeySecret {
+		t.Errorf("%s binding = %+v, want a secret reference", envWebSearchKey, env[envWebSearchKey])
+	}
+	if env[envWebSearchKey].Value != "" {
+		t.Error("the key itself must not appear in the deployment settings")
+	}
+}
+
+// A key saved after the agent was installed reaches him on the next roll-out,
+// because that is where the bindings are written. Nothing else refreshes them, so
+// this is the whole mechanism by which the admin page's save takes effect.
+func TestRolloutPicksUpAWebSearchKeySavedAfterTheInstall(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	h.webSearch.key = "parallel-test-key"
+
+	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+
+	if len(h.deployments.rollouts) != 1 {
+		t.Fatalf("rollouts = %d, want 1", len(h.deployments.rollouts))
+	}
+	if got := h.deployments.rollouts[0].env[envWebSearchKey].Secret; got != webSearchKeySecret {
+		t.Errorf("%s binding = %q, want the secret reference", envWebSearchKey, got)
 	}
 }
 
@@ -1409,17 +1517,39 @@ func TestInstallRefusesWithoutAnOrchestratorURL(t *testing.T) {
 // and was refused. This is that connection: change the rule or the constant and
 // one of them has to give.
 func TestLLMKeySecretIsAValidPlatformSecretName(t *testing.T) {
-	if !secret.ValidName(llmKeySecret) {
-		t.Fatalf("llmKeySecret = %q, which the secrets catalogue refuses; "+
-			"a platform secret name is UPPER_SNAKE_CASE, because it is a data key "+
-			"in the shared Secret and not a Secret object of its own", llmKeySecret)
+	for _, name := range []string{llmKeySecret, webSearchKeySecret} {
+		if !secret.ValidName(name) {
+			t.Errorf("%q is refused by the secrets catalogue; "+
+				"a platform secret name is UPPER_SNAKE_CASE, because it is a data key "+
+				"in the shared Secret and not a Secret object of its own", name)
+		}
+	}
+}
+
+// The sentinel is a contract between this package and the agent's own definition:
+// the installer binds it, and every web_search branch in config.yaml compares
+// against it. Written in two files, so held together by a test rather than by
+// memory.
+func TestWebSearchSentinelMatchesTheAgentDefinition(t *testing.T) {
+	definition, err := agentapp.Definition()
+	if err != nil {
+		t.Fatalf("Definition: %v", err)
+	}
+	if !strings.Contains(definition, WebSearchUnconfigured) {
+		t.Fatalf("the agent definition does not mention %q; "+
+			"the installer binds it as %s and the web_search tool tests for it",
+			WebSearchUnconfigured, envWebSearchKey)
+	}
+	if !strings.Contains(definition, envWebSearchKey) {
+		t.Fatalf("the agent definition declares no %s, but the installer binds one",
+			envWebSearchKey)
 	}
 }
 
 // Every environment name the installer binds is also an env var in the agent's
 // own config.yaml, and the same rule applies to all of them.
 func TestBoundEnvironmentNamesAreValid(t *testing.T) {
-	for _, name := range []string{envConnectorType, envModel, envAPIKey, envOrchestrator} {
+	for _, name := range []string{envConnectorType, envModel, envAPIKey, envOrchestrator, envWebSearchKey} {
 		if !secret.ValidName(name) {
 			t.Errorf("env name %q is not a valid environment variable name", name)
 		}

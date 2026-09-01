@@ -70,6 +70,26 @@ const agenticRunner = "agentic"
 // removes it.
 const llmKeySecret = "OCTO_AGENT_LLM_KEY"
 
+// webSearchKeySecret is the platform secret the agent's Parallel key is written
+// to, on the same contract as llmKeySecret above: the deployment binds
+// PARALLEL_API_KEY to this name, so the key never enters a deployment record. It
+// is written only when one is configured, and removed with the install on purge.
+const webSearchKeySecret = "OCTO_AGENT_WEBSEARCH_KEY"
+
+// WebSearchUnconfigured is what PARALLEL_API_KEY is bound to when this
+// installation has no Parallel key.
+//
+// A sentinel rather than an empty string, and the reason is the same one LOGS_URL
+// has: the agent declares a parallel connector, connectors start eagerly, and that
+// one refuses an empty API key — so an unconfigured install would crash-loop the
+// whole agent instead of losing one tool. His web_search tool compares against this
+// value and answers that it is unavailable, which costs no request and tells the
+// model something it can act on.
+//
+// It must match the default in orchestrator/agent/config.yaml, and
+// TestWebSearchSentinelMatchesTheAgentDefinition holds the two together.
+const WebSearchUnconfigured = "web-search-not-configured"
+
 // Environment variables the installer binds on the agent's deployment. They mirror
 // the app's own env block; a change on either side without the other fails the
 // deploy with the missing name, which is the right place to find out.
@@ -79,6 +99,7 @@ const (
 	envAPIKey        = "LLM_API_KEY"
 	envOrchestrator  = "ORCHESTRATOR_URL"
 	envMaxIterations = "AGENT_MAX_ITERATIONS"
+	envWebSearchKey  = "PARALLEL_API_KEY"
 )
 
 // The bounds on how many tool-calling turns the agent may take.
