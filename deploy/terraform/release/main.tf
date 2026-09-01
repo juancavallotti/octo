@@ -287,10 +287,42 @@ data "google_storage_bucket_object_content" "oidc" {
   name   = "release/oidc.json"
 }
 
+# Every generated credential, installed into the cluster as its own Secret before
+# the chart is applied. None of them is passed to Helm as a value: Helm keeps
+# every value it is given in the release history, so a credential handed over
+# that way stays in the cluster for as long as the revision carrying it is
+# retained — long after the value it replaced was rotated.
+#
+# The generation still happens above and the values still live in this root's
+# state, which is the trade this setup makes explicitly (there is no Secret
+# Manager). State is one place, encrypted at rest in its bucket; release history
+# is every retained revision.
+module "secrets" {
+  source = "../modules/octo-secrets"
+
+  namespace   = var.namespace
+  name_prefix = "octo"
+
+  postgres_password   = random_password.postgres.result
+  kv_encryption_key   = random_bytes.kv_encryption_key.base64
+  dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
+
+  # Only when SSO is on. The session secret is generated unconditionally above so
+  # that turning SSO on later does not invalidate everyone's cookies, but there is
+  # nothing to put in the cluster until the editor reads it.
+  auth_secret        = local.oidc_enabled_eff ? random_password.auth_secret.result : ""
+  oidc_client_secret = local.oidc_enabled_eff ? local.oidc_client_secret_eff : ""
+
+  embeddings_api_key = local.embeddings_enabled_eff ? local.embeddings_api_key_eff : ""
+}
+
 module "octo" {
   source = "../modules/helm-release"
 
-  namespace = var.namespace
+  # The module's namespace output rather than the variable, so the release cannot
+  # be planned before the namespace and its Secrets exist.
+  namespace        = module.secrets.namespace
+  create_namespace = false
 
   # Chart and images both come out of the same Artifact Registry repo, but they are
   # two distinct settings in the module: the OCI chart repo (with a GCP access token)
@@ -301,20 +333,20 @@ module "octo" {
   registry_username = "oauth2accesstoken"
   registry_password = data.google_client_config.current.access_token
 
-  embeddings_enabled        = local.embeddings_enabled_eff
-  embeddings_connector_type = local.embeddings_connector_type_eff
-  embeddings_model          = local.embeddings_model_eff
-  embeddings_dimensions     = local.embeddings_dimensions_eff
-  embeddings_api_key        = local.embeddings_api_key_eff
+  embeddings_enabled         = local.embeddings_enabled_eff
+  embeddings_connector_type  = local.embeddings_connector_type_eff
+  embeddings_model           = local.embeddings_model_eff
+  embeddings_dimensions      = local.embeddings_dimensions_eff
+  embeddings_existing_secret = try(module.secrets.embeddings.name, "")
 
-  image_registry     = local.image_base
-  image_tag          = var.image_tag
-  image_values_file  = var.image_values_file
-  values_files       = var.values_files
-  domain             = var.domain
-  apps_domain        = local.apps_domain_eff
-  postgres_password  = random_password.postgres.result
-  postgres_host_path = var.postgres_host_path
+  image_registry           = local.image_base
+  image_tag                = var.image_tag
+  image_values_file        = var.image_values_file
+  values_files             = var.values_files
+  domain                   = var.domain
+  apps_domain              = local.apps_domain_eff
+  postgres_existing_secret = module.secrets.postgres.name
+  postgres_host_path       = var.postgres_host_path
   # The path is a mount point on the attached data disk, so kubelet must not
   # invent it. If the disk failed to mount, the chart's DirectoryOrCreate default
   # would put the database on the boot disk and nothing would say so until the
@@ -327,22 +359,21 @@ module "octo" {
 
   # OIDC SSO. A local deploy supplies client id/secret via terraform.tfvars (which also
   # seeds oidc.json in the bucket); Cloud Build reads them back from there. The
-  # session secret is generated above. All land in the release state, not Secret Manager.
-  oidc_enabled       = local.oidc_enabled_eff
-  oidc_issuer        = local.oidc_issuer_eff
-  oidc_client_id     = local.oidc_client_id_eff
-  oidc_provider_name = local.oidc_provider_name_eff
-  oidc_client_secret = local.oidc_client_secret_eff
-  auth_secret        = local.oidc_enabled_eff ? random_password.auth_secret.result : ""
-  oidc_write_roles   = local.oidc_write_roles_eff
-  oidc_roles_claim   = local.oidc_roles_claim_eff
+  # session secret is generated above. All land in the release state, not Secret
+  # Manager — and reach the chart as the Secret module.secrets put them in.
+  oidc_enabled         = local.oidc_enabled_eff
+  oidc_issuer          = local.oidc_issuer_eff
+  oidc_client_id       = local.oidc_client_id_eff
+  oidc_provider_name   = local.oidc_provider_name_eff
+  auth_existing_secret = try(module.secrets.auth.name, "")
+  oidc_write_roles     = local.oidc_write_roles_eff
+  oidc_roles_claim     = local.oidc_roles_claim_eff
 
-  # KV secret-namespace encryption key (base64), generated above and held in state.
-  kv_encryption_key = random_bytes.kv_encryption_key.base64
-
-  # Dev-run hostname/identity HMAC key (base64), likewise generated above and stable
-  # in state. Required by the chart while orchestrator.devRuns.enabled is true.
-  dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
+  # KV secret-namespace encryption key and the dev-run hostname/identity HMAC key,
+  # both generated above, held in this root's state, and read by the chart from
+  # the Secrets module.secrets created.
+  kv_existing_secret       = module.secrets.kv.name
+  dev_runs_existing_secret = module.secrets.dev_runs.name
 
   depends_on = [null_resource.pull_images]
 }

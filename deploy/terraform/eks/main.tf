@@ -342,6 +342,33 @@ resource "random_bytes" "dev_run_hash_secret" {
   }
 }
 
+# The generated credentials, installed into the cluster as Secrets before the
+# chart is applied. None of them is passed to Helm as a value: Helm keeps every
+# value it is given in the release history, where a credential outlives the
+# rotation that was supposed to end it. Same reasoning as the managed database's
+# password above, applied to every other credential rather than just that one.
+#
+# The namespace is the root's own, so this module creates none.
+module "secrets" {
+  source = "../modules/octo-secrets"
+
+  namespace        = kubernetes_namespace_v1.octo.metadata[0].name
+  create_namespace = false
+  name_prefix      = "octo"
+
+  postgres_password   = var.external_database ? "" : random_password.postgres[0].result
+  kv_encryption_key   = random_bytes.kv_encryption_key.base64
+  dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
+
+  # Only when SSO is on. The session secret is generated unconditionally above so
+  # that turning SSO on later does not invalidate everyone's cookies, but there is
+  # nothing to put in the cluster until the editor reads it.
+  auth_secret        = var.oidc_enabled ? random_password.auth_secret.result : ""
+  oidc_client_secret = var.oidc_enabled ? var.oidc_client_secret : ""
+
+  embeddings_api_key = var.embeddings_api_key
+}
+
 # --- The release ---
 
 module "octo" {
@@ -388,7 +415,7 @@ module "octo" {
     }
   })]
 
-  postgres_password = var.external_database ? "" : random_password.postgres[0].result
+  postgres_existing_secret = try(module.secrets.postgres.name, "")
   external_database = var.external_database ? {
     host            = module.rds[0].host
     port            = module.rds[0].port
@@ -399,23 +426,22 @@ module "octo" {
   } : null
 
   # --- Editor authentication ---
-  embeddings_enabled        = var.embeddings_enabled
-  embeddings_connector_type = var.embeddings_connector_type
-  embeddings_model          = var.embeddings_model
-  embeddings_dimensions     = var.embeddings_dimensions
-  embeddings_api_key        = var.embeddings_api_key
+  embeddings_enabled         = var.embeddings_enabled
+  embeddings_connector_type  = var.embeddings_connector_type
+  embeddings_model           = var.embeddings_model
+  embeddings_dimensions      = var.embeddings_dimensions
+  embeddings_existing_secret = try(module.secrets.embeddings.name, "")
 
-  oidc_enabled       = var.oidc_enabled
-  oidc_issuer        = var.oidc_issuer
-  oidc_client_id     = var.oidc_client_id
-  oidc_provider_name = var.oidc_provider_name
-  oidc_client_secret = var.oidc_client_secret
-  oidc_write_roles   = var.oidc_write_roles
-  oidc_roles_claim   = var.oidc_roles_claim
-  auth_secret        = var.oidc_enabled ? random_password.auth_secret.result : ""
+  oidc_enabled         = var.oidc_enabled
+  oidc_issuer          = var.oidc_issuer
+  oidc_client_id       = var.oidc_client_id
+  oidc_provider_name   = var.oidc_provider_name
+  auth_existing_secret = try(module.secrets.auth.name, "")
+  oidc_write_roles     = var.oidc_write_roles
+  oidc_roles_claim     = var.oidc_roles_claim
 
-  kv_encryption_key   = random_bytes.kv_encryption_key.base64
-  dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
+  kv_existing_secret       = module.secrets.kv.name
+  dev_runs_existing_secret = module.secrets.dev_runs.name
 
   atomic  = true
   timeout = var.helm_timeout
