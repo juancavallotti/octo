@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.9.0](https://github.com/juancavallotti/octo/compare/v0.8.12...v0.9.0) (2026-09-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **terraform:** modules/helm-release no longer accepts postgres_password, auth_secret, oidc_client_secret, kv_encryption_key, dev_run_hash_secret or embeddings_api_key. Callers outside this repo create the Secrets themselves (or call modules/octo-secrets) and pass the references instead. The release root now creates its own namespace, so an existing k3s installation whose namespace Helm created must import it first — see docs/deployment.md.
+
+### Features
+
+* **agent:** ask before Dr. Octo searches the web ([70968cf](https://github.com/juancavallotti/octo/commit/70968cfdb0e88bb35eaee8351769ff9f27cf8831))
+* **ai-agent:** a person in the loop of a tool call ([9286af1](https://github.com/juancavallotti/octo/commit/9286af14f3fcd4e557f512ad8f633d7e80f0ef49))
+* **expr:** a CEL scope for one tool call ([1210683](https://github.com/juancavallotti/octo/commit/12106832c1daa306c079f92be48088eff83a9195))
+* **helm:** read the editor's auth credentials from a Secret you own ([9760636](https://github.com/juancavallotti/octo/commit/9760636038fb63980081d209e2dba83cfcf16bb7))
+* **platform:** answer Dr. Octo's web search from the panel ([59434ff](https://github.com/juancavallotti/octo/commit/59434ff693dbf29b52832896db8104edb062c4aa))
+* **platform:** ask before Dr. Octo searches the web ([7bcd0ea](https://github.com/juancavallotti/octo/commit/7bcd0eacc365552095f9861a66ed9da324a57096))
+* **terraform:** install the generated credentials into the cluster ([a270876](https://github.com/juancavallotti/octo/commit/a270876d975d875c7305b225d445dbdb733870a6))
+* **terraform:** pass secret references to the chart, never values ([3a1c25e](https://github.com/juancavallotti/octo/commit/3a1c25ebe5941c52aaea07ed26525790a30e9d7e))
+
+
+### Bug Fixes
+
+* **ci:** build the paas images natively, one runner per architecture ([d653300](https://github.com/juancavallotti/octo/commit/d6533007e27f8072dfa206d228053b9c302ed77d))
+* **ci:** publish every chart image, and build them natively per architecture ([27b896d](https://github.com/juancavallotti/octo/commit/27b896ddd56a7cbaeda95c93f3a0b0be3a520a33))
+* **ci:** publish the embedding server image ([af65249](https://github.com/juancavallotti/octo/commit/af652490e781aabd21b80fd6005f6d2bc8fe80bf))
+* hold every credential in a Secret, not in Helm values ([b5ed38f](https://github.com/juancavallotti/octo/commit/b5ed38f04d089412f331827167dfff2a3eec61de))
+* **platform:** make an answer say whether it was sent ([dc30b86](https://github.com/juancavallotti/octo/commit/dc30b861cd4f90972dc4ab2d4a56f4a42db5dfc9))
+* **platform:** open the chip when the question arrives ([59f5a30](https://github.com/juancavallotti/octo/commit/59f5a30e4bb5f2cecea98d3076d491be81923f4d))
+* **terraform:** name the credential Secrets clear of the chart's own ([f267c6a](https://github.com/juancavallotti/octo/commit/f267c6a3662a385b16b42fa96449f6ed213a8ea8))
+* **terraform:** resolve Secret counts at plan time, not from the credentials ([588594d](https://github.com/juancavallotti/octo/commit/588594dd2636b3b55ee268c1cc92554510d26694))
+
+
+### Refactoring
+
+* **helm:** resolve the embeddings Secret through helpers ([bd1a89b](https://github.com/juancavallotti/octo/commit/bd1a89bf9f3d731fcba79cd46df6420eef48fb90))
+
+
+### Documentation
+
+* add an end-to-end Kubernetes install guide ([06ced61](https://github.com/juancavallotti/octo/commit/06ced615faafb99b9ca4ec73bb2a0e501c960ffa))
+* **ai:** tool authorization, and the sample that runs it ([d53f302](https://github.com/juancavallotti/octo/commit/d53f3020e8297447f1624fea5be53e22c575ba18))
+* describe every credential as a Secret reference ([8362253](https://github.com/juancavallotti/octo/commit/836225331eddc5eaed8d1d023422328bef2e8e8c))
+* **guides:** a human-in-the-loop guide, and a gate that has no hole in it ([0ade556](https://github.com/juancavallotti/octo/commit/0ade55643799ec7c4771c4458846c8af701535d8))
+* **platform:** point the guide at the agent that uses it ([05a816b](https://github.com/juancavallotti/octo/commit/05a816bb8945737bbf228cb6cf00f20a6d07c35f))
+
 ## [0.8.12](https://github.com/juancavallotti/octo/compare/v0.8.11...v0.8.12) (2026-09-01)
 
 
