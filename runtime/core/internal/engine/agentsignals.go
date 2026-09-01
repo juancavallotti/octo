@@ -40,6 +40,11 @@ const (
 	fieldSignal   = "signal"
 	signalContext = "context"
 	signalStop    = "stop"
+	// signalAuthorize is a person's answer to a tool call the run is holding: the
+	// id it quotes, and whether it may run. It is the third thing an invocation can
+	// be, and the only one that resolves something the run is already waiting on
+	// rather than adding to what it has to do.
+	signalAuthorize = "authorize"
 	// signalUnanswered is a message the run took responsibility for and never got
 	// a turn to answer. It is reported rather than dropped: the invocation that
 	// sent it already stopped its own flow on the strength of the run accepting
@@ -107,7 +112,7 @@ func (r *runRegistry) offerOrClaim(
 			return held, false, nil
 		}
 
-		accepted, deliverErr := deliver(ctx, key, signalContext, text)
+		accepted, deliverErr := deliver(ctx, key, delivery{signal: signalContext, text: text})
 		switch {
 		case deliverErr == nil && accepted:
 			return nil, true, nil
@@ -188,7 +193,7 @@ func (r *runRegistry) stop(ctx context.Context, key string) bool {
 	if r.stopLocal(key) {
 		return true
 	}
-	accepted, err := deliver(ctx, key, signalStop, "")
+	accepted, err := deliver(ctx, key, delivery{signal: signalStop})
 	if err != nil {
 		return false
 	}
@@ -201,6 +206,34 @@ func (r *runRegistry) stopLocal(key string) bool {
 	defer r.mu.Unlock()
 	existing, ok := r.runs[key]
 	return ok && existing.requestStop()
+}
+
+// answer hands a person's authorization to whoever is working on key, and reports
+// whether a call was waiting on it.
+//
+// Not finding one is an answer rather than a failure, exactly as a stop that
+// stopped nothing is: the gate may have already timed out, and the panel that
+// sent this could not have known. The caller says so and the run — wherever it
+// is — carries on with the denial it already produced.
+func (r *runRegistry) answer(ctx context.Context, key, id string, allowed bool) bool {
+	if r.answerLocal(key, id, allowed) {
+		return true
+	}
+	accepted, err := deliver(ctx, key, delivery{
+		signal: signalAuthorize, authorizationID: id, allowed: allowed,
+	})
+	if err != nil {
+		return false
+	}
+	return accepted
+}
+
+// answerLocal hands an authorization to a run in this process.
+func (r *runRegistry) answerLocal(key, id string, allowed bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.runs[key]
+	return ok && existing.authorize(id, allowed)
 }
 
 // release removes a run, leaving alone a key another run has already taken over
@@ -251,6 +284,63 @@ type agentRun struct {
 	// cancel ends the run's context, which is what abandons a model call already
 	// in flight rather than paying for the rest of it.
 	cancel func()
+	// gates are the tool calls this run is holding in front of a person, by the id
+	// each was announced under. They live on the run rather than beside it because
+	// an answer arrives addressed to the conversation, and the run is what a
+	// conversation resolves to — here or, through the claim, on another replica.
+	gates map[string]chan bool
+}
+
+// openGate registers a call waiting on a person and returns the channel its
+// answer arrives on.
+//
+// Buffered by one, so an answer never blocks the invocation delivering it: that
+// invocation is a person's request holding its own connection open, and it has
+// nothing to wait for once the run has taken the decision.
+func (a *agentRun) openGate(id string) <-chan bool {
+	answers := make(chan bool, 1)
+	if a == nil {
+		return answers
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.gates == nil {
+		a.gates = make(map[string]chan bool, 1)
+	}
+	a.gates[id] = answers
+	return answers
+}
+
+// closeGate forgets a call that is no longer waiting — answered, denied, or timed
+// out. An answer arriving afterwards finds nothing, which is what tells the panel
+// it was too late rather than leaving it to guess.
+func (a *agentRun) closeGate(id string) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.gates, id)
+}
+
+// authorize resolves a waiting call and reports whether one was waiting.
+//
+// The gate is removed as it is answered, so a second answer to the same id is
+// refused rather than left in a channel nobody reads — and so the answer that
+// counted is the first one, which is the one somebody actually gave.
+func (a *agentRun) authorize(id string, allowed bool) bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	answers, waiting := a.gates[id]
+	if !waiting {
+		return false
+	}
+	delete(a.gates, id)
+	answers <- allowed
+	return true
 }
 
 // offer hands a message to the run and reports whether it took responsibility
@@ -465,6 +555,21 @@ func (a *aiAgent) joinOrClaim(
 				"block", a.name, "stopped", liveRuns.stop(ctx, c.key))
 			return c, stopFlow(msg), nil
 		}
+	}
+
+	// An answer to a call the run is holding, before an opening turn is built from
+	// it: this invocation is not a message and has nothing to say to the model.
+	// After the stop above, because a stop ends everything including a gate, and
+	// before the offer below, because an offer would fold the answer into the
+	// conversation as a user turn saying "allow".
+	answered, isAnswer, err := a.answerAuthorization(ctx, msg, c.key)
+	if err != nil {
+		return c, nil, err
+	}
+	if isAnswer {
+		slog.Info("ai-agent delivered a tool authorization",
+			"block", a.name, "thread", c.threadID, "answered", answered)
+		return c, stopFlow(msg), nil
 	}
 
 	text, err := a.openingTurn(msg)

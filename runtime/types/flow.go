@@ -207,6 +207,28 @@ type BlockConfig struct {
 	// MemoryThreadID, since that is what names the conversation. Empty offers no
 	// way to stop a run.
 	StopWhen string `yaml:"stopWhen,omitempty"`
+	// AuthorizeTimeout is how long an "ai-agent" waits for a person to answer a
+	// tool authorization before denying it on their behalf. Default applied by the
+	// builder.
+	//
+	// There has to be one. A run parked on a tool call nobody is going to answer —
+	// the panel closed, the person walked away — would otherwise hold its
+	// conversation until the run age bound catches it, and be billed for the wait.
+	AuthorizeTimeout string `yaml:"authorizeTimeout,omitempty"`
+	// AuthorizeID is a CEL expression resolving the authorization an incoming
+	// message answers — the id the tool_authorization event carried. A non-empty
+	// result is what makes an invocation an answer rather than a message: it is
+	// handed to the run working on this conversation and the flow stops, exactly
+	// as a StopWhen invocation does.
+	//
+	// It is meaningless without MemoryThreadID, since that is what names the
+	// conversation the answer is delivered to. Empty offers no way to answer.
+	AuthorizeID string `yaml:"authorizeId,omitempty"`
+	// AuthorizeAllow is the boolean CEL condition deciding what an answer says.
+	// It is read only on an invocation AuthorizeID already identified as one, so
+	// anything other than a plain yes — including an expression that fails to
+	// evaluate — is a denial.
+	AuthorizeAllow string `yaml:"authorizeAllow,omitempty"`
 	// ContextMaxTokens is an "ai-agent"'s token budget for its whole prompt —
 	// system instructions, tool schemas and conversation together — measured from
 	// what the provider reports it read. The transcript is compacted when the
@@ -468,6 +490,22 @@ type ToolConfig struct {
 	Description string        `yaml:"description"`
 	InputSchema string        `yaml:"inputSchema,omitempty"`
 	Process     []BlockConfig `yaml:"process"`
+
+	// Authorize is a boolean CEL condition over the call the model asked for,
+	// deciding whether a person has to allow it before the branch runs. It reads
+	// `input` (the decoded arguments), `tool.name`, `tool.id`, and the message
+	// scope; see expr.ToolCallVars.
+	//
+	// Empty is free, and free is the default. Most tools are reads, and asking
+	// about every one of them trains a person to click yes — which is the failure
+	// this is meant to prevent rather than cause. It is written per tool because
+	// the danger is a property of the tool and its arguments, not of the agent:
+	// `input.method != "GET"` gates the write and leaves the read alone.
+	//
+	// It is an "ai-agent" field. An "mcp-router" rejects it: the protocol has its
+	// own consent step, run by the client, and a second one here would be
+	// configuration that looks like it does something and does not.
+	Authorize string `yaml:"authorize,omitempty"`
 
 	// Title, Annotations and OutputSchema are MCP metadata, advertised by an
 	// "mcp-router" and rejected on an "ai-agent": an LLM tool call has no protocol

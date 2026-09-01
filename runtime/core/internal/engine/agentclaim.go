@@ -52,6 +52,33 @@ const (
 	fieldAccepted = "accepted"
 )
 
+// delivery is one instruction addressed to a conversation: which kind it is, and
+// whatever that kind carries.
+//
+// A struct rather than a widening argument list, because the three kinds carry
+// different things — a steer carries text, an authorization carries an id and a
+// decision, a stop carries nothing — and a fourth positional string is how the
+// wrong one ends up in the wrong field at a call site.
+type delivery struct {
+	signal string
+	text   string
+	// authorizationID and allowed are the authorize signal's, and are read only
+	// for it.
+	authorizationID string
+	allowed         bool
+}
+
+// body is what travels on the wire. Only the fields the signal uses are written,
+// so a stop is still an envelope with a signal in it and nothing else.
+func (d delivery) body() map[string]any {
+	body := map[string]any{fieldSignal: d.signal, fieldText: d.text}
+	if d.signal == signalAuthorize {
+		body[fieldAuthorizationID] = d.authorizationID
+		body[fieldAllowed] = d.allowed
+	}
+	return body
+}
+
 // errNobodyHome is the delivery that found no run behind a claim. It never
 // escapes this file — it decides whether to try the claim again — but it is a
 // named value so the two places that produce it cannot drift apart.
@@ -150,14 +177,16 @@ func subscribeForRun(ctx context.Context, key string, run *agentRun) (core.Subsc
 // is contracted to the flow's own; the signal is reported when the run consumes
 // it, on the goroutine that owns the conversation.
 func handleDelivery(msg types.Message, run *agentRun) types.Message {
-	signal, text := readDelivery(msg)
+	d := readDelivery(msg)
 
 	accepted := false
-	switch signal {
+	switch d.signal {
 	case signalStop:
 		accepted = run.requestStop()
+	case signalAuthorize:
+		accepted = run.authorize(d.authorizationID, d.allowed)
 	default:
-		accepted = run.offer(text)
+		accepted = run.offer(d.text)
 	}
 
 	var reply types.Message
@@ -167,7 +196,7 @@ func handleDelivery(msg types.Message, run *agentRun) types.Message {
 
 // deliver hands an instruction to whoever holds key, and reports whether they
 // took it.
-func deliver(ctx context.Context, key, signal, text string) (bool, error) {
+func deliver(ctx context.Context, key string, d delivery) (bool, error) {
 	queues := core.RuntimeServicesFromContext(ctx).Queues()
 	subject := claimSubject(key)
 
@@ -175,7 +204,7 @@ func deliver(ctx context.Context, key, signal, text string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("build a delivery for %q: %w", subject, err)
 	}
-	envelope.SetBody(map[string]any{fieldSignal: signal, fieldText: text})
+	envelope.SetBody(d.body())
 
 	reply, err := queues.Request(ctx, subject, *envelope, core.WithTimeout(deliveryTimeout))
 	if err != nil {
@@ -203,17 +232,20 @@ func acceptedBy(reply types.Message) bool {
 // readDelivery pulls the instruction out of an envelope, tolerating one that is
 // not shaped as expected — an unrecognised body is a context signal with nothing
 // in it, which offer takes and does not queue.
-func readDelivery(msg types.Message) (signal, text string) {
+func readDelivery(msg types.Message) delivery {
 	body, ok := msg.Body.(map[string]any)
 	if !ok {
-		return signalContext, ""
+		return delivery{signal: signalContext}
 	}
-	signal, _ = body[fieldSignal].(string)
-	text, _ = body[fieldText].(string)
-	if signal == "" {
-		signal = signalContext
+	d := delivery{}
+	d.signal, _ = body[fieldSignal].(string)
+	d.text, _ = body[fieldText].(string)
+	d.authorizationID, _ = body[fieldAuthorizationID].(string)
+	d.allowed, _ = body[fieldAllowed].(bool)
+	if d.signal == "" {
+		d.signal = signalContext
 	}
-	return signal, text
+	return d
 }
 
 // claimSubject is the delivery address for a conversation, derived so that every

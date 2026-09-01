@@ -524,11 +524,14 @@ func compositeSlots(cfg types.BlockConfig) []string {
 		{cfg.Connector, "connector"},
 		{cfg.Prompt, "prompt"},
 		{cfg.Guardrail, "guardrail"},
-		{cfg.Input, "input"},
+		{cfg.Input, fieldInput},
 		{cfg.Answer, "answer"},
 		{cfg.MemoryThreadID, "memoryThreadId"},
 		{cfg.MemoryCompaction, "memoryCompaction"},
 		{cfg.StopWhen, "stopWhen"},
+		{cfg.AuthorizeTimeout, "authorizeTimeout"},
+		{cfg.AuthorizeID, "authorizeId"},
+		{cfg.AuthorizeAllow, "authorizeAllow"},
 	} {
 		add(slot.value != "", slot.name)
 	}

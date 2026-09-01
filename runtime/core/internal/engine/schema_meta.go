@@ -359,6 +359,21 @@ type aiAgentMeta struct {
 	// caller uses to say stop. Requires a memory thread ID, since that is what
 	// names the conversation.
 	StopWhen string `json:"stopWhen" octo:"label=Stop when,type=cel"`
+	// How long a tool call that needs a person waits for the answer before it is
+	// denied on their behalf. A run parked on a call nobody is going to answer is
+	// billed for the wait, so there is always a limit; this sets it.
+	//nolint:lll // the tag carries a label and a default and is longer than 120 cols
+	AuthorizeTimeout string `json:"authorizeTimeout" octo:"label=Authorization timeout,default=5m"`
+	// CEL expression resolving the authorization an incoming message answers — the
+	// id the tool_authorization event carried. A non-empty result makes the
+	// invocation an answer rather than a message: it is handed to the run working on
+	// this conversation and the flow stops. Required by any tool that declares an
+	// authorize condition, and needs a memory thread ID.
+	AuthorizeID string `json:"authorizeId" octo:"label=Authorization ID,type=cel"`
+	// Boolean CEL condition deciding what an answer says. Read only on an
+	// invocation the ID above already identified as one, so anything but a plain
+	// yes — an expression that fails to evaluate included — denies the call.
+	AuthorizeAllow string `json:"authorizeAllow" octo:"label=Authorization allowed,type=cel"`
 	// Token budget for the whole prompt — system instructions, tool schemas and
 	// conversation together — measured from what the provider reports it read. The
 	// transcript is compacted when the prompt would exceed it. Applies with or

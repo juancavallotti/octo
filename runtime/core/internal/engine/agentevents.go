@@ -25,6 +25,8 @@ const (
 	eventToolCall = "tool_call"
 	// eventToolResult is what the branch that ran it returned.
 	eventToolResult = "tool_result"
+	// eventToolAuthorization is a gated call waiting on a person. It is declared in
+	// agentauthorize.go, beside the thing that raises it.
 	// eventTurnEnd is a finished model turn, with its stop reason and usage.
 	eventTurnEnd = "turn_end"
 	// eventSignal is something posted to the run from outside it: context folded
@@ -63,12 +65,17 @@ const (
 	fieldText       = "text"
 	fieldTool       = "tool"
 	fieldToolCallID = "toolCallId"
+	// fieldInput is the arguments the model asked a tool to run with, decoded. It
+	// rides on the call and on the authorization that holds the call, which is the
+	// whole point of the second one: a person is being shown the arguments.
+	fieldInput = "input"
 )
 
 // agentEventKinds is the closed set an emit list may name.
 var agentEventKinds = map[string]bool{
 	eventTurnStart: true, eventText: true, eventThinking: true, eventToolInput: true,
-	eventCustom: true, eventToolCall: true, eventToolResult: true, eventTurnEnd: true,
+	eventCustom: true, eventToolCall: true, eventToolResult: true,
+	eventToolAuthorization: true, eventTurnEnd: true,
 	eventCompactionStart: true, eventCompactionEnd: true, eventSignal: true,
 	eventThreadTitle: true, eventGuardrail: true, eventDone: true, eventError: true,
 }
@@ -163,7 +170,7 @@ func callFields(call core.LLMToolCall) map[string]any {
 	return map[string]any{
 		fieldTool:       call.Name,
 		fieldToolCallID: call.ID,
-		"input":         decodeJSON(call.Input),
+		fieldInput:      decodeJSON(call.Input),
 	}
 }
 
