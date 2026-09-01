@@ -36,6 +36,7 @@ import { SlackIcon } from "./slack-icon";
 import { NotionIcon } from "./notion-icon";
 import { McpIcon } from "./mcp-icon";
 import { PineconeIcon } from "./pinecone-icon";
+import { ParallelIcon } from "./parallel-icon";
 import capsJson from "./capabilities.json";
 import type {
   BlockSpec,
@@ -115,6 +116,7 @@ const ICONS: Record<string, LucideIcon> = {
   Notion: NotionIcon,
   Mcp: McpIcon,
   Pinecone: PineconeIcon,
+  Parallel: ParallelIcon,
   // MongoDB has no lucide brand icon, and an approximated one would be
   // trademark artwork nobody verified. Leaf is the nearest honest stand-in —
   // it echoes the shape of MongoDB's own mark without claiming to be it.
