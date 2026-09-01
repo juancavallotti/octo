@@ -50,9 +50,17 @@ for. When it holds, the run stops and asks a person.
           # The gate is about the arguments, not the tool.
           - name: refund_order
             description: Refund an order, in whole or in part.
-            authorize: 'input.amount > 10.0'
+            authorize: '!(input.amount >= 0.0 && input.amount <= 10.0)'
             process: [...]
 ```
+
+**Write the condition as "free only when", not "gated when".** The obvious
+spelling of the refund rule is `input.amount > 10.0`, and it has a hole in it:
+`-1` is not greater than ten, so a negative refund — a charge — goes through
+unasked. Inverting it, as above, closes the whole outside of the safe range at
+once, including the values nobody thought of. An `inputSchema` saying the same
+thing is worth writing and is not a substitute: it is advice a provider usually
+follows, not something the runtime enforces.
 
 **Free is the default, and it is the important default.** Most tools are
 reads, and a panel that asks about every one of them trains a person to click
@@ -167,6 +175,7 @@ protocol, is answered, and is gone, and the client runs its own consent step.
 
 ## Try it
 
+[Human in the Loop](/guides/human-in-the-loop) walks the whole thing through, and
 [`samples/ai-agent-authorization.yaml`](https://github.com/juancavallotti/octo/tree/main/samples/ai-agent-authorization.yaml)
 is the whole pattern, runnable, in two terminals.
 

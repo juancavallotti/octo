@@ -1,0 +1,196 @@
+---
+title: "Human in the Loop"
+description: "Make an agent ask a person before it runs a tool, and decide what happens when nobody answers."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Some calls should not happen because a model decided they should. This guide
+builds an agent that stops before one, shows a person the arguments it chose,
+and waits — and behaves sensibly when nobody is there.
+
+You will use [`samples/ai-agent-authorization.yaml`](https://github.com/juancavallotti/octo/tree/main/samples/ai-agent-authorization.yaml),
+which needs an Anthropic key and nothing else.
+
+## What a gate is for
+
+Every other boundary an agent has is structural: a tool it does not hold, an
+HTTP client bounded to `GET`, a branch that is not wired. A model cannot talk
+its way past something that is not configured, so reach for those first.
+
+What they cannot express is a rule about an **argument** — `refund 8.00` and
+`refund 40000.00` are the same tool and the same verb. And once anything the
+agent reads can carry text somebody else wrote (a search result, a web page, a
+ticket description), an instruction can arrive inside the data. A prompt telling
+the model to ignore such instructions is not a boundary; a person deciding is.
+
+## Step 1: gate the call, not the tool
+
+Add `authorize` to the tool. It is CEL over the call the model asked for, where
+`input` is the decoded arguments:
+
+```yaml
+        tools:
+          # A read. No gate.
+          - name: lookup_order
+            description: Look up an order by its id.
+            process: [...]
+
+          - name: refund_order
+            description: Refund an order, in whole or in part.
+            authorize: '!(input.amount >= 0.0 && input.amount <= 10.0)'
+            process: [...]
+
+          - name: cancel_order
+            description: Cancel an order that has not shipped.
+            authorize: "true"
+            process: [...]
+```
+
+A tool with no `authorize` runs freely, and that is the default for a reason:
+most tools are reads, and a panel that asks about every one of them teaches
+people to click yes without reading. Gate the call that changes something.
+
+<Callout type="warn">
+**Write the condition as "free only when", not "gated when".** The obvious
+spelling of the refund rule is `input.amount > 10.0`, and it has a hole in it:
+`-1` is not greater than ten, so a negative refund — a charge — goes through
+unasked. Inverting it closes the whole outside of the safe range at once,
+including the values nobody thought of.
+
+The `inputSchema` says the same thing to the model, and is the wrong place to
+rely on it: a schema is advice a provider usually follows, not something the
+runtime enforces.
+</Callout>
+
+## Step 2: give it a way to ask
+
+The question travels the [events path](/reference/blocks/ai#agent-events) as an
+ordinary frame, so a caller already reading the run receives it with no new
+transport:
+
+```yaml
+        emit: [text, tool_call, tool_authorization, tool_result, signal, done]
+        events:
+          process:
+            - type: sse-event
+              settings:
+                event: agent
+                ifClosed: stop
+```
+
+`tool_authorization` has to be in `emit`. A gate on a path that drops the event
+could only ever deny, so the block refuses to build that way.
+
+## Step 3: give it a way to be told
+
+The answer comes back the way a follow-up or a stop does — a second request on
+the same conversation, which is what `memoryThreadId` names. Two expressions
+read it:
+
+```yaml
+        memoryThreadId: vars.sub + ":" + body.threadId
+
+        authorizeId: '"X-Agent-Auth-Id" in vars ? vars["X-Agent-Auth-Id"] : ""'
+        authorizeAllow: '"X-Agent-Auth" in vars && vars["X-Agent-Auth"] == "allow"'
+        authorizeTimeout: 2m
+```
+
+A non-empty `authorizeId` is what makes a request an answer rather than a
+message: it is handed to the run holding the call, and that request stops with
+an empty body. Anything but a plain yes in `authorizeAllow` denies, a missing
+header included — an answer that could not be read is not permission.
+
+Declare the headers on the source so they reach the flow as variables:
+
+```yaml
+      settings:
+        path: /chat
+        methods: [POST]
+        headers: [X-Agent-Auth-Id, X-Agent-Auth]
+```
+
+<Callout type="warn">
+**Whatever the thread id is derived from is exactly who can answer.** An
+authorization is delivered on the conversation, so anyone who can reach the
+conversation can allow a call. Build the id from an identity the caller cannot
+choose — `vars.sub`, the verified subject of a token a
+[`jwt-validate`](/reference/connectors/http) block checked — rather than a field
+of the request body. The sample uses a body field and binds to loopback because
+it has no authentication in front of it; yours should not.
+</Callout>
+
+## Step 4: run it
+
+Two terminals. The first asks a question that makes the agent reach for a gated
+tool, with `curl -N` so it does not buffer:
+
+```bash
+curl -N -X POST http://127.0.0.1:8080/chat \
+     -d '{"userId":"u1","threadId":"t1","message":"cancel order A-1"}'
+```
+
+It stops and asks, in the same stream as everything else:
+
+```json
+{"type":"tool_authorization","iteration":2,"tool":"cancel_order",
+ "toolCallId":"toolu_01A…","authorizationId":"auth_9f3c2b…",
+ "input":{"orderId":"A-1"},"expiresInSeconds":120}
+```
+
+The second terminal answers, quoting the id:
+
+```bash
+curl -X POST http://127.0.0.1:8080/chat \
+     -H 'X-Agent-Auth-Id: auth_9f3c2b…' -H 'X-Agent-Auth: allow' \
+     -d '{"userId":"u1","threadId":"t1"}'
+```
+
+That request returns `{}` immediately — the answer is going to whoever is
+reading the run it reached — and the first terminal carries on. Send `deny`
+instead and the agent is told the call was refused and answers for itself.
+
+## What happens when nobody answers
+
+Nobody can be made to answer, so nothing waits forever. The call is denied when
+`authorizeTimeout` runs out, and the denial is the tool's own **result**:
+
+```json
+{"authorized": false, "reason": "nobody authorized this call within 2m0s"}
+```
+
+It reaches the model as an error result, so the run continues and the model is
+told plainly that the call was refused — rather than being left to interpret a
+hang. It is part of the conversation like any other tool result, so it survives
+compaction and is in the transcript afterwards.
+
+A closed connection denies **immediately** rather than waiting out the clock:
+with `ifClosed: stop`, the only person who could have answered has gone. Set
+`stream: true` on any agent whose caller can walk away, or a disconnect is only
+noticed at the next turn boundary — see
+[When the caller hangs up](/ai/agent-signals#when-the-caller-hangs-up).
+
+## Deciding what to gate
+
+Three questions, in order:
+
+1. **Can a structural boundary answer it?** If the tool should only ever read,
+   `allowMethods: [GET]` on its
+   [`rest-dynamic`](/reference/connectors/http) block is worth more than a
+   question somebody has to read. Do that instead.
+2. **Is the danger in the argument?** That is what a gate is for — the same tool
+   being safe or not depending on what it was asked to do.
+3. **Would you ask about this ten times a day?** If so, do not gate it. The cost
+   of a gate is not the pause; it is what asking too often does to the answers.
+
+A gate is **not inherited**. An `ai-agent` in another agent's tool slot declares
+its own gates on its own tools: the write happens one level below the
+delegation, and that is the level that knows the arguments.
+
+## Next steps
+
+- [Tool authorization](/ai/tool-authorization) — the reference, including every
+  denial reason and what fails at build time.
+- [Steering a running agent](/ai/agent-signals) — the path an answer travels,
+  and how it works across replicas.
+- [Dr. Octo](/platform/agent) — the platform's own agent, built the same way.

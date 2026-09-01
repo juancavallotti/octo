@@ -4,7 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Globe, HardDrive, KeyRound, Leaf, MessageSquare, Puzzle, Radar, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, Wand, Waypoints } from 'lucide-react';
+import { Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Globe, HardDrive, KeyRound, Leaf, MessageSquare, Puzzle, Radar, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, UserCheck, Wand, Waypoints } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -107,6 +107,9 @@ zero setup beyond the `octo` binary.
   </Card>
   <Card icon={<Waypoints />} href="/guides/rag-pipeline" title="Build a RAG Pipeline">
     Embed with Gemini, search in Pinecone, and let an agent answer from the matches.
+  </Card>
+  <Card icon={<UserCheck />} href="/guides/human-in-the-loop" title="Human in the Loop">
+    Make an agent ask a person before it runs a tool, and handle nobody answering.
   </Card>
   <Card icon={<Sparkles />} href="/ai" title="The AI section">
     The full AI documentation: agents, memory, skills, routing, and MCP.

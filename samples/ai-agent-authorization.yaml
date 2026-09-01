@@ -48,8 +48,13 @@ service:
 env:
   - name: ANTHROPIC_API_KEY
     required: true
+  # Loopback by default, unlike the other samples. The thread id below is built
+  # from a body field this route takes on trust, and in THIS sample that is not
+  # only a way to read somebody else's conversation — it is a way to answer their
+  # authorizations. Until the id comes from a verified token, the sample should not
+  # be reachable from off the machine.
   - name: HTTP_HOST
-    default: 0.0.0.0
+    default: 127.0.0.1
   - name: HTTP_PORT
     default: "8080"
 
@@ -147,21 +152,35 @@ flows:
                 settings:
                   value: '{"status": "shipped", "carrier": "UPS", "eta": "2026-09-01"}'
 
-          # The gate, and it is about the arguments rather than the tool. A refund
-          # under ten pounds goes through; anything larger is somebody's decision.
-          # `input` is the call's arguments, decoded, so this reads the amount the
-          # model actually asked for — which is the thing a method allowlist cannot
-          # see.
+          # The gate, and it is about the arguments rather than the tool. A small
+          # refund goes through; anything else is somebody's decision. `input` is the
+          # call's arguments, decoded, so this reads the amount the model actually
+          # asked for — which is the thing a method allowlist cannot see.
+          #
+          # WRITE THE CONDITION AS "FREE ONLY WHEN", NOT "GATED WHEN". The obvious
+          # spelling of this rule is `input.amount > 10.0`, and it has a hole in it:
+          # -1 is not greater than ten, so a negative refund — a charge — would go
+          # through unasked. Inverting it closes the whole outside of the safe range
+          # at once, including the values nobody thought of.
+          #
+          # The schema says the same thing to the model, and is the wrong place to
+          # rely on it: it is advice a provider usually follows, not something the
+          # runtime enforces. It is here to stop the honest mistake, and the
+          # condition is here to stop the rest.
+          #
+          # An argument that is missing or not a number fails the condition rather
+          # than answering it, and a gate that could not be evaluated denies — see
+          # "the condition would not evaluate" in the docs.
           - name: refund_order
             description: Refund an order, in whole or in part.
-            authorize: 'input.amount > 10.0'
+            authorize: '!(input.amount >= 0.0 && input.amount <= 10.0)'
             inputSchema: |
               {
                 "type": "object",
                 "required": ["orderId", "amount"],
                 "properties": {
                   "orderId": { "type": "string" },
-                  "amount":  { "type": "number", "description": "Amount to refund." }
+                  "amount":  { "type": "number", "minimum": 0, "description": "Amount to refund." }
                 }
               }
             process:
