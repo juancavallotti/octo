@@ -48,10 +48,22 @@ export default function ToolChip({
   onAuthorize: (id: string, allow: boolean) => void;
 }) {
   const asking = run.authorization?.state === "pending";
-  // Opened by default while it is asking. A person cannot decide about a call
-  // whose arguments are a click away — and this chip's whole job in that moment is
-  // to show them.
   const [open, setOpen] = useState(asking);
+
+  // Open it when the question ARRIVES, not only when the chip happens to mount
+  // holding one. The agent reports a call before it asks about it, so this chip is
+  // almost always already on screen and closed by the time the question lands —
+  // and a person cannot decide about a call whose arguments are behind a click.
+  //
+  // Adjusted during render rather than in an effect: React re-runs this component
+  // before touching the DOM, so the chip is never painted asking-but-closed. It
+  // stays a nudge and not a lock — the header still collapses it afterwards, which
+  // matters for the one chip somebody has decided to leave open and ignore.
+  const [asked, setAsked] = useState(asking);
+  if (asking !== asked) {
+    setAsked(asking);
+    if (asking) setOpen(true);
+  }
   const detail = preview(run.input);
   const result = preview(run.output);
   const expandable = Boolean(detail || result);
