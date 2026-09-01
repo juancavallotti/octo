@@ -187,10 +187,18 @@ A gate is **not inherited**. An `ai-agent` in another agent's tool slot declares
 its own gates on its own tools: the write happens one level below the
 delegation, and that is the level that knows the arguments.
 
+## A worked example
+
+The platform's own agent gates exactly one of his tools — `web_search`, and
+[because of what it brings back rather than what it changes](/platform/agent#why-the-web-search-asks).
+It is the door untrusted text comes through; everything else he holds is a `GET`
+or a call whose effect is on the installation's own data. One tool out of a
+couple of dozen, chosen on that reasoning, is a realistic ratio.
+
 ## Next steps
 
 - [Tool authorization](/ai/tool-authorization) — the reference, including every
   denial reason and what fails at build time.
 - [Steering a running agent](/ai/agent-signals) — the path an answer travels,
   and how it works across replicas.
-- [Dr. Octo](/platform/agent) — the platform's own agent, built the same way.
+- [Dr. Octo](/platform/agent) — the gate as a person actually meets it.
