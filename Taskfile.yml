@@ -1084,6 +1084,20 @@ tasks:
         check_fails devruns-both-sources "clear hashSecret" \
           --set orchestrator.devRuns.existingSecret=my-devruns \
           --set orchestrator.baseDomain=apps.example.com
+        # The embedding server's provider key, held in a Secret the operator owns.
+        # The chart must reference it and create none of its own; nothing else
+        # renders the embeddings component at all, so no other check covers it.
+        check_contains embeddings-existing-secret \
+          "name: \"my-embeddings\"" "key: \"openai\"" -- \
+          --set embeddings.enabled=true --set embeddings.existingSecret=my-embeddings \
+          --set embeddings.existingSecretKey=openai
+        check_absent embeddings-existing-no-chart-secret "apiKey: " \
+          --set embeddings.enabled=true --set embeddings.existingSecret=my-embeddings
+        check_fails embeddings-both-sources "clear embeddings.apiKey" \
+          --set embeddings.enabled=true --set embeddings.apiKey=sk-inline \
+          --set embeddings.existingSecret=my-embeddings
+        check_fails embeddings-no-key  "embeddings.apiKey is required" \
+          --set embeddings.enabled=true
         check_fails auth-both-sources  "clear the inline values" \
           --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
           --set auth.oidc.clientId=octo --set auth.secret=shh \

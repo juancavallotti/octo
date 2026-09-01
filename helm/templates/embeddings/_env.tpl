@@ -26,17 +26,12 @@ guard here listing which model can do what.
 */}}
 - name: EMBEDDING_DIMENSIONS
   value: {{ .Values.embeddings.dimensions | quote }}
-{{- if .Values.embeddings.existingSecret }}
+{{- /* Always by reference, whether the Secret is this chart's or one the operator
+       owns — the two cases differ only in which name and key the helpers resolve
+       to, which is the point of routing both through them. */}}
 - name: EMBEDDING_API_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.embeddings.existingSecret | quote }}
-      key: {{ .Values.embeddings.existingSecretKey | quote }}
-{{- else }}
-- name: EMBEDDING_API_KEY
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "octo-common.componentName" (dict "root" $ "component" "embeddings") | quote }}
-      key: apiKey
-{{- end }}
+      name: {{ include "octo.embeddings.secretName" . | quote }}
+      key: {{ include "octo.embeddings.secretKey" . | quote }}
 {{- end }}

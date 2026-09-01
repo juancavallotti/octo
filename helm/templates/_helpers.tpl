@@ -163,6 +163,35 @@ kv-encryption-key
 {{- if or .Values.kv.encryptionKey .Values.kv.existingSecret -}}true{{- end -}}
 {{- end }}
 
+{{/*
+  Secret and key holding the embedding server's provider API key. The same two
+  cases as everything else, and the same guard: an existing Secret and an inline
+  key together is refused, not resolved by precedence.
+
+  This key IS rotatable — revoke it at the provider and issue another — so the
+  refusal is about the operator's belief rather than about unrecoverable harm.
+  Being told by this chart that a key is held elsewhere, while it sits in the
+  release history, is the thing worth failing over.
+*/}}
+{{- define "octo.embeddings.secretName" -}}
+{{- if and .Values.embeddings.existingSecret .Values.embeddings.apiKey -}}
+{{- fail "embeddings.apiKey and embeddings.existingSecret are both set: clear embeddings.apiKey. Leaving it keeps the key in this release's values — and so in the release history — which is the copy existingSecret exists to avoid. Revisions written before the change still hold it." -}}
+{{- end -}}
+{{- if .Values.embeddings.existingSecret -}}
+{{- .Values.embeddings.existingSecret -}}
+{{- else -}}
+{{- include "octo-common.componentName" (dict "root" . "component" "embeddings") -}}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.embeddings.secretKey" -}}
+{{- if .Values.embeddings.existingSecret -}}
+{{- .Values.embeddings.existingSecretKey | default "apiKey" -}}
+{{- else -}}
+apiKey
+{{- end -}}
+{{- end }}
+
 {{- define "octo.devRuns.secretName" -}}
 {{- if and .Values.orchestrator.devRuns.existingSecret .Values.orchestrator.devRuns.hashSecret -}}
 {{- fail "orchestrator.devRuns.hashSecret and .existingSecret are both set: clear hashSecret. Leaving it keeps the key in this release's values — and so in the release history — which is the copy existingSecret exists to avoid, and this key must never change, so it cannot be rotated to recover from it. Revisions written before the change still hold it." -}}

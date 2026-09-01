@@ -263,6 +263,10 @@ embeddings:
   # The provider API key. Required when enabled, unless existingSecret names one
   # you manage yourself.
   apiKey: ""
+  # A Secret you already hold carrying the key instead, and the chart creates
+  # none. Preferred, for the reason kv.existingSecret gives: every value handed
+  # to Helm is kept in the release history. Clear apiKey when you set this —
+  # both together is refused.
   existingSecret: ""
   existingSecretKey: apiKey
 
