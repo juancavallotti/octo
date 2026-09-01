@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.8.12](https://github.com/juancavallotti/octo/compare/v0.8.11...v0.8.12) (2026-09-01)
+
+
+### Features
+
+* add the Parallel connector, with verified async webhooks ([09181e3](https://github.com/juancavallotti/octo/commit/09181e3e25fccc8e6dadf8c1f5972025ac0d61a7))
+* add the Tavily connector for agentic web search ([2cd35fb](https://github.com/juancavallotti/octo/commit/2cd35fb477bb5766fa843f0f90c9770e7c61f463))
+* **agent:** give Dr. Octo a web_search tool ([6be6e7d](https://github.com/juancavallotti/octo/commit/6be6e7d137c113f89d82b34e07b18cdde0aca82d))
+* **editor:** add the Parallel brand icon ([de2e1e3](https://github.com/juancavallotti/octo/commit/de2e1e3dfdc75cff8934aebe51c46c447d7f3e6a))
+* **editor:** add the Tavily brand icon ([50fc05a](https://github.com/juancavallotti/octo/commit/50fc05af967ac76ceb908780ef29f64d5c036c57))
+* **helm:** reference the KV and dev-run keys from an existing Secret ([f0e69e8](https://github.com/juancavallotti/octo/commit/f0e69e8d0c2f99c092736a9656a6fd0239be19b1))
+* **helm:** reference the KV and dev-run keys from an existing Secret ([cb940f4](https://github.com/juancavallotti/octo/commit/cb940f409403f4f0ff5aa694cdbb80bd7acaa92f))
+* **orchestrator:** bind the web search key onto the agent ([e6135ca](https://github.com/juancavallotti/octo/commit/e6135caa26e211602dbff89674d3ac71a20ddff0))
+* **orchestrator:** store a site-wide web search API key ([b208ef0](https://github.com/juancavallotti/octo/commit/b208ef04ceaea3a0f6270e325d3134fb538986ee))
+* **parallel:** add the parallel connector and parallel-search block ([7260ff9](https://github.com/juancavallotti/octo/commit/7260ff9ffee13a924880372cdd6e1ea666039962))
+* **parallel:** add the parallel-task-run block ([adfd2b9](https://github.com/juancavallotti/octo/commit/adfd2b9ce486d587393d239b51d4cb2909dcb7bc))
+* **parallel:** verify inbound webhook signatures ([9a744ff](https://github.com/juancavallotti/octo/commit/9a744ffde7e707b85cd6e7129342b53904b2bc48))
+* **platform:** administer the web search key ([9149ff7](https://github.com/juancavallotti/octo/commit/9149ff77cdee084ff90e0f7a2cac360c5bf27da6))
+* **tavily:** add the extract, crawl and map blocks ([85a15dc](https://github.com/juancavallotti/octo/commit/85a15dc0534040acf2d13889a373c706a73c576b))
+* **tavily:** add the tavily connector and tavily-search block ([2a42f6d](https://github.com/juancavallotti/octo/commit/2a42f6d956eb8a654f759d32e8266485e32e9e05))
+* web search for Dr. Octo, through Parallel ([3df9f59](https://github.com/juancavallotti/octo/commit/3df9f59af82eae97881f86457a7f4425298688ae))
+
+
+### Bug Fixes
+
+* **helm:** refuse an inline key beside its existingSecret ([b4b4825](https://github.com/juancavallotti/octo/commit/b4b48254abc6262d713644140ba0ffdcb05ea6bf))
+* **orchestrator:** remove the web search secret when the key is cleared ([419e388](https://github.com/juancavallotti/octo/commit/419e388ca3c05ec52d96d02d2ac31dadb1d12a57))
+* **parallel:** keep the status code when an error body is not JSON ([fa12c2c](https://github.com/juancavallotti/octo/commit/fa12c2cb21a748c0855cb79523f7606238e42fdd))
+* **parallel:** send the search result knobs under advanced_settings ([8de1c26](https://github.com/juancavallotti/octo/commit/8de1c26beebd673286e6a9c1f018eb7c6ab8b236))
+* **parallel:** wrap output_schema, and report an unparseable webhook body ([812ae23](https://github.com/juancavallotti/octo/commit/812ae23c59701b97ebe14ede72241ab707976fee))
+* **tavily:** document country as a name, not an ISO code ([76c4fd0](https://github.com/juancavallotti/octo/commit/76c4fd0618caeb2b626ea77e4fa436fee6904e58))
+* **tavily:** keep the status code when an error body is not JSON ([53bec68](https://github.com/juancavallotti/octo/commit/53bec684e05c75a9a71a89e5d6eae187ed40d01e))
+
+
+### Documentation
+
+* **agent:** document the parallel connector and its blocks ([59e284a](https://github.com/juancavallotti/octo/commit/59e284a5f63b340748d1b3bab5c05713d3ffaff2))
+* **agent:** document the tavily connector and its blocks ([0210469](https://github.com/juancavallotti/octo/commit/02104699de864d2fa9b22b5bd3d95288644881da))
+* **helm:** say which part of an existingSecret stays out of the release history ([58fd9ac](https://github.com/juancavallotti/octo/commit/58fd9ac1717cd7dd917e206f95f15ea283cfcfc1))
+
 ## [0.8.11](https://github.com/juancavallotti/octo/compare/v0.8.10...v0.8.11) (2026-08-29)
 
 
