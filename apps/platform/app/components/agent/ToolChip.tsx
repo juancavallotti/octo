@@ -45,7 +45,7 @@ export default function ToolChip({
 }: {
   run: ToolRun;
   /** Answer this call, when it is one the agent is holding for a person. */
-  onAuthorize: (id: string, allow: boolean) => void;
+  onAuthorize: (id: string, allow: boolean) => Promise<boolean>;
 }) {
   const asking = run.authorization?.state === "pending";
   const [open, setOpen] = useState(asking);
@@ -134,30 +134,78 @@ function Ask({
   onAnswer,
 }: {
   waiting?: number;
-  onAnswer: (allow: boolean) => void;
+  onAnswer: (allow: boolean) => Promise<boolean>;
 }) {
+  // What this window has SENT, which is not what the run decided. The decision
+  // still arrives on the stream and settles the chip; this only stops the panel
+  // offering a choice that has already been made, and says so while the answer is
+  // in flight.
+  //
+  // It matters because the first answer wins: the run deletes the gate as it
+  // takes one, so a second click — someone correcting a mis-click — reaches a gate
+  // that is no longer there and is discarded in silence. Better not to offer it.
+  const [sent, setSent] = useState<"allow" | "deny" | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const answer = (allow: boolean) => {
+    setSent(allow ? "allow" : "deny");
+    setFailed(false);
+    void onAnswer(allow).then((delivered) => {
+      if (delivered) return;
+      // It never reached the run, so nothing is coming: no decision frame, and a
+      // denial on the timeout that reads as nobody having answered. Give the
+      // buttons back and say why, rather than leaving a person to believe they
+      // answered this.
+      setSent(null);
+      setFailed(true);
+    });
+  };
+
+  if (sent) {
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5 border-t border-current/10 pt-1.5">
+        <span className="text-[10px] opacity-70">
+          {sent === "allow" ? "Allowed — telling him now." : "Denied — telling him now."}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-1.5 flex items-center gap-1.5 border-t border-current/10 pt-1.5">
       <span className="mr-auto text-[10px] opacity-70">
-        Needs your say-so
-        {waiting ? ` — denied on its own in ${Math.round(waiting / 60)} min` : ""}
+        {failed ? "That did not reach him — try again." : `Needs your say-so${waitFor(waiting)}`}
       </span>
       <button
         type="button"
-        onClick={() => onAnswer(false)}
+        onClick={() => answer(false)}
         className="rounded border border-current/20 px-1.5 py-0.5 text-[10px] font-medium hover:bg-black/[0.06] dark:hover:bg-white/10"
       >
         Deny
       </button>
       <button
         type="button"
-        onClick={() => onAnswer(true)}
+        onClick={() => answer(true)}
         className="rounded bg-amber-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-700"
       >
         Allow
       </button>
     </div>
   );
+}
+
+/**
+ * How long the run said it would wait, said the way a person reads a clock.
+ *
+ * Minutes are rounded DOWN, and anything under one is given in seconds. Rounding
+ * to the nearest minute turns a 20-second wait into "0 min" — which claims the
+ * call has already expired while its buttons are still live — and a 45-second one
+ * into "1 min", which invites somebody to take longer than they have.
+ */
+function waitFor(seconds?: number): string {
+  if (!seconds || seconds <= 0) return "";
+  if (seconds < 60) return ` — denied on its own in ${seconds}s`;
+  return ` — denied on its own in ${Math.floor(seconds / 60)} min`;
 }
 
 function Block({ label, body }: { label: string; body: string }) {

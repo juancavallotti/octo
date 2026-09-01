@@ -17,7 +17,7 @@ export default function ToolsSegment({
   onAuthorize,
 }: {
   runs: ToolRun[];
-  onAuthorize: (id: string, allow: boolean) => void;
+  onAuthorize: (id: string, allow: boolean) => Promise<boolean>;
 }) {
   return (
     <div className="flex flex-col gap-1">

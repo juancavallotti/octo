@@ -112,6 +112,30 @@ describe("authorization", () => {
     expect(runs(turn)[0].done).toBe(true);
   });
 
+  // Attaching to the chip is the panel's own choice, so the panel copes when
+  // there is no chip: a flow whose emit list carries tool_authorization without
+  // tool_call would otherwise ask nobody, and every gated call would be denied on
+  // the timeout with no question ever shown.
+  it("opens a chip for a question that has none", () => {
+    const turn = run(asking("c1"));
+
+    expect(shape(turn)).toEqual(["tools"]);
+    expect(runs(turn)[0]).toMatchObject({
+      id: "c1",
+      tool: "octo_api",
+      done: false,
+      authorization: { id: "auth_1", state: "pending" },
+    });
+  });
+
+  // And that chip closes like any other when the result lands.
+  it("closes a chip it opened itself", () => {
+    const turn = run(asking("c1"), answered(true), result("c1"));
+
+    expect(runs(turn)[0].done).toBe(true);
+    expect(runs(turn)[0].authorization?.state).toBe("allowed");
+  });
+
   // Every other signal still reads as one: this is about the calls it holds, not
   // about the messages posted to it.
   it("leaves other signals in the transcript", () => {

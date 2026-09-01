@@ -18,7 +18,7 @@ describe("AgentMessage", () => {
   // A user turn is UserMessage's job, tested there. This pins only that a turn
   // gets routed to it rather than through the markdown renderer below.
   it("sends a user turn to be rendered as plain text", () => {
-    render(<AgentMessage turn={newTurn("u1", "user", "**not bold**")} onAuthorize={() => {}} />);
+    render(<AgentMessage turn={newTurn("u1", "user", "**not bold**")} onAuthorize={async () => true} />);
 
     expect(screen.getByText("**not bold**")).toBeTruthy();
   });
@@ -74,7 +74,7 @@ describe("AgentMessage", () => {
   it("shows a chip per tool, spinning until its result lands", () => {
     const { container } = render(
       <AgentMessage
-        onAuthorize={() => {}}
+        onAuthorize={async () => true}
         turn={withSegments({
           kind: "tools",
           iter: 1,
@@ -97,7 +97,7 @@ describe("AgentMessage", () => {
   it("renders segments in the order they happened", () => {
     const { container } = render(
       <AgentMessage
-        onAuthorize={() => {}}
+        onAuthorize={async () => true}
         turn={withSegments(
           { kind: "thinking", iter: 1, text: "first I should look" },
           { kind: "tools", iter: 1, runs: [{ id: "c1", tool: "octo_api", done: true, failed: false }] },
@@ -127,7 +127,7 @@ describe("AgentMessage", () => {
   it("leaves only the last stretch of reasoning open", () => {
     render(
       <AgentMessage
-        onAuthorize={() => {}}
+        onAuthorize={async () => true}
         turn={withSegments(
           { kind: "thinking", iter: 1, text: "the early thought" },
           { kind: "text", iter: 1, text: "an answer" },
@@ -143,7 +143,7 @@ describe("AgentMessage", () => {
   });
 
   it("says when the conversation was shortened, and by how much", () => {
-    render(<AgentMessage turn={withSegments({ kind: "compaction", iter: 3, strategy: "summarize", done: true, dropped: 12 })} onAuthorize={() => {}} />);
+    render(<AgentMessage turn={withSegments({ kind: "compaction", iter: 3, strategy: "summarize", done: true, dropped: 12 })} onAuthorize={async () => true} />);
 
     expect(screen.getByText(/Shortened the conversation/)).toBeTruthy();
     expect(screen.getByText(/12 earlier messages/)).toBeTruthy();
@@ -154,7 +154,7 @@ describe("AgentMessage", () => {
   it("says when a message he took was never answered", () => {
     render(
       <AgentMessage
-        onAuthorize={() => {}}
+        onAuthorize={async () => true}
         turn={withSegments({ kind: "signal", iter: 8, signal: "unanswered", text: "and the logs?" })}
       />,
     );
@@ -165,14 +165,14 @@ describe("AgentMessage", () => {
   // The text is what makes that actionable, and a frame without one must not
   // render empty quotes at somebody who is trying to work out what they lost.
   it("says a message went unanswered even when the frame carried no text", () => {
-    render(<AgentMessage turn={withSegments({ kind: "signal", iter: 8, signal: "unanswered" })} onAuthorize={() => {}} />);
+    render(<AgentMessage turn={withSegments({ kind: "signal", iter: 8, signal: "unanswered" })} onAuthorize={async () => true} />);
 
     const said = screen.getByText(/ran out of steps before answering/);
     expect(said.textContent).not.toContain("“”");
   });
 
   it("shows a note for a guardrail or an error", () => {
-    render(<AgentMessage turn={agentTurn({ note: "Outside my remit." })} onAuthorize={() => {}} />);
+    render(<AgentMessage turn={agentTurn({ note: "Outside my remit." })} onAuthorize={async () => true} />);
 
     expect(screen.getByText("Outside my remit.")).toBeTruthy();
   });
@@ -180,5 +180,5 @@ describe("AgentMessage", () => {
 
 /** An agent turn carrying the given markdown. */
 function agentMessage(text: string) {
-  return <AgentMessage turn={withSegments({ kind: "text", iter: 1, text })} onAuthorize={() => {}} />;
+  return <AgentMessage turn={withSegments({ kind: "text", iter: 1, text })} onAuthorize={async () => true} />;
 }

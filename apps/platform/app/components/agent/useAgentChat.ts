@@ -32,8 +32,12 @@ export interface AgentChat {
    * panel. The run is waiting on it, so nothing is added to the transcript here —
    * the runtime reports the decision back on the stream, and that frame is what
    * settles the chip.
+   *
+   * Resolves false when the answer never reached the run, which the caller has to
+   * say out loud: an answer that failed to send and one that was never given look
+   * the same from the reader's chair, and both end in a denial minutes later.
    */
-  authorize: (id: string, allow: boolean) => void;
+  authorize: (id: string, allow: boolean) => Promise<boolean>;
   reset: () => void;
   /** Replace the conversation with a stored one, and continue it. */
   resume: (threadId: string, turns: Turn[], title?: string) => void;
@@ -283,7 +287,7 @@ export function useAgentChat(
     // but a stop addressed to the conversation ends it wherever it is, including
     // through a proxy that has not noticed the socket go, and on a replica this
     // browser never spoke to.
-    post(userKey, { stop: true });
+    void post(userKey, { stop: true });
   }, [dropSteers, settlePending, userKey]);
 
   const authorize = useCallback(

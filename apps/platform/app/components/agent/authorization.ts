@@ -29,19 +29,44 @@ export interface Authorization {
   expiresInSeconds?: number;
 }
 
-/** Attach a pending authorization to the call it is about. */
+/**
+ * Attach a pending authorization to the call it is about, opening a chip for it
+ * if there is not one already.
+ *
+ * The chip is normally there — the agent reports a call before it asks about it —
+ * but that is the emit list's doing rather than a guarantee: `tool_call` can be
+ * left out of it, and the runtime only insists on `tool_authorization`, because a
+ * frame carrying the tool, the arguments and the id is complete enough for a
+ * consumer that renders it on its own. Attaching to a chip is THIS panel's
+ * choice, so the panel is what has to cope when there is none. Dropping the
+ * question instead would ask nobody and deny everything on the timeout.
+ */
 export function holdTool(
   segments: Segment[],
   event: Extract<AgentEvent, { type: "tool_authorization" }>,
 ): Segment[] {
-  return mapRun(segments, (r) => r.id === event.toolCallId, (r) => ({
-    ...r,
-    authorization: {
-      id: event.authorizationId,
-      state: "pending",
-      expiresInSeconds: event.expiresInSeconds,
-    },
-  }));
+  const authorization: Authorization = {
+    id: event.authorizationId,
+    state: "pending",
+    expiresInSeconds: event.expiresInSeconds,
+  };
+  const known = (r: ToolRun) => r.id === event.toolCallId;
+  if (!segments.some((s) => s.kind === "tools" && s.runs.some(known))) {
+    const iter = event.iteration ?? 0;
+    const run: ToolRun = {
+      id: event.toolCallId,
+      tool: event.tool,
+      done: false,
+      failed: false,
+      input: event.input,
+      authorization,
+    };
+    const last = segments.at(-1);
+    return last && last.kind === "tools" && last.iter === iter
+      ? [...segments.slice(0, -1), { ...last, runs: [...last.runs, run] }]
+      : [...segments, { kind: "tools", iter, runs: [run] }];
+  }
+  return mapRun(segments, known, (r) => ({ ...r, authorization }));
 }
 
 /**

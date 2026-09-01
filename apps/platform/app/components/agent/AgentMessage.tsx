@@ -76,7 +76,7 @@ export default function AgentMessage({
 }: {
   turn: Turn;
   /** Answer a tool call this turn is holding in front of the reader. */
-  onAuthorize: (id: string, allow: boolean) => void;
+  onAuthorize: (id: string, allow: boolean) => Promise<boolean>;
 }) {
   if (turn.role === "user") return <UserMessage turn={turn} />;
 
@@ -123,7 +123,7 @@ function SegmentView({
   streaming: boolean;
   /** Nothing has come after this one yet. */
   last: boolean;
-  onAuthorize: (id: string, allow: boolean) => void;
+  onAuthorize: (id: string, allow: boolean) => Promise<boolean>;
 }) {
   switch (segment.kind) {
     case "thinking":
