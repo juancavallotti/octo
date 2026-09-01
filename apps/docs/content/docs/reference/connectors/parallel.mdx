@@ -4,13 +4,14 @@ description: "Web search and asynchronous research runs, with verified webhooks.
 octo_types:
   - parallel
   - parallel-search
+  - parallel-task-run
 ---
 
-The `parallel` connector holds the API key and talks to [Parallel](https://parallel.ai), a web research API built for agents. Its search endpoint answers in the same request with ranked pages and the excerpts Parallel picked out of them.
+The `parallel` connector holds the API key and talks to [Parallel](https://parallel.ai), a web research API built for agents. It has two shapes, and the difference matters: **search** answers in the same request, while a **task run** is asynchronous — it returns a handle and delivers the answer later as a webhook.
 
 ## `parallel` connector
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `parallel-search`.
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `parallel-search`, `parallel-task-run`.
 
 ### Settings
 
@@ -77,3 +78,36 @@ Parallel's search is not a keyword API. An **objective** says, in natural langua
 **Response shape** — `search_id`, `results` (each with `url`, `title`, `publish_date`, and `excerpts`), plus `warnings`, `usage`, and `session_id`.
 
 A setting left unset is omitted from the request, so Parallel's own default applies rather than this connector pinning one.
+
+## `parallel-task-run` block
+
+**Parallel Task Run** — start one of Parallel's asynchronous research runs and return its handle.
+
+The block **does not wait**. A task run takes far longer than an HTTP request, so what comes back is a receipt — `{run_id, status, ...}` — and the answer arrives later on the webhook. That is also why this block is the one exception to the connector's "result becomes the body" rule: the handle goes in a variable, so the flow that asked still has its own body to respond with.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `parallel` connector to use. |
+| `processor` | string | Yes | — | Parallel processor to run the task on; it selects the depth/cost tier. |
+| `input` | expression | Yes | — | CEL expression for the task input: a string, or an object matching the input schema. |
+| `outputSchema` | expression | No | — | CEL expression for a JSON Schema describing the output the task must produce. |
+| `metadata` | expression | No | — | CEL expression for key/value metadata echoed back on the run and its webhook. |
+| `webhookURL` | string | No | — | URL Parallel posts the run's result to. |
+| `eventTypes` | string[] | No | `[task_run.status]` | Event types to deliver to the webhook. |
+| `resultVar` | string | No | `parallelRun` | Variable the run handle is stored in. |
+| `failOnError` | bool | No | `true` | Turn a Parallel API error into a flow error. |
+
+**Response shape** — `run_id`, `status` (`queued`, `running`, `action_required`, `completed`, `failed`, `cancelling`, or `cancelled`), `is_active`, `processor`, `created_at`, `modified_at`, `metadata`, `warnings`, and `error`.
+
+```yaml
+- type: parallel-task-run
+  name: start-research
+  settings:
+    connector: research
+    processor: core
+    input: body.question
+    metadata: '{"correlationId": body.id}'
+    webhookURL: ${PARALLEL_WEBHOOK_URL}
+```
+
+Point `webhookURL` at an [http](/reference/connectors/http) source in this same service, and authenticate what arrives there. Use `metadata` to carry your own correlation id: it comes back on the webhook, which is how the callback finds the request that started the run.

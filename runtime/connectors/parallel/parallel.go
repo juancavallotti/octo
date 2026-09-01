@@ -33,6 +33,7 @@ import (
 func init() {
 	registerConnector()
 	registerSearch()
+	registerTaskRun()
 }
 
 func registerConnector() {

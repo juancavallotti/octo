@@ -31,6 +31,15 @@ func resolveConnector(name string, deps core.BlockDeps) (*Connector, error) {
 	return conn, nil
 }
 
+// compileOptional compiles a message CEL expression, returning a nil program for
+// an empty source so callers can treat "unset" as "skip".
+func compileOptional(res core.ResourceLoader, src string) (*expr.Program, error) {
+	if strings.TrimSpace(src) == "" {
+		return nil, nil
+	}
+	return expr.CompileMessage(res, src)
+}
+
 // compileRequired compiles a required message CEL expression, erroring with a
 // block- and field-labelled message when it is empty or malformed.
 func compileRequired(res core.ResourceLoader, block, field, src string) (*expr.Program, error) {
