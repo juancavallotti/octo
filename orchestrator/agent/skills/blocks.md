@@ -127,6 +127,11 @@ always volatile and have no setting for it.
 **Pinecone:** `pinecone-query`, `pinecone-upsert`, `pinecone-fetch`,
 `pinecone-delete`.
 
+**Tavily (agentic web search):** `tavily-search`, `tavily-extract`,
+`tavily-crawl`, `tavily-map`. Each returns its response as the **body** unless
+`resultVar` names a variable. `tavily-crawl` and `tavily-map` run server-side for
+up to 150s, so the connector's `timeout` must be raised past its 30s default.
+
 ## The ai-agent block
 
 ```yaml
