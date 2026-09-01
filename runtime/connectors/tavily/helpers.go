@@ -6,6 +6,7 @@ package tavily
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
@@ -149,4 +150,116 @@ func toStringSlice(raw any) ([]string, error) {
 		out[i] = s
 	}
 	return out, nil
+}
+
+// traversalConfig is the crawl/map traversal surface, lifted out of the two
+// blocks' settings structs. The settings themselves stay per-block — octo tags
+// cannot be shared through an embedded struct — but everything downstream of
+// them can be, and is.
+type traversalConfig struct {
+	URL            string
+	Instructions   string
+	SelectPaths    string
+	ExcludePaths   string
+	SelectDomains  string
+	ExcludeDomains string
+	MaxDepth       int
+	MaxBreadth     int
+	Limit          int
+	AllowExternal  *bool
+}
+
+// traversal is a compiled traversalConfig: the CEL programs, plus the
+// message-independent request fields folded in once at build time.
+type traversal struct {
+	url            *expr.Program
+	instructions   *expr.Program
+	selectPaths    *expr.Program
+	excludePaths   *expr.Program
+	selectDomains  *expr.Program
+	excludeDomains *expr.Program
+	fixed          map[string]any
+}
+
+// compileTraversal compiles the traversal expressions once, so a malformed one
+// fails at startup rather than on the first message.
+func compileTraversal(res core.ResourceLoader, block string, cfg traversalConfig) (*traversal, error) {
+	url, err := compileRequired(res, block, "url", cfg.URL)
+	if err != nil {
+		return nil, err
+	}
+	instructions, err := compileOptional(res, cfg.Instructions)
+	if err != nil {
+		return nil, fmt.Errorf("%s: compile instructions: %w", block, err)
+	}
+	lists := map[string]*expr.Program{}
+	for field, src := range map[string]string{
+		"selectPaths":    cfg.SelectPaths,
+		"excludePaths":   cfg.ExcludePaths,
+		"selectDomains":  cfg.SelectDomains,
+		"excludeDomains": cfg.ExcludeDomains,
+	} {
+		if lists[field], err = compileList(res, block, field, src); err != nil {
+			return nil, err
+		}
+	}
+
+	fixed := map[string]any{}
+	putOptional(fixed, "max_depth", cfg.MaxDepth)
+	putOptional(fixed, "max_breadth", cfg.MaxBreadth)
+	putOptional(fixed, "limit", cfg.Limit)
+	if cfg.AllowExternal != nil {
+		fixed["allow_external"] = *cfg.AllowExternal
+	}
+
+	return &traversal{
+		url:            url,
+		instructions:   instructions,
+		selectPaths:    lists["selectPaths"],
+		excludePaths:   lists["excludePaths"],
+		selectDomains:  lists["selectDomains"],
+		excludeDomains: lists["excludeDomains"],
+		fixed:          fixed,
+	}, nil
+}
+
+// payload evaluates the per-message traversal expressions onto a copy of the
+// fixed fields, yielding the request body crawl and map share.
+func (t *traversal) payload(activation map[string]any) (map[string]any, error) {
+	url, err := t.url.EvalString(activation)
+	if err != nil {
+		return nil, fmt.Errorf("url: %w", err)
+	}
+	payload := maps.Clone(t.fixed)
+	payload["url"] = url
+	if err := putString(payload, "instructions", t.instructions, activation); err != nil {
+		return nil, err
+	}
+	for key, program := range map[string]*expr.Program{
+		"select_paths":    t.selectPaths,
+		"exclude_paths":   t.excludePaths,
+		"select_domains":  t.selectDomains,
+		"exclude_domains": t.excludeDomains,
+	} {
+		if err := putList(payload, key, program, activation); err != nil {
+			return nil, err
+		}
+	}
+	return payload, nil
+}
+
+// putString evaluates an optional string expression into the payload, leaving
+// the field out when the program is nil or the result is empty.
+func putString(payload map[string]any, key string, program *expr.Program, activation map[string]any) error {
+	if program == nil {
+		return nil
+	}
+	value, err := program.EvalString(activation)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	if value != "" {
+		payload[key] = value
+	}
+	return nil
 }
