@@ -236,11 +236,16 @@ func (c *Connector) Call(ctx context.Context, path string, payload any) (map[str
 	defer func() { _ = resp.Body.Close() }()
 
 	var decoded map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, fmt.Errorf("parallel %s: decode response: %w", path, err)
-	}
+	// Decode before branching on status, but do not let a decode failure decide
+	// the error: a gateway in front of the API answers 429/502 with an HTML page
+	// or nothing at all, and reporting "invalid character '<'" would throw away
+	// the status code, which is the useful half.
+	decodeErr := json.NewDecoder(resp.Body).Decode(&decoded)
 	if resp.StatusCode >= http.StatusBadRequest {
 		return decoded, fmt.Errorf("parallel %s: %s", path, apiErrorMessage(decoded, resp.StatusCode))
+	}
+	if decodeErr != nil {
+		return nil, fmt.Errorf("parallel %s: decode response: %w", path, decodeErr)
 	}
 	return decoded, nil
 }
