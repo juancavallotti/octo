@@ -12,6 +12,8 @@ package parallel
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -34,6 +36,7 @@ func init() {
 	registerConnector()
 	registerSearch()
 	registerTaskRun()
+	registerVerify()
 }
 
 func registerConnector() {
@@ -63,7 +66,57 @@ const (
 	// secretPrefix is the Standard Webhooks marker saying the rest of the secret
 	// is base64-encoded key material rather than the key itself.
 	secretPrefix = "whsec_"
+	// signatureVersion is the only Standard Webhooks signature scheme defined, and
+	// the only one this connector accepts.
+	signatureVersion = "v1"
+	// maxTimestampSkew bounds how far a signed webhook's timestamp may be from
+	// now, to limit replay of a captured signature. It matches slack's window.
+	maxTimestampSkew = 5 * time.Minute
 )
+
+// VerifySignature reports whether sig authenticates rawBody as the webhook
+// delivered with the given id and timestamp. It implements Standard Webhooks:
+// HMAC-SHA256 over "<id>.<timestamp>.<body>" keyed by the decoded secret, the
+// result base64-encoded and compared in constant time.
+//
+// now is passed in so callers (and tests) control the clock.
+func (c *Connector) VerifySignature(id, timestamp, sig string, rawBody []byte, now time.Time) bool {
+	if len(c.webhookKey) == 0 || id == "" || timestamp == "" || sig == "" {
+		return false
+	}
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	if delta := now.Sub(time.Unix(ts, 0)); delta > maxTimestampSkew || delta < -maxTimestampSkew {
+		return false
+	}
+
+	mac := hmac.New(sha256.New, c.webhookKey)
+	// hash.Hash.Write never errors; the assignment satisfies errcheck.
+	_, _ = mac.Write([]byte(id + "." + timestamp + "." + string(rawBody)))
+	expected := []byte(base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+
+	return matchesAny(expected, sig)
+}
+
+// matchesAny reports whether any versioned signature in the header matches
+// expected. The header is a space-delimited list — Parallel sends more than one
+// while a secret is being rotated, and both are valid — so every entry is
+// compared, without short-circuiting on the first match.
+func matchesAny(expected []byte, header string) bool {
+	var matched bool
+	for _, entry := range strings.Fields(header) {
+		version, signature, ok := strings.Cut(entry, ",")
+		if !ok || version != signatureVersion {
+			continue
+		}
+		if hmac.Equal(expected, []byte(signature)) {
+			matched = true
+		}
+	}
+	return matched
+}
 
 // connectorSettings is the global config decoded from the connector's settings.
 type connectorSettings struct {
