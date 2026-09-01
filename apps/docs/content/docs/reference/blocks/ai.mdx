@@ -31,6 +31,9 @@ Lets an LLM accomplish a task by calling flow branches as tools, one or more tim
 | `maxIterations` | int | No | `8` | Cap on tool-calling turns (one model call each) before falling back to the guardrail. |
 | `memoryThreadId` | `expression` (string) | No | — | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. It is also what a run is claimed on while it is in flight, so a later message on the same thread [joins it](/ai/agent-signals) rather than starting a rival — two runs on one thread would overwrite each other's memory. Claims are scoped to this block, so two agents whose expressions agree do not collide. |
 | `stopWhen` | `expression` (bool) | No | — | Ends the run already working on this message's conversation instead of starting one. Requires `memoryThreadId`, which is what names the conversation. A stop that finds nothing running is a no-op, so a client can send one blind. |
+| `authorizeId` | `expression` (string) | No | — | Which [tool authorization](/ai/tool-authorization) an incoming message answers — the id the `tool_authorization` event carried. A non-empty result makes the invocation an answer rather than a message: it is handed to the run working on this conversation and the flow stops. Requires `memoryThreadId`, and is required by any tool that declares `authorize`. |
+| `authorizeAllow` | `expression` (bool) | No | — | What that answer says. Read only on an invocation `authorizeId` already identified as one, so anything but a plain yes — an expression that fails to evaluate included — denies the call. Requires `authorizeId`. |
+| `authorizeTimeout` | duration | No | `5m` | How long a gated call waits for a person before it is denied on their behalf. A run parked on a call nobody will answer is billed for the wait, so there is always a limit. |
 | `contextMaxTokens` | int | No | `200000` | Token budget for the whole prompt — system, tools and conversation — measured from what the provider reports it read. The transcript is compacted when the prompt would exceed it, before the turn and again before saving. Applies with or without memory. |
 | `memoryCompaction` | enum `prune` \| `summarize` | No | `prune` | How memory over budget shrinks: `prune` drops the oldest turns; `summarize` folds them into a running summary (an extra model call). |
 | `memoryVolatile` | `bool` | No | `false` | Keep transcripts in the volatile KV tier (Redis in a cluster, process memory standalone) rather than the persistent one. For a conversation whose loss costs nothing — a specialist in another agent's tool slot working a [minted scope](#what-a-tool-branch-is-told) — never for one somebody will ask to see again. |
@@ -53,6 +56,7 @@ Each `tools` entry:
 | `name` | string | Yes | Tool name the model calls; must be unique and not the reserved `load_skill`. |
 | `description` | string | Yes | Tells the model what the tool does. |
 | `inputSchema` | string (JSON) | No | JSON Schema for the tool's arguments, written inline as a string. Defaults to `{"type":"object"}`. |
+| `authorize` | `expression` (bool) | No | Whether this call needs a person before it runs. CEL over the call the model asked for: `input` is the decoded arguments, `tool.name` and `tool.id` name it, and the message scope is in scope as everywhere else. Absent is free, which is the default for every tool. See [Tool authorization](/ai/tool-authorization). |
 | `process` | block list | Yes | Chain that runs the tool: arguments arrive as the body, the output body is the tool result. |
 
 Each `skills` entry (see [Agent skills and tools](/ai/agent-skills-and-tools)):
@@ -81,11 +85,12 @@ reach the caller with no configuration at all.
 | `tool_input` | A fragment of a tool call's arguments | `text`, `index`, `tool`, `toolCallId` |
 | `custom` | A provider event with no canonical equivalent | `name`, `text`, `index` |
 | `tool_call` | The model asked for a tool, arguments complete | `tool`, `toolCallId`, `input` |
+| `tool_authorization` | A gated call is waiting on a person | `tool`, `toolCallId`, `authorizationId`, `input`, `expiresInSeconds` |
 | `tool_result` | The branch that ran it returned | `tool`, `toolCallId`, `output`, `isError` |
 | `turn_end` | A model turn finished | `text`, `stopReason`, `usage`, `contextTokens`, `contextMaxTokens` |
 | `compaction_start` | The agent is about to shrink its own conversation | `strategy`, `before`, `contextTokens`, `contextMaxTokens` |
 | `compaction_end` | It finished | the same, plus `after` and `dropped` |
-| `signal` | Something was posted to the run from outside it | `signal` (`context` or `stop`), `text` |
+| `signal` | Something was posted to the run from outside it | `signal` (`context`, `stop`, `authorize` or `unanswered`), `text`; an `authorize` signal carries `authorizationId` and `allowed` instead |
 | `guardrail` | The agent fell back to `default` | `reason` |
 | `done` | The agent finished with an answer | `text` |
 | `error` | A model call failed | `error` |

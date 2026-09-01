@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/expr"
@@ -540,6 +541,18 @@ type aiAgent struct {
 	// have joined — a header, a field, whatever the flow puts it in. Nil when the
 	// block offers no way to stop a run.
 	stopWhen *expr.Program
+	// gates are the tools that need a person before they run, by name, each holding
+	// the condition that decides whether this particular call is one of them. A
+	// tool absent from the map is free, which is every tool by default.
+	gates map[string]*expr.Program
+	// authorizeID and authorizeAllow read an answer out of an invocation: which
+	// call it is about, and whether it may run. Both nil when the block offers no
+	// way to answer, which is also when it may gate nothing.
+	authorizeID    *expr.Program
+	authorizeAllow *expr.Program
+	// authorizeTimeout is how long a gated call waits before it is denied on behalf
+	// of somebody who is not there.
+	authorizeTimeout time.Duration
 	// contextMaxTokens budgets the whole prompt — system instructions, tool
 	// schemas and conversation — against what the provider reports it read. It
 	// applies whether or not memory is on: a stateless agent can still talk itself
@@ -586,7 +599,8 @@ func validateAgentConfig(cfg types.BlockConfig) error {
 	return allowSlots(cfg, blockKindAIAgent,
 		"tools", "skills", "default", "connector", "prompt", "guardrail", "input", "answer",
 		"maxIterations", "memoryThreadId", "contextMaxTokens", "memoryCompaction",
-		"stopWhen", "events", "emit", "stream",
+		"stopWhen", "authorizeTimeout", "authorizeId", "authorizeAllow",
+		"events", "emit", "stream",
 		"agentId", "userId", "history", "userMemory", "nameThread")
 }
 
@@ -646,6 +660,9 @@ func (b *builder) aiAgent(cfg types.BlockConfig) (core.MessageProcessor, error) 
 		b.configureAgentStore,
 		b.configureAgentSignals,
 		b.configureAgentEvents,
+		// After the events path: a gate is refused unless there is one to ask
+		// through, so it has to be able to see it.
+		b.configureAgentAuthorization,
 		b.configureAgentNamer,
 		b.configureAgentGuardrail,
 	} {
@@ -801,6 +818,9 @@ func (b *builder) agentTools(kind string, configs []types.ToolConfig) (map[strin
 		if err := checkMCPToolFields(kind, tool); err != nil {
 			return nil, nil, err
 		}
+		if err := checkAgentToolFields(kind, tool); err != nil {
+			return nil, nil, err
+		}
 		schema, err := toolInputSchema(tool)
 		if err != nil {
 			return nil, nil, err
@@ -840,6 +860,22 @@ func checkMCPToolFields(kind string, tool types.ToolConfig) error {
 			"%s tool %q: outputSchema is mcp-router metadata and has no effect here", kind, tool.Name)
 	}
 	return nil
+}
+
+// checkAgentToolFields rejects the ai-agent-only tool settings on any other block.
+//
+// authorize is one: a gate needs somewhere to ask and a run to hold the call
+// while it waits, and an mcp-router has neither — a tool call arrives over the
+// protocol, is answered, and is gone. The client runs its own consent step, so a
+// second one written here would be configuration that reads as a boundary and is
+// not.
+func checkAgentToolFields(kind string, tool types.ToolConfig) error {
+	if kind == blockKindAIAgent || tool.Authorize == "" {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s tool %q: authorize is an ai-agent setting and has no effect here; "+
+			"an MCP client runs its own consent step", kind, tool.Name)
 }
 
 // agentSkills builds the agent's skill set, validating names, descriptions, and
@@ -1012,7 +1048,7 @@ func (a *aiAgent) takeToolTurn(
 	current **types.Message, branchBase string, messages []core.LLMMessage,
 	meter *contextMeter, run *agentRun, iter int,
 ) ([]core.LLMMessage, *types.Message, error) {
-	results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, current, branchBase, sess)
+	results, stopped := a.runTools(runCtx, iter, resp.ToolCalls, current, branchBase, sess, run)
 	messages = append(messages, core.LLMMessage{Role: core.LLMRoleTool, ToolResults: results})
 
 	// The transcript is replayable again here and nowhere earlier in the turn: the
@@ -1195,14 +1231,20 @@ func (a *aiAgent) completeTurn(
 // and says whether the events path asked to stop.
 func (a *aiAgent) runTools(
 	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message, branchBase string,
-	sess *memorySession,
+	sess *memorySession, run *agentRun,
 ) ([]core.LLMToolResult, bool) {
 	results := make([]core.LLMToolResult, 0, len(calls))
 	stopped := false
 	for _, call := range calls {
 		stopped = a.report(ctx, *current, iter, eventToolCall, callFields(call)) || stopped
-		var res core.LLMToolResult
-		res, *current = a.runTool(ctx, call, *current, branchBase, sess)
+		// Before the branch and not inside it: a gate that ran where the tool runs
+		// would be a rule the tool's own flow could be written around, and the point
+		// of this one is that nothing in the run — model or flow — decides it.
+		res, denied, halted := a.gate(ctx, iter, call, *current, run)
+		stopped = stopped || halted
+		if !denied {
+			res, *current = a.runTool(ctx, call, *current, branchBase, sess)
+		}
 		results = append(results, res)
 		stopped = a.report(ctx, *current, iter, eventToolResult, resultFields(call, res)) || stopped
 	}

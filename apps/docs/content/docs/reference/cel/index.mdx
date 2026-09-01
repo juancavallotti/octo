@@ -41,6 +41,7 @@ current message. The most common places:
 - **`rest`** and other connector blocks — URL, header, and body settings.
 - **`validate`** — each rule's `expr` is an assertion.
 - **Source payloads** — a `cron` source's `payload` expression builds the initial body (with `now` and `settings` in scope, but no message variables yet).
+- **An `ai-agent` tool's `authorize`** — decides whether a call needs a person, with the message scope plus `tool` (`name`, `id`) and `input`, the call's decoded arguments. See [Tool authorization](/ai/tool-authorization).
 
 ```yaml
 process:

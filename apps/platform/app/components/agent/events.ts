@@ -12,6 +12,7 @@ export type {
   TextEvent,
   ThinkingEvent,
   ToolCallEvent,
+  ToolAuthorizationEvent,
   ToolResultEvent,
   TurnEndEvent,
   CompactionStartEvent,
@@ -72,6 +73,21 @@ export function parseAgentEvent(data: string): AgentEvent | null {
         input: frame.input,
       };
 
+    // Every field is checked, and the id hardest of all: it is what an answer
+    // quotes, so a frame without a usable one would open a question that can
+    // never be answered and would sit there until the run denied it.
+    case "tool_authorization":
+      if (!str(frame.tool) || !str(frame.toolCallId) || !str(frame.authorizationId)) return null;
+      return {
+        type: "tool_authorization",
+        iteration,
+        tool: frame.tool,
+        toolCallId: frame.toolCallId,
+        authorizationId: frame.authorizationId,
+        input: frame.input,
+        expiresInSeconds: num(frame.expiresInSeconds),
+      };
+
     case "tool_result":
       if (!str(frame.tool) || !str(frame.toolCallId)) return null;
       return {
@@ -124,6 +140,12 @@ export function parseAgentEvent(data: string): AgentEvent | null {
         iteration,
         signal: frame.signal,
         text: str(frame.text) ? frame.text : undefined,
+        // An authorize signal carries a decision rather than text. `allowed` is
+        // read strictly: anything that is not the boolean true reads as a denial,
+        // which is the safe direction for the one frame that says a gated call may
+        // go ahead.
+        authorizationId: str(frame.authorizationId) ? frame.authorizationId : undefined,
+        allowed: frame.allowed === true,
       };
 
     // The only one whose text is optional: it repeats what streamed, and the

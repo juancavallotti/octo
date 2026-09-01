@@ -17,10 +17,15 @@ import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "@/app/actions/
  * The differences from that proxy: it is a POST with a JSON body, the response is
  * `text/event-stream`, and the target is resolved rather than configured.
  *
- * It carries one instruction besides the message. `{stop: true}` becomes the
- * header the agent's `stopWhen` reads, which ends the run on whichever replica is
- * holding the conversation — not only the one this connection reached. Hanging up
- * ends a run too, but only the run whose stream this connection holds.
+ * It carries two instructions besides the message, and both become headers here
+ * rather than being passed through. `{stop: true}` becomes the header the agent's
+ * `stopWhen` reads, which ends the run on whichever replica is holding the
+ * conversation — not only the one this connection reached. Hanging up ends a run
+ * too, but only the run whose stream this connection holds.
+ *
+ * `{authorize: {id, allow}}` is a person's answer to a tool call the run is
+ * holding in front of them, and it reaches the run the same way: addressed to the
+ * conversation, wherever it is being worked on.
  */
 export async function POST(req: Request) {
   // Authorization first, before anything that would describe this installation to
@@ -85,6 +90,20 @@ export async function POST(req: Request) {
   // let "false" or 0.0 end a run — a stop is the one instruction here that
   // destroys work, so it takes the value it was specified with and no other.
   if (body.stop === true) headers["X-Agent-Stop"] = "1";
+
+  // An authorization, read with the same strictness and for a sharper reason: this
+  // is the one instruction that lets something happen rather than stopping it. An
+  // id that is not a non-empty string is not an answer, and `allow` is granted only
+  // by the boolean `true` — anything else denies, which is the safe direction when
+  // a value did not arrive in the shape it was specified in.
+  const authorize = body.authorize;
+  if (authorize && typeof authorize === "object" && !Array.isArray(authorize)) {
+    const { id, allow } = authorize as Record<string, unknown>;
+    if (typeof id === "string" && id !== "") {
+      headers["X-Agent-Auth-Id"] = id;
+      headers["X-Agent-Auth"] = allow === true ? "allow" : "deny";
+    }
+  }
 
   let upstream: Response;
   try {

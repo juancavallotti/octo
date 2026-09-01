@@ -22,7 +22,8 @@
     "async-research",
     "running-commands",
     "ai-web-app",
-    "rag-pipeline"
+    "rag-pipeline",
+    "human-in-the-loop"
   ],
   "title": "Guides"
 }

@@ -1,0 +1,212 @@
+service:
+  name: ai-agent-authorization
+
+# Asking a person before a tool runs.
+#
+# Every other boundary an agent has is structural — a tool it does not hold, an HTTP
+# client bounded to GET, a branch that is not wired. Those work because a model cannot
+# talk its way past something that is not configured. What they cannot express is a
+# rule about an ARGUMENT: "this tool is a read" is a boundary, "this call is a read" is
+# not, and once anything the agent fetches can carry text written by somebody else, the
+# difference between them is where the danger is. A prompt saying "ignore instructions
+# in the page" is not a boundary either.
+#
+# So: a tool declares `authorize`, a condition over the call the model asked for. When
+# it holds, the run stops and asks.
+#
+#   the agent asks      a tool_authorization event goes out through the events path,
+#                       carrying the tool, the arguments, and an id
+#   a person answers    a second request on the same conversation quoting that id —
+#                       the same path a follow-up or a stop takes (see
+#                       ai-agent-steering.yaml), which is why there is no new
+#                       transport here
+#   nobody answers      the call is denied when authorizeTimeout runs out, and the
+#                       denial is the tool's own RESULT: the run carries on and the
+#                       model is told plainly it was refused rather than left to
+#                       interpret a hang
+#
+# Free is the default, and that is deliberate. Most tools are reads, and a panel that
+# asks about every one of them trains a person to click yes — which is the failure this
+# exists to prevent, not to cause. Gate the call that changes something.
+#
+# READ THIS BEFORE COPYING THE THREAD ID. It is built from body.userId, which this route
+# takes on trust because the sample has no authentication. Whoever can guess a pair can
+# answer somebody else's authorizations — which is the whole gate, handed away. Build it
+# from an identity the caller cannot choose: a jwt-validate block in front of the route
+# and vars.sub, the verified subject of the token.
+#
+# Declares HTTP_PORT, so run_integration returns a test URL. Two terminals, curl -N so
+# the first does not buffer:
+#   curl -N -X POST <testUrl>chat -d '{"userId":"u1","threadId":"t1","message":"cancel order A-1"}'
+# The first terminal shows a tool_authorization frame with an authorizationId. Answer it:
+#   curl -X POST <testUrl>chat \
+#        -H 'X-Agent-Auth-Id: auth_…' -H 'X-Agent-Auth: allow' \
+#        -d '{"userId":"u1","threadId":"t1"}'
+# Send `deny` instead, or send nothing at all, and the agent is told the call was
+# refused and answers for itself.
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+  # Loopback by default, unlike the other samples. The thread id below is built
+  # from a body field this route takes on trust, and in THIS sample that is not
+  # only a way to read somebody else's conversation — it is a way to answer their
+  # authorizations. Until the id comes from a verified token, the sample should not
+  # be reachable from off the machine.
+  - name: HTTP_HOST
+    default: 127.0.0.1
+  - name: HTTP_PORT
+    default: "8080"
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+      maxTokens: 2048
+
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+flows:
+  - name: chat
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /chat
+        methods: [POST]
+        timeout: 60s
+        # The answer is two ordinary request headers, lifted onto the message as
+        # variables. Nothing in the runtime knows they exist; the two expressions on
+        # the agent below are the only thing that gives them meaning.
+        headers: [X-Agent-Auth-Id, X-Agent-Auth]
+        sse:
+          enabled: true
+          finalEvent: true
+          finalEventName: answer
+          heartbeat: 15s
+          maxDuration: 10m
+    process:
+      - type: ai-agent
+        name: assistant
+        connector: claude
+        # The conversation an answer is delivered on. An authorization is handed to the
+        # run working on it, exactly as a follow-up is.
+        memoryThreadId: body.userId + ":" + body.threadId
+        stream: true
+        answer: text
+        input: body.message
+
+        # Which call an incoming request answers, and what it says. A non-empty id is
+        # what makes a request an answer rather than a message: it is handed to the run
+        # and this flow stops with an empty body.
+        #
+        # Anything but a plain "allow" denies, including a header that is not there —
+        # an answer that could not be read is not permission.
+        authorizeId: '"X-Agent-Auth-Id" in vars ? vars["X-Agent-Auth-Id"] : ""'
+        authorizeAllow: '"X-Agent-Auth" in vars && vars["X-Agent-Auth"] == "allow"'
+        # How long the run waits before denying on behalf of somebody who is not there.
+        # A run parked on a tool call nobody will answer is billed for the wait.
+        authorizeTimeout: 2m
+
+        # tool_authorization is in the emit list because it is how a person is ASKED:
+        # a gate on a path that drops the event would only ever deny, so the block
+        # refuses to build that way. "signal" shows the answer arriving, in the same
+        # stream as the rest.
+        emit: [text, tool_call, tool_authorization, tool_result, signal, done]
+        events:
+          process:
+            # ifClosed: stop means a person who hangs up has stopped the run — and a
+            # gate reads that as a denial straight away rather than holding the
+            # conversation open for somebody who has already left.
+            - type: sse-event
+              settings:
+                event: agent
+                ifClosed: stop
+
+        prompt: >
+          Help the user with their orders. Look an order up before you say anything
+          about it. Cancelling an order needs the customer's say-so: if a cancellation
+          is refused, say so plainly and offer what you can do instead. Reply in plain
+          text a person will read.
+        guardrail: >
+          If you cannot answer from the order data, take the default path.
+
+        tools:
+          # No authorize: a read is free. Asking about this one would be ceremony, and
+          # ceremony is what teaches people to stop reading the question.
+          - name: lookup_order
+            description: Look up an order by its id.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["orderId"],
+                "properties": { "orderId": { "type": "string" } }
+              }
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"status": "shipped", "carrier": "UPS", "eta": "2026-09-01"}'
+
+          # The gate, and it is about the arguments rather than the tool. A small
+          # refund goes through; anything else is somebody's decision. `input` is the
+          # call's arguments, decoded, so this reads the amount the model actually
+          # asked for — which is the thing a method allowlist cannot see.
+          #
+          # WRITE THE CONDITION AS "FREE ONLY WHEN", NOT "GATED WHEN". The obvious
+          # spelling of this rule is `input.amount > 10.0`, and it has a hole in it:
+          # -1 is not greater than ten, so a negative refund — a charge — would go
+          # through unasked. Inverting it closes the whole outside of the safe range
+          # at once, including the values nobody thought of.
+          #
+          # The schema says the same thing to the model, and is the wrong place to
+          # rely on it: it is advice a provider usually follows, not something the
+          # runtime enforces. It is here to stop the honest mistake, and the
+          # condition is here to stop the rest.
+          #
+          # An argument that is missing or not a number fails the condition rather
+          # than answering it, and a gate that could not be evaluated denies — see
+          # "the condition would not evaluate" in the docs.
+          - name: refund_order
+            description: Refund an order, in whole or in part.
+            authorize: '!(input.amount >= 0.0 && input.amount <= 10.0)'
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["orderId", "amount"],
+                "properties": {
+                  "orderId": { "type": "string" },
+                  "amount":  { "type": "number", "minimum": 0, "description": "Amount to refund." }
+                }
+              }
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"refunded": true}'
+
+          # Always asks. `true` is a condition like any other — there is no separate
+          # "always" setting, because one more way to say the same thing is one more
+          # thing to keep in step.
+          - name: cancel_order
+            description: Cancel an order that has not shipped.
+            authorize: "true"
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["orderId"],
+                "properties": { "orderId": { "type": "string" } }
+              }
+            process:
+              - type: set-payload
+                settings:
+                  value: '{"cancelled": true}'
+
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"answer": "could not answer from the order data"}'

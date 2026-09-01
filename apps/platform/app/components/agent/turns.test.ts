@@ -34,6 +34,117 @@ const result = (id: string, isError = false, iteration = 1): AgentEvent => ({
   isError,
 });
 
+const asking = (id: string, authorizationId = "auth_1", iteration = 1): AgentEvent => ({
+  type: "tool_authorization",
+  iteration,
+  tool: "octo_api",
+  toolCallId: id,
+  authorizationId,
+  expiresInSeconds: 180,
+});
+const answered = (allowed: boolean, authorizationId = "auth_1", iteration = 1): AgentEvent => ({
+  type: "signal",
+  iteration,
+  signal: "authorize",
+  authorizationId,
+  allowed,
+});
+
+/** The tool runs of the first tools segment. */
+function runs(turn: Turn) {
+  const segment = turn.segments.find((s) => s.kind === "tools");
+  return segment?.kind === "tools" ? segment.runs : [];
+}
+
+describe("authorization", () => {
+  // The question belongs on the call it is about, which is already on screen: the
+  // agent reports the call before it asks about it.
+  it("attaches a pending question to the call it is about", () => {
+    const turn = run(call("c1"), asking("c1"));
+
+    expect(shape(turn)).toEqual(["tools"]);
+    expect(runs(turn)[0].authorization).toEqual({
+      id: "auth_1",
+      state: "pending",
+      expiresInSeconds: 180,
+    });
+  });
+
+  // A decision is not a log line. The chip asked, so the chip says what happened —
+  // a signal segment here would repeat it in the transcript as loose text.
+  it("settles the call rather than writing a signal into the transcript", () => {
+    const turn = run(call("c1"), asking("c1"), answered(true));
+
+    expect(shape(turn)).toEqual(["tools"]);
+    expect(runs(turn)[0].authorization?.state).toBe("allowed");
+  });
+
+  it("records a denial as one", () => {
+    const turn = run(call("c1"), asking("c1"), answered(false));
+
+    expect(runs(turn)[0].authorization?.state).toBe("denied");
+  });
+
+  // Matched on the authorization id, not the tool call: a person may have answered
+  // from another tab, and the decision is about the call rather than about who
+  // clicked. An id for a call this turn does not hold changes nothing.
+  it("ignores a decision about a call it does not have", () => {
+    const turn = run(call("c1"), asking("c1"), answered(true, "auth_other"));
+
+    expect(runs(turn)[0].authorization?.state).toBe("pending");
+  });
+
+  // Nobody answered, and the run denied it on their behalf. A chip left asking
+  // would offer a button that answers nothing.
+  it("stops asking once the result lands, however it landed", () => {
+    const turn = run(call("c1"), asking("c1"), result("c1", true));
+
+    expect(runs(turn)[0].authorization?.state).toBe("denied");
+    expect(runs(turn)[0].failed).toBe(true);
+  });
+
+  // A call somebody allowed and a call that ran freely are not the same thing to
+  // read back later, so the decision survives the result.
+  it("keeps an answered decision when the result lands", () => {
+    const turn = run(call("c1"), asking("c1"), answered(true), result("c1"));
+
+    expect(runs(turn)[0].authorization?.state).toBe("allowed");
+    expect(runs(turn)[0].done).toBe(true);
+  });
+
+  // Attaching to the chip is the panel's own choice, so the panel copes when
+  // there is no chip: a flow whose emit list carries tool_authorization without
+  // tool_call would otherwise ask nobody, and every gated call would be denied on
+  // the timeout with no question ever shown.
+  it("opens a chip for a question that has none", () => {
+    const turn = run(asking("c1"));
+
+    expect(shape(turn)).toEqual(["tools"]);
+    expect(runs(turn)[0]).toMatchObject({
+      id: "c1",
+      tool: "octo_api",
+      done: false,
+      authorization: { id: "auth_1", state: "pending" },
+    });
+  });
+
+  // And that chip closes like any other when the result lands.
+  it("closes a chip it opened itself", () => {
+    const turn = run(asking("c1"), answered(true), result("c1"));
+
+    expect(runs(turn)[0].done).toBe(true);
+    expect(runs(turn)[0].authorization?.state).toBe("allowed");
+  });
+
+  // Every other signal still reads as one: this is about the calls it holds, not
+  // about the messages posted to it.
+  it("leaves other signals in the transcript", () => {
+    const turn = run(call("c1"), { type: "signal", iteration: 1, signal: "stop" });
+
+    expect(shape(turn)).toEqual(["tools", "signal"]);
+  });
+});
+
 describe("reduce", () => {
   it("joins tokens of the same kind into one segment", () => {
     const turn = run(text("You have "), text("three."));

@@ -35,6 +35,7 @@ branching in the flow.
 | **A first message** | Nothing is running, so this invocation claims the id and runs the agent. |
 | **A follow-up** | A run is going, so the message is handed to it and this flow **stops** with an empty body. No second run, no second stream, no second answer to a person already reading the first. |
 | **A stop** | `stopWhen` holds, so the run in flight is ended and this flow stops with an empty body. |
+| **An answer** | `authorizeId` resolves to an id, so the request is a person's decision about a [tool call the run is holding](/ai/tool-authorization). It is delivered and this flow stops with an empty body. |
 
 There is no separate block and no message in flight. The lookup and the
 handover happen under one lock, so "somebody took this" is a fact rather than
@@ -181,6 +182,7 @@ shows the follow-up arriving in the same stream as the answer.
 | --- | --- |
 | `context` | A message was handed to the run and folded into the conversation. |
 | `stop` | The run was asked to end. |
+| `authorize` | A person answered a [tool authorization](/ai/tool-authorization). Carries `authorizationId` and `allowed` rather than `text`. |
 | `unanswered` | A message the run accepted and never got a turn to answer. |
 
 ## Try it
@@ -190,5 +192,6 @@ is the whole pattern, runnable, in two terminals.
 
 ## Next steps
 
+- [Tool authorization](/ai/tool-authorization) — the third thing a request can be: a person allowing a call.
 - [Agent Memory](/ai/agent-memory) — what a stopped run keeps.
 - [AI Blocks reference](/reference/blocks/ai#ai-agent) — full field tables.

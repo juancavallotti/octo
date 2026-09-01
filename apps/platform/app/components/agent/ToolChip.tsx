@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, ChevronRight, Loader2, Wrench, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Loader2, ShieldQuestion, Wrench, X } from "lucide-react";
 import type { ToolRun } from "./useAgentChat";
 
 /**
@@ -39,20 +39,45 @@ function summarise(input: unknown): string {
   return "";
 }
 
-export default function ToolChip({ run }: { run: ToolRun }) {
-  const [open, setOpen] = useState(false);
+export default function ToolChip({
+  run,
+  onAuthorize,
+}: {
+  run: ToolRun;
+  /** Answer this call, when it is one the agent is holding for a person. */
+  onAuthorize: (id: string, allow: boolean) => Promise<boolean>;
+}) {
+  const asking = run.authorization?.state === "pending";
+  const [open, setOpen] = useState(asking);
+
+  // Open it when the question ARRIVES, not only when the chip happens to mount
+  // holding one. The agent reports a call before it asks about it, so this chip is
+  // almost always already on screen and closed by the time the question lands —
+  // and a person cannot decide about a call whose arguments are behind a click.
+  //
+  // Adjusted during render rather than in an effect: React re-runs this component
+  // before touching the DOM, so the chip is never painted asking-but-closed. It
+  // stays a nudge and not a lock — the header still collapses it afterwards, which
+  // matters for the one chip somebody has decided to leave open and ignore.
+  const [asked, setAsked] = useState(asking);
+  if (asking !== asked) {
+    setAsked(asking);
+    if (asking) setOpen(true);
+  }
   const detail = preview(run.input);
   const result = preview(run.output);
   const expandable = Boolean(detail || result);
   const summary = summarise(run.input);
 
-  const tone = run.failed
+  const tone = asking
+    ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+    : run.failed
     ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
     : run.done
       ? "bg-black/[0.04] text-zinc-600 border-black/[0.08] dark:bg-white/[0.06] dark:text-zinc-300 dark:border-white/10"
       : "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20";
 
-  const Status = run.failed ? X : run.done ? Check : Loader2;
+  const Status = asking ? ShieldQuestion : run.failed ? X : run.done ? Check : Loader2;
   const Chevron = open ? ChevronDown : ChevronRight;
 
   return (
@@ -75,7 +100,7 @@ export default function ToolChip({ run }: { run: ToolRun }) {
         )}
         <Status
           size={11}
-          className={`ml-auto shrink-0 ${run.done || run.failed ? "" : "animate-spin"}`}
+          className={`ml-auto shrink-0 ${run.done || run.failed || asking ? "" : "animate-spin"}`}
         />
       </button>
 
@@ -83,10 +108,104 @@ export default function ToolChip({ run }: { run: ToolRun }) {
         <div className="border-t border-current/10 px-2 py-1.5">
           {detail && <Block label="Arguments" body={detail} />}
           {result && <Block label={run.failed ? "Error" : "Result"} body={result} />}
+          {asking && (
+            <Ask
+              waiting={run.authorization?.expiresInSeconds}
+              onAnswer={(allow) => onAuthorize(run.authorization!.id, allow)}
+            />
+          )}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * The question, under the arguments it is about.
+ *
+ * Nothing here is optimistic: the buttons send the answer and leave the chip as it
+ * is. What happened to the call comes back on the run's own stream — the runtime
+ * reports the decision it acted on — so a click that did not land shows as the
+ * denial the run will eventually make, rather than as an approval this panel
+ * invented.
+ */
+function Ask({
+  waiting,
+  onAnswer,
+}: {
+  waiting?: number;
+  onAnswer: (allow: boolean) => Promise<boolean>;
+}) {
+  // What this window has SENT, which is not what the run decided. The decision
+  // still arrives on the stream and settles the chip; this only stops the panel
+  // offering a choice that has already been made, and says so while the answer is
+  // in flight.
+  //
+  // It matters because the first answer wins: the run deletes the gate as it
+  // takes one, so a second click — someone correcting a mis-click — reaches a gate
+  // that is no longer there and is discarded in silence. Better not to offer it.
+  const [sent, setSent] = useState<"allow" | "deny" | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const answer = (allow: boolean) => {
+    setSent(allow ? "allow" : "deny");
+    setFailed(false);
+    void onAnswer(allow).then((delivered) => {
+      if (delivered) return;
+      // It never reached the run, so nothing is coming: no decision frame, and a
+      // denial on the timeout that reads as nobody having answered. Give the
+      // buttons back and say why, rather than leaving a person to believe they
+      // answered this.
+      setSent(null);
+      setFailed(true);
+    });
+  };
+
+  if (sent) {
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5 border-t border-current/10 pt-1.5">
+        <span className="text-[10px] opacity-70">
+          {sent === "allow" ? "Allowed — telling him now." : "Denied — telling him now."}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5 border-t border-current/10 pt-1.5">
+      <span className="mr-auto text-[10px] opacity-70">
+        {failed ? "That did not reach him — try again." : `Needs your say-so${waitFor(waiting)}`}
+      </span>
+      <button
+        type="button"
+        onClick={() => answer(false)}
+        className="rounded border border-current/20 px-1.5 py-0.5 text-[10px] font-medium hover:bg-black/[0.06] dark:hover:bg-white/10"
+      >
+        Deny
+      </button>
+      <button
+        type="button"
+        onClick={() => answer(true)}
+        className="rounded bg-amber-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-700"
+      >
+        Allow
+      </button>
+    </div>
+  );
+}
+
+/**
+ * How long the run said it would wait, said the way a person reads a clock.
+ *
+ * Minutes are rounded DOWN, and anything under one is given in seconds. Rounding
+ * to the nearest minute turns a 20-second wait into "0 min" — which claims the
+ * call has already expired while its buttons are still live — and a 45-second one
+ * into "1 min", which invites somebody to take longer than they have.
+ */
+function waitFor(seconds?: number): string {
+  if (!seconds || seconds <= 0) return "";
+  if (seconds < 60) return ` — denied on its own in ${seconds}s`;
+  return ` — denied on its own in ${Math.floor(seconds / 60)} min`;
 }
 
 function Block({ label, body }: { label: string; body: string }) {

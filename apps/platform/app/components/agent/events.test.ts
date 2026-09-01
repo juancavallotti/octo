@@ -244,8 +244,56 @@ describe("parseNavigateEvent", () => {
   it("reads a signal, and refuses one that does not say what it is", () => {
     expect(
       parseAgentEvent(JSON.stringify({ type: "signal", signal: "context", text: "focus on pricing" })),
-    ).toEqual({ type: "signal", iteration: undefined, signal: "context", text: "focus on pricing" });
+    ).toEqual({
+      type: "signal",
+      iteration: undefined,
+      signal: "context",
+      text: "focus on pricing",
+      authorizationId: undefined,
+      allowed: false,
+    });
     expect(parseAgentEvent(JSON.stringify({ type: "signal", text: "orphaned" }))).toBeNull();
+  });
+
+  // The id is what an answer quotes and what settles the chip that asked. A frame
+  // without a usable one would open a question nothing could ever close.
+  it("reads a tool authorization, and refuses one with no id to answer", () => {
+    expect(
+      parseAgentEvent(
+        JSON.stringify({
+          type: "tool_authorization",
+          iteration: 2,
+          tool: "web_search",
+          toolCallId: "c1",
+          authorizationId: "auth_1",
+          input: { objective: "what changed in 1.4" },
+          expiresInSeconds: 180,
+        }),
+      ),
+    ).toEqual({
+      type: "tool_authorization",
+      iteration: 2,
+      tool: "web_search",
+      toolCallId: "c1",
+      authorizationId: "auth_1",
+      input: { objective: "what changed in 1.4" },
+      expiresInSeconds: 180,
+    });
+    expect(
+      parseAgentEvent(
+        JSON.stringify({ type: "tool_authorization", tool: "web_search", toolCallId: "c1" }),
+      ),
+    ).toBeNull();
+  });
+
+  // Allowing is the one frame that says a gated call may go ahead, so it is granted
+  // by the boolean and nothing else.
+  it("reads anything but a true `allowed` as a denial", () => {
+    const event = parseAgentEvent(
+      JSON.stringify({ type: "signal", signal: "authorize", authorizationId: "a1", allowed: "true" }),
+    );
+
+    expect(event).toMatchObject({ signal: "authorize", authorizationId: "a1", allowed: false });
   });
 
   // The turn counter is what separates two rounds of tool calls with nothing

@@ -294,9 +294,11 @@ flows:
       settings:
         path: /chat
         methods: [POST]
-        # How a second request ends the run this one started. The header is the
-        # whole signal: the agent's stopWhen below only has to notice it is there.
-        headers: [X-Agent-Stop]
+        # How a second request ends the run this one started, and how one answers a
+        # tool call the run is holding in front of a person. The headers are the
+        # whole signal: the expressions on the agent below are the only thing that
+        # gives them meaning.
+        headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth]
         # On an SSE route this bounds the wait for the FIRST frame only. An agent
         # takes a moment to produce its first token.
         timeout: 60s
@@ -456,12 +458,30 @@ flows:
 
         stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
 
+        # How a person's answer to a gated call arrives: the same path a stop
+        # takes, one field further on. A request carrying an id is an answer and
+        # not a message — it is handed to the run holding the call and its own
+        # flow stops with an empty body.
+        #
+        # Both headers are set by the chat route server-side, never accepted from
+        # the browser, for the same reason the identity is: what the client sends
+        # is a request, and what reaches the agent is that route's decision.
+        #
+        # Anything but a plain "allow" denies, a missing header included. An answer
+        # that could not be read is not permission.
+        authorizeId: '"X-Agent-Auth-Id" in vars ? vars["X-Agent-Auth-Id"] : ""'
+        authorizeAllow: '"X-Agent-Auth" in vars && vars["X-Agent-Auth"] == "allow"'
+        # Long enough that reading the queries and deciding is comfortable, short
+        # enough that a closed tab is not a conversation held open. A closed panel
+        # denies at once and never reaches this.
+        authorizeTimeout: 3m
+
         # thread_title is emitted for the same reason the rest are: the panel has
         # no other way to learn it in time. Naming happens on the run that opens a
         # conversation, AFTER its answer has already streamed, so a panel that only
         # reads titles from a listing shows the conversation somebody is in as
         # nameless until something reloads it.
-        emit: [thinking, text, tool_call, tool_result, turn_end,
+        emit: [thinking, text, tool_call, tool_authorization, tool_result, turn_end,
                compaction_start, compaction_end, signal, thread_title,
                done, error, guardrail]
         events:
@@ -829,6 +849,23 @@ flows:
           # that reads "unavailable" without that instruction retries with a
           # rephrased query, and each retry is a whole turn of his budget.
           - name: web_search
+            # The one tool a person is asked about, and it is asked about because of
+            # what it BRINGS BACK rather than what it changes. Everything else he
+            # holds is either a GET or an orchestrator call whose blast radius is
+            # this installation's own data; this is the door untrusted text comes
+            # through. A page excerpt can carry instructions, and from there the
+            # path to a delegation and a write exists — with nothing in it but a
+            # prompt, which is not a boundary.
+            #
+            # So the person who is already reading the panel decides whether the
+            # open web gets to speak into this conversation. `true` because there is
+            # no safe half of the argument to let through: the objective and the
+            # queries are shown in the frame, and a search nobody wants is denied
+            # with the reason going back to him as a tool result.
+            #
+            # Everything else stays free, deliberately. A panel that asks about
+            # every octo_read is a panel whose questions nobody reads.
+            authorize: "true"
             description: >
               Search the open web and get back ranked pages with the excerpts
               that bear on your objective — not a list of links to go and read.

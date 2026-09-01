@@ -1,0 +1,70 @@
+flow: chat
+
+# HONEST LIMITS. What this sample exists to show — a run holding a tool call in front
+# of a person and taking their answer — needs two things at once that no single
+# invocation can have: a run actually waiting, and a second request arriving while it
+# is. A dolphin case is one invocation. That half is covered by the runtime's own
+# tests, which can be re-entrant where a flow invocation cannot, and by hand:
+#   curl -N -X POST <testUrl>chat -d '{"userId":"u1","threadId":"t1","message":"cancel order A-1"}'
+#   curl    -X POST <testUrl>chat -H 'X-Agent-Auth-Id: auth_…' -H 'X-Agent-Auth: allow' \
+#           -d '{"userId":"u1","threadId":"t1"}'
+#
+# What IS pinned here is the half that decides whether the pattern is safe to put in a
+# flow at all: an answer that finds no waiting call does not start a run of its own, and
+# an ordinary message still reaches the agent. A block that swallowed the first message
+# of every conversation, or that ran the agent again for every answer, would be worse
+# than no gate.
+
+cases:
+  # Nothing is gated yet, so this request runs the agent — which is what falling all
+  # the way through to the model proves. The model is deliberately UNREACHABLE: the
+  # Anthropic SDK honours ANTHROPIC_BASE_URL, and 127.0.0.1:9 (discard) refuses the
+  # connection offline, in milliseconds. No network, no cost, same outcome every run.
+  - name: an ordinary message runs the agent
+    input:
+      data: { userId: u1, threadId: t1, message: cancel order A-1 }
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic stream: Post "http://127.0.0.1:9/v1/messages"'
+
+  # An answer is delivered to the run holding the call and this flow stops with an
+  # empty body — including when the gate has already timed out and there is nothing
+  # to deliver it to. A panel cannot know which, so a late answer is an answer, not an
+  # error. The model is never called: no run is started for it.
+  - name: an answer that finds no waiting call answers instead of starting a run
+    input:
+      data: { userId: u1, threadId: t1 }
+      vars: { X-Agent-Auth-Id: auth_none, X-Agent-Auth: allow }
+    expect:
+      body: {}
+
+  # A denial takes the same path. Nothing about "no" is a failure of the request that
+  # carried it.
+  - name: a denial is delivered the same way
+    input:
+      data: { userId: u1, threadId: t1 }
+      vars: { X-Agent-Auth-Id: auth_none, X-Agent-Auth: deny }
+    expect:
+      body: {}
+
+  # The id is what makes a request an answer. Without one it is an ordinary message,
+  # so a stray X-Agent-Auth header cannot turn somebody's question into a decision.
+  - name: a decision with no id is an ordinary message
+    input:
+      data: { userId: u1, threadId: t1, message: cancel order A-1 }
+      vars: { X-Agent-Auth: allow }
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic stream: Post "http://127.0.0.1:9/v1/messages"'
+
+  # memoryThreadId is CEL over the message, not a constant — which is what lets one
+  # flow serve every conversation, and what an answer is routed by. A request it cannot
+  # be built from fails rather than answering on some default conversation every other
+  # caller shares.
+  - name: the conversation is read from the request, so one without an identity fails
+    input:
+      data: { userId: u1, message: cancel order A-1 } # no threadId
+    expect:
+      error: 'ai-agent memory threadId'
