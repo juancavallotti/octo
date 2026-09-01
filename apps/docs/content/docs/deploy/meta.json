@@ -2,6 +2,7 @@
   "pages": [
     "index",
     "self-hosted",
+    "install-kubernetes",
     "helm",
     "local-k3d",
     "gke",

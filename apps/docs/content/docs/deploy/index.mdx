@@ -5,7 +5,7 @@ description: "Ways to deploy Octo: local k3d, Helm on any Kubernetes, or GCP wit
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Anchor, Cloud, Container, Laptop, Package, Server, Tag } from 'lucide-react';
+import { Anchor, Cloud, Container, Laptop, ListChecks, Package, Server, Tag } from 'lucide-react';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
@@ -78,8 +78,11 @@ The chart is published on every release, so the middle column needs no checkout:
 It ships a values profile per target — k3d, kind, GKE Autopilot, GKE Standard
 and EKS — so the differences between clusters (ingress class, TLS source,
 storage class, resource requests, security context) are configuration rather
-than forks. See [Helm Chart](/deploy/helm) for the full reference, and
-[GKE](/deploy/gke) or [EKS](/deploy/eks) for the managed-cluster specifics.
+than forks. That one-liner is not the install you want to keep, though: it puts
+credentials in Helm values, where the release history keeps them. Follow
+[Install on Kubernetes](/deploy/install-kubernetes) for the whole path, read
+[Helm Chart](/deploy/helm) for the reference, and see [GKE](/deploy/gke) or
+[EKS](/deploy/eks) for the managed-cluster specifics.
 
 All paths deploy the same components: the platform (editor UI), the
 orchestrator, the log aggregator, Postgres, NATS, and a schema job that applies
@@ -96,10 +99,16 @@ runtime when you deploy an integration from the editor — see
     description="Run the full platform locally with k3d and DevSpace, including hot reload."
   />
   <Card
+    icon={<ListChecks />}
+    href="/deploy/install-kubernetes"
+    title="Install on Kubernetes"
+    description="The whole install, in order, on a cluster you already have — hostname, TLS, SSO, and no credential in a values file."
+  />
+  <Card
     icon={<Anchor />}
     href="/deploy/helm"
     title="Helm Chart"
-    description="Install the Octo chart on any Kubernetes cluster and configure it through values."
+    description="Every value the chart takes, and why each one is shaped the way it is."
   />
   <Card
     icon={<Cloud />}

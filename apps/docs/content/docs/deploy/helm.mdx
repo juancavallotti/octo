@@ -32,6 +32,14 @@ Rendering fails, by name, if you leave them out. If your cluster has no default
 IngressClass, add `--set ingress.className=<yours>` as well — see
 [Ingress and TLS](#ingress-and-tls).
 
+<Callout type="warn">
+  **That command is a demonstration, not an install to keep.** `--set
+  postgres.auth.password=…` puts the credential in Helm's release history, where
+  it stays for every retained revision. For a deployment you intend to run,
+  follow [Install on Kubernetes](/deploy/install-kubernetes): same chart, with
+  every credential in a Secret you own and only its name in the values.
+</Callout>
+
 <Callout type="info">
   Prefer a cluster-specific starting point over the bare defaults — the profiles
   below carry the resource requests, security context and storage class each
