@@ -905,10 +905,11 @@ orchestrator:
     existingSecret: octo-devruns   # key: dev-run-hash-secret
 ```
 
-The chart then creates neither Secret and never sees either value, so nothing new
-lands in the release history — or in whatever wrote the values, which for a
-GitOps repository or a deployment record in an operations panel outlives the
-release by a long way.
+The chart then creates neither Secret and never sees either value, so no key
+material lands in the release history — only the Secret's name and key, which are
+a reference and not a credential. The same goes for whatever wrote the values,
+which for a GitOps repository or a deployment record in an operations panel
+outlives the release by a long way.
 
 Clear the inline value when you switch. Setting both is refused rather than
 resolved by precedence, and the reason is worth stating: suppressing the chart's
