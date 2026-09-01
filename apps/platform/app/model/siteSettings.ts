@@ -19,6 +19,8 @@ export type {
   EmbeddingStatus,
   SentMessage,
   TestEmailInput,
+  WebSearchSettings,
+  WebSearchSettingsInput,
 } from "@/app/actions/client/settings";
 
 import type {
@@ -29,6 +31,8 @@ import type {
   EmbeddingStatus,
   SentMessage,
   TestEmailInput,
+  WebSearchSettings,
+  WebSearchSettingsInput,
 } from "@/app/actions/client/settings";
 
 /** Read the site's email settings. Never includes the API key. */
@@ -66,6 +70,18 @@ export async function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<LlmSettings> {
   return unwrap(await actions.saveLlmSettings(input));
+}
+
+/** Read the site's web search settings. Never includes the API key. */
+export async function getWebSearchSettings(): Promise<WebSearchSettings> {
+  return unwrap(await actions.getWebSearchSettings());
+}
+
+/** Save the web search settings. `apiKey` behaves as in {@link saveEmailSettings}. */
+export async function saveWebSearchSettings(
+  input: WebSearchSettingsInput,
+): Promise<WebSearchSettings> {
+  return unwrap(await actions.saveWebSearchSettings(input));
 }
 
 /** Read the embedding server's status and how far the backfill has got. */

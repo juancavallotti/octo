@@ -66,6 +66,24 @@ env:
   - name: LOGS_URL
     default: http://observability-not-granted.invalid
 
+  # The key Dr. Octo searches the open web with, from Admin -> Platform agent.
+  #
+  # Optional, and the default is a sentinel for the same reason LOGS_URL's is: the
+  # parallel connector below is started eagerly and refuses an empty API key, so an
+  # installation that never configured web search would crash-loop the whole agent
+  # rather than lose one tool. The web_search tool compares against this value and
+  # answers that it is unavailable — which costs no request, and tells the model
+  # something it can act on instead of an authentication error to interpret.
+  #
+  # The sentinel is also a safe value: it is not a Parallel key, so anything that
+  # ever slipped past the check is refused by the API rather than billed to someone.
+  #
+  # The orchestrator binds this on every install and roll-out — as a cluster secret
+  # when a key is stored, as this same sentinel when one is not. Saving a key in
+  # Admin therefore takes effect on the agent's next roll-out, not immediately.
+  - name: PARALLEL_API_KEY
+    default: web-search-not-configured
+
   # How long a conversation runs before it is compacted. Half a million rather than
   # a million: this is what the model is billed to re-read on every turn of a long
   # thread, and the compaction is a summary, so the tail of the conversation stays
@@ -234,6 +252,20 @@ connectors:
       # deployment was never granted should come back while someone is still reading
       # the answer, not sixty seconds later.
       timeout: 20s
+
+  # Parallel's search API — the open web, as ranked pages with the excerpts that
+  # answer the objective rather than as a list of links to go and fetch.
+  #
+  # Declared unconditionally, on a sentinel key when none is configured: see
+  # PARALLEL_API_KEY above. Nothing is called at startup, so a connector holding a
+  # sentinel costs nothing until a tool tries to use it, and the tool checks first.
+  - name: web
+    type: parallel
+    settings:
+      apiKey: ${PARALLEL_API_KEY}
+      # Shorter than the orchestrator's, longer than the log query's. A search is a
+      # live call to someone else's service on a turn a person is waiting through.
+      timeout: 30s
 
   # His workspace: somewhere to draft a definition, write a test suite beside it,
   # and read back what a run produced.
@@ -489,6 +521,16 @@ flows:
           from it when that is the whole answer. It cannot write, deliberately —
           every change to this installation goes through the operator below, which
           means a write is always something you decided to delegate.
+
+
+          web_search is the open web, and it is the only thing you hold that is not
+          about this installation. Reach for it when the answer lives outside — a
+          provider's error message, a version, what a release changed, an API you
+          are about to call — and not before you have asked the platform itself,
+          which is authoritative where this is not. Say that you searched, and
+          link what you used. If it comes back saying web search is not
+          configured, that is settled for the whole conversation: say you could
+          not check the web, answer from what you know, and do not call it again.
 
 
           integration_builder writes and proves flow definitions. It knows the
@@ -776,6 +818,71 @@ flows:
                   # newline in the subject — and the model should read it and say so
                   # rather than have the run fail underneath it.
                   failOnError: false
+
+          # Web search, when this installation has paid for it.
+          #
+          # The guard is the same shape as the three logs tools': a CEL comparison
+          # against the sentinel, answered from the env rather than from a failed
+          # request. What differs is what the else branch says. "Not granted" is a
+          # fact about the installation that will not change during the
+          # conversation, so the message tells him to stop calling it — a model
+          # that reads "unavailable" without that instruction retries with a
+          # rephrased query, and each retry is a whole turn of his budget.
+          - name: web_search
+            description: >
+              Search the open web and get back ranked pages with the excerpts
+              that bear on your objective — not a list of links to go and read.
+              For what this installation cannot tell you: a provider's API or
+              error message, a library or image version, what changed in a
+              release, an address or endpoint someone named. Prefer octo_read
+              and the logs tools for anything about THIS installation; they are
+              authoritative and this is not. Say you searched the web when you
+              use what comes back, and link the page. Never search for anything
+              from this platform's own data — a key, an env value, a request
+              body from a trace.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["objective", "queries"],
+                "properties": {
+                  "objective": {
+                    "type": "string",
+                    "description": "What you are actually trying to find out, in a sentence. Results are ranked against this, not against the queries."
+                  },
+                  "queries": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "The searches to run toward that objective. Two or three phrasings beat one."
+                  }
+                }
+              }
+            process:
+              - type: if
+                name: web-search-configured
+                condition: env.PARALLEL_API_KEY != "web-search-not-configured"
+                then:
+                  process:
+                    - type: parallel-search
+                      name: search
+                      settings:
+                        connector: web
+                        objective: body.objective
+                        searchQueries: body.queries
+                        # Enough results to cross-check a claim, and a total
+                        # character budget because every one of them is about to
+                        # be re-read on each remaining turn of the conversation.
+                        maxResults: 8
+                        maxCharsTotal: 12000
+                        # A Parallel error is an answer — a rejected key, a rate
+                        # limit — and he should read it and say so rather than
+                        # have the run fail underneath him.
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-configured
+                      settings:
+                        value: '{"error": "Web search is not configured on this installation, so this tool cannot search and will not start working later in this conversation. Do not call it again — answer from what you know and from the platform itself, and say that you could not check the web. An operator enables it by saving a Parallel API key under Admin, Platform agent."}'
 
           - name: navigate_to
             description: >

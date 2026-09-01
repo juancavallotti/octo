@@ -1,6 +1,7 @@
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import AgentSettingsManager from "@/app/components/admin/AgentSettingsManager";
 import LlmSettingsManager from "@/app/components/admin/LlmSettingsManager";
+import WebSearchSettingsManager from "@/app/components/admin/WebSearchSettingsManager";
 
 /**
  * The platform agent (`/platform/admin/agent`), whole.
@@ -11,7 +12,9 @@ import LlmSettingsManager from "@/app/components/admin/LlmSettingsManager";
  * requirement invisible, since the page that refuses to install him was not the
  * page holding the key he is refused for.
  *
- * So: the provider first, the deployment second, in the order they are needed. The
+ * So: the provider first, then web search, then the deployment, in the order they
+ * are needed — and in decreasing order of how much they matter, since the middle
+ * one is optional and the first one is not. The
  * install button is disabled until the LLM provider is configured — the
  * orchestrator decides that, not this page — and its reason now links to a section
  * a scroll away rather than to somewhere else entirely.
@@ -37,6 +40,8 @@ export default function AdminAgentPage() {
           </p>
 
           <LlmSettingsManager />
+
+          <WebSearchSettingsManager />
 
           <AgentSettingsManager />
         </div>

@@ -20,6 +20,8 @@ import type {
   EmbeddingStatus,
   SentMessage,
   TestEmailInput,
+  WebSearchSettings,
+  WebSearchSettingsInput,
 } from "./client/settings";
 
 export async function getEmailSettings(): Promise<ActionResult<EmailSettings>> {
@@ -46,6 +48,18 @@ export async function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<ActionResult<LlmSettings>> {
   return withWrite(() => client.saveLlmSettings(input));
+}
+
+export async function getWebSearchSettings(): Promise<
+  ActionResult<WebSearchSettings>
+> {
+  return withRead(() => client.getWebSearchSettings());
+}
+
+export async function saveWebSearchSettings(
+  input: WebSearchSettingsInput,
+): Promise<ActionResult<WebSearchSettings>> {
+  return withWrite(() => client.saveWebSearchSettings(input));
 }
 
 /**

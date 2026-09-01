@@ -28,6 +28,15 @@ vi.mock("@/app/model/siteSettings", () => ({
       encryptionAvailable: true,
     }),
   saveLlmSettings: () => Promise.resolve(),
+  getWebSearchSettings: () =>
+    Promise.resolve({
+      provider: "PARALLEL",
+      configured: false,
+      last4: "",
+      updatedAt: null,
+      encryptionAvailable: true,
+    }),
+  saveWebSearchSettings: () => Promise.resolve(),
 }));
 
 import AdminAgentPage from "./page";
@@ -41,6 +50,10 @@ import AdminAgentPage from "./page";
  * page that refuses to install the agent would once again not be the page holding
  * the key he is refused for.
  *
+ * Web search sits between them for the same reason the other two are here at all:
+ * it is a key this agent uses, so it belongs on the page that installs him — and it
+ * goes below the provider because he runs without it and does not run without that.
+ *
  * The absence of an embedding section is asserted too, because it was here once and
  * putting it back is the tempting mistake. Nothing on this platform configures
  * embeddings — the provider, model and key are chart values on the embedding server
@@ -51,10 +64,15 @@ describe("the platform agent page", () => {
   it("carries the provider and the deployment on one page", async () => {
     render(<AdminAgentPage />);
 
-    expect(screen.getByRole("heading", { name: "Platform agent" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Platform agent" }),
+    ).toBeTruthy();
     expect(screen.getByRole("heading", { name: "LLM provider" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Web search" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Deployment" })).toBeTruthy();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Install" })).toBeTruthy(),
+    );
   });
 
   it("says nothing about embeddings, which are not configured here", () => {
@@ -70,12 +88,15 @@ describe("the platform agent page", () => {
     render(<AdminAgentPage />);
 
     await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Install" }) as HTMLButtonElement).disabled).toBe(
-        true,
-      ),
+      expect(
+        (screen.getByRole("button", { name: "Install" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
     );
     expect(
-      screen.getByRole("link", { name: /Configure the LLM provider/ }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: /Configure the LLM provider/ })
+        .getAttribute("href"),
     ).toBe("#llm-heading");
     expect(document.getElementById("llm-heading")).toBeTruthy();
   });

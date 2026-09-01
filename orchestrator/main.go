@@ -48,6 +48,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 	"github.com/juancavallotti/octo/orchestrator/internal/storagestats"
 	"github.com/juancavallotti/octo/orchestrator/internal/user"
+	"github.com/juancavallotti/octo/orchestrator/internal/websearch"
 	"github.com/redis/go-redis/v9"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -678,10 +679,24 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"encryption", cipher != nil,
 			"endpoints", "GET/PUT /settings/llm")
 
+		// The web search credential, beside the LLM one for the same reason: it is a
+		// site-wide key the platform agent uses, and it needs no cluster. Unlike the
+		// LLM settings it is optional — with no key stored the agent still installs,
+		// and the tool that would have searched reports itself unavailable.
+		webSearchSvc := websearch.NewService(websearch.NewRepo(database.Pool()), cipher)
+		websearch.NewHandler(webSearchSvc).Register(mux)
+		slog.Info("web search settings routes registered",
+			"encryption", cipher != nil,
+			"endpoints", "GET/PUT /settings/websearch")
+
 		// The platform agent is registered after the Kubernetes block below, because
 		// it takes the deployment and secret services when a cluster is there. Its
 		// options are collected here so the registration reads as one thing.
-		var agentOpts []agent.Option
+		//
+		// The web search credential is one of them, and it is here rather than a
+		// constructor parameter because the agent does not need it: without a key he
+		// installs, runs, and holds a web_search tool that reports itself unavailable.
+		agentOpts := []agent.Option{agent.WithWebSearch(webSearchSvc)}
 
 		// The drift sweep needs all three services, and the agent's is built after
 		// the Kubernetes block that builds the other two — so the two escape the
@@ -809,7 +824,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		}
 
 		slog.Info("agent routes registered",
-			"cluster", len(agentOpts) > 0,
+			"cluster", kubeClient != nil,
 			"endpoints", "GET/DELETE /settings/agent, "+
 				"POST /settings/agent/{install,rollout,tracing}")
 	} else {

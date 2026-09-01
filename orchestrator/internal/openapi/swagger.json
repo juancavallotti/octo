@@ -1423,6 +1423,36 @@
                     }
                 },
                 "type": "object"
+            },
+            "websearch.settingsResponse": {
+                "properties": {
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "encryptionAvailable": {
+                        "description": "EncryptionAvailable is not stored; it reports whether this orchestrator can\nencrypt a key at all.",
+                        "type": "boolean"
+                    },
+                    "last4": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "description": "Provider is constant today. It is sent anyway so the page can name what the\nkey is for without hard-coding it, and so adding a second provider later is a\nchange to this response rather than to its contract.",
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "websearch.updateRequest": {
+                "properties": {
+                    "apiKey": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
             }
         }
     },
@@ -6327,6 +6357,96 @@
                     }
                 },
                 "summary": "How full the platform's two stores are",
+                "tags": [
+                    "settings"
+                ]
+            }
+        },
+        "/settings/websearch": {
+            "get": {
+                "description": "Whether a Parallel API key is stored, and which one — its last four\ncharacters only. The key itself is never returned. With no key stored the\nplatform agent still runs; his web_search tool reports itself unavailable.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get the site's web search settings",
+                "tags": [
+                    "settings"
+                ]
+            },
+            "put": {
+                "description": "apiKey is three-state: omitted keeps the stored key, an empty string\nremoves it, and any other value replaces it. Storing a key requires the\norchestrator to have an encryption key configured; without one the save is\nrefused rather than performed in the clear. A change reaches the agent on\nhis next roll-out, which is where the deployment's bindings are written.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/websearch.updateRequest",
+                                        "summary": "body",
+                                        "description": "The Parallel API key"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The Parallel API key",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.settingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "invalid key"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "encryption is not configured"
+                    }
+                },
+                "summary": "Save the site's web search settings",
                 "tags": [
                     "settings"
                 ]

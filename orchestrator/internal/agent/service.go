@@ -75,6 +75,15 @@ type (
 		EncryptionAvailable() bool
 		Reveal(ctx context.Context) (llm.Credentials, error)
 	}
+
+	// webSearch is websearch.Service. Only Reveal, because unlike the LLM
+	// credential nothing about this one is reported: it blocks no install and
+	// changes no status, so the status page has nothing to ask it. An
+	// unconfigured install returns the empty string rather than an error, which
+	// is what makes "no key" an ordinary path here rather than a special case.
+	webSearch interface {
+		Reveal(ctx context.Context) (string, error)
+	}
 )
 
 // Service installs and reports on the agent.
@@ -86,6 +95,10 @@ type Service struct {
 	deployments  deployer
 	secrets      secrets
 	credentials  credentials
+	// webSearch is nil on an orchestrator that never wired it — the same shape as
+	// deployer above, and for the same reason: absence is the absence of a call.
+	// Nil binds the sentinel, which is exactly what an unconfigured key does.
+	webSearch webSearch
 
 	// orchestratorURL is bound on the deployment as ORCHESTRATOR_URL. The
 	// orchestrator injects the same value into every pod, but the deploy-time check
@@ -108,6 +121,17 @@ func WithCluster(deployments deployer, secrets secrets) Option {
 	return func(s *Service) {
 		s.deployments = deployments
 		s.secrets = secrets
+	}
+}
+
+// WithWebSearch supplies the site's web search credential.
+//
+// An option because the agent installs and runs without one: what it changes is
+// whether his web_search tool has a key behind it, not whether he exists. Left
+// out, the binding is the sentinel and the tool reports itself unavailable.
+func WithWebSearch(ws webSearch) Option {
+	return func(s *Service) {
+		s.webSearch = ws
 	}
 }
 
@@ -683,6 +707,16 @@ func (s *Service) envBindings(ctx context.Context, cur stored) (map[string]deplo
 		envOrchestrator:  {Value: s.orchestratorURL},
 	}
 
+	// The web search key, when there is one. Always bound, because the connector
+	// that reads it starts eagerly and refuses an empty value — see
+	// WebSearchUnconfigured. So the choice here is a secret reference or the
+	// sentinel, never nothing.
+	webSearchKey, err := s.webSearchKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bindings[envWebSearchKey] = webSearchKey
+
 	// Bound only when an operator set one. Left out, the definition's own default
 	// applies — which keeps the number in one place, and means raising the shipped
 	// default reaches every installation that never touched this.
@@ -690,6 +724,53 @@ func (s *Service) envBindings(ctx context.Context, cur stored) (map[string]deplo
 		bindings[envMaxIterations] = deployment.EnvBinding{Value: strconv.Itoa(cur.MaxIterations)}
 	}
 	return bindings, nil
+}
+
+// webSearchKey resolves the binding for PARALLEL_API_KEY: a reference to the
+// cluster secret the key was just written to, or the sentinel that tells the agent
+// his web_search tool has nothing behind it.
+//
+// A key that cannot be read is *not* fatal. Refusing the whole install because an
+// optional credential could not be decrypted would trade a missing tool for a
+// missing agent; the sentinel says the same thing the unconfigured case says, and
+// the error is logged where an operator can find it.
+func (s *Service) webSearchKey(ctx context.Context) (deployment.EnvBinding, error) {
+	unconfigured := deployment.EnvBinding{Value: WebSearchUnconfigured}
+	if s.webSearch == nil {
+		return unconfigured, nil
+	}
+	key, err := s.webSearch.Reveal(ctx)
+	if err != nil {
+		// Deliberately not the removal path below: a key that could not be read is
+		// not a key that was removed, and deleting the secret on the strength of a
+		// decryption failure would destroy the credential the next roll-out needs.
+		slog.Error("could not read the site's web search key; the agent installs without it",
+			"error", err)
+		return unconfigured, nil
+	}
+	if key == "" {
+		// Nothing is stored, so nothing should be left in the cluster either. Without
+		// this, an installation that configured a key and later removed it kept the
+		// old one as a platform secret until the agent was purged — a live credential
+		// with nothing owning it and no page reporting it.
+		//
+		// force, because the deployment about to be replaced still references it. Not
+		// found is the ordinary case: most installations never stored one.
+		if err := s.secrets.Delete(ctx, webSearchKeySecret, true); err != nil &&
+			!errors.Is(err, secret.ErrNotFound) {
+			// Not fatal. The binding below is the sentinel either way, so the agent
+			// cannot search — what is left is a stale secret, which is worth an
+			// operator's attention rather than a refused roll-out.
+			slog.Error("could not remove the stored web search key secret",
+				"secret", webSearchKeySecret, "error", err)
+		}
+		return unconfigured, nil
+	}
+	if _, err := s.secrets.Create(ctx, webSearchKeySecret, key); err != nil {
+		return deployment.EnvBinding{}, fmt.Errorf(
+			"store the web search key as platform secret %s: %w", webSearchKeySecret, err)
+	}
+	return deployment.EnvBinding{Secret: webSearchKeySecret}, nil
 }
 
 // Rollout publishes the bundle this binary carries and rolls the deployment onto
@@ -1035,12 +1116,22 @@ func (s *Service) Uninstall(ctx context.Context, purge bool) error {
 			// record pointing at it. force, because the deployment that referenced it
 			// has just been removed and the reference may still be visible.
 			if s.secrets != nil {
-				if err := s.secrets.Delete(ctx, llmKeySecret, true); err != nil {
-					// Not fatal: the install is gone either way, and failing here
-					// would leave the record describing an agent that no longer
-					// exists. Logged loudly because it is a credential.
-					slog.Error("agent purge could not remove the provider key secret",
-						"secret", llmKeySecret, "error", err)
+				for _, name := range []string{llmKeySecret, webSearchKeySecret} {
+					// Already gone is the outcome this asks for. It is also the
+					// ordinary case for the web search key, which most installs
+					// never configure.
+					if err := s.secrets.Delete(ctx, name, true); err != nil &&
+						!errors.Is(err, secret.ErrNotFound) {
+						// Not fatal: the install is gone either way, and failing here
+						// would leave the record describing an agent that no longer
+						// exists. Logged loudly because it is a credential.
+						//
+						// The web search secret is very often absent — most installs
+						// never configure one — so this is also the ordinary path and
+						// not only the failure path.
+						slog.Error("agent purge could not remove a key secret",
+							"secret", name, "error", err)
+					}
 				}
 			}
 			// Everything the record described is gone, so the record goes with it —
