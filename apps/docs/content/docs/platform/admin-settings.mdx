@@ -69,7 +69,7 @@ Keep this internal. The orchestrator is ClusterIP in the chart and trusts its ca
 
 `/platform/admin/agent` is one page for one task: the model the platform's **own agent** reasons with, and his deployment. These were two separate tabs, and nothing else on the installation reads the provider setting — so the split only hid the requirement between them. He will not install without an LLM provider, and now the page that refuses is the page holding the field.
 
-Two sections, in the order they are needed: the **LLM provider** first, the **Deployment** second. Embeddings are not here: they configure how agent memory is *searched* rather than how the agent reasons, they are not configured on this platform at all, and what is left to say about them is [reported where the searching happens](/platform/agent-memory).
+Three sections, in the order they are needed: the **LLM provider** first, **Web search** second, the **Deployment** third. Embeddings are not here: they configure how agent memory is *searched* rather than how the agent reasons, they are not configured on this platform at all, and what is left to say about them is [reported where the searching happens](/platform/agent-memory).
 
 ### LLM provider
 
@@ -89,9 +89,21 @@ Model is free text on purpose: model names turn over faster than releases of thi
 This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
 </Callout>
 
+### Web search
+
+One field: a [Parallel](https://parallel.ai) API key. With one, Dr. Octo holds a `web_search` tool that searches the open web and hands back ranked pages with the excerpts that bear on what he asked — a provider's error message, a version, what a release changed.
+
+**It is optional, and nothing is broken without it.** He installs, runs and answers exactly as before; the tool answers that web search is not configured, tells him not to call it again, and he says he could not check the web. That is a deliberate answer rather than a failed request: the key reaches his pod as an environment variable, and when there is none the value is a sentinel his tool compares against before calling anything.
+
+The key is handled like the other two — write-only, encrypted at rest, reported as its last four characters. It is worth knowing **when** it takes effect: it is bound onto his deployment as a cluster secret, and bindings are written on install and roll-out. Save a key while he is running and he picks it up on his next **Roll out**.
+
+<Callout type="warn">
+As with the LLM key, this belongs to the installation and not to your integrations. A flow of your own that searches the web configures its own [`parallel` connector](/reference/connectors/parallel) with its own key.
+</Callout>
+
 ### Deployment
 
-The second section of the same page installs, updates, traces or removes him, and sets his **turn limit** — how many tool-calling turns one answer may take. The limit sits inside the deployment card with the buttons that roll the same pods, because that is what it is: a property of this deployment, not another site setting. See [The Platform Agent](/platform/agent) for what he does and how to change him.
+The third section of the same page installs, updates, traces or removes him, and sets his **turn limit** — how many tool-calling turns one answer may take. The limit sits inside the deployment card with the buttons that roll the same pods, because that is what it is: a property of this deployment, not another site setting. See [The Platform Agent](/platform/agent) for what he does and how to change him.
 
 ## Embeddings (optional)
 

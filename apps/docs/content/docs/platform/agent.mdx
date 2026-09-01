@@ -234,6 +234,7 @@ Read this before you change him. The whole file is in the editor.
 | `integration_builder` | The first specialist (see [below](#the-two-specialists)): writes a definition and proves it |
 | `platform_operator` | The second specialist: everything that changes the installation, and everything about what already happened |
 | `send_email_report` | Sends an HTML report through the platform's own [email settings](/platform/admin-settings); the sender identity is the installation's, never the model's |
+| `web_search` | Searches the open web through a [`parallel`](/reference/connectors/parallel) connector, when the installation has [a key](/platform/admin-settings#web-search). Without one it answers that it is not configured and says not to call again, which costs one turn rather than a retry loop |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
 | `check_expression` | Evaluates one [CEL](/reference/cel) expression, so he can prove one rather than assert it |
 | `remember`, `forget`, `search_memory` | Built into the runtime rather than written here. What he has already remembered about you is placed in every request, so there is no tool to call to recall it |
@@ -241,7 +242,7 @@ Read this before you change him. The whole file is in the editor.
 
 ### The two specialists
 
-The coordinator keeps the cheap things — a read-only API call, a CEL check, navigation, the built-in memory tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
+The coordinator keeps the cheap things — a read-only API call, a CEL check, a web search, navigation, the built-in memory tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
 
 | Specialist | Holds | For |
 | --- | --- | --- |

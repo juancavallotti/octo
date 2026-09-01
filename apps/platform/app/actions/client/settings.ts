@@ -1,6 +1,6 @@
 /**
  * Site-wide settings operations: the email provider the platform sends through,
- * and the LLM provider its agent reasons with.
+ * the LLM provider its agent reasons with, and the key he searches the web with.
  *
  * Neither response ever carries an API key — the orchestrator returns `configured`
  * and `last4` and nothing more — so there is deliberately no "get key" operation
@@ -56,6 +56,31 @@ export interface LlmSettingsInput {
   apiKey?: string;
   provider: string;
   model: string;
+}
+
+/**
+ * The site's web search settings: whether the platform agent can search the open
+ * web, and with which Parallel key.
+ *
+ * `provider` is reported rather than chosen. There is one provider today — the
+ * agent's tool is a parallel-search block — so a second one would be a second
+ * connector and a second tool, not a different value in this form.
+ */
+export interface WebSearchSettings {
+  provider: string;
+  configured: boolean;
+  last4: string;
+  updatedAt: string | null;
+  encryptionAvailable: boolean;
+}
+
+/**
+ * One web search settings save. The key is the only field, and it is optional for
+ * the same reason it is everywhere else: omitting it keeps the stored one, and ""
+ * removes it. A save with neither is accepted and changes nothing.
+ */
+export interface WebSearchSettingsInput {
+  apiKey?: string;
 }
 
 /**
@@ -117,6 +142,18 @@ export function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<ActionResult<LlmSettings>> {
   return call<LlmSettings>("PUT", "/settings/llm", input);
+}
+
+export function getWebSearchSettings(): Promise<
+  ActionResult<WebSearchSettings>
+> {
+  return call<WebSearchSettings>("GET", "/settings/websearch");
+}
+
+export function saveWebSearchSettings(
+  input: WebSearchSettingsInput,
+): Promise<ActionResult<WebSearchSettings>> {
+  return call<WebSearchSettings>("PUT", "/settings/websearch", input);
 }
 
 export function getEmbeddingStatus(): Promise<ActionResult<EmbeddingStatus>> {
