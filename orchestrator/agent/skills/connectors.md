@@ -17,6 +17,7 @@ does not exist.
 | `pinecone` | Pinecone | no | `pinecone-*` |
 | `notion` | Notion | no | `notion-*` |
 | `tavily` | Tavily | no | `tavily-*` |
+| `parallel` | Parallel | no | `parallel-*` |
 | `slack` | Slack | yes — events | `slack-*` |
 | `llm-anthropic` | Anthropic | no | AI blocks, by category |
 | `llm-openai` | OpenAI | no | AI blocks, by category |

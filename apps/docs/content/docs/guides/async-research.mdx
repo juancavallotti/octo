@@ -1,0 +1,185 @@
+---
+title: "Async Research with Parallel"
+description: "Start a long-running research job and take its answer back as a verified webhook."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+Some work takes longer than a request. This guide builds a service that starts a
+[Parallel](https://parallel.ai) research run, answers the caller immediately with
+a receipt, and takes the real answer minutes later as a webhook it can prove came
+from Parallel. It follows
+[`samples/parallel-research`](https://github.com/juancavallotti/octo/tree/main/samples/parallel-research).
+
+The shape is worth naming, because it recurs with any slow provider: **one flow
+starts the work, another finishes it**, and the only thing joining them is an id
+you chose.
+
+## Set up the connector
+
+<Steps>
+<Step>
+Create an API key on [platform.parallel.ai](https://platform.parallel.ai), and
+copy your webhook secret from **Settings → Webhooks** — including its `whsec_`
+prefix, which is part of the value, not decoration.
+</Step>
+<Step>
+Declare the connector with both.
+
+```yaml title="samples/parallel-research/config.yaml (excerpt)"
+connectors:
+  - name: research
+    type: parallel
+    settings:
+      apiKey: ${PARALLEL_API_KEY}
+      webhookSecret: ${PARALLEL_WEBHOOK_SECRET}
+```
+
+The secret is decoded at **startup**, not at the first callback: `whsec_` says the
+rest is base64 key material, and a malformed one fails the service immediately
+rather than becoming a signature that silently never matches.
+</Step>
+<Step>
+Expose the service so Parallel can reach it — a tunnel such as ngrok while
+developing — and point the callback URL at the route you will own:
+
+```bash
+export PARALLEL_WEBHOOK_URL=https://your-host/parallel/events
+```
+</Step>
+</Steps>
+
+## Answer now, when you can
+
+Not everything needs the asynchronous path. `parallel-search` answers in the same
+request, and its response becomes the body:
+
+```yaml title="samples/parallel-research/config.yaml (excerpt)"
+- type: parallel-search
+  settings:
+    connector: research
+    objective: body.question
+    searchQueries: '[body.question]'
+    mode: fast
+    maxResults: 8
+```
+
+<Callout type="info">
+`objective` and `searchQueries` are not the same field said twice. The objective
+says, in natural language, what the caller is actually after; the queries are the
+searches to run toward it. Parallel ranks results against the **objective**, which
+is why both are required.
+</Callout>
+
+## Start the run, and hand back a receipt
+
+`parallel-task-run` does not wait. It returns `{run_id, status, ...}` — a receipt
+— and that is the one block in this connector whose result does **not** become the
+body. The handle goes into `vars.parallelRun`, so the flow that asked still has
+its own body to respond with.
+
+```yaml title="samples/parallel-research/config.yaml (excerpt)"
+- type: parallel-task-run
+  name: start-run
+  settings:
+    connector: research
+    processor: core
+    input: body.question
+    metadata: '{"correlationId": body.id}'
+    webhookURL: ${PARALLEL_WEBHOOK_URL}
+
+- type: set-payload
+  name: receipt
+  settings:
+    value: '{"runId": vars.parallelRun.run_id, "status": vars.parallelRun.status}'
+```
+
+`metadata` is the part that makes the pattern work. Whatever you put there comes
+back on the webhook, so it is how the callback finds the request that started the
+run. Put your own correlation id in it — not Parallel's `run_id`, which you only
+learn *after* the run exists.
+
+## Take the answer back, and prove it
+
+The callback route is reachable by anyone on the internet, so the first thing it
+does is refuse anything not provably from Parallel.
+
+```yaml title="samples/parallel-research/config.yaml (excerpt)"
+- name: callback
+  source:
+    connector: api
+    type: http
+    settings:
+      path: /parallel/events
+      methods: [POST]
+      headers: [webhook-id, webhook-timestamp, webhook-signature]
+      rawBody: true
+  process:
+    - type: parallel-verify-request
+      name: verify
+      settings:
+        connector: research
+```
+
+Two lines of that source are doing security work, and both are required:
+
+- **`headers:`** copies all three signature headers into variables. The id and the
+  timestamp are *inside* the signed string, not alongside it — which is what stops
+  a captured signature being replayed under a different event id, or at all
+  outside a five-minute window.
+- **`rawBody: true`** delivers the exact request bytes. The signature covers those
+  bytes, so a body parsed and re-serialized on the way no longer verifies. After
+  verifying, the block parses them back into `body` itself, so `body.data.status`
+  works downstream as usual.
+
+Everything after `verify` runs only for requests Parallel actually sent.
+
+```yaml title="samples/parallel-research/config.yaml (excerpt)"
+    - type: log
+      name: log-result
+      settings:
+        logger: out
+        message: >
+          "run " + body.data.run_id + " is " + body.data.status +
+          " (correlationId " + body.data.metadata.correlationId + ")"
+```
+
+<Callout type="warn">
+Unlike [Notion](/guides/notion-sync), there is no bootstrap handshake: Parallel's
+secret exists in its dashboard before the first webhook does. So a
+`parallel-verify-request` whose connector has no `webhookSecret` **fails to
+build** — a flow that cannot authenticate its callbacks should not start at all.
+</Callout>
+
+## Testing it
+
+The reject paths test cleanly, and they are the ones worth pinning: an unsigned
+request, a wrongly-signed one, and a valid signature presented over different
+bytes are all refused forever.
+
+The **accept** path cannot be tested from a committed signature, and that is a
+property of the scheme rather than a gap in the tooling: the signature covers a
+timestamp inside a five-minute window, so any signature written into a file is
+stale by the time anyone runs it. `samples/parallel-research/callback_test.yaml`
+turns that into a test of its own — a *correctly signed* request refused for
+being too old — and leaves the accept path to the Go tests, which inject the
+clock.
+
+```yaml title="samples/parallel-research/callback_test.yaml (excerpt)"
+- name: a correctly signed request from outside the replay window is rejected
+  input:
+    vars:
+      webhook-id: msg_stale_1
+      webhook-timestamp: "1767225600"
+      webhook-signature: v1,ZMFQE/t5RwjrnZGLz+sItdZStfPyGwi54q5RwTqOjo8=
+      rawBody: '{"timestamp":"2026-01-01T00:00:00Z","type":"task_run.status",...}'
+  expect:
+    error: invalid request signature
+```
+
+## See also
+
+- [The `parallel` connector reference](/reference/connectors/parallel) — every setting on every block.
+- [Verifying webhooks](/guides/verifying-webhooks) — the general pattern, including providers with no connector of their own.
+- [Raw content](/concepts/raw-content) — what `rawBody: true` actually delivers.

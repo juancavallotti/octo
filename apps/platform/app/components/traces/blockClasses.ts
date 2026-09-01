@@ -66,6 +66,8 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   "tavily-extract": "io",
   "tavily-crawl": "io",
   "tavily-map": "io",
+  "parallel-search": "io",
+  "parallel-task-run": "io",
   "mongodb-find": "io",
   "mongodb-insert": "io",
   "mongodb-update": "io",
@@ -94,6 +96,8 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   // Signature checks: HMAC over the request, no network.
   "slack-verify-request": "cpu",
   "notion-verify-request": "cpu",
+  // HMAC over the request bytes; the only in-process block this connector has.
+  "parallel-verify-request": "cpu",
   // Normalize and filter an already-verified webhook payload.
   "slack-event": "cpu",
   "notion-event": "cpu",

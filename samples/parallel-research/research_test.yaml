@@ -1,0 +1,31 @@
+flow: research
+
+# The asynchronous half: parallel-task-run returns a receipt, not an answer.
+#
+# That distinction is the whole reason the block behaves differently from every
+# other one here — the handle goes into a variable and the caller's body survives
+# — so it is what this suite pins.
+
+mocks:
+  research.start-run:
+    default:
+      # The block sets a variable and leaves the body alone, so the mock says so.
+      body: { id: req-1, question: summarise recent cephalopod research }
+      vars:
+        parallelRun:
+          run_id: run_1
+          status: queued
+          is_active: true
+          processor: core
+
+cases:
+  - name: the caller gets a receipt, not an answer
+    input:
+      data: { id: req-1, question: summarise recent cephalopod research }
+    expect:
+      body:
+        runId: run_1
+        status: queued
+    spies:
+      research.start-run: { count: 1 }
+      research.log-started: { count: 1 }

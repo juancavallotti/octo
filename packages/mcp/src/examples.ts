@@ -1405,6 +1405,103 @@ flows:
 `,
 };
 
+/** Parallel research: search now, or start an async run answered by a signed webhook. */
+const PARALLEL_RESEARCH: Example = {
+  slug: "parallel-research",
+  title: "parallel-research \u2014 search now, or run async and verify the webhook",
+  summary:
+    "Shows both of Parallel's shapes. parallel-search answers in the request and its response becomes the body (objective says what the caller is after; searchQueries are the searches to run toward it \u2014 both required). parallel-task-run does NOT answer: it starts an async run, puts the handle in vars.parallelRun and leaves the body alone, and metadata carries the caller's own id so the callback can correlate. The answer arrives as a signed webhook: the http source copies webhook-id, webhook-timestamp and webhook-signature into vars and delivers the exact bytes as raw content (rawBody: true), and parallel-verify-request checks the Standard Webhooks HMAC over all three plus the body, aborting on a bad or stale signature. The connector refuses to build the verify block without webhookSecret. Needs PARALLEL_API_KEY, PARALLEL_WEBHOOK_SECRET and PARALLEL_WEBHOOK_URL.",
+  blocks: [
+    "http (source)",
+    "parallel-search",
+    "parallel-task-run",
+    "parallel-verify-request",
+    "set-payload",
+    "log",
+    "parallel (connector)",
+  ],
+  definition: `service:
+  name: parallel-research
+
+env:
+  - name: PARALLEL_API_KEY
+    required: true
+  - name: PARALLEL_WEBHOOK_SECRET
+    required: true
+  - name: PARALLEL_WEBHOOK_URL
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: 8080
+  - name: research
+    type: parallel
+    settings:
+      apiKey: \${PARALLEL_API_KEY}
+      webhookSecret: \${PARALLEL_WEBHOOK_SECRET}   # whsec_..., decoded at startup
+  - name: out
+    type: logger
+
+flows:
+  - name: ask                        # synchronous: the response becomes the body
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /ask
+        methods: [POST]
+    process:
+      - type: parallel-search
+        settings:
+          connector: research
+          objective: body.question       # what the caller is after; results rank against it
+          searchQueries: '[body.question]'
+          mode: fast
+          maxResults: 8
+
+  - name: research                   # asynchronous: the block returns a receipt
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /research
+        methods: [POST]
+    process:
+      - type: parallel-task-run
+        settings:
+          connector: research
+          processor: core
+          input: body.question
+          metadata: '{"correlationId": body.id}'   # comes back on the webhook
+          webhookURL: \${PARALLEL_WEBHOOK_URL}
+      - type: set-payload            # the handle is in vars, the body survived
+        settings:
+          value: '{"runId": vars.parallelRun.run_id, "status": vars.parallelRun.status}'
+
+  - name: callback                   # where the answer actually arrives
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /parallel/events
+        methods: [POST]
+        # All three headers are inside the signature, and it covers the exact
+        # bytes — so copy them into vars and take the body as raw content.
+        headers: [webhook-id, webhook-timestamp, webhook-signature]
+        rawBody: true
+    process:
+      - type: parallel-verify-request   # aborts on a bad or stale signature
+        settings:
+          connector: research
+      - type: log
+        settings:
+          logger: out
+          message: '"run " + body.data.run_id + " is " + body.data.status'
+`,
+};
+
 export const EXAMPLES: Example[] = [
   HELLO_WORLD,
   BUILTINS,
@@ -1415,6 +1512,7 @@ export const EXAMPLES: Example[] = [
   SLACK_BOT,
   NOTION_WEBHOOK,
   WEB_RESEARCH,
+  PARALLEL_RESEARCH,
   ENRICH,
   VALIDATE,
   JWT_VALIDATE,

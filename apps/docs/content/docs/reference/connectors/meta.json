@@ -12,7 +12,8 @@
     "notion",
     "llm",
     "pinecone",
-    "tavily"
+    "tavily",
+    "parallel"
   ],
   "title": "Connectors"
 }

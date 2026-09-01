@@ -1,0 +1,35 @@
+flow: ask
+
+# The synchronous half: parallel-search answers in the request, and its response
+# becomes the body.
+#
+# HONEST LIMITS: the search is mocked — it is a pure network call, and .env.test's
+# key is fake on purpose — so nothing here says Parallel returns good results.
+# What is pinned is that the response leaves the flow unreshaped, which is the
+# contract every other block in this connector shares.
+
+mocks:
+  ask.search:
+    default:
+      body:
+        search_id: s1
+        results:
+          - url: "https://a.test/anatomy"
+            title: Anatomy
+            excerpts: ["mostly muscle, no bone"]
+        session_id: sess_1
+
+cases:
+  - name: the search response becomes the body
+    input:
+      data: { question: what is an octopus arm made of }
+    expect:
+      body:
+        search_id: s1
+        results:
+          - url: "https://a.test/anatomy"
+            title: Anatomy
+            excerpts: ["mostly muscle, no bone"]
+        session_id: sess_1
+    spies:
+      ask.search: { count: 1 }

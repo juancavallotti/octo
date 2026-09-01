@@ -131,6 +131,12 @@ always volatile and have no setting for it.
 `tavily-crawl`, `tavily-map`. Each returns its response as the **body** unless
 `resultVar` names a variable. `tavily-crawl` and `tavily-map` run server-side for
 up to 150s, so the connector's `timeout` must be raised past its 30s default.
+**Parallel (web research):** `parallel-search`, `parallel-task-run`,
+`parallel-verify-request`. `parallel-search` answers in the request and returns
+its response as the **body**. `parallel-task-run` does not answer: it starts an
+asynchronous run and puts the handle in `vars.parallelRun`, leaving the body
+alone — the result arrives later as a signed webhook, which
+`parallel-verify-request` authenticates over the raw request bytes.
 
 ## The ai-agent block
 

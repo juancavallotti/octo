@@ -1,0 +1,137 @@
+service:
+  name: parallel-research
+
+# A research service built on Parallel, showing both of its shapes:
+#
+#   /ask       answers now — parallel-search returns ranked pages in the request.
+#   /research  answers later — parallel-task-run starts an asynchronous run and
+#              returns a receipt; the answer arrives minutes later as a signed
+#              webhook, which /parallel/events authenticates before trusting.
+#
+# Setup:
+#   1. Create an API key (https://platform.parallel.ai) and copy your webhook
+#      secret from Settings -> Webhooks (whsec_ prefix included):
+#        export PARALLEL_API_KEY=...
+#        export PARALLEL_WEBHOOK_SECRET=whsec_...
+#   2. Expose this service so Parallel can reach it (a tunnel such as ngrok while
+#      developing), and point the callback at its /parallel/events route:
+#        export PARALLEL_WEBHOOK_URL=https://your-host/parallel/events
+#   3. Run: go run ./runtime/octo -config samples/parallel-research/config.yaml
+#   4. Ask something:
+#        curl -s localhost:8080/ask -H 'content-type: application/json' \
+#          -d '{"question":"what is an octopus arm made of"}'
+#        curl -s localhost:8080/research -H 'content-type: application/json' \
+#          -d '{"id":"req-1","question":"summarise recent cephalopod research"}'
+#
+# Unlike a Notion subscription there is nothing to bootstrap: the webhook secret
+# exists in Parallel's dashboard before the first callback does, so the service
+# refuses to start without one rather than accepting an unverified request.
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: PARALLEL_API_KEY
+    required: true
+  - name: PARALLEL_WEBHOOK_SECRET
+    required: true
+  - name: PARALLEL_WEBHOOK_URL
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+  - name: research
+    type: parallel
+    settings:
+      apiKey: ${PARALLEL_API_KEY}
+      webhookSecret: ${PARALLEL_WEBHOOK_SECRET}
+
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  # 1. The synchronous half. The objective says what the caller is after and the
+  #    queries are the searches to run toward it — Parallel ranks against the
+  #    objective, so the two are not the same field said twice.
+  - name: ask
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /ask
+        methods: [POST]
+    process:
+      - type: parallel-search
+        name: search
+        settings:
+          connector: research
+          objective: body.question
+          searchQueries: '[body.question]'
+          mode: fast
+          maxResults: 8
+
+  # 2. The asynchronous half. The block returns a receipt, not an answer, so the
+  #    caller gets the run id and the flow ends. metadata carries the caller's own
+  #    id, which is what lets the callback below find the request that started it.
+  - name: research
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /research
+        methods: [POST]
+    process:
+      - type: parallel-task-run
+        name: start-run
+        settings:
+          connector: research
+          processor: core
+          input: body.question
+          metadata: '{"correlationId": body.id}'
+          webhookURL: ${PARALLEL_WEBHOOK_URL}
+
+      - type: log
+        name: log-started
+        settings:
+          logger: out
+          message: '"started run " + vars.parallelRun.run_id'
+
+      - type: set-payload
+        name: receipt
+        settings:
+          value: '{"runId": vars.parallelRun.run_id, "status": vars.parallelRun.status}'
+
+  # 3. Where the answer actually arrives. The signature covers the id, the
+  #    timestamp and the exact request bytes together, so the source has to copy
+  #    all three headers into variables and deliver the body as raw content —
+  #    a re-serialized body no longer verifies.
+  - name: callback
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /parallel/events
+        methods: [POST]
+        headers: [webhook-id, webhook-timestamp, webhook-signature]
+        rawBody: true
+    process:
+      # Aborts the flow on a missing, invalid or stale signature. Nothing below
+      # this line runs for a request Parallel did not send.
+      - type: parallel-verify-request
+        name: verify
+        settings:
+          connector: research
+
+      - type: log
+        name: log-result
+        settings:
+          logger: out
+          message: >
+            "run " + body.data.run_id + " is " + body.data.status +
+            " (correlationId " + body.data.metadata.correlationId + ")"
