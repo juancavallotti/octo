@@ -67,12 +67,80 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "auth") }}
 {{- end }}
 
+{{/*
+  Secret and key holding the KV encryption key, and the same pair for the dev-run
+  HMAC key. Two cases each, the same choice the database password already offers:
+  a Secret you already own, or one the chart creates from a value you supply.
+
+  An existing Secret is the better answer for both, and more so than elsewhere.
+  Helm keeps every value it is given in the release history, so an inline key is
+  in a Secret in the namespace for as long as that revision is retained — and it
+  is also in whatever wrote the values: a GitOps repository, a pipeline variable,
+  or, for an operator deploying from a panel, the record of what was deployed.
+  Neither of these keys can be rotated to recover from that: a new KV key makes
+  every value already written to a secret namespace unreadable, and a new dev-run
+  key re-labels every exposed dev run, breaking webhooks registered against the
+  old hostnames. A key that cannot be rotated is one to avoid copying.
+*/}}
+{{- /*
+  Both sources at once is refused rather than resolved by precedence, which is
+  where these two differ from postgres.auth and externalDatabase.
+
+  Suppressing the chart's Secret does not unsay the value: Helm keeps every value
+  it is given in the release history whether a template renders it or not. So an
+  install with both set still has the key in a Secret in the namespace, and the
+  operator has been told by this chart that it is held elsewhere. For a password
+  that is a redundant copy of something rotatable. For these two it is the whole
+  harm, since neither can be rotated to recover — hence a render that stops and
+  names the value to clear, at the one moment somebody is looking.
+
+  Note what it cannot undo: revisions written BEFORE the migration still hold
+  whatever they were given, and so does whatever wrote those values.
+*/}}
 {{- define "octo.kv.secretName" -}}
+{{- if and .Values.kv.existingSecret .Values.kv.encryptionKey -}}
+{{- fail "kv.encryptionKey and kv.existingSecret are both set: clear kv.encryptionKey. Leaving it keeps the key in this release's values — and so in the release history — which is the copy existingSecret exists to avoid, and this key cannot be rotated to recover from it. Revisions written before the change still hold it." -}}
+{{- end -}}
+{{- if .Values.kv.existingSecret -}}
+{{- .Values.kv.existingSecret -}}
+{{- else -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "kv") }}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.kv.secretKey" -}}
+{{- if .Values.kv.existingSecret -}}
+{{- .Values.kv.existingSecretKey | default "kv-encryption-key" -}}
+{{- else -}}
+kv-encryption-key
+{{- end -}}
+{{- end }}
+
+{{- /* Whether this release has a KV key at all, from either source. The env var,
+       and the Secret when the chart creates one, are both gated on it: with
+       neither set there is no key, secret-namespace writes are rejected, and
+       plain KV still works. */}}
+{{- define "octo.kv.enabled" -}}
+{{- if or .Values.kv.encryptionKey .Values.kv.existingSecret -}}true{{- end -}}
 {{- end }}
 
 {{- define "octo.devRuns.secretName" -}}
+{{- if and .Values.orchestrator.devRuns.existingSecret .Values.orchestrator.devRuns.hashSecret -}}
+{{- fail "orchestrator.devRuns.hashSecret and .existingSecret are both set: clear hashSecret. Leaving it keeps the key in this release's values — and so in the release history — which is the copy existingSecret exists to avoid, and this key must never change, so it cannot be rotated to recover from it. Revisions written before the change still hold it." -}}
+{{- end -}}
+{{- if .Values.orchestrator.devRuns.existingSecret -}}
+{{- .Values.orchestrator.devRuns.existingSecret -}}
+{{- else -}}
 {{- include "octo-common.componentName" (dict "root" . "component" "devruns") }}
+{{- end -}}
+{{- end }}
+
+{{- define "octo.devRuns.secretKey" -}}
+{{- if .Values.orchestrator.devRuns.existingSecret -}}
+{{- .Values.orchestrator.devRuns.existingSecretKey | default "dev-run-hash-secret" -}}
+{{- else -}}
+dev-run-hash-secret
+{{- end -}}
 {{- end }}
 
 {{/*

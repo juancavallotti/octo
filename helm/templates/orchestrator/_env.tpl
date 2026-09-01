@@ -111,14 +111,14 @@
 - name: RUNTIME_IMAGE_PULL_SECRETS
   value: {{ join "," $names | quote }}
 {{- end }}
-{{- if .Values.kv.encryptionKey }}
+{{- if include "octo.kv.enabled" . }}
 # AES-256 key for encrypting KV secret namespaces at rest. Absent =>
 # secret writes rejected, plain KV still works.
 - name: KV_ENCRYPTION_KEY
   valueFrom:
     secretKeyRef:
       name: {{ include "octo.kv.secretName" . }}
-      key: kv-encryption-key
+      key: {{ include "octo.kv.secretKey" . }}
 {{- end }}
 {{- if .Values.orchestrator.baseDomain }}
 - name: BASE_DOMAIN
@@ -145,7 +145,7 @@
   valueFrom:
     secretKeyRef:
       name: {{ include "octo.devRuns.secretName" . }}
-      key: dev-run-hash-secret
+      key: {{ include "octo.devRuns.secretKey" . }}
 {{- end }}
 {{- /* Which API the orchestrator publishes per-integration endpoints with, and
        the settings that API needs. Only one set is emitted: the other is inert
