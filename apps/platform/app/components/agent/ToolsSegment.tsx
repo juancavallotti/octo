@@ -12,11 +12,17 @@ import type { ToolRun } from "./turns";
  * is a decision it made because of the first. Flattened into one list, that
  * reasoning is invisible and the run reads as four things done at once.
  */
-export default function ToolsSegment({ runs }: { runs: ToolRun[] }) {
+export default function ToolsSegment({
+  runs,
+  onAuthorize,
+}: {
+  runs: ToolRun[];
+  onAuthorize: (id: string, allow: boolean) => void;
+}) {
   return (
     <div className="flex flex-col gap-1">
       {runs.map((run) => (
-        <ToolChip key={run.id} run={run} />
+        <ToolChip key={run.id} run={run} onAuthorize={onAuthorize} />
       ))}
     </div>
   );

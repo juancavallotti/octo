@@ -105,7 +105,7 @@ export default function AgentDrawer({
           {chat.turns.length === 0 && <Empty />}
 
           {chat.turns.map((turn) => (
-            <AgentMessage key={turn.id} turn={turn} />
+            <AgentMessage key={turn.id} turn={turn} onAuthorize={chat.authorize} />
           ))}
 
           {chat.error && <p className="text-xs text-red-500">{chat.error}</p>}

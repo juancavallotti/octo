@@ -6,6 +6,7 @@ import { readRun, type RunSink, type RunTarget } from "./readRun";
 import { ROUTE_CATALOGUE } from "./routes";
 import { newTurn, type Turn } from "./turns";
 import { useTranscript } from "./useTranscript";
+import { post } from "./instruct";
 import { randomId, readThreadId, threadKey } from "./thread";
 
 export type { Segment, ToolRun, Turn } from "./turns";
@@ -26,6 +27,13 @@ export interface AgentChat {
    */
   send: (message: string) => void;
   stop: () => void;
+  /**
+   * Answer a tool call the run is holding in front of the person reading this
+   * panel. The run is waiting on it, so nothing is added to the transcript here —
+   * the runtime reports the decision back on the stream, and that frame is what
+   * settles the chip.
+   */
+  authorize: (id: string, allow: boolean) => void;
   reset: () => void;
   /** Replace the conversation with a stored one, and continue it. */
   resume: (threadId: string, turns: Turn[], title?: string) => void;
@@ -275,17 +283,13 @@ export function useAgentChat(
     // but a stop addressed to the conversation ends it wherever it is, including
     // through a proxy that has not noticed the socket go, and on a replica this
     // browser never spoke to.
-    //
-    // Deliberately silent. The run is already over as far as this panel is
-    // concerned, and a failure here is not something a reader can act on.
-    void fetch("/api/agent/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId: readThreadId(userKey), stop: true, message: "" }),
-    })
-      .then((res) => res.body?.cancel())
-      .catch(() => {});
+    post(userKey, { stop: true });
   }, [dropSteers, settlePending, userKey]);
+
+  const authorize = useCallback(
+    (id: string, allow: boolean) => post(userKey, { authorize: { id, allow } }),
+    [userKey],
+  );
 
   /**
    * Start a fresh conversation. The thread id goes too — the agent keys its memory
@@ -321,6 +325,6 @@ export function useAgentChat(
     [dropSteers, replace, userKey],
   );
 
-  return { turns, busy, error, title, send, stop, reset, resume };
+  return { turns, busy, error, title, send, stop, authorize, reset, resume };
 }
 

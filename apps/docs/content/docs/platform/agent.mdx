@@ -57,6 +57,7 @@ Type a question and the answer streams back a word at a time. Expect five things
 - **A running commentary.** Above the message box, a line saying what he is doing right now: thinking, running a named tool, reading what came back, shortening the conversation. It stays put while you scroll.
 - **A context gauge.** Once a conversation is more than half way through his budget, the header shows how full it is. It is the warning that he is about to start forgetting the beginning.
 - **Navigation.** When the answer to your question is a page, he takes you there and says why. He can only reach pages inside the platform — the drawer refuses any other destination, whatever his definition has been changed to say.
+- **A question before he searches the web.** The `web_search` chip opens with the objective and the queries he chose and waits for **Allow** or **Deny**. He is holding the call while you decide; answer it, or leave it and he is told after three minutes that nobody did. See [why that one](#why-the-web-search-asks).
 
 Scrolling up stops the view following the answer, so you can re-read something while he is still writing; a **Latest** button appears while it is off, and returning to the bottom turns it back on.
 
@@ -184,6 +185,31 @@ not configure it, **Install** is blocked with the reason shown rather than
 producing a pod that crash-loops — he does not merely prefer the image, his
 definition does not load without it.
 
+## Why the web search asks
+
+The only tool he holds that asks you first is `web_search`, and it asks because
+of what it brings back rather than what it changes.
+
+Everything else he can reach is either a `GET` or an orchestrator call whose
+effect is on this installation's own data. A search is the one door text somebody
+else wrote comes through — a page can say anything, including instructions
+addressed to him — and from there the path to a delegation and a write exists.
+The prompt telling him to ignore instructions he reads in a page is not a
+boundary; a person deciding is.
+
+So the objective and the queries ride in the question, and what you are allowing
+is that search rather than the tool in general. Nothing happens if you do not
+answer: the call is denied when his own clock runs out, he is told plainly it was
+refused, and he answers from what he already knows and says he could not check
+the web.
+
+Everything else stays free, deliberately. A panel that asked about every read
+would be a panel whose questions nobody reads.
+
+It is an ordinary [`ai-agent` setting](/ai/tool-authorization) — `authorize` on
+the tool — so you can gate another tool of his the same way, or take this one
+off, by editing his definition and rolling out.
+
 ## Restrict what he can do
 
 Because he is an integration you can edit, set the limit on what he may do in his own definition rather than with a flag on the orchestrator. Open him in the editor, find the `octo_api` tool — a [`rest-dynamic`](/reference/connectors/http) block, inside the `platform_operator` specialist, and the only unrestricted one in the file — and add either setting:
@@ -234,7 +260,7 @@ Read this before you change him. The whole file is in the editor.
 | `integration_builder` | The first specialist (see [below](#the-two-specialists)): writes a definition and proves it |
 | `platform_operator` | The second specialist: everything that changes the installation, and everything about what already happened |
 | `send_email_report` | Sends an HTML report through the platform's own [email settings](/platform/admin-settings); the sender identity is the installation's, never the model's |
-| `web_search` | Searches the open web through a [`parallel`](/reference/connectors/parallel) connector, when the installation has [a key](/platform/admin-settings#web-search). Without one it answers that it is not configured and says not to call again, which costs one turn rather than a retry loop |
+| `web_search` | Searches the open web through a [`parallel`](/reference/connectors/parallel) connector, when the installation has [a key](/platform/admin-settings#web-search). Without one it answers that it is not configured and says not to call again, which costs one turn rather than a retry loop. The one tool that [asks you first](#why-the-web-search-asks) |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
 | `check_expression` | Evaluates one [CEL](/reference/cel) expression, so he can prove one rather than assert it |
 | `remember`, `forget`, `search_memory` | Built into the runtime rather than written here. What he has already remembered about you is placed in every request, so there is no tool to call to recall it |

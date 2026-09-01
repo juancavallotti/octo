@@ -70,7 +70,14 @@ const COMPONENTS = {
   h3: (props: React.ComponentProps<"h3">) => <h3 {...props} className="mt-3 mb-1 text-sm font-semibold" />,
 };
 
-export default function AgentMessage({ turn }: { turn: Turn }) {
+export default function AgentMessage({
+  turn,
+  onAuthorize,
+}: {
+  turn: Turn;
+  /** Answer a tool call this turn is holding in front of the reader. */
+  onAuthorize: (id: string, allow: boolean) => void;
+}) {
   if (turn.role === "user") return <UserMessage turn={turn} />;
 
   return (
@@ -84,6 +91,7 @@ export default function AgentMessage({ turn }: { turn: Turn }) {
           segment={segment}
           streaming={turn.streaming}
           last={i === turn.segments.length - 1}
+          onAuthorize={onAuthorize}
         />
       ))}
 
@@ -108,12 +116,14 @@ function SegmentView({
   segment,
   streaming,
   last,
+  onAuthorize,
 }: {
   segment: Segment;
   /** The run is still going. */
   streaming: boolean;
   /** Nothing has come after this one yet. */
   last: boolean;
+  onAuthorize: (id: string, allow: boolean) => void;
 }) {
   switch (segment.kind) {
     case "thinking":
@@ -123,7 +133,7 @@ function SegmentView({
       return <ThinkingSegment text={segment.text} streaming={streaming} answered={!last} />;
 
     case "tools":
-      return <ToolsSegment runs={segment.runs} />;
+      return <ToolsSegment runs={segment.runs} onAuthorize={onAuthorize} />;
 
     case "compaction":
       return <CompactionNotice done={segment.done} dropped={segment.dropped} />;

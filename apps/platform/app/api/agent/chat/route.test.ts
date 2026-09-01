@@ -82,6 +82,51 @@ describe("POST /api/agent/chat", () => {
     expect(sentHeaders()["X-Agent-Stop"]).toBeUndefined();
   });
 
+  it("carries an authorization to the agent as the headers it reads", async () => {
+    await POST(ask({ threadId: "t-1", message: "", authorize: { id: "auth_1", allow: true } }));
+
+    expect(sentHeaders()["X-Agent-Auth-Id"]).toBe("auth_1");
+    expect(sentHeaders()["X-Agent-Auth"]).toBe("allow");
+  });
+
+  it("carries a denial as a denial", async () => {
+    await POST(ask({ threadId: "t-1", message: "", authorize: { id: "auth_1", allow: false } }));
+
+    expect(sentHeaders()["X-Agent-Auth"]).toBe("deny");
+  });
+
+  // Allowing is the one instruction here that lets something happen rather than
+  // stopping it, so it is granted by the boolean and nothing else. Everything a
+  // value could have turned into on the way — a string, a number, a lost field —
+  // denies.
+  it.each([["true"], [1], [{}], [null], [undefined]])(
+    "denies rather than allowing on a truthy %s",
+    async (allow) => {
+      await POST(ask({ threadId: "t-1", message: "", authorize: { id: "auth_1", allow } }));
+
+      expect(sentHeaders()["X-Agent-Auth"]).toBe("deny");
+    },
+  );
+
+  // An answer says yes or no to a particular call. Without an id there is nothing
+  // for it to be about, so it is not sent at all rather than sent to be matched
+  // against whatever the run happens to be holding.
+  it.each([[{ allow: true }], [{ id: "", allow: true }], [{ id: 7, allow: true }], ["auth_1"], [[]]])(
+    "sends nothing for an answer with no id: %s",
+    async (authorize) => {
+      await POST(ask({ threadId: "t-1", message: "", authorize }));
+
+      expect(sentHeaders()["X-Agent-Auth-Id"]).toBeUndefined();
+      expect(sentHeaders()["X-Agent-Auth"]).toBeUndefined();
+    },
+  );
+
+  it("sends no authorization headers for an ordinary message", async () => {
+    await POST(ask({ threadId: "t-1", message: "how many integrations" }));
+
+    expect(sentHeaders()["X-Agent-Auth-Id"]).toBeUndefined();
+  });
+
   // `null` is valid JSON and is not an object, so reading a field off it throws
   // and a plainly bad request comes back as a 500. Arrays and scalars parse too
   // and carry none of the fields this route reads.

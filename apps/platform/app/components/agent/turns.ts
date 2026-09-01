@@ -14,6 +14,9 @@
  */
 
 import type { AgentEvent } from "./frames";
+import { holdTool, mapRun, settleAuthorization, type Authorization } from "./authorization";
+
+export type { Authorization } from "./authorization";
 
 /** One tool the agent called, and how it went. */
 export interface ToolRun {
@@ -24,6 +27,8 @@ export interface ToolRun {
   /** The arguments the model chose, and what came back. Shown on expand. */
   input?: unknown;
   output?: unknown;
+  /** Set when this call needed a person before it could run. */
+  authorization?: Authorization;
 }
 
 /** How full the conversation's context is, and how full it may get. */
@@ -218,6 +223,11 @@ export function reduce(turn: Turn, event: AgentEvent): Turn {
     case "tool_call":
       return withSegments(turn, openTool(turn.segments, iter, event));
 
+    // The question, attached to the call it is about — which is already on screen,
+    // since the agent reports the call before it asks about it.
+    case "tool_authorization":
+      return withSegments(turn, holdTool(turn.segments, event));
+
     case "tool_result":
       return withSegments(turn, closeTool(turn.segments, event));
 
@@ -239,9 +249,13 @@ export function reduce(turn: Turn, event: AgentEvent): Turn {
       return withSegments(turn, finishCompaction(turn.segments, event.dropped));
 
     // Something that reached the run from outside it: a message handed over
-    // mid-answer, or one it never got a turn to answer.
+    // mid-answer, one it never got a turn to answer, or a person's answer to a
+    // gated call. The last belongs on the call rather than in the log — the chip
+    // asked the question, so the chip shows what was decided.
     case "signal":
-      return push(turn, { kind: "signal", iter, signal: event.signal, text: event.text });
+      return event.signal === "authorize"
+        ? withSegments(turn, settleAuthorization(turn.segments, event.authorizationId, event.allowed))
+        : push(turn, { kind: "signal", iter, signal: event.signal, text: event.text });
 
     // The final answer, which on a streaming run is the text already accumulated.
     // Taken only when nothing streamed, so a non-streaming agent still shows one.
@@ -306,17 +320,22 @@ function closeTool(
   segments: Segment[],
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): Segment[] {
-  return segments.map((segment) =>
-    segment.kind === "tools" && segment.runs.some((r) => r.id === event.toolCallId)
-      ? {
-          ...segment,
-          runs: segment.runs.map((r) =>
-            r.id === event.toolCallId
-              ? { ...r, done: true, failed: Boolean(event.isError), output: event.output }
-              : r,
-          ),
-        }
-      : segment,
+  return mapRun(
+    segments,
+    (r) => r.id === event.toolCallId,
+    (r) => ({
+      ...r,
+      done: true,
+      failed: Boolean(event.isError),
+      output: event.output,
+      // A result ends the question whatever happened. Still pending here means it
+      // was never allowed — the clock ran out, or the run ended — and a chip left
+      // asking would offer a button that answers nothing.
+      authorization:
+        r.authorization?.state === "pending"
+          ? { ...r.authorization, state: "denied" as const }
+          : r.authorization,
+    }),
   );
 }
 

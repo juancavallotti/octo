@@ -58,6 +58,27 @@ export interface ToolCallEvent extends FrameCommon {
   input?: unknown;
 }
 
+/**
+ * A tool call the agent is holding in front of a person before it runs.
+ *
+ * It arrives after the `tool_call` it is about, so the panel already has the call
+ * on screen and this is the question attached to it. `input` is the arguments as
+ * the model asked for them — what is being authorized is this call, not the tool
+ * in general — and `authorizationId` is what an answer quotes.
+ *
+ * Nobody has to answer. `expiresInSeconds` is how long the run will wait before
+ * denying on their behalf, so the panel can show the clock the runtime is
+ * actually running rather than one of its own.
+ */
+export interface ToolAuthorizationEvent extends FrameCommon {
+  type: "tool_authorization";
+  tool: string;
+  toolCallId: string;
+  authorizationId: string;
+  input?: unknown;
+  expiresInSeconds?: number;
+}
+
 /** What the flow branch that ran a tool returned. */
 export interface ToolResultEvent extends FrameCommon {
   type: "tool_result";
@@ -129,6 +150,9 @@ export interface SignalEvent extends FrameCommon {
   type: "signal";
   signal: string;
   text?: string;
+  /** An `authorize` signal carries the decision instead of text. */
+  authorizationId?: string;
+  allowed?: boolean;
 }
 
 /**
@@ -149,6 +173,7 @@ export type AgentEvent =
   | TextEvent
   | ThinkingEvent
   | ToolCallEvent
+  | ToolAuthorizationEvent
   | ToolResultEvent
   | TurnEndEvent
   | CompactionStartEvent

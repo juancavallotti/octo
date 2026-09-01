@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, ChevronRight, Loader2, Wrench, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Loader2, ShieldQuestion, Wrench, X } from "lucide-react";
 import type { ToolRun } from "./useAgentChat";
 
 /**
@@ -39,20 +39,33 @@ function summarise(input: unknown): string {
   return "";
 }
 
-export default function ToolChip({ run }: { run: ToolRun }) {
-  const [open, setOpen] = useState(false);
+export default function ToolChip({
+  run,
+  onAuthorize,
+}: {
+  run: ToolRun;
+  /** Answer this call, when it is one the agent is holding for a person. */
+  onAuthorize: (id: string, allow: boolean) => void;
+}) {
+  const asking = run.authorization?.state === "pending";
+  // Opened by default while it is asking. A person cannot decide about a call
+  // whose arguments are a click away — and this chip's whole job in that moment is
+  // to show them.
+  const [open, setOpen] = useState(asking);
   const detail = preview(run.input);
   const result = preview(run.output);
   const expandable = Boolean(detail || result);
   const summary = summarise(run.input);
 
-  const tone = run.failed
+  const tone = asking
+    ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+    : run.failed
     ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
     : run.done
       ? "bg-black/[0.04] text-zinc-600 border-black/[0.08] dark:bg-white/[0.06] dark:text-zinc-300 dark:border-white/10"
       : "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20";
 
-  const Status = run.failed ? X : run.done ? Check : Loader2;
+  const Status = asking ? ShieldQuestion : run.failed ? X : run.done ? Check : Loader2;
   const Chevron = open ? ChevronDown : ChevronRight;
 
   return (
@@ -75,7 +88,7 @@ export default function ToolChip({ run }: { run: ToolRun }) {
         )}
         <Status
           size={11}
-          className={`ml-auto shrink-0 ${run.done || run.failed ? "" : "animate-spin"}`}
+          className={`ml-auto shrink-0 ${run.done || run.failed || asking ? "" : "animate-spin"}`}
         />
       </button>
 
@@ -83,8 +96,54 @@ export default function ToolChip({ run }: { run: ToolRun }) {
         <div className="border-t border-current/10 px-2 py-1.5">
           {detail && <Block label="Arguments" body={detail} />}
           {result && <Block label={run.failed ? "Error" : "Result"} body={result} />}
+          {asking && (
+            <Ask
+              waiting={run.authorization?.expiresInSeconds}
+              onAnswer={(allow) => onAuthorize(run.authorization!.id, allow)}
+            />
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The question, under the arguments it is about.
+ *
+ * Nothing here is optimistic: the buttons send the answer and leave the chip as it
+ * is. What happened to the call comes back on the run's own stream — the runtime
+ * reports the decision it acted on — so a click that did not land shows as the
+ * denial the run will eventually make, rather than as an approval this panel
+ * invented.
+ */
+function Ask({
+  waiting,
+  onAnswer,
+}: {
+  waiting?: number;
+  onAnswer: (allow: boolean) => void;
+}) {
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5 border-t border-current/10 pt-1.5">
+      <span className="mr-auto text-[10px] opacity-70">
+        Needs your say-so
+        {waiting ? ` — denied on its own in ${Math.round(waiting / 60)} min` : ""}
+      </span>
+      <button
+        type="button"
+        onClick={() => onAnswer(false)}
+        className="rounded border border-current/20 px-1.5 py-0.5 text-[10px] font-medium hover:bg-black/[0.06] dark:hover:bg-white/10"
+      >
+        Deny
+      </button>
+      <button
+        type="button"
+        onClick={() => onAnswer(true)}
+        className="rounded bg-amber-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-700"
+      >
+        Allow
+      </button>
     </div>
   );
 }
