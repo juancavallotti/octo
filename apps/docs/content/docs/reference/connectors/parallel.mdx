@@ -4,6 +4,7 @@ description: "Web search and asynchronous research runs, with verified webhooks.
 octo_types:
   - parallel
   - parallel-search
+  - parallel-extract
   - parallel-task-run
   - parallel-verify-request
 ---
@@ -14,7 +15,7 @@ The `parallel` connector holds the API key and talks to [Parallel](https://paral
 
 ## `parallel` connector
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `parallel-search`, `parallel-task-run`, `parallel-verify-request`. A task run's result arrives over an [http](/reference/connectors/http) source — Parallel posts JSON to a route you own — and `parallel-verify-request` authenticates it.
+**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `parallel-search`, `parallel-extract`, `parallel-task-run`, `parallel-verify-request`. A task run's result arrives over an [http](/reference/connectors/http) source — Parallel posts JSON to a route you own — and `parallel-verify-request` authenticates it.
 
 ### Settings
 
@@ -86,6 +87,33 @@ Parallel's search is not a keyword API. An **objective** says, in natural langua
 **Response shape** — `search_id`, `results` (each with `url`, `title`, `publish_date`, and `excerpts`), plus `warnings`, `usage`, and `session_id`.
 
 A setting left unset is omitted from the request, so Parallel's own default applies rather than this connector pinning one.
+
+## `parallel-extract` block
+
+**Parallel Extract** — read the contents of specific web pages. Where search finds the pages, extract fetches what is on them.
+
+Give it the **urls** to read. An **objective** is optional: with one, Parallel returns excerpts scoped to it; without one, it returns the page. Set **fullContent** to ask for the whole page rather than the objective-scoped excerpts.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | — | Name of the `parallel` connector to use. |
+| `urls` | expression | Yes | — | CEL expression for the URLs to read: one string, or a list. |
+| `objective` | expression | No | — | CEL expression describing what to read the pages for. Scopes the excerpts Parallel returns. |
+| `fullContent` | bool | No | `false` | Return the whole page rather than objective-scoped excerpts. |
+| `resultVar` | string | No | — | Store the response here and leave the body; when empty, the response becomes the body. |
+| `failOnError` | bool | No | `true` | Turn a Parallel API error into a flow error. |
+
+```yaml
+- type: parallel-extract
+  name: read
+  settings:
+    connector: research
+    urls: body.urls
+    objective: body.question
+    resultVar: pages
+```
+
+**Response shape** — `extract_id`, `results` (each with `url`, `title`, `publish_date`, `excerpts`, and `full_content` when `fullContent` was set), plus `errors`, `warnings`, `usage`, and `session_id`.
 
 ## `parallel-task-run` block
 

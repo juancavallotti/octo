@@ -35,6 +35,7 @@ import (
 func init() {
 	registerConnector()
 	registerSearch()
+	registerExtract()
 	registerTaskRun()
 	registerVerify()
 }
