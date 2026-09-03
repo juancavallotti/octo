@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.1](https://github.com/juancavallotti/octo/compare/v0.9.0...v0.9.1) (2026-09-03)
+
+
+### Features
+
+* **agent:** give Dr. Octo a web_extract tool ([14970b2](https://github.com/juancavallotti/octo/commit/14970b291667f4a11b904a7bec82680fbc5fc635))
+* **agent:** give Dr. Octo a web_extract tool ([7c192e8](https://github.com/juancavallotti/octo/commit/7c192e8f99f2a723a58316e3c330fe9d72c4e7b8))
+* **agent:** keep Dr. Octo to its own remit ([ec9aa6d](https://github.com/juancavallotti/octo/commit/ec9aa6db8f9934a9a7e3897360bee64a2f63e20b))
+* **agent:** keep Dr. Octo to its own remit ([6cc70fc](https://github.com/juancavallotti/octo/commit/6cc70fc46dd80b9c850c6fcd80f3e97f8fb1e506))
+* **parallel:** a web-extract block ([9e44f04](https://github.com/juancavallotti/octo/commit/9e44f041e60b983fe257a594d4a60eae24f0237d))
+
 ## [0.9.0](https://github.com/juancavallotti/octo/compare/v0.8.12...v0.9.0) (2026-09-01)
 
 
