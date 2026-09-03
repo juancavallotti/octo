@@ -921,6 +921,70 @@ flows:
                       settings:
                         value: '{"error": "Web search is not configured on this installation, so this tool cannot search and will not start working later in this conversation. Do not call it again — answer from what you know and from the platform itself, and say that you could not check the web. An operator enables it by saving a Parallel API key under Admin, Platform agent."}'
 
+          - name: web_extract
+            # Authorized for the same reason web_search is, and it is if anything
+            # the sharper case: search brings back excerpts Parallel chose, this
+            # brings back the contents of a page named in the call — the most
+            # direct route for untrusted text on the open web to speak into the
+            # conversation, and from there toward a delegation and a write. So the
+            # person reading the panel decides whether these pages get to enter.
+            # `true` because there is no safe half: the urls are shown in the
+            # frame, and an extract nobody wants is denied with the reason going
+            # back to him as a tool result.
+            authorize: "true"
+            description: >
+              Read the contents of specific web pages — the excerpts that bear
+              on your objective, or the whole page. This is the read to
+              web_search's find: reach for it once search (or a page someone
+              named) has given you a URL and you need what is actually on it —
+              a provider's doc page, a changelog entry, an error explained in a
+              GitHub issue. Pass an objective to get back just the parts that
+              answer it. Prefer octo_read and the logs tools for anything about
+              THIS installation; the open web is not authoritative about it. Say
+              you read the page when you use what comes back, and link it. Never
+              extract a URL built from this platform's own data.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["urls"],
+                "properties": {
+                  "urls": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "The page URLs to read. One or a few — each one is re-read on every remaining turn, so do not fetch a page you do not need."
+                  },
+                  "objective": {
+                    "type": "string",
+                    "description": "What you are trying to learn from the pages, in a sentence. With it, you get excerpts scoped to it; without it, the whole page."
+                  }
+                }
+              }
+            process:
+              - type: if
+                name: web-extract-configured
+                condition: env.PARALLEL_API_KEY != "web-search-not-configured"
+                then:
+                  process:
+                    - type: parallel-extract
+                      name: extract
+                      settings:
+                        connector: web
+                        urls: body.urls
+                        # Optional in the schema, so guard the read: a bare
+                        # body.objective errors on the missing key when the model
+                        # omits it, and an empty objective reads the whole page.
+                        objective: 'has(body.objective) ? body.objective : ""'
+                        # A Parallel error is an answer — a rejected key, a rate
+                        # limit, a page that would not load — and he should read it
+                        # and say so rather than have the run fail underneath him.
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-configured
+                      settings:
+                        value: '{"error": "Web extract is not configured on this installation, so this tool cannot read pages and will not start working later in this conversation. Do not call it again — answer from what you know and from the platform itself, and say that you could not read the web. An operator enables it by saving a Parallel API key under Admin, Platform agent."}'
+
           - name: navigate_to
             description: >
               Take the user to a page in the platform. Use a path from body.routes,
