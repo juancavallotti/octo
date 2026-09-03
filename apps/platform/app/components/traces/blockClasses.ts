@@ -67,6 +67,7 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   "tavily-crawl": "io",
   "tavily-map": "io",
   "parallel-search": "io",
+  "parallel-extract": "io",
   "parallel-task-run": "io",
   "mongodb-find": "io",
   "mongodb-insert": "io",
