@@ -68,7 +68,7 @@ deploys for an integration that asked for the agentic runner
 (see [Agentic runner](#agentic-runner)); `octo-devruntime` and `octo-devsidecar` are the
 two containers of a *dev run* (see [Dev runs](#dev-runs)), created the same way; and
 `octo-statssidecar` is injected beside every deployed integration when
-[Pod Stats](/docs/platform/pod-stats) is on. The schema Job is annotated
+[Pod Stats](/platform/pod-stats) is on. The schema Job is annotated
 `helm.sh/hook: post-install,post-upgrade` with the `before-hook-creation` delete
 policy, so it re-runs (idempotently) on every upgrade.
 

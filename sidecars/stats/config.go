@@ -97,24 +97,40 @@ func loadConfig() (config, error) {
 
 // checkIntervals validates the three durations against each other.
 //
-// The two ratios are the tier depths — how many samples a live tier holds and
-// how many buckets a week holds — so a combination that does not divide cleanly
-// is not merely odd, it produces a tier whose depth nobody chose. Rejecting it
-// at startup is how an experiment with the sampling rate fails loudly instead of
-// quietly storing the wrong amount.
+// The two ratios ARE the tier depths — how many samples a live tier holds and
+// how many buckets a retention window holds — and they are computed with integer
+// division. So both ordering and divisibility are checked: 700ms samples in a 1s
+// bucket orders fine and then truncates to a depth of one, which is a tier whose
+// size nobody chose and no error anybody sees. Rejecting at startup is how an
+// experiment with the intervals fails loudly rather than quietly measuring
+// something else.
 func (c config) checkIntervals() []string {
 	var problems []string
 	if c.sample > 0 && c.sample < minSampleInterval {
 		problems = append(problems, fmt.Sprintf(
 			"STATS_SAMPLE_INTERVAL %s is below the %s floor", c.sample, minSampleInterval))
 	}
-	if c.sample > 0 && c.rollup > 0 && c.rollup <= c.sample {
-		problems = append(problems, fmt.Sprintf(
-			"STATS_ROLLUP_INTERVAL %s must be longer than STATS_SAMPLE_INTERVAL %s", c.rollup, c.sample))
+	if c.sample > 0 && c.rollup > 0 {
+		switch {
+		case c.rollup <= c.sample:
+			problems = append(problems, fmt.Sprintf(
+				"STATS_ROLLUP_INTERVAL %s must be longer than STATS_SAMPLE_INTERVAL %s", c.rollup, c.sample))
+		case c.rollup%c.sample != 0:
+			problems = append(problems, fmt.Sprintf(
+				"STATS_ROLLUP_INTERVAL %s is not a whole number of STATS_SAMPLE_INTERVAL %s",
+				c.rollup, c.sample))
+		}
 	}
-	if c.rollup > 0 && c.retention > 0 && c.retention <= c.rollup {
-		problems = append(problems, fmt.Sprintf(
-			"STATS_RETENTION %s must be longer than STATS_ROLLUP_INTERVAL %s", c.retention, c.rollup))
+	if c.rollup > 0 && c.retention > 0 {
+		switch {
+		case c.retention <= c.rollup:
+			problems = append(problems, fmt.Sprintf(
+				"STATS_RETENTION %s must be longer than STATS_ROLLUP_INTERVAL %s", c.retention, c.rollup))
+		case c.retention%c.rollup != 0:
+			problems = append(problems, fmt.Sprintf(
+				"STATS_RETENTION %s is not a whole number of STATS_ROLLUP_INTERVAL %s",
+				c.retention, c.rollup))
+		}
 	}
 	return problems
 }

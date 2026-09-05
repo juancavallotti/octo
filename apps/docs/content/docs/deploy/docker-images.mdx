@@ -275,7 +275,7 @@ it asks the orchestrator for, authenticated by the run's own token.
 
 The pod stats sidecar, which runs beside a **deployed** integration rather than a dev
 run. It samples that pod's own runtime metrics once a second and writes a rolling week
-of them to Redis — see [Pod Stats](/docs/platform/pod-stats). Off by default; the chart
+of them to Redis — see [Pod Stats](/platform/pod-stats). Off by default; the chart
 value is `orchestrator.podStats.enabled`.
 
 Built from `sidecars/stats/Dockerfile` with the `sidecars` module as its context, the

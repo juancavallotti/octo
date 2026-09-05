@@ -16,6 +16,7 @@
 package scrape
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -98,9 +99,26 @@ func (s *Scraper) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, err
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, ErrMetricsDisabled
 	}
-	body := io.LimitReader(resp.Body, maxBytes)
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scrape: %s returned %d: %s", s.url, resp.StatusCode, snippet(body))
+		return nil, fmt.Errorf("scrape: %s returned %d: %s", s.url, resp.StatusCode,
+			snippet(io.LimitReader(resp.Body, maxBytes)))
+	}
+
+	// One byte past the limit, so truncation is detectable.
+	//
+	// A plain io.LimitReader would hand the parser a prefix and report EOF, and a
+	// prefix of a valid exposition is usually itself valid — so an oversized
+	// response would parse cleanly into a sample that is silently missing its
+	// tail. That is worse than no sample at all: the encoder would read the
+	// absent series as gaps, and the history tier would record that a flow
+	// stopped reporting when in fact the scrape was cut short.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("scrape: read %s: %w", s.url, err)
+	}
+	if len(body) > maxBytes {
+		return nil, fmt.Errorf("scrape: %s served more than %d bytes; refusing a truncated sample",
+			s.url, maxBytes)
 	}
 
 	// The parser is per-call rather than reused: expfmt.TextParser carries the
@@ -108,7 +126,7 @@ func (s *Scraper) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, err
 	// exposition poison every scrape that followed it. Its zero value is not
 	// usable, so it is constructed rather than declared.
 	parser := expfmt.NewTextParser(nameValidation)
-	families, err := parser.TextToMetricFamilies(body)
+	families, err := parser.TextToMetricFamilies(bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("scrape: parse %s: %w", s.url, err)
 	}

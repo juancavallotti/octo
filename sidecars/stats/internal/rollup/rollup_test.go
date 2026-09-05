@@ -346,6 +346,47 @@ func TestDictionaryGrowthMidBucket(t *testing.T) {
 	if got := b.Value[indexOf(t, dict, "new")]; got != 7 {
 		t.Errorf("new mean = %v, want 7", got)
 	}
+
+	// The bucket's generation must name a dictionary that contains every index
+	// the bucket holds. Growth widens the vectors, so a bucket stamped with the
+	// generation it OPENED at would name one missing the indices it ends up
+	// with — the same mismatch Encode avoids for samples.
+	if b.Gen != dict.Gen() {
+		t.Errorf("bucket gen = %d, want %d: it holds %d series and generation %d "+
+			"does not describe them all", b.Gen, dict.Gen(), len(b.Value), b.Gen)
+	}
+}
+
+// A bucket's generation never goes backwards, and always covers its width.
+func TestBucketGenerationCoversEveryIndex(t *testing.T) {
+	dict := series.NewDictionary()
+	reporting := func(tMS int64, names ...string) series.Sample {
+		fams := map[string]*dto.MetricFamily{}
+		for _, n := range names {
+			fams[n] = &dto.MetricFamily{
+				Name: proto.String(n), Type: dto.MetricType_GAUGE.Enum(),
+				Metric: []*dto.Metric{{Gauge: &dto.Gauge{Value: proto.Float64(1)}}},
+			}
+		}
+		return dict.Encode(fams, tMS)
+	}
+
+	c := NewCollector(time.Hour, dict)
+	c.Add(reporting(0, "a"))
+	c.Add(reporting(1000, "a", "b"))
+	c.Add(reporting(2000, "a", "b", "c"))
+	// A scrape that reports fewer series does not shrink the dictionary, so it
+	// must not drag the generation back either.
+	c.Add(reporting(3000, "a"))
+
+	b := c.Close()
+	if b.Gen != dict.Gen() {
+		t.Errorf("bucket gen = %d, want the newest %d", b.Gen, dict.Gen())
+	}
+	if len(b.Value) != dict.Len() {
+		t.Errorf("bucket holds %d series but generation %d describes %d",
+			len(b.Value), b.Gen, dict.Len())
+	}
 }
 
 // Close on an empty collector returns nil rather than an all-NaN row, so a

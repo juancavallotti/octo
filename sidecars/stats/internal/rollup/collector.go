@@ -19,10 +19,16 @@ type Collector struct {
 	startMS int64
 	accs    []accumulator
 	samples int
-	// gen is the dictionary generation the open bucket's indices refer to. Fixed
-	// at the bucket's first sample: a dictionary that grows mid-bucket appends
-	// indices, and because indices are append-only the earlier generation still
-	// decodes every one the bucket actually used.
+	// gen is the dictionary generation the open bucket's indices refer to. It
+	// tracks the NEWEST sample folded in, not the first.
+	//
+	// It has to. A dictionary that grows mid-bucket widens the bucket's vectors
+	// too, so a bucket stamped with the generation it opened at would name a
+	// dictionary that does not contain the indices it ends up holding — the same
+	// mismatch Encode avoids for samples. Advancing is safe in the other
+	// direction because indices are append-only: every later generation is a
+	// superset of every earlier one, so the newest resolves every index in the
+	// bucket including those folded in before it existed.
 	gen int
 }
 
@@ -62,8 +68,12 @@ func (c *Collector) Add(s series.Sample) *Bucket {
 
 	// The dictionary may have grown since this bucket opened. Indices are
 	// append-only, so widening is all that is needed and everything already
-	// accumulated keeps its slot.
+	// accumulated keeps its slot — but the bucket's generation has to move with
+	// it, or it would name a dictionary missing the indices just added.
 	c.grow(len(s.Values))
+	if s.Gen > c.gen {
+		c.gen = s.Gen
+	}
 	for i, v := range s.Values {
 		c.accs[i].observe(v)
 	}

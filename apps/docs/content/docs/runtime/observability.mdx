@@ -36,7 +36,7 @@ Probes are on by default. A probe endpoint you have to enable is one most deploy
 | `--metrics-blocks` | `OCTO_METRICS_BLOCKS` | (none) |
 
 <Callout>
-On the platform, enabling [Pod Stats](/docs/platform/pod-stats) sets `OCTO_METRICS=true`
+On the platform, enabling [Pod Stats](/platform/pod-stats) sets `OCTO_METRICS=true`
 on every deployed integration, because the sidecar it injects has nothing to scrape
 otherwise. It is set last in the container's environment, so it wins over an
 `OCTO_METRICS` binding in the deployment's own variables.

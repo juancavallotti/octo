@@ -3,6 +3,8 @@ package scrape
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -123,6 +125,45 @@ func TestScrapeErrors(t *testing.T) {
 				t.Errorf("err = %q, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// A response past the limit is refused rather than parsed.
+//
+// A prefix of a valid exposition is usually itself valid, so a plain
+// io.LimitReader would hand the parser a truncated body that parses cleanly —
+// and a sample silently missing its tail is worse than no sample, because the
+// encoder reads the absent series as gaps and the history tier records that a
+// flow stopped reporting.
+func TestScrapeRefusesAnOversizedResponse(t *testing.T) {
+	// Valid exposition, repeated until it is over the limit. Every prefix at a
+	// line boundary parses, which is the trap being tested.
+	one := "# TYPE big_%d_total counter\nbig_%d_total 1\n"
+	var b strings.Builder
+	for i := 0; b.Len() <= maxBytes; i++ {
+		fmt.Fprintf(&b, one, i, i)
+	}
+	body := b.String()
+
+	s := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body)
+	})
+	_, err := s.Scrape(context.Background())
+	if err == nil {
+		t.Fatal("expected an oversized response to be refused, not truncated")
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Errorf("err = %q, want it to say the sample was refused as truncated", err)
+	}
+}
+
+// Right up to the limit is fine; only past it is refused.
+func TestScrapeAcceptsUpToTheLimit(t *testing.T) {
+	s := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, exposition)
+	})
+	if _, err := s.Scrape(context.Background()); err != nil {
+		t.Fatalf("an ordinary response was refused: %v", err)
 	}
 }
 
