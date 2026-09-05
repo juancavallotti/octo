@@ -205,8 +205,46 @@ func TestDictionaryGrowsWithoutRenumbering(t *testing.T) {
 	if got := d.lookup("a_total", nil); got != first {
 		t.Errorf("a_total moved from index %d to %d", first, got)
 	}
-	if d.BumpGen() != 1 {
-		t.Error("BumpGen should advance the generation")
+}
+
+// A sample's generation must always name a dictionary that already contains
+// every index the sample uses, or a reader resolves it and comes up short. That
+// means the bump happens inside Encode, before the sample is stamped.
+func TestGenerationAdvancesWithTheSampleThatGrewIt(t *testing.T) {
+	d := NewDictionary()
+
+	first := d.Encode(map[string]*dto.MetricFamily{
+		"a_total": family("a_total", dto.MetricType_COUNTER, counter(1)),
+	}, 0)
+	if first.Gen != 1 {
+		t.Fatalf("first sample gen = %d, want 1 (the encode that created the dictionary)", first.Gen)
+	}
+	if len(first.Values) != d.Len() {
+		t.Errorf("sample has %d values but generation %d holds %d entries",
+			len(first.Values), first.Gen, d.Len())
+	}
+
+	// An unchanged series set does not advance the generation, so a reader is
+	// not made to fetch a new dictionary every second.
+	same := d.Encode(map[string]*dto.MetricFamily{
+		"a_total": family("a_total", dto.MetricType_COUNTER, counter(2)),
+	}, 1000)
+	if same.Gen != first.Gen {
+		t.Errorf("gen advanced to %d without the series set changing", same.Gen)
+	}
+
+	// A reload adds a flow: the sample carrying the new series names the
+	// generation that contains it.
+	grown := d.Encode(map[string]*dto.MetricFamily{
+		"a_total": family("a_total", dto.MetricType_COUNTER, counter(3)),
+		"b_total": family("b_total", dto.MetricType_COUNTER, counter(1)),
+	}, 2000)
+	if grown.Gen != first.Gen+1 {
+		t.Errorf("gen = %d, want %d after the dictionary grew", grown.Gen, first.Gen+1)
+	}
+	if len(grown.Values) != d.Len() {
+		t.Errorf("sample has %d values but generation %d holds %d entries",
+			len(grown.Values), grown.Gen, d.Len())
 	}
 }
 

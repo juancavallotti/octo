@@ -40,13 +40,26 @@ const (
 // writing NaN in its slot records that it was absent rather than that it read
 // zero. Vector length therefore only ever grows, and always equals the
 // dictionary length for the generation the sample names.
+//
+// Growing the dictionary advances the generation HERE, before the sample is
+// stamped, so a sample's Gen always names a dictionary that contains every
+// index the sample uses. Bumping afterwards would stamp the sample with the
+// generation before the one that gained its new series, and a reader resolving
+// that generation would come up short — which is exactly the mismatch this
+// ordering exists to prevent.
 func (d *Dictionary) Encode(families map[string]*dto.MetricFamily, timeMS int64) Sample {
+	grewFrom := len(d.entries)
+
 	// Interning happens first and in a deterministic order, so two pods that
 	// scrape the same runtime build the same dictionary and a replay of one
 	// scrape is byte-identical to the original.
 	values := make(map[int]float64)
 	for _, name := range sortedNames(families) {
 		d.encodeFamily(families[name], values)
+	}
+
+	if len(d.entries) > grewFrom {
+		d.gen++
 	}
 
 	out := make([]float64, len(d.entries))
@@ -58,14 +71,6 @@ func (d *Dictionary) Encode(families map[string]*dto.MetricFamily, timeMS int64)
 		out[i] = math.NaN()
 	}
 	return Sample{Gen: d.gen, TimeMS: timeMS, Values: out}
-}
-
-// BumpGen advances the generation and returns it. Called once a scrape has
-// appended identities, so the samples that follow name a dictionary that
-// actually contains them.
-func (d *Dictionary) BumpGen() int {
-	d.gen++
-	return d.gen
 }
 
 // sortedNames orders the families of a scrape by name. expfmt hands back a map,
