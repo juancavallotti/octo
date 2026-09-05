@@ -90,6 +90,9 @@ runtime:
 devsidecar:
   repository: octo-devsidecar
 
+statssidecar:
+  repository: octo-statssidecar
+
 devruntime:
   repository: octo-devruntime
 

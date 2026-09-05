@@ -211,6 +211,66 @@ orchestrator:
     existingSecret: ""
     existingSecretKey: dev-run-hash-secret
 
+  # Pod stats: a sidecar in every deployed integration pod that samples that
+  # pod's own runtime metrics and writes a rolling week of them to Redis.
+  #
+  # What it is for. A deployed pod is observable only while somebody is
+  # watching it — the runtime can serve metrics, nothing scrapes them, and when
+  # a deployment misbehaved an hour ago there is no record of what it was
+  # doing. This is that record.
+  #
+  # OFF BY DEFAULT, and off changes nothing: with `enabled: false` no pod gains
+  # a container and no pod spec changes, so turning it on later is the only
+  # thing that rolls a deployment. Turning it ON does roll every deployment in
+  # the namespace once, because the runtime container gains OCTO_METRICS — the
+  # runtime does not serve /metrics unless asked, so there would otherwise be
+  # nothing to scrape.
+  #
+  # It needs a Redis. With neither redis.enabled nor externalRedis the
+  # orchestrator treats the feature as off rather than injecting a container
+  # that fails every write and logs about it forever.
+  #
+  # WHAT IT COSTS THE CACHE. The stats go to the same Redis the trace folds and
+  # the volatile KV tier use, so it is worth knowing the number rather than
+  # guessing at it. Measured against a real runtime exposing 95 series (the go
+  # and process collectors plus one flow's own), at the defaults below:
+  #
+  #   one live sample      534 bytes      live tier   3600 rows =  1.83 MiB
+  #   one rollup bucket   2171 bytes      rollup tier  168 rows =  0.35 MiB
+  #                                       TOTAL PER POD         =  2.19 MiB
+  #
+  # So ten pods is about 22 MiB of the 256 MiB below, which is why that number
+  # is unchanged. Series count is what moves it — a busy integration with
+  # metricsBlocks on has more — so re-measure before assuming it still holds at
+  # a much larger installation.
+  #
+  # Rows are dictionary-encoded: each series identity is written once and a
+  # sample is a flat array of numbers. Self-describing JSON would be six to ten
+  # times larger, and capturing every series would not fit. Every key is capped
+  # and carries a TTL, so a deleted pod's data ages out on its own with nothing
+  # to sweep it.
+  podStats:
+    enabled: false
+    # The port the sidecar serves its probes and status page on, inside the pod.
+    # Never reached from outside it. /status is a useful first stop when a
+    # deployment's stats look wrong: kubectl port-forward and read the counters.
+    port: 8098
+    # How often the sidecar samples the runtime's metrics. This is the live
+    # tier's resolution.
+    sampleInterval: 1s
+    # How wide a history bucket is. When one closes, its samples collapse to a
+    # single row: counters to how much they grew, gauges to their mean with min,
+    # max and last alongside.
+    #
+    # WORTH EXPERIMENTING WITH. A week of hourly rows is 168 per pod, so there is
+    # a lot of room to go finer — 15m is 672, still nothing, and four times the
+    # resolution when you go looking for when something started. The live tier
+    # shrinks to match, since it holds exactly one bucket's worth of samples.
+    rollupInterval: 1h
+    # How far back the history tier reaches. Beyond this the oldest rows are
+    # trimmed and the keys expire.
+    retention: 168h
+
 # Telemetry aggregator. It consumes both internal.logs and internal.traces, and
 # serves the query API behind them — the name is historical, and tracked as its
 # own issue rather than a rename mid-stack.
@@ -407,6 +467,13 @@ runtime:
 # every other component.
 devsidecar:
   repository: octo-devsidecar-paas
+  image: {}
+# The pod stats sidecar, which runs beside a DEPLOYED integration rather than a
+# dev run — see orchestrator.podStats for the feature. It is here with the other
+# orchestrator-injected images because it is injected the same way and follows
+# the same registry/tag/digest layering; nothing about it is dev-run specific.
+statssidecar:
+  repository: octo-statssidecar-paas
   image: {}
 # The runtime a dev run executes, which is deliberately NOT runtime.repository above.
 # That image is the `k8s` build: it carries Lease-based leader election, the
