@@ -121,6 +121,9 @@ type Client struct {
 	sidecarImage string
 	// sidecarPort is where that sidecar serves its command API.
 	sidecarPort int32
+	// statsSidecar configures the pod stats sidecar injected into deployed
+	// integration pods. Zero value means no deployment gains one.
+	statsSidecar StatsSidecar
 	// orchestratorURL is this orchestrator's own in-cluster address, injected into a
 	// dev-run sidecar so it can pull its bundle. Distinct from
 	// runtimeServices.OrchestratorURL, which is documented as the KV API a deployed
@@ -272,16 +275,19 @@ type Config struct {
 	DevRuntimeImage            string
 	SidecarImage               string
 	SidecarPort                int32
-	OrchestratorURL            string
-	BaseDomain                 string
-	EndpointAPI                EndpointAPI
-	ClusterIssuer              string
-	WildcardTLSSecret          string
-	IngressClass               string
-	ExtraAnnotations           map[string]string
-	Gateway                    GatewayRef
-	ImagePullSecrets           []string
-	RuntimeServices            RuntimeServices
+	// StatsSidecar configures the pod stats sidecar. Its zero value leaves every
+	// deployment exactly as it is today.
+	StatsSidecar      StatsSidecar
+	OrchestratorURL   string
+	BaseDomain        string
+	EndpointAPI       EndpointAPI
+	ClusterIssuer     string
+	WildcardTLSSecret string
+	IngressClass      string
+	ExtraAnnotations  map[string]string
+	Gateway           GatewayRef
+	ImagePullSecrets  []string
+	RuntimeServices   RuntimeServices
 }
 
 // Validate reports configuration that cannot work, before anything is built from
@@ -354,6 +360,7 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		devRuntimeImage:    cfg.DevRuntimeImage,
 		sidecarImage:       cfg.SidecarImage,
 		sidecarPort:        cfg.SidecarPort,
+		statsSidecar:       cfg.StatsSidecar,
 		orchestratorURL:    cfg.OrchestratorURL,
 		baseDomain:         cfg.BaseDomain,
 		imagePullSecrets:   cfg.ImagePullSecrets,
