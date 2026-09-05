@@ -61,12 +61,14 @@ IngressClass, add `--set ingress.className=<yours>` as well — see
 | Runtime RBAC | ServiceAccount + Role | – | Lease permissions for integration pods (leader election) |
 | Dev-run key | Secret | – | HMAC key for dev-run identity and hostnames. Only when `orchestrator.devRuns.enabled=true` |
 
-Four images are not chart workloads. `octo-runtime` is passed to the
+Five images are not chart workloads. `octo-runtime` is passed to the
 orchestrator as `RUNTIME_IMAGE`, and the orchestrator deploys one pod set per
 integration from it at runtime; `octo-agenticrunner` is the alternative it
 deploys for an integration that asked for the agentic runner
 (see [Agentic runner](#agentic-runner)); `octo-devruntime` and `octo-devsidecar` are the
-two containers of a *dev run* (see [Dev runs](#dev-runs)), created the same way. The schema Job is annotated
+two containers of a *dev run* (see [Dev runs](#dev-runs)), created the same way; and
+`octo-statssidecar` is injected beside every deployed integration when
+[Pod Stats](/docs/platform/pod-stats) is on. The schema Job is annotated
 `helm.sh/hook: post-install,post-upgrade` with the `before-hook-creation` delete
 policy, so it re-runs (idempotently) on every upgrade.
 
@@ -156,7 +158,7 @@ ones that matter most:
 | `<component>.image.digest` | – | Pin by digest. **Wins over any tag.** |
 
 Components are `platform`, `orchestrator`, `logs`, `schema`, `runtime`,
-`agenticrunner`, `devsidecar` and `devruntime`.
+`agenticrunner`, `devsidecar`, `statssidecar` and `devruntime`.
 `postgres`, `nats` and `redis` also take `image.*`, but deliberately do **not**
 inherit `image.registry` — that host holds the `octo-*` images only. Point their
 own `image.registry` at a mirror for clusters that cannot reach Docker Hub.

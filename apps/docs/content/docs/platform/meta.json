@@ -15,7 +15,8 @@
     "logs-api-reference",
     "agent",
     "event-bus",
-    "traces"
+    "traces",
+    "pod-stats"
   ],
   "title": "Platform"
 }
