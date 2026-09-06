@@ -59,6 +59,15 @@ resource "helm_release" "octo" {
     var.image_values_file != "" ? [file(var.image_values_file)] : [],
   )
 
+  # --- Pod stats ---
+  # Always set rather than set-when-true, so turning it back off is a change the
+  # plan shows and applies, not a value that silently keeps whatever the last
+  # apply left behind.
+  set {
+    name  = "orchestrator.podStats.enabled"
+    value = var.pod_stats_enabled
+  }
+
   # --- Images ---
   # Per-component repository names are left at the chart defaults (the "-paas"
   # names, #199); only the registry needs overriding, and only when it is not the

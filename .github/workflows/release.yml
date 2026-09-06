@@ -257,6 +257,10 @@ jobs:
           - image: octo-devsidecar-paas
             context: ./sidecars
             dockerfile: sidecars/dev/Dockerfile
+          # The pod stats sidecar, out of the same module.
+          - image: octo-statssidecar-paas
+            context: ./sidecars
+            dockerfile: sidecars/stats/Dockerfile
           # The agentic runner. Unlike octo-devruntime-paas below it IS built here:
           # it is a genuinely distinct image — its own Dockerfile, its own base, and
           # three binaries rather than one — so there is no single build for it to be

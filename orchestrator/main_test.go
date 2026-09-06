@@ -294,3 +294,88 @@ func TestAgenticRunnerResources(t *testing.T) {
 		}
 	})
 }
+
+// The stats sidecar's image is its off switch, because every other setting has
+// a working default and so nothing else's absence could mean "no".
+func TestStatsSidecarConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     map[string]string
+		want    kube.StatsSidecar
+		wantErr bool
+	}{
+		{
+			name: "unset is off",
+			env:  map[string]string{},
+			want: kube.StatsSidecar{},
+		},
+		{
+			// Durations left at zero, which the kube client omits from the
+			// container's env so the binary's own defaults apply. One place owns
+			// each default and it is the sidecar.
+			name: "image alone",
+			env:  map[string]string{"STATS_SIDECAR_IMAGE": "octo-statssidecar:dev"},
+			want: kube.StatsSidecar{Image: "octo-statssidecar:dev"},
+		},
+		{
+			name: "fully configured",
+			env: map[string]string{
+				"STATS_SIDECAR_IMAGE":   "octo-statssidecar:dev",
+				"STATS_SIDECAR_PORT":    "9100",
+				"STATS_SAMPLE_INTERVAL": "1s",
+				"STATS_ROLLUP_INTERVAL": "15m",
+				"STATS_RETENTION":       "168h",
+			},
+			want: kube.StatsSidecar{
+				Image: "octo-statssidecar:dev", Port: 9100,
+				SampleInterval: time.Second,
+				RollupInterval: 15 * time.Minute,
+				Retention:      168 * time.Hour,
+			},
+		},
+		{
+			// The sidecar validates its own environment and refuses to start, so a
+			// coerced value would appear as a CrashLoopBackOff container inside
+			// every production pod rather than as a mistyped chart value.
+			name:    "unparseable duration",
+			env:     map[string]string{"STATS_ROLLUP_INTERVAL": "1 hour"},
+			wantErr: true,
+		},
+		{
+			name:    "zero duration",
+			env:     map[string]string{"STATS_SAMPLE_INTERVAL": "0s"},
+			wantErr: true,
+		},
+		{
+			name:    "negative duration",
+			env:     map[string]string{"STATS_RETENTION": "-1h"},
+			wantErr: true,
+		},
+		{
+			name:    "bad port",
+			env:     map[string]string{"STATS_SIDECAR_PORT": "70000"},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, k := range []string{
+				"STATS_SIDECAR_IMAGE", "STATS_SIDECAR_PORT",
+				"STATS_SAMPLE_INTERVAL", "STATS_ROLLUP_INTERVAL", "STATS_RETENTION",
+			} {
+				t.Setenv(k, "")
+			}
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			got, err := statsSidecarConfig()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("statsSidecarConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Errorf("statsSidecarConfig() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}

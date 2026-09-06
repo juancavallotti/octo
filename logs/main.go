@@ -32,6 +32,7 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/fold"
 	"github.com/juancavallotti/octo/logs/internal/ingest"
 	"github.com/juancavallotti/octo/logs/internal/openapi"
+	"github.com/juancavallotti/octo/logs/internal/podstats"
 	"github.com/juancavallotti/octo/logs/internal/redisx"
 	"github.com/juancavallotti/octo/logs/internal/repo"
 	"github.com/juancavallotti/octo/logs/internal/retention"
@@ -169,7 +170,7 @@ func run() error {
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
-		Handler:           newServer(database),
+		Handler:           newServer(database, rdb),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
@@ -302,12 +303,27 @@ func priceRefreshInterval() time.Duration {
 // database is configured; /healthz and the API description always serve, so a
 // liveness probe passes and the description reads even before Postgres is
 // reachable.
-func newServer(database *db.DB) http.Handler {
+//
+// Redis is passed separately from the database because the two are not
+// optional in the same way. This service refuses to start without a Redis and
+// degrades to serving /healthz without a Postgres, so anything backed by Redis
+// registers unconditionally while anything backed by Postgres cannot.
+func newServer(database *db.DB, rdb *redis.Client) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	openapi.NewHandler().Register(mux)
 	slog.Info("openapi routes registered",
 		"endpoints", "GET /openapi.json, GET /openapi/operations")
+
+	// Outside the database check, unlike everything below it: pod stats live in
+	// Redis, which this service refuses to start without. Gating them on a
+	// Postgres they do not use would take them away for the one failure that
+	// cannot affect them.
+	api.NewStatsHandler(podstats.NewService(podstats.NewReader(rdb))).Register(mux)
+	slog.Info("pod stats API registered", "endpoints",
+		"GET /stats/{deploymentId}/pods, GET /stats/{deploymentId}/metrics, "+
+			"GET /stats/{deploymentId}/series")
+
 	if database != nil {
 		api.NewLogsHandler(repo.NewLogs(database.Pool())).Register(mux)
 		api.NewTracesHandler(repo.NewTraces(database.Pool())).Register(mux)

@@ -362,6 +362,12 @@ variable "kv_existing_secret_key" {
 # installation that has embedded anything discards those vectors and re-embeds
 # the store, at whatever the provider charges for it.
 
+variable "pod_stats_enabled" {
+  type        = bool
+  description = "Inject the pod stats sidecar into every deployed integration, so each pod records its own CPU, memory and runtime metrics to Redis and the platform's metrics views have something to draw. Needs a Redis, which this chart bundles. Turning it on rolls every deployment in the namespace once, because the runtime container gains OCTO_METRICS=true."
+  default     = false
+}
+
 variable "embeddings_enabled" {
   type        = bool
   description = "Deploy the embedding server, which turns text into vectors for agent-memory search. Requires embeddings_api_key. Off leaves search matching text, which is supported rather than degraded."

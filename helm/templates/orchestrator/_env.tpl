@@ -147,6 +147,30 @@
       name: {{ include "octo.devRuns.secretName" . }}
       key: {{ include "octo.devRuns.secretKey" . }}
 {{- end }}
+{{- if .Values.orchestrator.podStats.enabled }}
+{{- /* The pod stats sidecar, injected into every deployed integration pod.
+
+       The image is the off switch on the orchestrator side: unset means no
+       deployment gains a container. That is why the whole block is gated rather
+       than an `enabled` flag being passed through — there is one way for the
+       feature to be off, and it is the same one whether the chart or an operator
+       turned it off.
+
+       The orchestrator ALSO requires a Redis before it injects anything, which
+       this template does not check. Deliberately: an install can acquire a Redis
+       later, and failing the render here would make `podStats.enabled` mean
+       something subtly different from what the orchestrator does with it. */}}
+- name: STATS_SIDECAR_IMAGE
+  value: {{ include "octo-common.image" (dict "root" . "component" "statssidecar") | quote }}
+- name: STATS_SIDECAR_PORT
+  value: {{ .Values.orchestrator.podStats.port | quote }}
+- name: STATS_SAMPLE_INTERVAL
+  value: {{ .Values.orchestrator.podStats.sampleInterval | quote }}
+- name: STATS_ROLLUP_INTERVAL
+  value: {{ .Values.orchestrator.podStats.rollupInterval | quote }}
+- name: STATS_RETENTION
+  value: {{ .Values.orchestrator.podStats.retention | quote }}
+{{- end }}
 {{- /* Which API the orchestrator publishes per-integration endpoints with, and
        the settings that API needs. Only one set is emitted: the other is inert
        in the orchestrator anyway, and a pod environment listing an IngressClass

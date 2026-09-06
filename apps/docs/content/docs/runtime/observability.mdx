@@ -35,6 +35,13 @@ Probes are on by default. A probe endpoint you have to enable is one most deploy
 | `--metrics` | `OCTO_METRICS` | `false` |
 | `--metrics-blocks` | `OCTO_METRICS_BLOCKS` | (none) |
 
+<Callout>
+On the platform, enabling [Pod Stats](/platform/pod-stats) sets `OCTO_METRICS=true`
+on every deployed integration, because the sidecar it injects has nothing to scrape
+otherwise. It is set last in the container's environment, so it wins over an
+`OCTO_METRICS` binding in the deployment's own variables.
+</Callout>
+
 Each flag's default is its environment variable, so passing the flag always wins. These variables are read from the **process environment only**, not from a `.env` file — they are resolved when `octo run` parses its flags, before any config is loaded. `--observability=false` binds nothing at all.
 
 ### When the port is already taken

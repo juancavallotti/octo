@@ -31,8 +31,16 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
       "One integration in the editor: its flows, resources and tests.",
   },
   {
-    path: "/platform/deployments",
-    description: "Running deployments, their pods and status.",
+    path: "/platform/metrics",
+    description:
+      "Running deployments, their pods and status, each with the last five " +
+      "minutes of CPU and memory.",
+  },
+  {
+    path: "/platform/metrics/{deploymentId}",
+    description:
+      "One deployment's stored metrics: CPU and memory over the live or " +
+      "historic tier, and every other series its pods report.",
   },
   {
     path: "/platform/traces",

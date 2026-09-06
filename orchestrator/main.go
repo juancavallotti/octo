@@ -210,6 +210,10 @@ func kubeConfig() (kube.Config, error) {
 	if err != nil {
 		return kube.Config{}, err
 	}
+	statsSidecar, err := statsSidecarConfig()
+	if err != nil {
+		return kube.Config{}, err
+	}
 	namespace := envOr("KUBE_NAMESPACE", defaultNamespace)
 	cfg := kube.Config{
 		Namespace:    namespace,
@@ -233,6 +237,10 @@ func kubeConfig() (kube.Config, error) {
 		DevRuntimeImage: os.Getenv("DEV_RUNTIME_IMAGE"),
 		SidecarImage:    os.Getenv("DEV_SIDECAR_IMAGE"),
 		SidecarPort:     sidecarPort,
+		// The pod stats sidecar. Unset means no deployment gains a container, so
+		// an install that has not turned it on renders exactly the pod spec it
+		// renders today.
+		StatsSidecar:    statsSidecar,
 		OrchestratorURL: os.Getenv("ORCHESTRATOR_URL"),
 		BaseDomain:      os.Getenv("BASE_DOMAIN"),
 		EndpointAPI:     endpointAPI,
@@ -355,6 +363,64 @@ func devRunSidecarPort() (int32, error) {
 	port, err := strconv.Atoi(raw)
 	if err != nil || port < 1 || port > 65535 {
 		return 0, fmt.Errorf("parse DEV_RUN_SIDECAR_PORT: %q is not a port number", raw)
+	}
+	return int32(port), nil
+}
+
+// statsSidecarConfig reads the pod stats sidecar's settings.
+//
+// STATS_SIDECAR_IMAGE unset is the off switch, and the only coherent way to
+// express it: every other value has a working default, so there is nothing else
+// whose absence could mean "no". The three durations are optional and left at
+// zero when unset, which the sidecar reads as "use your own defaults" rather
+// than as a value — one place owns each default, and it is the binary.
+//
+// A malformed value stops startup naming the setting. The alternative is worse
+// than usual here: the sidecar validates its own environment and refuses to
+// start, so a coerced value would surface as a CrashLoopBackOff container inside
+// every production pod, which reads as a broken deployment rather than as a
+// mistyped chart value.
+func statsSidecarConfig() (kube.StatsSidecar, error) {
+	port, err := statsSidecarPort()
+	if err != nil {
+		return kube.StatsSidecar{}, err
+	}
+	cfg := kube.StatsSidecar{
+		Image: os.Getenv("STATS_SIDECAR_IMAGE"),
+		Port:  port,
+	}
+	for _, d := range []struct {
+		name string
+		into *time.Duration
+	}{
+		{"STATS_SAMPLE_INTERVAL", &cfg.SampleInterval},
+		{"STATS_ROLLUP_INTERVAL", &cfg.RollupInterval},
+		{"STATS_RETENTION", &cfg.Retention},
+	} {
+		raw := os.Getenv(d.name)
+		if raw == "" {
+			continue
+		}
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 {
+			return kube.StatsSidecar{}, fmt.Errorf("parse %s: %q is not a positive duration", d.name, raw)
+		}
+		*d.into = parsed
+	}
+	return cfg, nil
+}
+
+// statsSidecarPort reads STATS_SIDECAR_PORT. Unset returns 0, which the kube
+// client reads as its own default — the same number the sidecar binary defaults
+// to, so the two halves agree with nothing configured.
+func statsSidecarPort() (int32, error) {
+	raw := os.Getenv("STATS_SIDECAR_PORT")
+	if raw == "" {
+		return 0, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("parse STATS_SIDECAR_PORT: %q is not a port number", raw)
 	}
 	return int32(port), nil
 }

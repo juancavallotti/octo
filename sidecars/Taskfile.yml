@@ -21,6 +21,7 @@ tasks:
     cmds:
       - mkdir -p ../bin
       - '{{.GO}} build -trimpath -o ../bin/dev-sidecar ./dev'
+      - '{{.GO}} build -trimpath -o ../bin/stats-sidecar ./stats'
 
   test:
     desc: 'Run the sidecars tests (pass go test flags after --, e.g. task sidecars:test -- -race)'
@@ -43,3 +44,8 @@ tasks:
     desc: 'Run the dev sidecar locally (set ORCHESTRATOR_URL, DEV_RUN_ID, DEV_RUN_TOKEN, SIDECAR_TOKEN, WORKSPACE_DIR)'
     cmds:
       - '{{.GO}} run ./dev {{.CLI_ARGS}}'
+
+  run:stats:
+    desc: 'Run the stats sidecar locally (set REDIS_URL, DEPLOYMENT_ID, POD_NAME; point RUNTIME_ADMIN_ADDR at an octo run --metrics)'
+    cmds:
+      - '{{.GO}} run ./stats {{.CLI_ARGS}}'

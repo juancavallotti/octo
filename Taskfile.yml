@@ -73,7 +73,7 @@ vars:
   # that misses the import is not a slow start but a hard ImagePullBackOff.
   CLUSTER_IMAGES: >-
     octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev
-    octo-runtime:dev octo-devsidecar:dev octo-devruntime:dev
+    octo-runtime:dev octo-devsidecar:dev octo-statssidecar:dev octo-devruntime:dev
     octo-agenticrunner:dev octo-embeddings:dev octo-api:dev
 
   # Every image task below copies host-built binaries in rather than compiling
@@ -329,11 +329,13 @@ tasks:
         (cd logs && go build -trimpath -o "$out/logs" .)
         echo "▶ dev-sidecar"
         (cd sidecars && go build -trimpath -o "$out/dev-sidecar" ./dev)
+        echo "▶ stats-sidecar"
+        (cd sidecars && go build -trimpath -o "$out/stats-sidecar" ./stats)
 
         echo "✓ linux/{{.ARCH}} binaries in dist/bin/linux_{{.ARCH}}"
 
   cluster:images:
-    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/devruntime/agenticrunner/embeddings images and load them into the k3d 'octo' cluster
+    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/statssidecar/devruntime/agenticrunner/embeddings images and load them into the k3d 'octo' cluster
     cmds:
       # Compile every Go binary once, on the host, for the node's architecture —
       # then the eight builds below only copy them in. Left to the Dockerfiles,
@@ -358,6 +360,7 @@ tasks:
       # BIN_SOURCE here rather than the GOTAGS it used to be: same distinction, made
       # once at the host build, and see runtime/Dockerfile for why it is one knob.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-statssidecar:dev -f sidecars/stats/Dockerfile ./sidecars
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t octo-devruntime:dev -f runtime/Dockerfile .
       # The agentic runner: the image a deployment runs when it asks for
       # `runner: agentic`. Its own Dockerfile rather than a GOTAGS arm of the one
@@ -438,6 +441,7 @@ tasks:
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-k8s -t octo-runtime:dev -f runtime/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-statssidecar:dev -f sidecars/stats/Dockerfile ./sidecars
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t octo-devruntime:dev -f runtime/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-agenticrunner:dev -f runtime/Dockerfile.agentic .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-api -t octo-api:dev -f runtime/Dockerfile .
@@ -595,6 +599,7 @@ tasks:
       - docker build -t {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}} -f sql/Dockerfile ./sql
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-k8s -t {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}} -f runtime/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}} -f sidecars/dev/Dockerfile ./sidecars
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-statssidecar-paas:{{.TAG}} -f sidecars/stats/Dockerfile ./sidecars
       # prebuilt-standalone is the untagged build; the k8s one is octo-runtime-paas above.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-standalone -t {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}} -f runtime/Dockerfile .
       # The agentic runner has its own Dockerfile, not a BIN_SOURCE arm of the one above.
@@ -608,6 +613,7 @@ tasks:
       - docker push {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-statssidecar-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-devruntime-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-agenticrunner-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-api-paas:{{.TAG}}
@@ -663,6 +669,7 @@ tasks:
         build octo-logs-paas         logs/Dockerfile          ./logs      "--build-arg BIN_SOURCE=prebuilt"
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
         build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  "--build-arg BIN_SOURCE=prebuilt"
+        build octo-statssidecar-paas sidecars/stats/Dockerfile ./sidecars "--build-arg BIN_SOURCE=prebuilt"
         # The k8s build is what makes the runtime talk to the orchestrator; the
         # standalone one is what a dev run executes.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg BIN_SOURCE=prebuilt-k8s"
@@ -782,6 +789,7 @@ tasks:
         build octo-logs-paas         logs/Dockerfile          ./logs      "--build-arg BIN_SOURCE=prebuilt"
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
         build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  "--build-arg BIN_SOURCE=prebuilt"
+        build octo-statssidecar-paas sidecars/stats/Dockerfile ./sidecars "--build-arg BIN_SOURCE=prebuilt"
         # The k8s build is what makes the runtime talk to the orchestrator; the
         # standalone one is what a dev run executes.
         build octo-runtime-paas      runtime/Dockerfile       .           "--build-arg BIN_SOURCE=prebuilt-k8s"
@@ -1308,7 +1316,7 @@ tasks:
           echo "image:"
           echo "  registry: {{.IMAGE_BASE}}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime devsidecar devruntime agenticrunner embeddings; do
+          for c in platform orchestrator logs schema runtime devsidecar statssidecar devruntime agenticrunner embeddings; do
             repo="octo-${c}-paas"
             ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
             digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"

@@ -78,6 +78,31 @@ orchestrator:
     # Short enough to watch the reaper work without leaving a tab open for an hour.
     idleTimeout: 10m
 
+  # On locally, unlike everywhere else. The sidecar is off by default because it
+  # is a container in every pod and a claim on Redis that an installation should
+  # opt into deliberately. A laptop cluster is where the feature is developed and
+  # where the platform's metrics views have nothing to draw without it.
+  #
+  # Turning it on rolls every deployment in the namespace once, because the
+  # runtime container gains OCTO_METRICS=true.
+  podStats:
+    enabled: true
+    # An hour is the shipped default, and it makes the history tier invisible for
+    # a whole working session: no bucket closes, so the platform's 24h and 7d
+    # views are empty and there is no way to tell that from a bug.
+    #
+    # Ten minutes rather than something shorter, because the live tier holds
+    # exactly one bucket: its reach is rollupInterval / sampleInterval seconds,
+    # so a two-minute bucket gives a two-minute live tier and every view from
+    # five minutes up falls back to collapsed rows. Ten minutes leaves 600 live
+    # samples — enough for the short views to be answered at full resolution —
+    # while still closing a bucket inside a session.
+    rollupInterval: 10m
+    # A day of ten-minute buckets is 144 rows per pod. The cost of history here
+    # is nothing; the reason to keep it short is that a laptop cluster is rebuilt
+    # often enough that a week of it would never fill.
+    retention: 24h
+
 logs:
   repository: octo-logs
 
@@ -89,6 +114,9 @@ runtime:
 
 devsidecar:
   repository: octo-devsidecar
+
+statssidecar:
+  repository: octo-statssidecar
 
 devruntime:
   repository: octo-devruntime

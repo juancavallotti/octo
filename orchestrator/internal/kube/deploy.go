@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -75,6 +76,13 @@ const (
 	envRedisURL       = "REDIS_URL"
 	envPodName        = "POD_NAME"
 	envPodNamespace   = "POD_NAMESPACE"
+
+	// envMetrics switches the runtime's Prometheus endpoint on. It defaults to
+	// off in the runtime (runtime/services/observability), so without this the
+	// admin port answers /metrics with a 404 and the stats sidecar beside it has
+	// nothing to scrape. Set only when the sidecar is actually being injected, so
+	// an installation without the feature keeps exactly the pod spec it has now.
+	envMetrics = "OCTO_METRICS"
 
 	// envTracing switches the runtime's tracer on. Unlike every other var here it
 	// comes from a per-deployment setting rather than from the integration's own env
@@ -350,6 +358,10 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 					// ErrImagePull, which reads as a broken deploy rather than a missing
 					// credential.
 					ImagePullSecrets: c.pullSecretRefs(),
+					// The stats sidecar, when the installation has one. A native
+					// sidecar, so it is an init container that never exits; see
+					// statssidecar.go for why it carries no readiness probe.
+					InitContainers: c.statsSidecarContainers(spec),
 					Containers: []corev1.Container{{
 						Name:            "runtime",
 						Image:           c.RunnerImage(spec.Runner),
@@ -368,6 +380,28 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 			},
 		},
 	}
+}
+
+// statsSidecarContainers is the pod's init-container list: the stats sidecar
+// when the feature is on, and nil otherwise. Nil rather than an empty slice, so
+// a deployment on an installation without the feature renders exactly the spec
+// it renders today and no pod is rolled by turning nothing on.
+func (c *Client) statsSidecarContainers(spec Spec) []corev1.Container {
+	if !c.statsSidecarEnabled() {
+		return nil
+	}
+
+	// A port is a pod-wide resource, so a sidecar configured onto one the
+	// runtime already holds cannot bind and crash-loops forever beside a
+	// perfectly healthy integration. Collecting no statistics is the better
+	// half of that trade, and it is the half that can be diagnosed: the reason
+	// is logged once here rather than inferred from a restart count.
+	if port := c.statsSidecarPort(); port == spec.port() || port == adminPort {
+		slog.Warn("pod stats sidecar not injected: port already used by the runtime",
+			"deployment", spec.ID, "port", port)
+		return nil
+	}
+	return []corev1.Container{c.statsSidecarContainer(spec)}
 }
 
 // containerResources sizes the runtime container: the configured requests and
@@ -528,6 +562,14 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// inside the flow.
 	if spec.ObservabilityAPI && c.runtimeServices.LogsURL != "" {
 		env = append(env, corev1.EnvVar{Name: envLogs, Value: c.runtimeServices.LogsURL})
+	}
+	// The stats sidecar scrapes this runtime's /metrics, which the runtime does
+	// not serve unless asked. Emitted only when the sidecar is being injected, so
+	// an install with the feature off renders byte-identically to today — and,
+	// like the switches above, last, so it wins over an integration that declared
+	// OCTO_METRICS among its own env.
+	if c.statsSidecarEnabled() {
+		env = append(env, corev1.EnvVar{Name: envMetrics, Value: "true"})
 	}
 	if len(env) == 0 {
 		return nil

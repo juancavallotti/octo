@@ -21,11 +21,16 @@ ARG BIN_SOURCE=compile
 FROM golang:1.27-alpine AS bin-compile
 WORKDIR /src
 
-# No go.sum, because the module has no dependencies — deliberately. This process
-# runs beside every dev run and holds a token to an integration's secrets, so it is
-# worth keeping free of a dependency tree; everything it needs is in the standard
-# library. Add go.sum to this COPY if that ever stops being true.
-COPY go.mod ./
+# go.sum is copied because the MODULE now has dependencies — the stats sidecar
+# beside this one needs a Redis client and a Prometheus parser. The property
+# that matters here survives that: `go build ./dev` links only what ./dev
+# imports, and this sidecar still imports nothing outside the standard library.
+#
+# That is worth keeping. This process runs beside every dev run and holds a token
+# to an integration's secrets, so its dependency tree being empty is a security
+# property and not a preference. Check `go list -deps ./dev` before adding an
+# import here.
+COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
