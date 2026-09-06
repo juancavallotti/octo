@@ -108,7 +108,10 @@ describe("when there is nothing to draw", () => {
 });
 
 describe("the window", () => {
-  it("asks for both process metrics against the resolvable tier", async () => {
+  it("names the tier rather than letting the service choose", async () => {
+    // auto resolves a window longer than the live tier reaches entirely to
+    // buckets, which turns a hundred and twenty points into two without saying
+    // so. The view is the tier, so there is nothing to resolve.
     render(<MetricsMonitor deploymentId="dep-1" />);
 
     await waitFor(() => expect(readStatsSeries).toHaveBeenCalled());
@@ -117,18 +120,33 @@ describe("the window", () => {
       "process_cpu_seconds_total",
       "process_resident_memory_bytes",
     ]);
-    expect(query.tier).toBe("auto");
+    expect(query.tier).toBe("live");
+    expect(query.tier).not.toBe("auto");
   });
 
-  it("puts the range in the URL rather than in state", async () => {
-    // A window worth showing somebody should be a link, and Back should walk
-    // through the ranges the reader actually looked at.
+  it("puts the view in the URL rather than in state", async () => {
+    // A view worth showing somebody should be a link.
     render(<MetricsMonitor deploymentId="dep-1" />);
     await waitFor(() => expect(readStatsSeries).toHaveBeenCalled());
 
-    await userEvent.click(screen.getByRole("button", { name: "24h" }));
+    await userEvent.click(screen.getByRole("button", { name: "Weekly" }));
 
-    expect(replace).toHaveBeenCalledWith("/platform/metrics/dep-1?range=24h", {
+    expect(replace).toHaveBeenCalledWith("/platform/metrics/dep-1?view=weekly", {
+      scroll: false,
+    });
+  });
+
+  it("reads the history tier when the weekly view is asked for", async () => {
+    replace.mockClear();
+    render(<MetricsMonitor deploymentId="dep-1" />);
+    await waitFor(() => expect(readStatsSeries).toHaveBeenCalled());
+    readStatsSeries.mockClear();
+
+    await userEvent.click(screen.getByRole("button", { name: "Weekly" }));
+
+    // The URL drives the view, and the test's useSearchParams is fixed, so this
+    // asserts the intent that was navigated to rather than a re-render.
+    expect(replace).toHaveBeenCalledWith("/platform/metrics/dep-1?view=weekly", {
       scroll: false,
     });
   });
@@ -143,8 +161,9 @@ describe("the window", () => {
 
     render(<MetricsMonitor deploymentId="dep-1" />);
 
-    // Without this line a 24h view made of 24 points looks like missing data.
-    await screen.findByText(/history · one point per 1h · 1 pod/);
+    // Without this line a view made of a handful of points looks like missing
+    // data rather than like the resolution the tier holds.
+    await screen.findByText(/history · one point per 1h/);
   });
 
   it("says so when the pod list was capped", async () => {

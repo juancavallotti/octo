@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Brush,
   CartesianGrid,
   Legend,
   Line,
@@ -50,11 +51,24 @@ export default function LineChart({
   memory,
   fromMs,
   toMs,
+  zoomable = false,
 }: {
   cpu: PodSeries[];
   memory: PodSeries[];
   fromMs: number;
   toMs: number;
+  /**
+   * Offer a range selector under the chart.
+   *
+   * For the history view, where it earns its space: a week of buckets is a lot
+   * of plot for one screen, and every sub-range of it still has points in it, so
+   * narrowing shows more rather than less. The live view is already at the
+   * finest resolution the pod stores, so there is nothing to zoom into.
+   *
+   * It selects within data already fetched — no request, and no window that
+   * could resolve to a different tier than the one on screen.
+   */
+  zoomable?: boolean;
 }) {
   const columns: Column[] = [
     ...cpu.map((s) => ({ key: `cpu:${s.pod}`, ...s.points })),
@@ -74,8 +88,10 @@ export default function LineChart({
           <XAxis
             dataKey="t"
             type="number"
-            domain={[fromMs, toMs]}
-            ticks={timeTicks(fromMs, toMs, 5)}
+            // Brushing narrows the data Recharts draws, so the axis has to
+            // follow it rather than stay pinned to the fetched window.
+            domain={zoomable ? ["dataMin", "dataMax"] : [fromMs, toMs]}
+            ticks={zoomable ? undefined : timeTicks(fromMs, toMs, 5)}
             tickFormatter={(at: number) => formatClock(at, spanMs)}
             {...AXIS}
           />
@@ -117,6 +133,16 @@ export default function LineChart({
             iconSize={8}
             iconType="plainline"
           />
+          {zoomable && rows.length > 2 && (
+            <Brush
+              dataKey="t"
+              height={20}
+              travellerWidth={8}
+              stroke={CPU_COLOR}
+              fill="transparent"
+              tickFormatter={(at: number) => formatClock(at, spanMs)}
+            />
+          )}
 
           {memory.map((s, i) => (
             <Line

@@ -9,7 +9,7 @@ import {
   type StatsSeriesPage,
   type StatsWarning,
 } from "@/app/model/stats";
-import { spanMs, windowFor, type RangeKey } from "./range";
+import { viewPreset, windowFor, type View } from "./range";
 import { planBatches } from "./batches";
 
 /**
@@ -48,7 +48,7 @@ export interface Catalogue {
 
 export function useDeploymentCatalogue(
   deploymentId: string,
-  range: RangeKey,
+  view: View,
   now: number,
 ): Catalogue {
   const [state, setState] = useState<Omit<Catalogue, "loading">>({
@@ -57,16 +57,16 @@ export function useDeploymentCatalogue(
     warnings: [],
     truncated: false,
     error: null,
-    fromMs: now - spanMs(range),
+    fromMs: now - viewPreset(view).spanMs,
     toMs: now,
   });
   const [loaded, setLoaded] = useState<string | null>(null);
 
-  const wanted = `${deploymentId} ${range} ${now}`;
+  const wanted = `${deploymentId} ${view} ${now}`;
 
   useEffect(() => {
     let cancelled = false;
-    const window = windowFor(range, now);
+    const window = windowFor(view, now);
 
     void (async () => {
       try {
@@ -77,7 +77,7 @@ export function useDeploymentCatalogue(
           planBatches(catalogue.items).map((names) =>
             readStatsSeries(deploymentId, {
               metrics: names,
-              tier: "auto",
+              tier: viewPreset(view).tier,
               from: window.from,
               to: window.to,
               limit: 1500,
@@ -126,7 +126,7 @@ export function useDeploymentCatalogue(
     return () => {
       cancelled = true;
     };
-  }, [deploymentId, range, now, wanted]);
+  }, [deploymentId, view, now, wanted]);
 
   return { ...state, loading: loaded !== wanted };
 }

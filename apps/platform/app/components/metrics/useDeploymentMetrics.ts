@@ -8,7 +8,7 @@ import {
   type StatsSeriesPage,
 } from "@/app/model/stats";
 import { CPU_METRIC, MEM_METRIC } from "@/app/components/stats/chart/metrics";
-import { windowFor, type RangeKey } from "./range";
+import { viewPreset, windowFor, type View } from "./range";
 
 /**
  * One deployment's CPU and memory over a window, plus the state of the pods that
@@ -34,7 +34,7 @@ export interface DeploymentMetrics {
 
 export function useDeploymentMetrics(
   deploymentId: string,
-  range: RangeKey,
+  view: View,
   /** The moment the window ends. State in the caller, not Date.now() here: a
    * window that moves every render is a new query every render. */
   now: number,
@@ -44,18 +44,21 @@ export function useDeploymentMetrics(
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<string | null>(null);
 
-  const wanted = `${deploymentId} ${range} ${now}`;
+  const wanted = `${deploymentId} ${view} ${now}`;
 
   useEffect(() => {
     let cancelled = false;
-    const window = windowFor(range, now);
+    const window = windowFor(view, now);
 
     void (async () => {
       try {
         const [nextSeries, nextPods] = await Promise.all([
           readStatsSeries(deploymentId, {
             metrics: [CPU_METRIC, MEM_METRIC],
-            tier: "auto",
+            // The view names its tier. Never auto: a window longer than the
+            // live tier reaches would be answered entirely from buckets, which
+            // is a hundred and twenty points becoming two without saying so.
+            tier: viewPreset(view).tier,
             from: window.from,
             to: window.to,
             // The service clamps to 5000; 1500 is more points than the widest
@@ -81,7 +84,7 @@ export function useDeploymentMetrics(
     return () => {
       cancelled = true;
     };
-  }, [deploymentId, range, now, wanted]);
+  }, [deploymentId, view, now, wanted]);
 
   return { series, pods, loading: loaded !== wanted, error };
 }

@@ -1,73 +1,90 @@
 /**
- * The window a metrics view reads, and how it survives a page reload.
+ * The two views a metrics page offers, and how they survive a page reload.
  *
- * Presets rather than two timestamps, following the traces filters: the window is
- * a question — "what has this been doing lately", "what did it do overnight" —
- * and nobody wants to type the answer twice.
+ * Two, not a ladder of windows, because two is what the storage holds. A pod
+ * keeps per-second samples in a live tier and collapsed buckets in a history
+ * tier, and every window that is neither — half an hour, a day — has to be
+ * resolved to one of them by the service. That resolution is silent and it is
+ * lossy in the surprising direction: a window slightly longer than the live tier
+ * reaches is answered entirely from buckets, so asking for five minutes of a
+ * two-minute live tier returns two points rather than a hundred and twenty.
  *
- * The presets straddle the two stored tiers deliberately. The live tier holds one
- * sample per second for one rollup interval, so the short windows read full
- * resolution; the history tier holds one collapsed row per rollup interval for the
- * retention window, so the long ones reach back a week. Which one answers is not
- * chosen here — the service resolves `tier=auto` against each pod's own
- * configuration, and the view reports what it got.
+ * Naming a view after its tier removes the guess. Hourly asks for live and gets
+ * per-second data; Weekly asks for history and gets one point per bucket.
+ * Neither can fall back to the other, so neither can surprise anybody.
  */
 
-export type RangeKey = "5m" | "30m" | "1h" | "24h" | "7d";
+import type { StatsTier } from "@/app/model/stats";
 
-export interface RangePreset {
-  key: RangeKey;
+export type View = "hourly" | "weekly";
+
+export interface ViewPreset {
+  key: View;
   label: string;
-  minutes: number;
+  /** The tier this view reads. Explicit — never `auto`. */
+  tier: Exclude<StatsTier, "auto">;
+  /**
+   * How far back to ask. Deliberately generous: it is the reach of each tier at
+   * the shipped defaults, and a tier holding less simply returns less. The chart
+   * draws the span it received rather than the one requested, so asking for more
+   * than exists costs nothing and hard-coding less would hide data.
+   */
+  spanMs: number;
+  /** How often to re-read while live. */
+  refreshMs: number;
 }
 
-export const RANGE_PRESETS: RangePreset[] = [
-  { key: "5m", label: "5m", minutes: 5 },
-  { key: "30m", label: "30m", minutes: 30 },
-  { key: "1h", label: "1h", minutes: 60 },
-  { key: "24h", label: "24h", minutes: 60 * 24 },
-  { key: "7d", label: "7d", minutes: 60 * 24 * 7 },
+export const VIEWS: ViewPreset[] = [
+  {
+    key: "hourly",
+    label: "Hourly",
+    tier: "live",
+    spanMs: 60 * 60_000,
+    // The tier samples every second, so this is a genuinely moving picture.
+    refreshMs: 5_000,
+  },
+  {
+    key: "weekly",
+    label: "Weekly",
+    tier: "rollup",
+    spanMs: 7 * 24 * 60 * 60_000,
+    // A bucket is written once per rollup interval. Polling faster asks
+    // repeatedly for an answer that changed once.
+    refreshMs: 30_000,
+  },
 ];
 
-export const DEFAULT_RANGE: RangeKey = "5m";
+export const DEFAULT_VIEW: View = "hourly";
 
-/** Read the range out of the URL, falling back to the default.
- *
- * An unrecognized value is dropped rather than reported. A stale or hand-edited
- * link should show the default view, not an error page — nothing is wrong with
- * the install, and an error here reads like an outage. */
-export function readRange(params: URLSearchParams): RangeKey {
-  const raw = params.get("range");
-  const found = RANGE_PRESETS.find((preset) => preset.key === raw);
-  return found ? found.key : DEFAULT_RANGE;
-}
-
-/** The query string for a range, empty at the default so a plain view has a
- * plain URL. */
-export function writeRange(range: RangeKey): string {
-  return range === DEFAULT_RANGE ? "" : `range=${range}`;
-}
-
-/** The absolute window a preset means at a given moment, as RFC3339. */
-export function windowFor(range: RangeKey, now: number): { from: string; to: string } {
-  const preset = RANGE_PRESETS.find((p) => p.key === range) ?? RANGE_PRESETS[0];
-  return {
-    from: new Date(now - preset.minutes * 60_000).toISOString(),
-    to: new Date(now).toISOString(),
-  };
+/** The preset for a view. */
+export function viewPreset(view: View): ViewPreset {
+  return VIEWS.find((v) => v.key === view) ?? VIEWS[0];
 }
 
 /**
- * How often a range is worth re-reading.
+ * Read the view out of the URL, falling back to the default.
  *
- * Five seconds while the window is short enough to be answered from the live
- * tier, which samples every second — that is a genuinely moving picture. A
- * window of a day or a week is answered from collapsed buckets that are written
- * once per rollup interval, so polling those every five seconds asks a hundred
- * times for an answer that changed once.
+ * An unrecognized value is dropped rather than reported: a stale or hand-edited
+ * link should show the default view, not an error page. Nothing is wrong with
+ * the install, and an error here reads like an outage.
  */
-export function refreshMs(range: RangeKey): number {
-  return spanMs(range) <= 60 * 60_000 ? 5_000 : 30_000;
+export function readView(params: URLSearchParams): View {
+  const raw = params.get("view");
+  return VIEWS.some((v) => v.key === raw) ? (raw as View) : DEFAULT_VIEW;
+}
+
+/** The query string for a view, empty at the default so a plain view has a
+ * plain URL. */
+export function writeView(view: View): string {
+  return view === DEFAULT_VIEW ? "" : `view=${view}`;
+}
+
+/** The absolute window a view asks for at a given moment, as RFC3339. */
+export function windowFor(view: View, now: number): { from: string; to: string } {
+  return {
+    from: new Date(now - viewPreset(view).spanMs).toISOString(),
+    to: new Date(now).toISOString(),
+  };
 }
 
 /**
@@ -79,9 +96,3 @@ export function refreshMs(range: RangeKey): number {
  * watches; the grid is what they scan.
  */
 export const GRID_REFRESH_FACTOR = 4;
-
-/** How wide a preset is, in milliseconds — what a chart needs for its axis. */
-export function spanMs(range: RangeKey): number {
-  const preset = RANGE_PRESETS.find((p) => p.key === range) ?? RANGE_PRESETS[0];
-  return preset.minutes * 60_000;
-}
