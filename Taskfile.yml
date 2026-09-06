@@ -1015,9 +1015,13 @@ tasks:
           "coordination.k8s.io" "serviceAccountName: octo-observability" \
           "fieldPath: metadata.namespace" -- \
           --set observability.rbac.create=true
-        # And the escape hatch: a cluster supplying its own account gets no Role
-        # from the chart, but the Deployment must still name the account.
-        check_absent observability-rbac-off "octo.observability.rules" \
+        # And the escape hatch: a cluster supplying its own Role still gets a
+        # Deployment that names the account, or the evaluator campaigns as
+        # nobody. Asserted positively rather than as an absence, because every
+        # string the observability Role emits — "coordination.k8s.io" included —
+        # is also emitted by the runtime's Role, which always renders.
+        check_contains observability-rbac-off \
+          "serviceAccountName: octo-observability" -- \
           --set observability.rbac.create=false
         check_absent auth-existing-no-chart-secret "oidc-client-secret: " \
           --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \

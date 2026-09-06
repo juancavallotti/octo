@@ -86,15 +86,15 @@ func (s *Service) Update(ctx context.Context, w Watch, userID string) (Watch, er
 	if err := s.check(w); err != nil {
 		return Watch{}, err
 	}
-	previous, err := s.store.Get(ctx, w.ID)
-	if err != nil {
-		return Watch{}, err
-	}
 	updated, err := s.store.Update(ctx, normalize(w), userID)
 	if err != nil {
 		return Watch{}, err
 	}
-	if previous.Enabled && !updated.Enabled {
+	// Retired whenever the saved watch is disabled, rather than only on the
+	// enabled-to-disabled transition. Retiring an already-quiet watch is a no-op
+	// on both rows, and keying it to the transition would leave an episode open
+	// forever on a watch disabled by any path this call did not observe.
+	if !updated.Enabled {
 		if err := s.store.Retire(ctx, updated.ID, ClosedDisabled, s.now()); err != nil {
 			return Watch{}, err
 		}
