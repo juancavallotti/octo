@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { bytes } from "@/app/components/stats/Stat";
 import Sparkline from "@/app/components/stats/chart/Sparkline";
-import { formatCores, latest } from "@/app/components/stats/chart/metrics";
+import { formatCores, latest, mean } from "@/app/components/stats/chart/metrics";
 import type { SparkData } from "./useDeploymentStats";
 
 /**
@@ -28,7 +28,9 @@ export default function DeploymentSpark({
 }) {
   if (!data) return null;
 
-  const cores = latest(data.cpu);
+  // A rate is averaged and a gauge is read as it stands: see mean() for why an
+  // instantaneous CPU sample is the wrong number to put on a card.
+  const cores = mean(data.cpu);
   const memory = latest(data.memory);
   if (cores === null && memory === null) return null;
 
@@ -36,16 +38,9 @@ export default function DeploymentSpark({
     <Link
       href={metricsHref(deploymentId)}
       title="Metrics for the last five minutes"
-      className="mt-3 flex items-center gap-3 rounded-lg border border-black/5 px-2 py-1.5 transition-colors hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.05]"
+      className="mt-3 block rounded-lg border border-black/5 px-2 py-2 transition-colors hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.05]"
     >
-      <Sparkline
-        cpu={data.cpu}
-        memory={data.memory}
-        label={`CPU ${formatCores(cores)} cores, memory ${
-          memory === null ? "unknown" : bytes(memory)
-        }, over the last five minutes`}
-      />
-      <span className="flex flex-col text-xs leading-tight">
+      <span className="flex items-baseline justify-between text-xs leading-tight">
         <span className="tabular-nums text-sky-600 dark:text-sky-400">
           {formatCores(cores)} <span className="text-zinc-400">cores</span>
         </span>
@@ -53,6 +48,13 @@ export default function DeploymentSpark({
           {memory === null ? "—" : bytes(memory)}
         </span>
       </span>
+      <Sparkline
+        cpu={data.cpu}
+        memory={data.memory}
+        label={`CPU ${formatCores(cores)} cores, memory ${
+          memory === null ? "unknown" : bytes(memory)
+        }, over the last five minutes`}
+      />
     </Link>
   );
 }

@@ -20,24 +20,29 @@ import type { Points } from "./metrics";
  */
 
 /** How many points survive into the path. Five minutes of one-second samples is
- * 300 of them for 120 pixels; the rest are bytes in a DOM attribute. */
-const BUCKETS = 60;
+ * 300 of them; past roughly one per pixel the rest are bytes in a DOM
+ * attribute. */
+const BUCKETS = 150;
+
+/** The coordinate space the paths are drawn in. The element itself is sized by
+ * CSS and the viewBox is stretched to fit — which is why nothing in here is
+ * text, and why the strokes are marked non-scaling. */
+const VIEW = { width: 600, height: 56 } as const;
 
 export default function Sparkline({
   cpu,
   memory,
-  width = 132,
-  height = 28,
   label,
+  className = "h-14 w-full",
 }: {
   cpu: Points;
   memory: Points;
-  width?: number;
-  height?: number;
   /** What a screen reader is told, since the shape itself is not available. */
   label: string;
+  className?: string;
 }) {
   const clip = useId();
+  const { width, height } = VIEW;
   const cpuPath = trace(cpu, width, height);
   const memPath = trace(memory, width, height);
 
@@ -46,19 +51,24 @@ export default function Sparkline({
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      width={width}
-      height={height}
+      // Stretched to whatever the card gives it. Safe because the only things
+      // drawn are paths, and their strokes opt out of the scaling.
+      preserveAspectRatio="none"
       role="img"
       aria-label={label}
-      className="overflow-visible"
+      className={className}
     >
       <clipPath id={clip}>
         <rect x="0" y="0" width={width} height={height} />
       </clipPath>
       <g clipPath={`url(#${clip})`} fill="none" strokeWidth="1.25"
-         strokeLinecap="round" strokeLinejoin="round">
-        {memPath && <path d={memPath} className="stroke-violet-500/70" />}
-        {cpuPath && <path d={cpuPath} className="stroke-sky-500" />}
+         strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke">
+        {memPath && (
+          <path d={memPath} className="stroke-violet-500/70" vectorEffect="non-scaling-stroke" />
+        )}
+        {cpuPath && (
+          <path d={cpuPath} className="stroke-sky-500" vectorEffect="non-scaling-stroke" />
+        )}
       </g>
     </svg>
   );
@@ -77,7 +87,10 @@ function trace(points: Points, width: number, height: number): string {
     ? { min: span.min - 1, max: span.max + 1 }
     : span;
 
-  const inset = 1.5; // room for the stroke, so a peak is not clipped in half
+  // Room above and below for the stroke and then some. At 1.5 a line at its
+  // own maximum sits on the top edge and reads as the card's border rather than
+  // as data.
+  const inset = 4;
   const y = linearScale(domain, [height - inset, inset]);
   const last = reduced.times.length - 1;
 

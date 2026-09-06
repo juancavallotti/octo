@@ -79,7 +79,31 @@ export function toGauge(series: StatsSeries): Points {
   };
 }
 
-/** The most recent reading that is not a gap, or null when none is. */
+/**
+ * The mean of every reading that is not a gap, or null when none is.
+ *
+ * What a rate should be summarized by. `process_cpu_seconds_total` advances in
+ * ten-millisecond steps, so at one-second sampling an idle pod reads 0 or 0.1
+ * cores and nothing between — and `latest` on that series reports "0.0000
+ * cores" about half the time it is asked, which looks like a broken reading
+ * rather than a quantized one. Averaged over the window it reads 0.010, which
+ * is both stable and what `kubectl top` says.
+ */
+export function mean(points: Points): Reading {
+  let total = 0;
+  let count = 0;
+  for (const value of points.values) {
+    if (value === null || !Number.isFinite(value)) continue;
+    total += value;
+    count++;
+  }
+  return count === 0 ? null : total / count;
+}
+
+/** The most recent reading that is not a gap, or null when none is.
+ *
+ * What a gauge should be summarized by: it is a level, and the current level is
+ * the fact. Use `mean` for a rate. */
 export function latest(points: Points): Reading {
   for (let i = points.values.length - 1; i >= 0; i--) {
     const value = points.values[i];
