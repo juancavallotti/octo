@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Activity,
   AlertTriangle,
   Clock,
   ExternalLink,
@@ -16,6 +17,8 @@ import ReplicaStepper from "@/app/components/integrations/ReplicaStepper";
 import { DeploymentPills } from "@/app/components/integrations/DeploymentRowParts";
 import { relativeAge } from "@/app/lib/relativeAge";
 import PodLines from "./PodLines";
+import DeploymentSpark, { metricsHref } from "./DeploymentSpark";
+import type { SparkData } from "./useDeploymentStats";
 
 /**
  * One deployment in the deployments page's list (as opposed to the dashboard's
@@ -60,6 +63,7 @@ export default function DeploymentListItem({
   onScale,
   onOpenRollout,
   onOpenLogs,
+  stats,
 }: {
   deployment: DeployedTile;
   busy: boolean;
@@ -70,6 +74,8 @@ export default function DeploymentListItem({
   onOpenRollout?: (d: DeployedTile) => void;
   /** Open the dockable log panel tailing one pod of this deployment. */
   onOpenLogs?: (d: DeployedTile, podName: string) => void;
+  /** The last five minutes of CPU and memory, when this install collects them. */
+  stats?: SparkData;
 }) {
   const age = relativeAge(d.createdAt);
   const desired = d.desiredReplicas || d.replicas;
@@ -152,6 +158,8 @@ export default function DeploymentListItem({
         />
       </div>
 
+      <DeploymentSpark deploymentId={d.id} data={stats} />
+
       {/* Actions, pinned to the bottom of the card */}
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
         {onOpenRollout && (
@@ -167,6 +175,7 @@ export default function DeploymentListItem({
           </button>
         )}
         <RowAction href={logsHref(d)} icon={ScrollText} label="Logs" />
+        <RowAction href={metricsHref(d.id)} icon={Activity} label="Metrics" />
         <RowAction
           href={`/platform/integrations/i/${encodeURIComponent(d.integrationId)}`}
           icon={SlidersHorizontal}

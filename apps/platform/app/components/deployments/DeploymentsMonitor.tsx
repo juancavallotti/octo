@@ -13,6 +13,7 @@ import RolloutModal from "@/app/components/integrations/RolloutModal";
 import DeploymentListItem from "./DeploymentListItem";
 import UpgradeNotice from "./UpgradeNotice";
 import { useRollout } from "./useRollout";
+import { useDeploymentStats } from "./useDeploymentStats";
 import { needsUpgrade } from "@/app/lib/runtimeRelease";
 
 /**
@@ -108,6 +109,18 @@ export default function DeploymentsMonitor({
     [deployments],
   );
 
+  // Pod stats ride their own thirty-second cadence rather than the eight-second
+  // status poll above: five minutes of one-second samples is a hundred kilobytes
+  // across a page of cards, and none of it changes what the card says about
+  // whether the deployment is running. Only running deployments are asked about;
+  // a pending or failed one has no pod writing samples.
+  const { data: stats } = useDeploymentStats(
+    useMemo(
+      () => sorted.filter((d) => d.status === "running").map((d) => d.id),
+      [sorted],
+    ),
+  );
+
   // Which deployments a deploy made today would put on a newer runtime. Derived
   // rather than held: it is a reading of the list that has just been polled.
   const behind = useMemo(
@@ -201,6 +214,7 @@ export default function DeploymentsMonitor({
                     onOpenLogs={(dep, podName) =>
                       setLogsPod({ deploymentId: dep.id, podName })
                     }
+                    stats={stats.get(d.id)}
                   />
                 ))}
               </ul>
