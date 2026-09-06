@@ -769,6 +769,13 @@ CREATE TABLE IF NOT EXISTS alert_watches (
     on_no_data       varchar     NOT NULL DEFAULT 'ok'
                                  CHECK (on_no_data IN ('ok', 'fire', 'keep')),
 
+    -- The bucket width every one of this watch's conditions is measured in.
+    -- It lives on the watch rather than on each condition so that conditions
+    -- sharing a source and scope share a fetch: two clauses at different
+    -- resolutions could never be coalesced, and the resolution is not what
+    -- anyone is trying to vary between them — the window is, and that is a
+    -- per-condition parameter.
+    step_seconds     integer     NOT NULL DEFAULT 60,
     interval_seconds integer     NOT NULL DEFAULT 60,
     for_seconds      integer     NOT NULL DEFAULT 300,
     renotify_seconds integer     NOT NULL DEFAULT 0,
