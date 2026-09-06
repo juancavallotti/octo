@@ -73,6 +73,36 @@ stitched back into a cumulative series.
 A counter that reads lower than the previous sample means the process restarted. That is
 handled as a reset, not as a negative delta.
 
+## Seeing it in the platform
+
+Two places, and neither needs the API.
+
+Every card on **Deployments** carries the last five minutes of the deployment's CPU
+and memory: a sparkline with the current readings beside it. The two lines are
+scaled independently — cores and bytes share no axis — so the shape says whether
+something is moving and the numbers say to what. A deployment whose pods are not
+reporting simply has no sparkline, which is what an install with the sidecar
+switched off looks like.
+
+Clicking it opens that deployment's **metrics page**, which draws the same two
+metrics properly: CPU against a left axis in cores, memory against a right one in
+bytes, one line per pod, over anything from the last five minutes to the last week.
+
+Both units on one chart is deliberate. Comparing the heights of the two lines means
+nothing, but seeing that a memory climb and a CPU spike began at the same moment is
+usually the whole question.
+
+The range buttons span both tiers, and the line under the title says which one
+answered and at what resolution. That matters more than it sounds: at the default
+one-hour bucket, a day of history is twenty-four points, and without being told so a
+reader takes a coarse chart for a broken one. If the long views look too blocky, the
+fix is a smaller `rollupInterval` rather than anything in the platform.
+
+A counter is charted as growth on both tiers, so a rate reads the same whichever one
+answered. A gap in the scrape is drawn as a gap — the line breaks rather than
+dropping to zero, because a series that stopped being reported is not a series that
+measured nothing.
+
 ## Settings
 
 | Value | Default | What it does |
@@ -124,7 +154,8 @@ ages out on its own.
 
 <Callout>
 Read these back through the [pod stats routes](/docs/platform/logs-api-reference#pod-stats)
-on the telemetry service rather than from Redis directly. It does the dictionary join and
+on the telemetry service rather than from Redis directly — or through the platform,
+which is what those routes are for. It does the dictionary join and
 hands back named, labelled series — and it keeps this layout private, which matters
 because `v0` is versioned in the keys precisely so its shape can change. A later version
 writes under `v1` and the `v0` keys expire on their own.
