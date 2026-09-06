@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import AppHeader from "@/app/components/AppHeader";
 import ManagementNav from "@/app/components/ManagementNav";
 import UserMenu from "@/app/components/UserMenu";
+import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import MetricsTabs from "@/app/components/alerts/MetricsTabs";
 import WatchPage from "@/app/components/alerts/WatchPage";
 
@@ -12,6 +13,9 @@ import WatchPage from "@/app/components/alerts/WatchPage";
  * The literal id `new` opens an unsaved watch. A path segment rather than a
  * query parameter because it is a different page rather than a mode of this one,
  * and watch ids are uuids so the two cannot collide.
+ *
+ * ConfirmProvider is here because deleting a watch takes its evaluation history
+ * and every episode it recorded with it, and nothing here can be undone.
  */
 export default async function WatchRoute({
   params,
@@ -25,9 +29,11 @@ export default async function WatchRoute({
         <ManagementNav />
       </AppHeader>
       <MetricsTabs />
-      <Suspense fallback={null}>
-        <WatchPage watchId={watchId} />
-      </Suspense>
+      <ConfirmProvider>
+        <Suspense fallback={null}>
+          <WatchPage watchId={watchId} />
+        </Suspense>
+      </ConfirmProvider>
     </div>
   );
 }

@@ -185,7 +185,30 @@ func TestLabelsDescribeTheCondition(t *testing.T) {
 		Scope:  Scope{AppName: "checkout"},
 		Params: json.RawMessage(`{"op":"gt","threshold":0.05,"windowBuckets":15}`),
 	}, time.Minute)
-	if got := c.Label(); got != "error_rate gt over 15m0s, app checkout" {
+	// Trimmed rather than Go's own "15m0s": this string is read in an email
+	// subject and on an incident page, not in a log line.
+	if got := c.Label(); got != "error_rate gt over 15m, app checkout" {
 		t.Errorf("label = %q", got)
+	}
+}
+
+func TestWindowLabelReadsAsSomebodyWouldSayIt(t *testing.T) {
+	cases := []struct {
+		buckets int
+		step    time.Duration
+		want    string
+	}{
+		{15, time.Minute, "15m"},
+		{1, time.Minute, "1m"},
+		{60, time.Minute, "1h"},
+		{2, time.Hour, "2h"},
+		// A width that is neither falls back to Go's rendering rather than
+		// inventing a unit.
+		{3, 90 * time.Second, "4m30s"},
+	}
+	for _, c := range cases {
+		if got := windowLabel(c.buckets, c.step); got != c.want {
+			t.Errorf("windowLabel(%d, %s) = %q, want %q", c.buckets, c.step, got, c.want)
+		}
 	}
 }

@@ -201,8 +201,19 @@ func decodeParams(raw json.RawMessage, into any) error {
 }
 
 // windowLabel renders a bucket count as the duration a human wrote.
+//
+// Trimmed, because Go's own rendering says "15m0s" and this string is read in an
+// email subject and on an incident page rather than in a log line.
 func windowLabel(buckets int, step time.Duration) string {
-	return (time.Duration(buckets) * step).String()
+	d := time.Duration(buckets) * step
+	switch {
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return d.String()
+	}
 }
 
 // scopeLabel names what a condition was narrowed to, for the sentence an incident
