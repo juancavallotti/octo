@@ -81,14 +81,19 @@ orchestrator:
     enabled: true
     # An hour is the shipped default, and it makes the history tier invisible for
     # a whole working session: no bucket closes, so the platform's 24h and 7d
-    # views are empty and there is no way to tell that from a bug. Two minutes
-    # makes both tiers observable in the time it takes to look — 120 live samples
-    # in the bucket in progress, and closed buckets accumulating behind it.
+    # views are empty and there is no way to tell that from a bug.
     #
-    # The cost of the shorter bucket is more rows, and it is nothing: 2h of
-    # 2-minute buckets is 60 per pod against the default's 168.
-    rollupInterval: 2m
-    retention: 2h
+    # Ten minutes rather than something shorter, because the live tier holds
+    # exactly one bucket: its reach is rollupInterval / sampleInterval seconds,
+    # so a two-minute bucket gives a two-minute live tier and every view from
+    # five minutes up falls back to collapsed rows. Ten minutes leaves 600 live
+    # samples — enough for the short views to be answered at full resolution —
+    # while still closing a bucket inside a session.
+    rollupInterval: 10m
+    # A day of ten-minute buckets is 144 rows per pod. The cost of history here
+    # is nothing; the reason to keep it short is that a laptop cluster is rebuilt
+    # often enough that a week of it would never fill.
+    retention: 24h
 
 logs:
   repository: octo-logs

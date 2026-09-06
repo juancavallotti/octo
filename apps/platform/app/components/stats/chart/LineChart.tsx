@@ -16,7 +16,7 @@ import { formatClock, shortPod } from "./format";
 import { formatCores, type Points } from "./metrics";
 import { toRows, type Column } from "./rows";
 import { binaryStep, extent, plotExtent, ticks, timeTicks, unionExtent } from "./scale";
-import { AXIS, CPU_COLOR, GRID, LINE, MEM_COLOR } from "./theme";
+import { AXIS, CPU_COLOR, dotFor, GRID, LINE, MEM_COLOR } from "./theme";
 
 /**
  * CPU and memory for one deployment's pods, on one chart with two axes.
@@ -127,6 +127,7 @@ export default function LineChart({
               stroke={MEM_COLOR}
               strokeDasharray={DASHES[i % DASHES.length]}
               {...LINE}
+              dot={dotFor(rows.length)}
             />
           ))}
           {cpu.map((s, i) => (
@@ -138,6 +139,7 @@ export default function LineChart({
               stroke={CPU_COLOR}
               strokeDasharray={DASHES[i % DASHES.length]}
               {...LINE}
+              dot={dotFor(rows.length)}
             />
           ))}
         </RechartsLineChart>

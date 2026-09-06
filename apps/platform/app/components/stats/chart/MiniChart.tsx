@@ -12,7 +12,7 @@ import {
 import ChartTooltip from "./ChartTooltip";
 import { downsample, extent, plotExtent, ticks, binaryStep, unionExtent, type Reading } from "./scale";
 import { toRows, type Column } from "./rows";
-import { AXIS, GRID, LINE, seriesColor } from "./theme";
+import { AXIS, dotFor, GRID, LINE, seriesColor } from "./theme";
 
 /**
  * One metric, small, on a single axis.
@@ -101,6 +101,7 @@ export default function MiniChart({
               stroke={seriesColor(crowded ? 0 : i)}
               strokeOpacity={crowded ? 0.45 : 1}
               {...LINE}
+              dot={crowded ? false : dotFor(rows.length)}
               strokeWidth={crowded ? 0.75 : 1.25}
             />
           ))}

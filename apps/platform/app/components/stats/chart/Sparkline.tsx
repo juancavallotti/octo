@@ -3,7 +3,7 @@
 import { Line, LineChart, ResponsiveContainer, YAxis } from "recharts";
 import { extent } from "./scale";
 import { toRows, type Column } from "./rows";
-import { CPU_COLOR, LINE, MEM_COLOR } from "./theme";
+import { CPU_COLOR, dotFor, LINE, MEM_COLOR } from "./theme";
 import type { Points } from "./metrics";
 
 /**
@@ -48,9 +48,9 @@ export default function Sparkline({
           <YAxis yAxisId="cpu" hide domain={band(cpu)} />
           <YAxis yAxisId="mem" hide domain={band(memory)} />
           <Line yAxisId="mem" dataKey="mem" stroke={MEM_COLOR} strokeOpacity={0.7}
-                {...LINE} strokeWidth={1.25} activeDot={false} />
+                {...LINE} strokeWidth={1.25} activeDot={false} dot={dotFor(rows.length)} />
           <Line yAxisId="cpu" dataKey="cpu" stroke={CPU_COLOR}
-                {...LINE} strokeWidth={1.25} activeDot={false} />
+                {...LINE} strokeWidth={1.25} activeDot={false} dot={dotFor(rows.length)} />
         </LineChart>
       </ResponsiveContainer>
     </div>
