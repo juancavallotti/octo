@@ -36,6 +36,9 @@
             },
             "api.retentionPolicyResponse": {
                 "properties": {
+                    "alerts_days": {
+                        "type": "integer"
+                    },
                     "logs_days": {
                         "type": "integer"
                     },
@@ -50,6 +53,15 @@
             },
             "api.retentionRunResponse": {
                 "properties": {
+                    "alert_evaluations_deleted": {
+                        "type": "integer"
+                    },
+                    "alert_incidents_deleted": {
+                        "type": "integer"
+                    },
+                    "alerts_cutoff": {
+                        "type": "string"
+                    },
                     "duration_ms": {
                         "type": "integer"
                     },
@@ -73,6 +85,10 @@
             },
             "api.retentionUpdateRequest": {
                 "properties": {
+                    "alerts_days": {
+                        "description": "AlertsDays is a pointer on the same terms as the other two, and for a\nsharper reason: this axis has a non-zero default, so an omitted field\ndecoding to zero would silently switch alert-history pruning off — the\ndirection that grows a table nobody is looking at.",
+                        "type": "integer"
+                    },
                     "logs_days": {
                         "type": "integer"
                     },
@@ -1025,7 +1041,7 @@
         },
         "/settings/retention": {
             "get": {
-                "description": "How many days of log events and of traces this installation keeps. Zero on\nan axis means keep forever, which is the default — an installation that has\nnever configured retention reads back as zeros rather than as an error.",
+                "description": "How many days of log events, of traces, and of alerting history this\ninstallation keeps. Zero on an axis means keep forever. Logs and traces\ndefault to zero; the alerting history defaults to 14 days, because an\nevaluation log is diagnostic rather than evidence and its volume does not\ndepend on anything happening.",
                 "responses": {
                     "200": {
                         "content": {
@@ -1054,7 +1070,7 @@
                 ]
             },
             "put": {
-                "description": "Both windows are supplied on every save. Zero keeps that stream forever;\nthe maximum is 3650 days. Saving does not delete anything — the sweep runs\nnightly, or on demand through POST /retention/run.",
+                "description": "All three windows are supplied on every save. Zero keeps that stream\nforever; the maximum is 3650 days. Saving does not delete anything — the\nsweep runs nightly, or on demand through POST /retention/run.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -1066,13 +1082,13 @@
                                     {
                                         "$ref": "#/components/schemas/api.retentionUpdateRequest",
                                         "summary": "body",
-                                        "description": "The two retention windows, in days. Both are required"
+                                        "description": "The three retention windows, in days. All are required"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "The two retention windows, in days. Both are required",
+                    "description": "The three retention windows, in days. All are required",
                     "required": true
                 },
                 "responses": {

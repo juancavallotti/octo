@@ -21,18 +21,27 @@ export interface RetentionPolicy {
   logsDays: number;
   /** Days of traces kept, on its own axis. Zero means forever. */
   tracesDays: number;
+  /**
+   * Days of alerting history kept — evaluations, and the episodes that have
+   * closed. Zero means forever here too, but unlike the other two it is not the
+   * default: an installation that has never configured retention reads back 14,
+   * because a watch writes an evaluation row every time it runs whether or not
+   * anything happened.
+   */
+  alertsDays: number;
   /** RFC3339 timestamp of the last save; null if never configured. */
   updatedAt: string | null;
 }
 
 /**
- * One save. Both windows go on every request: the aggregator refuses a partial
+ * One save. Every window goes on every request: the aggregator refuses a partial
  * policy, because an omitted field would be indistinguishable from a request to
  * keep that stream forever.
  */
 export interface RetentionPolicyInput {
   logsDays: number;
   tracesDays: number;
+  alertsDays: number;
 }
 
 /** What one sweep deleted. */
@@ -49,6 +58,10 @@ export interface RetentionRun {
    */
   logsCutoff: string | null;
   tracesCutoff: string | null;
+  /** Evaluation rows removed, and separately the closed episodes. */
+  alertEvaluationsDeleted: number;
+  alertIncidentsDeleted: number;
+  alertsCutoff: string | null;
   durationMs: number;
 }
 
@@ -57,7 +70,7 @@ export async function getRetention(): Promise<RetentionPolicy> {
   return unwrap(await actions.getRetention());
 }
 
-/** Save the policy. Both windows are sent on every save. */
+/** Save the policy. Every window is sent on every save. */
 export async function saveRetention(
   input: RetentionPolicyInput,
 ): Promise<RetentionPolicy> {

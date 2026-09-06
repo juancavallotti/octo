@@ -60,6 +60,7 @@ func (h *RetentionHandler) Register(mux *http.ServeMux) {
 type retentionPolicyResponse struct {
 	LogsDays   int        `json:"logs_days"`
 	TracesDays int        `json:"traces_days"`
+	AlertsDays int        `json:"alerts_days"`
 	UpdatedAt  *time.Time `json:"updated_at"`
 }
 
@@ -74,24 +75,33 @@ type retentionPolicyResponse struct {
 type retentionUpdateRequest struct {
 	LogsDays   *int `json:"logs_days"`
 	TracesDays *int `json:"traces_days"`
+	// AlertsDays is a pointer on the same terms as the other two, and for a
+	// sharper reason: this axis has a non-zero default, so an omitted field
+	// decoding to zero would silently switch alert-history pruning off — the
+	// direction that grows a table nobody is looking at.
+	AlertsDays *int `json:"alerts_days"`
 }
 
 // retentionRunResponse reports what a sweep deleted. A cutoff is null for an axis
 // set to keep everything, which is what distinguishes a zero count that means
 // "nothing was asked for" from one that means "nothing had expired".
 type retentionRunResponse struct {
-	LogsDeleted           int64      `json:"logs_deleted"`
-	TracesDeleted         int64      `json:"traces_deleted"`
-	TraceSummariesDeleted int64      `json:"trace_summaries_deleted"`
-	LogsCutoff            *time.Time `json:"logs_cutoff"`
-	TracesCutoff          *time.Time `json:"traces_cutoff"`
-	DurationMs            int64      `json:"duration_ms"`
+	LogsDeleted             int64      `json:"logs_deleted"`
+	TracesDeleted           int64      `json:"traces_deleted"`
+	TraceSummariesDeleted   int64      `json:"trace_summaries_deleted"`
+	AlertEvaluationsDeleted int64      `json:"alert_evaluations_deleted"`
+	AlertIncidentsDeleted   int64      `json:"alert_incidents_deleted"`
+	LogsCutoff              *time.Time `json:"logs_cutoff"`
+	TracesCutoff            *time.Time `json:"traces_cutoff"`
+	AlertsCutoff            *time.Time `json:"alerts_cutoff"`
+	DurationMs              int64      `json:"duration_ms"`
 }
 
 func toPolicyResponse(p retention.Policy) retentionPolicyResponse {
 	return retentionPolicyResponse{
 		LogsDays:   p.LogsDays,
 		TracesDays: p.TracesDays,
+		AlertsDays: p.AlertsDays,
 		UpdatedAt:  p.UpdatedAt,
 	}
 }
@@ -99,9 +109,11 @@ func toPolicyResponse(p retention.Policy) retentionPolicyResponse {
 // get returns the stored policy.
 //
 //	@Summary		Get the data-retention policy
-//	@Description	How many days of log events and of traces this installation keeps. Zero on
-//	@Description	an axis means keep forever, which is the default — an installation that has
-//	@Description	never configured retention reads back as zeros rather than as an error.
+//	@Description	How many days of log events, of traces, and of alerting history this
+//	@Description	installation keeps. Zero on an axis means keep forever. Logs and traces
+//	@Description	default to zero; the alerting history defaults to 14 days, because an
+//	@Description	evaluation log is diagnostic rather than evidence and its volume does not
+//	@Description	depend on anything happening.
 //	@Tags			retention
 //	@Produce		json
 //	@Success		200	{object}	retentionPolicyResponse
@@ -123,13 +135,13 @@ func (h *RetentionHandler) get(w http.ResponseWriter, r *http.Request) {
 // update stores the policy.
 //
 //	@Summary		Save the data-retention policy
-//	@Description	Both windows are supplied on every save. Zero keeps that stream forever;
-//	@Description	the maximum is 3650 days. Saving does not delete anything — the sweep runs
-//	@Description	nightly, or on demand through POST /retention/run.
+//	@Description	All three windows are supplied on every save. Zero keeps that stream
+//	@Description	forever; the maximum is 3650 days. Saving does not delete anything — the
+//	@Description	sweep runs nightly, or on demand through POST /retention/run.
 //	@Tags			retention
 //	@Accept			json
 //	@Produce		json
-//	@Param			body	body		retentionUpdateRequest	true	"The two retention windows, in days. Both are required"
+//	@Param			body	body		retentionUpdateRequest	true	"The three retention windows, in days. All are required"
 //	@Success		200		{object}	retentionPolicyResponse
 //	@Failure		400		{object}	httpx.ErrorResponse	"a window is missing, negative, or beyond 3650 days"
 //	@Failure		500		{object}	httpx.ErrorResponse
@@ -144,9 +156,9 @@ func (h *RetentionHandler) update(w http.ResponseWriter, r *http.Request) {
 	// a partial update — it is a request to set the other one to zero, which means
 	// keep that stream forever. Refusing is the only reading that cannot silently
 	// switch retention off for the stream nobody mentioned.
-	if req.LogsDays == nil || req.TracesDays == nil {
+	if req.LogsDays == nil || req.TracesDays == nil || req.AlertsDays == nil {
 		httpx.WriteError(w, http.StatusBadRequest,
-			"logs_days and traces_days are both required (0 keeps everything)")
+			"logs_days, traces_days and alerts_days are all required (0 keeps everything)")
 		return
 	}
 
@@ -156,6 +168,7 @@ func (h *RetentionHandler) update(w http.ResponseWriter, r *http.Request) {
 	policy, err := h.svc.Update(ctx, retention.Update{
 		LogsDays:   *req.LogsDays,
 		TracesDays: *req.TracesDays,
+		AlertsDays: *req.AlertsDays,
 	})
 	if err != nil {
 		if errors.Is(err, retention.ErrInvalidDays) {
@@ -203,11 +216,14 @@ func (h *RetentionHandler) run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, retentionRunResponse{
-		LogsDeleted:           result.LogsDeleted,
-		TracesDeleted:         result.TracesDeleted,
-		TraceSummariesDeleted: result.TraceSummariesDeleted,
-		LogsCutoff:            result.LogsCutoff,
-		TracesCutoff:          result.TracesCutoff,
-		DurationMs:            result.Duration.Milliseconds(),
+		LogsDeleted:             result.LogsDeleted,
+		TracesDeleted:           result.TracesDeleted,
+		TraceSummariesDeleted:   result.TraceSummariesDeleted,
+		AlertEvaluationsDeleted: result.AlertEvaluationsDeleted,
+		AlertIncidentsDeleted:   result.AlertIncidentsDeleted,
+		LogsCutoff:              result.LogsCutoff,
+		TracesCutoff:            result.TracesCutoff,
+		AlertsCutoff:            result.AlertsCutoff,
+		DurationMs:              result.Duration.Milliseconds(),
 	})
 }
