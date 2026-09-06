@@ -32,15 +32,20 @@ type Scope struct {
 // key renders the scope into something comparable, for coalescing. Sorted,
 // because two scopes that differ only in the order somebody typed their log
 // levels are the same scope and must share one fetch.
+//
+// Every value is quoted rather than concatenated raw. The fields are
+// operator-supplied — an app name, a log search, a label — and a separator
+// character inside one would let two different scopes render the same key, which
+// coalesces two fetches into one and answers a condition with another's rows.
+// That is a wrong number rather than a slow one, so it is worth the escaping.
 func (s Scope) key() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s|%s|%s|%s|", s.DeploymentID, s.IntegrationID, s.AppName, s.AppVersion)
-	b.WriteString(strings.Join(sorted(s.Levels), ",") + "|" + s.Search + "|")
-	b.WriteString(strings.Join(sorted(s.Pods), ",") + "|")
+	fmt.Fprintf(&b, "%q|%q|%q|%q|", s.DeploymentID, s.IntegrationID, s.AppName, s.AppVersion)
+	fmt.Fprintf(&b, "%q|%q|%q|", sorted(s.Levels), s.Search, sorted(s.Pods))
 	for _, k := range sortedKeys(s.Labels) {
-		b.WriteString(k + "=" + s.Labels[k] + ";")
+		fmt.Fprintf(&b, "%q=%q;", k, s.Labels[k])
 	}
-	b.WriteString("|" + string(s.Across))
+	fmt.Fprintf(&b, "|%q", s.Across)
 	return b.String()
 }
 

@@ -902,6 +902,15 @@ CREATE INDEX IF NOT EXISTS idx_alert_incidents_open
 -- answered. It is not the same as an error: under `any`, a sibling that is
 -- genuinely true still fires, and the row should say that it did so while blind in
 -- one eye.
+-- `incident_id` carries no foreign key, deliberately. Neither available action
+-- is right: ON DELETE RESTRICT would fire during the cascade that deletes a
+-- watch, since the order in which Postgres removes a watch's evaluations and its
+-- incidents is not something this schema gets to choose; ON DELETE CASCADE would
+-- let the retention sweep take evaluations that are still inside their own window
+-- along with the closed episode they mention. Referential integrity is instead a
+-- property of how the two are pruned: an evaluation attached to an episode always
+-- precedes that episode's resolution, so an incident old enough to prune has no
+-- evaluation younger than the same cutoff.
 CREATE TABLE IF NOT EXISTS alert_evaluations (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     watch_id        uuid        NOT NULL REFERENCES alert_watches (id) ON DELETE CASCADE,

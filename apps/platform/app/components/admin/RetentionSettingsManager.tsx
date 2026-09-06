@@ -149,8 +149,10 @@ export default function RetentionSettingsManager() {
       <div className="mx-auto w-full max-w-2xl">
         <h1 className="text-lg font-semibold">Data retention</h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          How long this installation keeps stored logs and traces. A job
-          enforces this nightly; nothing is deleted until you set a window.
+          How long this installation keeps stored logs, traces and alerting
+          history. A job enforces this nightly. Logs and traces are kept until
+          you set a window; alerting history has one by default, because a watch
+          records an evaluation every time it runs.
         </p>
 
         {/* Live regions, because every one of these appears after an await
@@ -225,7 +227,7 @@ export default function RetentionSettingsManager() {
           )}
           {!dirty && policy !== null && !sweeps && (
             <p className="text-xs text-zinc-500">
-              Nothing to delete: both streams are set to be kept forever.
+              Nothing to delete: every stream is set to be kept forever.
             </p>
           )}
         </div>

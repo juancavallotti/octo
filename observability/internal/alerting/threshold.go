@@ -139,6 +139,13 @@ func (c *thresholdCondition) evaluateRatio(s Series, from, to int, out Outcome) 
 		out.NoData = true
 		return out.finish(Unknown, ReasonNoData)
 	}
+	if len(numerators) < c.params.MinSamples {
+		// The same gate the non-ratio path applies, and it is not redundant with
+		// the denominator floor below: a window can carry plenty of trials in one
+		// surviving bucket while the rest of it never reported, which is a rate
+		// measured over a moment rather than over the window somebody asked for.
+		return out.finish(Unknown, ReasonFewSamples)
+	}
 	var numerator float64
 	for _, v := range numerators {
 		numerator += v
