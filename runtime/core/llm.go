@@ -11,8 +11,8 @@ import (
 // to and from their SDK types.
 //
 // The interface lives in core (not a connector package) on purpose: the AI
-// composites are built by the flow builder in core/internal/engine, and core
-// cannot import the connector packages without a cycle. So an AI element resolves
+// blocks in runtime/blocks/ai bind to whatever provider a flow names, and must
+// not import any one provider's package. So an AI element resolves
 // a connector by name through BlockDeps.Connector and type-asserts the result to
 // LLMClient — the interface, not a concrete connector type. This is the
 // deliberate divergence from the concrete-type assertion other blocks use (e.g.

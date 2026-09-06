@@ -96,11 +96,10 @@ func TestServiceRunsFlowWithFork(t *testing.T) {
 			Process: []types.BlockConfig{{
 				Type: "fork",
 				Name: "scatter",
-				Branches: []types.FlowConfig{
+				Settings: types.Settings{"branches": []types.FlowConfig{
 					{Name: "a", Process: []types.BlockConfig{{Type: "e2e.pass"}}},
 					{Name: "b", Process: []types.BlockConfig{{Type: "e2e.pass"}}},
-				},
-			}},
+				}}}},
 		}},
 	}
 

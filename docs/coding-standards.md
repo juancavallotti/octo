@@ -9,8 +9,11 @@ cannot follow a rule, document the reason in the code or the pull request.
 - Keep `types` dependency-free.
 - Keep `core` focused on the public runtime contracts and registries — the thin,
   dependency-light surface connectors, processors, and the runtime build against.
-- Keep the pipeline implementation (flow builder, composites, setters, worker pool)
-  under `core/internal/*` so it stays un-importable across module boundaries.
+- Keep the flow runner (builder, continuations, block addresses) in `core/engine`
+  and the worker pool under `core/internal/pool`. The engine owns no block.
+- Keep the first-party blocks under `runtime/blocks/<family>`, registered through
+  the same seam a connector's blocks use; a block with sub-flow slots builds them
+  through `core.BlockDeps.SubFlows`, never by reaching into the engine.
 - Keep orchestration and config loading in `core/runtime` (the application layer
   that wires connectors and flows into a running service).
 - Keep connectors and processors isolated and self-registering.

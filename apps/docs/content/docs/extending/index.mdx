@@ -22,7 +22,7 @@ The runtime has exactly two, and that is deliberate. Someone asking "how do I ad
 Both use package-level registration (`init`) and binary wiring via blank imports in `runtime/octo/main.go`, but they are selected differently: service **providers** are module-selected by `RUNTIME_SERVICES_MODULE`, while **hosted** services run whenever they are compiled in and blank-imported. Nothing is discovered by scanning, and nothing is configured by file path.
 
 <Callout type="warn">
-New capability goes into one of these two, or into the engine. Not into a third registry — a parallel seam is always locally reasonable and always leaves the next person one more place to look.
+New capability goes into one of these two, or — for a block that belongs to no connector — under `runtime/blocks`, registered through the same block seam a connector uses. Not into a third registry: a parallel seam is always locally reasonable and always leaves the next person one more place to look.
 </Callout>
 
 ## Choosing
@@ -36,14 +36,15 @@ Does a flow author reference it by name in YAML?
    ├─ Does it run for the life of the process with
    │  its own CLI flags?                                → a hosted service
    ├─ Does it only need to watch what flows do?         → the event seams
-   └─ Does it need to run a nested sub-flow?            → the engine
+   └─ Is it a block that owns no resource, and binds to
+      any provider through a shared interface?          → runtime/blocks
 ```
 
-The last two are not extension points, and both are worth knowing about because they are where a lot of "I need to extend Octo" questions actually land:
+Two things that used to look like extension points are worth knowing about, because they are where a lot of "I need to extend Octo" questions actually land:
 
 **The event seams.** `core.EventBus` (one event per message, per flow) and `core.BlockEvents` (one pair per block invocation) let you observe the runtime without registering anything into it. Subscribing is not extending: nothing you attach changes what a flow does, and there is no name to collide with. Reach for these first when the requirement is "know what happened" — see [Monitoring](/runtime/monitoring#block-events). The [observability service](/runtime/observability) is built entirely on them and registers no connector and no block.
 
-**The engine.** Composite blocks — anything with an inline sub-flow slot, like `fork`, `foreach`, `if`, `cache-scope` and the `ai-*` family — need the flow builder, which is internal to the engine. A connector package can only register **leaf** blocks. A block that wants to run a nested chain is an engine change.
+**Blocks with sub-flows.** A block that runs nested chains — `fork`, `foreach`, `if`, `cache-scope`, the `ai-*` family — is an ordinary registered block. Its sub-flows are fields of its settings struct, and it builds them through `core.BlockDeps.SubFlows`, the seam the engine hands every block factory. A connector package can register one too; see [Blocks with sub-flows](/extending/connectors#blocks-with-sub-flows). The engine itself owns no block: it is the flow runner, and the only processors it builds directly are the debug wrappers the CLI injects.
 
 ## Not extension points
 

@@ -237,9 +237,10 @@ four base fields:
 Notion and Slack blocks, …) use only these four fields; everything else goes
 under `settings`.
 
-**Composite blocks** additionally use typed *top-level* keys — slots — that
-hold expressions or sub-flows. Slots sit on the block entry itself, **not**
-under `settings`:
+**Composite blocks** additionally use *top-level* keys — slots — that hold
+expressions or sub-flows. By convention slots sit on the block entry itself
+rather than under `settings`; the runtime folds the two together, so either
+spelling decodes the same way, and a key given in both places is an error:
 
 ```yaml
 - type: if
@@ -258,9 +259,10 @@ The full slot vocabulary is: `process`, `error`, `branches`, `condition`,
 `prompt`, `guardrail`, `routes`, `tools`, `skills`, `maxIterations`,
 `maxAttempts`, `serverName`, `resources`, `prompts`, `memoryThreadId`,
 `contextMaxTokens`, `memoryCompaction`. Each composite accepts only its own
-slots, and a leaf block may declare none — either mistake fails the build with
-a precise error (e.g. `block "log" is a leaf and must not declare composite
-slots [condition]`).
+slots: a key it does not declare fails the build (e.g.
+`block "if": decode settings: json: unknown field "thne"`). A leaf block
+reads only the settings it declares, so a slot written on one is ignored
+rather than refused.
 
 ### Sub-flows
 

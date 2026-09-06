@@ -47,8 +47,8 @@ func TestInjectMockReplacesTheTarget(t *testing.T) {
 	if address, _ := got.Settings.String("address"); address != addr {
 		t.Errorf("mock address = %q, want %q", address, addr)
 	}
-	if len(got.Process) != 0 {
-		t.Errorf("the mock must not keep the block it replaced, got %+v", got.Process)
+	if inner := wrapped(t, got); len(inner) != 0 {
+		t.Errorf("the mock must not keep the block it replaced, got %+v", inner)
 	}
 }
 
@@ -66,8 +66,8 @@ func TestInjectMockOnACompositeRemovesItsSubtree(t *testing.T) {
 	if fork.Type != mockBlockType {
 		t.Fatalf("the fork was not replaced: %+v", fork)
 	}
-	if len(fork.Branches) != 0 {
-		t.Errorf("the mocked fork still carries %d branches: the sub-tree must be gone", len(fork.Branches))
+	if branches, ok := fork.Settings["branches"]; ok {
+		t.Errorf("the mocked fork still carries branches: the sub-tree must be gone: %v", branches)
 	}
 }
 
@@ -91,14 +91,14 @@ func TestApplyDebugNestsMockInsideSpyInsideBreakpoint(t *testing.T) {
 
 	// breakpoint[ spy[ mock ] ]
 	outer := s.config.Flows[0].Process[0]
-	if outer.Type != breakpointBlockType || len(outer.Process) != 1 {
+	if outer.Type != breakpointBlockType || len(wrapped(t, outer)) != 1 {
 		t.Fatalf("outermost block = %+v, want the breakpoint wrapping one block", outer)
 	}
-	middle := outer.Process[0]
-	if middle.Type != spyBlockType || len(middle.Process) != 1 {
+	middle := wrapped(t, outer)[0]
+	if middle.Type != spyBlockType || len(wrapped(t, middle)) != 1 {
 		t.Fatalf("middle block = %+v, want the spy wrapping one block", middle)
 	}
-	inner := middle.Process[0]
+	inner := wrapped(t, middle)[0]
 	if inner.Type != mockBlockType {
 		t.Fatalf("innermost block = %q, want the mock", inner.Type)
 	}

@@ -16,7 +16,7 @@ import (
 // very block that emitted it.
 //
 // The two derivations meet here for the first time: the builder mints paths on the
-// way down (core/internal/engine), and resolveTarget walks them back down the
+// way down (core/engine), and rewriteTarget walks them back down the
 // config. Asserting a hand-written list of strings would only pin the minting; this
 // pins the pair, and it fails the day a composite grows a branch slot the builder
 // descends through without naming.
@@ -73,7 +73,7 @@ func TestBlockPathsResolveToTheBlockThatEmittedThem(t *testing.T) {
 			// resolveTarget selects by name, then type, then ref — the same
 			// precedence the path was minted with, so the block it lands on must be
 			// the one whose label closes the address.
-			if got := blockLabel(*block); !hasSuffix(path, "."+got) {
+			if got := blockLabel(block); !hasSuffix(path, "."+got) {
 				t.Fatalf("path %q resolved to block %q", path, got)
 			}
 		})
@@ -142,43 +142,32 @@ func everyBranchConfig() types.Config {
 					{
 						// work fails, so both of the block's chains run.
 						Type: "handle-errors", Name: "guard",
-						Process: []types.BlockConfig{failing("work")},
-						Error:   []types.BlockConfig{leaf("recover")},
-					},
-					{Type: "if", Name: "check", Condition: "true", Then: chain("on-true")},
+						Settings: types.Settings{"process": []types.BlockConfig{failing("work")}, "error": []types.BlockConfig{leaf("recover")}}},
+					{Type: "if", Name: "check", Settings: types.Settings{"condition": "true", "then": chain("on-true")}},
 					{
-						Type: "if", Name: "check-else", Condition: "false",
-						Then: chain("never"), Else: chain("on-false"),
-					},
+						Type: "if", Name: "check-else",
+						Settings: types.Settings{"condition": "false", "then": chain("never"), "else": chain("on-false")}},
 					{
 						Type: "switch", Name: "pick",
-						Cases: []types.CaseConfig{{
-							When: "true",
-							Flow: types.FlowConfig{Name: "premium", Process: []types.BlockConfig{leaf("vip")}},
-						}},
-					},
+						Settings: types.Settings{"cases": []map[string]any{{"when": "true", "name": "premium", "process": []types.BlockConfig{leaf("vip")}}}}},
 					{
 						Type: "switch", Name: "pick-default",
-						Cases: []types.CaseConfig{{
-							When: "false",
-							Flow: types.FlowConfig{Name: "unmatched", Process: []types.BlockConfig{leaf("never")}},
-						}},
-						Default: chain("standard"),
-					},
+						Settings: types.Settings{"cases": []map[string]any{{"when": "false", "name": "unmatched", "process": []types.BlockConfig{leaf("never")}}}, "default": chain("standard")}},
 					{
 						Type: "fork", Name: "fanout",
-						Branches: []types.FlowConfig{
+						Settings: types.Settings{"branches": []types.FlowConfig{
 							{Name: "audit", Process: []types.BlockConfig{leaf("watch")}},
 							{Process: []types.BlockConfig{leaf("second")}},
-						},
-					},
-					{Type: "enrich", Name: "lookup", Body: chain("fetch")},
-					{Type: "foreach", Name: "each", Items: "body.items", As: "item", Body: chain("step")},
+						}}},
+					{Type: "enrich", Name: "lookup", Settings: types.Settings{"body": chain("fetch")}},
+					{Type: "foreach", Name: "each", Settings: types.Settings{"items": "body.items", "as": "item", "body": chain("step")}},
 					// Last in the chain: a rejected validate stops the flow.
 					{
 						Type: "validate", Name: "gate",
-						Rules:    []types.RuleConfig{{Expr: "false", Message: "always rejects"}},
-						OnReject: chain("reject"),
+						Settings: types.Settings{
+							"rules":    []map[string]any{{"expr": "false", "message": "always rejects"}},
+							"onReject": chain("reject"),
+						},
 					},
 				},
 			},

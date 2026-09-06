@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/juancavallotti/octo/runtime/core"
-	"github.com/juancavallotti/octo/runtime/core/internal/engine"
+	"github.com/juancavallotti/octo/runtime/core/engine"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
 	"github.com/juancavallotti/octo/runtime/types"
 )

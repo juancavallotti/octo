@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -40,3 +41,20 @@ func (s Settings) Bool(key string) (bool, bool) { return Variables(s).Bool(key) 
 
 // Float reads key as a float64.
 func (s Settings) Float(key string) (float64, bool) { return Variables(s).Float(key) }
+
+// DecodeStrict is Decode for a component that owns every key it is given: a key
+// the target struct does not declare is an error. It is what a block with
+// sub-flow slots wants, because a misspelled slot would otherwise be a chain that
+// silently never runs.
+func (s Settings) DecodeStrict(target any) error {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return fmt.Errorf("encode settings: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(target); err != nil {
+		return fmt.Errorf("decode settings: %w", err)
+	}
+	return nil
+}

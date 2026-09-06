@@ -12,12 +12,7 @@ const breakpointBlockType = "breakpoint"
 // It mutates cfg in place — see resolveTarget for why that is safe. Call it exactly
 // once per config.
 func injectBreakpoint(cfg *types.Config, addr string) error {
-	target, err := resolveTarget(cfg, breakpointBlockType, addr)
-	if err != nil {
-		return err
-	}
-	*target = wrapInBreakpoint(*target)
-	return nil
+	return rewriteTarget(cfg, breakpointBlockType, addr, wrapInBreakpoint)
 }
 
 // wrapInBreakpoint returns the breakpoint block that wraps target. The wrapper
@@ -25,8 +20,8 @@ func injectBreakpoint(cfg *types.Config, addr string) error {
 // would have been without the breakpoint.
 func wrapInBreakpoint(target types.BlockConfig) types.BlockConfig {
 	return types.BlockConfig{
-		Type:    breakpointBlockType,
-		Name:    blockLabel(target),
-		Process: []types.BlockConfig{target},
+		Type:     breakpointBlockType,
+		Name:     blockLabel(target),
+		Settings: types.Settings{"process": []types.BlockConfig{target}},
 	}
 }

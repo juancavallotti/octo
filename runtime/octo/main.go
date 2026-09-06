@@ -8,6 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	_ "github.com/juancavallotti/octo/runtime/blocks/ai"          // registers the ai-* blocks and the mcp-router
+	_ "github.com/juancavallotti/octo/runtime/blocks/builtin"     // registers the setters, object store, template and flow-ref blocks
+	_ "github.com/juancavallotti/octo/runtime/blocks/cli"         // registers the "cli-run" block
+	_ "github.com/juancavallotti/octo/runtime/blocks/controlflow" // registers if, switch, foreach, fork, handle-errors, enrich, validate, cache-scope, split, aggregate
 	_ "github.com/juancavallotti/octo/runtime/connectors/cron"
 	_ "github.com/juancavallotti/octo/runtime/connectors/database" // registers the "database" connector and "sql" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/events"   // registers the "events" connector + source and the "publish-event" block

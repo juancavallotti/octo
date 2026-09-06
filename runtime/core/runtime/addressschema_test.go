@@ -7,54 +7,54 @@ import (
 	"github.com/juancavallotti/octo/runtime/core/schema"
 )
 
-// listSlots are the block-config slots holding a list of sub-flows, each addressed
-// by its member's own name or index. They mirror what listMembers flattens; the
-// schema names the slot, the resolver walks it, and this is where the two meet.
-var listSlots = map[string]bool{
-	"branches": true, "cases": true, "routes": true, "tools": true,
-}
-
-// The schema's addressBranches and the resolver's branch table are two derivations
-// of the same fact — which chains a composite exposes to an address. The schema
-// reads the octo slot tags; the resolver reads the block config. This pins them
-// together, so renaming a slot on one side cannot silently leave the other (and the
-// agents reading the schema) addressing a branch that no longer resolves.
-func TestSchemaAddressBranchesMatchResolver(t *testing.T) {
+// The resolver has no branch table of its own: it descends through a block by
+// reading the block's schema, the same derivation the generated capabilities
+// carry. This pins the one thing that can still drift — that every composite the
+// runtime ships publishes branches, so an address can reach inside it — and that
+// the resolver's lookup agrees with the generated catalogue block for block.
+func TestSchemaAddressBranchesReachTheResolver(t *testing.T) {
 	caps, err := schema.Generate(core.DefaultSchemaRegistry())
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	claimed := make(map[string]bool)
 	composites := 0
 	for _, block := range caps.Blocks {
+		got, err := schema.Branches(core.DefaultSchemaRegistry(), block.Type)
+		if err != nil {
+			t.Fatalf("Branches(%q): %v", block.Type, err)
+		}
 		if block.AddressBranches == nil {
+			if got != nil {
+				t.Errorf("block %q: the resolver sees branches %v the catalogue does not publish", block.Type, got)
+			}
 			continue
 		}
 		composites++
-		for _, name := range block.AddressBranches.Named {
-			if _, ok := reservedBranches[name]; !ok {
-				t.Errorf("block %q publishes branch %q, which the resolver cannot descend into",
-					block.Type, name)
-			}
-			claimed[name] = true
+		if got == nil {
+			t.Errorf("block %q publishes branches the resolver cannot see", block.Type)
+			continue
 		}
-		for _, slot := range block.AddressBranches.ByMember {
-			if !listSlots[slot] {
-				t.Errorf("block %q publishes member-addressed slot %q, which listMembers does not flatten",
-					block.Type, slot)
-			}
+		if !equalStrings(got.Named, block.AddressBranches.Named) ||
+			!equalStrings(got.ByMember, block.AddressBranches.ByMember) {
+			t.Errorf("block %q: resolver branches %v/%v, catalogue %v/%v", block.Type,
+				got.Named, got.ByMember, block.AddressBranches.Named, block.AddressBranches.ByMember)
 		}
 	}
 
 	if composites == 0 {
 		t.Fatal("no composite published any address branches; the derivation is not running")
 	}
-	// Every branch the resolver accepts must be reachable from the schema, or an
-	// agent reading the schema would never learn it exists.
-	for name := range reservedBranches {
-		if !claimed[name] {
-			t.Errorf("resolver accepts branch %q, but no block publishes it in its schema", name)
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
 		}
 	}
+	return true
 }

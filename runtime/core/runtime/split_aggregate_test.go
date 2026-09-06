@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
-	"github.com/juancavallotti/octo/runtime/core/internal/engine"
+	"github.com/juancavallotti/octo/runtime/core/engine"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -136,7 +136,7 @@ func TestSplitThenAggregateRoundTrip(t *testing.T) {
 	bf, ctx, sink := newSplitAggregateFlow(t, types.FlowConfig{
 		Name: "orders",
 		Process: []types.BlockConfig{
-			{Type: "split", Items: "body.lines"},
+			{Type: "split", Settings: types.Settings{"items": "body.lines"}},
 			{Type: "aggregate"},
 			{Type: "collect"},
 		},
@@ -181,7 +181,7 @@ func TestSplitThenAggregateKeepsConcurrentMessagesApart(t *testing.T) {
 	bf, ctx, sink := newSplitAggregateFlow(t, types.FlowConfig{
 		Name: "orders",
 		Process: []types.BlockConfig{
-			{Type: "split", Items: "body.lines"},
+			{Type: "split", Settings: types.Settings{"items": "body.lines"}},
 			{Type: "aggregate"},
 			{Type: "collect"},
 		},
@@ -240,7 +240,7 @@ func TestSplitBackpressureOnASmallPool(t *testing.T) {
 
 	root, err := engine.BuildRoot(types.FlowConfig{
 		Name:    "wide",
-		Process: []types.BlockConfig{{Type: "split", Items: "body.lines"}, {Type: "collect"}},
+		Process: []types.BlockConfig{{Type: "split", Settings: types.Settings{"items": "body.lines"}}, {Type: "collect"}},
 	}, reg, p, nil, core.BlockDeps{})
 	if err != nil {
 		t.Fatalf("BuildRoot: %v", err)
@@ -272,13 +272,13 @@ func TestDuplicateStateKeyIsRejected(t *testing.T) {
 			{
 				Name: "one",
 				Process: []types.BlockConfig{
-					{Type: "aggregate", StoreKey: "shared"}, {Type: "pass"},
+					{Type: "aggregate", Settings: types.Settings{"storeKey": "shared"}}, {Type: "pass"},
 				},
 			},
 			{
 				Name: "two",
 				Process: []types.BlockConfig{
-					{Type: "aggregate", StoreKey: "shared"}, {Type: "pass"},
+					{Type: "aggregate", Settings: types.Settings{"storeKey": "shared"}}, {Type: "pass"},
 				},
 			},
 		}},

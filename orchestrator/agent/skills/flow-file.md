@@ -117,8 +117,9 @@ Every block entry shares four fields: `type` (or `ref`), `name`, `settings`.
 
 **Leaf blocks** put everything under `settings`.
 
-**Composite blocks** additionally use typed *top-level* keys called slots, which sit
-on the block entry itself and **not** under `settings`:
+**Composite blocks** additionally use *top-level* keys called slots, which by
+convention sit on the block entry itself rather than under `settings` (the
+runtime folds the two together, so either spelling works):
 
 ```yaml
 - type: if
@@ -131,8 +132,10 @@ on the block entry itself and **not** under `settings`:
           message: '"processing orders"'
 ```
 
-Getting this wrong is the most common mistake, and it fails the build with a precise
-message: `block "log" is a leaf and must not declare composite slots [condition]`.
+A composite refuses a slot it does not declare: `block "if": decode settings: json:
+unknown field "thne"`. A leaf block reads only the settings it declares, so a slot
+written on one is silently ignored — the most common mistake is putting a
+composite's slot on the wrong block, which then never runs.
 
 The slot vocabulary: `process`, `error`, `branches`, `condition`, `then`, `else`,
 `cases`, `default`, `items`, `as`, `mode`, `body`, `setBody`, `setVars`, `key`,

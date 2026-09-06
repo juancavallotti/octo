@@ -30,37 +30,30 @@ func sampleConfig() *types.Config {
 			Name: "orders",
 			Process: []types.BlockConfig{
 				{Type: "noop", Name: "first"},
-				{Type: "if", Name: "checkHeader", Condition: "true", Then: sub("charge"), Else: sub("api-call-1")},
-				{Type: "foreach", Name: "loop", Items: "body.items", Body: sub("transform")},
-				{Type: "enrich", Name: "lookup", Body: sub("fetch")},
-				{Type: "cache-scope", Name: "cached", Key: `"k"`, Body: sub("compute")},
-				{Type: "handle-errors", Name: "guard", Process: blocks("risky"), Error: blocks("recover")},
+				{Type: "if", Name: "checkHeader", Settings: types.Settings{"condition": "true", "then": sub("charge"), "else": sub("api-call-1")}},
+				{Type: "foreach", Name: "loop", Settings: types.Settings{"items": "body.items", "body": sub("transform")}},
+				{Type: "enrich", Name: "lookup", Settings: types.Settings{"body": sub("fetch")}},
+				{Type: "cache-scope", Name: "cached", Settings: types.Settings{"key": `"k"`, "body": sub("compute")}},
+				{Type: "handle-errors", Name: "guard", Settings: types.Settings{"process": blocks("risky"), "error": blocks("recover")}},
 				{
 					Type: "fork", Name: "fanout",
-					Branches: []types.FlowConfig{
+					Settings: types.Settings{"branches": []types.FlowConfig{
 						{Name: "audit", Process: blocks("log-it")},
 						{Process: blocks("unnamed-branch-block")},
-					},
-				},
+					}}},
 				{
 					Type: "switch", Name: "pick",
-					Cases: []types.CaseConfig{
-						{When: "true", Flow: types.FlowConfig{Name: "vip", Process: blocks("comp")}},
-						{When: "false", Flow: types.FlowConfig{Process: blocks("plain")}},
-					},
-					Default: sub("fallback"),
-				},
+					Settings: types.Settings{"cases": []map[string]any{
+						{"when": "true", "name": "vip", "process": blocks("comp")},
+						{"when": "false", "process": blocks("plain")},
+					}, "default": sub("fallback")}},
 				{
-					Type: "ai-router", Name: "route", Connector: "claude", Prompt: "p",
-					Routes:  []types.RouteConfig{{Name: "premium", Description: "d", Process: blocks("charge-vip")}},
-					Default: sub("guardrail"),
-				},
+					Type: "ai-router", Name: "route",
+					Settings: types.Settings{"connector": "claude", "prompt": "p", "routes": []map[string]any{{"name": "premium", "description": "d", "process": blocks("charge-vip")}}, "default": sub("guardrail")}},
 				{
-					Type: "ai-agent", Name: "agent", Connector: "claude", Prompt: "p",
-					Tools:  []types.ToolConfig{{Name: "lookup", Description: "d", Process: blocks("do-lookup")}},
-					Events: sub("report-it"),
-				},
-				{Type: "validate", Name: "check", Rules: []types.RuleConfig{{Expr: "true"}}, OnReject: sub("explain")},
+					Type: "ai-agent", Name: "agent",
+					Settings: types.Settings{"connector": "claude", "prompt": "p", "tools": []map[string]any{{"name": "lookup", "description": "d", "process": blocks("do-lookup")}}, "events": sub("report-it")}},
+				{Type: "validate", Name: "check", Settings: types.Settings{"rules": []map[string]any{{"expr": "true"}}, "onReject": sub("explain")}},
 				// A block that takes its type from a named processor. It has neither a
 				// name nor a type of its own, so its ref is the only handle on it.
 				{Ref: "shared-http"},
@@ -79,7 +72,34 @@ func findBlock(t *testing.T, cfg *types.Config, addr string) types.BlockConfig {
 	if err != nil {
 		t.Fatalf("resolveTarget(%q): %v", addr, err)
 	}
-	return *target
+	return target
+}
+
+// chainOf decodes the block list a slot of cfg holds, the way the block itself
+// would: a bare chain, or a sub-flow's process chain.
+func chainOf(t *testing.T, cfg types.BlockConfig, slot string) []types.BlockConfig {
+	t.Helper()
+	raw, ok := cfg.Settings[slot]
+	if !ok {
+		return nil
+	}
+	var flow types.FlowConfig
+	if err := (types.Settings{"process": raw}).Decode(&flow); err == nil && flow.Process != nil {
+		return flow.Process
+	}
+	var wrapped struct {
+		Flow types.FlowConfig `json:"flow"`
+	}
+	if err := (types.Settings{"flow": raw}).Decode(&wrapped); err != nil {
+		t.Fatalf("slot %q of %s: %v", slot, blockLabel(cfg), err)
+	}
+	return wrapped.Flow.Process
+}
+
+// wrapped is the one block a debug wrapper holds.
+func wrapped(t *testing.T, cfg types.BlockConfig) []types.BlockConfig {
+	t.Helper()
+	return chainOf(t, cfg, "process")
 }
 
 // TestResolveTargetNamesTheKindThatAsked: the resolver is shared by every debug
@@ -148,10 +168,11 @@ func TestInjectBreakpointReachesEveryComposite(t *testing.T) {
 			if got.Name != tc.wrapped {
 				t.Errorf("wrapper label = %q, want %q", got.Name, tc.wrapped)
 			}
-			if len(got.Process) != 1 {
-				t.Fatalf("wrapper holds %d blocks, want the single block it wraps", len(got.Process))
+			inner := wrapped(t, got)
+			if len(inner) != 1 {
+				t.Fatalf("wrapper holds %d blocks, want the single block it wraps", len(inner))
 			}
-			if inner := blockLabel(got.Process[0]); inner != tc.wrapped {
+			if inner := blockLabel(inner[0]); inner != tc.wrapped {
 				t.Errorf("wrapped block = %q, want %q", inner, tc.wrapped)
 			}
 		})
@@ -164,16 +185,12 @@ func TestInjectBreakpointDeepNesting(t *testing.T) {
 	cfg := &types.Config{Flows: []types.FlowConfig{{
 		Name: "deep",
 		Process: []types.BlockConfig{{
-			Type: "if", Name: "outer", Condition: "false",
-			Then: sub("skipped"),
-			Else: &types.FlowConfig{Process: []types.BlockConfig{{
-				Type: "foreach", Name: "loop", Items: "body.items",
-				Body: &types.FlowConfig{Process: []types.BlockConfig{{
+			Type: "if", Name: "outer",
+			Settings: types.Settings{"condition": "false", "then": sub("skipped"), "else": &types.FlowConfig{Process: []types.BlockConfig{{
+				Type: "foreach", Name: "loop",
+				Settings: types.Settings{"items": "body.items", "body": &types.FlowConfig{Process: []types.BlockConfig{{
 					Type: "fork", Name: "fanout",
-					Branches: []types.FlowConfig{{Name: "audit", Process: blocks("target")}},
-				}}},
-			}}},
-		}},
+					Settings: types.Settings{"branches": []types.FlowConfig{{Name: "audit", Process: blocks("target")}}}}}}}}}}}}},
 	}}}
 
 	const addr = "deep.outer[else].loop[body].fanout[audit].target"
@@ -202,7 +219,7 @@ func TestInjectBreakpointWrapsOnlyTheTarget(t *testing.T) {
 	if ifBlock.Type != "if" || ifBlock.Name != "checkHeader" {
 		t.Errorf("the composite on the path was rewritten: %+v", ifBlock)
 	}
-	if then := ifBlock.Then.Process[0]; then.Type != "noop" || then.Name != "charge" {
+	if then := chainOf(t, ifBlock, "then")[0]; then.Type != "noop" || then.Name != "charge" {
 		t.Errorf("the branch not addressed was rewritten: %+v", then)
 	}
 	if cfg.Flows[1].Process[0].Type != "noop" {

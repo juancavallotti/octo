@@ -121,7 +121,7 @@ env:
   # These are variables and not literals, and that is load-bearing rather than
   # tidy. A `cli-run` allow list is resolved when the flow is BUILT — every entry
   # goes through the same PATH lookup the program will, and an entry that resolves
-  # to nothing fails the build (buildAllowList, runtime/core/internal/engine/cli.go).
+  # to nothing fails the build (buildAllowList, runtime/blocks/cli/cli.go).
   # So a literal /opt/octo/bin/dolphin here would make this whole app fail to load
   # anywhere that path does not exist: on a laptop, in the dolphin suite beside this
   # file, and on any install without the agentic runner. Wrapping the blocks in an

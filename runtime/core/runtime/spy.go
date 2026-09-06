@@ -19,11 +19,12 @@ func injectSpies(cfg *types.Config, spies *core.Spies) error {
 		return nil
 	}
 	for _, addr := range spies.Addresses() {
-		target, err := resolveTarget(cfg, spyBlockType, addr)
+		err := rewriteTarget(cfg, spyBlockType, addr, func(target types.BlockConfig) types.BlockConfig {
+			return wrapInSpy(target, addr)
+		})
 		if err != nil {
 			return err
 		}
-		*target = wrapInSpy(*target, addr)
 	}
 	return nil
 }
@@ -36,7 +37,6 @@ func wrapInSpy(target types.BlockConfig, addr string) types.BlockConfig {
 	return types.BlockConfig{
 		Type:     spyBlockType,
 		Name:     blockLabel(target),
-		Settings: types.Settings{"address": addr},
-		Process:  []types.BlockConfig{target},
+		Settings: types.Settings{"address": addr, "process": []types.BlockConfig{target}},
 	}
 }
