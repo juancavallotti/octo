@@ -4,19 +4,23 @@
  * Two, not a ladder of windows, because two is what the storage holds. A pod
  * keeps per-second samples in a live tier and collapsed buckets in a history
  * tier, and every window that is neither — half an hour, a day — has to be
- * resolved to one of them by the service. That resolution is silent and it is
- * lossy in the surprising direction: a window slightly longer than the live tier
- * reaches is answered entirely from buckets, so asking for five minutes of a
- * two-minute live tier returns two points rather than a hundred and twenty.
+ * resolved to one of them by the service. That resolution is silent and lossy in
+ * the surprising direction: a window slightly longer than the live tier reaches
+ * is answered entirely from buckets, so asking for five minutes of a two-minute
+ * live tier returns two points rather than a hundred and twenty.
  *
- * Naming a view after its tier removes the guess. Hourly asks for live and gets
- * per-second data; Weekly asks for history and gets one point per bucket.
- * Neither can fall back to the other, so neither can surprise anybody.
+ * The views are named after the tiers rather than after durations, because the
+ * duration is not ours to name. How far the live tier reaches and how wide a
+ * bucket is are both per-install settings; a view called "Hourly" would be a lie
+ * on any install that configured something else. Live and Historic are true
+ * whatever the numbers are, and the header states what those numbers turned out
+ * to be.
  */
 
-import type { StatsTier } from "@/app/model/stats";
+import type { StatsPod, StatsTier } from "@/app/model/stats";
+import { parseGoDuration } from "@/app/components/stats/chart/duration";
 
-export type View = "hourly" | "weekly";
+export type View = "live" | "historic";
 
 export interface ViewPreset {
   key: View;
@@ -24,37 +28,39 @@ export interface ViewPreset {
   /** The tier this view reads. Explicit — never `auto`. */
   tier: Exclude<StatsTier, "auto">;
   /**
-   * How far back to ask. Deliberately generous: it is the reach of each tier at
-   * the shipped defaults, and a tier holding less simply returns less. The chart
-   * draws the span it received rather than the one requested, so asking for more
-   * than exists costs nothing and hard-coding less would hide data.
+   * How far back to ask before the pods have said how far back there is.
+   *
+   * Only a first guess. Once /pods has answered, `reachFor` replaces this with
+   * the tier's own configured reach — see there for why a constant is the wrong
+   * thing to ship.
    */
-  spanMs: number;
-  /** How often to re-read while live. */
+  askMs: number;
+  /** How often to re-read while following. */
   refreshMs: number;
 }
 
 export const VIEWS: ViewPreset[] = [
   {
-    key: "hourly",
-    label: "Hourly",
+    key: "live",
+    label: "Live",
     tier: "live",
-    spanMs: 60 * 60_000,
-    // The tier samples every second, so this is a genuinely moving picture.
+    askMs: 24 * 60 * 60_000,
+    // The tier samples every second or so, so this is a genuinely moving
+    // picture.
     refreshMs: 5_000,
   },
   {
-    key: "weekly",
-    label: "Weekly",
+    key: "historic",
+    label: "Historic",
     tier: "rollup",
-    spanMs: 7 * 24 * 60 * 60_000,
+    askMs: 90 * 24 * 60 * 60_000,
     // A bucket is written once per rollup interval. Polling faster asks
     // repeatedly for an answer that changed once.
     refreshMs: 30_000,
   },
 ];
 
-export const DEFAULT_VIEW: View = "hourly";
+export const DEFAULT_VIEW: View = "live";
 
 /** The preset for a view. */
 export function viewPreset(view: View): ViewPreset {
@@ -79,10 +85,14 @@ export function writeView(view: View): string {
   return view === DEFAULT_VIEW ? "" : `view=${view}`;
 }
 
-/** The absolute window a view asks for at a given moment, as RFC3339. */
-export function windowFor(view: View, now: number): { from: string; to: string } {
+/** The absolute window to ask for, as RFC3339. */
+export function windowFor(
+  view: View,
+  now: number,
+  askMs = viewPreset(view).askMs,
+): { from: string; to: string } {
   return {
-    from: new Date(now - viewPreset(view).spanMs).toISOString(),
+    from: new Date(now - askMs).toISOString(),
     to: new Date(now).toISOString(),
   };
 }
@@ -96,3 +106,34 @@ export function windowFor(view: View, now: number): { from: string; to: string }
  * watches; the grid is what they scan.
  */
 export const GRID_REFRESH_FACTOR = 4;
+
+/**
+ * How far back a view's tier actually holds, from the pods' own configuration.
+ *
+ * Deduced rather than assumed. Every duration here is a per-install setting: a
+ * week of retention is only the default, the bucket width is tunable, and the
+ * live tier's depth follows the bucket. A page that asked for a hard-coded seven
+ * days would show nothing beyond it on an install keeping thirty, and would ask
+ * for six days of rows that do not exist on one keeping one.
+ *
+ * The widest pod wins, because pods of a deployment can be rolled at different
+ * times and one may still be running an older configuration. A tenth is added on
+ * top so the oldest row is not clipped by the boundary it sits on.
+ *
+ * Falls back to the view's own guess when no pod has reported — there is nothing
+ * to deduce from yet.
+ */
+export function reachFor(view: View, pods: ReadonlyArray<StatsPod>): number {
+  const preset = viewPreset(view);
+
+  let widest = 0;
+  for (const pod of pods) {
+    // The live tier holds one bucket's worth of samples, so the bucket width is
+    // its reach. That coupling lives in the sidecar; this only reads it.
+    const configured = parseGoDuration(
+      preset.tier === "live" ? pod.rollupInterval : pod.retention,
+    );
+    if (configured !== null && configured > widest) widest = configured;
+  }
+  return widest > 0 ? Math.round(widest * 1.1) : preset.askMs;
+}

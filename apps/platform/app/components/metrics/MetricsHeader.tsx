@@ -77,7 +77,7 @@ export default function MetricsHeader({
           type="button"
           onClick={onLive}
           aria-pressed={live}
-          aria-label={live ? "Pause live updates" : "Resume live updates"}
+          aria-label={live ? "Pause automatic refresh" : "Resume automatic refresh"}
           title={
             live
               ? `Updating every ${Math.round(beatMs / 1000)}s`
@@ -90,7 +90,9 @@ export default function MetricsHeader({
           }`}
         >
           {live ? <Pause size={12} /> : <Play size={12} />}
-          {live ? "Live" : "Paused"}
+          {/* Not "Live": that is the name of a view now, and a button beside it
+              reading the same word would look like a second way to choose one. */}
+          {live ? "Auto" : "Paused"}
         </button>
         <button
           type="button"

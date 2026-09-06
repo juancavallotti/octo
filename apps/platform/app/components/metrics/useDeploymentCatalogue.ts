@@ -49,6 +49,8 @@ export interface Catalogue {
 export function useDeploymentCatalogue(
   deploymentId: string,
   view: View,
+  /** How far back to ask, deduced from the pods' own configuration. */
+  askMs: number,
   now: number,
 ): Catalogue {
   const [state, setState] = useState<Omit<Catalogue, "loading">>({
@@ -57,16 +59,16 @@ export function useDeploymentCatalogue(
     warnings: [],
     truncated: false,
     error: null,
-    fromMs: now - viewPreset(view).spanMs,
+    fromMs: now - askMs,
     toMs: now,
   });
   const [loaded, setLoaded] = useState<string | null>(null);
 
-  const wanted = `${deploymentId} ${view} ${now}`;
+  const wanted = `${deploymentId} ${view} ${askMs} ${now}`;
 
   useEffect(() => {
     let cancelled = false;
-    const window = windowFor(view, now);
+    const window = windowFor(view, now, askMs);
 
     void (async () => {
       try {
@@ -126,7 +128,7 @@ export function useDeploymentCatalogue(
     return () => {
       cancelled = true;
     };
-  }, [deploymentId, view, now, wanted]);
+  }, [deploymentId, view, askMs, now, wanted]);
 
   return { ...state, loading: loaded !== wanted };
 }

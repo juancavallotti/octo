@@ -129,24 +129,24 @@ describe("the window", () => {
     render(<MetricsMonitor deploymentId="dep-1" />);
     await waitFor(() => expect(readStatsSeries).toHaveBeenCalled());
 
-    await userEvent.click(screen.getByRole("button", { name: "Weekly" }));
+    await userEvent.click(screen.getByRole("button", { name: "Historic" }));
 
-    expect(replace).toHaveBeenCalledWith("/platform/metrics/dep-1?view=weekly", {
+    expect(replace).toHaveBeenCalledWith("/platform/metrics/dep-1?view=historic", {
       scroll: false,
     });
   });
 
-  it("reads the history tier when the weekly view is asked for", async () => {
+  it("navigates to the historic view rather than holding it in state", async () => {
     replace.mockClear();
     render(<MetricsMonitor deploymentId="dep-1" />);
     await waitFor(() => expect(readStatsSeries).toHaveBeenCalled());
     readStatsSeries.mockClear();
 
-    await userEvent.click(screen.getByRole("button", { name: "Weekly" }));
+    await userEvent.click(screen.getByRole("button", { name: "Historic" }));
 
     // The URL drives the view, and the test's useSearchParams is fixed, so this
     // asserts the intent that was navigated to rather than a re-render.
-    expect(replace).toHaveBeenCalledWith("/platform/metrics/dep-1?view=weekly", {
+    expect(replace).toHaveBeenCalledWith("/platform/metrics/dep-1?view=historic", {
       scroll: false,
     });
   });

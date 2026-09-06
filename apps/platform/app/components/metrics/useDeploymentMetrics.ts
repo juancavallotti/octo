@@ -8,7 +8,7 @@ import {
   type StatsSeriesPage,
 } from "@/app/model/stats";
 import { CPU_METRIC, MEM_METRIC } from "@/app/components/stats/chart/metrics";
-import { viewPreset, windowFor, type View } from "./range";
+import { reachFor, viewPreset, windowFor, type View } from "./range";
 
 /**
  * One deployment's CPU and memory over a window, plus the state of the pods that
@@ -28,6 +28,12 @@ import { viewPreset, windowFor, type View } from "./range";
 export interface DeploymentMetrics {
   series: StatsSeriesPage | null;
   pods: StatsPod[];
+  /**
+   * How far back this view asked, deduced from the pods' own configuration.
+   * Exposed so the chart can size its axis and the grid can ask for the same
+   * window, rather than each deriving it and drifting.
+   */
+  askMs: number;
   loading: boolean;
   error: string | null;
 }
@@ -44,11 +50,18 @@ export function useDeploymentMetrics(
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<string | null>(null);
 
-  const wanted = `${deploymentId} ${view} ${now}`;
+  // Deduced from the pods rather than assumed, and from this hook's own state
+  // rather than passed in: the pod list is not windowed, so it costs nothing to
+  // read it before knowing how far back to look. The first poll has no pods and
+  // falls back to the view's guess; every one after asks for exactly what the
+  // tier holds.
+  const askMs = reachFor(view, pods);
+
+  const wanted = `${deploymentId} ${view} ${askMs} ${now}`;
 
   useEffect(() => {
     let cancelled = false;
-    const window = windowFor(view, now);
+    const window = windowFor(view, now, askMs);
 
     void (async () => {
       try {
@@ -84,7 +97,7 @@ export function useDeploymentMetrics(
     return () => {
       cancelled = true;
     };
-  }, [deploymentId, view, now, wanted]);
+  }, [deploymentId, view, askMs, now, wanted]);
 
-  return { series, pods, loading: loaded !== wanted, error };
+  return { series, pods, askMs, loading: loaded !== wanted, error };
 }

@@ -62,12 +62,16 @@ export default function MetricsMonitor({
   const { now, refresh } = useLiveClock(beat, live);
   const { now: gridNow } = useLiveClock(beat * GRID_REFRESH_FACTOR, live);
 
-  const { series, pods, loading, error } = useDeploymentMetrics(deploymentId, view, now);
+  const { series, pods, askMs, loading, error } = useDeploymentMetrics(
+    deploymentId,
+    view,
+    now,
+  );
 
   // The whole catalogue, alongside the overview. A separate hook rather than one
   // larger request: the overview is two metrics and lands immediately, and it
   // should be on screen while the other fifty are still arriving.
-  const catalogue = useDeploymentCatalogue(deploymentId, view, gridNow);
+  const catalogue = useDeploymentCatalogue(deploymentId, view, askMs, gridNow);
 
   const setView = (next: View) => {
     const qs = writeView(next);
@@ -81,8 +85,8 @@ export default function MetricsMonitor({
   // drawing the requested window instead would squeeze ten minutes of live data
   // into the left sixth of an hour-wide plot.
   const [from, to] = useMemo(
-    () => covered(cpu, memory, now, viewPreset(view).spanMs),
-    [cpu, memory, now, view],
+    () => covered(cpu, memory, now, askMs),
+    [cpu, memory, now, askMs],
   );
 
   return (
@@ -115,9 +119,10 @@ export default function MetricsMonitor({
             memory={memory}
             fromMs={from}
             toMs={to}
-            // Only the history view: the live tier is already at its finest
-            // resolution, and a week of buckets is what needs narrowing.
-            zoomable={view === "weekly"}
+            // Only the historic view: the live tier is already at the finest
+            // resolution the pod stores, and a retention window of buckets is
+            // what needs narrowing.
+            zoomable={view === "historic"}
           />
         ) : loading ? (
           <p className="py-10 text-center text-sm text-zinc-400">Loading metrics…</p>
@@ -195,7 +200,7 @@ function covered(
   cpu: PodSeries[],
   memory: PodSeries[],
   now: number,
-  spanMs: number,
+  askMs: number,
 ): [number, number] {
   let first = Infinity;
   let last = -Infinity;
@@ -206,7 +211,7 @@ function covered(
     last = Math.max(last, times[times.length - 1]);
   }
   // A single point has no span; give it one so the axis is drawable.
-  if (first === Infinity || last <= first) return [now - spanMs, now];
+  if (first === Infinity || last <= first) return [now - askMs, now];
   return [first, last];
 }
 
