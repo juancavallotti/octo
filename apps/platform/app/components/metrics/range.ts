@@ -57,6 +57,29 @@ export function windowFor(range: RangeKey, now: number): { from: string; to: str
   };
 }
 
+/**
+ * How often a range is worth re-reading.
+ *
+ * Five seconds while the window is short enough to be answered from the live
+ * tier, which samples every second — that is a genuinely moving picture. A
+ * window of a day or a week is answered from collapsed buckets that are written
+ * once per rollup interval, so polling those every five seconds asks a hundred
+ * times for an answer that changed once.
+ */
+export function refreshMs(range: RangeKey): number {
+  return spanMs(range) <= 60 * 60_000 ? 5_000 : 30_000;
+}
+
+/**
+ * How much less often the full grid is re-read than the overview chart.
+ *
+ * Fifty charts is two orders of magnitude more data than two, and none of them
+ * is wide enough to show five seconds of change: three hundred points across a
+ * card is under two pixels of movement per tick. The overview is what a reader
+ * watches; the grid is what they scan.
+ */
+export const GRID_REFRESH_FACTOR = 4;
+
 /** How wide a preset is, in milliseconds — what a chart needs for its axis. */
 export function spanMs(range: RangeKey): number {
   const preset = RANGE_PRESETS.find((p) => p.key === range) ?? RANGE_PRESETS[0];

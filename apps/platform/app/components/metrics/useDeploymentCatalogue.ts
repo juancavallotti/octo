@@ -9,7 +9,7 @@ import {
   type StatsSeriesPage,
   type StatsWarning,
 } from "@/app/model/stats";
-import { windowFor, type RangeKey } from "./range";
+import { spanMs, windowFor, type RangeKey } from "./range";
 import { planBatches } from "./batches";
 
 /**
@@ -33,6 +33,11 @@ export interface CataloguedMetric {
 
 export interface Catalogue {
   metrics: CataloguedMetric[];
+  /** The window these points cover. Its own, not the overview chart's: the grid
+   * polls on a slower clock, so the two are seconds apart and each has to draw
+   * the axis it actually fetched. */
+  fromMs: number;
+  toMs: number;
   /** The resolved tier and step, from whichever request answered first. */
   page: StatsSeriesPage | null;
   warnings: StatsWarning[];
@@ -52,6 +57,8 @@ export function useDeploymentCatalogue(
     warnings: [],
     truncated: false,
     error: null,
+    fromMs: now - spanMs(range),
+    toMs: now,
   });
   const [loaded, setLoaded] = useState<string | null>(null);
 
@@ -95,6 +102,8 @@ export function useDeploymentCatalogue(
             series: byName.get(metric.name) ?? [],
           })),
           page: pages[0] ?? null,
+          fromMs: Date.parse(window.from),
+          toMs: Date.parse(window.to),
           warnings: dedupe([
             ...catalogue.warnings,
             ...pages.flatMap((page) => page.warnings),

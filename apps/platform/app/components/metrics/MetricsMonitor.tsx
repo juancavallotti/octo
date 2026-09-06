@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Gauge, RefreshCw } from "lucide-react";
+import { ArrowLeft, Gauge, Pause, Play, RefreshCw } from "lucide-react";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import LineChart, { type PodSeries } from "@/app/components/stats/chart/LineChart";
 import { formatStep, parseGoDuration } from "@/app/components/stats/chart/duration";
@@ -16,9 +16,18 @@ import {
 import type { StatsSeriesPage } from "@/app/model/stats";
 import MetricGrid from "./MetricGrid";
 import PodStatsTable from "./PodStatsTable";
-import { RANGE_PRESETS, readRange, spanMs, writeRange, type RangeKey } from "./range";
+import {
+  GRID_REFRESH_FACTOR,
+  RANGE_PRESETS,
+  readRange,
+  refreshMs,
+  spanMs,
+  writeRange,
+  type RangeKey,
+} from "./range";
 import { useDeploymentMetrics } from "./useDeploymentMetrics";
 import { useDeploymentCatalogue } from "./useDeploymentCatalogue";
+import { useLiveClock } from "./useLiveClock";
 
 /**
  * One deployment's CPU and memory, from the rolling week its pods keep in Redis.
@@ -48,13 +57,19 @@ export default function MetricsMonitor({
   const params = useSearchParams();
   const range = readRange(new URLSearchParams(params.toString()));
 
-  const [now, setNow] = useState(() => Date.now());
+  // Live by default. The window is a moving one, so the page should behave like
+  // the thing it is showing.
+  const [live, setLive] = useState(true);
+  const beat = refreshMs(range);
+  const { now, refresh } = useLiveClock(beat, live);
+  const { now: gridNow } = useLiveClock(beat * GRID_REFRESH_FACTOR, live);
+
   const { series, pods, loading, error } = useDeploymentMetrics(deploymentId, range, now);
 
   // The whole catalogue, alongside the overview. A separate hook rather than one
   // larger request: the overview is two metrics and lands immediately, and it
   // should be on screen while the other fifty are still arriving.
-  const catalogue = useDeploymentCatalogue(deploymentId, range, now);
+  const catalogue = useDeploymentCatalogue(deploymentId, range, gridNow);
 
   const setRange = (next: RangeKey) => {
     const qs = writeRange(next);
@@ -97,7 +112,26 @@ export default function MetricsMonitor({
           ))}
           <button
             type="button"
-            onClick={() => setNow(Date.now())}
+            onClick={() => setLive((on) => !on)}
+            aria-pressed={live}
+            aria-label={live ? "Pause live updates" : "Resume live updates"}
+            title={
+              live
+                ? `Updating every ${Math.round(beat / 1000)}s`
+                : "Paused — the window is held where you left it"
+            }
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
+              live
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "border-black/10 text-zinc-500 hover:text-zinc-900 dark:border-white/15 dark:hover:text-zinc-100"
+            }`}
+          >
+            {live ? <Pause size={12} /> : <Play size={12} />}
+            {live ? "Live" : "Paused"}
+          </button>
+          <button
+            type="button"
+            onClick={refresh}
             aria-label="Refresh"
             className="rounded-md border border-black/10 p-1.5 text-zinc-500 hover:text-zinc-900 dark:border-white/15 dark:hover:text-zinc-100"
           >
@@ -140,8 +174,8 @@ export default function MetricsMonitor({
         <MetricGrid
           metrics={catalogue.metrics}
           stepMs={parseGoDuration(catalogue.page?.step ?? "") ?? 1000}
-          fromMs={from}
-          toMs={to}
+          fromMs={catalogue.fromMs}
+          toMs={catalogue.toMs}
         />
       ) : catalogue.loading ? (
         <p className="text-sm text-zinc-400">Loading the rest of the metrics…</p>
