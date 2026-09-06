@@ -314,7 +314,7 @@ func TestTracingEnvWinsOverAUserBinding(t *testing.T) {
 // given would turn a missing chart setting into a confusing failure inside the flow,
 // which is the shape of bug that gets blamed on the query rather than the install.
 func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
-	const logsURL = "http://octo-logs.octo:8091"
+	const logsURL = "http://octo-observability.octo:8091"
 
 	for _, tc := range []struct {
 		name    string
@@ -360,7 +360,7 @@ func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
 // while its record says it was never granted the API is a record that lies, and the
 // record is what a future access model reads.
 func TestObservabilityEnvIgnoresAUserBinding(t *testing.T) {
-	const logsURL = "http://octo-logs.octo:8091"
+	const logsURL = "http://octo-observability.octo:8091"
 	const smuggled = "http://somewhere-else:9999"
 	c := &Client{runtimeServices: RuntimeServices{LogsURL: logsURL}}
 

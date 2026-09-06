@@ -55,8 +55,8 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "platform") }}
 {{- end }}
 
-{{- define "octo.logs.serviceName" -}}
-{{- include "octo-common.componentName" (dict "root" . "component" "logs") }}
+{{- define "octo.observability.serviceName" -}}
+{{- include "octo-common.componentName" (dict "root" . "component" "observability") }}
 {{- end }}
 
 {{- define "octo.embeddings.serviceName" -}}
@@ -261,8 +261,8 @@ dev-run-hash-secret
 
   Unlike NATS_URL this is NOT optional for its consumers, so a chart with none of
   the three fails here rather than rendering a manifest that produces a pod which
-  starts and then exits. The aggregator refuses to run without it — see the note
-  on REDIS_URL in logs/main.go — because the alternative is an install that
+  starts and then exits. The observability service refuses to run without it — see the note
+  on REDIS_URL in observability/main.go — because the alternative is an install that
   silently stops folding trace records and grows the traces table until somebody
   notices.
 */}}
@@ -294,16 +294,15 @@ dev-run-hash-secret
 {{- end }}
 
 {{/*
-  In-cluster URL of the log-aggregator's query API, injected as LOGS_URL into both
-  the platform and the orchestrator. It serves two views: /platform/logs reads
-  stored log events, and /platform/traces reads stored traces — traces live in the
-  same service, which is why one URL covers both.
+  In-cluster URL of the observability service's API, injected as LOGS_URL into
+  both the platform and the orchestrator. One URL covers stored logs, traces, pod
+  stats and retention, because one service owns all of them.
 
   The orchestrator does not query it itself; it binds the value onto the platform
   agent's deployment so Dr. Octo can read the same history the two views do.
 */}}
-{{- define "octo.logs.url" -}}
-{{- printf "http://%s.%s:%d" (include "octo.logs.serviceName" .) .Release.Namespace (int .Values.logs.service.port) -}}
+{{- define "octo.observability.url" -}}
+{{- printf "http://%s.%s:%d" (include "octo.observability.serviceName" .) .Release.Namespace (int .Values.observability.service.port) -}}
 {{- end }}
 
 {{/*

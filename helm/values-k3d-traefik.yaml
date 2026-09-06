@@ -95,8 +95,8 @@ orchestrator:
     # often enough that a week of it would never fill.
     retention: 24h
 
-logs:
-  repository: octo-logs
+observability:
+  repository: octo-observability
 
 schema:
   repository: octo-schema

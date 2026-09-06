@@ -50,7 +50,7 @@ troubleshooting). For local development on k3d instead, see
 |---|---|---|---|
 | Platform (Next.js + bundled runtime) | `octo-platform` | 3000 | Ingress → your domain |
 | Orchestrator (deploys integrations via the k8s API) | `octo-orchestrator` | 8090 | ClusterIP (internal; the platform proxies it) |
-| Log aggregator (consumes internal.logs → Postgres, serves the logs query API) | `octo-logs` | 8091 | ClusterIP (internal; the platform proxies it) |
+| Observability service (consumes internal.logs and internal.traces → Postgres; serves the logs, traces, pod stats and retention API) | `octo-observability` | 8091 | ClusterIP (internal; the platform proxies it) |
 | Postgres | stock `postgres:16-alpine` | 5432 | ClusterIP (headless) |
 | Schema applier (Helm hook job) | `octo-schema` | – | runs once per install/upgrade |
 | Integration runtime (one pod set per deployment) | `octo-runtime` | 8080 | ClusterIP, optional Ingress |

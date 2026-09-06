@@ -241,9 +241,9 @@ jobs:
           - image: octo-orchestrator-paas
             context: ./orchestrator
             dockerfile: orchestrator/Dockerfile
-          - image: octo-logs-paas
-            context: ./logs
-            dockerfile: logs/Dockerfile
+          - image: octo-observability-paas
+            context: ./observability
+            dockerfile: observability/Dockerfile
           - image: octo-schema-paas
             context: ./sql
             dockerfile: sql/Dockerfile

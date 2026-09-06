@@ -18,7 +18,7 @@ import (
 // storeFor returns a Store over a Redis, real or in-process.
 //
 // In-process by default, and a real server when REDIS_TEST_URL is set. Two
-// backends rather than the skip-if-unset pattern logs/internal/fold uses,
+// backends rather than the skip-if-unset pattern observability/internal/fold uses,
 // because a test that skips everywhere — including CI — is a test nobody is
 // running. What is under test is the transaction shape, the trimming and the
 // TTLs, and miniredis executes the same command sequence against the same

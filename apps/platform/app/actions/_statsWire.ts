@@ -1,7 +1,7 @@
 /**
  * The stats service's JSON shapes, and how they become the model's.
  *
- * These interfaces mirror `logs/internal/api/stats.go` field for field and **must
+ * These interfaces mirror `observability/internal/api/stats.go` field for field and **must
  * stay in sync with it**. Kept apart from the client so the one file that tracks a
  * Go struct is the one file to review when that struct changes.
  *

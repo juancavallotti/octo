@@ -271,9 +271,6 @@ orchestrator:
     # trimmed and the keys expire.
     retention: 168h
 
-# Telemetry aggregator. It consumes both internal.logs and internal.traces, and
-# serves the query API behind them — the name is historical, and tracked as its
-# own issue rather than a rename mid-stack.
 # The embedding server: text in, vectors out, for anything on this installation
 # that needs them — today, ranking a search of agent memory by meaning instead of
 # by words.
@@ -334,8 +331,11 @@ embeddings:
     port: 8092
     annotations: {}
 
-logs:
-  repository: octo-logs-paas
+# The observability service. It consumes internal.logs and internal.traces into
+# Postgres, serves the query API over both, the pod stats the stats sidecar
+# writes to Redis, the retention policy, and the storage report.
+observability:
+  repository: octo-observability-paas
   image: {}
   # Both consumers join queue groups, so extra replicas share each stream rather
   # than each storing every record. A trace's records may be split across
@@ -382,7 +382,7 @@ logs:
     nodePorts: {}
     externalTrafficPolicy: ""
 
-# Data retention: the nightly job that asks the aggregator to enforce whatever
+# Data retention: the nightly job that asks the observability service to enforce whatever
 # retention policy the admin section has stored.
 #
 # There are two switches and they answer different questions. This one decides
@@ -702,7 +702,7 @@ nats:
 # records a streaming block emits into one row. The consumers are a NATS queue
 # group, so one trace's records are already spread across whichever replicas are
 # running, and a fold held in one process would quietly stop working the moment
-# `logs.replicas` went above 1.
+# `observability.replicas` went above 1.
 #
 # Unlike nats.enabled, turning this off is not simply "omit the component": the
 # aggregator refuses to start without a Redis to fold in, so an install with

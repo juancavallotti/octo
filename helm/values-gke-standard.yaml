@@ -58,7 +58,7 @@ orchestrator:
   baseDomain: ""
   clusterIssuer: ""
 
-logs:
+observability:
   # Safe to scale: the log consumer joins a NATS queue group, so replicas
   # compete for messages rather than each storing every one.
   replicas: 2

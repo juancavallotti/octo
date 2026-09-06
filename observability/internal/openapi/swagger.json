@@ -1,0 +1,1606 @@
+{
+    "components": {
+        "schemas": {
+            "api.appsResponse": {
+                "properties": {
+                    "from": {
+                        "type": "string"
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/repo.TraceApp"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "to": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.logListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/repo.LogRow"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "next_before": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.retentionPolicyResponse": {
+                "properties": {
+                    "logs_days": {
+                        "type": "integer"
+                    },
+                    "traces_days": {
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.retentionRunResponse": {
+                "properties": {
+                    "duration_ms": {
+                        "type": "integer"
+                    },
+                    "logs_cutoff": {
+                        "type": "string"
+                    },
+                    "logs_deleted": {
+                        "type": "integer"
+                    },
+                    "trace_summaries_deleted": {
+                        "type": "integer"
+                    },
+                    "traces_cutoff": {
+                        "type": "string"
+                    },
+                    "traces_deleted": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.retentionUpdateRequest": {
+                "properties": {
+                    "logs_days": {
+                        "type": "integer"
+                    },
+                    "traces_days": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsMetric": {
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsMetricSeries"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsMetricSeries": {
+                "properties": {
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "pods": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsMetricsResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsMetric"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "warnings": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsWarning"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsPod": {
+                "properties": {
+                    "generation": {
+                        "type": "integer"
+                    },
+                    "lastSeen": {
+                        "type": "string"
+                    },
+                    "liveRows": {
+                        "type": "integer"
+                    },
+                    "pod": {
+                        "type": "string"
+                    },
+                    "reporting": {
+                        "type": "boolean"
+                    },
+                    "retention": {
+                        "type": "string"
+                    },
+                    "rollupInterval": {
+                        "type": "string"
+                    },
+                    "rollupRows": {
+                        "type": "integer"
+                    },
+                    "sampleInterval": {
+                        "type": "string"
+                    },
+                    "series": {
+                        "type": "integer"
+                    },
+                    "startedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsPodsResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsPod"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsSeries": {
+                "properties": {
+                    "ends": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "last": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "max": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "min": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "pod": {
+                        "type": "string"
+                    },
+                    "samples": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "times": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "values": {
+                        "description": "Nullable: an entry is null where the scrape did not report that series,\nwhich is a gap rather than a measurement of zero. A generated client that\ntypes these as plain numbers will reject the first gap it meets.\n\nSaid here rather than declared in the schema because swaggo cannot mark an\narray's items nullable — x-nullable lands on the array, which would claim\nthe column itself may be null, and that is a different and untrue thing.",
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsSeriesResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsSeries"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "step": {
+                        "type": "string"
+                    },
+                    "tier": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "warnings": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsWarning"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsWarning": {
+                "properties": {
+                    "pod": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.traceDetailResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/repo.TraceRecordRow"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "summary": {
+                        "$ref": "#/components/schemas/repo.TraceListRow"
+                    },
+                    "truncated": {
+                        "description": "Truncated says the trace held more records than one response carries. It is\nreported rather than silently applied, because a waterfall drawn from a cut\nrecord set is wrong in a way nothing in the picture reveals.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.traceListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/repo.TraceListRow"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "next_before": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "httpx.ErrorResponse": {
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.Operation": {
+                "properties": {
+                    "method": {
+                        "type": "string"
+                    },
+                    "operationId": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "repo.LogRow": {
+                "properties": {
+                    "app_name": {
+                        "type": "string"
+                    },
+                    "app_version": {
+                        "type": "string"
+                    },
+                    "attrs": {
+                        "description": "Attrs is whatever the runtime attached to the log call, passed through as it\nsent it. swaggertype keeps the description honest about that: bytes to Go,\narbitrary JSON to a client.",
+                        "type": "object"
+                    },
+                    "deployment_id": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "level": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "received_at": {
+                        "type": "string"
+                    },
+                    "ts": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "repo.TraceApp": {
+                "properties": {
+                    "app_name": {
+                        "type": "string"
+                    },
+                    "app_version": {
+                        "type": "string"
+                    },
+                    "cost_usd": {
+                        "description": "CostUSD is what could be priced and UnpricedCalls how many calls could not\nbe. They are reported side by side because the total alone is a lower bound\nwhenever the second is non-zero, and a reader with only the first has no way\nto know that.",
+                        "type": "number"
+                    },
+                    "deployment_id": {
+                        "type": "string"
+                    },
+                    "dropped_records": {
+                        "description": "DroppedRecords is how many records the publisher admitted losing in this\nwindow. It is per app and never per trace: the marker carries no trace id,\nso nothing can say which traces are incomplete — only that some are.",
+                        "type": "integer"
+                    },
+                    "failed": {
+                        "type": "integer"
+                    },
+                    "integration_id": {
+                        "description": "IntegrationID is empty when the deployment could not be resolved to one.",
+                        "type": "string"
+                    },
+                    "last_seen_at": {
+                        "type": "string"
+                    },
+                    "traces": {
+                        "type": "integer"
+                    },
+                    "unpriced_calls": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "repo.TraceListRow": {
+                "properties": {
+                    "app_name": {
+                        "type": "string"
+                    },
+                    "app_version": {
+                        "type": "string"
+                    },
+                    "cached_tokens": {
+                        "type": "integer"
+                    },
+                    "cost_usd": {
+                        "type": "number"
+                    },
+                    "deployment_id": {
+                        "type": "string"
+                    },
+                    "deployment_ids": {
+                        "description": "DeploymentIDs is every deployment that contributed records. More than one\nmeans the trace crossed apps: the id rides on the message and survives a\nqueue hop, so this is how a reader learns the trace is not one app's story.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ended_at": {
+                        "type": "string"
+                    },
+                    "entry_kind": {
+                        "type": "string"
+                    },
+                    "entry_label": {
+                        "type": "string"
+                    },
+                    "input_tokens": {
+                        "type": "integer"
+                    },
+                    "integration_id": {
+                        "type": "string"
+                    },
+                    "llm_calls": {
+                        "type": "integer"
+                    },
+                    "models": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "output_tokens": {
+                        "type": "integer"
+                    },
+                    "records": {
+                        "type": "integer"
+                    },
+                    "root_duration_ns": {
+                        "type": "integer"
+                    },
+                    "root_flow": {
+                        "type": "string"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "trace_id": {
+                        "type": "string"
+                    },
+                    "unpriced_calls": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "repo.TraceRecordRow": {
+                "properties": {
+                    "app_name": {
+                        "type": "string"
+                    },
+                    "app_version": {
+                        "type": "string"
+                    },
+                    "attrs": {
+                        "type": "object"
+                    },
+                    "block_type": {
+                        "type": "string"
+                    },
+                    "body": {
+                        "description": "Body and Vars are null when the runtime captured no payload AND when the\ncaller asked for the trace without them. The two are indistinguishable here\nby design: a client that asked for no bodies knows it did.\nswaggertype says what RawMessage means on the wire: bytes to Go, arbitrary\nJSON to a client. Without it the description would call these base64 strings.\nTheir shape belongs to the block that was traced, not to this API.",
+                        "type": "object"
+                    },
+                    "cache_write_tokens": {
+                        "description": "CacheWriteTokens is cache creation, billed above the input rate. NULL only\nwhen the record carried no usage at all (including every record written\nbefore the column existed); 0 when a provider reported usage but no write\ncount, which is every provider but Anthropic.",
+                        "type": "integer"
+                    },
+                    "cached_tokens": {
+                        "type": "integer"
+                    },
+                    "correlation_id": {
+                        "type": "string"
+                    },
+                    "cost_status": {
+                        "type": "string"
+                    },
+                    "cost_usd": {
+                        "type": "number"
+                    },
+                    "deployment_id": {
+                        "type": "string"
+                    },
+                    "dropped": {
+                        "description": "Dropped marks a record the runtime shipped as incomplete; Truncated marks\none whose payload was cut to fit.",
+                        "type": "boolean"
+                    },
+                    "duration_ns": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "event_id": {
+                        "type": "string"
+                    },
+                    "flow": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "input_tokens": {
+                        "type": "integer"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "model": {
+                        "type": "string"
+                    },
+                    "output_tokens": {
+                        "type": "integer"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "price_id": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "seq": {
+                        "type": "integer"
+                    },
+                    "thinking_tokens": {
+                        "type": "integer"
+                    },
+                    "trace_id": {
+                        "type": "string"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "ts": {
+                        "type": "string"
+                    },
+                    "vars": {
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            }
+        }
+    },
+    "info": {
+        "description": "The platform's observability surface: stored log events and traces as\nshipped by deployed runtimes, the pod stats the stats sidecar collects,\nthe retention policy over what is kept, and a report on how full the\ntwo stores underneath are.\n\nThis is an in-cluster service and performs no authentication of its own.\nIt is ClusterIP in the chart and the platform BFF is the authorization\nboundary in front of it. Every query route is a read; the three\nretention routes are the exception, and one of them deletes stored\ntelemetry — so anything that can reach this address can erase it as\nwell as read it. Keep it internal.",
+        "license": {
+            "name": "Elastic License 2.0",
+            "url": "https://www.elastic.co/licensing/elastic-license"
+        },
+        "title": "Octo Observability API",
+        "version": "1.0"
+    },
+    "externalDocs": {
+        "description": "Octo documentation",
+        "url": "https://octopaas.dev/docs"
+    },
+    "paths": {
+        "/healthz": {
+            "get": {
+                "description": "Answers as soon as the process is serving, whether or not Postgres or\nNATS are reachable — it is what the readiness probe polls while the\nrest is still coming up.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "ok"
+                    }
+                },
+                "summary": "Liveness",
+                "tags": [
+                    "meta"
+                ]
+            }
+        },
+        "/logs": {
+            "get": {
+                "description": "One page of stored log events, newest first. Every filter is optional and\nthey combine; a page that came back full carries next_before, which is the\ncursor to send as before= for the page after it.",
+                "parameters": [
+                    {
+                        "description": "Only this deployment's events",
+                        "in": "query",
+                        "name": "deploymentId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only this app's events",
+                        "in": "query",
+                        "name": "appName",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only this version's events",
+                        "in": "query",
+                        "name": "appVersion",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only these levels; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "level",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Free-text search over the message",
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Oldest event to return, RFC3339",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Newest event to return, RFC3339",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "A previous page's next_before. Opaque — it names a (ts, id) pair, not a timestamp",
+                        "in": "query",
+                        "name": "before",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size, clamped to 1..1000",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "default": 200,
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.logListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a time is not RFC3339, the cursor is malformed, or limit is not a number"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List log events",
+                "tags": [
+                    "logs"
+                ]
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "description": "This API as an OpenAPI 3.1 document. Narrow it with tag or path — the\nfull document is mostly schemas, and a filtered one carries only the\nschemas its operations can reach. The two filters are alternatives, not\na combination.",
+                "parameters": [
+                    {
+                        "description": "Keep only operations carrying this tag",
+                        "in": "query",
+                        "name": "tag",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep only routes starting with this prefix",
+                        "in": "query",
+                        "name": "path",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "the description, filtered when asked"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "tag and path were both supplied"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The API description",
+                "tags": [
+                    "openapi"
+                ]
+            }
+        },
+        "/openapi/operations": {
+            "get": {
+                "description": "Every route as one line: method, path, summary and tags. Read this\nfirst to find the tag or path worth asking the description about.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/openapi.Operation"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The route index",
+                "tags": [
+                    "openapi"
+                ]
+            }
+        },
+        "/retention/run": {
+            "post": {
+                "description": "Deletes what the stored policy no longer keeps and reports how much went.\nThis is what the chart's nightly job calls. A policy that keeps everything\nis a 200 with zero counts and null cutoffs rather than an error — being\nasked to do nothing is an answer.\n\nA trace is deleted whole: its records go with its summary, so a swept trace\nnever becomes one that lists but cannot be opened. Stored model prices are\nnever swept, because a traced call's cost points into that history.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.retentionRunResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "another sweep is already running"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Enforce the retention policy now",
+                "tags": [
+                    "retention"
+                ]
+            }
+        },
+        "/settings/retention": {
+            "get": {
+                "description": "How many days of log events and of traces this installation keeps. Zero on\nan axis means keep forever, which is the default — an installation that has\nnever configured retention reads back as zeros rather than as an error.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.retentionPolicyResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get the data-retention policy",
+                "tags": [
+                    "retention"
+                ]
+            },
+            "put": {
+                "description": "Both windows are supplied on every save. Zero keeps that stream forever;\nthe maximum is 3650 days. Saving does not delete anything — the sweep runs\nnightly, or on demand through POST /retention/run.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.retentionUpdateRequest",
+                                        "summary": "body",
+                                        "description": "The two retention windows, in days. Both are required"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The two retention windows, in days. Both are required",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.retentionPolicyResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a window is missing, negative, or beyond 3650 days"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Save the data-retention policy",
+                "tags": [
+                    "retention"
+                ]
+            }
+        },
+        "/stats/{deploymentId}/metrics": {
+            "get": {
+                "description": "The catalogue, built from the pods' dictionaries alone — no samples are read.\nIt exists so a caller can find exact metric names before asking for data,\nwhich is what makes the required metric filter on the series route usable.\n\nLabel sets are nested under their metric name. One histogram is a single\nentry with a series per bucket boundary, rather than a hundred names that\nhappen to share a prefix.\n\ntruncated means the pod list hit its cap, so the catalogue is partial: a\nmetric missing from it may simply belong to a pod that was dropped.",
+                "parameters": [
+                    {
+                        "description": "The deployment to describe",
+                        "in": "path",
+                        "name": "deploymentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only these pods; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "pod",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Only metrics whose name starts with this",
+                        "in": "query",
+                        "name": "prefix",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.statsMetricsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the metrics a deployment exposes",
+                "tags": [
+                    "stats"
+                ]
+            }
+        },
+        "/stats/{deploymentId}/pods": {
+            "get": {
+                "description": "Every pod of the deployment the stats index still holds, most recently seen\nfirst. Read this first: it names the pods the other two routes accept, and\nsays whether each is still reporting.\n\nliveRows and rollupRows are reported separately on purpose. Zero live rows\nbeside a full history is the ordinary state of a pod that stopped a few hours\nago, because the live tier is kept for only twice the rollup interval while\nthe pod stays in the index for the whole retention window.\n\nAn unknown deployment answers 200 with no items rather than 404. This service\nholds no deployment registry, so it cannot tell a deployment that never\nexisted from one whose sidecar is switched off or whose stats have expired.",
+                "parameters": [
+                    {
+                        "description": "The deployment to describe",
+                        "in": "path",
+                        "name": "deploymentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.statsPodsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the pods reporting stats for a deployment",
+                "tags": [
+                    "stats"
+                ]
+            }
+        },
+        "/stats/{deploymentId}/series": {
+            "get": {
+                "description": "Points for the named metrics, per pod, decoded against each pod's dictionary.\n\nmetric is required, and repeatable. It is what bounds the response: the rows\nare stored positionally, so a query with no name filter would read every\nseries of every pod. Use the metrics route to find the names.\n\nA counter's value is its growth over the interval ending at that point, on\nboth tiers, so a chart does not have to know which tier answered. Its closing\ncumulative reading is available as the last stat on the rollup tier, and\ncounters=absolute returns the raw readings instead. A counter that went\nbackwards is treated as a process restart rather than a negative delta.\n\ntier=auto picks live when the window fits inside the live tier's reach and\nrollup otherwise, because a window older than that cannot be answered from\nlive rows however many are read. The resolved tier and its step are echoed\nback.\n\ntimes are unix milliseconds, oldest first, and the columns are parallel. A\nnull value is a gap rather than a zero. On the rollup tier ends is carried\ntoo, because rows are not contiguous: when a bucket's end does not meet the\nnext one's start, scraping had stopped in between.",
+                "parameters": [
+                    {
+                        "description": "The deployment to read",
+                        "in": "path",
+                        "name": "deploymentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Metric names, matched exactly; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "metric",
+                        "required": true,
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Narrow within those metrics, as key=value; repeated labels are ANDed",
+                        "in": "query",
+                        "name": "label",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Only these pods; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "pod",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "auto, live or rollup",
+                        "in": "query",
+                        "name": "tier",
+                        "schema": {
+                            "default": "auto",
+                            "enum": [
+                                "auto",
+                                "live",
+                                "rollup"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Start of the window, RFC3339. Defaults to 15 minutes before to",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "End of the window, RFC3339. Defaults to now",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Which numbers to return, comma separated: value, min, max, last, samples. Rollup tier only",
+                        "in": "query",
+                        "name": "stats",
+                        "schema": {
+                            "default": "value",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "delta for growth, absolute for the raw cumulative reading",
+                        "in": "query",
+                        "name": "counters",
+                        "schema": {
+                            "default": "delta",
+                            "enum": [
+                                "delta",
+                                "absolute"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Points per series, clamped to 1..5000",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "default": 1000,
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.statsSeriesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no metric was named, a time is not RFC3339, or a parameter is not one of its values"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read stats series for a deployment",
+                "tags": [
+                    "stats"
+                ]
+            }
+        },
+        "/traces": {
+            "get": {
+                "description": "One page of trace summaries, newest first. Every filter is optional and they\ncombine; a page that came back full carries next_before, which is the cursor\nto send as before= for the page after it.\n\nUnlike /traces/apps neither time bound is defaulted, so an unfiltered call\nreaches back as far as the store goes.",
+                "parameters": [
+                    {
+                        "description": "Only this deployment's traces; must be a uuid",
+                        "in": "query",
+                        "name": "deploymentId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only this integration's traces; must be a uuid",
+                        "in": "query",
+                        "name": "integrationId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only this app's traces",
+                        "in": "query",
+                        "name": "appName",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only this version's traces",
+                        "in": "query",
+                        "name": "appVersion",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only traces whose root flow is this one",
+                        "in": "query",
+                        "name": "flow",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only these outcomes; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "items": {
+                                "enum": [
+                                    "ok",
+                                    "dropped",
+                                    "failed"
+                                ],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Pass true for only the traces that called a model",
+                        "in": "query",
+                        "name": "hasLlm",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Free-text search",
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only traces at least this long, in milliseconds",
+                        "in": "query",
+                        "name": "minDurationMs",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Oldest trace to return, RFC3339",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Newest trace to return, RFC3339",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "A previous page's next_before. Opaque — it names a (started_at, trace_id) pair",
+                        "in": "query",
+                        "name": "before",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size, clamped to 1..1000",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "default": 200,
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.traceListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "an id is not a uuid, a status is not one of ok/dropped/failed, a time is not RFC3339, to is before from, or a number is malformed"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List traces",
+                "tags": [
+                    "traces"
+                ]
+            }
+        },
+        "/traces/apps": {
+            "get": {
+                "description": "Every app that ran a trace in the window, with its counts and cost. Read this\nfirst to find the app worth listing traces for.\n\nThe window is echoed back in the response, because the caller may not have\nchosen it and every count is meaningless without it. Either bound may be given\nalone: from with no to reads to now, and to with no from reads back 24 hours.",
+                "parameters": [
+                    {
+                        "description": "Start of the window, RFC3339. Defaults to 24h before to",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "End of the window, RFC3339. Defaults to now",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.appsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a time is not RFC3339, or to is before from"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List apps with trace activity",
+                "tags": [
+                    "traces"
+                ]
+            }
+        },
+        "/traces/{traceId}": {
+            "get": {
+                "description": "One trace: the summary the list already showed, plus every record that fed\nit, in sequence. The summary is the stored rollup rather than a recomputation,\nso the number here and the number in the list are the same number.\n\nCaptured payloads are the whole weight of a trace. A client drawing only a\nwaterfall should pass bodies=0 and leave them on the server, then fetch the one\nrecord it needs from /traces/{traceId}/records/{id}.",
+                "parameters": [
+                    {
+                        "description": "The trace id",
+                        "in": "path",
+                        "name": "traceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Pass 0 or false to omit the captured payloads. Defaults to including them",
+                        "in": "query",
+                        "name": "bodies",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.traceDetailResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such trace"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read one trace",
+                "tags": [
+                    "traces"
+                ]
+            }
+        },
+        "/traces/{traceId}/records/{id}": {
+            "get": {
+                "description": "One record with its captured payloads, for a client that loaded the trace\nwith bodies=0 and then opened a single block.\n\nA malformed id answers 404 rather than 400: it addresses no record either\nway, and answering alike for \"malformed\" and \"absent\" keeps the route from\nconfirming which ids exist.",
+                "parameters": [
+                    {
+                        "description": "The trace id",
+                        "in": "path",
+                        "name": "traceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The record id, a uuid",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/repo.TraceRecordRow"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such record, or the id is not a uuid"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read one trace record",
+                "tags": [
+                    "traces"
+                ]
+            }
+        }
+    },
+    "openapi": "3.1.0"
+}

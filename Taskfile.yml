@@ -31,9 +31,9 @@ includes:
   orchestrator:
     taskfile: ./orchestrator/Taskfile.yml
     dir: ./orchestrator
-  logs:
-    taskfile: ./logs/Taskfile.yml
-    dir: ./logs
+  observability:
+    taskfile: ./observability/Taskfile.yml
+    dir: ./observability
   sidecars:
     taskfile: ./sidecars/Taskfile.yml
     dir: ./sidecars
@@ -72,7 +72,7 @@ vars:
   # Nothing pulls these: they exist only in the local docker daemon, so an image
   # that misses the import is not a slow start but a hard ImagePullBackOff.
   CLUSTER_IMAGES: >-
-    octo-platform:dev octo-orchestrator:dev octo-logs:dev octo-schema:dev
+    octo-platform:dev octo-orchestrator:dev octo-observability:dev octo-schema:dev
     octo-runtime:dev octo-devsidecar:dev octo-statssidecar:dev octo-devruntime:dev
     octo-agenticrunner:dev octo-embeddings:dev octo-api:dev
 
@@ -92,11 +92,11 @@ tasks:
     cmds:
       - task: runtime:fmt
       - task: orchestrator:fmt
-      - task: logs:fmt
+      - task: observability:fmt
       - task: sidecars:fmt
 
   test:
-    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + logs + sidecars)
+    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + observability + sidecars)
     cmds:
       - task: runtime:test
       # The sample flows, run through dolphin against a real octo. They are the runtime's
@@ -112,17 +112,17 @@ tasks:
       - task: platform:test
       - task: standalone:test
       - task: orchestrator:test
-      - task: logs:test
+      - task: observability:test
       - task: sidecars:test
 
   build:
-    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + logs + sidecars)
+    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + observability + sidecars)
     cmds:
       - task: runtime:build
       - task: platform:build
       - task: standalone:build
       - task: orchestrator:build
-      - task: logs:build
+      - task: observability:build
       - task: sidecars:build
 
   dev:
@@ -136,17 +136,17 @@ tasks:
     cmds:
       - task: runtime:tidy
       - task: orchestrator:tidy
-      - task: logs:tidy
+      - task: observability:tidy
       - task: sidecars:tidy
 
   lint:
-    desc: Lint all modules (runtime + platform + standalone + orchestrator + logs + sidecars)
+    desc: Lint all modules (runtime + platform + standalone + orchestrator + observability + sidecars)
     cmds:
       - task: runtime:lint
       - task: platform:lint
       - task: standalone:lint
       - task: orchestrator:lint
-      - task: logs:lint
+      - task: observability:lint
       - task: sidecars:lint
 
   run:
@@ -325,8 +325,8 @@ tasks:
         # their own Dockerfiles and Taskfiles already build with.
         echo "▶ orchestrator"
         (cd orchestrator && go build -trimpath -o "$out/orchestrator" .)
-        echo "▶ logs"
-        (cd logs && go build -trimpath -o "$out/logs" .)
+        echo "▶ observability"
+        (cd observability && go build -trimpath -o "$out/observability" .)
         echo "▶ dev-sidecar"
         (cd sidecars && go build -trimpath -o "$out/dev-sidecar" ./dev)
         echo "▶ stats-sidecar"
@@ -335,7 +335,7 @@ tasks:
         echo "✓ linux/{{.ARCH}} binaries in dist/bin/linux_{{.ARCH}}"
 
   cluster:images:
-    desc: Build the platform/orchestrator/logs/schema/runtime/devsidecar/statssidecar/devruntime/agenticrunner/embeddings images and load them into the k3d 'octo' cluster
+    desc: Build the platform/orchestrator/observability/schema/runtime/devsidecar/statssidecar/devruntime/agenticrunner/embeddings images and load them into the k3d 'octo' cluster
     cmds:
       # Compile every Go binary once, on the host, for the node's architecture —
       # then the eight builds below only copy them in. Left to the Dockerfiles,
@@ -345,7 +345,7 @@ tasks:
       # runtime/ (to build octo) and the pnpm workspace (apps/platform).
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
-      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-logs:dev -f logs/Dockerfile ./logs
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-observability:dev -f observability/Dockerfile ./observability
       # No binary in this one — it is a psql client image plus schema.sql. It stays
       # on postgres:16-alpine: the Job only runs psql, so it does not need the
       # pgvector server image the chart deploys.
@@ -437,7 +437,7 @@ tasks:
       - task: bins:linux
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
-      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-logs:dev -f logs/Dockerfile ./logs
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-observability:dev -f observability/Dockerfile ./observability
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-k8s -t octo-runtime:dev -f runtime/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-devsidecar:dev -f sidecars/dev/Dockerfile ./sidecars
@@ -456,13 +456,13 @@ tasks:
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
     cmds:
-      # Only the platform dev image carries binaries; the orchestrator and logs
-      # dev images run `go run` against synced source and compile nothing here.
+      # Only the platform dev image carries binaries; the orchestrator and
+      # observability dev images run `go run` against synced source and compile nothing here.
       - task: bins:linux
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
       - docker build -t octo-orchestrator-dev:dev -f orchestrator/Dockerfile.dev ./orchestrator
-      - docker build -t octo-logs-dev:dev -f logs/Dockerfile.dev ./logs
-      - k3d image import octo-platform-dev:dev octo-orchestrator-dev:dev octo-logs-dev:dev -c octo
+      - docker build -t octo-observability-dev:dev -f observability/Dockerfile.dev ./observability
+      - k3d image import octo-platform-dev:dev octo-orchestrator-dev:dev octo-observability-dev:dev -c octo
 
   cluster:dev:
     desc: Bring up the cluster, then run DevSpace dev mode (hot reload + tailed logs)
@@ -513,10 +513,11 @@ tasks:
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.
       #
-      # Every deployment built above belongs here. octo-logs was missing, and the
+      # Every deployment built above belongs here. The observability service's was
+      # missing once, and the
       # way that surfaces is nasty: the build succeeds, the import succeeds, verify
       # passes — and the pod keeps serving the previous binary. A route added to the
-      # aggregator then 404s in the cluster while working locally, which reads as a
+      # service then 404s in the cluster while working locally, which reads as a
       # wrong URL or a permission problem rather than as a pod that was never
       # replaced.
       #
@@ -524,9 +525,9 @@ tasks:
       # tolerating, and it is checked for by name rather than by discarding every
       # error: `|| true` also swallowed a wrong context, an unreachable cluster and a
       # missing namespace, so the task reported success while nothing restarted —
-      # which is the same silence the missing octo-logs above produced.
+      # which is the same silence the missing deployment above produced.
       - |
-        for dep in octo-platform octo-orchestrator octo-logs octo-embeddings; do
+        for dep in octo-platform octo-orchestrator octo-observability octo-embeddings; do
           if ! kubectl --context {{.KCTX}} -n octo-dev get deployment "$dep" >/dev/null 2>&1; then
             echo "· $dep not deployed yet, skipping restart"
             continue
@@ -595,7 +596,7 @@ tasks:
       # root so its Dockerfile reaches both runtime/ and the pnpm workspace.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}} -f apps/platform/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}} -f orchestrator/Dockerfile ./orchestrator
-      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}} -f logs/Dockerfile ./logs
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-observability-paas:{{.TAG}} -f observability/Dockerfile ./observability
       - docker build -t {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}} -f sql/Dockerfile ./sql
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-k8s -t {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}} -f runtime/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}} -f sidecars/dev/Dockerfile ./sidecars
@@ -609,7 +610,7 @@ tasks:
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-api -t {{.IMAGE_BASE}}/octo-api-paas:{{.TAG}} -f runtime/Dockerfile .
       - docker push {{.IMAGE_BASE}}/octo-platform-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-orchestrator-paas:{{.TAG}}
-      - docker push {{.IMAGE_BASE}}/octo-logs-paas:{{.TAG}}
+      - docker push {{.IMAGE_BASE}}/octo-observability-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-schema-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-runtime-paas:{{.TAG}}
       - docker push {{.IMAGE_BASE}}/octo-devsidecar-paas:{{.TAG}}
@@ -666,7 +667,7 @@ tasks:
         }
         build octo-platform-paas     apps/platform/Dockerfile .           "--build-arg BIN_SOURCE=prebuilt"
         build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator "--build-arg BIN_SOURCE=prebuilt"
-        build octo-logs-paas         logs/Dockerfile          ./logs      "--build-arg BIN_SOURCE=prebuilt"
+        build octo-observability-paas observability/Dockerfile ./observability "--build-arg BIN_SOURCE=prebuilt"
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
         build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  "--build-arg BIN_SOURCE=prebuilt"
         build octo-statssidecar-paas sidecars/stats/Dockerfile ./sidecars "--build-arg BIN_SOURCE=prebuilt"
@@ -786,7 +787,7 @@ tasks:
         }
         build octo-platform-paas     apps/platform/Dockerfile .           "--build-arg BIN_SOURCE=prebuilt"
         build octo-orchestrator-paas orchestrator/Dockerfile  ./orchestrator "--build-arg BIN_SOURCE=prebuilt"
-        build octo-logs-paas         logs/Dockerfile          ./logs      "--build-arg BIN_SOURCE=prebuilt"
+        build octo-observability-paas observability/Dockerfile ./observability "--build-arg BIN_SOURCE=prebuilt"
         build octo-schema-paas       sql/Dockerfile           ./sql       ""
         build octo-devsidecar-paas   sidecars/dev/Dockerfile  ./sidecars  "--build-arg BIN_SOURCE=prebuilt"
         build octo-statssidecar-paas sidecars/stats/Dockerfile ./sidecars "--build-arg BIN_SOURCE=prebuilt"
@@ -1316,7 +1317,7 @@ tasks:
           echo "image:"
           echo "  registry: {{.IMAGE_BASE}}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator logs schema runtime devsidecar statssidecar devruntime agenticrunner embeddings; do
+          for c in platform orchestrator observability schema runtime devsidecar statssidecar devruntime agenticrunner embeddings; do
             repo="octo-${c}-paas"
             ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
             digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"

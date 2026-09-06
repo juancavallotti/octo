@@ -1,0 +1,6 @@
+{{- /* ClusterIP: the observability API stays internal; the platform BFF fronts it. */}}
+{{- include "octo-common.service" (dict
+      "root" $
+      "component" "observability"
+      "type" "ClusterIP"
+      "ports" (list (dict "name" "http" "port" .Values.observability.service.port "targetPort" .Values.observability.service.port))) }}

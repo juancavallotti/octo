@@ -59,10 +59,10 @@ steps:
     name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-t", "${_IMAGE_BASE}/octo-orchestrator-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-orchestrator-paas:latest", "-f", "orchestrator/Dockerfile", "./orchestrator"]
-  - id: build-logs
+  - id: build-observability
     name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
-    args: ["build", "-t", "${_IMAGE_BASE}/octo-logs-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-logs-paas:latest", "-f", "logs/Dockerfile", "./logs"]
+    args: ["build", "-t", "${_IMAGE_BASE}/octo-observability-paas:${_TAG}", "-t", "${_IMAGE_BASE}/octo-observability-paas:latest", "-f", "observability/Dockerfile", "./observability"]
   - id: build-schema
     name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
@@ -120,12 +120,12 @@ steps:
   - id: push-images
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    waitFor: ["build-platform", "build-orchestrator", "build-logs", "build-schema", "build-runtime", "build-devsidecar", "build-statssidecar", "build-devruntime", "build-agenticrunner", "build-embeddings", "build-api"]
+    waitFor: ["build-platform", "build-orchestrator", "build-observability", "build-schema", "build-runtime", "build-devsidecar", "build-statssidecar", "build-devruntime", "build-agenticrunner", "build-embeddings", "build-api"]
     args:
       - -c
       - |
         set -e
-        for img in octo-platform-paas octo-orchestrator-paas octo-logs-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-statssidecar-paas octo-devruntime-paas octo-agenticrunner-paas octo-embeddings-paas octo-api-paas; do
+        for img in octo-platform-paas octo-orchestrator-paas octo-observability-paas octo-schema-paas octo-runtime-paas octo-devsidecar-paas octo-statssidecar-paas octo-devruntime-paas octo-agenticrunner-paas octo-embeddings-paas octo-api-paas; do
           for t in "${_TAG}" latest; do
             docker push "${_IMAGE_BASE}/$img:$t"
           done
@@ -156,7 +156,7 @@ steps:
           # deliberately absent: the chart deploys nothing from it — it is the
           # image an operator runs outside this cluster, or beside their own
           # service — so there is no values key for a digest to pin.
-          for c in platform orchestrator logs schema runtime devsidecar statssidecar devruntime agenticrunner embeddings; do
+          for c in platform orchestrator observability schema runtime devsidecar statssidecar devruntime agenticrunner embeddings; do
             repo="octo-$${c}-paas"
             # RepoDigests can carry entries for more than one repository, so match
             # this image's rather than trusting the first element.

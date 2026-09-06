@@ -85,7 +85,7 @@ deployments:
           model: "${EMBEDDINGS_MODEL}"
           dimensions: ${EMBEDDINGS_DIMENSIONS}
 
-# `devspace dev` mode (task cluster:dev): swaps the editor/orchestrator/logs pods
+# `devspace dev` mode (task cluster:dev): swaps the editor/orchestrator/observability pods
 # for their dev images, live-syncs source for hot reload, and tails all three
 # pods' logs to the terminal. No port forwards here — the k3d loadbalancer
 # already exposes the apps on localhost:3000 / :8090 (deploy/k3d/cluster.yaml),
@@ -133,20 +133,20 @@ dev:
         onUpload:
           restartContainer: true
     logs: {}
-  logs:
+  observability:
     labelSelector:
       app.kubernetes.io/name: octo
       app.kubernetes.io/instance: octo
-      app.kubernetes.io/component: logs
+      app.kubernetes.io/component: observability
     namespace: octo-dev
-    devImage: octo-logs-dev:dev
+    devImage: octo-observability-dev:dev
     command: ["go", "run", "."]
     workingDir: /src
     sync:
-      - path: ./logs:/src
+      - path: ./observability:/src
         excludePaths:
           - .git/
-          - logs
+          - observability
         # Restart the container after each upload so `go run` recompiles.
         onUpload:
           restartContainer: true

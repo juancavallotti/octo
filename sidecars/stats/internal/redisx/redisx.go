@@ -1,7 +1,7 @@
 // Package redisx opens the process's Redis connection.
 //
 // It is the third copy of this package: orchestrator/internal/redisx and
-// logs/internal/redisx are the others, and all three must be kept in sync by
+// observability/internal/redisx are the others, and all three must be kept in sync by
 // hand. The modules do not share a go.mod and the package is internal, so no
 // copy can import another.
 //

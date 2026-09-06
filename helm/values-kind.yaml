@@ -42,8 +42,8 @@ orchestrator:
     # this empty and the chart refuses to render without one.
     hashSecret: local-dev-not-a-secret
 
-logs:
-  repository: octo-logs
+observability:
+  repository: octo-observability
 
 schema:
   repository: octo-schema

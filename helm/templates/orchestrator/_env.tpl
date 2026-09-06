@@ -53,7 +53,7 @@
        optional, the agent install refuses with a message naming this variable
        rather than deploying an agent that half works. */}}
 - name: LOGS_URL
-  value: {{ include "octo.logs.url" . | quote }}
+  value: {{ include "octo.observability.url" . | quote }}
 {{- if .Values.embeddings.enabled }}
 {{- /* The embedding server. The orchestrator uses it directly — the backfill
        sweep and the query side of a semantic search both run next to the vectors

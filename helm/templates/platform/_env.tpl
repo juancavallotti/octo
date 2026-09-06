@@ -73,7 +73,7 @@
 # views read from here directly — traces are stored by the same service,
 # so one URL serves both and neither needs the orchestrator in the path.
 - name: LOGS_URL
-  value: {{ include "octo.logs.url" . | quote }}
+  value: {{ include "octo.observability.url" . | quote }}
 {{- if .Values.auth.oidc.enabled }}
 # OIDC SSO (Auth.js). The presence of OIDC_ISSUER + AUTH_SECRET turns auth
 # on in the editor. Any OIDC provider works — the chart names none. Issuer

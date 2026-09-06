@@ -3,7 +3,7 @@
 #
 # The standalone octo binary plus one small app, baked in. It is an image rather
 # than the generic runtime image with a mounted ConfigMap because this is a
-# platform component, like the log aggregator beside it, and every other
+# platform component, like the observability service beside it, and every other
 # component here ships as an image with its config compiled in. There is nothing
 # per-installation about the app itself — what varies is four environment
 # variables.

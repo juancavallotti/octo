@@ -1,6 +1,0 @@
-{{- /* ClusterIP: the log query API stays internal; the platform BFF fronts it. */}}
-{{- include "octo-common.service" (dict
-      "root" $
-      "component" "logs"
-      "type" "ClusterIP"
-      "ports" (list (dict "name" "http" "port" .Values.logs.service.port "targetPort" .Values.logs.service.port))) }}
