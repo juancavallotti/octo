@@ -169,7 +169,7 @@ func run() error {
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
-		Handler:           newServer(database),
+		Handler:           newServer(database, rdb),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
@@ -302,7 +302,12 @@ func priceRefreshInterval() time.Duration {
 // database is configured; /healthz and the API description always serve, so a
 // liveness probe passes and the description reads even before Postgres is
 // reachable.
-func newServer(database *db.DB) http.Handler {
+//
+// Redis is passed separately from the database because the two are not
+// optional in the same way. This service refuses to start without a Redis and
+// degrades to serving /healthz without a Postgres, so anything backed by Redis
+// registers unconditionally while anything backed by Postgres cannot.
+func newServer(database *db.DB, rdb *redis.Client) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	openapi.NewHandler().Register(mux)
