@@ -1,32 +1,38 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
-import ChartAxes from "./ChartAxes";
-import { formatStep } from "./duration";
-import ChartReadout from "./ChartReadout";
-import { type Points } from "./metrics";
 import {
-  extent,
-  linearScale,
-  pathFor,
-  plotExtent,
-  unionExtent,
-  type Point,
-} from "./scale";
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart as RechartsLineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { bytes } from "@/app/components/stats/Stat";
+import ChartTooltip from "./ChartTooltip";
+import { formatClock, shortPod } from "./format";
+import { formatCores, type Points } from "./metrics";
+import { toRows, type Column } from "./rows";
+import { binaryStep, extent, plotExtent, ticks, timeTicks, unionExtent } from "./scale";
+import { AXIS, CPU_COLOR, GRID, LINE, MEM_COLOR } from "./theme";
 
 /**
  * CPU and memory for one deployment's pods, on one chart with two axes.
  *
  * Two units on one plot is a deliberate trade. It costs a reader the ability to
- * compare the heights of two lines — which they should never do here anyway — and
- * buys the thing the question actually needs: whether the memory climb and the CPU
- * spike happened at the same moment. Two stacked charts make that a saccade; one
- * chart makes it a glance. Cores read against the left axis, bytes against the
- * right, and the colours match the axis labels rather than a legend swatch alone.
+ * compare the heights of two lines — which they should never do here anyway —
+ * and buys the thing the question actually needs: whether the memory climb and
+ * the CPU spike happened at the same moment. Cores read against the left axis,
+ * bytes against the right, and the axis labels are coloured to match the lines
+ * they govern, which is the only thing keeping a two-unit chart readable.
  *
- * Hand-rolled SVG because this app has no charting library and one chart is not a
- * reason to adopt one. The geometry lives in `scale.ts`, which is tested without a
- * DOM; what is left here is projection and pointer handling.
+ * The domains and the tick positions are still ours rather than Recharts'. Its
+ * defaults tick a byte axis decimally, which produces gridlines at 95 MiB where
+ * 100 MB was meant, and it does not anchor a magnitude at zero — so a memory
+ * line varying by 2 MiB on a 120 MiB pod is drawn full height and reads as a
+ * crisis. See scale.ts.
  */
 
 /** One pod's column of one metric. */
@@ -35,15 +41,8 @@ export interface PodSeries {
   points: Points;
 }
 
-const HEIGHT = 260;
-const PAD = { top: 12, right: 64, bottom: 26, left: 56 } as const;
-
-/** Width to draw at before the container has been measured — in a test renderer
- * it never is, and a zero would make every projected point NaN. */
-const ASSUMED_WIDTH = 800;
-
-/** How pods are told apart within a metric's colour. Wraps rather than running
- * out; past four pods on one chart the legend is doing the work anyway. */
+/** Pods are told apart by dash within a metric's colour, so a three-pod
+ * deployment still reads as "CPU and memory" rather than six unrelated lines. */
 const DASHES = ["", "5 3", "1 3", "8 3 2 3"] as const;
 
 export default function LineChart({
@@ -57,117 +56,92 @@ export default function LineChart({
   fromMs: number;
   toMs: number;
 }) {
-  const box = useRef<HTMLDivElement | null>(null);
-  const [width, setWidth] = useState(ASSUMED_WIDTH);
-  const [hover, setHover] = useState<number | null>(null);
-  const clip = useId();
-
-  useEffect(() => {
-    const element = box.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => {
-      // clientWidth rather than the rect, so a scrollbar is not drawn over.
-      setWidth(Math.max(element.clientWidth, 240));
-    });
-    observer.observe(element);
-    setWidth(Math.max(element.clientWidth || ASSUMED_WIDTH, 240));
-    return () => observer.disconnect();
-  }, []);
-
-  const plotWidth = Math.max(width - PAD.left - PAD.right, 1);
-  const plotHeight = HEIGHT - PAD.top - PAD.bottom;
-
-  const coreDomain = plotExtent(unionExtent(cpu.map((s) => extent(s.points.values))));
-  const byteDomain = plotExtent(unionExtent(memory.map((s) => extent(s.points.values))));
-
-  const x = linearScale({ min: fromMs, max: toMs }, [PAD.left, PAD.left + plotWidth]);
-  const yCores = linearScale(coreDomain, [PAD.top + plotHeight, PAD.top]);
-  const yBytes = linearScale(byteDomain, [PAD.top + plotHeight, PAD.top]);
-
-  const onMove = useCallback(
-    (event: React.PointerEvent<SVGSVGElement>) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const px = event.clientX - rect.left;
-      if (px < PAD.left || px > PAD.left + plotWidth) {
-        setHover(null);
-        return;
-      }
-      const ratio = (px - PAD.left) / plotWidth;
-      setHover(fromMs + ratio * (toMs - fromMs));
-    },
-    [fromMs, toMs, plotWidth],
-  );
-
+  const columns: Column[] = [
+    ...cpu.map((s) => ({ key: `cpu:${s.pod}`, ...s.points })),
+    ...memory.map((s) => ({ key: `mem:${s.pod}`, ...s.points })),
+  ];
+  const rows = toRows(columns);
   const spanMs = toMs - fromMs;
 
+  const cores = plotExtent(unionExtent(cpu.map((s) => extent(s.points.values))));
+  const byteRange = plotExtent(unionExtent(memory.map((s) => extent(s.points.values))));
+
   return (
-    <div ref={box} className="w-full">
-      <ChartReadout cpu={cpu} memory={memory} at={hover} spanMs={spanMs} />
-      <svg
-        viewBox={`0 0 ${width} ${HEIGHT}`}
-        width={width}
-        height={HEIGHT}
-        role="img"
-        aria-label={`CPU and memory over the last ${formatStep(spanMs)}`}
-        onPointerMove={onMove}
-        onPointerLeave={() => setHover(null)}
-      >
-        <clipPath id={clip}>
-          <rect x={PAD.left} y={PAD.top} width={plotWidth} height={plotHeight} />
-        </clipPath>
-
-        <ChartAxes
-          cores={coreDomain}
-          byteRange={byteDomain}
-          yCores={yCores}
-          yBytes={yBytes}
-          x={x}
-          fromMs={fromMs}
-          toMs={toMs}
-          left={PAD.left}
-          plotWidth={plotWidth}
-          baseline={HEIGHT - 8}
-        />
-
-        {hover !== null && (
-          <line
-            x1={x(hover)}
-            x2={x(hover)}
-            y1={PAD.top}
-            y2={PAD.top + plotHeight}
-            className="stroke-black/25 dark:stroke-white/30"
+    <div className="h-64 w-full text-zinc-500 dark:text-zinc-400">
+      <ResponsiveContainer width="100%" height="100%">
+        <RechartsLineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid {...GRID} />
+          <XAxis
+            dataKey="t"
+            type="number"
+            domain={[fromMs, toMs]}
+            ticks={timeTicks(fromMs, toMs, 5)}
+            tickFormatter={(at: number) => formatClock(at, spanMs)}
+            {...AXIS}
           />
-        )}
+          <YAxis
+            yAxisId="cores"
+            domain={[cores.min, cores.max]}
+            ticks={ticks(cores.min, cores.max, 4)}
+            tickFormatter={formatCores}
+            width={52}
+            {...AXIS}
+            tick={{ ...AXIS.tick, fill: CPU_COLOR }}
+          />
+          <YAxis
+            yAxisId="bytes"
+            orientation="right"
+            domain={[byteRange.min, byteRange.max]}
+            ticks={ticks(byteRange.min, byteRange.max, 4, binaryStep)}
+            tickFormatter={bytes}
+            width={64}
+            {...AXIS}
+            tick={{ ...AXIS.tick, fill: MEM_COLOR }}
+          />
+          <Tooltip
+            cursor={{ stroke: "currentColor", strokeOpacity: 0.3 }}
+            content={(props) => (
+              <ChartTooltip
+                {...props}
+                // Two units on one chart, so the formatting is per series rather
+                // than per chart: the card lists cores beside bytes.
+                format={(value, dataKey) =>
+                  dataKey.startsWith("cpu:") ? `${formatCores(value)} cores` : bytes(value)
+                }
+                labelFormat={(at) => formatClock(at, spanMs)}
+              />
+            )}
+          />
+          <Legend
+            wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+            iconSize={8}
+            iconType="plainline"
+          />
 
-        <g clipPath={`url(#${clip})`} fill="none" strokeWidth="1.5"
-           strokeLinecap="round" strokeLinejoin="round">
           {memory.map((s, i) => (
-            <path
-              key={`m${s.pod}`}
-              d={project(s.points, x, yBytes)}
+            <Line
+              key={`mem:${s.pod}`}
+              yAxisId="bytes"
+              dataKey={`mem:${s.pod}`}
+              name={`Memory ${shortPod(s.pod)}`}
+              stroke={MEM_COLOR}
               strokeDasharray={DASHES[i % DASHES.length]}
-              className="stroke-violet-500"
+              {...LINE}
             />
           ))}
           {cpu.map((s, i) => (
-            <path
-              key={`c${s.pod}`}
-              d={project(s.points, x, yCores)}
+            <Line
+              key={`cpu:${s.pod}`}
+              yAxisId="cores"
+              dataKey={`cpu:${s.pod}`}
+              name={`CPU ${shortPod(s.pod)}`}
+              stroke={CPU_COLOR}
               strokeDasharray={DASHES[i % DASHES.length]}
-              className="stroke-sky-500"
+              {...LINE}
             />
           ))}
-        </g>
-      </svg>
+        </RechartsLineChart>
+      </ResponsiveContainer>
     </div>
   );
-}
-
-/** Project one column onto the plot. */
-function project(points: Points, x: (v: number) => number, y: (v: number) => number): string {
-  const projected: Point[] = points.times.map((time, i) => {
-    const value = points.values[i];
-    return { x: x(time), y: value === null ? null : y(value) };
-  });
-  return pathFor(projected);
 }

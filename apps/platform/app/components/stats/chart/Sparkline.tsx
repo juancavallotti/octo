@@ -1,33 +1,26 @@
 "use client";
 
-import { useId } from "react";
-import { downsample, extent, linearScale, pathFor, type Point } from "./scale";
+import { Line, LineChart, ResponsiveContainer, YAxis } from "recharts";
+import { extent } from "./scale";
+import { toRows, type Column } from "./rows";
+import { CPU_COLOR, LINE, MEM_COLOR } from "./theme";
 import type { Points } from "./metrics";
 
 /**
  * CPU and memory over a short window, in the space of a word.
  *
- * It answers one question — is this moving — and nothing else, so it has no axes,
- * no grid and no hover. The numbers printed beside it on the card are what say to
- * what; this says whether they are worth reading.
+ * It answers one question — is this moving — and nothing else, so it has no
+ * axes, no grid, no legend and no tooltip. The numbers printed above it on the
+ * card say to what; this says whether they are worth reading. Clicking it opens
+ * the page that does have all of those.
  *
- * The two lines are normalized **independently**, each to its own range within the
- * window. Cores and bytes share no scale, and in 28 pixels with no axis there is
- * nothing to mislabel: the shape is the whole message. That is also why the
- * anchor-at-zero rule the full chart uses is deliberately not applied here — a
- * memory line that varies by 2 MiB on a 120 MiB pod would be a flat line at the
- * top, which is true but says nothing.
+ * The two lines are scaled **independently**, each to its own range within the
+ * window, which is what the two hidden axes are for. Cores and bytes share no
+ * scale, and with no axis drawn there is nothing to mislabel: the shape is the
+ * whole message. It is also why the anchor-at-zero rule the real charts use is
+ * deliberately not applied — a memory line varying by 2 MiB on a 120 MiB pod
+ * would be a flat line at the top, which is true and says nothing.
  */
-
-/** How many points survive into the path. Five minutes of one-second samples is
- * 300 of them; past roughly one per pixel the rest are bytes in a DOM
- * attribute. */
-const BUCKETS = 150;
-
-/** The coordinate space the paths are drawn in. The element itself is sized by
- * CSS and the viewBox is stretched to fit — which is why nothing in here is
- * text, and why the strokes are marked non-scaling. */
-const VIEW = { width: 600, height: 56 } as const;
 
 export default function Sparkline({
   cpu,
@@ -41,62 +34,39 @@ export default function Sparkline({
   label: string;
   className?: string;
 }) {
-  const clip = useId();
-  const { width, height } = VIEW;
-  const cpuPath = trace(cpu, width, height);
-  const memPath = trace(memory, width, height);
-
-  if (!cpuPath && !memPath) return null;
+  const columns: Column[] = [
+    { key: "cpu", ...cpu },
+    { key: "mem", ...memory },
+  ];
+  const rows = toRows(columns);
+  if (rows.length === 0) return null;
 
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      // Stretched to whatever the card gives it. Safe because the only things
-      // drawn are paths, and their strokes opt out of the scaling.
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={label}
-      className={className}
-    >
-      <clipPath id={clip}>
-        <rect x="0" y="0" width={width} height={height} />
-      </clipPath>
-      <g clipPath={`url(#${clip})`} fill="none" strokeWidth="1.25"
-         strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke">
-        {memPath && (
-          <path d={memPath} className="stroke-violet-500/70" vectorEffect="non-scaling-stroke" />
-        )}
-        {cpuPath && (
-          <path d={cpuPath} className="stroke-sky-500" vectorEffect="non-scaling-stroke" />
-        )}
-      </g>
-    </svg>
+    <div className={className} role="img" aria-label={label}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={rows} margin={{ top: 3, right: 1, bottom: 3, left: 1 }}>
+          <YAxis yAxisId="cpu" hide domain={band(cpu)} />
+          <YAxis yAxisId="mem" hide domain={band(memory)} />
+          <Line yAxisId="mem" dataKey="mem" stroke={MEM_COLOR} strokeOpacity={0.7}
+                {...LINE} strokeWidth={1.25} activeDot={false} />
+          <Line yAxisId="cpu" dataKey="cpu" stroke={CPU_COLOR}
+                {...LINE} strokeWidth={1.25} activeDot={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
-/** Project one column onto the box, normalized to its own range. */
-function trace(points: Points, width: number, height: number): string {
-  const reduced = downsample(points.times, points.values, BUCKETS);
-  const span = extent(reduced.values);
-  if (!span) return "";
-
-  // The window's own range, not one anchored at zero: see the note above. A flat
-  // series still has to be a line rather than a division by zero, and it belongs
-  // in the middle of the box rather than at the top of an invented range.
-  const domain = span.min === span.max
-    ? { min: span.min - 1, max: span.max + 1 }
-    : span;
-
-  // Room above and below for the stroke and then some. At 1.5 a line at its
-  // own maximum sits on the top edge and reads as the card's border rather than
-  // as data.
-  const inset = 4;
-  const y = linearScale(domain, [height - inset, inset]);
-  const last = reduced.times.length - 1;
-
-  const projected: Point[] = reduced.times.map((_, i) => ({
-    x: last === 0 ? width / 2 : (i / last) * width,
-    y: reduced.values[i] === null ? null : y(reduced.values[i] as number),
-  }));
-  return pathFor(projected);
+/**
+ * A series' own range, with a band around a flat one.
+ *
+ * A flat series has min === max, which Recharts scales to a zero-height domain
+ * and draws as nothing at all. It belongs in the middle of the box rather than
+ * at the top of an invented range, so the band is symmetric.
+ */
+function band(points: Points): [number, number] {
+  const span = extent(points.values);
+  if (!span) return [0, 1];
+  if (span.min === span.max) return [span.min - 1, span.max + 1];
+  return [span.min, span.max];
 }

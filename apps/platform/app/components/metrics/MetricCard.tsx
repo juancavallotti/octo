@@ -86,6 +86,7 @@ export default function MetricCard({
           fromMs={fromMs}
           toMs={toMs}
           format={unit.format}
+          labelFormat={clock}
           binary={unit.unit === "bytes"}
           anchorZero={unit.anchorZero ?? true}
         />
@@ -165,4 +166,13 @@ function labelKey(series: StatsSeries): string {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
     .join(",");
+}
+
+/** The moment under the cursor, to the second: these charts are seconds wide. */
+function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }

@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  axisDecimals,
   binaryStep,
   downsample,
   extent,
-  linearScale,
   niceStep,
-  pathFor,
   plotExtent,
   ticks,
   timeTicks,
@@ -69,29 +66,6 @@ describe("plotExtent", () => {
   });
 });
 
-describe("linearScale", () => {
-  it("maps the domain onto the range", () => {
-    const scale = linearScale({ min: 0, max: 100 }, [0, 200]);
-    expect(scale(0)).toBe(0);
-    expect(scale(50)).toBe(100);
-    expect(scale(100)).toBe(200);
-  });
-
-  it("inverts happily, which is what a y axis needs", () => {
-    const scale = linearScale({ min: 0, max: 10 }, [100, 0]);
-    expect(scale(0)).toBe(100);
-    expect(scale(10)).toBe(0);
-  });
-
-  it("does not produce NaN for a degenerate domain", () => {
-    // The likeliest way this chart renders blank: every point becomes NaN and
-    // the path string is silently empty.
-    const scale = linearScale({ min: 5, max: 5 }, [0, 100]);
-    expect(scale(5)).toBe(0);
-    expect(Number.isNaN(scale(5))).toBe(false);
-  });
-});
-
 describe("ticks", () => {
   it("lands on 1, 2 or 5 boundaries at or above the ask", () => {
     // Above, not below: rounding down turns a request for four gridlines into
@@ -117,14 +91,6 @@ describe("ticks", () => {
     for (const at of ticks(0, 1.4e8, 4, binaryStep)) {
       expect(at % (1024 * 1024)).toBe(0);
     }
-  });
-
-  it("derives one precision for the whole axis", () => {
-    // Per-value formatting pairs "0.0000" with "0.250" on the same axis.
-    expect(axisDecimals(0.05)).toBe(2);
-    expect(axisDecimals(0.5)).toBe(1);
-    expect(axisDecimals(20)).toBe(0);
-    expect(axisDecimals(0)).toBe(0);
   });
 
   it("covers the domain without drifting off the boundary", () => {
@@ -156,36 +122,6 @@ describe("timeTicks", () => {
 
   it("handles a window with no width", () => {
     expect(timeTicks(10, 10)).toEqual([10]);
-  });
-});
-
-describe("pathFor", () => {
-  it("draws a line through the points", () => {
-    expect(pathFor([{ x: 0, y: 10 }, { x: 5, y: 20 }])).toBe("M0 10L5 20");
-  });
-
-  it("lifts the pen at a gap rather than drawing across it", () => {
-    const d = pathFor([
-      { x: 0, y: 1 },
-      { x: 1, y: 2 },
-      { x: 2, y: null },
-      { x: 3, y: 4 },
-      { x: 4, y: 5 },
-    ]);
-    // Two subpaths: a line across the gap would claim a measurement nobody took.
-    expect(d.match(/M/g)).toHaveLength(2);
-    expect(d).toBe("M0 1L1 2M3 4L4 5");
-  });
-
-  it("makes a point stranded between gaps visible", () => {
-    // A lone M renders nothing at all, so the reading would simply vanish.
-    expect(pathFor([{ x: 0, y: null }, { x: 1, y: 3 }, { x: 2, y: null }]))
-      .toBe("M1 3l0 0");
-  });
-
-  it("is empty when everything is a gap", () => {
-    expect(pathFor([{ x: 0, y: null }])).toBe("");
-    expect(pathFor([])).toBe("");
   });
 });
 
