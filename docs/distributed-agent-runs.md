@@ -5,7 +5,7 @@ its run, so a later message on the same thread is handed to the run already
 working on it rather than starting a second one.
 
 **The claim is now cluster-wide**: `core.Leases` decides who owns a conversation
-and `core.Queues` delivers to them (`runtime/core/internal/engine/agentclaim.go`).
+and `core.Queues` delivers to them (`runtime/blocks/ai/agentclaim.go`).
 The process-local map is still there as the fast path, and is consulted first —
 a live local run always holds the cluster claim, so a local hit needs no round
 trip.

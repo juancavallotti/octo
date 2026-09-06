@@ -89,9 +89,45 @@ func init() {
 
 Blocks live in the connector's package, so importing the connector registers its blocks too. A block binds to a named connector instance by looking it up — which is what lets the `log` block write through a specific `logger` connector's output.
 
-<Callout type="warn">
-A connector package can only register **leaf** blocks. Anything with an inline sub-flow slot — a `fork`, a `foreach`, an `ai-agent` — is a composite, and composites need the flow builder, which is internal to the engine. A block that wants to run a nested chain is an engine change, not a connector.
-</Callout>
+### Blocks with sub-flows
+
+A block may run nested chains the flow author writes inline — the way `if` runs its `then`, or an `ai-agent` runs a tool. Nothing about that is reserved for the runtime's own packages: the sub-flows are fields of the block's settings struct, and the block builds them through the seam every factory is handed.
+
+```go
+type gateSettings struct {
+	// CEL boolean expression.
+	Condition string `json:"condition" octo:"label=Condition,type=cel,required"`
+	// Chain run when the condition holds.
+	Then *types.FlowConfig `json:"then" octo:"label=Then,type=flow,required"`
+	// Chain run when it does not; optional.
+	Else *types.FlowConfig `json:"else" octo:"label=Else,type=flow"`
+}
+
+func newGate(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
+	var cfg gateSettings
+	if err := raw.DecodeStrict(&cfg); err != nil { // a misspelled slot is a build error
+		return nil, err
+	}
+	flows, err := core.SubFlowsOf(deps) // nil outside the engine; fail here, not later
+	if err != nil {
+		return nil, err
+	}
+	then, err := flows.Branch(core.BranchThen, *cfg.Then)
+	if err != nil {
+		return nil, err
+	}
+	// …compile the condition, build else the same way, return the processor.
+}
+```
+
+The rules that keep it honest:
+
+- **The branch name is the field's json name.** `flows.Branch("then", …)` addresses the chain as `<block>[then]`, and the debug address resolver reads that same name off your schema — so `--break-at gate.check[then].charge` works with nothing else told.
+- **A list of chains uses `flows.Member(name, index, …)`**, addressed by each member's own name or its index, and a `type=flow-list` / `case-list` / `route-list` / `tool-list` field in the schema.
+- **`flows.Root()`** says whether the block sits in a flow's own chain. A block that continues the flow itself (see [Continuations](/runtime/processing-pipeline#continuations)) needs a root chain and should refuse to build elsewhere.
+- **`deps.Scheduler`** is the flow's worker pool, for a block that scatters work the way `fork` does.
+
+In the flow file the slots are written as top-level keys beside `type`, or under `settings`; the runtime folds the two together, so both spellings decode the same way.
 
 ## Sources
 

@@ -78,14 +78,19 @@ self-documenting and the builder knows each kind's shape:
   everything else stays isolated. Omitting both runs `body` purely for
   side-effects. A `body` error aborts; a `body` that drops the message drops it too.
 
-The flow builder **dispatches on block type**: composite kinds build their typed
-sub-flows directly; every other (leaf) block type is resolved through the
-`core.BlockRegistry`. Leaf blocks self-register via `core.MustRegisterBlock` in
-an `init` function, the same pattern connectors use.
+Every block type — leaf or composite — is resolved through the
+`core.BlockRegistry`, and every block self-registers via `core.MustRegisterBlock`
+from its package's `init`. A composite is an ordinary block whose settings
+struct carries sub-flow fields (`types.FlowConfig`, `[]types.BlockConfig`); it
+decodes them like any other setting and builds them through
+`core.BlockDeps.SubFlows`, the seam the engine hands every factory. The engine
+(`core/engine`) owns no block: it is the loop, the addresses, the continuations
+and that seam. The first-party composites live in `runtime/blocks/controlflow`
+and `runtime/blocks/ai`.
 
-> Adding a new composite *kind* (e.g. `loop`) means extending the builder and the
-> config, not just registering a factory. This is the accepted cost of explicit
-> typed slots while the set of composite kinds is small.
+> Adding a new composite kind (e.g. `loop`) is therefore registering a factory,
+> the same as adding a leaf. See `docs/extension-points.md`, "Blocks with
+> sub-flows are ordinary blocks".
 
 ### AI agent memory
 

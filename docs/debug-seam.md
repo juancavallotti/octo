@@ -43,7 +43,7 @@ complete example.
 | Piece | Where | What it does |
 | --- | --- | --- |
 | **Collector** | `core/spy.go` | Holds what was observed. On `core.BlockDeps`, so every block can reach it. |
-| **Engine block** | `core/internal/engine/spy.go` | The block that gets injected. Wraps or replaces the target. |
+| **Engine block** | `core/engine/spy.go` | The block that gets injected. Wraps or replaces the target. |
 | **Injector** | `core/runtime/spy.go` | Resolves the address and rewrites the config. |
 | **Service option** | `core/runtime/runtime.go` | `WithSpies(...)`, and a line in `applyDebug`. |
 
@@ -344,9 +344,14 @@ them. A merged run would give one case two verdicts depending on where it was st
 The runtime:
 
 1. Collector in `core/`, field on `core.BlockDeps`.
-2. Engine block in `core/internal/engine/`, registered in `compositeBuilders()`.
-   Refuse to build without the collector. Do **not** add it to `RegisterBlockMeta`.
-3. Injector in `core/runtime/`, using `resolveTarget(cfg, kind, addr)`.
+2. Engine block in `core/engine/`, built from the builder's `processor` switch —
+   not the registry, because a wrapper is transparent to an address and only the
+   builder knows that rule. The wrapped chain rides in the block's settings under
+   `process`. Refuse to build without the collector. Do **not** add it to
+   `RegisterBlockMeta`.
+3. Injector in `core/runtime/`, using `rewriteTarget(cfg, kind, addr, fn)`. The
+   resolver walks a generic tree and reads which settings hold chains off the
+   block's schema (`schema.Branches`), so it needs no table of its own.
 4. `With…` option, a line in `applyDebug` **in the right order**, and the
    invoke-mode guard.
 5. If it wraps: take the target's label, `unlabel` on the way out, clone what you

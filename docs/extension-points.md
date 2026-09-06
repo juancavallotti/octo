@@ -24,8 +24,11 @@ runtime/
     observability/  hosted     (probes, metrics)
   connectors/   <- extension point 2: what a flow can DO
     http/  cron/  database/  logger/  slack/  ...
+  blocks/       <- first-party blocks that belong to no connector, registered
+    controlflow/     the same way a connector's blocks are (see "Blocks")
+    ai/  cli/  builtin/
   core/
-    internal/engine/  <- not an extension point; see "The engine" below
+    engine/     <- the flow runner; owns no block, and is not an extension point
 ```
 
 Both are wired the same way: a subpackage, an `init` that registers, and a blank
@@ -224,6 +227,9 @@ module's one `init`, calling `registerConnector` (the connector, an extension
 default, and connector meta) and `registerLog` (the block, over in `log.go`).
 `runtime/connectors/pinecone` is the same shape at five blocks.
 
+A block with sub-flow slots registers exactly the same way — see "Blocks with
+sub-flows are ordinary blocks" below.
+
 Sources are **not** a separate registry. A connector implements `SourceProvider`
 and builds them, so a source closes over the connector's own connections instead
 of reaching for a global. Some connectors are resolved implicitly by source type
@@ -260,21 +266,66 @@ the pointer. The full version, with the cost analysis, is in
 [processing-pipeline.md](processing-pipeline.md) and
 [the monitoring page](../apps/docs/content/docs/runtime/monitoring.mdx).
 
+## Blocks with sub-flows are ordinary blocks
+
+A block that runs nested chains — `if`, `foreach`, `fork`, an `ai-agent`'s
+tools — registers exactly like a leaf: `core.MustRegisterBlock` with a factory,
+a settings struct with `octo` tags, `core.RegisterBlockMeta`. The sub-flows are
+fields of that settings struct, typed `types.FlowConfig` (a slot addressed by
+its own name) or `[]types.BlockConfig` (a bare chain), and the block builds them
+through the seam the engine hands every factory: `core.BlockDeps.SubFlows`.
+
+```go
+type ifSettings struct {
+	Condition string            `json:"condition" octo:"label=Condition,type=cel,required"`
+	Then      *types.FlowConfig `json:"then" octo:"label=Then,type=flow,required"`
+	Else      *types.FlowConfig `json:"else" octo:"label=Else,type=flow"`
+}
+
+func newIf(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
+	var cfg ifSettings
+	if err := raw.DecodeStrict(&cfg); err != nil { return nil, err }
+	flows, err := core.SubFlowsOf(deps)         // nil outside the engine: fail here
+	if err != nil { return nil, err }
+	then, err := flows.Branch(core.BranchThen, *cfg.Then)
+	…
+}
+```
+
+Three rules keep this honest:
+
+- **The branch name is the field's json name.** `flows.Branch("then", …)` mints
+  the address `<block>[then]`, and the address resolver behind `--break-at`,
+  `--spies` and `--mocks` reads the same name off the block's schema
+  (`schema.Branches`). Nothing else has to be told the block has a `then`.
+- **Decode strictly.** A misspelled slot on a block that decodes permissively is
+  a chain that silently never runs. `Settings.DecodeStrict` makes it a build
+  error, which is what every first-party composite uses.
+- **A block that takes the flow over checks `flows.Root()`.** Only a root chain
+  has a "rest of the flow" to continue into; `split` and `aggregate` refuse to
+  build inside another block's slot, by name, while the author is still looking.
+
+The scheduler is the other half of the seam: `core.BlockDeps.Scheduler` is the
+flow's worker pool, for a block that scatters work (`fork`). Both are nil when a
+block is built outside the engine, and both have a sentinel error for it.
+
+Where a block **lives** is decided by ownership, not shape: a block goes in a
+connector package when it reaches a resource *that package owns*, and under
+`runtime/blocks/` when it works against an interface any provider can satisfy —
+`ai-mapping` and `ai-agent` bind to whatever LLM connector a flow names through
+`core.LLMClient`, so they are runtime capability rather than part of any one
+provider's package. A connector's own block may have sub-flow slots too:
+nothing about the seam is reserved for the first-party packages.
+
 ## What is deliberately not an extension point
 
-**The engine.** Composite blocks — anything with an inline sub-flow slot (`fork`,
-`foreach`, `if`, `cache-scope`, `ai-router`, `ai-agent`, `ai-retry`) — live in
-`runtime/core/internal/engine` and cannot live anywhere else: building a sub-flow
-needs the builder, which is internal. A block that wants to run a nested chain is
-an engine change, not a connector.
-
-The engine also owns the **leaf** blocks that belong to no connector: `ai-mapping`
-and `ai-embed` bind to whatever LLM connector a flow names, through the shared
-`core.LLMClient` / `core.EmbedClient` interfaces, so they are provider-agnostic
-runtime capability rather than part of any one provider's package. The test is
-ownership, not shape: a leaf block goes in a connector package when it reaches a
-resource *that package owns*, and in the engine when it works against an interface
-any provider can satisfy. `connectors/llm/` holds LLM provider connectors only.
+**The engine.** `runtime/core/engine` is the flow runner: the `Flow` loop,
+block addresses and events, continuations, and the `SubFlows` implementation.
+It builds no authored block itself — every type in a flow resolves through
+`core.BlockRegistry`. The only processors it constructs directly are the three
+the runtime injects for `invoke --break-at`, `--spies` and `--mocks`, which are
+never authored in a flow and must not be registered anywhere a schema could see
+them.
 
 **CLI subcommands.** `run`, `invoke`, `eval`, `schema` are a closed switch in
 `runtime/octo/main.go`. A hosted service extends the CLI by adding *flags to
@@ -298,10 +349,13 @@ Does a flow author reference it by name in YAML?
    ├─ Is it a subcommand only useful when some module
    │  is compiled in?                                 → services: RegisterCommand
    ├─ Does it only need to watch what flows do?       → EventBus / BlockEvents
-   ├─ Does it need to run a nested sub-flow?          → the engine
-   └─ Is it a leaf block that owns no resource, binding
-      to any provider through a shared interface?     → the engine
+   └─ Is it a block that owns no resource, binding to
+      any provider through a shared interface?        → runtime/blocks/<family>
 ```
 
+A block that runs a nested sub-flow is not a separate branch of this tree: it
+registers where any block registers, and builds its chains through
+`core.BlockDeps.SubFlows`.
+
 If the answer is "none of these", the answer is still not a new registry. Say so
-in review and pick the closest of the five.
+in review and pick the closest of the four.

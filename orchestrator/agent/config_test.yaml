@@ -45,7 +45,7 @@ flow: chat
 # chain.
 #
 # It is tested where it lives instead, against a real in-memory store:
-# runtime/core/internal/engine/agentstore_test.go — that the chain's answer
+# runtime/blocks/ai/agentstore_test.go — that the chain's answer
 # becomes the title, that an empty answer names nothing, that a chain which blows
 # up costs a title and not the run, and that the slot is refused without an
 # agentId. What this file still pins is that the slot BUILDS, which is the part a

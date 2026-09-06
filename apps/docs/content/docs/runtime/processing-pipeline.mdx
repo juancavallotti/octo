@@ -22,7 +22,7 @@ connector --> source --> [bounded channel] --> flow workers --> blocks
 - **Block** (`core.Block`) — a configured, named stage wrapping one processor.
 - **Flow** — an ordered list of blocks, and itself a `MessageProcessor`. This is the recursive composition unit: composite blocks embed sub-flows.
 
-Leaf blocks are resolved through the block registry; composite kinds (`handle-errors`, `fork`, `if`, `switch`, `foreach`, `enrich`, `validate`, `cache-scope`, and the AI composites) are built directly by the flow builder from their typed config slots.
+Every block type is resolved through the block registry. A composite (`handle-errors`, `fork`, `if`, `switch`, `foreach`, `enrich`, `validate`, `cache-scope`, the AI composites) is an ordinary block whose settings include sub-flows, which it builds through the seam the engine hands every block — so a composite can be registered from any package, not only the runtime's own.
 
 ## Event lifecycle: source to sink
 
