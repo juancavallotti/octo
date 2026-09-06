@@ -169,7 +169,7 @@ function Nothing({ failed, pods }: { failed: boolean; pods: number }) {
       <EmptyState
         icon={Gauge}
         title="Metrics unavailable"
-        body="The platform can't reach the telemetry service. Set LOGS_URL to enable it."
+        body="The platform can't reach the observability service. Set OBSERVABILITY_URL to enable it."
       />
     );
   }

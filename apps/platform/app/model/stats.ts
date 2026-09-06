@@ -1,6 +1,6 @@
 /**
  * Browser-side client for pod stats — the per-pod CPU, memory and runtime metrics
- * a sidecar samples into Redis and the telemetry service reads back. Backed by the
+ * a sidecar samples into Redis and the observability service reads back. Backed by the
  * stats server actions, which call that service's query API directly; this wrapper
  * unwraps the ActionResult so callers keep a value-or-throw contract. Read-only.
  *

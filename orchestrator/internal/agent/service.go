@@ -479,7 +479,7 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 
 	// Dr. Octo is the reference consumer of both platform-access grants, so he asks
 	// for them the same way any integration does rather than through a private path.
-	// Observability is what puts LOGS_URL in his pod; the orchestrator one grants
+	// Observability is what puts OBSERVABILITY_URL in his pod; the orchestrator one grants
 	// nothing today and is the declaration a future access model reads — an agent
 	// that drives the whole API is precisely the deployment that should carry it.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{

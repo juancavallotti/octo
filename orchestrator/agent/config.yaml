@@ -46,7 +46,7 @@ env:
     required: true
 
   # Where stored logs and traces are queried. Deliberately NOT required, and it has
-  # no counterpart binding: LOGS_URL is orchestrator-managed, injected only into a
+  # no counterpart binding: OBSERVABILITY_URL is orchestrator-managed, injected only into a
   # deployment granted the observability API, and the deploy-time check for required
   # variables reads bindings and .env resources only — so declaring it required would
   # refuse every deploy, including the ones that were granted it.
@@ -63,12 +63,12 @@ env:
   # The host is under .invalid, reserved by RFC 2606 to never resolve, so the
   # sentinel is also a safe address: anything that ever slipped past the checks
   # fails to connect rather than reaching something real.
-  - name: LOGS_URL
+  - name: OBSERVABILITY_URL
     default: http://observability-not-granted.invalid
 
   # The key Dr. Octo searches the open web with, from Admin -> Platform agent.
   #
-  # Optional, and the default is a sentinel for the same reason LOGS_URL's is: the
+  # Optional, and the default is a sentinel for the same reason OBSERVABILITY_URL's is: the
   # parallel connector below is started eagerly and refuses an empty API key, so an
   # installation that never configured web search would crash-loop the whole agent
   # rather than lose one tool. The web_search tool compares against this value and
@@ -247,7 +247,7 @@ connectors:
   - name: logs
     type: http-client
     settings:
-      baseURL: ${LOGS_URL}
+      baseURL: ${OBSERVABILITY_URL}
       # Shorter than the orchestrator's. A query that has to reach an address this
       # deployment was never granted should come back while someone is still reading
       # the answer, not sixty seconds later.
@@ -1789,7 +1789,7 @@ flows:
                   body: 'has(body.payload) ? body.payload : null'
                   failOnError: false
 
-          # The three logs tools each open with the same guard. When LOGS_URL
+          # The three logs tools each open with the same guard. When OBSERVABILITY_URL
           # is still the sentinel, this deployment was never granted the
           # observability API, and that sentence is the honest answer —
           # cheaper than a request to an address that does not resolve.
@@ -1804,7 +1804,7 @@ flows:
             process:
               - type: if
                 name: observability-granted
-                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
                 then:
                   process:
                     - type: rest
@@ -1837,7 +1837,7 @@ flows:
             process:
               - type: if
                 name: observability-granted
-                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
                 then:
                   process:
                     - type: rest
@@ -1876,7 +1876,7 @@ flows:
             process:
               - type: if
                 name: observability-granted
-                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
                 then:
                   process:
                     # allowMethods costs nothing here: every route this API

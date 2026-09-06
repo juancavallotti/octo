@@ -751,7 +751,7 @@ func TestInstallDeploysInternalOnly(t *testing.T) {
 }
 
 // The agent asks for the platform-access grants the same way any integration does.
-// Observability is the one that does something: it is what puts LOGS_URL in his pod,
+// Observability is the one that does something: it is what puts OBSERVABILITY_URL in his pod,
 // and without it his logs tools answer that they were not granted rather than that
 // there is nothing stored.
 func TestInstallAsksForThePlatformAccessGrants(t *testing.T) {

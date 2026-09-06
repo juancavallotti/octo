@@ -4,14 +4,13 @@
  *
  *     serverAction (auth) → this client (getTraces()) → requestJson() → fetch
  *
- * Like the logs client, the platform talks to the trace service directly: it owns
- * the traces tables and exposes its own in-cluster query API, so there is no
- * reason to hop through the orchestrator. It is the same service and the same
- * `LOGS_URL` — traces live inside the logs binary. That URL and the wire shaping
- * are internal; callers see only the model's types.
+ * It reads the observability service, the same one the logs client reads (see
+ * `_observability.ts` for why directly and not through the orchestrator). The
+ * address and the wire shaping are internal; callers see only the model's types.
  */
 
 import { requestJson, type ActionResult } from "@octo/http";
+import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
 import type {
   TraceAppsPage,
   TraceDetail,
@@ -30,17 +29,12 @@ import {
   type RawRecord,
 } from "./_tracesWire";
 
-/** The query base URL with any trailing slash trimmed, or "" when unset. */
-function baseUrl(): string {
-  return (process.env.LOGS_URL ?? "").replace(/\/+$/, "");
-}
-
-/** GET `path?query` against the trace service, or an error result when it is
- * unconfigured. Path segments are already encoded by the caller. */
+/** GET `path?query` against the observability service, or an error result when
+ * it is unconfigured. Path segments are already encoded by the caller. */
 async function get<T>(path: string, query = ""): Promise<ActionResult<T>> {
-  const base = baseUrl();
+  const base = observabilityBaseUrl();
   if (!base) {
-    return { ok: false, error: "trace query not configured (LOGS_URL unset)" };
+    return observabilityUnconfigured("trace query");
   }
   return requestJson<T>("GET", query ? `${base}${path}?${query}` : `${base}${path}`);
 }

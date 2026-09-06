@@ -1,5 +1,5 @@
 /**
- * The trace service's JSON shapes, and how they become the model's.
+ * The observability service's trace JSON shapes, and how they become the model's.
  *
  * These interfaces mirror `observability/internal/repo/tracesquery.go` field for field and
  * **must stay in sync with it** — the same contract the Go side keeps with the

@@ -475,7 +475,7 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		},
 		// Only reaches the pods that were granted the observability API, so an
 		// orchestrator without it disables that grant rather than degrading anything.
-		LogsURL: os.Getenv("LOGS_URL"),
+		ObservabilityURL: os.Getenv("OBSERVABILITY_URL"),
 		// The embedding server, reaching every pod rather than only the granted ones.
 		// An embedding reads nothing and writes nothing, so there is no boundary to
 		// gate — and every pod holding the URL is what makes it unnecessary for any

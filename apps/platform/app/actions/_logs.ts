@@ -1,17 +1,17 @@
 /**
- * The log-aggregator client — the middle layer between the logs server action and
+ * The stored-logs client — the middle layer between the logs server action and
  * the `fetch` abstraction (`@octo/http`):
  *
  *     serverAction (auth) → this client (getLogs()) → requestJson() → fetch
  *
- * Like the NATS client, the platform talks to the log service directly: it owns
- * the logs table and exposes its own in-cluster query API, so there is no reason
- * to hop through the orchestrator. The server-only `LOGS_URL` and the
- * snake_case→camelCase shaping are internal; callers see only {@link LogPage}.
+ * It reads the observability service (see `_observability.ts` for why directly
+ * and not through the orchestrator). The address and the snake_case→camelCase
+ * shaping are internal; callers see only {@link LogPage}.
  */
 
 import { requestJson, type ActionResult } from "@octo/http";
 import type { LogEntry, LogFilters, LogPage } from "@/app/model/logs";
+import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
 
 /** One stored log row as the service emits it (snake_case). */
 interface RawLog {
@@ -30,11 +30,6 @@ interface RawLog {
 interface RawPage {
   items: RawLog[];
   next_before?: string;
-}
-
-/** The query base URL with any trailing slash trimmed, or "" when unset. */
-function baseUrl(): string {
-  return (process.env.LOGS_URL ?? "").replace(/\/+$/, "");
 }
 
 /** Build the `/logs` query string from the filters, omitting empty axes. */
@@ -68,12 +63,12 @@ function toEntry(r: RawLog): LogEntry {
 
 /**
  * Fetch one page of stored log events matching the filters. Returns an error
- * result when the log service is unconfigured (`LOGS_URL` unset) or unreachable.
+ * result when the observability service is unconfigured or unreachable.
  */
 export async function getLogs(f: LogFilters): Promise<ActionResult<LogPage>> {
-  const base = baseUrl();
+  const base = observabilityBaseUrl();
   if (!base) {
-    return { ok: false, error: "log query not configured (LOGS_URL unset)" };
+    return observabilityUnconfigured("log query");
   }
   const qs = queryString(f);
   const url = qs ? `${base}/logs?${qs}` : `${base}/logs`;

@@ -4,10 +4,10 @@
  *
  *     serverAction (auth) → this client (getSeries()) → requestJson() → fetch
  *
- * Same service and same `LOGS_URL` as logs, traces and retention: the telemetry
- * binary owns the stats query API too, so there is no reason to hop through the
- * orchestrator. That URL and the wire shaping are internal; callers see only the
- * model's types.
+ * It reads the observability service, like logs, traces and retention: that
+ * service owns the stats query API too (see `_observability.ts` for why directly
+ * and not through the orchestrator). The address and the wire shaping are
+ * internal; callers see only the model's types.
  *
  * The routes are deployment-scoped because the storage is. A pod's rows live under
  * `octo:stats:v0:{deployment}:{pod}:`, and the deployment id is the only key into
@@ -16,6 +16,7 @@
  */
 
 import { requestJson, type ActionResult } from "@octo/http";
+import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
 import type {
   StatsMetricsPage,
   StatsPodsPage,
@@ -33,17 +34,12 @@ import {
   type RawSeriesPage,
 } from "./_statsWire";
 
-/** The query base URL with any trailing slash trimmed, or "" when unset. */
-function baseUrl(): string {
-  return (process.env.LOGS_URL ?? "").replace(/\/+$/, "");
-}
-
-/** GET `path?query` against the stats service, or an error result when it is
- * unconfigured. Path segments are already encoded by the caller. */
+/** GET `path?query` against the observability service, or an error result when
+ * it is unconfigured. Path segments are already encoded by the caller. */
 async function get<T>(path: string, query = ""): Promise<ActionResult<T>> {
-  const base = baseUrl();
+  const base = observabilityBaseUrl();
   if (!base) {
-    return { ok: false, error: "pod stats not configured (LOGS_URL unset)" };
+    return observabilityUnconfigured("pod stats");
   }
   return requestJson<T>("GET", query ? `${base}${path}?${query}` : `${base}${path}`);
 }

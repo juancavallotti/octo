@@ -4,19 +4,21 @@
  *
  *     serverAction (auth) → this client (getRetention()) → requestJson() → fetch
  *
- * It talks to the log aggregator rather than the orchestrator, like `_logs.ts`
- * and `_traces.ts` beside it and for the same reason: the aggregator owns the
- * tables a retention policy governs, and serves the policy alongside the queries
- * over them. The other admin settings go through `actions/client/settings.ts` to
- * the orchestrator, so this is deliberately not there — the split follows which
- * service owns the data, not which page the form happens to sit on.
+ * It talks to the observability service rather than the orchestrator, like
+ * `_logs.ts` and `_traces.ts` beside it and for the same reason: that service
+ * owns the tables a retention policy governs, and serves the policy alongside
+ * the queries over them. The other admin settings go through
+ * `actions/client/settings.ts` to the orchestrator, so this is deliberately not
+ * there — the split follows which service owns the data, not which page the form
+ * happens to sit on.
  *
- * The server-only `LOGS_URL` and the snake_case→camelCase shaping are internal;
+ * The server-only address and the snake_case→camelCase shaping are internal;
  * callers see only the types in `app/model/retention.ts`, which is where they
  * live so that nothing client-side has to import this module to name them.
  */
 
 import { requestJson, type ActionResult } from "@octo/http";
+import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
 import type {
   RetentionPolicy,
   RetentionPolicyInput,
@@ -40,13 +42,8 @@ interface RawRun {
   duration_ms: number;
 }
 
-/** The aggregator's base URL with any trailing slash trimmed, or "" when unset. */
-function baseUrl(): string {
-  return (process.env.LOGS_URL ?? "").replace(/\/+$/, "");
-}
-
 function unconfigured<T>(): ActionResult<T> {
-  return { ok: false, error: "retention not configured (LOGS_URL unset)" };
+  return observabilityUnconfigured("retention");
 }
 
 function toPolicy(r: RawPolicy): RetentionPolicy {
@@ -59,7 +56,7 @@ function toPolicy(r: RawPolicy): RetentionPolicy {
 
 /** Read the stored policy. */
 export async function getRetention(): Promise<ActionResult<RetentionPolicy>> {
-  const base = baseUrl();
+  const base = observabilityBaseUrl();
   if (!base) return unconfigured();
 
   const res = await requestJson<RawPolicy>("GET", `${base}/settings/retention`);
@@ -71,7 +68,7 @@ export async function getRetention(): Promise<ActionResult<RetentionPolicy>> {
 export async function saveRetention(
   input: RetentionPolicyInput,
 ): Promise<ActionResult<RetentionPolicy>> {
-  const base = baseUrl();
+  const base = observabilityBaseUrl();
   if (!base) return unconfigured();
 
   const res = await requestJson<RawPolicy>("PUT", `${base}/settings/retention`, {
@@ -84,7 +81,7 @@ export async function saveRetention(
 
 /** Enforce the stored policy now, and report what went. */
 export async function runRetention(): Promise<ActionResult<RetentionRun>> {
-  const base = baseUrl();
+  const base = observabilityBaseUrl();
   if (!base) return unconfigured();
 
   const res = await requestJson<RawRun>("POST", `${base}/retention/run`);

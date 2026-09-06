@@ -191,7 +191,7 @@ export default function TracesManager({
                 title={error ? "Traces unavailable" : "Pick a trace"}
                 body={
                   error
-                    ? "The platform can't reach the trace service. Set LOGS_URL to enable it."
+                    ? "The platform can't reach the observability service. Set OBSERVABILITY_URL to enable it."
                     : "Choose an execution to see everything that happened on it — every flow, block and model call, with what each one took."
                 }
               />

@@ -85,7 +85,7 @@ export default function AdvancedDeployFields({
           </label>
           {observabilityApi && (
             <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-              Injects <code>LOGS_URL</code>, the stored logs and traces of{" "}
+              Injects <code>OBSERVABILITY_URL</code>, the stored logs and traces of{" "}
               <strong>every</strong> deployment on this installation — not just this
               one. Captured request bodies are readable through it, so grant it to
               integrations you would trust with the Traces view.

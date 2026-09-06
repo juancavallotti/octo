@@ -294,7 +294,7 @@ dev-run-hash-secret
 {{- end }}
 
 {{/*
-  In-cluster URL of the observability service's API, injected as LOGS_URL into
+  In-cluster URL of the observability service's API, injected as OBSERVABILITY_URL into
   both the platform and the orchestrator. One URL covers stored logs, traces, pod
   stats and retention, because one service owns all of them.
 

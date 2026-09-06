@@ -60,15 +60,15 @@ type RuntimeServices struct {
 	// reasoning the chart's octo.redis.env helper spells out for the platform's own
 	// pods. When set it wins over RedisURL.
 	RedisSecret SecretKeyRef
-	// LogsURL is the log aggregator's query API. Unlike the others it is injected
+	// ObservabilityURL is the observability service's API. Unlike the others it is injected
 	// only into deployments that were granted the observability API, so an empty
 	// value here disables the grant everywhere rather than degrading every pod.
-	LogsURL string
+	ObservabilityURL string
 	// EmbeddingsURL is the embedding server: text in, vectors out. Empty omits it,
 	// which is what an installation with no embedding server has.
 	//
-	// Injected into EVERY pod, unlike LogsURL beside it, and the difference is the
-	// point. LOGS_URL is a grant because stored telemetry is other integrations'
+	// Injected into EVERY pod, unlike ObservabilityURL beside it, and the difference is the
+	// point. OBSERVABILITY_URL is a grant because stored telemetry is other integrations'
 	// data and handing it out would cross a boundary. An embedding crosses none: it
 	// reads nothing, writes nothing, and costs a fraction of a cent. Giving every
 	// pod the URL is what makes it unnecessary to give any pod the provider API
@@ -100,7 +100,7 @@ type Client struct {
 	// devRuntimeImage is the STANDALONE runtime build, used by dev-run pods. Distinct
 	// from runtimeImage on purpose: that one is built -tags k8s and contains only the
 	// k8s services provider, so it cannot run without the orchestrator, the cluster
-	// queues and the log aggregator — none of which a dev run should be wired to.
+	// queues and the observability service — none of which a dev run should be wired to.
 	devRuntimeImage string
 	// agenticRunnerImage is the runner a deployment gets when it asks for
 	// RunnerAgentic: the same k8s runtime as runtimeImage, on a base that also

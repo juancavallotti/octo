@@ -434,7 +434,7 @@
                         "type": "string"
                     },
                     "observabilityApi": {
-                        "description": "ObservabilityAPI grants this deployment's flows the address of the log\naggregator's query API, injected as LOGS_URL. Unlike the orchestrator's, that\naddress is in no pod otherwise, so this switch is the whole of the access.\n\nOff by default: stored logs and traces span every deployment on the install,\nso an integration that can read them can read its neighbours' — which is a\nthing to ask for rather than to receive by default.",
+                        "description": "ObservabilityAPI grants this deployment's flows the address of the\nobservability service's API, injected as OBSERVABILITY_URL. Unlike the\norchestrator's, that address is in no pod otherwise, so this switch is the\nwhole of the access.\n\nOff by default: stored logs and traces span every deployment on the install,\nso an integration that can read them can read its neighbours' — which is a\nthing to ask for rather than to receive by default.",
                         "type": "boolean"
                     },
                     "orchestratorApi": {

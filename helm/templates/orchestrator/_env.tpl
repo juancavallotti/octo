@@ -46,13 +46,13 @@
   value: {{ .Values.runtime.servicesModule | quote }}
 - name: ORCHESTRATOR_URL
   value: {{ include "octo.orchestrator.url" . | quote }}
-{{- /* The log aggregator's query API. The orchestrator never calls it — it binds
-       this onto the platform agent's deployment, which is what lets Dr. Octo read
-       stored logs and traces rather than only tailing live pods. Unconditional
-       because the chart always deploys the aggregator; if that ever becomes
-       optional, the agent install refuses with a message naming this variable
-       rather than deploying an agent that half works. */}}
-- name: LOGS_URL
+{{- /* The observability service's API. The orchestrator never calls it — it
+       binds this onto the platform agent's deployment, which is what lets Dr.
+       Octo read stored logs and traces rather than only tailing live pods.
+       Unconditional because the chart always deploys the service; if that ever
+       becomes optional, the agent install refuses with a message naming this
+       variable rather than deploying an agent that half works. */}}
+- name: OBSERVABILITY_URL
   value: {{ include "octo.observability.url" . | quote }}
 {{- if .Values.embeddings.enabled }}
 {{- /* The embedding server. The orchestrator uses it directly — the backfill
