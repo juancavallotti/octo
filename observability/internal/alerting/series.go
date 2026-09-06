@@ -20,7 +20,10 @@ import (
 //
 // Denominator is populated only for ratio metrics, and is fetched in the same
 // round trip as Values so the two can never disagree about which rows they
-// counted.
+// counted. On such a series Values holds the NUMERATOR count rather than the
+// quotient — the quotient only exists over a window, because a ratio is summed
+// from its parts and never averaged from its buckets, so producing one per bucket
+// would invite exactly the arithmetic Reduce refuses.
 type Series struct {
 	Step        time.Duration
 	StartMS     int64
