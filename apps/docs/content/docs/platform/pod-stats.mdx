@@ -113,6 +113,11 @@ every series would not fit in the cache. When a config reload adds a flow, the
 dictionary gains entries and its generation advances; indices are only ever appended, so
 older rows stay readable.
 
+A reading of `null` is a gap — a series the dictionary knows that the scrape did not
+report, which is how a removed flow is told apart from one reporting zero. Readings
+that are not finite are written the same way, because a metric of infinity is a broken
+metric rather than a measurement.
+
 Both tiers are capped lists and every key carries a TTL that is refreshed as it is
 written. Pods are ephemeral and nothing sweeps up after them, so a deleted pod's data
 ages out on its own.

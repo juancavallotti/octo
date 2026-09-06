@@ -80,14 +80,15 @@ type Bucket struct {
 	// to see rather than having to infer.
 	Samples int `json:"n"`
 
-	// Value is the delta for a counter, the mean for a gauge.
-	Value []float64 `json:"v"`
+	// Value is the delta for a counter, the mean for a gauge. A series the
+	// bucket never observed is NaN in all four slices, written as null.
+	Value series.Values `json:"v"`
 	// Min, Max and Last are the extremes and the closing reading. For a counter
 	// Last is its closing absolute value, which is what lets consecutive buckets
 	// be stitched back into a cumulative series.
-	Min  []float64 `json:"mn"`
-	Max  []float64 `json:"mx"`
-	Last []float64 `json:"l"`
+	Min  series.Values `json:"mn"`
+	Max  series.Values `json:"mx"`
+	Last series.Values `json:"l"`
 }
 
 // accumulator folds the samples of one bucket, one series per index.

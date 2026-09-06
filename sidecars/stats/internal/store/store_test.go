@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -321,5 +322,88 @@ func TestUnreachableRedisReturnsAnError(t *testing.T) {
 	})
 	if err := s.WriteSample(context.Background(), sample(1000, 1)); err == nil {
 		t.Fatal("expected an error from an unreachable Redis")
+	}
+}
+
+// A sample carrying a gap has to reach Redis.
+//
+// This is the regression test for a write path that silently lost data: NaN is
+// how series.Encode records a series the dictionary knows but the scrape did
+// not report, encoding/json refuses NaN, and push only logs the encode error.
+// Because indices are append-only, one series that stops being reported puts a
+// NaN in every subsequent sample — so the tier stopped being written for the
+// rest of the pod's life, with nothing but a log line to say so.
+func TestWriteSampleWithAGap(t *testing.T) {
+	ctx := context.Background()
+	s, client := storeFor(t, Config{})
+
+	if err := s.WriteSample(ctx, sample(1000, 1, math.NaN(), 3)); err != nil {
+		t.Fatalf("WriteSample with a gap: %v", err)
+	}
+
+	rows, err := client.LRange(ctx, s.podKey(liveKey), 0, -1).Result()
+	if err != nil {
+		t.Fatalf("LRange: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("live tier has %d rows, want 1", len(rows))
+	}
+
+	var got series.Sample
+	if err := json.Unmarshal([]byte(rows[0]), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Values) != 3 {
+		t.Fatalf("decoded %d values, want 3", len(got.Values))
+	}
+	if !math.IsNaN(got.Values[1]) {
+		t.Errorf("gap read back as %v, want NaN", got.Values[1])
+	}
+	if got.Values[0] != 1 || got.Values[2] != 3 {
+		t.Errorf("readings either side of the gap = %v, want 1 and 3",
+			got.Values)
+	}
+}
+
+// The same hazard on the history tier: a series no sample in the bucket
+// reported collapses to NaN in all four slices.
+func TestWriteBucketWithAnUnobservedSeries(t *testing.T) {
+	ctx := context.Background()
+	s, client := storeFor(t, Config{})
+
+	nan := math.NaN()
+	bucket := &rollup.Bucket{
+		Gen: 0, StartMS: 0, EndMS: 3600000, Samples: 12,
+		Value: series.Values{1, nan},
+		Min:   series.Values{1, nan},
+		Max:   series.Values{2, nan},
+		Last:  series.Values{2, nan},
+	}
+	if err := s.WriteBucket(ctx, bucket); err != nil {
+		t.Fatalf("WriteBucket with an unobserved series: %v", err)
+	}
+
+	rows, err := client.LRange(ctx, s.podKey(rollupKey), 0, -1).Result()
+	if err != nil {
+		t.Fatalf("LRange: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("history tier has %d rows, want 1", len(rows))
+	}
+
+	var got rollup.Bucket
+	if err := json.Unmarshal([]byte(rows[0]), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for name, column := range map[string]series.Values{
+		"v": got.Value, "mn": got.Min, "mx": got.Max, "l": got.Last,
+	} {
+		if len(column) != 2 {
+			t.Errorf("%s has %d entries, want 2", name, len(column))
+			continue
+		}
+		if !math.IsNaN(column[1]) {
+			t.Errorf("%s[1] = %v, want NaN", name, column[1])
+		}
 	}
 }

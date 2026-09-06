@@ -71,11 +71,12 @@ type Entry struct {
 // Values is positional: Values[i] is the reading for the entry at index i. A
 // series the dictionary knows but this scrape did not report — a flow that was
 // removed by a reload — holds NaN, which is how a gap is distinguished from a
-// genuine zero.
+// genuine zero. On the wire that NaN is null; see the Values type for why it
+// cannot be a plain []float64.
 type Sample struct {
-	Gen    int       `json:"g"`
-	TimeMS int64     `json:"t"`
-	Values []float64 `json:"v"`
+	Gen    int    `json:"g"`
+	TimeMS int64  `json:"t"`
+	Values Values `json:"v"`
 }
 
 // Dictionary interns series identities to stable indices.
