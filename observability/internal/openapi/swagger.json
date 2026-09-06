@@ -1,6 +1,103 @@
 {
     "components": {
         "schemas": {
+            "alerting.Op": {
+                "enum": [
+                    "gt",
+                    "gte",
+                    "lt",
+                    "lte"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "OpGT",
+                    "OpGTE",
+                    "OpLT",
+                    "OpLTE"
+                ]
+            },
+            "alerting.Outcome": {
+                "properties": {
+                    "baseline": {
+                        "type": "number"
+                    },
+                    "baselineSamples": {
+                        "type": "integer"
+                    },
+                    "conditionId": {
+                        "type": "string"
+                    },
+                    "denominator": {
+                        "type": "number"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "noData": {
+                        "type": "boolean"
+                    },
+                    "observed": {
+                        "description": "Observed is the statistic in the units a human recognises — for a ratio\nthat is the point estimate, not the confidence bound the comparison was\nactually made against. Score carries the bound, or the robust z.",
+                        "type": "number"
+                    },
+                    "op": {
+                        "$ref": "#/components/schemas/alerting.Op"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "samples": {
+                        "type": "integer"
+                    },
+                    "score": {
+                        "type": "number"
+                    },
+                    "threshold": {
+                        "type": "number"
+                    },
+                    "unit": {
+                        "$ref": "#/components/schemas/alerting.Unit"
+                    },
+                    "verdict": {
+                        "type": "string"
+                    },
+                    "windowFrom": {
+                        "type": "string"
+                    },
+                    "windowTo": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "alerting.Unit": {
+                "enum": [
+                    "count",
+                    "ratio",
+                    "usd",
+                    "ns",
+                    "bytes",
+                    ""
+                ],
+                "type": "string",
+                "x-enum-comments": {
+                    "UnitRatio": "rendered as a percentage"
+                },
+                "x-enum-varnames": [
+                    "UnitCount",
+                    "UnitRatio",
+                    "UnitUSD",
+                    "UnitNanos",
+                    "UnitBytes",
+                    "UnitUnknown"
+                ]
+            },
             "api.appsResponse": {
                 "properties": {
                     "from": {
@@ -19,6 +116,142 @@
                 },
                 "type": "object"
             },
+            "api.evaluationBody": {
+                "properties": {
+                    "degraded": {
+                        "type": "boolean"
+                    },
+                    "duration_ms": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "evaluated_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "incident_id": {
+                        "type": "string"
+                    },
+                    "matched": {
+                        "type": "integer"
+                    },
+                    "outcomes": {
+                        "items": {
+                            "$ref": "#/components/schemas/alerting.Outcome"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "phase": {
+                        "type": "string"
+                    },
+                    "previous_phase": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "transitioned": {
+                        "type": "boolean"
+                    },
+                    "watch_id": {
+                        "type": "string"
+                    },
+                    "window_from": {
+                        "type": "string"
+                    },
+                    "window_to": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.evaluationListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.evaluationBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "next_before": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.incidentBody": {
+                "properties": {
+                    "acknowledged_at": {
+                        "type": "string"
+                    },
+                    "closed_reason": {
+                        "type": "string"
+                    },
+                    "evaluations": {
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "notifications": {
+                        "type": "integer"
+                    },
+                    "opened_at": {
+                        "type": "string"
+                    },
+                    "opened_matched": {
+                        "type": "integer"
+                    },
+                    "opened_outcomes": {
+                        "description": "The outcomes that opened it, frozen. A watch can be retuned mid-incident,\nand a page that recomputed its own trigger would describe something that\nnever happened.",
+                        "items": {
+                            "$ref": "#/components/schemas/alerting.Outcome"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "opened_total": {
+                        "type": "integer"
+                    },
+                    "resolved_at": {
+                        "type": "string"
+                    },
+                    "severity": {
+                        "type": "string"
+                    },
+                    "watch_id": {
+                        "type": "string"
+                    },
+                    "watch_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.incidentListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.incidentBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.logListResponse": {
                 "properties": {
                     "items": {
@@ -29,6 +262,48 @@
                         "uniqueItems": false
                     },
                     "next_before": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.muteRequest": {
+                "properties": {
+                    "until": {
+                        "description": "Until is when the mute lifts. Null lifts it now, which is how somebody\nun-mutes without having to pick a time in the past.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.previewResponse": {
+                "properties": {
+                    "degraded": {
+                        "type": "boolean"
+                    },
+                    "matched": {
+                        "type": "integer"
+                    },
+                    "outcomes": {
+                        "items": {
+                            "$ref": "#/components/schemas/alerting.Outcome"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "verdict": {
+                        "type": "string"
+                    },
+                    "window_from": {
+                        "type": "string"
+                    },
+                    "window_to": {
                         "type": "string"
                     }
                 },
@@ -362,6 +637,125 @@
                         "uniqueItems": false
                     },
                     "next_before": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.watchBody": {
+                "properties": {
+                    "actions": {
+                        "items": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "combinator": {
+                        "type": "string"
+                    },
+                    "conditions": {
+                        "description": "Conditions and Actions travel as the open objects they are stored as,\nparameters and all.\n\nDeliberately untyped here rather than a struct per kind: describing them\nfield by field would mean this package knowing every condition's\nparameters, which is the one thing a discriminated shape exists to avoid,\nand it would put a second definition of them beside the one the domain\nalready decodes strictly. The domain's own builder is what refuses a\nmalformed one, and it does so with a message naming the field.",
+                        "items": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "for_seconds": {
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "interval_seconds": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "on_no_data": {
+                        "type": "string"
+                    },
+                    "renotify_seconds": {
+                        "type": "integer"
+                    },
+                    "severity": {
+                        "type": "string"
+                    },
+                    "step_seconds": {
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.watchListItem": {
+                "properties": {
+                    "state": {
+                        "$ref": "#/components/schemas/api.watchStateBody"
+                    },
+                    "watch": {
+                        "$ref": "#/components/schemas/api.watchBody"
+                    }
+                },
+                "type": "object"
+            },
+            "api.watchListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.watchListItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.watchStateBody": {
+                "properties": {
+                    "consecutive_firing": {
+                        "type": "integer"
+                    },
+                    "consecutive_ok": {
+                        "type": "integer"
+                    },
+                    "incident_id": {
+                        "type": "string"
+                    },
+                    "last_eval_at": {
+                        "type": "string"
+                    },
+                    "last_status": {
+                        "type": "string"
+                    },
+                    "last_value": {
+                        "type": "number"
+                    },
+                    "muted_until": {
+                        "type": "string"
+                    },
+                    "next_due_at": {
+                        "type": "string"
+                    },
+                    "phase": {
+                        "type": "string"
+                    },
+                    "since": {
                         "type": "string"
                     }
                 },
@@ -764,6 +1158,769 @@
         "url": "https://octopaas.dev/docs"
     },
     "paths": {
+        "/alerts/evaluations": {
+            "get": {
+                "description": "The same rows as a single watch's history, across every watch — the view that\nanswers \"what has alerting been doing\" rather than \"what has this watch been\ndoing\". Paged on an opaque cursor naming an (evaluated_at, id) pair, because a\ntick evaluates every due watch inside the same millisecond.",
+                "parameters": [
+                    {
+                        "description": "Only this watch",
+                        "in": "query",
+                        "name": "watchId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only rows where something happened",
+                        "in": "query",
+                        "name": "notable",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Only this status (repeatable)",
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only rows belonging to this episode",
+                        "in": "query",
+                        "name": "incidentId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 lower bound",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 upper bound, exclusive",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Opaque cursor from a previous page's next_before",
+                        "in": "query",
+                        "name": "before",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 100, max 1000)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.evaluationListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "The whole evaluation log",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
+        "/alerts/incidents": {
+            "get": {
+                "description": "Firing episodes, most recent first. `open=true` is the \"what is on fire right\nnow\" view. A closed episode carries the reason it closed, and \"resolved\" is\ndeliberately distinct from \"stale\": the second means the watch stopped being\nable to decide, which is not the same as the metric coming back.",
+                "parameters": [
+                    {
+                        "description": "Only this watch's episodes",
+                        "in": "query",
+                        "name": "watchId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only episodes that are still running",
+                        "in": "query",
+                        "name": "open",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 lower bound on when it opened",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 upper bound, exclusive",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 100, max 1000)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.incidentListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List incidents",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
+        "/alerts/incidents/{id}/ack": {
+            "post": {
+                "description": "Records that somebody has seen it. It does not resolve the episode — only the\nmetric coming back does that — and acknowledging one twice is refused rather\nthan silently re-stamping whoever got there first.",
+                "parameters": [
+                    {
+                        "description": "Incident id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "acknowledged"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such open, unacknowledged incident"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Acknowledge an incident",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
+        "/alerts/preview": {
+            "post": {
+                "description": "Runs the definition against real data now and reports what each condition\nobserved, what it was judged against, and whether it held — without recording\nan evaluation, moving any state or notifying anybody. It takes a whole watch\nrather than an id, because the question is worth asking about a definition\nthat has not been saved: it is how a spike's gates get tuned before the watch\ngoes live rather than after it fails to fire.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.watchBody",
+                                        "summary": "body",
+                                        "description": "The definition to try"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The definition to try",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.previewResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Preview a watch",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
+        "/alerts/watches": {
+            "get": {
+                "description": "Every watch, newest first, each with where its state machine has got to —\nthe phase it is in, when it last ran, and the incident it currently holds\nopen. A watch whose stored definition this service cannot read comes back\nwith phase \"invalid\" rather than being omitted.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.watchListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List watches",
+                "tags": [
+                    "alerts"
+                ]
+            },
+            "post": {
+                "description": "Validates the whole definition before storing it: every condition is built,\nevery action is checked, and an unrecognised condition or action type is\nrefused rather than stored to fail at three in the morning. The watch is due\non the next tick.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.watchBody",
+                                        "summary": "body",
+                                        "description": "The watch"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The watch",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.watchBody"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the definition is not one this service can evaluate"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken, or this installation is at its limit"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Create a watch",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
+        "/alerts/watches/{id}": {
+            "delete": {
+                "description": "Closes any open episode first, then removes the watch and everything that\nreferenced it — its state, its incidents and its evaluation history. An\nincident that outlived its watch would have nothing left that could resolve it.",
+                "parameters": [
+                    {
+                        "description": "Watch id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Delete a watch",
+                "tags": [
+                    "alerts"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Watch id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.watchBody"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read a watch",
+                "tags": [
+                    "alerts"
+                ]
+            },
+            "put": {
+                "description": "A save replaces the whole definition. Retuning anything that changes what a\npending hold means — a condition, the combinator, the hold itself — restarts\nthat hold on the next evaluation, because the clock was measuring a different\nquestion. Renaming a watch or changing its recipients does not. Disabling one\ncloses any episode it has open.",
+                "parameters": [
+                    {
+                        "description": "Watch id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.watchBody",
+                                        "summary": "body",
+                                        "description": "The whole watch"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The whole watch",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.watchBody"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name is taken"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Update a watch",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
+        "/alerts/watches/{id}/evaluations": {
+            "get": {
+                "description": "Every time this watch was asked, newest first — including the ticks that found\nnothing, which is what makes \"it was evaluated and it was fine\" distinguishable\nfrom \"it was never evaluated\". `notable=true` drops the quiet rows.",
+                "parameters": [
+                    {
+                        "description": "Watch id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only rows where something happened",
+                        "in": "query",
+                        "name": "notable",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Only this status (repeatable)",
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only rows belonging to this episode",
+                        "in": "query",
+                        "name": "incidentId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 lower bound",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "RFC3339 upper bound, exclusive",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Opaque cursor from a previous page's next_before",
+                        "in": "query",
+                        "name": "before",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 100, max 1000)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.evaluationListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "A watch's evaluation history",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
+        "/alerts/watches/{id}/mute": {
+            "post": {
+                "description": "Suppresses notifications until the given time without stopping evaluation, so\nthe history stays complete and an open incident still resolves on its own. A\nnull `until` lifts the mute. Silencing a watch permanently is what `enabled`\nis for, so a mute may not be set more than 30 days ahead.",
+                "parameters": [
+                    {
+                        "description": "Watch id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.muteRequest",
+                                        "summary": "body",
+                                        "description": "When the mute lifts"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "When the mute lifts",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "muted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Mute a watch",
+                "tags": [
+                    "alerts"
+                ]
+            }
+        },
         "/healthz": {
             "get": {
                 "description": "Answers as soon as the process is serving, whether or not Postgres or\nNATS are reachable — it is what the readiness probe polls while the\nrest is still coming up.",

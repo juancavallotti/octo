@@ -130,6 +130,9 @@ func validate(w Watch) error {
 			ErrInvalidWatch, MinInterval, MaxInterval, w.Interval)
 	case w.For < 0 || w.Renotify < 0:
 		return fmt.Errorf("alerting: %w: for and renotify may not be negative", ErrInvalidWatch)
+	case !ValidSeverity(w.Severity):
+		return fmt.Errorf("alerting: %w: severity must be info, warning or critical, got %q",
+			ErrInvalidWatch, w.Severity)
 	}
 	return nil
 }
