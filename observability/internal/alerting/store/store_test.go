@@ -562,8 +562,56 @@ func TestRecordReturnsTheStateItWroteIncludingTheIncident(t *testing.T) {
 	if err := s.RecordNotification(t.Context(), created.ID, written.IncidentID, storeNow); err != nil {
 		t.Fatalf("record notification: %v", err)
 	}
-	incidents, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	incidents, err := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	if err != nil {
+		t.Fatalf("incidents: %v", err)
+	}
+	if len(incidents) != 1 {
+		t.Fatalf("%d incidents, want 1", len(incidents))
+	}
 	if incidents[0].Notifications != 1 {
 		t.Errorf("the episode counted %d notifications, want 1", incidents[0].Notifications)
+	}
+}
+
+// Disabling a watch has to close whatever it had open: an episode that outlives
+// the watch that could resolve it stays open forever, and somebody switching a
+// noisy watch off means to stop hearing about it rather than to freeze its last
+// incident on the dashboard.
+func TestSavingADisabledWatchRetiresIt(t *testing.T) {
+	s := newStore(t)
+	created := mustCreate(t, s, "checkout errors")
+	created.For = 0
+	created, _ = s.Update(t.Context(), created, "")
+	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
+	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+
+	svc := alerting.NewService(s, nil, nil)
+	created.Enabled = false
+	if _, err := svc.Update(t.Context(), created, ""); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+
+	incidents, err := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	if err != nil {
+		t.Fatalf("incidents: %v", err)
+	}
+	if len(incidents) != 1 || incidents[0].Open() {
+		t.Fatalf("incidents = %+v, want the open one closed", incidents)
+	}
+	if incidents[0].ClosedReason != alerting.ClosedDisabled {
+		t.Errorf("closed reason %q, want %q", incidents[0].ClosedReason, alerting.ClosedDisabled)
+	}
+
+	// And saving it again while still disabled is a harmless no-op rather than a
+	// second close over the first one's reason.
+	if _, err := svc.Update(t.Context(), created, ""); err != nil {
+		t.Fatalf("re-save: %v", err)
+	}
+	again, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	if again[0].ClosedReason != alerting.ClosedDisabled || !again[0].ResolvedAt.Equal(*incidents[0].ResolvedAt) {
+		t.Errorf("a second save changed the closed episode: %+v", again[0])
 	}
 }
