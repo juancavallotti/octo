@@ -54,7 +54,7 @@ The persistent tier still goes through the orchestrator, because that is where t
 
 ### Watching the tiers
 
-The **Storage health** tab beside the object browser reports what a reachability check cannot: Redis memory against its ceiling, the hit rate, how many keys have been evicted, and on the database side how much of the connection pool is in use and how large `kv_store` has grown. Eviction counts are the answer to "my volatile object is not there" — it is the tier working as designed, not a fault.
+The **Storage health** tab beside the object browser reports what a reachability check cannot: Redis memory against its ceiling, the hit rate, how many keys have been evicted, and on the database side how much of the [observability service's](/platform/observability-api-reference#storage-report) connection pool is in use and how large `kv_store` has grown. Eviction counts are the answer to "my volatile object is not there" — it is the tier working as designed, not a fault.
 
 ### Standalone persistence
 

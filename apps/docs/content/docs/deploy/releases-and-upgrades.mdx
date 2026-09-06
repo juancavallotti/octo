@@ -70,7 +70,7 @@ jobs in parallel:
   This is the runtime whose platform capabilities come from a server you
   implement. See [The platform API](/extending/platform-api).
 - **publish-paas-images** — builds the five platform images
-  (`octo-platform-paas`, `octo-orchestrator-paas`, `octo-logs-paas`,
+  (`octo-platform-paas`, `octo-orchestrator-paas`, `octo-observability-paas`,
   `octo-schema-paas`, `octo-runtime-paas`) multi-arch and pushes them to public
   Docker Hub. These are what the Helm chart installs by default.
 - **publish-charts** — packages both Helm charts and pushes them to
@@ -97,7 +97,7 @@ trigger (created by the `infra` root with `enable_cloudbuild = true`) fires on
 the same version tag and runs `cloudbuild.yaml`:
 
 - Builds the five platform images (`octo-platform-paas`,
-  `octo-orchestrator-paas`, `octo-logs-paas`, `octo-schema-paas`,
+  `octo-orchestrator-paas`, `octo-observability-paas`, `octo-schema-paas`,
   `octo-runtime-paas`) and pushes each to Artifact Registry tagged with both the
   git tag and `latest`.
 - Reads back the **digest** of each pushed image and renders

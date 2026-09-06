@@ -123,7 +123,7 @@ What survived is a **report**, and it lives on the [agent memory page](/platform
 
 Embeddings are produced by a small octo app the chart deploys — `embeddings/config.yaml`, an `ai-embed` block behind an HTTP route. It is a service rather than a library for one reason: it holds the provider API key, so that **no integration pod has to**.
 
-Every deployment pod is given its address as `EMBEDDINGS_URL`, which means any integration on the installation can embed text. That is deliberate. An embedding reads nothing, writes nothing and costs a fraction of a cent, so handing out the URL crosses no boundary — and it is what makes handing out the key unnecessary. (Contrast `LOGS_URL`, which *is* a grant: stored telemetry is other integrations' data.)
+Every deployment pod is given its address as `EMBEDDINGS_URL`, which means any integration on the installation can embed text. That is deliberate. An embedding reads nothing, writes nothing and costs a fraction of a cent, so handing out the URL crosses no boundary — and it is what makes handing out the key unnecessary. (Contrast `OBSERVABILITY_URL`, which *is* a grant: stored telemetry is other integrations' data.)
 
 Turn it on in the Helm values:
 
@@ -209,7 +209,7 @@ things this installation may run on:
 | --- | --- |
 | Postgres | Everything. Integrations, deployments, stored logs and traces all live there. |
 | Redis | The fold that keeps streamed traces small. See [Redis](/deploy/helm#redis). |
-| NATS | Live updates — deployment status, and the telemetry runtimes ship to the aggregator. |
+| NATS | Live updates — deployment status, and the telemetry runtimes ship to the observability service. |
 | Kubernetes | Deploying anything. Without it the platform is an editor and a database. |
 | Embeddings | Ranking a search of agent memory by meaning. Without it, search matches text. |
 

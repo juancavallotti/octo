@@ -30,7 +30,7 @@ Expect the status page never to fail for a reason you could act on: no cluster, 
 
 Press **Install**. That creates the integration, writes his skills as [resources](/platform/resources-and-secrets), publishes a version tag derived from the bundle this orchestrator ships, writes the provider key as a cluster secret, and deploys him with one replica and **no external route**.
 
-He is deployed with both [platform access grants](/platform/deployments#platform-access) — he asks for them the way any integration does, rather than through a private path. The observability grant is what puts `LOGS_URL` in his pod and lets him read stored logs and traces; without it he still installs and works, and simply says he was not granted that access when asked about history.
+He is deployed with both [platform access grants](/platform/deployments#platform-access) — he asks for them the way any integration does, rather than through a private path. The observability grant is what puts `OBSERVABILITY_URL` in his pod and lets him read stored logs and traces; without it he still installs and works, and simply says he was not granted that access when asked about history.
 
 <Callout>
 Granting him observability hands a chat-panel user nothing they could not already read. [Traces](/platform/traces) and [Logs](/platform/logs) are readable by any signed-in user, while the chat panel additionally requires the write roles — so anyone who can ask him is already entitled to open those views directly, and to far more besides. Untick the grant and roll out if you want him without it anyway; the reason to weigh is prompt injection, below, not the reader's own entitlement.
@@ -231,7 +231,7 @@ Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him 
 
 You do not need to defend the host: the connector's `baseURL` is a boundary he cannot cross whatever the block says, because a dynamic path resolves against it and no rendered path can redirect the call elsewhere.
 
-His `logs_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
+His `observability_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
 
 ### The command tools are a different kind of thing
 
@@ -275,7 +275,7 @@ The coordinator keeps the cheap things — a read-only API call, a CEL check, a 
 | Specialist | Holds | For |
 | --- | --- | --- |
 | `integration_builder` | `read_workspace_file`, `write_workspace_file`, `list_workspace`, `invoke_flow`, `run_flow_tests`, `builder_check_expression`, `run_command`, `builder_octo_read` | Writing and **proving** a definition: draft into the [workspace](#his-workspace), run the [dolphin](/testing) suite, read the report, fix, run again. Its API tool is GET-only, so nothing it produces is saved |
-| `platform_operator` | `list_api_operations`, `read_api_docs`, `octo_api`, `list_logs_operations`, `read_logs_docs`, `logs_api`, `http_fetch`, `refresh_platform_ui` | Changing and inspecting the installation: saving a definition, version tags, deploys, rollouts, scaling, secrets — and every question about stored logs and traces. Its prompt carries a map of the API's routes, so it does not rediscover them from the OpenAPI on every call |
+| `platform_operator` | `list_api_operations`, `read_api_docs`, `octo_api`, `list_observability_operations`, `read_observability_docs`, `observability_api`, `http_fetch`, `refresh_platform_ui` | Changing and inspecting the installation: saving a definition, version tags, deploys, rollouts, scaling, secrets — and every question about stored logs and traces. Its prompt carries a map of the API's routes, so it does not rediscover them from the OpenAPI on every call |
 
 Each specialist keeps its own conversation while yours is going on:
 `memoryThreadId: vars.toolScope` with `memoryVolatile: true`, which is the
@@ -325,12 +325,12 @@ export LLM_CONNECTOR_TYPE=llm-anthropic
 export LLM_API_KEY=sk-ant-...
 export LLM_MODEL=claude-sonnet-4-6
 export ORCHESTRATOR_URL=http://localhost:8090
-# Optional. Without it his logs tools answer that the access was not granted.
-export LOGS_URL=http://localhost:8091
+# Optional. Without it his observability tools answer that the access was not granted.
+export OBSERVABILITY_URL=http://localhost:8091
 
 # Required. His workspace and the five programs he drives default to the agentic
 # runner's paths, which do not exist here. These are not optional the way
-# LOGS_URL is: a cli-run allow list is resolved when the flow is BUILT, so an
+# OBSERVABILITY_URL is: a cli-run allow list is resolved when the flow is BUILT, so an
 # entry pointing at a file that is not there fails the whole config on load
 # rather than the first call that would have used it.
 export AGENT_WORKSPACE=$(mktemp -d)

@@ -165,14 +165,14 @@ The pipeline:
 runtime pods --> NATS subject "internal.logs" (fire-and-forget)
                      |
                      v
-             log-aggregator service (competing consumer)
+             observability service (competing consumer)
                      |
                      v
              Postgres "logs" table  <-- editor's log viewer
 ```
 
 - Each pod publishes structured records to the shared `internal.logs` subject. Shipping is fire-and-forget so logging never blocks or fails a flow.
-- The **log-aggregator service** (the `logs/` service) consumes the subject as a competing consumer — aggregator replicas share the work — and writes each record to Postgres.
+- The **observability service** (`observability/`) consumes the subject as a competing consumer — replicas share the work — and writes each record to Postgres.
 - A stored record carries: `deployment_id`, `app_name` and `app_version` (the integration and version tag, stamped from the deployment's environment), `ts` and `level`, the rendered `message`, and any extra structured fields as JSON `attrs`.
 
 Because records are keyed by deployment, you read **one stream per integration no matter how many replicas run** — the replica boundary disappears.
@@ -184,7 +184,7 @@ Shipping is fire-and-forget on core NATS, so a record is delivered at most once 
 - **The aggregator sheds rather than blocks.** Delivered records wait in a bounded buffer while workers write them. If writes fall behind far enough to fill it, further records are dropped and a warning naming the running total is logged at most once every ten seconds. Expect a gap in history rather than a stall — the alternative, blocking, only moves the same loss into the NATS client and reports it with no count at all.
 - **A restart flushes what it holds.** On shutdown the aggregator finishes the writes already in flight and drains its buffer instead of abandoning records the broker will not send again. That work gets five seconds; a database that has stopped answering cannot hold the shutdown open past it, so a restart never spends its termination grace period waiting.
 
-If you see the shedding warning, the aggregator is not keeping up with its database: check the `logs` deployment's replica count and the database before trusting a quiet period in the history.
+If you see the shedding warning, the aggregator is not keeping up with its database: check the `octo-observability` deployment's replica count and the database before trusting a quiet period in the history.
 
 ## The log viewer
 

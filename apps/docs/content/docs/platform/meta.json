@@ -12,7 +12,7 @@
     "users-and-api-keys",
     "admin-settings",
     "api-reference",
-    "logs-api-reference",
+    "observability-api-reference",
     "agent",
     "event-bus",
     "traces",

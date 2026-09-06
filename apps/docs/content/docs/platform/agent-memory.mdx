@@ -5,7 +5,7 @@ description: "Read what agents have recorded: their conversations, what they sti
 
 `/platform/memory` reads what agents have actually recorded: the conversations they have had, what they are still carrying from them, and the facts they chose to keep about the people in them.
 
-It sits beside the [Object Store](/platform/kv-and-storage) rather than under Admin, and the placement is the argument: nothing on this page configures anything. This is **data that belongs to integrations**, read the same way [logs](/platform/logs-api-reference), [traces](/platform/traces) and stored objects are. What an agent has to declare before any of it is recorded is in [Agent Memory](/ai/agent-memory).
+It sits beside the [Object Store](/platform/kv-and-storage) rather than under Admin, and the placement is the argument: nothing on this page configures anything. This is **data that belongs to integrations**, read the same way [logs](/platform/observability-api-reference), [traces](/platform/traces) and stored objects are. What an agent has to declare before any of it is recorded is in [Agent Memory](/ai/agent-memory).
 
 Pick an integration, then an agent in the row above the tabs, the way you pick a deployment and a namespace in the object store. The agent list is what has **stored** something, not what a definition declares — an agent appears here once it has recorded a conversation.
 

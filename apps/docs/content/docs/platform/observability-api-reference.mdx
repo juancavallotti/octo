@@ -1,20 +1,20 @@
 ---
-title: "Logs API Reference"
-description: "The log aggregator describes its own API: an OpenAPI 3.1 document, filters for reading part of it, and a compact operation index."
+title: "Observability API Reference"
+description: "The observability service describes its own API: an OpenAPI 3.1 document, filters for reading part of it, and a compact operation index."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The log aggregator serves a description of its own API, the same way the [orchestrator](/platform/api-reference) does. Everything the `/platform/logs` and `/platform/traces` views read goes through that API, so the description is the reference for querying stored telemetry yourself.
+The observability service serves a description of its own API, the same way the [orchestrator](/platform/api-reference) does. Everything the `/platform/logs`, `/platform/traces` and `/platform/metrics` views read goes through that API, and so do the retention settings and the storage health tab, so the description is the reference for querying stored telemetry yourself.
 
 ```bash
-curl -sS "$LOGS_URL/openapi.json"
+curl -sS "$OBSERVABILITY_URL/openapi.json"
 ```
 
-It is **OpenAPI 3.1**, generated from annotations on the handlers at build time, committed, and embedded in the binary. It is never generated at runtime, so what a running aggregator serves is exactly what was reviewed with the code that serves it.
+It is **OpenAPI 3.1**, generated from annotations on the handlers at build time, committed, and embedded in the binary. It is never generated at runtime, so what a running service serves is exactly what was reviewed with the code that serves it.
 
 <Callout>
-The service is called `logs` everywhere — the binary, the image, the pod and the `LOGS_URL` other services reach it by — but it stores traces too. They live here because they are the same shape of problem, so one description covers both.
+The service began as a log aggregator and grew: traces, pod stats, the retention policy and the storage report all landed here because each is the same shape of problem — records shipped in, history queried out — and one service holds the stores they live in. It is `observability/` in the repository, `octo-observability` in the cluster, and `OBSERVABILITY_URL` to everything that reaches it.
 </Callout>
 
 ## The operation index
@@ -22,7 +22,7 @@ The service is called `logs` everywhere — the binary, the image, the pod and t
 `/openapi/operations` is a compact list of every route — method, path, summary and tags:
 
 ```bash
-curl -sS "$LOGS_URL/openapi/operations"
+curl -sS "$OBSERVABILITY_URL/openapi/operations"
 ```
 
 ```json
@@ -38,7 +38,7 @@ curl -sS "$LOGS_URL/openapi/operations"
 
 Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail — which is exactly how the [platform agent](/platform/agent) uses it.
 
-The tags are `logs`, `traces`, `stats`, `retention`, `meta` and `openapi`.
+The tags are `logs`, `traces`, `stats`, `retention`, `storage`, `meta` and `openapi`.
 
 ## Reading part of the document
 
@@ -50,14 +50,14 @@ Two filters, and they are mutually exclusive — supplying both is a `400`:
 | `?path=/traces` | Routes whose path starts with that prefix |
 
 ```bash
-curl -sS "$LOGS_URL/openapi.json?tag=logs"
+curl -sS "$OBSERVABILITY_URL/openapi.json?tag=logs"
 ```
 
 A filtered document is a **valid OpenAPI document**, not an excerpt: schemas are pruned to the ones the surviving operations can actually reach, following `$ref` transitively, so the result still resolves. An unknown tag yields a document with no paths rather than an error — nothing matched is an answer.
 
 ## What the API offers
 
-Every query route is a `GET`. The three [retention](#data-retention) routes are the exception, and one of them deletes. Two things are worth knowing about the query side before you read the description itself.
+Every query route is a `GET`, and so is the [storage report](#storage-report). The three [retention](#data-retention) routes are the exception, and one of them deletes. Two things are worth knowing about the query side before you read the description itself.
 
 **Paging is keyset-based.** `/logs` and `/traces` return at most `limit` rows (default 200, clamped to 1000). A page that came back full carries `next_before`; send it as `before=` for the page after it. Treat it as opaque — it names a `(timestamp, id)` pair, not a timestamp, because rows routinely share a timestamp and a timestamp-only cursor would either skip the ties or serve them twice.
 
@@ -88,7 +88,7 @@ response, and `/metrics` is how you find exact names to put in it. Names match e
 `label=key=value` narrows within them and repeats are ANDed.
 
 ```bash
-curl -sS "$LOGS_URL/stats/$DEPLOYMENT_ID/series?metric=process_resident_memory_bytes&from=2026-09-05T11:00:00Z"
+curl -sS "$OBSERVABILITY_URL/stats/$DEPLOYMENT_ID/series?metric=process_resident_memory_bytes&from=2026-09-05T11:00:00Z"
 ```
 
 **A counter's `value` is growth, on both tiers.** A Prometheus counter is cumulative, so
@@ -134,7 +134,7 @@ Stored telemetry grows without bound until you say otherwise. The policy that bo
 Two windows, because logs and traces have very different weights per day:
 
 ```bash
-curl -sS -X PUT "$LOGS_URL/settings/retention" \
+curl -sS -X PUT "$OBSERVABILITY_URL/settings/retention" \
   -H 'Content-Type: application/json' \
   -d '{"logs_days":30,"traces_days":7}'
 ```
@@ -166,6 +166,18 @@ Deletes are issued in batches and each commits on its own, so an interrupted swe
 
 The chart installs a CronJob that calls `POST /retention/run` at 03:00, controlled by `retention.enabled` (on by default) and `retention.schedule`. Because the policy defaults to keeping everything, that job is a nightly no-op until you set a window — turning retention on is a change to the policy, not to the release.
 
+## Storage report
+
+`GET /settings/storage` reports how full the two stores are: Redis memory against its ceiling, the hit rate, evictions and expiries; and for Postgres this service's connection-pool usage, the database size and the size of the object store's `kv_store` table. It is what the **Storage health** tab beside the [object browser](/platform/kv-and-storage#watching-the-tiers) renders.
+
+It lives here rather than on the orchestrator because this service holds both stores and is the heaviest writer to one of them — every log and trace record lands through the pool it reports, so a pool with no connection to spare is the shape of telemetry backing up. Either half is `null` with a reason beside it when the installation does not have that store or cannot reach it, and the two reasons are different on purpose: an installation with no Redis is a supported one.
+
+```bash
+curl -sS "$OBSERVABILITY_URL/settings/storage"
+```
+
+The [dependency health](/platform/admin-settings) report stays on the orchestrator. It answers whether the orchestrator can reach what it needs, which is a question only the orchestrator can answer about itself.
+
 ## Keeping it honest
 
 The spec is regenerated in CI and the build fails if the committed copy differs, the same way it fails on unformatted code.
@@ -174,10 +186,10 @@ A separate test compares the routes registered in the source against the routes 
 
 ## Authentication
 
-There is none, on the same terms as the orchestrator. The aggregator is `ClusterIP` in the chart and trusts its callers; the platform BFF is the authorization boundary in front of it.
+There is none, on the same terms as the orchestrator. The service is `ClusterIP` in the chart and trusts its callers; the platform BFF is the authorization boundary in front of it.
 
 <Callout type="warn">
-This means anything that can reach the aggregator's address can read every stored log line and trace payload on the install — which includes whatever your flows logged. Since the retention routes landed it can also **change the policy and delete that history**, with no confirmation and nothing to undo it. Keep it internal.
+This means anything that can reach the service's address can read every stored log line and trace payload on the install — which includes whatever your flows logged. Since the retention routes landed it can also **change the policy and delete that history**, with no confirmation and nothing to undo it. Keep it internal.
 </Callout>
 
 The browser never reaches any of this directly — the platform's server actions do, and they gate every call behind a session, with writes additionally behind `AUTH_WRITE_ROLES`. That variable [defaults to empty, meaning any signed-in user](/platform/admin-settings). Set it.
