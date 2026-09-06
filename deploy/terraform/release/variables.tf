@@ -171,6 +171,12 @@ variable "image_values_file" {
   default     = ""
 }
 
+variable "pod_stats_enabled" {
+  type        = bool
+  description = "Collect per-pod CPU, memory and runtime metrics from every deployed integration. On by default for this root: it is what the platform's metrics views read, and an install that ships them with nothing behind them looks broken rather than unconfigured."
+  default     = true
+}
+
 variable "values_files" {
   type        = list(string)
   description = "Extra chart values files to layer in, lowest precedence first. Empty by default: the single-node k3s VM this root targets is what the chart's own defaults describe, so no profile is needed."

@@ -343,6 +343,8 @@ module "octo" {
   registry_username = "oauth2accesstoken"
   registry_password = data.google_client_config.current.access_token
 
+  pod_stats_enabled = var.pod_stats_enabled
+
   embeddings_enabled         = local.embeddings_enabled_eff
   embeddings_connector_type  = local.embeddings_connector_type_eff
   embeddings_model           = local.embeddings_model_eff
