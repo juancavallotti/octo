@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { StatsMetric } from "@/app/model/stats";
-import MetricCard from "./MetricCard";
+import type { StatsMetric, StatsSeries } from "@/app/model/stats";
+import MetricCard, { labelKey } from "./MetricCard";
 import type { CataloguedMetric } from "./useDeploymentCatalogue";
 
 const NOW = 1_757_000_000_000;
@@ -42,5 +42,82 @@ describe("an info metric reported by two pods", () => {
       <MetricCard entry={buildInfo()} stepMs={1000} fromMs={NOW - 60_000} toMs={NOW} />,
     );
     expect(screen.getByText(/reported through its labels/)).toBeInTheDocument();
+  });
+});
+
+/** One decoded series with the labels and readings a test cares about. */
+function series(labels: Record<string, string>, values: (number | null)[]): StatsSeries {
+  return {
+    pod: "pod-a",
+    name: "octo_flow_messages_total",
+    kind: "gauge",
+    labels,
+    times: values.map((_, i) => NOW + i * 1000),
+    ends: [],
+    values,
+    min: [],
+    max: [],
+    last: [],
+    samples: [],
+  };
+}
+
+function entry(all: StatsSeries[]): CataloguedMetric {
+  const metric: StatsMetric = {
+    name: "octo_flow_messages_total",
+    kind: "gauge",
+    series: all.map((s) => ({ labels: s.labels, pods: [s.pod] })),
+  };
+  return { name: metric.name, metric, series: all };
+}
+
+describe("steadiness", () => {
+  it("does not call a single reading unchanged", () => {
+    // The history tier at the short end of its range routinely returns one
+    // bucket. Claiming stability from one measurement asserts something nobody
+    // observed — and it suppresses the chart that would have shown as much.
+    render(
+      <MetricCard
+        entry={entry([series({}, [42])])}
+        stepMs={1000}
+        fromMs={NOW}
+        toMs={NOW + 1000}
+      />,
+    );
+    expect(screen.queryByText("unchanged over this window")).not.toBeInTheDocument();
+  });
+
+  it("calls a genuinely flat series unchanged", () => {
+    render(
+      <MetricCard
+        entry={entry([series({}, [42, 42, 42])])}
+        stepMs={1000}
+        fromMs={NOW}
+        toMs={NOW + 3000}
+      />,
+    );
+    expect(screen.getByText("unchanged over this window")).toBeInTheDocument();
+  });
+});
+
+describe("label-set identity", () => {
+  it("keeps two label sets apart when a value contains the separators", () => {
+    // Joined as k=v pairs, {a: "b,c=d"} and {a: "b", c: "d"} both flatten to
+    // "a=b,c=d" — two chart lines sharing one key and losing their identity.
+    const collidingPair = series({ a: "b,c=d" }, [1]);
+    const innocentPair = series({ a: "b", c: "d" }, [1]);
+
+    expect(labelKey(collidingPair)).not.toBe(labelKey(innocentPair));
+  });
+
+  it("is stable whatever order the labels arrive in", () => {
+    expect(labelKey(series({ b: "2", a: "1" }, [1]))).toBe(
+      labelKey(series({ a: "1", b: "2" }, [1])),
+    );
+  });
+
+  it("gives an unlabelled series a key of its own", () => {
+    expect(labelKey(series({}, [1]))).toBe(labelKey(series({}, [2])));
+    expect(labelKey(series({}, [1]))).not.toBe(labelKey(series({ a: "" }, [1])));
   });
 });

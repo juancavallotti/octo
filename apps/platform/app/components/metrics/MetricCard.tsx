@@ -153,27 +153,40 @@ function current(columns: MiniSeries[]): number | null {
 /**
  * Whether nothing moved. Every finite reading of every series equal to that
  * series' first — a gap is not a change, since nothing was measured.
+ *
+ * One reading is not evidence of stability, so it is not called steady. That is
+ * not a corner case here: the history tier at the short end of its range
+ * routinely returns a single bucket, and claiming "unchanged over this window"
+ * about one measurement asserts something nobody observed.
  */
 function isSteady(columns: MiniSeries[]): boolean {
-  let sawAny = false;
+  let compared = false;
   for (const column of columns) {
     let first: number | null = null;
     for (const value of column.values) {
       if (value === null || !Number.isFinite(value)) continue;
-      sawAny = true;
-      if (first === null) first = value;
-      else if (value !== first) return false;
+      if (first === null) {
+        first = value;
+        continue;
+      }
+      compared = true;
+      if (value !== first) return false;
     }
   }
-  return sawAny;
+  return compared;
 }
 
-/** A stable identity for one label set. */
-function labelKey(series: StatsSeries): string {
-  return Object.entries(series.labels)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join(",");
+/**
+ * A stable, unambiguous identity for one label set.
+ *
+ * Serialized rather than joined with separators. A label VALUE may contain the
+ * separators — `{a: "b,c=d"}` and `{a: "b", c: "d"}` both flatten to `a=b,c=d` —
+ * and two series sharing a key lose their identity as chart lines.
+ */
+export function labelKey(series: StatsSeries): string {
+  return JSON.stringify(
+    Object.entries(series.labels).sort(([a], [b]) => a.localeCompare(b)),
+  );
 }
 
 /** The moment under the cursor, to the second: these charts are seconds wide. */
