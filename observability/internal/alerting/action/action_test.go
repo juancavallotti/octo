@@ -99,13 +99,13 @@ func TestValidateDoesNotDependOnThisProcessesDependencies(t *testing.T) {
 
 // A process that genuinely cannot perform an action records that, rather than
 // failing silently or refusing to run at all.
-func TestDispatchRecordsWhatThisProcessCannotDo(t *testing.T) {
+func TestNotifyRecordsWhatThisProcessCannotDo(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 	w := alerting.Watch{Actions: []alerting.ActionSpec{
 		spec("a_1", alerting.ActionTypeTopic, `{"deploymentId":"d1","subject":"alerts"}`),
 		spec("a_2", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
 	}}
-	results := d.Dispatch(t.Context(), w, notification(alerting.ActionOpen))
+	results := d.Notify(t.Context(), w, notification(alerting.ActionOpen))
 
 	if len(results) != 2 {
 		t.Fatalf("%d results, want 2", len(results))
@@ -125,7 +125,7 @@ func TestOneFailingActionDoesNotStopTheOthers(t *testing.T) {
 		spec("a_1", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
 		spec("a_2", alerting.ActionTypeLog, `{}`),
 	}}
-	results := d.Dispatch(t.Context(), w, notification(alerting.ActionOpen))
+	results := d.Notify(t.Context(), w, notification(alerting.ActionOpen))
 
 	if len(results) != 2 {
 		t.Fatalf("%d results, want 2", len(results))
@@ -153,7 +153,7 @@ func TestEmailPostsToTheOrchestrator(t *testing.T) {
 	w := alerting.Watch{Actions: []alerting.ActionSpec{
 		spec("a_1", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
 	}}
-	results := d.Dispatch(t.Context(), w, notification(alerting.ActionOpen))
+	results := d.Notify(t.Context(), w, notification(alerting.ActionOpen))
 
 	if !results[0].Delivered() {
 		t.Fatalf("send failed: %s", results[0].Err)
@@ -192,7 +192,7 @@ func TestEmailCarriesTheOrchestratorsReason(t *testing.T) {
 	w := alerting.Watch{Actions: []alerting.ActionSpec{
 		spec("a_1", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
 	}}
-	results := d.Dispatch(t.Context(), w, notification(alerting.ActionOpen))
+	results := d.Notify(t.Context(), w, notification(alerting.ActionOpen))
 
 	if results[0].Delivered() {
 		t.Fatal("a 409 reported success")

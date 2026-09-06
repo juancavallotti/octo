@@ -219,3 +219,46 @@ func lowered(in []string) []string {
 	}
 	return out
 }
+
+// ingestingSQL asks whether anything at all has arrived since a cutoff.
+//
+// Two EXISTS rather than a count or a max: the question is "is anything still
+// coming", the answer is a boolean, and an EXISTS stops at the first row it finds
+// on an index that is already ordered the right way. On an idle installation both
+// halves scan nothing and return false immediately.
+//
+// received_at rather than ts, deliberately. ts is when the traced thing happened,
+// which a publisher stamps and can backdate; received_at is when this service
+// wrote the row, which is the only column that answers "is the pipeline alive".
+//
+// trace_summaries is in the list even though it is derived from traces, and the
+// smoke test that put it here is the argument: it is the table most conditions
+// read, and a probe that missed it would suppress every downward watch on an
+// installation whose summaries were arriving perfectly well.
+const ingestingSQL = `
+SELECT EXISTS (SELECT 1 FROM logs WHERE received_at >= $1)
+    OR EXISTS (SELECT 1 FROM traces WHERE received_at >= $1)
+    OR EXISTS (SELECT 1 FROM trace_summaries WHERE last_seen_at >= $1)`
+
+// Ingesting reports whether any telemetry has been stored since the given time.
+//
+// One cheap query per tick, shared by every watch, and it exists because a
+// pipeline that has stopped delivering looks exactly like an installation with no
+// traffic — a difference no individual condition can see, and one that every
+// downward condition would otherwise fire on at once.
+func (f *Fetcher) Ingesting(ctx context.Context, since time.Time) (bool, error) {
+	if f.pool == nil {
+		// No database means no evidence either way. Reported as "yes" so the
+		// caller does not suppress every downward watch on the strength of a
+		// question it could not ask.
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
+	var ingesting bool
+	if err := f.pool.QueryRow(ctx, ingestingSQL, since).Scan(&ingesting); err != nil {
+		return false, fmt.Errorf("source: check whether telemetry is still arriving: %w", err)
+	}
+	return ingesting, nil
+}

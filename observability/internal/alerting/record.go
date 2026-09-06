@@ -30,6 +30,17 @@ type Result struct {
 // have to compare adjacent rows.
 func (r Result) Transitioned() bool { return r.Previous.Phase != r.State.Phase }
 
+// Due is a watch together with where its state machine got to: what the
+// scheduler hands the runner, and what the list view renders.
+//
+// It lives here rather than in the store package because the runner consumes it
+// and the runner may not import the store — the dependency runs the other way,
+// so that the alerting package's test binary links no database driver.
+type Due struct {
+	Watch Watch
+	State State
+}
+
 // Incident is one firing episode.
 //
 // The numbers that opened it are frozen onto the row. A watch can be edited

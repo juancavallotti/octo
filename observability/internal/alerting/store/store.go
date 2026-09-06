@@ -182,14 +182,8 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Listed is a watch with the state the list view renders beside it.
-type Listed struct {
-	Watch alerting.Watch
-	State alerting.State
-}
-
 // List returns every watch, newest first, each with its current state.
-func (s *Store) List(ctx context.Context) ([]Listed, error) {
+func (s *Store) List(ctx context.Context) ([]alerting.Due, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+watchColumns+`, `+stateColumns+`
 		  FROM alert_watches AS w
@@ -200,9 +194,9 @@ func (s *Store) List(ctx context.Context) ([]Listed, error) {
 	}
 	defer rows.Close()
 
-	var out []Listed
+	var out []alerting.Due
 	for rows.Next() {
-		var item Listed
+		var item alerting.Due
 		if err := scanWatchAndState(rows, &item); err != nil {
 			return nil, err
 		}
@@ -220,7 +214,7 @@ func (s *Store) List(ctx context.Context) ([]Listed, error) {
 // Disabled watches are excluded here rather than filtered by the caller: a
 // disabled watch is never due, and a scheduler that fetched them would spend its
 // per-tick budget on rows it was going to throw away.
-func (s *Store) Due(ctx context.Context, now time.Time, limit int) ([]Listed, error) {
+func (s *Store) Due(ctx context.Context, now time.Time, limit int) ([]alerting.Due, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+watchColumns+`, `+stateColumns+`
 		  FROM alert_watch_state AS s
@@ -233,9 +227,9 @@ func (s *Store) Due(ctx context.Context, now time.Time, limit int) ([]Listed, er
 	}
 	defer rows.Close()
 
-	var out []Listed
+	var out []alerting.Due
 	for rows.Next() {
-		var item Listed
+		var item alerting.Due
 		if err := scanWatchAndState(rows, &item); err != nil {
 			return nil, err
 		}
