@@ -99,6 +99,14 @@
                     "UnitUnknown"
                 ]
             },
+            "api.actorRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.appsResponse": {
                 "properties": {
                     "from": {
@@ -652,6 +660,10 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "actorId": {
+                        "description": "ActorID is the acting user's id, forwarded by the platform's BFF from the\nauthenticated session and empty when unknown. A body field rather than a\nverified credential, which is the convention every write route on the\norchestrator already follows and for the same reason: this service has no\nsession, and the BFF is the auth boundary. It is attribution, never\nauthorization.",
+                        "type": "string"
                     },
                     "combinator": {
                         "type": "string"
@@ -1364,6 +1376,18 @@
                         }
                     }
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.actorRequest",
+                                "summary": "body",
+                                "description": "The acting user"
+                            }
+                        }
+                    },
+                    "description": "The acting user"
+                },
                 "responses": {
                     "204": {
                         "description": "acknowledged"

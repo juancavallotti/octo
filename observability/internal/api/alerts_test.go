@@ -92,7 +92,6 @@ func doAlerts(t *testing.T, svc AlertService, method, target, body string) *http
 		req = httptest.NewRequest(method, target, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("X-Octo-User-Id", "u_1")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -103,7 +102,8 @@ const watchJSON = `{
   "on_no_data":"ok","step_seconds":60,"interval_seconds":60,"for_seconds":300,
   "conditions":[{"id":"c_1","type":"threshold","source":"traces","metric":"error_rate",
                  "params":{"op":"gt","threshold":0.05}}],
-  "actions":[{"id":"a_1","type":"email","params":{"to":["ops@example.com"]}}]
+  "actions":[{"id":"a_1","type":"email","params":{"to":["ops@example.com"]}}],
+  "actorId":"u_1"
 }`
 
 // The definition has to survive the wire in the shape the domain decodes, or a
@@ -198,7 +198,7 @@ func TestDeleteAndAcknowledge(t *testing.T) {
 		t.Errorf("deleted %q", svc.deleted)
 	}
 
-	if rec := doAlerts(t, svc, http.MethodPost, "/alerts/incidents/i_1/ack", ""); rec.Code != http.StatusNoContent {
+	if rec := doAlerts(t, svc, http.MethodPost, "/alerts/incidents/i_1/ack", `{"actorId":"u_1"}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("ack status = %d, want 204 (body %s)", rec.Code, rec.Body)
 	}
 	if svc.acked != "i_1" || svc.gotUser != "u_1" {
@@ -206,8 +206,17 @@ func TestDeleteAndAcknowledge(t *testing.T) {
 	}
 
 	notFound := &fakeAlerts{err: alerting.ErrIncidentNotFound}
-	if rec := doAlerts(t, notFound, http.MethodPost, "/alerts/incidents/i_1/ack", ""); rec.Code != http.StatusNotFound {
+	if rec := doAlerts(t, notFound, http.MethodPost, "/alerts/incidents/i_1/ack", `{"actorId":"u_1"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("re-ack status = %d, want 404", rec.Code)
+	}
+
+	// Acknowledging with no body at all is unattributed, not refused.
+	bare := &fakeAlerts{}
+	if rec := doAlerts(t, bare, http.MethodPost, "/alerts/incidents/i_2/ack", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("bare ack status = %d, want 204 (body %s)", rec.Code, rec.Body)
+	}
+	if bare.acked != "i_2" || bare.gotUser != "" {
+		t.Errorf("bare ack recorded %q by %q", bare.acked, bare.gotUser)
 	}
 }
 

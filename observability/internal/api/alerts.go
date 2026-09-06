@@ -120,14 +120,14 @@ func (h *AlertsHandler) list(w http.ResponseWriter, r *http.Request) {
 //	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/alerts/watches [post]
 func (h *AlertsHandler) create(w http.ResponseWriter, r *http.Request) {
-	watch, ok := h.decode(w, r)
+	watch, actor, ok := h.decode(w, r)
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), alertTimeout)
 	defer cancel()
 
-	created, err := h.svc.Create(ctx, watch, userFrom(r))
+	created, err := h.svc.Create(ctx, watch, actor)
 	if err != nil {
 		h.fail(w, "create a watch", err)
 		return
@@ -177,7 +177,7 @@ func (h *AlertsHandler) get(w http.ResponseWriter, r *http.Request) {
 //	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/alerts/watches/{id} [put]
 func (h *AlertsHandler) update(w http.ResponseWriter, r *http.Request) {
-	watch, ok := h.decode(w, r)
+	watch, actor, ok := h.decode(w, r)
 	if !ok {
 		return
 	}
@@ -188,7 +188,7 @@ func (h *AlertsHandler) update(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), alertTimeout)
 	defer cancel()
 
-	updated, err := h.svc.Update(ctx, watch, userFrom(r))
+	updated, err := h.svc.Update(ctx, watch, actor)
 	if err != nil {
 		h.fail(w, "update a watch", err)
 		return
@@ -280,7 +280,7 @@ func (h *AlertsHandler) mute(w http.ResponseWriter, r *http.Request) {
 //	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/alerts/preview [post]
 func (h *AlertsHandler) preview(w http.ResponseWriter, r *http.Request) {
-	watch, ok := h.decode(w, r)
+	watch, _, ok := h.decode(w, r)
 	if !ok {
 		return
 	}
@@ -354,16 +354,27 @@ func (h *AlertsHandler) incidents(w http.ResponseWriter, r *http.Request) {
 //	@Description	metric coming back does that — and acknowledging one twice is refused rather
 //	@Description	than silently re-stamping whoever got there first.
 //	@Tags			alerts
-//	@Param			id	path	string	true	"Incident id"
-//	@Success		204	"acknowledged"
+//	@Param			id		path	string			true	"Incident id"
+//	@Param			body	body	actorRequest	false	"The acting user"
+//	@Success		204		"acknowledged"
 //	@Failure		404	{object}	httpx.ErrorResponse	"no such open, unacknowledged incident"
 //	@Failure		500	{object}	httpx.ErrorResponse
 //	@Router			/alerts/incidents/{id}/ack [post]
 func (h *AlertsHandler) acknowledge(w http.ResponseWriter, r *http.Request) {
+	// The body is optional: acknowledging with no actor is an unattributed
+	// acknowledgement rather than a refused one.
+	var req actorRequest
+	if r.ContentLength > 0 {
+		if err := httpx.DecodeJSON(w, r, &req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), alertTimeout)
 	defer cancel()
 
-	if err := h.svc.Acknowledge(ctx, r.PathValue("id"), userFrom(r)); err != nil {
+	if err := h.svc.Acknowledge(ctx, r.PathValue("id"), req.ActorID); err != nil {
 		h.fail(w, "acknowledge an incident", err)
 		return
 	}
@@ -468,18 +479,18 @@ func (h *AlertsHandler) serveHistory(w http.ResponseWriter, r *http.Request, wat
 }
 
 // decode reads a watch from the body, refusing one this service could not store.
-func (h *AlertsHandler) decode(w http.ResponseWriter, r *http.Request) (alerting.Watch, bool) {
+func (h *AlertsHandler) decode(w http.ResponseWriter, r *http.Request) (alerting.Watch, string, bool) {
 	var body watchBody
 	if err := httpx.DecodeJSON(w, r, &body); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return alerting.Watch{}, false
+		return alerting.Watch{}, "", false
 	}
 	watch, err := toWatch(body)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "a condition or action is not valid JSON")
-		return alerting.Watch{}, false
+		return alerting.Watch{}, "", false
 	}
-	return watch, true
+	return watch, body.ActorID, true
 }
 
 // fail maps a service error onto a status.
@@ -505,13 +516,6 @@ func (h *AlertsHandler) fail(w http.ResponseWriter, what string, err error) {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to "+what)
 	}
 }
-
-// userFrom reads the acting user from the header the platform's BFF sets.
-//
-// This service has no auth of its own — the BFF is the authz boundary — so this
-// is attribution rather than authorization, and an absent header is simply an
-// unattributed change rather than a rejected one.
-func userFrom(r *http.Request) string { return r.Header.Get("X-Octo-User-Id") }
 
 func parseLimit(raw string) int {
 	if raw == "" {

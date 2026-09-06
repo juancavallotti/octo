@@ -48,8 +48,21 @@ type watchBody struct {
 	// but the first. Zero lets every one through.
 	CooldownSeconds int `json:"cooldown_seconds"`
 
+	// ActorID is the acting user's id, forwarded by the platform's BFF from the
+	// authenticated session and empty when unknown. A body field rather than a
+	// verified credential, which is the convention every write route on the
+	// orchestrator already follows and for the same reason: this service has no
+	// session, and the BFF is the auth boundary. It is attribution, never
+	// authorization.
+	ActorID string `json:"actorId,omitempty"`
+
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// actorRequest is the body of a write that carries nothing but its actor.
+type actorRequest struct {
+	ActorID string `json:"actorId"`
 }
 
 // watchStateBody is the machine's position, rendered beside a watch in the list.
