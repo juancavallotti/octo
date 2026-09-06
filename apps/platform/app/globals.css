@@ -39,3 +39,42 @@ body {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(200%); }
 }
+
+/*
+ * The halo on the collapsed launcher: a ring of light turning around the button
+ * while he is working, so minimising the panel does not mean losing sight of a
+ * run in flight. Ambient rather than a spinner — nothing here is measurable, and
+ * a progress-shaped indicator would promise an end it cannot know.
+ *
+ * Here rather than inline for the same reason as the sweep above, and because a
+ * conic gradient with six stops is not worth writing in bracket syntax.
+ */
+@keyframes agent-halo-spin {
+  to { transform: rotate(360deg); }
+}
+
+.agent-halo {
+  position: absolute;
+  inset: -5px;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    rgb(56 189 248 / 0) 0deg,
+    rgb(56 189 248 / 0) 60deg,
+    rgb(56 189 248 / 0.8) 150deg,
+    rgb(125 211 252 / 1) 200deg,
+    rgb(56 189 248 / 0) 290deg,
+    rgb(56 189 248 / 0) 360deg
+  );
+  filter: blur(3px);
+  animation: agent-halo-spin 1.6s linear infinite;
+}
+
+/* Still a signal, without the motion. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-halo {
+    animation: none;
+    background: rgb(56 189 248 / 0.55);
+  }
+}

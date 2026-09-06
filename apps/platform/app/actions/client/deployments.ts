@@ -26,6 +26,16 @@ export function listDeployments(
   );
 }
 
+/**
+ * One deployment on its own, by id. The list endpoint is per-integration, and a
+ * caller holding only a deployment id — anything reached by a link into a
+ * deployment, rather than from the integration that owns it — has no integration
+ * to list.
+ */
+export function getDeployment(id: string): Promise<ActionResult<Deployment>> {
+  return call<Deployment>("GET", `/deployments/${enc(id)}`);
+}
+
 export function getDeployOptions(
   integrationId: string,
   opts: { slug?: string; expose?: "external"; snapshotId?: string } = {},

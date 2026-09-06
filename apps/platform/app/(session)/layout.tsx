@@ -19,9 +19,10 @@ export const dynamic = "force-dynamic";
  * dev) the check is skipped and the platform is open.
  *
  * Each page composes its own header from the shared AppLogo + account tile, so
- * this layout only owns the full-height shell — and the agent's launcher, which is
- * here because it belongs on every signed-in page and this is the one shell they
- * all share. It renders nothing when the agent is not deployed.
+ * this layout only delegates the full-height shell to the agent's launcher, which
+ * owns it because the chat panel can be pinned — docked, the page has to shrink
+ * into the space beside it. It renders the page alone when the agent is not
+ * deployed.
  */
 export default async function SessionLayout({
   children,
@@ -37,10 +38,5 @@ export default async function SessionLayout({
     // actually trusts is read server-side by the chat route.
     userKey = session.user.id ?? session.user.email ?? "user";
   }
-  return (
-    <div className="flex h-full flex-1 flex-col">
-      {children}
-      <AgentChatLauncher userKey={userKey} />
-    </div>
-  );
+  return <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>;
 }

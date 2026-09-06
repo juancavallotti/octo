@@ -9,6 +9,13 @@ import AppLogo from "./AppLogo";
  *
  * The middle slot owns its own horizontal layout (it is a `flex-1` flex row), so
  * a page can push an action to the far right with `ml-auto`.
+ *
+ * It is a container query context, because what the bar has room for is no longer
+ * a question about the window: the agent panel can be docked beside the page, and
+ * the bar has to give up its labels for the space it takes. Its children size
+ * themselves against this header (`@max-*` variants) rather than the viewport,
+ * which a media query would have them do — and which would be wrong by exactly the
+ * panel's width.
  */
 export default function AppHeader({
   logoHref,
@@ -23,7 +30,7 @@ export default function AppHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <header className="flex items-center gap-3 border-b border-black/10 px-4 h-12 shrink-0 dark:border-white/10">
+    <header className="@container flex items-center gap-3 border-b border-black/10 px-4 h-12 shrink-0 dark:border-white/10">
       <AppLogo href={logoHref} />
       {children != null && (
         <div className="flex min-w-0 flex-1 items-center gap-3">{children}</div>
