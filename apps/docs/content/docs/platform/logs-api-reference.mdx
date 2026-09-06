@@ -38,7 +38,7 @@ curl -sS "$LOGS_URL/openapi/operations"
 
 Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail — which is exactly how the [platform agent](/platform/agent) uses it.
 
-The tags are `logs`, `traces`, `retention`, `meta` and `openapi`.
+The tags are `logs`, `traces`, `stats`, `retention`, `meta` and `openapi`.
 
 ## Reading part of the document
 
@@ -62,6 +62,64 @@ Every query route is a `GET`. The three [retention](#data-retention) routes are 
 **Paging is keyset-based.** `/logs` and `/traces` return at most `limit` rows (default 200, clamped to 1000). A page that came back full carries `next_before`; send it as `before=` for the page after it. Treat it as opaque — it names a `(timestamp, id)` pair, not a timestamp, because rows routinely share a timestamp and a timestamp-only cursor would either skip the ties or serve them twice.
 
 **Trace payloads are optional.** `/traces/{traceId}` includes every record's captured body by default, and those payloads are the whole weight of a trace. Pass `bodies=0` when you are only drawing a waterfall, then fetch the one record you need from `/traces/{traceId}/records/{id}`.
+
+## Pod stats
+
+The [pod stats sidecar](/docs/platform/pod-stats) writes each production pod's own
+metrics to Redis. These three routes read them back, and they are the only part of this
+API not backed by Postgres — which is why they answer even when the log store is
+unreachable.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /stats/{deploymentId}/pods` | Which pods have reported, and whether they still are |
+| `GET /stats/{deploymentId}/metrics` | The catalogue: every series name and label set, no samples read |
+| `GET /stats/{deploymentId}/series` | The data |
+
+Start at `/pods`. It names the pods the other two accept, and reports `liveRows` and
+`rollupRows` separately: zero live rows beside a full history is the ordinary state of a
+pod that stopped a few hours ago, because the live tier is kept for only twice the
+rollup interval while the pod stays in the index for the whole retention window.
+
+**`metric` is required on `/series`, and repeatable.** Samples are stored positionally
+against a per-pod dictionary, so a query with no name filter reads every series of every
+pod — around ninety-five of them, once a second. That filter is what bounds the
+response, and `/metrics` is how you find exact names to put in it. Names match exactly;
+`label=key=value` narrows within them and repeats are ANDed.
+
+```bash
+curl -sS "$LOGS_URL/stats/$DEPLOYMENT_ID/series?metric=process_resident_memory_bytes&from=2026-09-05T11:00:00Z"
+```
+
+**A counter's `value` is growth, on both tiers.** A Prometheus counter is cumulative, so
+what is charted is how much it grew over the interval ending at that point. The history
+tier stores that already; the live tier is differenced to match, so a chart never has to
+know which tier answered. A counter that reads lower than the point before is treated as
+a process restart rather than a negative delta. Pass `counters=absolute` for the raw
+cumulative readings, or ask for the `last` stat on the rollup tier.
+
+**`tier=auto` is the default** and resolves to `rollup` whenever the window reaches
+further back than the live tier goes. That reach is `liveDepth × sampleInterval` — one
+hour at the defaults — and a window older than it cannot be answered from live rows
+however many are read, so serving it from live would look like data ending rather than a
+tier that does not go back that far. The resolved tier and its step come back in the
+response.
+
+**Points are columnar, and `times` are unix milliseconds.** A series is thousands of
+points, and a thousand RFC3339 strings is mostly punctuation for a number every chart
+converts straight back to an integer. The window in the envelope stays RFC3339, and so
+do the `from` and `to` parameters. Ask for only the numbers you need with
+`stats=value,max`; the extra columns are rollup-only and omitted when not requested.
+
+**A `null` reading is a gap, not a zero** — a series the dictionary knows that the scrape
+did not report. On the rollup tier, `ends` is carried beside `times`: rows are not
+contiguous, so a bucket's end not meeting the next one's start is where scraping stopped.
+
+A deployment with no stats answers `200` with no items rather than `404`. This service
+holds no deployment registry, so it cannot tell a deployment that never existed from one
+whose sidecar is switched off or whose stats have expired, and a `404` would claim it
+can. For the same reason a pod that cannot be read is reported in `warnings` and
+skipped, never a failed request.
 
 ## Data retention
 

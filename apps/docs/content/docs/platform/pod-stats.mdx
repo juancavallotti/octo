@@ -123,9 +123,11 @@ written. Pods are ephemeral and nothing sweeps up after them, so a deleted pod's
 ages out on its own.
 
 <Callout>
-Nothing reads these keys yet — this release only writes them. The layout is versioned
-`v0` because its shape is expected to change once there is more experience with it; a
-later version writes under `v1` and the `v0` keys expire on their own.
+Read these back through the [pod stats routes](/docs/platform/logs-api-reference#pod-stats)
+on the telemetry service rather than from Redis directly. It does the dictionary join and
+hands back named, labelled series — and it keeps this layout private, which matters
+because `v0` is versioned in the keys precisely so its shape can change. A later version
+writes under `v1` and the `v0` keys expire on their own.
 </Callout>
 
 ### What it costs
