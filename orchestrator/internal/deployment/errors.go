@@ -44,7 +44,7 @@ var (
 	// that does not exist.
 	ErrSecretNotFound = errors.New("referenced secret not found")
 	// ErrReservedEnvVar is returned when an env binding targets an
-	// orchestrator-managed variable (HTTP_PORT/HTTP_HOST/LOGS_URL).
+	// orchestrator-managed variable (HTTP_PORT/HTTP_HOST/OBSERVABILITY_URL).
 	ErrReservedEnvVar = errors.New("environment variable is reserved")
 	// ErrMissingRequiredEnv is returned when a deploy's definition declares a
 	// required env var that nothing provides (no deploy-time binding and no frozen

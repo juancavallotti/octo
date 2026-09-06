@@ -2,8 +2,8 @@
 
 /**
  * Server action for the platform logs view. Authorizes (any signed-in caller) and
- * delegates to the log-aggregator client (`_logs.ts`), which reads the log
- * service's query API directly. The model unwraps the ActionResult. Read-only —
+ * delegates to the stored-logs client (`_logs.ts`), which reads the
+ * observability service's API directly. The model unwraps the ActionResult. Read-only —
  * stored logs are never mutated here.
  */
 

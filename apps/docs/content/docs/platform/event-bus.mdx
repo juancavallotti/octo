@@ -15,8 +15,8 @@ One NATS broker is the platform's message backbone. Control-plane events, runtim
 | --- | --- | --- | --- |
 | `internal.deployments.{integrationId}` | orchestrator | platform BFF (per-integration SSE) | Deployment status snapshots |
 | `internal.integrations.events` | platform BFF (MCP writes); deployed apps via `system:` | platform BFF (SSE) | Integration-write live-reload hints |
-| `internal.logs` | every runtime pod | telemetry aggregator (queue group) | Structured log shipping |
-| `internal.traces` | every runtime pod with tracing on | telemetry aggregator (queue group) | [Trace](/runtime/tracing) record shipping |
+| `internal.logs` | every runtime pod | observability service (queue group) | Structured log shipping |
+| `internal.traces` | every runtime pod with tracing on | observability service (queue group) | [Trace](/runtime/tracing) record shipping |
 | `octo.{deploymentId}.q.{subject}` | runtime pods | runtime pods (queue group) | Flow [queues](/runtime/clustering#queues-competing-consumers) — competing consumers |
 | `octo.{deploymentId}.t.{subject}` | runtime pods | runtime pods (plain subscribe) | Flow topics — broadcast fan-out |
 
@@ -24,10 +24,10 @@ The convention: control-plane infrastructure lives under `internal.*`; runtime m
 
 A deployed app can publish onto an `internal.*` subject deliberately, by writing the subject with a [`system:` prefix](/reference/connectors/events#reaching-the-platform-the-system-prefix), which opts that one subject out of deployment scoping. The scoping is a default, not a wall — the platform agent uses it to tell an open editor that something it just changed is worth re-reading.
 
-`internal.logs` and `internal.traces` are deliberately **not** scoped per deployment, unlike the `octo.{deploymentId}.*` subjects: a single aggregator consumes each as a competing consumer across every deployment, and the deployment identity travels inside each record. Scoping them would make the aggregator's subscription list grow with the number of deployments, which is the thing an aggregator exists to avoid.
+`internal.logs` and `internal.traces` are deliberately **not** scoped per deployment, unlike the `octo.{deploymentId}.*` subjects: a single service consumes each as a competing consumer across every deployment, and the deployment identity travels inside each record. Scoping them would make its subscription list grow with the number of deployments, which is the thing an aggregator exists to avoid.
 
 <Callout type="info">
-Both subjects are consumed by the **same service** — the telemetry aggregator. Traces landed there because they arrive the same way and are queried the same way. Only its source directory, image and URL still say logs: `logs/`, `octo-logs`, `LOGS_URL`.
+Both subjects are consumed by the **same service** — the [observability service](/platform/observability-api-reference). Traces landed there because they arrive the same way and are queried the same way.
 </Callout>
 
 The two consumers behave differently under load, and deliberately so. Log records are inserted one at a time by a small worker pool. Trace records are **batched** — one request through a ten-block flow emits a couple of dozen of them against a log line or two — and when the writer falls behind, the trace consumer **sheds** records rather than waiting for room, because its subscription callback shares a connection with the log consumer and blocking there would stall log shipping too. Traces are the load that can outrun its own writer, so traces are what gives way; the count of what was dropped is logged.

@@ -1,0 +1,16 @@
+{{- include "octo-common.deployment" (dict
+      "root" $
+      "component" "observability"
+      "replicas" .Values.observability.replicas
+      "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "observability"
+        "name" "observability"
+        "image" (include "octo-common.image" (dict "root" $ "component" "observability"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "observability"))
+        "ports" (list (dict "containerPort" .Values.observability.service.port))
+        "env" (include "octo.observability.env" .)
+        "readinessProbe" (dict
+          "httpGet" (dict "path" "/healthz" "port" .Values.observability.service.port)
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}

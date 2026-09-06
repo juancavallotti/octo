@@ -18,7 +18,7 @@
 `wrapcheck`, `mnd`, `lll`, `ireturn`, and a `gochecknoinits` allowlist that
 enumerates the loadable modules).
 
-`orchestrator`, `logs` and `sidecars` have no config and run golangci's defaults.
+`orchestrator`, `observability` and `sidecars` have no config and run golangci's defaults.
 That is a deliberate deferral, not an oversight: the strict set turns the service
 modules' current state into hundreds of findings, and a backlog that large gets
 skimmed past exactly the way the one it replaced did. Adopting it there is its own

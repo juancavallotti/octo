@@ -1,6 +1,6 @@
 /**
  * Browser-side client for the platform logs view. Backed by the `listLogs` server
- * action, which reads the log-aggregator's query API directly; this wrapper
+ * action, which reads the observability service's API directly; this wrapper
  * unwraps the ActionResult so callers keep a value-or-throw contract. Read-only:
  * the /platform/logs view fetches pages of stored log events with filters.
  */

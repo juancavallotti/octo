@@ -1,9 +1,9 @@
 // Package redisx opens the process's Redis connection.
 //
-// It is a byte-for-byte twin of logs/internal/redisx, and the two must be kept in
+// It is a byte-for-byte twin of observability/internal/redisx, and the two must be kept in
 // sync by hand: the orchestrator and the aggregator do not share a go.mod, so
 // neither can import the other's copy. The same arrangement holds for the trace
-// subject name (see the note on TraceSubject in logs/internal/ingest/trace.go).
+// subject name (see the note on TraceSubject in observability/internal/ingest/trace.go).
 //
 // It is a package rather than a few lines in main because both callers need the
 // same three decisions — how the URL is parsed, how long the first connection is

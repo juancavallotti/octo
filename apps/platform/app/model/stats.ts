@@ -1,10 +1,10 @@
 /**
  * Browser-side client for pod stats — the per-pod CPU, memory and runtime metrics
- * a sidecar samples into Redis and the telemetry service reads back. Backed by the
+ * a sidecar samples into Redis and the observability service reads back. Backed by the
  * stats server actions, which call that service's query API directly; this wrapper
  * unwraps the ActionResult so callers keep a value-or-throw contract. Read-only.
  *
- * The shapes below mirror `logs/internal/api/stats.go`. Three of its rules survive
+ * The shapes below mirror `observability/internal/api/stats.go`. Three of its rules survive
  * into these types and must survive into every consumer:
  *
  *  - A reading is `number | null`, and null is a **gap** — a series the pod's

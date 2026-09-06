@@ -85,7 +85,7 @@ orchestrator:
   baseDomain: ""
   clusterIssuer: ""
 
-logs:
+observability:
   securityContext:
     runAsUser: 65532
     runAsGroup: 65532

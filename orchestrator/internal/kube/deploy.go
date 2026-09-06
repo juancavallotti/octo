@@ -90,11 +90,11 @@ const (
 	// about that deployment, not something its author writes into the definition.
 	envTracing = "OCTO_TRACING"
 
-	// envLogs is the log aggregator's query API, injected only into deployments
+	// envObservability is the observability service's API, injected only into deployments
 	// granted the observability API. A per-deployment setting for the same reason as
 	// tracing, and unlike tracing it is a grant: the definition's author asks for it,
 	// but whoever deploys decides.
-	envLogs = "LOGS_URL"
+	envObservability = "OBSERVABILITY_URL"
 
 	// envEmbeddings is the embedding server's in-cluster address. Injected into
 	// every pod when the installation has one, because an embedding grants access
@@ -118,8 +118,8 @@ type Spec struct {
 	Expose        bool              // when true, also publish an external Ingress
 	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
 	Tracing       bool              // when true, run the pods with the runtime's tracer on
-	// ObservabilityAPI grants the pods the log aggregator's query address, injected
-	// as LOGS_URL. Nothing else puts it in a pod, so this flag is the whole of the
+	// ObservabilityAPI grants the pods the observability service's address, injected
+	// as OBSERVABILITY_URL. Nothing else puts it in a pod, so this flag is the whole of the
 	// grant. The orchestrator's own API needs no counterpart here: ORCHESTRATOR_URL
 	// is already injected for the runtime services module, and the declaration that
 	// a deployment calls that API lives on the deployment record for a future access
@@ -541,27 +541,27 @@ func httpProbe(path string) corev1.ProbeHandler {
 // workload.
 //
 // The switches go last on purpose. An integration written before either setting
-// existed could declare OCTO_TRACING or LOGS_URL among its own env vars and bind it
+// existed could declare OCTO_TRACING or OBSERVABILITY_URL among its own env vars and bind it
 // per deployment; Kubernetes resolves a duplicated name to the last entry, so the
 // setting wins over such a binding rather than being silently overridden by it.
 // Nothing at all is emitted when a switch is off, so those integrations keep
 // working as they did.
 func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
-	// LOGS_URL is the orchestrator's to set, so it is dropped from the user's
+	// OBSERVABILITY_URL is the orchestrator's to set, so it is dropped from the user's
 	// bindings wherever it came from. The deployment service already refuses a
 	// binding that targets it, and this is the same rule at the layer that actually
 	// builds the pod — so a caller assembling a Spec directly cannot hand a
 	// deployment the address that its own record says it was never granted.
-	env := append(c.runtimeServicesEnv(spec), without(containerEnv(spec), envLogs)...)
+	env := append(c.runtimeServicesEnv(spec), without(containerEnv(spec), envObservability)...)
 	if spec.Tracing {
 		env = append(env, corev1.EnvVar{Name: envTracing, Value: "true"})
 	}
 	// The grant and the address are both required. A deployment that asked for
-	// observability on an orchestrator that has no aggregator address gets nothing,
-	// rather than an empty LOGS_URL that turns every query into a confusing failure
+	// observability on an orchestrator that has no observability address gets nothing,
+	// rather than an empty OBSERVABILITY_URL that turns every query into a confusing failure
 	// inside the flow.
-	if spec.ObservabilityAPI && c.runtimeServices.LogsURL != "" {
-		env = append(env, corev1.EnvVar{Name: envLogs, Value: c.runtimeServices.LogsURL})
+	if spec.ObservabilityAPI && c.runtimeServices.ObservabilityURL != "" {
+		env = append(env, corev1.EnvVar{Name: envObservability, Value: c.runtimeServices.ObservabilityURL})
 	}
 	// The stats sidecar scrapes this runtime's /metrics, which the runtime does
 	// not serve unless asked. Emitted only when the sidecar is being injected, so

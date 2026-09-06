@@ -61,7 +61,7 @@ orchestrator:
     alb.ingress.kubernetes.io/group.name: octo
     # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/ID
 
-logs:
+observability:
   securityContext:
     runAsUser: 65532
     runAsGroup: 65532

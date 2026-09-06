@@ -1,7 +1,7 @@
 /**
- * The trace service's JSON shapes, and how they become the model's.
+ * The observability service's trace JSON shapes, and how they become the model's.
  *
- * These interfaces mirror `logs/internal/repo/tracesquery.go` field for field and
+ * These interfaces mirror `observability/internal/repo/tracesquery.go` field for field and
  * **must stay in sync with it** — the same contract the Go side keeps with the
  * runtime's wire struct. Kept apart from the client itself so the one file that
  * has to track a Go struct is the one file to review when that struct changes.

@@ -176,7 +176,7 @@ export interface DeploymentInput {
    */
   orchestratorApi?: boolean;
   /**
-   * Grants this deployment the log aggregator's address as LOGS_URL. Off by
+   * Grants this deployment the observability service's address as OBSERVABILITY_URL. Off by
    * default: stored logs and traces span every deployment on the installation.
    */
   observabilityApi?: boolean;

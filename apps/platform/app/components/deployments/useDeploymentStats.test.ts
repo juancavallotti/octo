@@ -73,7 +73,7 @@ it("asks for a five minute live window per deployment", async () => {
 });
 
 it("reports unavailable rather than an error when nothing answers", async () => {
-  readStatsSeries.mockRejectedValue(new Error("pod stats not configured (LOGS_URL unset)"));
+  readStatsSeries.mockRejectedValue(new Error("pod stats not configured (OBSERVABILITY_URL unset)"));
 
   const { result } = renderHook(() => useDeploymentStats(["dep-1"]));
 

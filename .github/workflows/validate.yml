@@ -58,7 +58,7 @@ jobs:
       - run: task runtime:test:embeddings
       # The service modules. Each gets its own steps rather than an entry in a
       # list, because this job enumerates what it runs — and what it enumerates is
-      # the whole guarantee. `orchestrator` and `logs` were missing here until
+      # the whole guarantee. `orchestrator` and `observability` were missing here until
       # they were added below, which is why `orchestrator` had accumulated 18 lint
       # findings nothing was failing on.
       #
@@ -68,30 +68,30 @@ jobs:
       # would trade one silent backlog for a louder one.
       - run: task orchestrator:tidy
       - run: task orchestrator:fmt
-      - run: task logs:tidy
-      - run: task logs:fmt
+      - run: task observability:tidy
+      - run: task observability:fmt
       # The committed OpenAPI descriptions are generated from the handler annotations,
       # so they can go stale the moment a route or a request type changes. Regenerating
       # them here folds them into the same diff check below: an annotation edited
       # without regenerating, or a route added without annotating, fails exactly as
       # unformatted Go does. Both services describe themselves, so both regenerate.
       - run: task orchestrator:openapi
-      - run: task logs:openapi
+      - run: task observability:openapi
       # tidy, fmt and openapi repair go.*, Go sources and the spec and still exit 0,
       # so a PR that needed any of them would otherwise merge with the drift unmade.
-      - name: Verify orchestrator and logs are tidy, formatted and describe their API
-        run: git diff --exit-code -- orchestrator logs
+      - name: Verify orchestrator and observability are tidy, formatted and describe their API
+        run: git diff --exit-code -- orchestrator observability
       - run: task orchestrator:lint
-      - run: task logs:lint
+      - run: task observability:lint
       # -race for both: the orchestrator serialises concurrent deployment writes
-      # and the log aggregator runs a worker pool behind a NATS subscription, so
+      # and the observability service runs a worker pool behind a NATS subscription, so
       # in both the bug worth catching is the one that passes without it.
       #
-      # NOTE: the repo-layer tests in `logs` skip unless TEST_DATABASE_URL is set,
+      # NOTE: the repo-layer tests in `observability` skip unless TEST_DATABASE_URL is set,
       # and nothing sets it here — so the keyset-paging tests do not run in CI.
       # Tracked separately; do not read a green run as covering them.
       - run: task orchestrator:test -- -race
-      - run: task logs:test -- -race
+      - run: task observability:test -- -race
       - run: task sidecars:tidy
       - run: task sidecars:fmt
       # tidy and fmt can repair sidecars/go.* and Go sources and still exit 0, so a

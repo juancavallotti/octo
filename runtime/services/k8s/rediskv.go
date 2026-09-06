@@ -28,7 +28,7 @@ import (
 // redisStore.keyOf for the shape.
 
 // redisPrefix namespaces octo's keys inside a Redis that other things may share
-// (the log aggregator folds trace runs in the same instance).
+// (the observability service folds trace runs in the same instance).
 const redisPrefix = "octo:kv"
 
 // The hash fields one object is stored in. Short names because they are repeated

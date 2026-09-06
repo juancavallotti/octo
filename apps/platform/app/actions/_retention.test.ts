@@ -22,7 +22,7 @@ vi.mock("@octo/http", () => ({
 
 import * as retention from "./_retention";
 
-const BASE = "http://logs:8091";
+const BASE = "http://observability:8091";
 
 function ok(data: unknown) {
   requestJson.mockResolvedValue({ ok: true, data });
@@ -30,12 +30,12 @@ function ok(data: unknown) {
 
 describe("the retention client", () => {
   beforeEach(() => {
-    process.env.LOGS_URL = BASE;
+    process.env.OBSERVABILITY_URL = BASE;
   });
 
   afterEach(() => {
     vi.clearAllMocks();
-    delete process.env.LOGS_URL;
+    delete process.env.OBSERVABILITY_URL;
   });
 
   it("reads the policy from the aggregator", async () => {
@@ -105,7 +105,7 @@ describe("the retention client", () => {
   });
 
   it("trims a trailing slash off the configured address", async () => {
-    process.env.LOGS_URL = `${BASE}/`;
+    process.env.OBSERVABILITY_URL = `${BASE}/`;
     ok({ logs_days: 0, traces_days: 0, updated_at: null });
 
     await retention.getRetention();
@@ -114,7 +114,7 @@ describe("the retention client", () => {
   });
 
   it("says so when the aggregator's address is unset", async () => {
-    delete process.env.LOGS_URL;
+    delete process.env.OBSERVABILITY_URL;
 
     for (const call of [
       retention.getRetention(),
@@ -124,7 +124,7 @@ describe("the retention client", () => {
       const res = await call;
       expect(res.ok).toBe(false);
       if (res.ok) return;
-      expect(res.error).toMatch(/LOGS_URL/);
+      expect(res.error).toMatch(/OBSERVABILITY_URL/);
     }
     expect(requestJson).not.toHaveBeenCalled();
   });

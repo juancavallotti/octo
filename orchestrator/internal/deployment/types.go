@@ -68,9 +68,10 @@ type Settings struct {
 	// arrives with the declarations already in place rather than needing every
 	// existing deployment reclassified.
 	OrchestratorAPI bool `json:"orchestratorApi,omitempty"`
-	// ObservabilityAPI grants this deployment's flows the address of the log
-	// aggregator's query API, injected as LOGS_URL. Unlike the orchestrator's, that
-	// address is in no pod otherwise, so this switch is the whole of the access.
+	// ObservabilityAPI grants this deployment's flows the address of the
+	// observability service's API, injected as OBSERVABILITY_URL. Unlike the
+	// orchestrator's, that address is in no pod otherwise, so this switch is the
+	// whole of the access.
 	//
 	// Off by default: stored logs and traces span every deployment on the install,
 	// so an integration that can read them can read its neighbours' — which is a

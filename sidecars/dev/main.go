@@ -93,7 +93,7 @@ type config struct {
 // loadConfig reads and validates the environment.
 //
 // Every missing required value is a hard startup failure, listed together so one
-// restart reveals all of them. Deliberately unlike the log aggregator, which
+// restart reveals all of them. Deliberately unlike the observability service, which
 // degrades to serving /healthz without a database: that service is still useful
 // half-configured, and this one is not. A sidecar that cannot reach the
 // orchestrator, or cannot prove which dev run it is, has no job to do — and

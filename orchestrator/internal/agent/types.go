@@ -79,7 +79,7 @@ const webSearchKeySecret = "OCTO_AGENT_WEBSEARCH_KEY"
 // WebSearchUnconfigured is what PARALLEL_API_KEY is bound to when this
 // installation has no Parallel key.
 //
-// A sentinel rather than an empty string, and the reason is the same one LOGS_URL
+// A sentinel rather than an empty string, and the reason is the same one OBSERVABILITY_URL
 // has: the agent declares a parallel connector, connectors start eagerly, and that
 // one refuses an empty API key — so an unconfigured install would crash-loop the
 // whole agent instead of losing one tool. His web_search tool compares against this

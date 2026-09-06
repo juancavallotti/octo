@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
  * The three ways this page has nothing to draw, which are three different
  * problems with three different fixes:
  *
- *   the service is unreachable   an operator sets LOGS_URL
+ *   the service is unreachable   an operator sets OBSERVABILITY_URL
  *   no pod ever reported         an operator turns the sidecar on
  *   no rows in this window       the reader picks a wider range
  *
@@ -71,12 +71,12 @@ beforeEach(() => {
 
 describe("when there is nothing to draw", () => {
   it("names the environment variable when the service is unreachable", async () => {
-    readStatsSeries.mockRejectedValue(new Error("pod stats not configured (LOGS_URL unset)"));
+    readStatsSeries.mockRejectedValue(new Error("pod stats not configured (OBSERVABILITY_URL unset)"));
 
     render(<MetricsMonitor deploymentId="dep-1" />);
 
     await screen.findByText("Metrics unavailable");
-    expect(screen.getByText(/Set LOGS_URL to enable it/)).toBeInTheDocument();
+    expect(screen.getByText(/Set OBSERVABILITY_URL to enable it/)).toBeInTheDocument();
     // The raw message shows too: the empty state says what to do, the strip says
     // what happened.
     expect(screen.getByText(/pod stats not configured/)).toBeInTheDocument();

@@ -51,7 +51,7 @@ using Conventional Commits.
 - `publish-api-runtime` — the API-delegating runtime (`GOTAGS=api`), multi-arch, as
   `juancavallotti/octo-api` and, off the same build, `juancavallotti/octo-api-paas`.
 - `build-paas-images` → `publish-paas-images` — every `-paas` image the Helm chart
-  deploys: the editor, orchestrator, log aggregator, schema applier, embedding
+  deploys: the editor, orchestrator, observability service, schema applier, embedding
   server, dev sidecar, agentic runner, and the k8s-flavoured runtime. Each is built
   once per architecture **on a runner of that architecture** (`ubuntu-latest` and
   `ubuntu-24.04-arm`) and pushed untagged, by digest; `publish-paas-images` then

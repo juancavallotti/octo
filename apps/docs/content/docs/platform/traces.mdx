@@ -215,7 +215,7 @@ Two rules the connectors normalize and this service depends on:
 
 ## The API
 
-Served by the aggregator on the same port and `LOGS_URL` as the log query API. Responses are snake_case; the platform client maps them.
+Served by the observability service on the same port and `OBSERVABILITY_URL` as the log query API. Responses are snake_case; the platform client maps them.
 
 | Route | Purpose |
 | --- | --- |
@@ -251,7 +251,7 @@ Point either URL at a mirror for a cluster without egress. A cluster that can re
 
 ## Retention
 
-`traces` and `trace_summaries` are pruned by the site's [data retention policy](/platform/admin-settings#data-retention). Set it at `/platform/admin/retention`; traces get their own window, separate from the one for logs. The policy defaults to **keeping everything**, so until you set one these tables grow without bound exactly as before. For the routes behind the page, see the [logs API reference](/platform/logs-api-reference#data-retention).
+`traces` and `trace_summaries` are pruned by the site's [data retention policy](/platform/admin-settings#data-retention). Set it at `/platform/admin/retention`; traces get their own window, separate from the one for logs. The policy defaults to **keeping everything**, so until you set one these tables grow without bound exactly as before. For the routes behind the page, see the [observability API reference](/platform/observability-api-reference#data-retention).
 
 Traces usually want the shorter of the two windows. A ten-block flow emits roughly two dozen records and each can carry a captured body, so a day of tracing costs far more than a day of logs — which is also why tracing is a debugging instrument you switch off again rather than leave on.
 

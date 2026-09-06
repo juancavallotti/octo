@@ -2,7 +2,7 @@
 
 /**
  * Server actions for pod stats. Authorizes (any signed-in caller) and delegates to
- * the stats client (`_stats.ts`), which reads the telemetry service's query API
+ * the stats client (`_stats.ts`), which reads the observability service's API
  * directly. The model unwraps the ActionResult. Read-only — stored samples are
  * never mutated here, and the sidecar that writes them is configured through the
  * chart rather than through the platform.

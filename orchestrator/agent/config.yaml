@@ -46,7 +46,7 @@ env:
     required: true
 
   # Where stored logs and traces are queried. Deliberately NOT required, and it has
-  # no counterpart binding: LOGS_URL is orchestrator-managed, injected only into a
+  # no counterpart binding: OBSERVABILITY_URL is orchestrator-managed, injected only into a
   # deployment granted the observability API, and the deploy-time check for required
   # variables reads bindings and .env resources only — so declaring it required would
   # refuse every deploy, including the ones that were granted it.
@@ -55,7 +55,7 @@ env:
   #
   # It exists at all because connectors start eagerly and http-client refuses an
   # empty baseURL, which would crash-loop the whole agent on an install that never
-  # granted him the API. And every logs tool below compares against it before doing
+  # granted him the API. And every observability tool below compares against it before doing
   # anything, so "not granted" is answered from a CEL check rather than from a failed
   # request — no waiting on a connection, and an explanation instead of a transport
   # error the model has to interpret.
@@ -63,12 +63,12 @@ env:
   # The host is under .invalid, reserved by RFC 2606 to never resolve, so the
   # sentinel is also a safe address: anything that ever slipped past the checks
   # fails to connect rather than reaching something real.
-  - name: LOGS_URL
+  - name: OBSERVABILITY_URL
     default: http://observability-not-granted.invalid
 
   # The key Dr. Octo searches the open web with, from Admin -> Platform agent.
   #
-  # Optional, and the default is a sentinel for the same reason LOGS_URL's is: the
+  # Optional, and the default is a sentinel for the same reason OBSERVABILITY_URL's is: the
   # parallel connector below is started eagerly and refuses an empty API key, so an
   # installation that never configured web search would crash-loop the whole agent
   # rather than lose one tool. The web_search tool compares against this value and
@@ -241,13 +241,14 @@ connectors:
       baseURL: ${ORCHESTRATOR_URL}
       timeout: 60s
 
-  # The log aggregator's query API — stored logs and traces, for every deployment on
-  # the install. A second boundary, restrictable independently of the one above, and
-  # read-only in a way that one is not: every route it serves is a GET.
-  - name: logs
+  # The observability service's API — stored logs, traces and pod stats, for every
+  # deployment on the install. A second boundary, restrictable independently of the
+  # one above. Read-only by the tool's allowMethods, not by the API: it also serves
+  # the retention policy and the sweep behind it, and one of those deletes.
+  - name: observability
     type: http-client
     settings:
-      baseURL: ${LOGS_URL}
+      baseURL: ${OBSERVABILITY_URL}
       # Shorter than the orchestrator's. A query that has to reach an address this
       # deployment was never granted should come back while someone is still reading
       # the answer, not sixty seconds later.
@@ -861,7 +862,7 @@ flows:
 
           # Web search, when this installation has paid for it.
           #
-          # The guard is the same shape as the three logs tools': a CEL comparison
+          # The guard is the same shape as the three observability tools': a CEL comparison
           # against the sentinel, answered from the env rather than from a failed
           # request. What differs is what the else branch says. "Not granted" is a
           # fact about the installation that will not change during the
@@ -892,7 +893,7 @@ flows:
               For what this installation cannot tell you: a provider's API or
               error message, a library or image version, what changed in a
               release, an address or endpoint someone named. Prefer octo_read
-              and the logs tools for anything about THIS installation; they are
+              and the observability tools for anything about THIS installation; they are
               authoritative and this is not. Say you searched the web when you
               use what comes back, and link the page. Never search for anything
               from this platform's own data — a key, an env value, a request
@@ -959,7 +960,7 @@ flows:
               named) has given you a URL and you need what is actually on it —
               a provider's doc page, a changelog entry, an error explained in a
               GitHub issue. Pass an objective to get back just the parts that
-              answer it. Prefer octo_read and the logs tools for anything about
+              answer it. Prefer octo_read and the observability tools for anything about
               THIS installation; the open web is not authoritative about it. Say
               you read the page when you use what comes back, and link it. Never
               extract a URL built from this platform's own data.
@@ -1666,19 +1667,20 @@ flows:
 
             the installation
               GET    /settings/health                   whether the orchestrator can reach what it needs
-              GET    /settings/storage                  how full the two stores are
               GET|PUT /settings/llm, /settings/email
               GET    /secrets                           names only, never values
               PUT|DELETE /secrets/{name}
               GET|POST /folders, /devruns               folders tree; dev runs of a WORKING COPY
               POST   /email/send                        the coordinator's report tool uses this
 
-            stored history — the logs API, through logs_api, all GET
+            stored history — the observability API, through observability_api, all GET
               /logs?deploymentId=&level=&q=&from=&to=&before=&limit=
               /traces?deploymentId=&integrationId=&flow=&status=failed&hasLlm=&minDurationMs=&q=&limit=
               /traces/{traceId}?bodies=true             the whole run, block by block
               /traces/{traceId}/records/{id}
               /traces/apps
+              /stats/{deploymentId}/pods|metrics|series   pod CPU, memory and flow metrics
+              /settings/storage                         how full Redis and Postgres are
 
           THE THREE THINGS THAT ARE NOT THE SAME THING, and most confusion
           is one of them: the INTEGRATION is the working copy and editing it
@@ -1704,7 +1706,7 @@ flows:
           replaces it repeatedly. status=failed on /traces goes straight to
           the runs that broke.
 
-          If the logs tools answer that the observability API was not
+          If the observability tools answer that the observability API was not
           granted, report that sentence. It is not the same answer as
           "nothing found", and only one of the two is true.
 
@@ -1789,27 +1791,27 @@ flows:
                   body: 'has(body.payload) ? body.payload : null'
                   failOnError: false
 
-          # The three logs tools each open with the same guard. When LOGS_URL
+          # The three observability tools each open with the same guard. When OBSERVABILITY_URL
           # is still the sentinel, this deployment was never granted the
           # observability API, and that sentence is the honest answer —
           # cheaper than a request to an address that does not resolve.
-          - name: list_logs_operations
+          - name: list_observability_operations
             description: >
-              List every route the observability API serves — stored logs and
-              traces. A 404 here means the log aggregator is older than these
-              tools and serves no description — report that as an
-              out-of-date service, never as missing access.
+              List every route the observability API serves — stored logs,
+              traces and pod stats. A 404 here means the observability service
+              is older than these tools and serves no description — report
+              that as an out-of-date service, never as missing access.
             inputSchema: |
               { "type": "object", "properties": {} }
             process:
               - type: if
                 name: observability-granted
-                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
                 then:
                   process:
                     - type: rest
                       settings:
-                        connector: logs
+                        connector: observability
                         method: GET
                         path: /openapi/operations
                         failOnError: false
@@ -1820,12 +1822,12 @@ flows:
                       settings:
                         value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
 
-          - name: read_logs_docs
+          - name: read_observability_docs
             description: >
               Read the observability API's OpenAPI description, narrowed to
               one tag or one path prefix. Pass one or the other, never both.
-              A 404 means the log aggregator is older than these tools, not
-              that access is missing.
+              A 404 means the observability service is older than these tools,
+              not that access is missing.
             inputSchema: |
               {
                 "type": "object",
@@ -1837,12 +1839,12 @@ flows:
             process:
               - type: if
                 name: observability-granted
-                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
                 then:
                   process:
                     - type: rest
                       settings:
-                        connector: logs
+                        connector: observability
                         method: GET
                         path: /openapi.json
                         failOnError: false
@@ -1856,13 +1858,13 @@ flows:
                       settings:
                         value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
 
-          - name: logs_api
+          - name: observability_api
             description: >
-              Query stored logs and traces. This is history — what already
-              happened, across every deployment. For what a pod is printing
-              right now, use octo_api instead. A 4xx comes back as data, so
-              read it and correct the call — a 404 is a wrong path or an
-              aggregator older than these tools, never a statement about
+              Query stored logs, traces and pod stats. This is history — what
+              already happened, across every deployment. For what a pod is
+              printing right now, use octo_api instead. A 4xx comes back as
+              data, so read it and correct the call — a 404 is a wrong path or
+              a service older than these tools, never a statement about
               access.
             inputSchema: |
               {
@@ -1876,15 +1878,15 @@ flows:
             process:
               - type: if
                 name: observability-granted
-                condition: env.LOGS_URL != "http://observability-not-granted.invalid"
+                condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
                 then:
                   process:
-                    # allowMethods costs nothing here: every route this API
-                    # serves is a GET, so the opt-in restriction is simply
-                    # true.
+                    # allowMethods is the whole of what keeps this read-only:
+                    # the API also serves PUT /settings/retention and POST
+                    # /retention/run, and the second of those deletes.
                     - type: rest-dynamic
                       settings:
-                        connector: logs
+                        connector: observability
                         method: '"GET"'
                         path: body.path
                         allowMethods: [GET]

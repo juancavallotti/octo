@@ -23,7 +23,7 @@ vi.mock("@octo/http", () => ({
 import * as stats from "./_stats";
 import type { RawPodsPage, RawSeriesPage } from "./_statsWire";
 
-const BASE = "http://logs:8091";
+const BASE = "http://observability:8091";
 const DEP = "octo-dep-b01836dc";
 
 /** The URL the single mocked call was made against. */
@@ -57,29 +57,29 @@ function seriesPage(over: Partial<RawSeriesPage> = {}): RawSeriesPage {
 }
 
 beforeEach(() => {
-  process.env.LOGS_URL = BASE;
+  process.env.OBSERVABILITY_URL = BASE;
 });
 
 afterEach(() => {
   vi.clearAllMocks();
-  delete process.env.LOGS_URL;
+  delete process.env.OBSERVABILITY_URL;
 });
 
 describe("configuration", () => {
-  it("does not call out when LOGS_URL is unset", async () => {
-    delete process.env.LOGS_URL;
+  it("does not call out when OBSERVABILITY_URL is unset", async () => {
+    delete process.env.OBSERVABILITY_URL;
 
     const res = await stats.getPods(DEP);
 
     expect(res).toEqual({
       ok: false,
-      error: "pod stats not configured (LOGS_URL unset)",
+      error: "pod stats not configured (OBSERVABILITY_URL unset)",
     });
     expect(requestJson).not.toHaveBeenCalled();
   });
 
-  it("does not double the slash when LOGS_URL has a trailing one", async () => {
-    process.env.LOGS_URL = `${BASE}/`;
+  it("does not double the slash when OBSERVABILITY_URL has a trailing one", async () => {
+    process.env.OBSERVABILITY_URL = `${BASE}/`;
     ok<RawPodsPage>({ deploymentId: DEP, items: null, truncated: false });
 
     await stats.getPods(DEP);

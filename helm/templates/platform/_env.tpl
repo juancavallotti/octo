@@ -69,11 +69,11 @@
 - name: PLATFORM_HOSTS
   value: {{ concat (list .Values.ingress.host) (.Values.ingress.extraHosts | default list) | join "," | quote }}
 {{- end }}
-# Log-aggregator query API. Both the /platform/logs and /platform/traces
-# views read from here directly — traces are stored by the same service,
-# so one URL serves both and neither needs the orchestrator in the path.
-- name: LOGS_URL
-  value: {{ include "octo.logs.url" . | quote }}
+# The observability service's API. The logs, traces, metrics and retention
+# views read from here directly — one service stores all of it, so one URL
+# serves them and none needs the orchestrator in the path.
+- name: OBSERVABILITY_URL
+  value: {{ include "octo.observability.url" . | quote }}
 {{- if .Values.auth.oidc.enabled }}
 # OIDC SSO (Auth.js). The presence of OIDC_ISSUER + AUTH_SECRET turns auth
 # on in the editor. Any OIDC provider works — the chart names none. Issuer

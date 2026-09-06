@@ -4,7 +4,7 @@
  * the ActionResult so callers keep a value-or-throw contract. Read-only — stored
  * traces are never mutated from here.
  *
- * The shapes below mirror `logs/internal/repo/tracesquery.go`. Two of its rules
+ * The shapes below mirror `observability/internal/repo/tracesquery.go`. Two of its rules
  * survive into these types and must survive into every consumer:
  *
  *  - A record's token counts and cost are `number | null`, and null is a fact:

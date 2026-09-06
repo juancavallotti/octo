@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/agentmemory"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
@@ -46,7 +45,6 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
-	"github.com/juancavallotti/octo/orchestrator/internal/storagestats"
 	"github.com/juancavallotti/octo/orchestrator/internal/user"
 	"github.com/juancavallotti/octo/orchestrator/internal/websearch"
 	"github.com/redis/go-redis/v9"
@@ -475,7 +473,7 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		},
 		// Only reaches the pods that were granted the observability API, so an
 		// orchestrator without it disables that grant rather than degrading anything.
-		LogsURL: os.Getenv("LOGS_URL"),
+		ObservabilityURL: os.Getenv("OBSERVABILITY_URL"),
 		// The embedding server, reaching every pod rather than only the granted ones.
 		// An embedding reads nothing and writes nothing, so there is no boundary to
 		// gate — and every pod holding the URL is what makes it unnecessary for any
@@ -910,13 +908,6 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	)).Register(mux)
 	slog.Info("health routes registered", "endpoints", "GET /settings/health")
 
-	// The deeper half of the same question, registered next to it and under the same
-	// gate — which is to say none. Whether the stores are reachable and how full
-	// they are are read on the same page, and both are wanted most when the install
-	// is misbehaving.
-	storagestats.NewHandler(storagestats.NewService(redisClient, databasePool(database))).Register(mux)
-	slog.Info("storage routes registered", "endpoints", "GET /settings/storage")
-
 	return mux, nil
 }
 
@@ -936,15 +927,6 @@ func embeddingsProbe() func(context.Context) error {
 		return nil
 	}
 	return client.Probe
-}
-
-// databasePool returns the connection pool, or nil when this orchestrator is
-// running without a database.
-func databasePool(database *db.DB) *pgxpool.Pool {
-	if database == nil {
-		return nil
-	}
-	return database.Pool()
 }
 
 // databaseProbe pings the pool, or is nil when there is none.

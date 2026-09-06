@@ -226,7 +226,7 @@ subjects for another, and long polls against your own server for the third:
 | Module | Destination |
 | --- | --- |
 | standalone (default build) | A JSONL file, one object per line. Not a JSON array: a runtime is usually killed rather than stopped, and an array whose closing bracket was never written is unreadable, while JSONL cut anywhere is still valid up to its last complete line. |
-| k8s (`-tags k8s`) | The `internal.traces` NATS subject, consumed by the platform's telemetry aggregator, which stores the records it receives and prices the model calls among them where it can — a call whose provider reported no usage, or one on a model the price catalogue does not carry, is kept and marked unpriced rather than counted as free. See [Traces](/platform/traces). |
+| k8s (`-tags k8s`) | The `internal.traces` NATS subject, consumed by the platform's observability service, which stores the records it receives and prices the model calls among them where it can — a call whose provider reported no usage, or one on a model the price catalogue does not carry, is kept and marked unpriced rather than counted as free. See [Traces](/platform/traces). |
 | api (`-tags api`) | Batched to your own server, if its discovery document says it accepts traces. Records are dropped rather than held when a batch cannot be sent, so a platform that is unwell does not become a runtime that runs out of memory. See [The platform API](/extending/platform-api). |
 
 The file is flushed whenever the runtime goes idle, so you can `tail -f` it during

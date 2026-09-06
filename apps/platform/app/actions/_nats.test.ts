@@ -47,7 +47,7 @@ const CONNZ = {
   connections: [
     {
       cid: 26,
-      name: "octo-logs",
+      name: "octo-observability",
       subscriptions: 2,
       pending_bytes: 0,
       in_msgs: 0,

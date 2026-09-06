@@ -25,7 +25,7 @@ The connector owns its output: when `output` names a file, the file is opened on
 | `level` | enum: `debug` \| `info` \| `warn` \| `error` | No | `info` | Minimum log level. |
 | `addSource` | boolean | No | `false` | Include source file:line in log records. |
 
-In the Kubernetes module, output is additionally teed to the runtime's central log sink so it reaches the log aggregator.
+In the Kubernetes module, output is additionally teed to the runtime's central log sink so it reaches the observability service.
 
 ## `log` block
 

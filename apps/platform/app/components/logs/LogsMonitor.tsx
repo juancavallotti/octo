@@ -73,7 +73,7 @@ export default function LogsMonitor() {
               title={error ? "Logs unavailable" : "No logs found"}
               body={
                 error
-                  ? "The platform can't reach the log service. Set LOGS_URL to enable it."
+                  ? "The platform can't reach the observability service. Set OBSERVABILITY_URL to enable it."
                   : "No log events match these filters yet."
               }
             />

@@ -23,7 +23,7 @@ chart needs no registry of your own — see [Helm chart](#helm-charts) below.
 | `octo-agenticrunner` | `runtime/Dockerfile.agentic` | Repo root | Runs a deployment that asked for the agentic runner — adds a shell, curl, jq, the standalone CLI and dolphin |
 | `octo-platform` | `apps/platform/Dockerfile` | Repo root | Editor UI (Next.js) with the `octo` runtime binary bundled |
 | `octo-orchestrator` | `orchestrator/Dockerfile` | `./orchestrator` | Deploys and manages integrations via the Kubernetes API |
-| `octo-logs` | `logs/Dockerfile` | `./logs` | Log aggregator: NATS `internal.logs` → Postgres + query API |
+| `octo-observability` | `observability/Dockerfile` | `./observability` | Observability service: NATS `internal.logs`/`internal.traces` → Postgres + query API, pod stats, retention |
 | `octo-schema` | `sql/Dockerfile` | `./sql` | Applies `sql/schema.sql` as an install/upgrade Job |
 | `juancavallotti/octo` | `apps/standalone/Dockerfile` | Repo root | Public standalone editor ("try Octo"), no cluster needed |
 | `juancavallotti/octo-runtime` | `runtime/Dockerfile` | Repo root | Public runtime alone: run integrations from Docker, no cluster |
@@ -157,7 +157,7 @@ apply a restricted security context:
 | Image | UID |
 |---|---|
 | `octo-platform-paas` | `1000` (`node`) |
-| `octo-orchestrator-paas`, `octo-logs-paas`, `octo-runtime-paas`, `octo-devruntime-paas`, `octo-devsidecar-paas`, `octo-statssidecar-paas` | `65532` (distroless `nonroot`) |
+| `octo-orchestrator-paas`, `octo-observability-paas`, `octo-runtime-paas`, `octo-devruntime-paas`, `octo-devsidecar-paas`, `octo-statssidecar-paas` | `65532` (distroless `nonroot`) |
 | `octo-agenticrunner-paas` | `65532` — the same uid deliberately, so a file written by one runner is readable by the other |
 | `octo-schema-paas` | `70` (`postgres`) |
 
@@ -299,12 +299,13 @@ the Kubernetes API (`client-go`), and serves the KV store to runtime pods.
 Listens on 8090, ClusterIP only — it is reached solely through the platform's
 authenticated BFF.
 
-### octo-logs
+### octo-observability
 
-The Go log-aggregator service. Consumes the NATS `internal.logs` subject as a
-competing consumer, persists log events to Postgres, and serves the query API
-behind the platform's `/logs` view. Listens on 8091, ClusterIP only. Replicas
-scale safely thanks to the NATS queue group.
+The Go observability service. Consumes the NATS `internal.logs` and
+`internal.traces` subjects as a competing consumer, persists them to Postgres,
+and serves the query API behind the platform's logs, traces and metrics views —
+plus the retention policy and the storage report. Listens on 8091, ClusterIP
+only. Replicas scale safely thanks to the NATS queue groups.
 
 ### octo-schema
 

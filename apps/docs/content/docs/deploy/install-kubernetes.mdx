@@ -151,7 +151,7 @@ orchestrator:
     existingSecretKey: dev-run-hash-secret
 ```
 
-That is a complete install. Everything else — NATS, Redis, the log aggregator, the
+That is a complete install. Everything else — NATS, Redis, the observability service, the
 retention sweep, the schema job — is on by default and needs nothing said about it.
 
 <Callout type="warn">
@@ -383,10 +383,10 @@ the alternative is a provider key in every integration's pod.
 |---|---|---|
 | Platform | The editor UI, at `ingress.host` | Proxies the orchestrator and logs APIs through its BFF |
 | Orchestrator | Deploys integrations through the Kubernetes API | Never exposed directly; reached through the editor |
-| Log aggregator | Consumes logs and traces into Postgres | Serves `/platform/logs` and `/platform/traces` |
+| Observability service | Consumes logs and traces into Postgres; serves pod stats from Redis | Serves `/platform/logs`, `/platform/traces` and `/platform/metrics` |
 | Postgres | The bundled database, on a PVC | `Retain` policy — `helm uninstall` does not delete it |
 | NATS | Pub-sub between components | |
-| Redis | Shared state across replicas | Required; the aggregator will not start without one |
+| Redis | Shared state across replicas | Required; the observability service will not start without one |
 | Schema Job | Applies `sql/schema.sql` | Re-runs idempotently on every upgrade |
 | Retention CronJob | Deletes logs and traces past their policy | Nightly |
 

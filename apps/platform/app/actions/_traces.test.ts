@@ -24,7 +24,7 @@ vi.mock("@octo/http", () => ({
 import * as traces from "./_traces";
 import type { RawRecord, RawSummary } from "./_tracesWire";
 
-const BASE = "http://logs:8091";
+const BASE = "http://observability:8091";
 
 /** The URL the single mocked call was made against. */
 function calledUrl(): string {
@@ -102,12 +102,12 @@ const UNPRICED: RawRecord = {
 
 describe("the trace-store client", () => {
   beforeEach(() => {
-    process.env.LOGS_URL = BASE;
+    process.env.OBSERVABILITY_URL = BASE;
   });
 
   afterEach(() => {
     vi.clearAllMocks();
-    delete process.env.LOGS_URL;
+    delete process.env.OBSERVABILITY_URL;
   });
 
   it("keeps an unpriced call unpriced instead of free", async () => {
@@ -247,12 +247,12 @@ describe("the trace-store client", () => {
     expect(res.data.from).toBe("2026-08-09T00:00:00Z");
   });
 
-  it("says so when the trace service is unconfigured", async () => {
-    delete process.env.LOGS_URL;
+  it("says so when the observability service is unconfigured", async () => {
+    delete process.env.OBSERVABILITY_URL;
     const res = await traces.getTraces({});
     expect(res).toEqual({
       ok: false,
-      error: "trace query not configured (LOGS_URL unset)",
+      error: "trace query not configured (OBSERVABILITY_URL unset)",
     });
     // No request is attempted against a base URL of "".
     expect(requestJson).not.toHaveBeenCalled();

@@ -306,7 +306,7 @@ func TestTracingEnvWinsOverAUserBinding(t *testing.T) {
 	}
 }
 
-// TestObservabilityEnvNeedsBothTheGrantAndTheAddress verifies LOGS_URL reaches a pod
+// TestObservabilityEnvNeedsBothTheGrantAndTheAddress verifies OBSERVABILITY_URL reaches a pod
 // only when the deployment asked for it and this orchestrator has an address to give.
 //
 // Both halves matter. Injecting without the grant would hand every integration the
@@ -314,7 +314,7 @@ func TestTracingEnvWinsOverAUserBinding(t *testing.T) {
 // given would turn a missing chart setting into a confusing failure inside the flow,
 // which is the shape of bug that gets blamed on the query rather than the install.
 func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
-	const logsURL = "http://octo-logs.octo:8091"
+	const observabilityURL = "http://octo-observability.octo:8091"
 
 	for _, tc := range []struct {
 		name    string
@@ -322,35 +322,35 @@ func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
 		granted bool
 		want    string // "" means the var must be absent
 	}{
-		{"granted and configured", logsURL, true, logsURL},
+		{"granted and configured", observabilityURL, true, observabilityURL},
 		{"granted but no address", "", true, ""},
-		{"address but not granted", logsURL, false, ""},
+		{"address but not granted", observabilityURL, false, ""},
 		{"neither", "", false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := &Client{runtimeServices: RuntimeServices{LogsURL: tc.address}}
+			c := &Client{runtimeServices: RuntimeServices{ObservabilityURL: tc.address}}
 			env := c.podEnv(Spec{ObservabilityAPI: tc.granted})
 
 			var got string
 			var found bool
 			for _, e := range env {
-				if e.Name == envLogs {
+				if e.Name == envObservability {
 					got, found = e.Value, true
 				}
 			}
 			switch {
 			case tc.want == "" && found:
-				t.Errorf("%s should be absent, got %q", envLogs, got)
+				t.Errorf("%s should be absent, got %q", envObservability, got)
 			case tc.want != "" && !found:
-				t.Errorf("%s should be present with value %q, got nothing", envLogs, tc.want)
+				t.Errorf("%s should be present with value %q, got nothing", envObservability, tc.want)
 			case got != tc.want:
-				t.Errorf("%s = %q, want %q", envLogs, got, tc.want)
+				t.Errorf("%s = %q, want %q", envObservability, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestObservabilityEnvIgnoresAUserBinding verifies LOGS_URL is the orchestrator's to
+// TestObservabilityEnvIgnoresAUserBinding verifies OBSERVABILITY_URL is the orchestrator's to
 // set and nobody else's: a binding that targets it is dropped whether or not the
 // grant was given.
 //
@@ -360,27 +360,27 @@ func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
 // while its record says it was never granted the API is a record that lies, and the
 // record is what a future access model reads.
 func TestObservabilityEnvIgnoresAUserBinding(t *testing.T) {
-	const logsURL = "http://octo-logs.octo:8091"
+	const observabilityURL = "http://octo-observability.octo:8091"
 	const smuggled = "http://somewhere-else:9999"
-	c := &Client{runtimeServices: RuntimeServices{LogsURL: logsURL}}
+	c := &Client{runtimeServices: RuntimeServices{ObservabilityURL: observabilityURL}}
 
 	t.Run("granted", func(t *testing.T) {
 		env := c.podEnv(Spec{
-			Env:              map[string]string{envLogs: smuggled},
+			Env:              map[string]string{envObservability: smuggled},
 			ObservabilityAPI: true,
 		})
-		if got := valueOf(env, envLogs); got != logsURL {
-			t.Errorf("%s = %q, want the granted %q: %+v", envLogs, got, logsURL, env)
+		if got := valueOf(env, envObservability); got != observabilityURL {
+			t.Errorf("%s = %q, want the granted %q: %+v", envObservability, got, observabilityURL, env)
 		}
-		if n := count(env, envLogs); n != 1 {
-			t.Errorf("%s appears %d times, want exactly 1: %+v", envLogs, n, env)
+		if n := count(env, envObservability); n != 1 {
+			t.Errorf("%s appears %d times, want exactly 1: %+v", envObservability, n, env)
 		}
 	})
 
 	t.Run("not granted", func(t *testing.T) {
-		env := c.podEnv(Spec{Env: map[string]string{envLogs: smuggled}})
-		if got := valueOf(env, envLogs); got != "" {
-			t.Errorf("%s = %q, want it absent without the grant: %+v", envLogs, got, env)
+		env := c.podEnv(Spec{Env: map[string]string{envObservability: smuggled}})
+		if got := valueOf(env, envObservability); got != "" {
+			t.Errorf("%s = %q, want it absent without the grant: %+v", envObservability, got, env)
 		}
 	})
 }

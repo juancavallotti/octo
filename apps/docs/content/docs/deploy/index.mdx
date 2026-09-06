@@ -85,7 +85,7 @@ credentials in Helm values, where the release history keeps them. Follow
 [EKS](/deploy/eks) for the managed-cluster specifics.
 
 All paths deploy the same components: the platform (editor UI), the
-orchestrator, the log aggregator, Postgres, NATS, and a schema job that applies
+orchestrator, the observability service, Postgres, NATS, and a schema job that applies
 `sql/schema.sql`. The orchestrator then creates per-integration workloads at
 runtime when you deploy an integration from the editor — see
 [Architecture](/platform/architecture) and

@@ -42,7 +42,7 @@ This single target:
    into `dist/bin/linux_<arch>/` (`task bins:linux`), on the host, where the Go
    build cache persists between runs.
 4. Builds the eight images locally (`task cluster:images`): `octo-platform`,
-   `octo-orchestrator`, `octo-logs`, `octo-schema`, `octo-runtime`,
+   `octo-orchestrator`, `octo-observability`, `octo-schema`, `octo-runtime`,
    `octo-devsidecar`, `octo-devruntime` and `octo-agenticrunner`, all tagged
    `:dev`, copying in the binaries from the step above rather than compiling
    them again per image — see
@@ -94,10 +94,10 @@ to `devspace dev`, which:
 
 - Swaps the platform pod for a `next dev` image and live-syncs
   `apps/platform/` into it — edits hot-reload in the browser.
-- Swaps the orchestrator and logs pods for `go run` images, syncing
-  `orchestrator/` and `logs/` and restarting the container on each upload so
+- Swaps the orchestrator and observability pods for `go run` images, syncing
+  `orchestrator/` and `observability/` and restarting the container on each upload so
   Go recompiles.
-- Tails the platform, orchestrator, logs, Postgres, and NATS logs to your
+- Tails the platform, orchestrator, observability, Postgres, and NATS logs to your
   terminal.
 
 The session stays attached until you press Ctrl-C. The NodePort mappings keep

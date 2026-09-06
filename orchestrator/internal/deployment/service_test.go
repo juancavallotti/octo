@@ -563,14 +563,14 @@ func TestDeployRejectsMissingSecret(t *testing.T) {
 // TestDeployRejectsReservedEnvVar verifies a binding to one of the
 // orchestrator-managed variables is rejected.
 //
-// LOGS_URL is here for a different reason than the other two. Those are
+// OBSERVABILITY_URL is here for a different reason than the other two. Those are
 // authoritative because the orchestrator resolves the runtime's listen address;
 // this one is authoritative because it is the observability grant. A deployment
 // that could bind it would carry the aggregator's address while its own record
 // said it was never granted the API — and that record is what a future access
 // model reads.
 func TestDeployRejectsReservedEnvVar(t *testing.T) {
-	for _, name := range []string{envHTTPPort, envHTTPHost, envLogsURL} {
+	for _, name := range []string{envHTTPPort, envHTTPHost, envObservabilityURL} {
 		t.Run(name, func(t *testing.T) {
 			repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
 			integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
