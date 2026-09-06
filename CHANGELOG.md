@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.1](https://github.com/juancavallotti/octo/compare/v0.10.0...v0.10.1) (2026-09-06)
+
+
+### Features
+
+* **platform:** name the deployment on its metrics page ([784f854](https://github.com/juancavallotti/octo/commit/784f854398d61a90e16cc68e20371264d8e95ff0))
+* **platform:** name the deployment on its metrics page ([7740dec](https://github.com/juancavallotti/octo/commit/7740dec44c89d97df3c244a216bd638f930ed00c))
+* **platform:** pin the agent panel, and halo it while he works ([66fd0da](https://github.com/juancavallotti/octo/commit/66fd0dacc2e22569f1532bd8d16b142e066c4774))
+* **platform:** shrink the top bar to icons when the panel takes its room ([3a6f5e9](https://github.com/juancavallotti/octo/commit/3a6f5e944e40c5ac3a5ffb68c75ea04875f3cde8))
+
+
+### Bug Fixes
+
+* **platform:** stop a docked panel from crushing the page on a narrow window ([ffd4a4c](https://github.com/juancavallotti/octo/commit/ffd4a4cb3e37b9ead5358ba92cf0814a99828603))
+
 ## [0.10.0](https://github.com/juancavallotti/octo/compare/v0.9.1...v0.10.0) (2026-09-06)
 
 
