@@ -866,7 +866,7 @@ CREATE TABLE IF NOT EXISTS alert_incidents (
 
     opened_matched  smallint    NOT NULL DEFAULT 0,
     opened_total    smallint    NOT NULL DEFAULT 0,
-    opened_detail   jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    opened_detail   jsonb       NOT NULL DEFAULT '[]'::jsonb,
     evaluations     integer     NOT NULL DEFAULT 0,
     notifications   integer     NOT NULL DEFAULT 0
 );
@@ -923,7 +923,7 @@ CREATE TABLE IF NOT EXISTS alert_evaluations (
     reason          varchar     NOT NULL DEFAULT '',
     error           text        NOT NULL DEFAULT '',
     duration_ms     integer     NOT NULL DEFAULT 0,
-    detail          jsonb       NOT NULL DEFAULT '{}'::jsonb
+    detail          jsonb       NOT NULL DEFAULT '[]'::jsonb
 );
 
 -- The history list's orderings. Each carries id as a tiebreaker because the cursor

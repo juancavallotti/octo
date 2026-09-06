@@ -27,6 +27,14 @@ var (
 	// is the failure this refuses.
 	ErrNestedConditions = errors.New("nested condition groups are not supported")
 
+	// ErrStaleEvaluation is a write refused because a newer decision is already
+	// recorded — an evaluator whose lease has moved to another pod. Losing that
+	// race is logged and dropped, never retried: the newer decision is the one
+	// worth keeping.
+	ErrStaleEvaluation = errors.New("a newer evaluation is already recorded")
+
+	ErrIncidentNotFound = errors.New("incident not found")
+
 	ErrInvalidParams  = errors.New("invalid condition parameters")
 	ErrInvalidWatch   = errors.New("invalid watch")
 	ErrTooManyWatches = errors.New("too many watches")
