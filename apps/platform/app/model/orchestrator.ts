@@ -73,6 +73,11 @@ export async function listDeployments(
   return unwrap(await deploymentActions.listDeployments(integrationId));
 }
 
+/** One deployment by id, for a caller that has the id and nothing else. */
+export async function getDeployment(id: string): Promise<Deployment> {
+  return unwrap(await deploymentActions.getDeployment(id));
+}
+
 /** A deployment paired with the display name of the integration it belongs to. */
 export type DeploymentWithIntegration = Deployment & {
   integrationName: string;

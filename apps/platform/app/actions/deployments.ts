@@ -23,6 +23,12 @@ export async function listDeployments(
   return withRead(() => client.listDeployments(integrationId));
 }
 
+export async function getDeployment(
+  id: string,
+): Promise<ActionResult<Deployment>> {
+  return withRead(() => client.getDeployment(id));
+}
+
 export async function getDeployOptions(
   integrationId: string,
   opts: { slug?: string; expose?: "external"; snapshotId?: string } = {},
