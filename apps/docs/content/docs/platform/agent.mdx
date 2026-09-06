@@ -231,7 +231,7 @@ Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him 
 
 You do not need to defend the host: the connector's `baseURL` is a boundary he cannot cross whatever the block says, because a dynamic path resolves against it and no rendered path can redirect the call elsewhere.
 
-His `observability_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, which costs nothing there because the observability API serves no other method. To take stored logs and traces away from him entirely, untick the observability grant and roll out; that removes the address rather than the tool, and he will say so when asked.
+His `observability_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, and that line is doing real work: the observability API also serves `PUT /settings/retention` and `POST /retention/run`, so without it he could change the retention policy or run a sweep. To take the tool's address away, untick the observability grant and roll out; he will say so when asked. That withholds the address rather than the reach — the observability API [performs no authentication](/platform/deployments#platform-access), and `http_fetch` reaches any address his pod can — so if stored logs and traces must be out of his reach entirely, delete `http_fetch` as well.
 
 ### The command tools are a different kind of thing
 

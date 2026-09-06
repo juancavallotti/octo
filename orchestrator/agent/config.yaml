@@ -243,7 +243,8 @@ connectors:
 
   # The observability service's API — stored logs, traces and pod stats, for every
   # deployment on the install. A second boundary, restrictable independently of the
-  # one above, and read-only in a way that one is not: every route it serves is a GET.
+  # one above. Read-only by the tool's allowMethods, not by the API: it also serves
+  # the retention policy and the sweep behind it, and one of those deletes.
   - name: observability
     type: http-client
     settings:
@@ -1880,9 +1881,9 @@ flows:
                 condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
                 then:
                   process:
-                    # allowMethods costs nothing here: every route this API
-                    # serves is a GET, so the opt-in restriction is simply
-                    # true.
+                    # allowMethods is the whole of what keeps this read-only:
+                    # the API also serves PUT /settings/retention and POST
+                    # /retention/run, and the second of those deletes.
                     - type: rest-dynamic
                       settings:
                         connector: observability
