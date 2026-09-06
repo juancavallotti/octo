@@ -18,7 +18,10 @@
  */
 
 import { requestJson, type ActionResult } from "@octo/http";
-import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
+import {
+  observabilityBaseUrl,
+  observabilityUnconfigured,
+} from "./_observability";
 import type {
   RetentionPolicy,
   RetentionPolicyInput,
@@ -29,6 +32,7 @@ import type {
 interface RawPolicy {
   logs_days: number;
   traces_days: number;
+  alerts_days: number;
   updated_at: string | null;
 }
 
@@ -37,8 +41,11 @@ interface RawRun {
   logs_deleted: number;
   traces_deleted: number;
   trace_summaries_deleted: number;
+  alert_evaluations_deleted: number;
+  alert_incidents_deleted: number;
   logs_cutoff: string | null;
   traces_cutoff: string | null;
+  alerts_cutoff: string | null;
   duration_ms: number;
 }
 
@@ -50,6 +57,7 @@ function toPolicy(r: RawPolicy): RetentionPolicy {
   return {
     logsDays: r.logs_days,
     tracesDays: r.traces_days,
+    alertsDays: r.alerts_days,
     updatedAt: r.updated_at,
   };
 }
@@ -64,17 +72,22 @@ export async function getRetention(): Promise<ActionResult<RetentionPolicy>> {
   return { ok: true, data: toPolicy(res.data) };
 }
 
-/** Save the policy. Both windows are sent; the service refuses a partial one. */
+/** Save the policy. Every window is sent; the service refuses a partial one. */
 export async function saveRetention(
   input: RetentionPolicyInput,
 ): Promise<ActionResult<RetentionPolicy>> {
   const base = observabilityBaseUrl();
   if (!base) return unconfigured();
 
-  const res = await requestJson<RawPolicy>("PUT", `${base}/settings/retention`, {
-    logs_days: input.logsDays,
-    traces_days: input.tracesDays,
-  });
+  const res = await requestJson<RawPolicy>(
+    "PUT",
+    `${base}/settings/retention`,
+    {
+      logs_days: input.logsDays,
+      traces_days: input.tracesDays,
+      alerts_days: input.alertsDays,
+    },
+  );
   if (!res.ok) return res;
   return { ok: true, data: toPolicy(res.data) };
 }
@@ -92,8 +105,11 @@ export async function runRetention(): Promise<ActionResult<RetentionRun>> {
       logsDeleted: res.data.logs_deleted,
       tracesDeleted: res.data.traces_deleted,
       traceSummariesDeleted: res.data.trace_summaries_deleted,
+      alertEvaluationsDeleted: res.data.alert_evaluations_deleted,
+      alertIncidentsDeleted: res.data.alert_incidents_deleted,
       logsCutoff: res.data.logs_cutoff,
       tracesCutoff: res.data.traces_cutoff,
+      alertsCutoff: res.data.alerts_cutoff,
       durationMs: res.data.duration_ms,
     },
   };

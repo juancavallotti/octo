@@ -699,3 +699,256 @@ CREATE INDEX IF NOT EXISTS idx_agent_user_memories_embedding
 
 CREATE INDEX IF NOT EXISTS idx_agent_user_memories_unembedded
     ON agent_user_memories (integration_id) WHERE embedding IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Alerting
+--
+-- A "watch" is a standing question about the telemetry this platform already
+-- stores — trace summaries, log events, pod stats — asked on a fixed interval by
+-- the observability service and answered by taking an action when it comes back
+-- true. The four tables below hold the question (alert_watches), where the state
+-- machine got to (alert_watch_state), the episodes it has produced
+-- (alert_incidents), and every time it was ever asked (alert_evaluations).
+--
+-- The last of those is the one that looks like a luxury and is not. An alert that
+-- did not go off is indistinguishable from an alert that was never evaluated, and
+-- telling those apart is the entire question asked after a missed incident. So
+-- every evaluation is written, including the boring ones, and the volume is
+-- answered with retention rather than by not writing the row.
+
+-- alert_watches is the definition, and the only one of these four a human edits.
+--
+-- `conditions` is an ordered jsonb array of typed condition objects — each with a
+-- stable `id`, a `type` discriminator, the scope it narrows to, its window and its
+-- own parameters — and `combinator` says whether the watch fires when all of them
+-- hold or when any of them does. jsonb rather than a child table because a
+-- condition is only ever read as part of its watch and never queried across
+-- watches, and because the condition types share almost no parameters: a child
+-- table would need either a column per type or a params blob, and the second is
+-- this column with a join in front of it. The array is already a tree of depth one,
+-- so nesting can arrive later as one more `type` value without moving a single row.
+--
+-- A condition `type` this service does not recognize makes the whole watch invalid
+-- and unevaluated — never evaluated with the unknown condition skipped. Dropping a
+-- conjunct makes an `all` watch fire more readily and an `any` watch fire less, and
+-- both are wrong in a way nobody would notice.
+--
+-- `actions` is the same shape for what to do about it: publish to a deployment's
+-- topic, send mail through the orchestrator.
+--
+-- `interval_seconds` is how often the watch is asked, `for_seconds` how long the
+-- combined verdict must hold before it fires, and `renotify_seconds` how often a
+-- still-firing watch says so again (0 = announce an episode once). `for` is
+-- compared as a count of consecutive evaluations rather than as wall-clock time,
+-- because five minutes of firing with an evaluation missing in the middle is not
+-- five minutes of firing.
+--
+-- `definition_hash` covers only the parts of the definition that change what a
+-- pending clock means — the conditions, the combinator, the hold and the no-data
+-- policy. When it stops matching the state row, the state resets: the clock was
+-- measuring a different question, and carrying it across an edit would fire an
+-- alert on evidence gathered for a condition that no longer exists. Renaming a
+-- watch or changing its recipients moves nothing.
+CREATE TABLE IF NOT EXISTS alert_watches (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name             varchar     NOT NULL,
+    description      text        NOT NULL DEFAULT '',
+    enabled          boolean     NOT NULL DEFAULT true,
+    severity         varchar     NOT NULL DEFAULT 'warning',
+
+    combinator       varchar     NOT NULL DEFAULT 'all'
+                                 CHECK (combinator IN ('all', 'any')),
+    conditions       jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    actions          jsonb       NOT NULL DEFAULT '[]'::jsonb,
+
+    -- What an absent number means. 'ok' (the default) reads no data as "the
+    -- condition does not hold", which is right because the common no-data case is a
+    -- quiet app; a watch that should fire on silence says so explicitly with a
+    -- count condition rather than arriving at it by accident. 'fire' reads it as
+    -- holding, and 'keep' as unknown, which leaves the state machine untouched.
+    on_no_data       varchar     NOT NULL DEFAULT 'ok'
+                                 CHECK (on_no_data IN ('ok', 'fire', 'keep')),
+
+    -- The bucket width every one of this watch's conditions is measured in.
+    -- It lives on the watch rather than on each condition so that conditions
+    -- sharing a source and scope share a fetch: two clauses at different
+    -- resolutions could never be coalesced, and the resolution is not what
+    -- anyone is trying to vary between them — the window is, and that is a
+    -- per-condition parameter.
+    step_seconds     integer     NOT NULL DEFAULT 60,
+    interval_seconds integer     NOT NULL DEFAULT 60,
+    for_seconds      integer     NOT NULL DEFAULT 300,
+    renotify_seconds integer     NOT NULL DEFAULT 0,
+
+    definition_hash  varchar     NOT NULL DEFAULT '',
+
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    updated_at       timestamptz NOT NULL DEFAULT now(),
+    created_by       uuid REFERENCES users (id) ON DELETE SET NULL,
+    updated_by       uuid REFERENCES users (id) ON DELETE SET NULL
+);
+
+-- Watch names are unique case-insensitively, on the same terms integrations are:
+-- the service pre-checks for a clean error and this index is the backstop against
+-- races and direct writes.
+CREATE UNIQUE INDEX IF NOT EXISTS alert_watches_name_lower_uniq
+    ON alert_watches (lower(name));
+
+-- alert_watch_state is exactly one row per watch: where the state machine got to.
+--
+-- Separate from the definition because it is written on every tick while the
+-- definition is written when somebody edits it. Sharing one row would have the
+-- evaluator's per-minute update contend with the editor's, churn `updated_at` on a
+-- row nobody changed, and put the scheduler's hot index on the wide table carrying
+-- two jsonb blobs.
+--
+-- `consecutive_firing` is what the hold is counted in and `consecutive_ok` what
+-- resolution is counted in. Resolution deliberately demands more than one good
+-- sample: a metric hovering at its threshold otherwise emits an open/resolve pair
+-- every minute, which is the failure mode that teaches people to ignore alerts.
+--
+-- `last_eval_at` is not only informational. The state update is guarded on it, so
+-- an evaluator whose lease has already moved to another pod cannot write an older
+-- decision over a newer one.
+--
+-- `next_due_at` rather than a derived `last_run + interval`: after an outage the
+-- derived form produces a catch-up storm of back-dated evaluations against windows
+-- nobody is waiting for, and this one simply resumes.
+CREATE TABLE IF NOT EXISTS alert_watch_state (
+    watch_id           uuid PRIMARY KEY REFERENCES alert_watches (id) ON DELETE CASCADE,
+    phase              varchar     NOT NULL DEFAULT 'ok'
+                                   CHECK (phase IN ('ok', 'pending', 'firing', 'invalid')),
+    since              timestamptz NOT NULL DEFAULT now(),
+    consecutive_firing integer     NOT NULL DEFAULT 0,
+    consecutive_ok     integer     NOT NULL DEFAULT 0,
+    consecutive_errors integer     NOT NULL DEFAULT 0,
+    definition_hash    varchar     NOT NULL DEFAULT '',
+    last_eval_at       timestamptz,
+    last_status        varchar     NOT NULL DEFAULT '',
+    last_value         double precision,
+    incident_id        uuid,
+    last_notified_at   timestamptz,
+    muted_until        timestamptz,
+    next_due_at        timestamptz NOT NULL DEFAULT now()
+);
+
+-- The scheduler's one query: which watches are due. Ordered by due time so a tick
+-- reads a prefix rather than the table.
+CREATE INDEX IF NOT EXISTS idx_alert_watch_state_due
+    ON alert_watch_state (next_due_at);
+
+-- alert_incidents is one firing episode, opened when a watch's verdict has held
+-- for long enough and closed when it stops.
+--
+-- It exists because "is this watch firing" and "how many times has it fired" are
+-- different questions and the state row only answers the first. It is also the
+-- notification key: a renotify or a resolve is per episode, so a notifier that
+-- restarts does not re-announce one it already announced.
+--
+-- `closed_reason` keeps 'resolved' — the metric came back — apart from 'stale',
+-- where the watch simply stopped being able to decide and the episode was closed
+-- for lack of evidence. Collapsing those two is how a real outage gets recorded as
+-- fixed. 'disabled' and 'deleted' close the episodes of a watch a human turned off,
+-- which would otherwise have nothing left that could ever resolve them.
+--
+-- The opening numbers are frozen onto the row. A watch can be edited mid-incident,
+-- and an incident page that recomputed its own trigger against the edited
+-- definition would describe something that never happened.
+CREATE TABLE IF NOT EXISTS alert_incidents (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    watch_id        uuid        NOT NULL REFERENCES alert_watches (id) ON DELETE CASCADE,
+    opened_at       timestamptz NOT NULL DEFAULT now(),
+    resolved_at     timestamptz,
+    closed_reason   varchar     NOT NULL DEFAULT '',
+    severity        varchar     NOT NULL DEFAULT 'warning',
+    acknowledged_at timestamptz,
+    acknowledged_by uuid REFERENCES users (id) ON DELETE SET NULL,
+
+    opened_matched  smallint    NOT NULL DEFAULT 0,
+    opened_total    smallint    NOT NULL DEFAULT 0,
+    opened_detail   jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    evaluations     integer     NOT NULL DEFAULT 0,
+    notifications   integer     NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_incidents_watch_opened
+    ON alert_incidents (watch_id, opened_at DESC, id DESC);
+
+-- "What is on fire right now" is the first thing anyone asks, and open incidents
+-- are a small minority, so it gets a partial index of its own — the same reasoning
+-- idx_trace_summaries_failed is built on.
+CREATE INDEX IF NOT EXISTS idx_alert_incidents_open
+    ON alert_incidents (opened_at DESC) WHERE resolved_at IS NULL;
+
+-- alert_evaluations is the execution log: one row every time a watch was asked,
+-- whatever the answer was.
+--
+-- `status` carries five values and the two least exciting matter most.
+-- 'insufficient' means the window did not hold enough data to decide, and
+-- 'skipped' means the evaluator deliberately did not look — the guard that
+-- suppresses downward alerts while nothing at all is being ingested, since a dead
+-- pipeline reads exactly like idle traffic. Both are distinct from 'ok', because
+-- "we looked and it was fine" and "we could not look" are the two states an
+-- operator most needs to tell apart afterwards.
+--
+-- `matched`/`total` are the composite verdict in the form the UI says out loud
+-- ("fired because 2 of 3 matched"), and `detail` holds the per-condition outcomes:
+-- each condition's observed value, its baseline, the threshold it was judged
+-- against and the reason it declined. Those are stored rather than recomputed,
+-- because a number recomputed later against a different window is a different
+-- number, and because the thresholds on the watch may have been edited since.
+--
+-- `degraded` marks an evaluation where at least one condition could not be
+-- answered. It is not the same as an error: under `any`, a sibling that is
+-- genuinely true still fires, and the row should say that it did so while blind in
+-- one eye.
+-- `incident_id` carries no foreign key, deliberately. Neither available action
+-- is right: ON DELETE RESTRICT would fire during the cascade that deletes a
+-- watch, since the order in which Postgres removes a watch's evaluations and its
+-- incidents is not something this schema gets to choose; ON DELETE CASCADE would
+-- let the retention sweep take evaluations that are still inside their own window
+-- along with the closed episode they mention. Referential integrity is instead a
+-- property of how the two are pruned: an evaluation attached to an episode always
+-- precedes that episode's resolution, so an incident old enough to prune has no
+-- evaluation younger than the same cutoff.
+CREATE TABLE IF NOT EXISTS alert_evaluations (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    watch_id        uuid        NOT NULL REFERENCES alert_watches (id) ON DELETE CASCADE,
+    incident_id     uuid,
+    evaluated_at    timestamptz NOT NULL DEFAULT now(),
+    status          varchar     NOT NULL,
+    phase           varchar     NOT NULL DEFAULT 'ok',
+    previous_phase  varchar     NOT NULL DEFAULT 'ok',
+    transitioned    boolean     NOT NULL DEFAULT false,
+    degraded        boolean     NOT NULL DEFAULT false,
+
+    matched         smallint    NOT NULL DEFAULT 0,
+    total           smallint    NOT NULL DEFAULT 0,
+
+    window_from     timestamptz,
+    window_to       timestamptz,
+
+    definition_hash varchar     NOT NULL DEFAULT '',
+    reason          varchar     NOT NULL DEFAULT '',
+    error           text        NOT NULL DEFAULT '',
+    duration_ms     integer     NOT NULL DEFAULT 0,
+    detail          jsonb       NOT NULL DEFAULT '[]'::jsonb
+);
+
+-- The history list's orderings. Each carries id as a tiebreaker because the cursor
+-- is composite: one tick evaluates every due watch inside the same millisecond, and
+-- a cursor on the timestamp alone skips or repeats rows that tie across a page
+-- boundary — exactly as it does on logs.
+CREATE INDEX IF NOT EXISTS idx_alert_evaluations_watch_time
+    ON alert_evaluations (watch_id, evaluated_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_evaluations_time
+    ON alert_evaluations (evaluated_at DESC, id DESC);
+
+-- "Show me only the interesting ones" is the default filter on a table where the
+-- overwhelming majority of rows say nothing happened. Partial, so it stays small.
+CREATE INDEX IF NOT EXISTS idx_alert_evaluations_notable
+    ON alert_evaluations (evaluated_at DESC, id DESC) WHERE status <> 'ok';
+
+CREATE INDEX IF NOT EXISTS idx_alert_evaluations_incident
+    ON alert_evaluations (incident_id, evaluated_at DESC)
+    WHERE incident_id IS NOT NULL;

@@ -70,14 +70,14 @@ func decodeBody[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 
 func TestRetentionGetReportsThePolicy(t *testing.T) {
 	when := time.Date(2026, 8, 11, 3, 0, 0, 0, time.UTC)
-	svc := &fakeRetention{policy: retention.Policy{LogsDays: 30, TracesDays: 7, UpdatedAt: &when}}
+	svc := &fakeRetention{policy: retention.Policy{LogsDays: 30, TracesDays: 7, AlertsDays: 14, UpdatedAt: &when}}
 
 	rec := doRetention(t, svc, http.MethodGet, "/settings/retention", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
 	got := decodeBody[retentionPolicyResponse](t, rec)
-	if got.LogsDays != 30 || got.TracesDays != 7 {
+	if got.LogsDays != 30 || got.TracesDays != 7 || got.AlertsDays != 14 {
 		t.Fatalf("body = %+v", got)
 	}
 	if got.UpdatedAt == nil || !got.UpdatedAt.Equal(when) {
@@ -98,18 +98,18 @@ func TestRetentionGetOnAnUnconfiguredInstallIsZeros(t *testing.T) {
 	}
 }
 
-func TestRetentionUpdatePassesBothWindowsThrough(t *testing.T) {
+func TestRetentionUpdatePassesEveryWindowThrough(t *testing.T) {
 	svc := &fakeRetention{}
 
 	rec := doRetention(t, svc, http.MethodPut, "/settings/retention",
-		`{"logs_days":30,"traces_days":7}`)
+		`{"logs_days":30,"traces_days":7,"alerts_days":14}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
 	if svc.gotUpdate == nil {
 		t.Fatal("the service was not asked to update")
 	}
-	if svc.gotUpdate.LogsDays != 30 || svc.gotUpdate.TracesDays != 7 {
+	if svc.gotUpdate.LogsDays != 30 || svc.gotUpdate.TracesDays != 7 || svc.gotUpdate.AlertsDays != 14 {
 		t.Fatalf("update = %+v", *svc.gotUpdate)
 	}
 }
@@ -117,7 +117,7 @@ func TestRetentionUpdatePassesBothWindowsThrough(t *testing.T) {
 func TestRetentionUpdateRejectsAnImpossibleWindow(t *testing.T) {
 	svc := &fakeRetention{updateErr: retention.ErrInvalidDays}
 
-	rec := doRetention(t, svc, http.MethodPut, "/settings/retention", `{"logs_days":-1,"traces_days":7}`)
+	rec := doRetention(t, svc, http.MethodPut, "/settings/retention", `{"logs_days":-1,"traces_days":7,"alerts_days":14}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
 	}
@@ -149,6 +149,7 @@ func TestRetentionUpdateRejectsAPartialPolicy(t *testing.T) {
 		`{"logs_days":30}`,
 		`{"traces_days":7}`,
 		`{"logs_days":30,"traces_days":null}`,
+		`{"logs_days":30,"traces_days":7}`,
 		`{}`,
 	} {
 		t.Run(body, func(t *testing.T) {
@@ -171,14 +172,14 @@ func TestRetentionUpdateAcceptsExplicitZeros(t *testing.T) {
 	svc := &fakeRetention{}
 
 	rec := doRetention(t, svc, http.MethodPut, "/settings/retention",
-		`{"logs_days":0,"traces_days":0}`)
+		`{"logs_days":0,"traces_days":0,"alerts_days":0}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
 	}
 	if svc.gotUpdate == nil {
 		t.Fatal("an explicit keep-everything policy did not reach the service")
 	}
-	if svc.gotUpdate.LogsDays != 0 || svc.gotUpdate.TracesDays != 0 {
+	if svc.gotUpdate.LogsDays != 0 || svc.gotUpdate.TracesDays != 0 || svc.gotUpdate.AlertsDays != 0 {
 		t.Fatalf("update = %+v", *svc.gotUpdate)
 	}
 }
@@ -189,7 +190,7 @@ func TestRetentionUpdateRejectsASecondValue(t *testing.T) {
 	svc := &fakeRetention{}
 
 	rec := doRetention(t, svc, http.MethodPut, "/settings/retention",
-		`{"logs_days":30,"traces_days":7}{"logs_days":1,"traces_days":1}`)
+		`{"logs_days":30,"traces_days":7,"alerts_days":14}{"logs_days":1,"traces_days":1}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
 	}
