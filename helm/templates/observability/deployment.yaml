@@ -2,6 +2,7 @@
       "root" $
       "component" "observability"
       "replicas" .Values.observability.replicas
+      "serviceAccountName" (include "octo-common.serviceAccountName" (dict "root" $ "component" "observability"))
       "containers" (include "octo-common.container" (dict
         "root" $
         "component" "observability"

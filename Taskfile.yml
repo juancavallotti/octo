@@ -1007,6 +1007,18 @@ tasks:
           --set auth.existingSecret=my-auth \
           --set auth.existingSecretClientSecretKey=client \
           --set auth.existingSecretAuthSecretKey=session
+        # The alerting evaluator's lease RBAC, and the pod identity it campaigns
+        # with. Worth its own case because a Role that renders and a Deployment
+        # that never names its ServiceAccount install perfectly cleanly, and the
+        # only symptom is that no watch is ever evaluated.
+        check_contains observability-lease-rbac \
+          "coordination.k8s.io" "serviceAccountName: octo-observability" \
+          "fieldPath: metadata.namespace" -- \
+          --set observability.rbac.create=true
+        # And the escape hatch: a cluster supplying its own account gets no Role
+        # from the chart, but the Deployment must still name the account.
+        check_absent observability-rbac-off "octo.observability.rules" \
+          --set observability.rbac.create=false
         check_absent auth-existing-no-chart-secret "oidc-client-secret: " \
           --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
           --set auth.oidc.clientId=octo --set auth.existingSecret=my-auth
