@@ -114,7 +114,8 @@ reach a deployment until a new tag is rolled out.
   volatile objects back to Postgres.
 
   A volatile object that is missing is usually eviction, not a bug.
-  `GET /settings/storage` reports Redis memory, hit rate and eviction counts
+  `GET /settings/storage` on the observability API (through `observability_api`,
+  so it needs the grant) reports Redis memory, hit rate and eviction counts
   alongside the database pool and `kv_store` size; the platform shows it as the
   Storage health tab beside the object browser.
 - **Queues and topics** over the broker, scoped to the deployment.

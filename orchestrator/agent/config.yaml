@@ -1666,7 +1666,6 @@ flows:
 
             the installation
               GET    /settings/health                   whether the orchestrator can reach what it needs
-              GET    /settings/storage                  how full the two stores are
               GET|PUT /settings/llm, /settings/email
               GET    /secrets                           names only, never values
               PUT|DELETE /secrets/{name}
@@ -1679,6 +1678,8 @@ flows:
               /traces/{traceId}?bodies=true             the whole run, block by block
               /traces/{traceId}/records/{id}
               /traces/apps
+              /stats/{deploymentId}/pods|metrics|series   pod CPU, memory and flow metrics
+              /settings/storage                         how full Redis and Postgres are
 
           THE THREE THINGS THAT ARE NOT THE SAME THING, and most confusion
           is one of them: the INTEGRATION is the working copy and editing it

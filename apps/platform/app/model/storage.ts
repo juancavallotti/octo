@@ -12,9 +12,9 @@ export type {
   StorageStats,
   RedisStats,
   DatabaseStats,
-} from "@/app/actions/client/storage";
+} from "@/app/actions/_storage";
 
-import type { StorageStats } from "@/app/actions/client/storage";
+import type { StorageStats } from "@/app/actions/_storage";
 
 export async function getStorageStats(): Promise<StorageStats> {
   return unwrap(await storageActions.getStorageStats());

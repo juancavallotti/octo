@@ -37,6 +37,7 @@ import (
 	"github.com/juancavallotti/octo/observability/internal/redisx"
 	"github.com/juancavallotti/octo/observability/internal/repo"
 	"github.com/juancavallotti/octo/observability/internal/retention"
+	"github.com/juancavallotti/octo/observability/internal/storagestats"
 )
 
 const (
@@ -325,6 +326,13 @@ func newServer(database *db.DB, rdb *redis.Client) http.Handler {
 		"GET /stats/{deploymentId}/pods, GET /stats/{deploymentId}/metrics, "+
 			"GET /stats/{deploymentId}/series")
 
+	// The storage report is outside the gate for the same reason, and it takes the
+	// pool as possibly nil on purpose: the half of the report about a store this
+	// process does not have is a reason rather than a failure, and the Redis half
+	// is worth having while Postgres is still coming up.
+	api.NewStorageHandler(storagestats.NewService(rdb, databasePool(database))).Register(mux)
+	slog.Info("storage report registered", "endpoints", "GET /settings/storage")
+
 	if database != nil {
 		api.NewLogsHandler(repo.NewLogs(database.Pool())).Register(mux)
 		api.NewTracesHandler(repo.NewTraces(database.Pool())).Register(mux)
@@ -340,6 +348,15 @@ func newServer(database *db.DB, rdb *redis.Client) http.Handler {
 			"endpoints", "GET/PUT /settings/retention, POST /retention/run")
 	}
 	return mux
+}
+
+// databasePool returns the connection pool, or nil when this process is running
+// without a database.
+func databasePool(database *db.DB) *pgxpool.Pool {
+	if database == nil {
+		return nil
+	}
+	return database.Pool()
 }
 
 // healthz reports that the process is up.

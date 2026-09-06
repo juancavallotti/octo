@@ -1,18 +1,24 @@
 // Package storagestats reports how full the platform's two stores are.
 //
-// It is the deeper half of what internal/health deliberately refuses to answer.
-// That package reports one thing per dependency — did it answer — and says in its
-// own doc comment that a Redis answering a ping tells you nothing about how full it
-// is. This is where that question gets asked: memory against the ceiling, the hit
-// rate, what has been evicted, how much of the connection pool is in use, how large
-// the KV table has grown.
+// It is the deeper half of what the orchestrator's health report deliberately
+// refuses to answer. That one reports one thing per dependency — did it answer —
+// and says in its own doc comment that a Redis answering a ping tells you nothing
+// about how full it is. This is where that question gets asked: memory against
+// the ceiling, the hit rate, what has been evicted, how much of the connection
+// pool is in use, how large the KV table has grown.
+//
+// It lives in this service because this service holds both stores and is the
+// heaviest writer to one of them: every log and trace record lands through the
+// pool reported here, so a pool with no connection to spare is the shape of
+// telemetry backing up. The KV table is the orchestrator's, but its size is a
+// question about the database rather than about who writes to it.
 //
 // Both halves are optional and reported independently. An installation with no
-// Redis is a supported one (volatile objects fall back to the database), and an
-// orchestrator running without a database pool is how the local profile starts, so
-// each side reports "not configured" with a reason rather than failing the request.
-// A page that could not distinguish "absent" from "broken" would be worse than no
-// page, because it would be believed.
+// Redis is a supported one (volatile objects fall back to the database), and this
+// service serves /healthz without a database while Postgres comes up, so each side
+// reports "not configured" with a reason rather than failing the request. A page
+// that could not distinguish "absent" from "broken" would be worse than no page,
+// because it would be believed.
 package storagestats
 
 import (
@@ -66,9 +72,10 @@ type RedisStats struct {
 	OpsPerSecond  int64   `json:"opsPerSecond"`
 }
 
-// DatabaseStats pairs the connection pool's own accounting with two sizes read
-// from Postgres. The pool numbers are free — pgxpool already tracks them — and are
-// the ones that explain a platform that has gone slow without anything being down.
+// DatabaseStats pairs this service's connection pool accounting with two sizes
+// read from Postgres. The pool numbers are free — pgxpool already tracks them —
+// and they describe the pool the telemetry consumers insert through, which is
+// what explains stored logs and traces arriving late without anything being down.
 type DatabaseStats struct {
 	TotalConns    int32 `json:"totalConns"`
 	AcquiredConns int32 `json:"acquiredConns"`
@@ -156,7 +163,7 @@ func (s *Service) collectRedis(ctx context.Context) (*RedisStats, string) {
 // collectDatabase reads the pool's own counters and two sizes from Postgres.
 func (s *Service) collectDatabase(ctx context.Context) (*DatabaseStats, string) {
 	if s.pool == nil {
-		return nil, "this orchestrator is running without a database"
+		return nil, "this service is running without a database"
 	}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
