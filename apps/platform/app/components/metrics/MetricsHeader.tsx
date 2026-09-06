@@ -48,10 +48,10 @@ export default function MetricsHeader({
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <Link
-          href="/platform/deployments"
+          href="/platform/metrics"
           className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
         >
-          <ArrowLeft size={12} /> Deployments
+          <ArrowLeft size={12} /> All deployments
         </Link>
         <h1 className="text-lg font-semibold">{title ?? "Metrics"}</h1>
         <p className="text-xs text-zinc-500">{describe(series, pods, fromMs, toMs)}</p>

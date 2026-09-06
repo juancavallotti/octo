@@ -150,7 +150,7 @@ export default function DeploymentsMonitor({
         <div className="mx-auto w-full max-w-6xl px-6 py-8">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight">
-              Deployments
+              Metrics
             </h1>
             {sorted.length > 0 && (
               <span className="rounded-full bg-black/[0.06] px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-400">
@@ -173,7 +173,8 @@ export default function DeploymentsMonitor({
             )}
           </div>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Every active deployment across your integrations, with live status.
+            Every active deployment, its live status, and the last five minutes of
+            what it has been using.
           </p>
 
           {error && (

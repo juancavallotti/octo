@@ -9,7 +9,7 @@ import {
 } from "@/app/lib/runtimeRelease";
 
 /**
- * The deployments route (`/platform/deployments`): every active deployment across
+ * The metrics route (`/platform/metrics`): every active deployment across
  * all integrations with live status, behind the shared header and section nav. A
  * server component so it can hand the header the server-rendered account tile and
  * the runtime this install deploys (read from server-only env), matching the

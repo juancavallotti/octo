@@ -1,11 +1,11 @@
 import {
+  Activity,
   BrainCircuit,
   Database,
   KeyRound,
   LayoutDashboard,
   LayoutGrid,
   Network,
-  Rocket,
   ScrollText,
   Waypoints,
 } from "lucide-react";
@@ -32,10 +32,14 @@ export const MANAGEMENT_SECTIONS = [
     icon: LayoutGrid,
   },
   {
-    key: "deployments",
-    label: "Deployments",
-    href: "/platform/deployments",
-    icon: Rocket,
+    // Deployments, but named for what a reader comes here to find out. The card
+    // for each one now carries the last five minutes of its CPU and memory and
+    // links through to the rest, so the page answers "how is it going" before it
+    // answers "what is running".
+    key: "metrics",
+    label: "Metrics",
+    href: "/platform/metrics",
+    icon: Activity,
   },
   {
     key: "objects",
