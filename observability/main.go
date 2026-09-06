@@ -27,11 +27,16 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/juancavallotti/octo/observability/internal/alerting"
+	alertaction "github.com/juancavallotti/octo/observability/internal/alerting/action"
+	alertsource "github.com/juancavallotti/octo/observability/internal/alerting/source"
+	alertstore "github.com/juancavallotti/octo/observability/internal/alerting/store"
 	"github.com/juancavallotti/octo/observability/internal/api"
 	"github.com/juancavallotti/octo/observability/internal/cost"
 	"github.com/juancavallotti/octo/observability/internal/db"
 	"github.com/juancavallotti/octo/observability/internal/fold"
 	"github.com/juancavallotti/octo/observability/internal/ingest"
+	"github.com/juancavallotti/octo/observability/internal/leader"
 	"github.com/juancavallotti/octo/observability/internal/openapi"
 	"github.com/juancavallotti/octo/observability/internal/podstats"
 	"github.com/juancavallotti/octo/observability/internal/redisx"
@@ -96,6 +101,11 @@ func run() error {
 	// Root context cancelled on SIGINT/SIGTERM so pod termination drains cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Held across the consumer block below so alerting can publish on the same
+	// connection. Nil when this process has no broker, which is a service that
+	// cannot deliver a topic action and can still evaluate every watch.
+	var natsConn *nats.Conn
 
 	// Redis is the one dependency this service refuses to start without, and it is
 	// deliberately not treated like the two below it.
@@ -168,11 +178,25 @@ func run() error {
 		}
 		defer func() { _ = traces.Close() }()
 		slog.Info("consuming traces", "subject", ingest.TraceSubject, "nats", natsURL)
+
+		natsConn = conn
+	}
+
+	// Alerting, which needs the database and nothing else to be useful: a watch
+	// with a log action works with no broker and no orchestrator, and one with a
+	// topic or email action records that it could not deliver rather than
+	// stopping the service from starting.
+	var alerts *alerting.Service
+	if database != nil {
+		var err error
+		if alerts, err = startAlerting(ctx, database.Pool(), rdb, natsConn); err != nil {
+			return err
+		}
 	}
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
-		Handler:           newServer(database, rdb),
+		Handler:           newServer(database, rdb, alerts),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
@@ -193,6 +217,40 @@ func run() error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+// startAlerting starts the watch evaluator.
+//
+// Wired here, beside the consumers, and gated on the database for the same
+// reason they are: a watch is a question about tables this process may not have.
+// The leader election is what makes it safe to run on every replica — ingesting a
+// record twice is idempotent, and evaluating a watch twice is not.
+//
+// A failure to build the elector is fatal. It means this pod has a cluster
+// identity and cannot reach the API server, and a service that shrugged and
+// elected itself would put two evaluators on one installation.
+func startAlerting(
+	ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, conn *nats.Conn,
+) (*alerting.Service, error) {
+	elector, err := leader.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	dispatcher := alertaction.NewDispatcher(
+		alertaction.NewTopics(conn),
+		alertaction.NewMailer(os.Getenv("ORCHESTRATOR_URL")),
+	)
+	store := alertstore.New(pool)
+	runner := alerting.NewRunner(
+		store,
+		alertsource.New(pool, podstats.NewService(podstats.NewReader(rdb))),
+		elector,
+		dispatcher,
+	)
+	go runner.Run(ctx)
+	slog.Info("evaluating alerting watches", "identity", elector.Identity())
+	return alerting.NewService(store, runner, alertaction.Validate), nil
 }
 
 // startTraces publishes a rate card and subscribes the trace consumer to it.
@@ -310,7 +368,7 @@ func priceRefreshInterval() time.Duration {
 // optional in the same way. This service refuses to start without a Redis and
 // degrades to serving /healthz without a Postgres, so anything backed by Redis
 // registers unconditionally while anything backed by Postgres cannot.
-func newServer(database *db.DB, rdb *redis.Client) http.Handler {
+func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	openapi.NewHandler().Register(mux)
@@ -346,6 +404,17 @@ func newServer(database *db.DB, rdb *redis.Client) http.Handler {
 		api.NewRetentionHandler(retention.NewService(database.Pool())).Register(mux)
 		slog.Info("retention routes registered",
 			"endpoints", "GET/PUT /settings/retention, POST /retention/run")
+
+		// Alerting. The service is registered whether or not this replica is the
+		// one evaluating: reading and editing a watch is not leader work, and a
+		// standby replica answering the API is what makes the platform's requests
+		// land anywhere rather than on one pod.
+		api.NewAlertsHandler(alerts).Register(mux)
+		slog.Info("alerting routes registered", "endpoints",
+			"GET/POST /alerts/watches, GET/PUT/DELETE /alerts/watches/{id}, "+
+				"POST /alerts/watches/{id}/mute, GET /alerts/watches/{id}/evaluations, "+
+				"POST /alerts/preview, GET /alerts/evaluations, GET /alerts/incidents, "+
+				"POST /alerts/incidents/{id}/ack")
 	}
 	return mux
 }

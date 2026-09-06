@@ -342,7 +342,24 @@ observability:
   # replicas: every summary column is an order-independent aggregate and the
   # upserts are issued in trace-id order, so the halves merge to the same answer
   # and concurrent writers cannot deadlock on each other.
+  #
+  # Alerting is the exception, and it is the reason this component now has RBAC.
+  # Ingest is idempotent; evaluating a watch is not — two replicas would open two
+  # incidents and send two emails for one outage — so the evaluator runs on
+  # whichever replica holds a coordination Lease. Extra replicas are still useful
+  # for ingest and for the query API; they simply stand by for alerting.
   replicas: 1
+
+  # The ServiceAccount and namespaced Role the alerting evaluator campaigns with.
+  # Set create: false to supply an account the chart does not own — the usual
+  # reason being an identity binding created by Terraform, such as a GKE Workload
+  # Identity or EKS IRSA account.
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  rbac:
+    create: true
 
   # Where the prices for traced model calls come from. A model call is priced
   # once, at ingest, and the cost is stored frozen: refreshing a rate must never
