@@ -230,6 +230,18 @@ A watch with no actions still records every evaluation and opens incidents — i
 
 Every attempt is logged with its outcome — which action, which type, and the error — so "the alert fired but I got no email" is answerable. The history records whether an announcement reached anybody at all; *which* of several actions failed is in the service's logs rather than in a row, because an action is not a thing you can look up later by id. A failed delivery never rolls back the transition that caused it — the watch did fire — and a failed delivery does not start the cooldown either.
 
+## Where it lives
+
+The **Alerts** tab under [Metrics](/platform/pod-stats), because a watch is a
+standing question about exactly what that section already shows. The list gives
+each watch its phase, its last value and when it last ran; whatever is firing sits
+above it, because "what is wrong right now" is the first thing anybody brings to
+the page.
+
+Opening a watch gives you the editor and its history together. **Try it now** runs
+the definition against real data without saving it — which is the same
+`POST /alerts/preview` below.
+
 ## Trying a watch before you save it
 
 `POST /alerts/preview` runs a definition against real data now and reports what each condition observed, without recording anything, moving any state or telling anybody.
