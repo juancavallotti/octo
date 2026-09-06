@@ -388,3 +388,39 @@ func TestEveryDeclineReasonIsProduced(t *testing.T) {
 		}
 	}
 }
+
+// A rate measured over one surviving bucket is a rate over a moment, not over
+// the window somebody asked for. The denominator floor does not catch this on
+// its own: a single busy bucket can carry plenty of trials.
+func TestRatioThresholdRefusesAMostlyEmptyWindow(t *testing.T) {
+	c := mustCondition(t, ConditionSpec{
+		ID: "c_1", Type: KindThreshold, Source: SourceTraces, Metric: "error_rate",
+		Params: params(t, ThresholdParams{
+			Op: OpGT, Threshold: 0.10, WindowBuckets: 5, MinSamples: 3, MinDenominator: 1,
+		}),
+	})
+	s := Series{Step: time.Minute, StartMS: fixtureStart.UnixMilli(), Values: make([]*float64, 5)}
+	s.SetRatio(4, 400, 500)
+
+	out := c.Evaluate(nowAfter(5, time.Minute), s)
+	if out.Verdict != Unknown || out.Reason != ReasonFewSamples {
+		t.Errorf("verdict %s reason %q, want unknown/%s", out.Verdict, out.Reason, ReasonFewSamples)
+	}
+}
+
+// Two scopes differing only in where a separator character falls must not
+// produce the same key: coalescing them would answer one condition with another
+// condition's rows.
+func TestScopeKeysDoNotCollideAcrossSeparators(t *testing.T) {
+	a := Scope{AppName: "checkout|v2", AppVersion: ""}
+	b := Scope{AppName: "checkout", AppVersion: "v2"}
+	if a.key() == b.key() {
+		t.Errorf("scopes %+v and %+v share the key %q", a, b, a.key())
+	}
+
+	c := Scope{Levels: []string{"a,b"}}
+	d := Scope{Levels: []string{"a", "b"}}
+	if c.key() == d.key() {
+		t.Errorf("scopes %+v and %+v share the key %q", c, d, c.key())
+	}
+}
