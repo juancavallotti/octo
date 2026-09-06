@@ -82,6 +82,238 @@
                 },
                 "type": "object"
             },
+            "api.statsMetric": {
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsMetricSeries"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsMetricSeries": {
+                "properties": {
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "pods": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsMetricsResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsMetric"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "warnings": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsWarning"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsPod": {
+                "properties": {
+                    "generation": {
+                        "type": "integer"
+                    },
+                    "lastSeen": {
+                        "type": "string"
+                    },
+                    "liveRows": {
+                        "type": "integer"
+                    },
+                    "pod": {
+                        "type": "string"
+                    },
+                    "reporting": {
+                        "type": "boolean"
+                    },
+                    "retention": {
+                        "type": "string"
+                    },
+                    "rollupInterval": {
+                        "type": "string"
+                    },
+                    "rollupRows": {
+                        "type": "integer"
+                    },
+                    "sampleInterval": {
+                        "type": "string"
+                    },
+                    "series": {
+                        "type": "integer"
+                    },
+                    "startedAt": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsPodsResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsPod"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsSeries": {
+                "properties": {
+                    "ends": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "labels": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "last": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "max": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "min": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "pod": {
+                        "type": "string"
+                    },
+                    "samples": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "times": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "values": {
+                        "description": "A null is a gap: a series the dictionary knows that the scrape did not\nreport. It is not a zero.",
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsSeriesResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsSeries"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "step": {
+                        "type": "string"
+                    },
+                    "tier": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "warnings": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.statsWarning"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.statsWarning": {
+                "properties": {
+                    "pod": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.traceDetailResponse": {
                 "properties": {
                     "items": {
@@ -772,6 +1004,260 @@
                 "summary": "Save the data-retention policy",
                 "tags": [
                     "retention"
+                ]
+            }
+        },
+        "/stats/{deploymentId}/metrics": {
+            "get": {
+                "description": "The catalogue, built from the pods' dictionaries alone — no samples are read.\nIt exists so a caller can find exact metric names before asking for data,\nwhich is what makes the required metric filter on the series route usable.\n\nLabel sets are nested under their metric name. One histogram is a single\nentry with a series per bucket boundary, rather than a hundred names that\nhappen to share a prefix.",
+                "parameters": [
+                    {
+                        "description": "The deployment to describe",
+                        "in": "path",
+                        "name": "deploymentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only these pods; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "pod",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Only metrics whose name starts with this",
+                        "in": "query",
+                        "name": "prefix",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.statsMetricsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the metrics a deployment exposes",
+                "tags": [
+                    "stats"
+                ]
+            }
+        },
+        "/stats/{deploymentId}/pods": {
+            "get": {
+                "description": "Every pod of the deployment the stats index still holds, most recently seen\nfirst. Read this first: it names the pods the other two routes accept, and\nsays whether each is still reporting.\n\nliveRows and rollupRows are reported separately on purpose. Zero live rows\nbeside a full history is the ordinary state of a pod that stopped a few hours\nago, because the live tier is kept for only twice the rollup interval while\nthe pod stays in the index for the whole retention window.\n\nAn unknown deployment answers 200 with no items rather than 404. This service\nholds no deployment registry, so it cannot tell a deployment that never\nexisted from one whose sidecar is switched off or whose stats have expired.",
+                "parameters": [
+                    {
+                        "description": "The deployment to describe",
+                        "in": "path",
+                        "name": "deploymentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.statsPodsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the pods reporting stats for a deployment",
+                "tags": [
+                    "stats"
+                ]
+            }
+        },
+        "/stats/{deploymentId}/series": {
+            "get": {
+                "description": "Points for the named metrics, per pod, decoded against each pod's dictionary.\n\nmetric is required, and repeatable. It is what bounds the response: the rows\nare stored positionally, so a query with no name filter would read every\nseries of every pod. Use the metrics route to find the names.\n\nA counter's value is its growth over the interval ending at that point, on\nboth tiers, so a chart does not have to know which tier answered. Its closing\ncumulative reading is available as the last stat on the rollup tier, and\ncounters=absolute returns the raw readings instead. A counter that went\nbackwards is treated as a process restart rather than a negative delta.\n\ntier=auto picks live when the window fits inside the live tier's reach and\nrollup otherwise, because a window older than that cannot be answered from\nlive rows however many are read. The resolved tier and its step are echoed\nback.\n\ntimes are unix milliseconds, oldest first, and the columns are parallel. A\nnull value is a gap rather than a zero. On the rollup tier ends is carried\ntoo, because rows are not contiguous: when a bucket's end does not meet the\nnext one's start, scraping had stopped in between.",
+                "parameters": [
+                    {
+                        "description": "The deployment to read",
+                        "in": "path",
+                        "name": "deploymentId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Metric names, matched exactly; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "metric",
+                        "required": true,
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Narrow within those metrics, as key=value; repeated labels are ANDed",
+                        "in": "query",
+                        "name": "label",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "Only these pods; repeat the parameter for more than one",
+                        "in": "query",
+                        "name": "pod",
+                        "schema": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "style": "form"
+                    },
+                    {
+                        "description": "auto, live or rollup",
+                        "in": "query",
+                        "name": "tier",
+                        "schema": {
+                            "default": "auto",
+                            "enum": [
+                                "auto",
+                                "live",
+                                "rollup"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Start of the window, RFC3339. Defaults to 15 minutes before to",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "End of the window, RFC3339. Defaults to now",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Which numbers to return, comma separated: value, min, max, last, samples. Rollup tier only",
+                        "in": "query",
+                        "name": "stats",
+                        "schema": {
+                            "default": "value",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "delta for growth, absolute for the raw cumulative reading",
+                        "in": "query",
+                        "name": "counters",
+                        "schema": {
+                            "default": "delta",
+                            "enum": [
+                                "delta",
+                                "absolute"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Points per series, clamped to 1..5000",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "default": 1000,
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.statsSeriesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no metric was named, a time is not RFC3339, or a parameter is not one of its values"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read stats series for a deployment",
+                "tags": [
+                    "stats"
                 ]
             }
         },

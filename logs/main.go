@@ -32,6 +32,7 @@ import (
 	"github.com/juancavallotti/octo/logs/internal/fold"
 	"github.com/juancavallotti/octo/logs/internal/ingest"
 	"github.com/juancavallotti/octo/logs/internal/openapi"
+	"github.com/juancavallotti/octo/logs/internal/podstats"
 	"github.com/juancavallotti/octo/logs/internal/redisx"
 	"github.com/juancavallotti/octo/logs/internal/repo"
 	"github.com/juancavallotti/octo/logs/internal/retention"
@@ -313,6 +314,16 @@ func newServer(database *db.DB, rdb *redis.Client) http.Handler {
 	openapi.NewHandler().Register(mux)
 	slog.Info("openapi routes registered",
 		"endpoints", "GET /openapi.json, GET /openapi/operations")
+
+	// Outside the database check, unlike everything below it: pod stats live in
+	// Redis, which this service refuses to start without. Gating them on a
+	// Postgres they do not use would take them away for the one failure that
+	// cannot affect them.
+	api.NewStatsHandler(podstats.NewService(podstats.NewReader(rdb))).Register(mux)
+	slog.Info("pod stats API registered", "endpoints",
+		"GET /stats/{deploymentId}/pods, GET /stats/{deploymentId}/metrics, "+
+			"GET /stats/{deploymentId}/series")
+
 	if database != nil {
 		api.NewLogsHandler(repo.NewLogs(database.Pool())).Register(mux)
 		api.NewTracesHandler(repo.NewTraces(database.Pool())).Register(mux)
