@@ -13,6 +13,19 @@ import {
 } from "./panelPrefs";
 
 /**
+ * Where the panel sits, docked and floating.
+ *
+ * Docked, it gives way on a narrow window rather than crushing the page: it never
+ * takes the last 22.5rem of it, and under `md` — where even that would leave the
+ * page a strip — it goes back to floating, where covering the page is at least
+ * honest. Written out in full because Tailwind reads these strings from the
+ * source; an interpolated `calc()` would name a class nobody generated.
+ */
+const DOCKED =
+  "shrink-0 max-w-[100vw] max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 md:max-w-[calc(100vw-22.5rem)]";
+const FLOATING = "fixed inset-y-0 right-0 z-40 max-w-[100vw]";
+
+/**
  * Loaded on demand, because this launcher sits in the layout every signed-in page
  * shares and the drawer brings a Markdown renderer with it. Installing the agent is
  * a deliberate act, so on most installations that is weight on every page for
@@ -105,16 +118,17 @@ export default function AgentChatLauncher({
           rather than unmounting it: reopen and the answer is there, finished.
 
           Nothing is mounted before the first open, so an installation where the
-          agent is never used pays for none of it. */}
+          agent is never used pays for none of it.
+
+          How it gives way on a narrow window is in DOCKED above: media queries
+          on the one element rather than a measured width in state, because the
+          constraint really is the window, and nothing here has to re-render to
+          obey it. */}
       {opened && (
         <div
-          style={open ? { width, maxWidth: "100vw" } : undefined}
+          style={open ? { width } : undefined}
           className={
-            !open
-              ? "hidden"
-              : docked
-                ? "shrink-0"
-                : "fixed inset-y-0 right-0 z-40"
+            !open ? "hidden" : docked ? DOCKED : FLOATING
           }
         >
           <AgentDrawer

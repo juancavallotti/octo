@@ -152,17 +152,35 @@ describe("when he is", () => {
   it("keeps the same drawer node when the panel is pinned and unpinned", async () => {
     const { user, drawer } = await opened();
     expect(drawer.dataset.docked).toBe("false");
-    expect(wrapperOf(drawer).className).toContain("fixed");
+    // classList rather than the string: `max-md:fixed` is a different rule, and
+    // docked carries it.
+    expect(wrapperOf(drawer).classList.contains("fixed")).toBe(true);
 
     await user.click(screen.getByText("pin"));
     expect(screen.getByTestId("drawer")).toBe(drawer);
     expect(drawer.dataset.docked).toBe("true");
-    expect(wrapperOf(drawer).className).toContain("shrink-0");
-    expect(wrapperOf(drawer).className).not.toContain("fixed");
+    expect(wrapperOf(drawer).classList.contains("shrink-0")).toBe(true);
+    expect(wrapperOf(drawer).classList.contains("fixed")).toBe(false);
 
     await user.click(screen.getByText("pin"));
     expect(screen.getByTestId("drawer")).toBe(drawer);
-    expect(wrapperOf(drawer).className).toContain("fixed");
+    expect(wrapperOf(drawer).classList.contains("fixed")).toBe(true);
+  });
+
+  it("keeps the page a strip of the window when docked, and floats when it cannot", async () => {
+    const { user, drawer } = await opened();
+    await user.click(screen.getByText("pin"));
+    const wrapper = wrapperOf(drawer);
+
+    // Never the last 22.5rem of the window...
+    expect(wrapper.classList.contains("md:max-w-[calc(100vw-22.5rem)]")).toBe(
+      true,
+    );
+    // ...and under `md`, back to floating rather than crushing the page. jsdom
+    // resolves no media queries, so this asserts the rule is on the element; the
+    // widths themselves were checked in a browser.
+    expect(wrapper.classList.contains("max-md:fixed")).toBe(true);
+    expect(wrapper.classList.contains("max-w-[100vw]")).toBe(true);
   });
 
   it("remembers the pin", async () => {
