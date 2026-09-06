@@ -65,7 +65,7 @@ export function WatchTable({ items }: { items: WatchListItem[] }) {
                   {!watch.enabled && (
                     <span className="text-zinc-500">disabled</span>
                   )}
-                  {state.mutedUntil && (
+                  {muted(state.mutedUntil) && (
                     <span
                       className="text-zinc-500"
                       title="Still evaluated; notifications are suppressed"
@@ -100,4 +100,14 @@ export function WatchTable({ items }: { items: WatchListItem[] }) {
 
 function Th({ children }: { children: React.ReactNode }) {
   return <th className="px-3 py-2 font-medium">{children}</th>;
+}
+
+/**
+ * A mute only counts while it lasts. The column is left set after one expires —
+ * the service has no reason to clear it, and the state machine reads it against
+ * the clock — so a truthiness check here would label a watch muted forever after
+ * somebody silenced it once.
+ */
+function muted(until: string | null): boolean {
+  return until !== null && Date.parse(until) > Date.now();
 }

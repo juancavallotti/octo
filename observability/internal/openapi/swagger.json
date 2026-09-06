@@ -1392,6 +1392,16 @@
                     "204": {
                         "description": "acknowledged"
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the body was sent and is not valid JSON"
+                    },
                     "404": {
                         "content": {
                             "application/json": {

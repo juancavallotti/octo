@@ -357,8 +357,9 @@ func (h *AlertsHandler) incidents(w http.ResponseWriter, r *http.Request) {
 //	@Param			id		path	string			true	"Incident id"
 //	@Param			body	body	actorRequest	false	"The acting user"
 //	@Success		204		"acknowledged"
-//	@Failure		404	{object}	httpx.ErrorResponse	"no such open, unacknowledged incident"
-//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"the body was sent and is not valid JSON"
+//	@Failure		404		{object}	httpx.ErrorResponse	"no such open, unacknowledged incident"
+//	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/alerts/incidents/{id}/ack [post]
 func (h *AlertsHandler) acknowledge(w http.ResponseWriter, r *http.Request) {
 	// The body is optional: acknowledging with no actor is an unattributed

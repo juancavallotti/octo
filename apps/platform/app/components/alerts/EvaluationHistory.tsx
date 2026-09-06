@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EvaluationRow } from "./EvaluationRow";
 import { listEvaluations, type Evaluation } from "@/app/model/alerts";
 
@@ -21,8 +21,15 @@ export function EvaluationHistory({ watchId }: { watchId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Toggling the filter starts a second read while the first is in flight, and
+  // the older one finishing last would put the rows it fetched under the filter
+  // that is no longer selected. The same guard useAlerts uses, for the same
+  // reason.
+  const sequence = useRef(0);
+
   const read = useCallback(
     async (before?: string) => {
+      const mine = ++sequence.current;
       setBusy(true);
       try {
         const page = await listEvaluations({
@@ -31,13 +38,15 @@ export function EvaluationHistory({ watchId }: { watchId: string }) {
           before,
           limit: 25,
         });
+        if (sequence.current !== mine) return;
         setRows((prev) => (before ? [...prev, ...page.items] : page.items));
         setCursor(page.nextBefore);
         setError(null);
       } catch (e) {
+        if (sequence.current !== mine) return;
         setError((e as Error).message);
       } finally {
-        setBusy(false);
+        if (sequence.current === mine) setBusy(false);
       }
     },
     [watchId, notable],

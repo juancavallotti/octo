@@ -178,6 +178,38 @@ describe("AlertsMonitor", () => {
     expect(await screen.findByText("disabled")).toBeInTheDocument();
   });
 
+  // A mute is only a mute while it lasts. The column is left set after one
+  // expires, so a truthiness check would label a watch muted forever after
+  // somebody silenced it once.
+  it("only calls a watch muted while the mute lasts", async () => {
+    const item = watch();
+    listWatches.mockResolvedValue([
+      {
+        ...item,
+        state: {
+          ...item.state,
+          mutedUntil: new Date(Date.now() + 3_600_000).toISOString(),
+        },
+      },
+    ]);
+    const { unmount } = render(<AlertsMonitor />);
+    expect(await screen.findByText("muted")).toBeInTheDocument();
+    unmount();
+
+    listWatches.mockResolvedValue([
+      {
+        ...item,
+        state: {
+          ...item.state,
+          mutedUntil: new Date(Date.now() - 3_600_000).toISOString(),
+        },
+      },
+    ]);
+    render(<AlertsMonitor />);
+    expect(await screen.findByText("checkout errors")).toBeInTheDocument();
+    expect(screen.queryByText("muted")).not.toBeInTheDocument();
+  });
+
   // "not yet" rather than "never": a watch created a moment ago has not run, and
   // that is a different fact from one that has stopped being evaluated.
   it("distinguishes a watch that has not run from one that has", async () => {
