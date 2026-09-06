@@ -97,7 +97,12 @@ export default function MetricCard({
 
 /** A metric that is a fact rather than a measurement. */
 function InfoCard({ entry }: { entry: CataloguedMetric }) {
-  const labels = entry.metric.series.flatMap((s) => Object.entries(s.labels));
+  // Flattened across label sets, so the label name alone is not unique: two
+  // pods on different builds both report octo_build_info with a build_date, and
+  // React would see duplicate sibling keys. The set's index disambiguates them.
+  const labels = entry.metric.series.flatMap((s, set) =>
+    Object.entries(s.labels).map(([key, value]) => ({ set, key, value })),
+  );
 
   return (
     <div className="flex flex-col rounded-xl border border-black/10 bg-white/40 p-3 dark:border-white/10 dark:bg-zinc-900/30">
@@ -108,8 +113,11 @@ function InfoCard({ entry }: { entry: CataloguedMetric }) {
         constant · reported through its labels
       </p>
       <dl className="mt-2 flex flex-col gap-1">
-        {labels.map(([key, value]) => (
-          <div key={key} className="flex min-w-0 items-baseline gap-2 text-[11px]">
+        {labels.map(({ set, key, value }) => (
+          <div
+            key={`${set}:${key}`}
+            className="flex min-w-0 items-baseline gap-2 text-[11px]"
+          >
             <dt className="shrink-0 text-zinc-400">{key}</dt>
             <dd className="min-w-0 truncate font-mono" title={value}>
               {value}

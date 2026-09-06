@@ -1,6 +1,6 @@
 "use client";
 
-import { Line, LineChart, ResponsiveContainer, YAxis } from "recharts";
+import { Line, LineChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { extent } from "./scale";
 import { toRows, type Column } from "./rows";
 import { CPU_COLOR, dotFor, LINE, MEM_COLOR } from "./theme";
@@ -45,6 +45,12 @@ export default function Sparkline({
     <div className={className} role="img" aria-label={label}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={rows} margin={{ top: 3, right: 1, bottom: 3, left: 1 }}>
+          {/* Hidden, but not optional. Without an explicit axis Recharts treats
+              x as categorical and spaces every row equally — and toRows unions
+              two independently sampled series, so the rows are not evenly
+              spaced. A scrape gap would then be drawn as one ordinary step
+              instead of the pause it was. */}
+          <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} hide />
           <YAxis yAxisId="cpu" hide domain={band(cpu)} />
           <YAxis yAxisId="mem" hide domain={band(memory)} />
           <Line yAxisId="mem" dataKey="mem" stroke={MEM_COLOR} strokeOpacity={0.7}
