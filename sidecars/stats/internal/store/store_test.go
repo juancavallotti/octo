@@ -35,6 +35,18 @@ func storeFor(t *testing.T, cfg Config) (*Store, *redis.Client) {
 	if err != nil {
 		t.Fatalf("redis url: %v", err)
 	}
+
+	// FlushDB is about to delete everything in the selected database, so refuse
+	// to run against one that was not asked for. Database 0 is what a bare
+	// redis:// URL selects and what a developer's own Redis is almost certainly
+	// using; requiring a non-zero index makes pointing REDIS_TEST_URL at
+	// something real an explicit act rather than an accident. miniredis is
+	// exempt because nothing else is in it.
+	if os.Getenv("REDIS_TEST_URL") != "" && opts.DB == 0 {
+		t.Fatalf("refusing to flush database 0 of %s: point REDIS_TEST_URL at a "+
+			"disposable database, e.g. %s/9", addr, addr)
+	}
+
 	client := redis.NewClient(opts)
 	if err := client.FlushDB(context.Background()).Err(); err != nil {
 		t.Fatalf("flush: %v", err)

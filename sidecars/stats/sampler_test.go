@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/juancavallotti/octo/sidecars/stats/internal/series"
 	"github.com/juancavallotti/octo/sidecars/stats/internal/store"
@@ -333,4 +335,66 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(poll)
 	}
 	t.Fatalf("condition not met within %v", limit)
+}
+
+// TestDictionaryStaysDirtyUntilMetaLands pins the order of the two writes that
+// make a generation readable.
+//
+// They are a pair. A reader finds the newest generation through meta, so a
+// dictionary written without the meta naming it leaves readers decoding new rows
+// against an older dictionary — which silently mislabels every series the reload
+// added. Marking the dictionary clean between the two means the next tick sees
+// nothing to retry, so the pair stays split until some later reload happens to
+// grow the dictionary again. On a stable deployment that is never.
+//
+// Only the meta write is made to fail, by giving its key a type HSET cannot
+// touch. That is the whole point: a test where both writes fail passes with the
+// bug present.
+func TestDictionaryStaysDirtyUntilMetaLands(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client, err := openRedis("redis://" + mr.Addr())
+	if err != nil {
+		t.Fatalf("openRedis: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	// A list where the meta hash belongs: HSET against it is a WRONGTYPE error
+	// while every other key keeps working.
+	if _, err := mr.Lpush("octo:stats:v0:dep-1:pod-1:meta", "in the way"); err != nil {
+		t.Fatalf("seed meta key: %v", err)
+	}
+
+	cfg := config{
+		deploymentID: "dep-1", podName: "pod-1",
+		sample: 10 * time.Millisecond, rollup: time.Hour, retention: 2 * time.Hour,
+	}
+	s := newSampler(cfg, store.New(client, store.Config{
+		DeploymentID: "dep-1", PodName: "pod-1",
+		RollupInterval: cfg.rollup, Retention: cfg.retention, LiveDepth: 10, RollupDepth: 10,
+	}))
+	// Encoding one sample is what grows a dictionary and marks it dirty.
+	s.dict.Encode(map[string]*dto.MetricFamily{
+		"octo_flow_messages_total": {
+			Name: proto.String("octo_flow_messages_total"),
+			Type: dto.MetricType_COUNTER.Enum(),
+			Metric: []*dto.Metric{
+				{Counter: &dto.Counter{Value: proto.Float64(1)}},
+			},
+		},
+	}, time.Now().UnixMilli())
+
+	s.persistDictionary(context.Background())
+
+	if !s.dict.Dirty() {
+		t.Fatal("dictionary marked clean although the meta write failed: the next " +
+			"tick will not retry, and meta keeps naming an older generation")
+	}
+
+	// With the obstruction gone the retry completes both halves.
+	mr.Del("octo:stats:v0:dep-1:pod-1:meta")
+	s.persistDictionary(context.Background())
+
+	if s.dict.Dirty() {
+		t.Error("dictionary still dirty after both writes landed")
+	}
 }

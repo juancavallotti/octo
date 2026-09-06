@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -387,6 +388,17 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 // it renders today and no pod is rolled by turning nothing on.
 func (c *Client) statsSidecarContainers(spec Spec) []corev1.Container {
 	if !c.statsSidecarEnabled() {
+		return nil
+	}
+
+	// A port is a pod-wide resource, so a sidecar configured onto one the
+	// runtime already holds cannot bind and crash-loops forever beside a
+	// perfectly healthy integration. Collecting no statistics is the better
+	// half of that trade, and it is the half that can be diagnosed: the reason
+	// is logged once here rather than inferred from a restart count.
+	if port := c.statsSidecarPort(); port == spec.port() || port == adminPort {
+		slog.Warn("pod stats sidecar not injected: port already used by the runtime",
+			"deployment", spec.ID, "port", port)
 		return nil
 	}
 	return []corev1.Container{c.statsSidecarContainer(spec)}

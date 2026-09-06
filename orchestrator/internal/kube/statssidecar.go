@@ -61,6 +61,17 @@ type StatsSidecar struct {
 // an install without one it would start, fail every write, and log about it
 // forever. Requiring both means "no Redis" reads as "feature off" rather than as
 // a broken container in every production pod.
+// statsSidecarPort is the port the sidecar serves its probes and status on,
+// falling back to the default when unset. One accessor because two callers now
+// need the resolved value: the container that binds it, and the check that
+// refuses to inject a container which could not.
+func (c *Client) statsSidecarPort() int32 {
+	if c.statsSidecar.Port < 1 {
+		return defaultStatsSidecarPort
+	}
+	return c.statsSidecar.Port
+}
+
 func (c *Client) statsSidecarEnabled() bool {
 	return c.statsSidecar.Image != "" && redisEnv(c.runtimeServices) != nil
 }
@@ -95,10 +106,7 @@ func (c *Client) statsSidecarEnabled() bool {
 // requests or limits, and adding them for every deployment at once would
 // reschedule an entire installation.
 func (c *Client) statsSidecarContainer(spec Spec) corev1.Container {
-	port := c.statsSidecar.Port
-	if port < 1 {
-		port = defaultStatsSidecarPort
-	}
+	port := c.statsSidecarPort()
 	always := corev1.ContainerRestartPolicyAlways
 
 	return corev1.Container{

@@ -158,13 +158,19 @@ func (s *sampler) persistDictionary(ctx context.Context) {
 		slog.Warn("could not write series dictionary", "gen", gen, "error", err)
 		return
 	}
-	s.dict.MarkClean()
 
 	// Meta names the newest generation, so a reader can find it without parsing
-	// a row first.
+	// a row first. Marked clean only once both halves have landed: a dictionary
+	// written without the meta that names it leaves a reader falling back to a
+	// stale generation, and marking clean first means the next tick has nothing
+	// to retry — the pair would stay split until some later reload happened to
+	// grow the dictionary again.
 	if err := s.store.WriteMeta(ctx, gen, s.startedAt); err != nil {
-		slog.Warn("could not update pod metadata", "error", err)
+		s.counters.WriteFailed(err)
+		slog.Warn("could not update pod metadata", "gen", gen, "error", err)
+		return
 	}
+	s.dict.MarkClean()
 
 	s.mu.Lock()
 	s.generation, s.seriesLen = gen, s.dict.Len()
