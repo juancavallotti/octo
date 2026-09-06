@@ -35,7 +35,7 @@ const (
 // depends on the interface so it can be tested without a Redis.
 type StatsReader interface {
 	Pods(ctx context.Context, deploymentID string) ([]podstats.PodStatus, bool, error)
-	Metrics(ctx context.Context, deploymentID string, pods []string, prefix string) ([]podstats.Metric, []podstats.Warning, error)
+	Metrics(ctx context.Context, deploymentID string, pods []string, prefix string) ([]podstats.Metric, []podstats.Warning, bool, error)
 	Series(ctx context.Context, q podstats.Query) (podstats.Result, error)
 }
 
@@ -163,6 +163,7 @@ type statsMetricsResponse struct {
 	DeploymentID string         `json:"deploymentId"`
 	Items        []statsMetric  `json:"items"`
 	Warnings     []statsWarning `json:"warnings"`
+	Truncated    bool           `json:"truncated"`
 }
 
 // metrics lists the series a deployment's pods expose, reading no rows.
@@ -175,6 +176,9 @@ type statsMetricsResponse struct {
 //	@Description	Label sets are nested under their metric name. One histogram is a single
 //	@Description	entry with a series per bucket boundary, rather than a hundred names that
 //	@Description	happen to share a prefix.
+//	@Description
+//	@Description	truncated means the pod list hit its cap, so the catalogue is partial: a
+//	@Description	metric missing from it may simply belong to a pod that was dropped.
 //	@Tags			stats
 //	@Produce		json
 //	@Param			deploymentId	path		string		true	"The deployment to describe"
@@ -187,7 +191,7 @@ func (h *StatsHandler) metrics(w http.ResponseWriter, r *http.Request) {
 	deploymentID := r.PathValue("deploymentId")
 	query := r.URL.Query()
 
-	metrics, warnings, err := h.r.Metrics(r.Context(), deploymentID,
+	metrics, warnings, truncated, err := h.r.Metrics(r.Context(), deploymentID,
 		query["pod"], query.Get("prefix"))
 	if err != nil {
 		slog.Error("api: list stats metrics", "deployment", deploymentID, "err", err)
@@ -208,6 +212,7 @@ func (h *StatsHandler) metrics(w http.ResponseWriter, r *http.Request) {
 		DeploymentID: deploymentID,
 		Items:        items,
 		Warnings:     encodeWarnings(warnings),
+		Truncated:    truncated,
 	})
 }
 

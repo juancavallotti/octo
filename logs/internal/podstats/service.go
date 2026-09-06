@@ -128,22 +128,27 @@ type MetricSeries struct {
 // which is what makes the required name filter on Series usable rather than a
 // guessing game. Bounded by construction — a dictionary is about a hundred
 // entries and there are at most a few dozen pods.
-func (s *Service) Metrics(ctx context.Context, deploymentID string, pods []string, prefix string) ([]Metric, []Warning, error) {
+//
+// The truncation flag is reported rather than swallowed. A catalogue built
+// from a capped pod list is partial, and a partial catalogue reads exactly
+// like a complete one: a caller cannot otherwise tell a metric no pod exposes
+// from one exposed only by a pod the cap dropped.
+func (s *Service) Metrics(ctx context.Context, deploymentID string, pods []string, prefix string) ([]Metric, []Warning, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
 
-	refs, _, err := s.reader.Pods(ctx, deploymentID, time.Time{})
+	refs, truncated, err := s.reader.Pods(ctx, deploymentID, time.Time{})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	refs = keepPods(refs, pods)
 	if len(refs) == 0 {
-		return nil, nil, nil
+		return nil, nil, truncated, nil
 	}
 
 	states, err := s.reader.States(ctx, deploymentID, refs, TierLive)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
 	// Keyed by name then by label set, so a histogram reads as one metric with
@@ -159,7 +164,7 @@ func (s *Service) Metrics(ctx context.Context, deploymentID string, pods []strin
 	for _, ref := range refs {
 		dict, err := s.reader.Dictionary(ctx, deploymentID, ref.Name, states[ref.Name])
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if len(dict) == 0 {
 			warnings = append(warnings, Warning{Pod: ref.Name, Reason: "no dictionary"})
@@ -198,7 +203,7 @@ func (s *Service) Metrics(ctx context.Context, deploymentID string, pods []strin
 		out = append(out, metric)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, warnings, nil
+	return out, warnings, truncated, nil
 }
 
 // Query is one request for series data.

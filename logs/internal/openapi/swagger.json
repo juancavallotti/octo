@@ -130,6 +130,9 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "truncated": {
+                        "type": "boolean"
+                    },
                     "warnings": {
                         "items": {
                             "$ref": "#/components/schemas/api.statsWarning"
@@ -1009,7 +1012,7 @@
         },
         "/stats/{deploymentId}/metrics": {
             "get": {
-                "description": "The catalogue, built from the pods' dictionaries alone — no samples are read.\nIt exists so a caller can find exact metric names before asking for data,\nwhich is what makes the required metric filter on the series route usable.\n\nLabel sets are nested under their metric name. One histogram is a single\nentry with a series per bucket boundary, rather than a hundred names that\nhappen to share a prefix.",
+                "description": "The catalogue, built from the pods' dictionaries alone — no samples are read.\nIt exists so a caller can find exact metric names before asking for data,\nwhich is what makes the required metric filter on the series route usable.\n\nLabel sets are nested under their metric name. One histogram is a single\nentry with a series per bucket boundary, rather than a hundred names that\nhappen to share a prefix.\n\ntruncated means the pod list hit its cap, so the catalogue is partial: a\nmetric missing from it may simply belong to a pod that was dropped.",
                 "parameters": [
                     {
                         "description": "The deployment to describe",

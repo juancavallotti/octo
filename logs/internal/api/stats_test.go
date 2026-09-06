@@ -33,9 +33,9 @@ func (f *fakeStatsReader) Pods(context.Context, string) ([]podstats.PodStatus, b
 	return f.pods, f.truncated, f.err
 }
 
-func (f *fakeStatsReader) Metrics(_ context.Context, _ string, pods []string, prefix string) ([]podstats.Metric, []podstats.Warning, error) {
+func (f *fakeStatsReader) Metrics(_ context.Context, _ string, pods []string, prefix string) ([]podstats.Metric, []podstats.Warning, bool, error) {
 	f.gotPods, f.gotPrefix = pods, prefix
-	return f.metrics, f.warnings, f.err
+	return f.metrics, f.warnings, f.truncated, f.err
 }
 
 func (f *fakeStatsReader) Series(_ context.Context, q podstats.Query) (podstats.Result, error) {
@@ -421,5 +421,16 @@ func TestStatsErrorsAre500WithoutDetail(t *testing.T) {
 		if strings.Contains(rec.Body.String(), "on fire") {
 			t.Errorf("GET %s leaked the underlying error: %s", target, rec.Body.String())
 		}
+	}
+}
+
+// A catalogue built from a capped pod list is partial, and says so. Without the
+// flag a caller cannot tell a metric no pod exposes from one exposed only by a
+// pod the cap dropped.
+func TestStatsMetricsReportsTruncation(t *testing.T) {
+	rec := doStats(t, &fakeStatsReader{truncated: true}, "/stats/dep-1/metrics")
+
+	if got := decodeStats[statsMetricsResponse](t, rec); !got.Truncated {
+		t.Error("truncated is false although the pod list hit its cap")
 	}
 }

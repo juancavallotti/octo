@@ -497,3 +497,27 @@ func deref(f *float64) any {
 	}
 	return *f
 }
+
+// Every rollup column goes through the same guard as the value column.
+//
+// nullable looks as though it hands back whatever is present, and only reads
+// correctly once you know Values.At rejects a non-finite reading before saying
+// one is present. That is easy to break from the At side without noticing, so
+// this pins the four columns together rather than trusting the reading.
+func TestEveryColumnRejectsNonFinite(t *testing.T) {
+	v := Values{math.NaN(), math.Inf(1), math.Inf(-1), 3}
+
+	for i, name := range []string{"NaN", "+Inf", "-Inf"} {
+		if got := nullable(v, i); got != nil {
+			t.Errorf("nullable(%s) = %v, want nil", name, *got)
+		}
+	}
+	if got := nullable(v, 3); got == nil || *got != 3 {
+		t.Errorf("nullable(3) = %v, want a pointer to 3", got)
+	}
+	// Past the end of the column, which is what an older-generation row looks
+	// like against a newer dictionary.
+	if got := nullable(v, 9); got != nil {
+		t.Errorf("nullable past the end = %v, want nil", *got)
+	}
+}
