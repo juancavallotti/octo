@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
-	"github.com/juancavallotti/octo/runtime/core/internal/engine"
+	"github.com/juancavallotti/octo/runtime/core/engine"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
 	"github.com/juancavallotti/octo/runtime/types"
 )
@@ -258,7 +258,7 @@ func (bf *boundFlow) run(ctx context.Context, msg *types.Message, proc core.Mess
 		// Error handling is optional: a flow with no error path (errorPath nil)
 		// behaves like an empty error handler — the error propagates and the flow
 		// is reported failed, the default below.
-		engine.SetErrorVariable(msg, bf.name, err)
+		core.SetErrorVariable(msg, bf.name, err)
 		if recovered, altErr := bf.errorPath.Process(ctx, msg); altErr != nil {
 			err = fmt.Errorf("error path: %w", altErr)
 		} else {
@@ -341,7 +341,7 @@ func (bf *boundFlow) publish(outcome flowOutcome) {
 		// Naming the block a failure came from is what turns "this flow is erroring"
 		// into "this block is erroring". It is empty for anything that did not
 		// originate in a block, and for every non-failed event.
-		Block:  engine.FailingBlock(outcome.err),
+		Block:  core.FailingBlock(outcome.err),
 		Result: outcome.result,
 	})
 }

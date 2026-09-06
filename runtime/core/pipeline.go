@@ -49,9 +49,8 @@ type StateScoped interface {
 }
 
 // Block is a configured, named stage in a flow wrapping one MessageProcessor.
-// The Processor is either a leaf (built from a BlockFactory) or a composite that
-// embeds sub-flows (built by the flow builder). The block itself stays a thin
-// record; any embedded flows live inside the composite processor.
+// The block itself stays a thin record; any sub-flows a block embeds live inside
+// its processor.
 type Block struct {
 	Name string
 	Type string
@@ -143,12 +142,21 @@ type BlockDeps struct {
 	// Address is where the block being built sits in the flow being built. Unlike
 	// the rest of BlockDeps it is not a service — it is the one piece of build-time
 	// context a block cannot derive for itself, and it changes per block rather
-	// than per runtime. The flow builder fills it in for every block, leaf and
-	// composite alike.
+	// than per runtime. The flow builder fills it in for every block.
 	Address BlockAddress
+	// SubFlows builds the nested chains a block declares, positioned at the block
+	// being built. It is what lets any block own a sub-flow slot: the block reads
+	// the slot out of its settings and hands it here. Nil when the block is built
+	// outside the engine, which a block with a slot must treat as a build error
+	// (see SubFlowsOf).
+	SubFlows SubFlowBuilder
+	// Scheduler is the flow's shared worker pool, for a block that runs work
+	// concurrently. Nil outside the engine, on the same terms as SubFlows.
+	Scheduler Scheduler
 }
 
-// BlockFactory builds a leaf processor from its settings and build-time deps.
-// Composite kinds (scope, fork) are not built through the block registry; the
-// flow builder recognizes them and constructs their typed sub-flows directly.
+// BlockFactory builds a processor from its settings and build-time deps. Every
+// block is built this way, whether it is a leaf or one that embeds sub-flows: a
+// composite reads its slots out of the settings and builds them through
+// deps.SubFlows.
 type BlockFactory func(settings types.Settings, deps BlockDeps) (MessageProcessor, error)

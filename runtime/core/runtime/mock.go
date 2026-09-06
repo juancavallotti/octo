@@ -21,11 +21,12 @@ func injectMocks(cfg *types.Config, mocks *core.Mocks) error {
 		return nil
 	}
 	for _, addr := range mocks.Addresses() {
-		target, err := resolveTarget(cfg, mockBlockType, addr)
+		err := rewriteTarget(cfg, mockBlockType, addr, func(target types.BlockConfig) types.BlockConfig {
+			return standInMock(target, addr)
+		})
 		if err != nil {
 			return err
 		}
-		*target = standInMock(*target, addr)
 	}
 	return nil
 }

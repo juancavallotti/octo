@@ -1,11 +1,13 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/schema"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -35,43 +37,192 @@ type step struct {
 type resolver struct {
 	kind string
 	addr string
+	// defs indexes the config's named processors, so a block declared by ref can
+	// be looked up by the type it resolves to.
+	defs map[string]string
 }
 
-// resolveTarget returns a pointer to the block the address names, so the caller can
-// rewrite that slot: a breakpoint or a spy wraps the block it finds, a mock replaces
-// it.
+// block is a block as the resolver sees it: the generic map a block decodes to.
 //
-// The pointer aliases cfg — the flow tree is a web of slices and *FlowConfig
-// pointers, so a "copy" would alias the caller's backing arrays anyway. That is safe
-// because the debug features are invoke-only, on a config the invoking process
-// loaded for itself and throws away.
-func resolveTarget(cfg *types.Config, kind, addr string) (*types.BlockConfig, error) {
-	r := resolver{kind: kind, addr: addr}
+// The resolver walks a generic tree rather than typed structs because a block's
+// sub-flows are the block's own business — they live in its settings, typed by
+// the settings struct only that block knows. What the resolver knows is which
+// keys of that struct hold chains, read from the block's schema (see
+// schema.Branches), and that is enough to descend through any block, including
+// one registered from outside the runtime tree.
+type block map[string]any
 
+// rewriteTarget resolves the block addr names and replaces it with what rewrite
+// returns: a breakpoint or a spy wraps the block it finds, a mock replaces it.
+//
+// It mutates cfg in place. That is safe because the debug features are
+// invoke-only, on a config the invoking process loaded for itself and throws
+// away. The chain the target sits in is walked as a generic tree and written
+// back typed, so a chain injected into twice — a spy on a fork and a breakpoint
+// inside one of its branches — reads the first injection on the way to the
+// second.
+func rewriteTarget(
+	cfg *types.Config, kind, addr string, rewrite func(target types.BlockConfig) types.BlockConfig,
+) error {
+	r := newResolver(cfg, kind, addr)
 	parsed, err := r.parseAddress()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	flow, err := r.findFlow(cfg, parsed.flow)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	chain, err := r.flowChain(flow, parsed.chain)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// Walk down to the chain holding the target, descending one composite per step.
-	for _, hop := range parsed.steps[:len(parsed.steps)-1] {
-		block, selectErr := r.selectBlock(*chain, hop.block)
-		if selectErr != nil {
-			return nil, selectErr
+	root, err := toGeneric(*chain)
+	if err != nil {
+		return err
+	}
+	parent, index, err := r.locate(root, parsed.steps)
+	if err != nil {
+		return err
+	}
+	target, err := fromGeneric(parent[index])
+	if err != nil {
+		return err
+	}
+	replacement, err := toGeneric(rewrite(target))
+	if err != nil {
+		return err
+	}
+	parent[index] = replacement[0]
+
+	typed, err := fromGenericChain(root)
+	if err != nil {
+		return err
+	}
+	*chain = typed
+	return nil
+}
+
+// resolveTarget returns a copy of the block addr names, for a caller that wants
+// to look at it rather than rewrite it.
+func resolveTarget(cfg *types.Config, kind, addr string) (types.BlockConfig, error) {
+	var found types.BlockConfig
+	err := rewriteTarget(cfg, kind, addr, func(target types.BlockConfig) types.BlockConfig {
+		found = target
+		return target
+	})
+	return found, err
+}
+
+// newResolver indexes the config's processors for ref resolution.
+func newResolver(cfg *types.Config, kind, addr string) resolver {
+	defs := make(map[string]string, len(cfg.Processors))
+	for _, p := range cfg.Processors {
+		defs[p.Name] = p.Type
+	}
+	return resolver{kind: kind, addr: addr, defs: defs}
+}
+
+// locate walks the steps down from root and returns the chain holding the target
+// and the target's index in it.
+func (r resolver) locate(root []any, steps []step) ([]any, int, error) {
+	chain := root
+	for _, hop := range steps[:len(steps)-1] {
+		index, err := r.selectBlock(chain, hop.block)
+		if err != nil {
+			return nil, 0, err
 		}
-		if chain, err = r.branchChain(unwrapDebug(block), hop.branch); err != nil {
-			return nil, fmt.Errorf("%s %q: block %q: %w", r.kind, r.addr, hop.block, err)
+		next, err := r.branchChain(unwrapDebug(asBlock(chain[index])), hop.branch)
+		if err != nil {
+			return nil, 0, fmt.Errorf("%s %q: block %q: %w", r.kind, r.addr, hop.block, err)
+		}
+		chain = next
+	}
+	index, err := r.selectBlock(chain, steps[len(steps)-1].block)
+	if err != nil {
+		return nil, 0, err
+	}
+	return chain, index, nil
+}
+
+// toGeneric converts a typed chain — or one block — to the generic tree the
+// resolver walks. It goes through JSON because that is the bridge every block's
+// settings already cross, so a sub-flow written in Go and one decoded from a
+// document arrive here in the same shape.
+func toGeneric(chain ...any) ([]any, error) {
+	var value any = chain
+	if len(chain) == 1 {
+		value = chain[0]
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode flow: %w", err)
+	}
+	var generic any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return nil, fmt.Errorf("decode flow: %w", err)
+	}
+	if list, ok := generic.([]any); ok {
+		return list, nil
+	}
+	return []any{generic}, nil
+}
+
+// fromGeneric types one block back.
+func fromGeneric(value any) (types.BlockConfig, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return types.BlockConfig{}, fmt.Errorf("encode block: %w", err)
+	}
+	var cfg types.BlockConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return types.BlockConfig{}, fmt.Errorf("decode block: %w", err)
+	}
+	return cfg, nil
+}
+
+// fromGenericChain types a chain back.
+func fromGenericChain(chain []any) ([]types.BlockConfig, error) {
+	raw, err := json.Marshal(chain)
+	if err != nil {
+		return nil, fmt.Errorf("encode flow: %w", err)
+	}
+	var typed []types.BlockConfig
+	if err := json.Unmarshal(raw, &typed); err != nil {
+		return nil, fmt.Errorf("decode flow: %w", err)
+	}
+	return typed, nil
+}
+
+// asBlock reads a chain element as a block. Anything that is not a map — which
+// a valid config never produces — reads as an empty block, and fails to match
+// any selector.
+func asBlock(value any) block {
+	if m, ok := value.(map[string]any); ok {
+		return m
+	}
+	return block{}
+}
+
+// str reads a string-valued key.
+func (b block) str(key string) string {
+	s, _ := b[key].(string)
+	return s
+}
+
+// slot reads a settings key wherever the block spelled it: under `settings`, or
+// at the top level beside `type`. A block decoded from a document folds the two
+// together, but a nested block deeper than the root chain arrives here as it
+// was written, so both spellings have to be read.
+func (b block) slot(name string) (any, bool) {
+	if settings, ok := b["settings"].(map[string]any); ok {
+		if v, found := settings[name]; found {
+			return v, true
 		}
 	}
-	return r.selectBlock(*chain, parsed.steps[len(parsed.steps)-1].block)
+	v, found := b[name]
+	return v, found
 }
 
 // unwrapDebug peels the debug wrappers an earlier injection put around a block, so a
@@ -82,16 +233,21 @@ func resolveTarget(cfg *types.Config, kind, addr string) (*types.BlockConfig, er
 // It peels on the way down only, never at the target: an address that lands on an
 // already-wrapped block must resolve to the wrapper's slot, so the next injection
 // wraps around what is already there rather than replacing it.
-func unwrapDebug(block *types.BlockConfig) *types.BlockConfig {
-	for isDebugWrapper(*block) && len(block.Process) == 1 {
-		block = &block.Process[0]
+func unwrapDebug(b block) block {
+	for isDebugWrapper(b) {
+		inner, ok := b.slot(core.BranchProcess)
+		chain, isChain := inner.([]any)
+		if !ok || !isChain || len(chain) != 1 {
+			return b
+		}
+		b = asBlock(chain[0])
 	}
-	return block
+	return b
 }
 
 // isDebugWrapper reports whether the block is one the debug injectors added.
-func isDebugWrapper(block types.BlockConfig) bool {
-	return block.Type == breakpointBlockType || block.Type == spyBlockType
+func isDebugWrapper(b block) bool {
+	return b.str("type") == breakpointBlockType || b.str("type") == spyBlockType
 }
 
 // blockLabel is how a block is identified in errors and addresses: its name, else
@@ -215,15 +371,11 @@ func (r resolver) flowChain(flow *types.FlowConfig, chain string) (*[]types.Bloc
 // selectBlock finds the one block in chain that the selector names. A block is
 // selected by its name, else its type, else the processor it refs — so an unnamed
 // block is still addressable, as long as it is the only one of its kind here.
-func (r resolver) selectBlock(chain []types.BlockConfig, selector string) (*types.BlockConfig, error) {
-	for _, match := range []func(types.BlockConfig) string{
-		func(b types.BlockConfig) string { return b.Name },
-		func(b types.BlockConfig) string { return b.Type },
-		func(b types.BlockConfig) string { return b.Ref },
-	} {
+func (r resolver) selectBlock(chain []any, selector string) (int, error) {
+	for _, key := range []string{"name", "type", "ref"} {
 		var found []int
 		for i := range chain {
-			if match(chain[i]) == selector && selector != "" {
+			if asBlock(chain[i]).str(key) == selector && selector != "" {
 				found = append(found, i)
 			}
 		}
@@ -231,9 +383,9 @@ func (r resolver) selectBlock(chain []types.BlockConfig, selector string) (*type
 		case 0:
 			continue
 		case 1:
-			return &chain[found[0]], nil
+			return found[0], nil
 		default:
-			return nil, fmt.Errorf(
+			return 0, fmt.Errorf(
 				"%s %q: %q matches %d blocks in the same chain; give the one you want a unique name",
 				r.kind, r.addr, selector, len(found))
 		}
@@ -241,119 +393,92 @@ func (r resolver) selectBlock(chain []types.BlockConfig, selector string) (*type
 
 	labels := make([]string, 0, len(chain))
 	for i := range chain {
-		labels = append(labels, blockLabel(chain[i]))
+		b := asBlock(chain[i])
+		labels = append(labels, core.BlockLabel(b.str("name"), b.str("type"), b.str("ref")))
 	}
-	return nil, fmt.Errorf(
+	return 0, fmt.Errorf(
 		"%s %q: no block %q in that chain (blocks: %s)", r.kind, r.addr, selector, strings.Join(labels, ", "))
 }
 
+// effectiveType is the block's type after its ref is resolved: what its schema is
+// registered under.
+func (r resolver) effectiveType(b block) string {
+	if t := b.str("type"); t != "" {
+		return t
+	}
+	return r.defs[b.str("ref")]
+}
+
 // branchChain returns the block chain of the named branch of a composite, so the
-// caller can descend into it. It is the single source of truth for what a composite
-// exposes to an address: the reserved names below, plus — for the composites whose
-// branches are a list — each member's own name, or its index.
-func (r resolver) branchChain(block *types.BlockConfig, branch string) (*[]types.BlockConfig, error) {
-	if chain, ok := reservedBranch(block, branch); ok {
-		return chain, nil
+// caller can descend into it. The block's schema says which of its settings hold
+// chains: the named slots resolve by their own name, the list-valued slots by
+// each member's name, or its index.
+func (r resolver) branchChain(b block, branch string) ([]any, error) {
+	branches, err := schema.Branches(core.DefaultSchemaRegistry(), r.effectiveType(b))
+	if err != nil {
+		return nil, err
 	}
-	if chain, ok := listBranch(block, branch); ok {
-		return chain, nil
+	if branches != nil {
+		for _, name := range branches.Named {
+			if name != branch {
+				continue
+			}
+			if chain, ok := namedChain(b, name); ok {
+				return chain, nil
+			}
+		}
+		for _, slot := range branches.ByMember {
+			if chain, ok := memberChain(b, slot, branch); ok {
+				return chain, nil
+			}
+		}
 	}
-	return nil, fmt.Errorf("has no branch %q (branches: %s)", branch, strings.Join(branchNames(block), ", "))
+	return nil, fmt.Errorf("has no branch %q (branches: %s)", branch, strings.Join(branchNames(b, branches), ", "))
 }
 
-// reservedOrder lists the reserved branch names in the order they are reported, so
-// the "branches: …" hint on a bad address is stable.
-var reservedOrder = []string{
-	core.BranchProcess, core.BranchError, core.BranchThen, core.BranchElse,
-	core.BranchBody, core.BranchDefault, core.BranchOnReject, core.BranchEvents,
-}
-
-// reservedBranches maps each branch name every composite spells the same way to the
-// chain it holds on a given block. A getter returns nil when the block does not have
-// that slot set, so a slot this block does not use reports as "no such branch"
-// rather than resolving to an empty chain.
-var reservedBranches = map[string]func(*types.BlockConfig) *[]types.BlockConfig{
-	core.BranchProcess:  func(b *types.BlockConfig) *[]types.BlockConfig { return ownChain(&b.Process) },
-	core.BranchError:    func(b *types.BlockConfig) *[]types.BlockConfig { return ownChain(&b.Error) },
-	core.BranchThen:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Then) },
-	core.BranchElse:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Else) },
-	core.BranchBody:     func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Body) },
-	core.BranchDefault:  func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Default) },
-	core.BranchOnReject: func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.OnReject) },
-	core.BranchEvents:   func(b *types.BlockConfig) *[]types.BlockConfig { return subChain(b.Events) },
-	core.BranchNameThread: func(b *types.BlockConfig) *[]types.BlockConfig {
-		return subChain(b.NameThread)
-	},
-	core.BranchBuildResponse: func(b *types.BlockConfig) *[]types.BlockConfig {
-		return subChain(b.BuildResponse)
-	},
-}
-
-// subChain returns a sub-flow's block chain, or nil when the slot is unset.
-func subChain(flow *types.FlowConfig) *[]types.BlockConfig {
-	if flow == nil {
-		return nil
-	}
-	return &flow.Process
-}
-
-// ownChain returns a block's own chain slot, or nil when it is empty.
-func ownChain(chain *[]types.BlockConfig) *[]types.BlockConfig {
-	if len(*chain) == 0 {
-		return nil
-	}
-	return chain
-}
-
-// reservedBranch resolves the branches every composite names the same way.
-func reservedBranch(block *types.BlockConfig, branch string) (*[]types.BlockConfig, bool) {
-	get, ok := reservedBranches[branch]
+// namedChain reads the chain a named slot holds: a bare block list, or a sub-flow
+// whose `process` is one. An absent or empty slot reads as "no such branch"
+// rather than as an empty chain.
+func namedChain(b block, name string) ([]any, bool) {
+	value, ok := b.slot(name)
 	if !ok {
 		return nil, false
 	}
-	chain := get(block)
-	return chain, chain != nil
+	if flow, isFlow := value.(map[string]any); isFlow {
+		value = flow[core.BranchProcess]
+	}
+	chain, isChain := value.([]any)
+	if !isChain || len(chain) == 0 {
+		return nil, false
+	}
+	return chain, true
 }
 
-// listMember is one member of a composite whose branches are a list, reduced to what
-// an address needs: the name it is addressed by and the chain to descend into.
-type listMember struct {
-	name  string
-	chain *[]types.BlockConfig
-}
-
-// listMembers flattens the composites whose branches are a list — a fork's branches,
-// a switch's cases, an ai-router's routes, an ai-agent's (or mcp-router's) tools —
-// into one view. A block only ever populates one of those slots, so the flattened
-// order is that slot's order and an index selector means what it looks like.
-func listMembers(block *types.BlockConfig) []listMember {
-	members := make([]listMember, 0,
-		len(block.Branches)+len(block.Cases)+len(block.Routes)+len(block.Tools))
-	for i := range block.Branches {
-		members = append(members, listMember{block.Branches[i].Name, &block.Branches[i].Process})
-	}
-	for i := range block.Cases {
-		members = append(members, listMember{block.Cases[i].Flow.Name, &block.Cases[i].Flow.Process})
-	}
-	for i := range block.Routes {
-		members = append(members, listMember{block.Routes[i].Name, &block.Routes[i].Process})
-	}
-	for i := range block.Tools {
-		members = append(members, listMember{block.Tools[i].Name, &block.Tools[i].Process})
-	}
-	return members
-}
-
-// listBranch resolves a list-valued branch by the member's name, or by its index
-// when it has none.
-func listBranch(block *types.BlockConfig, branch string) (*[]types.BlockConfig, bool) {
+// memberChain reads the chain of one member of a list-valued slot, selected by
+// the member's own name or by its index in the slot.
+func memberChain(b block, slot, branch string) ([]any, bool) {
 	index, isIndex := parseIndex(branch)
-	for i, member := range listMembers(block) {
-		if member.name == branch || (isIndex && index == i) {
-			return member.chain, true
+	for i, member := range members(b, slot) {
+		if member.str("name") == branch || (isIndex && index == i) {
+			chain, ok := member[core.BranchProcess].([]any)
+			return chain, ok
 		}
 	}
 	return nil, false
+}
+
+// members reads a list-valued slot's entries.
+func members(b block, slot string) []block {
+	value, ok := b.slot(slot)
+	list, isList := value.([]any)
+	if !ok || !isList {
+		return nil
+	}
+	out := make([]block, 0, len(list))
+	for _, entry := range list {
+		out = append(out, asBlock(entry))
+	}
+	return out
 }
 
 // parseIndex reports whether branch is a non-negative integer index.
@@ -367,15 +492,19 @@ func parseIndex(branch string) (int, bool) {
 
 // branchNames lists the branches a block actually exposes, for the error message
 // when an address names one it does not have.
-func branchNames(block *types.BlockConfig) []string {
+func branchNames(b block, branches *schema.AddressBranches) []string {
 	var names []string
-	for _, name := range reservedOrder {
-		if reservedBranches[name](block) != nil {
-			names = append(names, name)
+	if branches != nil {
+		for _, name := range branches.Named {
+			if _, ok := namedChain(b, name); ok {
+				names = append(names, name)
+			}
 		}
-	}
-	for i, member := range listMembers(block) {
-		names = append(names, core.MemberBranch(member.name, i))
+		for _, slot := range branches.ByMember {
+			for i, member := range members(b, slot) {
+				names = append(names, core.MemberBranch(member.str("name"), i))
+			}
+		}
 	}
 	if len(names) == 0 {
 		return []string{"none: this is a leaf block"}

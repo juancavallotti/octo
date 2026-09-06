@@ -275,7 +275,8 @@ flows:
 	if got := cfg.Flows[0].Source.Settings["path"]; got != "/orders" {
 		t.Errorf("source path = %#v, want /orders", got)
 	}
-	level := cfg.Flows[0].Process[0].Process[0].Settings["level"]
+	nested := chainOf(t, cfg.Flows[0].Process[0], "process")
+	level := nested[0].Settings["level"]
 	if level != "info" {
 		t.Errorf("nested block level = %#v, want info", level)
 	}
@@ -340,7 +341,7 @@ flows:
 	if got := cfg.Service.Name; got != "orders-service" {
 		t.Errorf("service.name = %q, want orders-service", got)
 	}
-	if got := cfg.Flows[0].Process[0].Condition; got != "body.total > 100" {
+	if got := cfg.Flows[0].Process[0].Settings["condition"]; got != "body.total > 100" {
 		t.Errorf("condition = %q, want body.total > 100", got)
 	}
 }

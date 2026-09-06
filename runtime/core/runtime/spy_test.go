@@ -37,8 +37,8 @@ func TestInjectSpyWrapsTargetWithItsAddress(t *testing.T) {
 	if address, _ := got.Settings.String("address"); address != addr {
 		t.Errorf("wrapper address = %q, want %q", address, addr)
 	}
-	if len(got.Process) != 1 || blockLabel(got.Process[0]) != "api-call-1" {
-		t.Errorf("wrapper must hold the block it wraps, got %+v", got.Process)
+	if inner := wrapped(t, got); len(inner) != 1 || blockLabel(inner[0]) != "api-call-1" {
+		t.Errorf("wrapper must hold the block it wraps, got %+v", inner)
 	}
 }
 
@@ -91,15 +91,15 @@ func TestApplyDebugNestsBreakpointOutsideSpy(t *testing.T) {
 	if outer.Type != breakpointBlockType {
 		t.Fatalf("outermost block = %q, want the breakpoint", outer.Type)
 	}
-	if len(outer.Process) != 1 {
-		t.Fatalf("the breakpoint holds %d blocks, want 1", len(outer.Process))
+	if len(wrapped(t, outer)) != 1 {
+		t.Fatalf("the breakpoint holds %d blocks, want 1", len(wrapped(t, outer)))
 	}
-	middle := outer.Process[0]
+	middle := wrapped(t, outer)[0]
 	if middle.Type != spyBlockType {
 		t.Fatalf("the block inside the breakpoint = %q, want the spy", middle.Type)
 	}
-	if len(middle.Process) != 1 || middle.Process[0].Name != "first" {
-		t.Fatalf("the spy must hold the target, got %+v", middle.Process)
+	if inner := wrapped(t, middle); len(inner) != 1 || inner[0].Name != "first" {
+		t.Fatalf("the spy must hold the target, got %+v", inner)
 	}
 	// Both wrappers report the block the user wrote.
 	if outer.Name != "first" || middle.Name != "first" {

@@ -105,6 +105,22 @@ linters:
 
   exclusions:
     rules:
+      # The shared test fixtures are test code that happens to be importable, and
+      # get the same latitude _test.go files do.
+      - path: ^internal/testkit/
+        linters:
+          - funlen
+          - mnd
+          - goconst
+          - gocyclo
+          - gocognit
+          - cyclop
+          - wrapcheck
+          - lll
+          - dupl
+      - path: ^internal/testkit/
+        linters: [revive]
+        text: exported
       # Tests get latitude: fixtures, long table-driven cases, repeated literals.
       - path: _test\.go
         linters:
@@ -143,6 +159,14 @@ linters:
       #
       # Adding an entry below is how a new loadable module is declared, reviewed in
       # one place. A second init() anywhere inside a module fails CI.
+      - path: ^blocks/ai/ai\.go$
+        linters: [gochecknoinits]
+      - path: ^blocks/builtin/builtin\.go$
+        linters: [gochecknoinits]
+      - path: ^blocks/cli/cli\.go$
+        linters: [gochecknoinits]
+      - path: ^blocks/controlflow/controlflow\.go$
+        linters: [gochecknoinits]
       - path: ^connectors/cron/cron\.go$
         linters: [gochecknoinits]
       - path: ^connectors/database/database\.go$
@@ -191,7 +215,7 @@ linters:
         linters: [gochecknoinits]
       - path: ^core/expr/expr\.go$
         linters: [gochecknoinits]
-      - path: ^core/internal/engine/flow\.go$
+      - path: ^core/engine/flow\.go$
         linters: [gochecknoinits]
       # Not a loadable module: package main stamps the build info into the hosted
       # observability service, which cannot import package main back.

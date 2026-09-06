@@ -7,8 +7,9 @@ import (
 	"testing"
 
 	"github.com/juancavallotti/octo/runtime/core"
-	"github.com/juancavallotti/octo/runtime/core/internal/engine"
+	"github.com/juancavallotti/octo/runtime/core/engine"
 	"github.com/juancavallotti/octo/runtime/core/internal/pool"
+	"github.com/juancavallotti/octo/runtime/internal/testkit"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -30,7 +31,7 @@ func mustMessage(t *testing.T) *types.Message {
 
 // testBlocks returns a registry with pass/drop/fail leaf blocks for flow tests.
 func testBlocks() *core.BlockRegistry {
-	reg := core.NewBlockRegistry()
+	reg := testkit.Inherit()
 	reg.MustRegister("pass", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
 		return processorFunc(func(_ context.Context, msg *types.Message) (*types.Message, error) {
 			return msg, nil

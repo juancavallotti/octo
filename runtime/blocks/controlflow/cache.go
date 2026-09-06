@@ -1,0 +1,231 @@
+// Caching built on the runtime KV store: the cache-scope composite memoizes the
+// body its wrapped flow produces, and the invalidate-cache leaf evicts an entry.
+// Both key the volatile user namespace (core.NamespaceUserVolatile) by the SHA-256
+// of an evaluated CEL key, so an invalidate-cache with the same key expression
+// targets the same entry a cache-scope wrote.
+//
+// Volatile is the whole point of a cache and so is not configurable here. A cache
+// entry already carries its own expiry, and losing one costs a recompute rather
+// than correctness — which is exactly the contract the volatile tier offers. It is
+// also what keeps memoized bodies out of the platform database, where they would be
+// a row and a transaction apiece for a value that expires in a minute.
+//
+// The KV store has no native TTL, so cache-scope encodes the expiry inside the
+// stored value (cacheEnvelope) and checks it on read; an expired entry is treated
+// as a miss and overwritten on the next run. Only the message body is cached:
+// variables the wrapped flow sets are not restored on a hit.
+package controlflow
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
+	"github.com/juancavallotti/octo/runtime/types"
+)
+
+// defaultCacheTTL bounds a cache-scope entry when its settings name no ttl.
+const defaultCacheTTL = 60 * time.Second
+
+// cacheEnvelope is the value a cache-scope stores: the cached body plus its expiry.
+// ExpiresAt is a unix-nanosecond deadline; 0 means the entry never expires.
+type cacheEnvelope struct {
+	ExpiresAt int64           `json:"expiresAt"`
+	Body      json.RawMessage `json:"body"`
+}
+
+// cacheKey hashes the evaluated key expression so the stored key is bounded and
+// safe for backends that put it in a URL path (the k8s KV API).
+func cacheKey(raw string) string { return hashedKey(raw) }
+
+// cacheScope memoizes the body its wrapped flow produces, keyed by an evaluated
+// expression. On a fresh hit it restores the cached body and skips the flow.
+type cacheScope struct {
+	body core.MessageProcessor
+	key  *expr.Program
+	ttl  time.Duration
+	env  map[string]any
+}
+
+// cacheScopeSettings configures the cache-scope composite.
+type cacheScopeSettings struct {
+	// CEL expression evaluated to the cache key.
+	Key string `json:"key" octo:"label=Cache Key,type=cel,required"`
+	// How long an entry stays fresh (e.g. '5m'); '0' never expires.
+	TTL string `json:"ttl" octo:"label=TTL,type=string,default=60s"`
+	// Flow whose result is cached and replayed on a hit.
+	Body *types.FlowConfig `json:"body" octo:"label=Body,type=flow,required"`
+}
+
+// newCacheScope builds the composite from the block's body slot and its key/ttl
+// fields, compiling the key expression once so a bad expression fails at startup.
+//
+//nolint:ireturn // a BlockFactory returns the MessageProcessor interface
+func newCacheScope(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
+	var cfg cacheScopeSettings
+	if err := raw.DecodeStrict(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Body == nil {
+		return nil, errors.New("cache-scope block requires a body flow")
+	}
+	if cfg.Key == "" {
+		return nil, errors.New("cache-scope block requires a key expression")
+	}
+	flows, err := core.SubFlowsOf(deps)
+	if err != nil {
+		return nil, err
+	}
+	key, err := expr.CompileMessage(deps.Resources, cfg.Key)
+	if err != nil {
+		return nil, err
+	}
+	ttl, err := resolveCacheTTL(cfg.TTL)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := flows.Branch(core.BranchBody, *cfg.Body)
+	if err != nil {
+		return nil, fmt.Errorf("cache-scope body: %w", err)
+	}
+	return &cacheScope{body: body, key: key, ttl: ttl, env: expr.EnvActivation(deps.Env)}, nil
+}
+
+// resolveCacheTTL parses the ttl setting: empty uses the default, otherwise a Go
+// duration string ("0" disables expiry).
+func resolveCacheTTL(raw string) (time.Duration, error) {
+	if raw == "" {
+		return defaultCacheTTL, nil
+	}
+	ttl, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("cache-scope ttl %q: %w", raw, err)
+	}
+	if ttl < 0 {
+		return 0, fmt.Errorf("cache-scope ttl %q must not be negative", raw)
+	}
+	return ttl, nil
+}
+
+// Process returns the cached body on a fresh hit, otherwise runs the wrapped flow
+// and stores its body for next time. Storing is best-effort: a version conflict
+// (another worker cached first) or an absent store leaves the result correct, just
+// uncached.
+//
+// A body that requested stop never reaches the store: its message is a partial
+// result — the body halted part-way through, so its body is not what a completed
+// run would have produced. Caching it would serve that truncated payload to later
+// runs, turning a transient halt into a persistent one.
+func (c *cacheScope) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
+	keyValue, err := c.key.EvalString(expr.MessageActivation(msg, c.env))
+	if err != nil {
+		return nil, fmt.Errorf("cache-scope key: %w", err)
+	}
+	key := cacheKey(keyValue)
+	kv := core.RuntimeServicesFromContext(ctx).KV()
+
+	entry, ok, err := kv.Get(ctx, core.NamespaceUserVolatile, key)
+	if err == nil && ok {
+		if cached, hit := decodeFreshEnvelope(entry.Value); hit {
+			if setErr := msg.SetBodyJSON(cached); setErr == nil {
+				return msg, nil // fresh cache hit: skip the wrapped flow
+			}
+		}
+	}
+
+	out, err := c.body.Process(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		return nil, nil // the flow dropped the message; nothing to cache
+	}
+	if out.StopRequested() {
+		return out, nil // the flow halted part-way; its body is partial, do not cache it
+	}
+
+	c.store(ctx, kv, key, entry.Version, out)
+	return out, nil
+}
+
+// decodeFreshEnvelope returns the cached body when value is a cache envelope that
+// has not expired; hit is false on a decode error or an expired entry, so the
+// caller treats it as a miss.
+func decodeFreshEnvelope(value []byte) (json.RawMessage, bool) {
+	var env cacheEnvelope
+	if err := json.Unmarshal(value, &env); err != nil {
+		return nil, false
+	}
+	if env.ExpiresAt != 0 && time.Now().UnixNano() >= env.ExpiresAt {
+		return nil, false
+	}
+	return env.Body, true
+}
+
+// store writes the flow's body into the cache under key, stamping the expiry from
+// the scope's ttl. expectedVersion is the version read on the way in, so an
+// expired entry is overwritten and a fresh key is created. Any error is swallowed:
+// caching is an optimization, not part of the result.
+func (c *cacheScope) store(ctx context.Context, kv core.KV, key string, expectedVersion int64, out *types.Message) {
+	body, err := out.BodyJSON()
+	if err != nil {
+		return
+	}
+	env := cacheEnvelope{Body: body}
+	if c.ttl > 0 {
+		env.ExpiresAt = time.Now().Add(c.ttl).UnixNano()
+	}
+	encoded, err := json.Marshal(env)
+	if err != nil {
+		return
+	}
+	_, _ = kv.Set(ctx, core.NamespaceUserVolatile, key, encoded, expectedVersion)
+}
+
+// invalidateCacheSettings configures the invalidate-cache leaf.
+type invalidateCacheSettings struct {
+	// CEL expression evaluated to the cache key to evict.
+	Key string `json:"key" octo:"label=Cache Key,type=cel,required"`
+}
+
+// invalidateCache evicts the cache entry for an evaluated key, so a later
+// cache-scope with the same key recomputes.
+type invalidateCache struct {
+	key *expr.Program
+	env map[string]any
+}
+
+//nolint:ireturn // a BlockFactory returns the MessageProcessor interface
+func newInvalidateCache(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, error) {
+	var cfg invalidateCacheSettings
+	if err := raw.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Key == "" {
+		return nil, errors.New("invalidate-cache requires a key expression")
+	}
+	key, err := expr.CompileMessage(deps.Resources, cfg.Key)
+	if err != nil {
+		return nil, err
+	}
+	return &invalidateCache{key: key, env: expr.EnvActivation(deps.Env)}, nil
+}
+
+// Process evicts the entry for the evaluated key (unconditionally, ignoring the
+// version) and forwards the message unchanged.
+func (p *invalidateCache) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
+	keyValue, err := p.key.EvalString(expr.MessageActivation(msg, p.env))
+	if err != nil {
+		return nil, fmt.Errorf("invalidate-cache key: %w", err)
+	}
+	kv := core.RuntimeServicesFromContext(ctx).KV()
+	if delErr := kv.Delete(ctx, core.NamespaceUserVolatile, cacheKey(keyValue), 0); delErr != nil {
+		return nil, fmt.Errorf("invalidate-cache %q: %w", keyValue, delErr)
+	}
+	return msg, nil
+}

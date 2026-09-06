@@ -3,6 +3,8 @@ package schema
 import (
 	"fmt"
 	"strings"
+
+	"github.com/juancavallotti/octo/runtime/core"
 )
 
 // The field types that carry a sub-flow an address can descend into. A block's
@@ -64,4 +66,29 @@ func branchNote(blockType string, named, byMember []string) string {
 			strings.Join(byMember, ", "), blockType, blockType))
 	}
 	return strings.Join(parts, " ")
+}
+
+// Branches reports the branches the registered block type exposes to an
+// address, derived from its settings struct exactly as the generated schema
+// derives them. It returns nil for a leaf block and for a type the registry does
+// not know, which the resolver treats the same way: nothing to descend into.
+//
+// It is what keeps the address resolver honest without a table of its own: a
+// block's sub-flow slots are the flow-typed fields of the one struct it decodes,
+// so the resolver reads them from there rather than repeating them.
+func Branches(reg *core.SchemaRegistry, blockType string) (*AddressBranches, error) {
+	for _, b := range reg.Blocks() {
+		if b.Type != blockType {
+			continue
+		}
+		if b.Config == nil {
+			return nil, nil //nolint:nilnil // a block with no settings has no branches
+		}
+		fields, err := fieldsOf(b.Config)
+		if err != nil {
+			return nil, fmt.Errorf("block %q: %w", blockType, err)
+		}
+		return addressBranchesOf(blockType, fields), nil
+	}
+	return nil, nil //nolint:nilnil // an unregistered type is a leaf to an address
 }

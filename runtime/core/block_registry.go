@@ -9,8 +9,9 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
-// BlockRegistry holds leaf block factories keyed by block type. Composite kinds
-// (scope, fork) are handled by the flow builder and are not registered here.
+// BlockRegistry holds block factories keyed by block type. It is the one place
+// a flow's block types resolve: leaf blocks and blocks that embed sub-flows are
+// registered alike, and the engine dispatches every authored block through it.
 type BlockRegistry struct {
 	mu        sync.RWMutex
 	factories map[string]BlockFactory
@@ -48,7 +49,7 @@ func (r *BlockRegistry) MustRegister(name string, factory BlockFactory) {
 	}
 }
 
-// New constructs a leaf processor for the registered block type.
+// New constructs a processor for the registered block type.
 //
 //nolint:ireturn // a factory intentionally returns the MessageProcessor interface
 func (r *BlockRegistry) New(name string, settings types.Settings, deps BlockDeps) (MessageProcessor, error) {
@@ -59,6 +60,16 @@ func (r *BlockRegistry) New(name string, settings types.Settings, deps BlockDeps
 		return nil, fmt.Errorf("block %q not registered", name)
 	}
 	return factory(settings, deps)
+}
+
+// Factory returns the factory registered under name, if any. It is how a
+// registry assembled for one purpose — a test's, with its own throwaway blocks —
+// can carry over the blocks another registry holds.
+func (r *BlockRegistry) Factory(name string) (BlockFactory, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	factory, ok := r.factories[name]
+	return factory, ok
 }
 
 // Names returns the registered block type names in sorted order.
@@ -81,13 +92,13 @@ func DefaultBlockRegistry() *BlockRegistry {
 	return defaultBlockRegistry
 }
 
-// RegisterBlock registers a leaf block factory on the default registry.
+// RegisterBlock registers a block factory on the default registry.
 func RegisterBlock(name string, factory BlockFactory) error {
 	return defaultBlockRegistry.Register(name, factory)
 }
 
-// MustRegisterBlock registers a leaf block factory on the default registry,
-// panicking on failure.
+// MustRegisterBlock registers a block factory on the default registry, panicking
+// on failure.
 func MustRegisterBlock(name string, factory BlockFactory) {
 	defaultBlockRegistry.MustRegister(name, factory)
 }

@@ -73,26 +73,20 @@ flows:
 					{
 						Type: "handle-errors",
 						Name: "persist",
-						Process: []types.BlockConfig{
-							{Type: "transform", Name: "normalize"},
-						},
-						Error: []types.BlockConfig{
-							{Type: "deadletter"},
+						// Nested chains stay as the document spelled them; the block
+						// types them when it decodes its own settings.
+						Settings: types.Settings{
+							"process": []any{map[string]any{"type": "transform", "name": "normalize"}},
+							"error":   []any{map[string]any{"type": "deadletter"}},
 						},
 					},
 					{
 						Type: "fork",
 						Name: "notify-and-audit",
-						Branches: []types.FlowConfig{
-							{
-								Name:    "notify",
-								Process: []types.BlockConfig{{Type: "email"}},
-							},
-							{
-								Name:    "audit",
-								Process: []types.BlockConfig{{Type: "log"}},
-							},
-						},
+						Settings: types.Settings{"branches": []any{
+							map[string]any{"name": "notify", "process": []any{map[string]any{"type": "email"}}},
+							map[string]any{"name": "audit", "process": []any{map[string]any{"type": "log"}}},
+						}},
 					},
 				},
 			},

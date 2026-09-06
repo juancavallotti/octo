@@ -102,10 +102,8 @@ func breakFlows(condition string) types.Config {
 		Name: "orders",
 		Process: []types.BlockConfig{
 			{
-				Type: "if", Name: "checkHeader", Condition: condition,
-				Then: &types.FlowConfig{Process: []types.BlockConfig{stamp("charge", "then")}},
-				Else: &types.FlowConfig{Process: []types.BlockConfig{stamp("api-call-1", "else")}},
-			},
+				Type: "if", Name: "checkHeader",
+				Settings: types.Settings{"condition": condition, "then": &types.FlowConfig{Process: []types.BlockConfig{stamp("charge", "then")}}, "else": &types.FlowConfig{Process: []types.BlockConfig{stamp("api-call-1", "else")}}}},
 			{Type: "tbp.downstream"},
 		},
 	}}}
@@ -230,11 +228,10 @@ func forkFlows() types.Config {
 		Process: []types.BlockConfig{
 			{
 				Type: "fork", Name: "fanout",
-				Branches: []types.FlowConfig{
+				Settings: types.Settings{"branches": []types.FlowConfig{
 					{Name: "audit", Process: []types.BlockConfig{stamp("log-it", "audited")}},
 					{Name: "notify", Process: []types.BlockConfig{stamp("send", "notified")}},
-				},
-			},
+				}}},
 			// Named, because a block is addressed by its type only when it has no name —
 			// and this one's type carries a dot, which the address grammar reads as a
 			// step separator.
