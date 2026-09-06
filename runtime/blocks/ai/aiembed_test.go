@@ -129,3 +129,33 @@ func TestAIEmbedRejectsNonStringElements(t *testing.T) {
 		t.Error("expected error for non-string list elements")
 	}
 }
+
+// TestAIEmbedRejectsAMisshapenResponse: the provider is a connector somebody
+// else wrote, so a nil response or a vector list that does not match the texts
+// sent is a flow error, not a panic in the worker or a silently misaligned result.
+func TestAIEmbedRejectsAMisshapenResponse(t *testing.T) {
+	cases := map[string]struct {
+		resp *core.EmbedResponse
+		text string
+	}{
+		"nil response":                    {resp: nil, text: `{"text":"hello"}`},
+		"no vectors for one text":         {resp: &core.EmbedResponse{}, text: `{"text":"hello"}`},
+		"fewer vectors than batch inputs": {resp: &core.EmbedResponse{Vectors: [][]float32{{0.1}}}, text: `{"text":["a","b"]}`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeEmbedder{resp: tc.resp}
+			proc, err := newAIEmbed(types.Settings{
+				"connector": "claude",
+				"model":     "text-embedding-3-small",
+				"text":      "body.text",
+			}, depsLLM(fake))
+			if err != nil {
+				t.Fatalf("newAIEmbed: %v", err)
+			}
+			if _, err := proc.Process(context.Background(), newMessageWith(t, tc.text)); err == nil {
+				t.Fatal("expected a flow error for a response that does not match the request")
+			}
+		})
+	}
+}

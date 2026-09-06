@@ -7,6 +7,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -133,12 +134,30 @@ func (e *embed) Process(ctx context.Context, msg *types.Message) (*types.Message
 		return nil, fmt.Errorf("ai-embed: %w", err)
 	}
 
+	if err := checkEmbedResponse(resp, len(input)); err != nil {
+		return nil, fmt.Errorf("ai-embed: %w", err)
+	}
+
 	if batch {
 		msg.Variables.Set(e.resultVar, resp.Vectors)
 	} else {
 		msg.Variables.Set(e.resultVar, resp.Vectors[0])
 	}
 	return msg, nil
+}
+
+// checkEmbedResponse refuses a response that does not line up with what was
+// sent. The provider is a pluggable connector, so a nil response or a short
+// vector list is a real possibility, and storing one would either panic in the
+// worker or silently misalign vectors with the texts they were computed from.
+func checkEmbedResponse(resp *core.EmbedResponse, sent int) error {
+	if resp == nil {
+		return errors.New("provider returned no response")
+	}
+	if len(resp.Vectors) != sent {
+		return fmt.Errorf("provider returned %d vectors for %d texts", len(resp.Vectors), sent)
+	}
+	return nil
 }
 
 // toEmbedInputs normalizes the evaluated text expression into a batch of inputs.

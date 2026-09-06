@@ -636,7 +636,7 @@ func TestEmbedTraceCarriesTheProvider(t *testing.T) {
 
 	fake := providedEmbedder{
 		fakeEmbedder: &fakeEmbedder{resp: &core.EmbedResponse{
-			Vectors: [][]float32{{0.1}},
+			Vectors: [][]float32{{0.1}, {0.2}},
 			Model:   "text-embedding-3-small",
 		}},
 		family: core.ProviderOpenAI,
