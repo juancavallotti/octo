@@ -1,0 +1,206 @@
+---
+title: "Alerting"
+description: "Watches: standing questions about your telemetry, evaluated on a schedule, that tell somebody when the answer changes."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The platform stores a great deal about your integrations and, on its own, does nothing with any of it. Every question about a log line, a trace or a pod's memory is one you have to go and ask. **Alerting** turns a question into a standing one: a *watch* is asked on a fixed interval, and when the answer changes it tells somebody.
+
+A watch is deliberately more than a threshold. The alerts that matter are usually about *change* — "the error rate for this integration jumped" — and a threshold cannot express that without you knowing in advance what normal looks like. So the vocabulary includes change detection against the series' own recent history, with enough statistical care that a quiet integration going from one request to three does not wake anybody.
+
+## What a watch is
+
+One schedule, a set of conditions, and what to do when they hold.
+
+```
+  conditions ── all / any ──▶ verdict ── held for `for` ──▶ firing ──▶ actions
+```
+
+- **Conditions** are the questions. A watch has between one and ten, and they are combined with `all` or `any`.
+- **The schedule** is one interval for the whole set, plus `for` — how long the *combined* verdict must hold before the watch fires.
+- **Actions** are what happens then: publish to a topic, send an email, write a log line.
+
+Conditions may read different sources, and that is where most of the expressiveness is. "Error rate up **and** memory above 1.5 GB" is one watch.
+
+<Callout>
+`for` applies to the combined verdict, not to each condition. Per-condition clocks would let two clauses each be satisfied for five minutes in non-overlapping stretches, with the conjunction never once true — and fire. Nobody who wrote "A and B for 5m" meant that.
+</Callout>
+
+## Sources and metrics
+
+| Source | Metric | Aggregates | What it is |
+| --- | --- | --- | --- |
+| `traces` | `traces` | count | traces started |
+| `traces` | `failed_traces` | count | traces whose status is not `ok` |
+| `traces` | `error_rate` | ratio | failed ÷ total |
+| `traces` | `duration_ns` | p95, avg, max | how long a trace took |
+| `traces` | `cost_usd` | sum | what the model calls cost |
+| `traces` | `tokens`, `llm_calls`, `unpriced_calls` | sum | model-call accounting |
+| `logs` | `events` | count | log records |
+| `logs` | `error_rate` | ratio | error and fatal ÷ all levels |
+| `pod_stats` | *any exported metric* | max, avg, sum, min | what the [stats sidecar](/platform/pod-stats) recorded |
+
+The trace and log catalogues are closed on purpose: an open expression language over those tables is a second product, and every alert anyone has asked for is in this table. Pod-stat metric names are open by necessity — they are whatever the runtime exports — and you find them with `GET /stats/{deploymentId}/metrics`.
+
+A **scope** narrows the rows: a deployment, an integration, an app name or version; for logs also levels and a message substring; for pod stats a set of pods or labels.
+
+<Callout type="warn">
+A log condition with a message search must name a deployment or an app. The log indexes serve a deployment and a window, and a substring filters on top of them — unbounded, that is a sequential scan of every log line on the installation, once a minute, forever. It is refused when you save the watch.
+</Callout>
+
+## Condition kinds
+
+### `threshold`
+
+Is this number above (or below) that one, over a window.
+
+```json
+{
+  "id": "c_1", "type": "threshold",
+  "source": "traces", "metric": "error_rate",
+  "scope": { "appName": "checkout" },
+  "params": { "op": "gt", "threshold": 0.05, "windowBuckets": 15 }
+}
+```
+
+For a **ratio** the comparison is made against the [Wilson score bound](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval) rather than the raw proportion. One failure out of two traces is a 50% error rate by the point estimate, and a 5% threshold would page you about two requests; the bound at two trials is about 9% and does not fire, while at four hundred trials it is about 45% and does. The gate scales itself with the evidence. The number *reported* is still the plain proportion, because that is the one you recognise.
+
+`windowBuckets` is also the whole of the smoothing: five one-minute buckets is a five-minute rate, with no phase lag and no invented points.
+
+### `spike`
+
+Has this number suddenly changed, judged against its own recent history.
+
+```json
+{
+  "id": "c_2", "type": "spike",
+  "source": "traces", "metric": "traces",
+  "params": { "direction": "up", "baselineBuckets": 30, "z": 4, "minDelta": 5, "minRatio": 2 }
+}
+```
+
+The baseline is the **median** of the window aggregate over `baselineBuckets`, and the spread is its **median absolute deviation**, with a guard band held open between the baseline and the observation.
+
+Three gates, all of which must clear:
+
+| Gate | Asks | Default |
+| --- | --- | --- |
+| `z` | is the change large relative to how much this series usually moves | 4 |
+| `minDelta` | is it large in absolute terms | 5 for counting metrics, otherwise none |
+| `minRatio` | is it large in proportion | 2 (doubled) |
+
+The statistical gate alone is not enough, and that is the point. Over a quiet enough history a robust z-score will eventually call any change significant; `minDelta` is what says two more requests do not matter however surprising they are. A series idling at one request a minute that goes to three clears neither gate. The same series going to sixty clears all three.
+
+Median and MAD rather than a moving average, because an average absorbs the incident: a twenty-minute outage walks the mean up, the alert argues itself down mid-outage, and then fires again on recovery. A median tolerates half its sample being contaminated before it moves at all.
+
+`guardBuckets` matters more than it looks. Without a gap between the baseline and the observation, a gradual ramp supplies its own baseline and never registers.
+
+### `absence`
+
+This used to report and has stopped.
+
+```json
+{
+  "id": "c_3", "type": "absence",
+  "source": "traces", "metric": "traces",
+  "scope": { "deploymentId": "..." },
+  "params": { "forBuckets": 5, "minBaseline": 12 }
+}
+```
+
+Its own kind rather than "count below one", for two reasons. Zero and *unknown* are different states and the comparison operators cannot tell them apart. And it needs a precondition a threshold has nowhere to put: the series must have reported before it went quiet. Without that, a watch on a deployment that never ran fires forever.
+
+## What a gap means
+
+The rule the whole feature is arranged around: **a bucket with no rows is counted as zero only where absence is itself a recorded observation.**
+
+| Metric | An empty bucket means | Read as |
+| --- | --- | --- |
+| trace and log counts and sums | nothing happened; the table records everything | `0` |
+| averages, percentiles, every ratio | undefined over zero rows | unknown |
+| pod stats, any aggregate | the sidecar did not report | unknown |
+
+"No traces ran" is not "0% of them failed", and reporting it as zero would satisfy every downward condition on the platform. Nothing is ever interpolated across a gap: a gap is data.
+
+A condition that could not be decided leaves the watch's state alone. It does not advance a hold, and — more importantly — it never resolves an open incident. An outage marked fixed because the pipeline stopped reporting is precisely the failure that rule prevents.
+
+<Callout>
+Before each pass the evaluator asks one shared question: has *anything at all* arrived recently. If nothing has, watches that fire on an absence are skipped rather than evaluated. A dead ingest pipeline looks exactly like an idle installation, and without this one query a broken consumer would page you about every deployment at once.
+</Callout>
+
+## Firing, resolving, and not flapping
+
+- The hold is counted in **evaluations**, not wall-clock seconds. Five minutes of firing with an evaluation missing in the middle is not five minutes of firing.
+- Resolving is deliberately harder than firing: it takes two consecutive clean evaluations. One is not recovery, and a metric hovering at its threshold would otherwise open and resolve an incident every minute — which is what teaches people to filter the alert channel.
+- An episode that stops being decidable for long enough closes as **stale**, which stays distinct from **resolved** everywhere it is recorded. Collapsing the two is how a real outage gets written down as fixed.
+- Editing anything that changes what a pending hold *means* — a condition, the combinator, the hold — restarts it. Renaming a watch or changing its recipients does not.
+
+**Mute** suppresses notifications for a while without stopping evaluation, so the history stays complete and an open incident still resolves on its own. To stop a watch entirely, disable it — which also closes whatever it had open.
+
+## Actions
+
+### `topic`
+
+Publishes the alert onto a **deployment's own subject**, where a flow picks it up with an ordinary [`events` source](/reference/connectors/events).
+
+```json
+{ "id": "a_1", "type": "topic", "params": { "deploymentId": "…", "subject": "alerts" } }
+```
+
+The deployment named here is the one that *acts* on the alert, which is usually not the one the alert is about — a platform agent watching an integration it does not run. The flow subscribes to `alerts`; the platform publishes to that deployment's scoped subject, and the runtime does the rest.
+
+<Callout type="warn">
+There is deliberately no way to broadcast an alert to every deployment. The runtime refuses to let a flow subscribe to the platform's own subject plane, because that plane carries every deployment's logs and traces — a flow that could listen to it could read other workloads' traffic. So an alert is addressed to a deployment, and a watch that should reach several names several topic actions.
+</Callout>
+
+The payload is the notification: the watch, the episode, and every condition's outcome with the value it observed and the threshold it was judged against.
+
+### `email`
+
+```json
+{ "id": "a_2", "type": "email", "params": { "to": ["ops@example.com"] } }
+```
+
+Sent through the orchestrator's [email settings](/platform/admin-settings#email), so the address it goes out under is defined once and the provider key is never held by this service. Configure email first, or the action records that it could not deliver.
+
+### `log`
+
+Writes the alert to the observability service's own log, where your logging pipeline stores it. It costs nothing and needs no configuration, which makes it the honest choice for a watch you are still tuning.
+
+Every attempt is recorded with its outcome, so "the alert fired but I got no email" is answerable from the history rather than from somebody's inbox. A failed delivery never rolls back the transition that caused it — the watch did fire — and a failed delivery does not start the renotify cooldown either.
+
+## Trying a watch before you save it
+
+`POST /alerts/preview` runs a definition against real data now and reports what each condition observed, without recording anything, moving any state or telling anybody.
+
+```bash
+curl -sS -X POST "$OBSERVABILITY_URL/alerts/preview" \
+  -H 'Content-Type: application/json' -d @watch.json
+```
+
+This is how a spike's gates get tuned — against history that already exists, rather than by waiting to find out that it never fires.
+
+## The execution log
+
+Every evaluation is recorded, including the ones where nothing happened.
+
+```bash
+curl -sS "$OBSERVABILITY_URL/alerts/watches/$ID/evaluations?notable=true"
+```
+
+That is the point of it: an alert that did not go off is otherwise indistinguishable from one that was never evaluated, and telling those apart is the whole question asked after a missed incident. Each row carries the per-condition outcomes as they were — the observed value, the baseline, the threshold — so a row from three weeks ago still explains itself after the watch has been retuned.
+
+A row that declined to fire says which gate stopped it: `below_z`, `below_min_delta`, `denominator_too_small`, `below_min_baseline`, `no_data`. "Why did this *not* fire" is the question asked after every alert somebody expected.
+
+`status` is five-valued, and the two least exciting matter most: `insufficient` means the window did not hold enough data to decide, and `skipped` means the evaluator deliberately did not look. Both are distinct from `ok`, because "we looked and it was fine" and "we could not look" are the two states you most need to tell apart.
+
+Retention for this log defaults to **14 days**; see [Data retention](/platform/observability-api-reference#data-retention).
+
+## Running it
+
+The evaluator runs inside the observability service, on exactly one replica, holding a Kubernetes `Lease`. Ingesting a record twice is idempotent; evaluating a watch twice is not — two replicas would open two incidents and send two emails for one outage. Extra replicas still share ingest and answer the API; they simply stand by for alerting.
+
+The chart grants the service one permission for this, a namespaced Role over `coordination.k8s.io/leases`. Off-cluster — `task observability:run`, or the tests — there is no election and the single process evaluates.
+
+An installation may hold 200 watches. Past that the next one is refused rather than accepted into a pass that cannot finish inside its interval, which would degrade every watch rather than the one added last.
