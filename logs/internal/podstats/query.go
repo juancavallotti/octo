@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"sort"
+	"strconv"
 )
 
 // Turning rows back into series.
@@ -330,9 +331,14 @@ func labelKey(labels map[string]string) string {
 	}
 	sort.Strings(keys)
 
+	// Quoted, not joined raw. A label VALUE may contain the separators, so
+	// {a: "b,c=d"} and {a: "b", c: "d"} would otherwise both render as
+	// "a=b,c=d," — and the catalogue groups label sets by this key, so a
+	// collision merges two distinct series into one entry and concatenates
+	// their pods. Quoting makes every boundary unambiguous.
 	out := ""
 	for _, k := range keys {
-		out += k + "=" + labels[k] + ","
+		out += strconv.Quote(k) + "=" + strconv.Quote(labels[k]) + ","
 	}
 	return out
 }

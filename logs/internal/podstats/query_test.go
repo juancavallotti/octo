@@ -554,3 +554,28 @@ func TestAbsoluteCounterOnRollupReportsTheReading(t *testing.T) {
 		t.Errorf("delta values = [%v %v], want the stored growth [5 7]", a, b)
 	}
 }
+
+// Two different label sets must never share a key.
+//
+// The catalogue groups a metric's series by this key, so a collision merges two
+// distinct series into one entry and concatenates their pods — a caller is then
+// told a label set exists on pods that never reported it. Reachable because a
+// label VALUE may contain the separators, which nothing forbids.
+func TestLabelKeyDistinguishesSetsContainingItsSeparators(t *testing.T) {
+	colliding := labelKey(map[string]string{"a": "b,c=d"})
+	innocent := labelKey(map[string]string{"a": "b", "c": "d"})
+
+	if colliding == innocent {
+		t.Errorf("both label sets keyed as %q; they are different series", colliding)
+	}
+}
+
+func TestLabelKeyIsStableAcrossMapOrder(t *testing.T) {
+	// Map iteration order is randomized, so a key built from it must sort.
+	first := labelKey(map[string]string{"b": "2", "a": "1"})
+	for range 20 {
+		if got := labelKey(map[string]string{"a": "1", "b": "2"}); got != first {
+			t.Fatalf("labelKey = %q then %q; map order is leaking through", first, got)
+		}
+	}
+}
