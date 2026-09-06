@@ -259,7 +259,7 @@
                         "uniqueItems": false
                     },
                     "values": {
-                        "description": "A null is a gap: a series the dictionary knows that the scrape did not\nreport. It is not a zero.",
+                        "description": "Nullable: an entry is null where the scrape did not report that series,\nwhich is a gap rather than a measurement of zero. A generated client that\ntypes these as plain numbers will reject the first gap it meets.\n\nSaid here rather than declared in the schema because swaggo cannot mark an\narray's items nullable — x-nullable lands on the array, which would claim\nthe column itself may be null, and that is a different and untrue thing.",
                         "items": {
                             "type": "number"
                         },

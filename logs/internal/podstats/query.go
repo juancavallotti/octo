@@ -169,6 +169,14 @@ func decodeRows(
 					// is unknown.
 					seen[i] = false
 				}
+			} else if kind == KindCounter && p.Counters == CountersAbsolute && tier == TierRollup {
+				// A rollup row stores a counter's growth in value and its
+				// closing cumulative reading in last. absolute asks for the
+				// reading, so it comes from last — value would hand back the
+				// delta under the name of the thing it is not.
+				if reading, ok := row.last.At(index); ok {
+					point = ptr(reading)
+				}
 			} else if hasValue {
 				point = ptr(value)
 			}

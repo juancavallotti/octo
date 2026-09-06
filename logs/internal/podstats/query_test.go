@@ -521,3 +521,36 @@ func TestEveryColumnRejectsNonFinite(t *testing.T) {
 		t.Errorf("nullable past the end = %v, want nil", *got)
 	}
 }
+
+// counters=absolute on the history tier must report the reading, not the delta.
+//
+// A rollup row stores a counter's growth in value and its closing cumulative
+// reading in last, so the branch that emitted value for everything that is not
+// a live delta was handing back growth under the name of the thing it is not.
+// The two differ in a way nobody would catch from the shape of the chart —
+// both climb — which is what makes it worth pinning.
+func TestAbsoluteCounterOnRollupReportsTheReading(t *testing.T) {
+	rows := rowsOf(t,
+		rawBucket{StartMS: 0, EndMS: 60000, Samples: 60,
+			Value: []*float64{num(5)}, Last: []*float64{num(505)}},
+		rawBucket{StartMS: 60000, EndMS: 120000, Samples: 60,
+			Value: []*float64{num(7)}, Last: []*float64{num(512)}},
+	)
+	only := []Stat{StatValue}
+
+	absolute := decodeRows("pod-a", TierRollup, rows, counterDict(), []int{0}, 0, 120000,
+		Projection{Stats: only, Counters: CountersAbsolute})
+	if len(absolute) != 1 {
+		t.Fatalf("series = %d, want 1", len(absolute))
+	}
+	if a, b := deref(absolute[0].Values[0]), deref(absolute[0].Values[1]); a != 505.0 || b != 512.0 {
+		t.Errorf("absolute values = [%v %v], want the closing readings [505 512]", a, b)
+	}
+
+	// delta is untouched: the stored growth already means what it says.
+	delta := decodeRows("pod-a", TierRollup, rows, counterDict(), []int{0}, 0, 120000,
+		Projection{Stats: only, Counters: CountersDelta})
+	if a, b := deref(delta[0].Values[0]), deref(delta[0].Values[1]); a != 5.0 || b != 7.0 {
+		t.Errorf("delta values = [%v %v], want the stored growth [5 7]", a, b)
+	}
+}

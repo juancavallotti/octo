@@ -65,7 +65,7 @@ Every query route is a `GET`. The three [retention](#data-retention) routes are 
 
 ## Pod stats
 
-The [pod stats sidecar](/docs/platform/pod-stats) writes each production pod's own
+The [pod stats sidecar](/platform/pod-stats) writes each production pod's own
 metrics to Redis. These three routes read them back, and they are the only part of this
 API not backed by Postgres — which is why they answer even when the log store is
 unreachable.

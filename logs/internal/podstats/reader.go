@@ -353,7 +353,16 @@ func estimate(state PodState, w Window) int {
 		return 1
 	}
 
-	n := span/step.Milliseconds() + 1 + estimateSlack
+	// A sub-millisecond step rounds to zero milliseconds, and dividing by it
+	// panics. Nothing should configure one — the sidecar's sample interval is a
+	// duration an operator writes — but a division by a value derived from
+	// remote configuration is not the place to find out.
+	stepMS := step.Milliseconds()
+	if stepMS < 1 {
+		stepMS = 1
+	}
+
+	n := span/stepMS + 1 + estimateSlack
 	if n > continuationChunk*8 {
 		// Do not ask for a whole tier in one command on the strength of an
 		// estimate; the continuation path handles a genuinely large window.

@@ -283,8 +283,13 @@ func (s *Service) Series(ctx context.Context, q Query) (Result, error) {
 		}
 
 		// Resolved before any row is read, so a pod exposing none of the named
-		// metrics costs nothing beyond the dictionary already fetched.
-		indices := q.Selector.Resolve(dict)
+		// metrics costs nothing beyond the dictionary already fetched — and a
+		// query that asks for too many is refused before any row is read at all,
+		// which is the whole point of resolving first.
+		indices, err := q.Selector.Resolve(dict)
+		if err != nil {
+			return Result{}, err
+		}
 		if len(indices) == 0 {
 			result.Warnings = append(result.Warnings,
 				Warning{Pod: ref.Name, Reason: "no matching series"})

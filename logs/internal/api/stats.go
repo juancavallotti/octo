@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"math"
 	"net/http"
@@ -232,8 +233,13 @@ type statsSeries struct {
 	Times []int64 `json:"times"`
 	Ends  []int64 `json:"ends,omitempty"`
 
-	// A null is a gap: a series the dictionary knows that the scrape did not
-	// report. It is not a zero.
+	// Nullable: an entry is null where the scrape did not report that series,
+	// which is a gap rather than a measurement of zero. A generated client that
+	// types these as plain numbers will reject the first gap it meets.
+	//
+	// Said here rather than declared in the schema because swaggo cannot mark an
+	// array's items nullable — x-nullable lands on the array, which would claim
+	// the column itself may be null, and that is a different and untrue thing.
 	Values  readings `json:"values"`
 	Min     readings `json:"min,omitempty"`
 	Max     readings `json:"max,omitempty"`
@@ -329,6 +335,13 @@ func (h *StatsHandler) series(w http.ResponseWriter, r *http.Request) {
 	q.DeploymentID = deploymentID
 
 	result, err := h.r.Series(r.Context(), q)
+	if errors.Is(err, podstats.ErrTooManySeries) {
+		// The caller's request, not the service's failure: a metric name is not
+		// a series, so a query naming three can resolve to hundreds. Saying so
+		// is more useful than a slow answer nobody asked the size of.
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		slog.Error("api: read stats series", "deployment", deploymentID, "err", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to read pod stats")
@@ -467,6 +480,14 @@ func parseLabels(raw []string) (map[string]string, error) {
 		key, value, ok := strings.Cut(pair, "=")
 		if !ok || key == "" {
 			return nil, errInvalid("label must be key=value: " + pair)
+		}
+		// Repeated labels are ANDed, and a series carries one value per label,
+		// so two values for the same key select nothing. Silently keeping the
+		// last would answer a narrower question than the one asked, with a
+		// response that looks like a complete answer to it.
+		if previous, seen := out[key]; seen && previous != value {
+			return nil, errInvalid("label " + key + " given twice with different " +
+				"values; repeated labels are ANDed, so this matches nothing")
 		}
 		out[key] = value
 	}
