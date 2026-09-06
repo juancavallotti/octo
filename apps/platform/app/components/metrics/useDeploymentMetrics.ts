@@ -65,7 +65,11 @@ export function useDeploymentMetrics(
 
     void (async () => {
       try {
-        const [nextSeries, nextPods] = await Promise.all([
+        // Settled rather than all: the two calls answer different questions and
+        // fail independently. A pods request that fails should not throw away a
+        // series response that arrived — the chart is the point of the page, and
+        // the pod table is what explains an empty one.
+        const [nextSeries, nextPods] = await Promise.allSettled([
           readStatsSeries(deploymentId, {
             metrics: [CPU_METRIC, MEM_METRIC],
             // The view names its tier. Never auto: a window longer than the
@@ -81,9 +85,20 @@ export function useDeploymentMetrics(
           listStatsPods(deploymentId),
         ]);
         if (cancelled) return;
-        setSeries(nextSeries);
-        setPods(nextPods.items);
-        setError(null);
+
+        if (nextSeries.status === "fulfilled") setSeries(nextSeries.value);
+        if (nextPods.status === "fulfilled") setPods(nextPods.value.items);
+
+        // Only a total failure is an error. One half landing is a better page
+        // than neither, and the half that did not is reported by what it would
+        // have filled being empty.
+        const failure =
+          nextSeries.status === "rejected"
+            ? nextSeries.reason
+            : nextPods.status === "rejected"
+              ? nextPods.reason
+              : null;
+        setError(failure === null ? null : message(failure));
       } catch (err) {
         if (cancelled) return;
         // The last good data stays on screen. A transient failure should not
@@ -100,4 +115,9 @@ export function useDeploymentMetrics(
   }, [deploymentId, view, askMs, now, wanted]);
 
   return { series, pods, askMs, loading: loaded !== wanted, error };
+}
+
+/** An unknown rejection as a sentence. */
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

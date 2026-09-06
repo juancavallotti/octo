@@ -174,3 +174,46 @@ describe("the window", () => {
     await screen.findByText(/part of the picture/);
   });
 });
+
+describe("when only one of the two calls fails", () => {
+  it("keeps the chart when the pod list is what failed", async () => {
+    // Promise.all would discard a perfectly good series response because its
+    // neighbour rejected, blanking the chart the page exists to draw.
+    listStatsPods.mockRejectedValue(new Error("pods unavailable"));
+    readStatsSeries.mockResolvedValue(
+      seriesPage({
+        series: [
+          {
+            pod: "octo-dep-1-abc",
+            name: "process_resident_memory_bytes",
+            kind: "gauge",
+            labels: {},
+            times: [NOW - 1000, NOW],
+            ends: [],
+            values: [1e8, 1.1e8],
+            min: [],
+            max: [],
+            last: [],
+            samples: [],
+          },
+        ],
+      }),
+    );
+
+    render(<MetricsMonitor deploymentId="dep-1" />);
+
+    // The failure is reported, and the data that arrived is still on screen.
+    await screen.findByText(/pods unavailable/);
+    expect(screen.queryByText("Metrics unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText("No pod stats for this deployment")).not.toBeInTheDocument();
+  });
+
+  it("still reports an error when both fail", async () => {
+    listStatsPods.mockRejectedValue(new Error("pods unavailable"));
+    readStatsSeries.mockRejectedValue(new Error("series unavailable"));
+
+    render(<MetricsMonitor deploymentId="dep-1" />);
+
+    await screen.findByText("Metrics unavailable");
+  });
+});
