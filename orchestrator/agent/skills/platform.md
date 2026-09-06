@@ -80,9 +80,10 @@ Work through it in this order, because each step rules out the one below:
 
 Pod logs are the *live* output of a pod that still exists, so they are no use once it
 has been replaced — and a crash loop replaces it repeatedly. For anything that has
-already happened, use the observability API (`list_logs_operations`, `read_logs_docs`,
-`logs_api`) instead: stored log events survive the pod, and a trace is the whole run
-block by block rather than whatever the process happened to print. Filter logs by
+already happened, use the observability API (`list_observability_operations`,
+`read_observability_docs`, `observability_api`) instead: stored log events survive
+the pod, and a trace is the whole run block by block rather than whatever the
+process happened to print. Filter logs by
 `deploymentId`, and traces by `deploymentId` with `status=failed` to go straight to
 the runs that broke.
 
