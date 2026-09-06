@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.10.0](https://github.com/juancavallotti/octo/compare/v0.9.1...v0.10.0) (2026-09-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** types.BlockConfig no longer carries typed slot fields, and core/internal/engine is now core/engine. Flow YAML is unchanged.
+* **orchestrator:** hand deployments OBSERVABILITY_URL, not LOGS_URL
+* rename the logs module to observability
+
+### Features
+
+* chart pod stats in the platform ([e41e484](https://github.com/juancavallotti/octo/commit/e41e48421a1d25c63cbaf2aaf956512ec1cea671))
+* **deploy:** collect pod stats on the cloud release ([de78113](https://github.com/juancavallotti/octo/commit/de78113b46a31c158dbf70a77a50b97e4df82dbe))
+* **helm:** collect pod stats on the local cluster ([a75303f](https://github.com/juancavallotti/octo/commit/a75303f5cde02d5f0b67d603dbbb48f35d8f24a8))
+* **helm:** ship the pod stats sidecar ([052e05b](https://github.com/juancavallotti/octo/commit/052e05b159f4e26c8faac7b1e505fb0af71d4692))
+* **logs:** join pod stats against their dictionary ([760381a](https://github.com/juancavallotti/octo/commit/760381af4977b5e45d5ef7801a6abc9581ada61d))
+* **logs:** mirror the pod stats wire format ([19ea601](https://github.com/juancavallotti/octo/commit/19ea601165e22917ff0f2138c943a71b73084a3e))
+* **logs:** read pod stats rows from redis ([44b29c8](https://github.com/juancavallotti/octo/commit/44b29c8d3472541321b9474d6c40ca4a04f2ea2a))
+* **logs:** serve the pod stats query API ([f577d9e](https://github.com/juancavallotti/octo/commit/f577d9e5d05122550072c032b60e00ca34a0bb84))
+* **observability:** serve the storage report ([8ff7439](https://github.com/juancavallotti/octo/commit/8ff74399eb727eadccd16f73a0a8149fec0e1aad))
+* **orchestrator:** inject the pod stats sidecar ([a02effb](https://github.com/juancavallotti/octo/commit/a02effb1aa3ec1aaa1405dde252d16421905a30f))
+* **platform:** add a pod stats client to the BFF ([ed16e9e](https://github.com/juancavallotti/octo/commit/ed16e9e14b90bf2bfd67196bb47494ee11156513))
+* **platform:** add time-series chart primitives ([eaf51d6](https://github.com/juancavallotti/octo/commit/eaf51d66f81e7a438adc64b043398c3955af01ad))
+* **platform:** chart a deployment's cpu and memory ([5bc4d35](https://github.com/juancavallotti/octo/commit/5bc4d35fa28fd41df2269d641a1daf0606461ae3))
+* **platform:** chart every metric a deployment reports ([318c432](https://github.com/juancavallotti/octo/commit/318c432bc5e3e564413e09e99fe20b95f0dce716))
+* **platform:** keep the metrics page live ([4badccc](https://github.com/juancavallotti/octo/commit/4badccccb74fb807cb504a14e45e68b2d74ebfe2))
+* **platform:** make Deployments the Metrics tab ([06891ce](https://github.com/juancavallotti/octo/commit/06891ceae5562aa3c25e1db99224da126cbdf682))
+* **platform:** make the metrics views the two stored tiers ([eec4c80](https://github.com/juancavallotti/octo/commit/eec4c80e64cee27e98ec7ffdd4fcc469d18d7d3c))
+* **platform:** name the views after the tiers and deduce their reach ([c954a2f](https://github.com/juancavallotti/octo/commit/c954a2f3795ee511df310376f474950f852cc8cc))
+* **platform:** show a five-minute sparkline on each deployment ([ecdcf96](https://github.com/juancavallotti/octo/commit/ecdcf964ebc559ffc1cbbc900456cd5aac166cb5))
+* **sidecars:** add the pod stats sidecar binary ([dd2ee56](https://github.com/juancavallotti/octo/commit/dd2ee56cd47559a27f2c0df87608656d70261b05))
+* **sidecars:** publish pod stats to redis ([34066be](https://github.com/juancavallotti/octo/commit/34066be88c14a4f3ea235fcae92e5e8008c0f558))
+* **sidecars:** roll pod stats up into tiers ([af1bd30](https://github.com/juancavallotti/octo/commit/af1bd3050aa316a9ebf98c0d5908f4a0cdc5ddab))
+* **sidecars:** scrape and model runtime metrics ([95dade2](https://github.com/juancavallotti/octo/commit/95dade28466913fa6aeb40a52f4a95c74d81b09d))
+
+
+### Bug Fixes
+
+* **ai:** refuse an embedding response that does not match the request ([2902694](https://github.com/juancavallotti/octo/commit/2902694725a466544b341e82d24fd9fc096be073))
+* **logs:** address the review findings on the pod stats read API ([1c1341d](https://github.com/juancavallotti/octo/commit/1c1341d43bee9031b92bc33fe11d452fea98c514))
+* **logs:** give a label set an unambiguous key ([76bf50a](https://github.com/juancavallotti/octo/commit/76bf50a285d44c659a9bdf35b686b4ef0300defa))
+* **logs:** report a truncated pod list from the metrics catalogue ([c85133b](https://github.com/juancavallotti/octo/commit/c85133bbc0d0621fde0affdfad888b53f279d6b3))
+* **platform:** keep the chart when only the pod list fails ([ec20a65](https://github.com/juancavallotti/octo/commit/ec20a65e409fef536351286039bd400e1219bce9))
+* **platform:** keep two pods' info labels distinct, and time the sparkline ([946a7e4](https://github.com/juancavallotti/octo/commit/946a7e486e078b393178c4827ca0e434292b44a6))
+* **platform:** make a sparse chart visible, and give the local live tier reach ([112b9b1](https://github.com/juancavallotti/octo/commit/112b9b192a444945333d0013497c75877b790a68))
+* **platform:** make the deployment sparkline readable ([628d027](https://github.com/juancavallotti/octo/commit/628d0271312c54d1c7c40ce0cedc2e669024d7e9))
+* **platform:** stop calling one reading unchanged, and key label sets safely ([863c41f](https://github.com/juancavallotti/octo/commit/863c41f1f13d5da79cceab0f01e8235fc5993f9f))
+* **sidecars:** address the review findings on the stats sidecar ([8f4ee66](https://github.com/juancavallotti/octo/commit/8f4ee66ec24ea9c685e108925c7a17dc2fc1d3ce))
+* **sidecars:** refuse truncated scrapes and stamp buckets correctly ([1fc2f71](https://github.com/juancavallotti/octo/commit/1fc2f71ef928efde7cc62046390981931dc91b13))
+* **sidecars:** store gaps as null rather than failing the write ([22df274](https://github.com/juancavallotti/octo/commit/22df2742fc8bea984b6fbe15738f8d7fc0cb954d))
+
+
+### Refactoring
+
+* **agent:** call Dr. Octo's stored-history tools observability tools ([273b003](https://github.com/juancavallotti/octo/commit/273b003744b6b1e12e3aef41b0860e75a2b49663))
+* **logs:** pass redis to the server wiring ([6685c7d](https://github.com/juancavallotti/octo/commit/6685c7dc376fdd950ccd597e26990bc1624e43e8))
+* **orchestrator:** hand deployments OBSERVABILITY_URL, not LOGS_URL ([85a5f80](https://github.com/juancavallotti/octo/commit/85a5f8083ef36ded4c029785bbb43981fda9a026))
+* **platform:** draw the metrics charts with recharts ([2454517](https://github.com/juancavallotti/octo/commit/2454517f53ca6435d913fdc0b4e40ed10478b4bd))
+* rename the logs module to observability ([e243424](https://github.com/juancavallotti/octo/commit/e243424e3c656753766b8e81573c859bea810f34)), closes [#251](https://github.com/juancavallotti/octo/issues/251)
+* **runtime:** build every block through the registry ([e24f97f](https://github.com/juancavallotti/octo/commit/e24f97fea589be7e727e3b0f73aa591cfbe6cc15))
+
+
+### Documentation
+
+* **agent:** say what allowMethods on the observability tool actually guards ([0370dbe](https://github.com/juancavallotti/octo/commit/0370dbec8da47f3fcd8e8eb3f1852d5f08e811c8))
+* describe blocks with sub-flows as ordinary blocks ([a4887b6](https://github.com/juancavallotti/octo/commit/a4887b6f22609bcdc74b15bf7c75e4be22c08ac7))
+* describe the observability service under its name ([343622d](https://github.com/juancavallotti/octo/commit/343622d66f30b75fdb11687181512e5c60d41b5d)), closes [#251](https://github.com/juancavallotti/octo/issues/251)
+* document the pod stats read API ([5fd81e1](https://github.com/juancavallotti/octo/commit/5fd81e1fdf91ee8496124fae46d3fbc89bba9a38))
+* document the pod stats sidecar ([b859d8a](https://github.com/juancavallotti/octo/commit/b859d8a85f8e57f55eb021012b88f8ab000f8b3d))
+* show pod stats in the platform ([71e741f](https://github.com/juancavallotti/octo/commit/71e741f9c8d28759f924494ae6d602b3cb275081))
+
 ## [0.9.1](https://github.com/juancavallotti/octo/compare/v0.9.0...v0.9.1) (2026-09-03)
 
 
