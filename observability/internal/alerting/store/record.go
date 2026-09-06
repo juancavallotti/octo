@@ -25,7 +25,7 @@ const stateColumns = `
 // The state half is COALESCEd because the join is a LEFT one: a watch whose state
 // row has somehow gone missing must still list, showing a machine at rest, rather
 // than failing the whole page.
-func scanWatchAndState(rows pgx.Rows, into *Listed) error {
+func scanWatchAndState(rows pgx.Rows, into *alerting.Due) error {
 	var w alerting.Watch
 	var st alerting.State
 	var conditions, actions []byte
@@ -89,8 +89,9 @@ func deref(t *time.Time) time.Time {
 // evaluators the exception rather than the rule, but a lease that has already
 // moved is exactly the case where an old decision would otherwise overwrite a new
 // one, and the guard costs nothing.
-func (s *Store) Record(ctx context.Context, r alerting.Result) error {
-	return s.inTx(ctx, func(tx pgx.Tx) error {
+func (s *Store) Record(ctx context.Context, r alerting.Result) (alerting.State, error) {
+	var written alerting.State
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		state := r.State
 		for _, action := range r.Actions {
 			if action.Kind != alerting.ActionOpen {
@@ -109,8 +110,10 @@ func (s *Store) Record(ctx context.Context, r alerting.Result) error {
 		if err := writeEvaluation(ctx, tx, state, r); err != nil {
 			return err
 		}
+		written = state
 		return closeEpisodes(ctx, tx, r)
 	})
+	return written, err
 }
 
 func openIncident(ctx context.Context, tx pgx.Tx, r alerting.Result) (string, error) {

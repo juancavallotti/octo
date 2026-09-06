@@ -41,25 +41,20 @@ func NewDispatcher(topics *Topics, mail *Mailer) *Dispatcher {
 	return &Dispatcher{topics: topics, mail: mail}
 }
 
-// Result is one action's outcome, recorded on the evaluation that caused it.
-type Result struct {
-	ActionID string `json:"actionId"`
-	Type     string `json:"type"`
-	Err      string `json:"error,omitempty"`
-}
-
-// Delivered reports whether the action went through.
-func (r Result) Delivered() bool { return r.Err == "" }
-
-// Dispatch runs every action on the watch and reports what each did.
+// Notify runs every action on the watch and reports what each did.
 //
 // It never returns an error of its own: one action failing must not stop the
 // next, because a watch that emails and publishes has two audiences and the
-// second has done nothing wrong. Every failure lands in a Result instead.
-func (d *Dispatcher) Dispatch(ctx context.Context, w alerting.Watch, n alerting.Notification) []Result {
-	out := make([]Result, 0, len(w.Actions))
+// second has done nothing wrong. Every failure lands in a result instead.
+//
+// The name is the runner's, not this package's: the runner declares the one-method
+// interface it consumes and this happens to satisfy it.
+func (d *Dispatcher) Notify(
+	ctx context.Context, w alerting.Watch, n alerting.Notification,
+) []alerting.DeliveryResult {
+	out := make([]alerting.DeliveryResult, 0, len(w.Actions))
 	for _, spec := range w.Actions {
-		result := Result{ActionID: spec.ID, Type: spec.Type}
+		result := alerting.DeliveryResult{ActionID: spec.ID, Type: spec.Type}
 		if err := d.deliver(ctx, spec, n); err != nil {
 			result.Err = err.Error()
 			slog.Error("an alert action failed",

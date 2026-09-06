@@ -217,7 +217,7 @@ func TestRecordWritesHistoryStateAndIncidentTogether(t *testing.T) {
 	for i := range 3 {
 		at := storeNow.Add(time.Duration(i) * time.Minute)
 		r := firing(created, prev, at, alerting.True)
-		if err := s.Record(t.Context(), r); err != nil {
+		if _, err := s.Record(t.Context(), r); err != nil {
 			t.Fatalf("record %d: %v", i, err)
 		}
 		due, _ := s.Due(t.Context(), at.Add(time.Hour), 10)
@@ -272,7 +272,7 @@ func TestRecordClosesAnEpisodeOnRecovery(t *testing.T) {
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 	step := func(at time.Time, verdict alerting.Truth) {
 		t.Helper()
-		if err := s.Record(t.Context(), firing(created, prev, at, verdict)); err != nil {
+		if _, err := s.Record(t.Context(), firing(created, prev, at, verdict)); err != nil {
 			t.Fatalf("record: %v", err)
 		}
 		due, _ := s.Due(t.Context(), at.Add(time.Hour), 10)
@@ -307,10 +307,10 @@ func TestRecordRefusesAStaleEvaluation(t *testing.T) {
 	created := mustCreate(t, s, "checkout errors")
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 
-	if err := s.Record(t.Context(), firing(created, prev, storeNow.Add(time.Minute), alerting.True)); err != nil {
+	if _, err := s.Record(t.Context(), firing(created, prev, storeNow.Add(time.Minute), alerting.True)); err != nil {
 		t.Fatalf("record the newer evaluation: %v", err)
 	}
-	err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True))
+	_, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True))
 	if !errors.Is(err, alerting.ErrStaleEvaluation) {
 		t.Fatalf("error = %v, want ErrStaleEvaluation", err)
 	}
@@ -328,7 +328,7 @@ func TestHistoryFiltersAndPages(t *testing.T) {
 	verdicts := []alerting.Truth{alerting.False, alerting.False, alerting.True, alerting.Unknown, alerting.False}
 	for i, v := range verdicts {
 		at := storeNow.Add(time.Duration(i) * time.Minute)
-		if err := s.Record(t.Context(), firing(created, prev, at, v)); err != nil {
+		if _, err := s.Record(t.Context(), firing(created, prev, at, v)); err != nil {
 			t.Fatalf("record %d: %v", i, err)
 		}
 		due, _ := s.Due(t.Context(), at.Add(time.Hour), 10)
@@ -418,7 +418,7 @@ func TestDeleteCascades(t *testing.T) {
 	created.For = 0
 	created, _ = s.Update(t.Context(), created, "")
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
-	if err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
+	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 
@@ -443,7 +443,7 @@ func TestRetireClosesAnOpenEpisode(t *testing.T) {
 	created.For = 0
 	created, _ = s.Update(t.Context(), created, "")
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
-	if err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
+	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 
@@ -467,7 +467,7 @@ func TestAcknowledgeAndMute(t *testing.T) {
 	created.For = 0
 	created, _ = s.Update(t.Context(), created, "")
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
-	if err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
+	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 	incidents, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
@@ -534,5 +534,36 @@ func TestCountAndDefer(t *testing.T) {
 	due, _ := s.Due(t.Context(), storeNow, 10)
 	if len(due) != 1 || due[0].Watch.ID == created.ID {
 		t.Errorf("due = %+v, want only the watch that was not deferred", due)
+	}
+}
+
+// The incident id is minted during the write, so Record has to hand back the
+// state it actually wrote — otherwise the notification that announces an episode
+// does not know what the episode is called, and nothing counts against it.
+func TestRecordReturnsTheStateItWroteIncludingTheIncident(t *testing.T) {
+	s := newStore(t)
+	created := mustCreate(t, s, "checkout errors")
+	created.For = 0
+	created, _ = s.Update(t.Context(), created, "")
+	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
+
+	written, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True))
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if written.IncidentID == "" {
+		t.Fatal("the opened incident's id did not come back")
+	}
+	if written.Phase != alerting.PhaseFiring {
+		t.Errorf("phase %s, want firing", written.Phase)
+	}
+
+	// And a notification against it counts.
+	if err := s.RecordNotification(t.Context(), created.ID, written.IncidentID, storeNow); err != nil {
+		t.Fatalf("record notification: %v", err)
+	}
+	incidents, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	if incidents[0].Notifications != 1 {
+		t.Errorf("the episode counted %d notifications, want 1", incidents[0].Notifications)
 	}
 }
