@@ -14,9 +14,11 @@ import {
   toGauge,
 } from "@/app/components/stats/chart/metrics";
 import type { StatsSeriesPage } from "@/app/model/stats";
+import MetricGrid from "./MetricGrid";
 import PodStatsTable from "./PodStatsTable";
 import { RANGE_PRESETS, readRange, spanMs, writeRange, type RangeKey } from "./range";
 import { useDeploymentMetrics } from "./useDeploymentMetrics";
+import { useDeploymentCatalogue } from "./useDeploymentCatalogue";
 
 /**
  * One deployment's CPU and memory, from the rolling week its pods keep in Redis.
@@ -48,6 +50,11 @@ export default function MetricsMonitor({
 
   const [now, setNow] = useState(() => Date.now());
   const { series, pods, loading, error } = useDeploymentMetrics(deploymentId, range, now);
+
+  // The whole catalogue, alongside the overview. A separate hook rather than one
+  // larger request: the overview is two metrics and lands immediately, and it
+  // should be on screen while the other fifty are still arriving.
+  const catalogue = useDeploymentCatalogue(deploymentId, range, now);
 
   const setRange = (next: RangeKey) => {
     const qs = writeRange(next);
@@ -128,6 +135,17 @@ export default function MetricsMonitor({
       ))}
 
       <PodStatsTable pods={pods} now={now} />
+
+      {catalogue.metrics.length > 0 ? (
+        <MetricGrid
+          metrics={catalogue.metrics}
+          stepMs={parseGoDuration(catalogue.page?.step ?? "") ?? 1000}
+          fromMs={from}
+          toMs={to}
+        />
+      ) : catalogue.loading ? (
+        <p className="text-sm text-zinc-400">Loading the rest of the metrics…</p>
+      ) : null}
     </div>
   );
 }

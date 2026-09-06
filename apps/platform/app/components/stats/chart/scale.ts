@@ -63,12 +63,16 @@ export function unionExtent(parts: ReadonlyArray<Extent | null>): Extent | null 
  * `min === max`, which makes every scale a division by zero; it is given a band
  * around itself. And a series of non-negative readings is anchored at zero,
  * because a memory line hovering between 118 and 120 MiB drawn full-height reads
- * as a crisis rather than as a flat line.
+ * as a crisis rather than as a flat line — pass `anchorZero: false` for a series
+ * where zero is not a meaningful floor.
  */
-export function plotExtent(raw: Extent | null): Extent {
+export function plotExtent(raw: Extent | null, anchorZero = true): Extent {
   if (!raw) return { min: 0, max: 1 };
 
-  const min = raw.min >= 0 ? 0 : raw.min;
+  // Anchoring is wrong for a series that is not a magnitude. A unix timestamp
+  // charted from zero puts every reading in a hairline at the top of a plot
+  // whose axis is labelled with the 1970s.
+  const min = anchorZero && raw.min >= 0 ? 0 : raw.min;
   if (min === raw.max) {
     // A flat zero series still needs a height; a flat non-zero one gets headroom
     // proportional to itself rather than an arbitrary unit. The headroom is
@@ -154,6 +158,23 @@ export function ticks(
     out.push(round(at, step));
   }
   return out.length > 0 ? out : [min];
+}
+
+/**
+ * Ticks for an axis too short to carry many, guaranteed to have both ends.
+ *
+ * `ticks` rounds its step up, which on a two-tick axis regularly produces a step
+ * larger than the range itself — leaving a single tick at zero and a chart whose
+ * top is unlabelled. Here the range's own top is the fallback, because the one
+ * number a small chart has to state is the height of its line.
+ */
+export function endTicks(
+  min: number,
+  max: number,
+  stepper: (raw: number) => number = niceStep,
+): number[] {
+  const out = ticks(min, max, 2, stepper);
+  return out.length >= 2 ? out : [min, max];
 }
 
 /** Drop the floating-point noise repeated addition leaves behind. */
