@@ -14,15 +14,28 @@ vi.mock("@/app/model/retention", () => ({
 import RetentionSettingsManager from "./RetentionSettingsManager";
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 
-const CONFIGURED = { logsDays: 30, tracesDays: 7, updatedAt: "2026-08-11T03:00:00Z" };
-const KEEP_EVERYTHING = { logsDays: 0, tracesDays: 0, updatedAt: null };
+const CONFIGURED = {
+  logsDays: 30,
+  tracesDays: 7,
+  alertsDays: 14,
+  updatedAt: "2026-08-11T03:00:00Z",
+};
+const KEEP_EVERYTHING = {
+  logsDays: 0,
+  tracesDays: 0,
+  alertsDays: 0,
+  updatedAt: null,
+};
 
 const SWEPT = {
   logsDeleted: 120,
   tracesDeleted: 44,
   traceSummariesDeleted: 6,
+  alertEvaluationsDeleted: 900,
+  alertIncidentsDeleted: 2,
   logsCutoff: "2026-07-12T03:00:00Z",
   tracesCutoff: "2026-08-04T03:00:00Z",
+  alertsCutoff: "2026-08-28T03:00:00Z",
   durationMs: 1500,
 };
 
@@ -78,7 +91,7 @@ describe("RetentionSettingsManager", () => {
     expect(screen.getAllByText("Kept forever — nothing is deleted.")).toHaveLength(2);
   });
 
-  it("sends both windows on a save", async () => {
+  it("sends every window on a save", async () => {
     const user = userEvent.setup();
     renderManager();
     await loaded();
@@ -88,7 +101,11 @@ describe("RetentionSettingsManager", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveRetention).toHaveBeenCalled());
-    expect(saveRetention.mock.calls[0][0]).toEqual({ logsDays: 30, tracesDays: 14 });
+    expect(saveRetention.mock.calls[0][0]).toEqual({
+      logsDays: 30,
+      tracesDays: 14,
+      alertsDays: 14,
+    });
   });
 
   // The form seeds itself with zeros before the request resolves. Without the
@@ -147,7 +164,7 @@ describe("RetentionSettingsManager", () => {
     // Announced, not merely rendered: the message lands after an await, so
     // without a live region a screen reader user gets no report at all.
     const report = await screen.findByRole("status");
-    expect(report.textContent).toBe("Deleted 120 log events, 44 trace records, 6 traces.");
+    expect(report.textContent).toBe("Deleted 120 log events, 44 trace records, 6 traces, 900 alert evaluations.");
   });
 
   it("does not delete when the confirmation is dismissed", async () => {

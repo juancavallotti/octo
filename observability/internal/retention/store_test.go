@@ -127,14 +127,21 @@ func TestRepoAbsentRowThenRoundTrip(t *testing.T) {
 		t.Fatalf("clear the policy row: %v", err)
 	}
 
-	// An installation that never configured retention has no row at all, and
-	// that has to read as "keep everything" rather than as a failure.
+	// An installation that never configured retention has no row at all. That
+	// has to read as a policy rather than as a failure, and specifically as one
+	// that keeps both evidence streams forever while still pruning the alert
+	// history — the one axis with a default, because a watch writes a row every
+	// time it runs whether or not anything happened.
 	absent, err := repo.Get(ctx)
 	if err != nil {
 		t.Fatalf("get with no row: %v", err)
 	}
-	if absent.toPolicy().Enabled() {
-		t.Fatalf("an absent row decoded to an enabled policy: %+v", absent)
+	policy := absent.toPolicy()
+	if policy.LogsDays != 0 || policy.TracesDays != 0 {
+		t.Fatalf("an absent row decoded to a policy that prunes evidence: %+v", policy)
+	}
+	if policy.AlertsDays != defaultAlertDays {
+		t.Fatalf("AlertsDays = %d, want the %d-day default", policy.AlertsDays, defaultAlertDays)
 	}
 
 	when := time.Date(2032, 5, 6, 11, 0, 0, 0, time.UTC)

@@ -53,6 +53,17 @@ func (f *fakeTracePruner) Prune(_ context.Context, cutoff time.Time, _ int) (rep
 	return f.result, f.err
 }
 
+type fakeAlertPruner struct {
+	calls  []time.Time
+	result repo.AlertPruneResult
+	err    error
+}
+
+func (f *fakeAlertPruner) Prune(_ context.Context, cutoff time.Time, _ int) (repo.AlertPruneResult, error) {
+	f.calls = append(f.calls, cutoff)
+	return f.result, f.err
+}
+
 // fakeLock records whether the sweep lock was taken and released, and can refuse
 // to hand it over.
 type fakeLock struct {
@@ -75,19 +86,40 @@ func (f *fakeLock) tryLock(context.Context) (func(), bool, error) {
 
 // newTestService builds a service over fakes, with the clock pinned.
 func newTestService(policy stored) (*Service, *fakeSettings, *fakeLogPruner, *fakeTracePruner, *fakeLock) {
+	svc, settings, logs, traces, _, lock := newTestServiceWithAlerts(policy)
+	return svc, settings, logs, traces, lock
+}
+
+// newTestServiceWithAlerts is the same, for the cases that care about the third
+// axis. Most do not, and threading a sixth return value through every one of
+// them would obscure what each is actually asserting.
+func newTestServiceWithAlerts(policy stored) (
+	*Service, *fakeSettings, *fakeLogPruner, *fakeTracePruner, *fakeAlertPruner, *fakeLock,
+) {
 	settings := &fakeSettings{current: policy}
 	logs := &fakeLogPruner{}
 	traces := &fakeTracePruner{}
+	alerts := &fakeAlertPruner{}
 	lock := &fakeLock{}
 	svc := &Service{
 		settings: settings,
 		logs:     logs,
 		traces:   traces,
+		alerts:   alerts,
 		lock:     lock,
 		batch:    10,
 		now:      func() time.Time { return fixedNow },
 	}
-	return svc, settings, logs, traces, lock
+	return svc, settings, logs, traces, alerts, lock
+}
+
+// keepEverything is a policy that has been configured to keep all three streams
+// forever, which is what an "empty" policy meant before the alerting axis
+// arrived. It has to be written out now, because an unset alerting window is the
+// one axis that defaults to a real number.
+func keepEverything() stored {
+	zero := 0
+	return stored{AlertsDays: &zero}
 }
 
 func TestCutoff(t *testing.T) {
@@ -106,10 +138,10 @@ func TestCutoff(t *testing.T) {
 	}
 }
 
-// The whole point of defaulting to zero is that installing the feature deletes
-// nothing. A sweep under an unconfigured policy must not even reach for the lock.
-func TestRunUnderAnEmptyPolicyDoesNothing(t *testing.T) {
-	svc, _, logs, traces, lock := newTestService(stored{})
+// A policy configured to keep everything deletes nothing, and must not even
+// reach for the lock.
+func TestRunUnderAPolicyThatKeepsEverythingDoesNothing(t *testing.T) {
+	svc, _, logs, traces, lock := newTestService(keepEverything())
 
 	result, err := svc.Run(context.Background())
 	if err != nil {
@@ -125,14 +157,54 @@ func TestRunUnderAnEmptyPolicyDoesNothing(t *testing.T) {
 		t.Fatal("an unconfigured policy still called a pruner")
 	}
 	if lock.taken {
-		t.Fatal("an unconfigured policy took the sweep lock")
+		t.Fatal("a keep-everything policy took the sweep lock")
+	}
+}
+
+// The one axis that does something before anybody configures it. An installation
+// that upgrades into this feature must not start accumulating an evaluation log
+// forever, so an unset alerting window is a real default rather than an absence.
+func TestAnUnconfiguredPolicyStillPrunesTheAlertHistory(t *testing.T) {
+	svc, _, logs, traces, alerts, _ := newTestServiceWithAlerts(stored{})
+	alerts.result = repo.AlertPruneResult{Evaluations: 500, Incidents: 3}
+
+	result, err := svc.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(logs.calls) != 0 || len(traces.calls) != 0 {
+		t.Fatal("an unconfigured policy pruned logs or traces")
+	}
+	if len(alerts.calls) != 1 {
+		t.Fatalf("the alert history was pruned %d times, want once", len(alerts.calls))
+	}
+	if want := fixedNow.AddDate(0, 0, -defaultAlertDays); !alerts.calls[0].Equal(want) {
+		t.Errorf("alerts pruned at %v, want the %d-day default at %v", alerts.calls[0], defaultAlertDays, want)
+	}
+	if result.AlertEvaluationsDeleted != 500 || result.AlertIncidentsDeleted != 3 {
+		t.Errorf("result = %+v, want the pruner's counts", result)
+	}
+}
+
+// And somebody who deliberately sets zero gets what zero means on every other
+// axis: keep it forever.
+func TestAnExplicitZeroKeepsTheAlertHistoryForever(t *testing.T) {
+	svc, _, _, _, alerts, _ := newTestServiceWithAlerts(keepEverything())
+
+	if _, err := svc.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(alerts.calls) != 0 {
+		t.Errorf("alerts pruned at %v despite an explicit zero", alerts.calls)
 	}
 }
 
 // The two windows are independent, and a zero one has to mean "leave this stream
 // alone" rather than "delete all of it".
 func TestRunSkipsTheDisabledAxis(t *testing.T) {
-	svc, _, logs, traces, _ := newTestService(stored{LogsDays: 30})
+	policy := keepEverything()
+	policy.LogsDays = 30
+	svc, _, logs, traces, _ := newTestService(policy)
 	logs.deleted = 12
 
 	result, err := svc.Run(context.Background())
@@ -154,7 +226,9 @@ func TestRunSkipsTheDisabledAxis(t *testing.T) {
 }
 
 func TestRunPrunesBothStreamsAtTheirOwnCutoffs(t *testing.T) {
-	svc, _, logs, traces, lock := newTestService(stored{LogsDays: 30, TracesDays: 7})
+	policy := keepEverything()
+	policy.LogsDays, policy.TracesDays = 30, 7
+	svc, _, logs, traces, lock := newTestService(policy)
 	logs.deleted = 100
 	traces.result = repo.TracePruneResult{Records: 40, Summaries: 5}
 
@@ -178,7 +252,9 @@ func TestRunPrunesBothStreamsAtTheirOwnCutoffs(t *testing.T) {
 
 // The nightly job and somebody pressing Run now must not overlap.
 func TestRunRefusesWhenASweepHoldsTheLock(t *testing.T) {
-	svc, _, logs, traces, lock := newTestService(stored{LogsDays: 30})
+	policy := keepEverything()
+	policy.LogsDays = 30
+	svc, _, logs, traces, lock := newTestService(policy)
 	lock.held = true
 
 	_, err := svc.Run(context.Background())
@@ -194,7 +270,9 @@ func TestRunRefusesWhenASweepHoldsTheLock(t *testing.T) {
 // still has to give the lock back — otherwise one broken sweep blocks every one
 // after it.
 func TestRunReportsPartialProgressAndReleasesTheLock(t *testing.T) {
-	svc, _, logs, traces, lock := newTestService(stored{LogsDays: 30, TracesDays: 7})
+	policy := keepEverything()
+	policy.LogsDays, policy.TracesDays = 30, 7
+	svc, _, logs, traces, lock := newTestService(policy)
 	logs.deleted = 9
 	logs.err = errors.New("connection reset")
 
