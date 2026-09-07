@@ -56,6 +56,11 @@ const (
 	// readHeaderTimeout bounds time spent reading request headers, mitigating
 	// slow-header denial-of-service attempts.
 	readHeaderTimeout = 10 * time.Second
+	// The whole request, headers and body. Generous next to the header deadline
+	// because an ingest POST carries a batch, and still finite: without it a
+	// client can drip a body for as long as it likes and hold the goroutine
+	// reading it.
+	readTimeout = 60 * time.Second
 
 	// How a run of near-identical trace records is collapsed into one.
 	//
@@ -199,6 +204,11 @@ func run() error {
 		Addr:              ":" + port,
 		Handler:           newServer(database, rdb, alerts),
 		ReadHeaderTimeout: readHeaderTimeout,
+		// The header deadline ends when the headers do, and this service serves
+		// POSTs and PUTs with bodies. Without a deadline on the whole read, a
+		// client can drip a body indefinitely and hold a handler goroutine and a
+		// connection for as long as it likes.
+		ReadTimeout: readTimeout,
 	}
 
 	errCh := make(chan error, 1)

@@ -232,3 +232,21 @@ func TestResolvedNotificationsReadAsEndings(t *testing.T) {
 		t.Error("a recovery was announced at severity")
 	}
 }
+
+// Validating a trimmed copy and publishing the original: " alerts " passed,
+// because nothing in its trimmed form contains whitespace, and then went to
+// `octo.<id>.t. alerts ` — a subject nothing is subscribed to. The action
+// reported success and reached nobody.
+func TestTopicParametersAreTrimmedBeforeTheyAreUsed(t *testing.T) {
+	d, err := newTopicAction(
+		spec("a_1", alerting.ActionTypeTopic,
+			`{"deploymentId":"  d1  ","subject":"  alerts  "}`),
+		&Topics{})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	got := d.(*topicAction).params
+	if got.DeploymentID != "d1" || got.Subject != "alerts" {
+		t.Errorf("stored as deploymentId=%q subject=%q", got.DeploymentID, got.Subject)
+	}
+}

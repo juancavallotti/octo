@@ -128,7 +128,7 @@ func TestUpdateReplacesTheDefinition(t *testing.T) {
 	next := created
 	next.Name = "checkout errors, retuned"
 	next.Conditions[0].Params = json.RawMessage(`{"op":"gt","threshold":0.5}`)
-	updated, err := s.Update(t.Context(), next, "")
+	updated, err := s.Update(t.Context(), next, "", time.Now().UTC())
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestGetUpdateAndDeleteReportAMissingWatch(t *testing.T) {
 	}
 	w := sampleWatch(t, "nothing")
 	w.ID = missing
-	if _, err := s.Update(t.Context(), w, ""); !errors.Is(err, alerting.ErrWatchNotFound) {
+	if _, err := s.Update(t.Context(), w, "", time.Now().UTC()); !errors.Is(err, alerting.ErrWatchNotFound) {
 		t.Errorf("update error = %v, want ErrWatchNotFound", err)
 	}
 }
@@ -165,7 +165,7 @@ func TestDisabledWatchesAreNeverDue(t *testing.T) {
 	s := newStore(t)
 	created := mustCreate(t, s, "checkout errors")
 	created.Enabled = false
-	if _, err := s.Update(t.Context(), created, ""); err != nil {
+	if _, err := s.Update(t.Context(), created, "", time.Now().UTC()); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	due, err := s.Due(t.Context(), storeNow, 10)
@@ -267,7 +267,7 @@ func TestRecordClosesAnEpisodeOnRecovery(t *testing.T) {
 	s := newStore(t)
 	created := mustCreate(t, s, "checkout errors")
 	created.For = 0
-	created, _ = s.Update(t.Context(), created, "")
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
 
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 	step := func(at time.Time, verdict alerting.Truth) {
@@ -416,7 +416,7 @@ func TestDeleteCascades(t *testing.T) {
 	s := newStore(t)
 	created := mustCreate(t, s, "checkout errors")
 	created.For = 0
-	created, _ = s.Update(t.Context(), created, "")
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
 		t.Fatalf("record: %v", err)
@@ -441,7 +441,7 @@ func TestRetireClosesAnOpenEpisode(t *testing.T) {
 	s := newStore(t)
 	created := mustCreate(t, s, "checkout errors")
 	created.For = 0
-	created, _ = s.Update(t.Context(), created, "")
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
 		t.Fatalf("record: %v", err)
@@ -465,7 +465,7 @@ func TestAcknowledgeAndMute(t *testing.T) {
 	s := newStore(t)
 	created := mustCreate(t, s, "checkout errors")
 	created.For = 0
-	created, _ = s.Update(t.Context(), created, "")
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
 		t.Fatalf("record: %v", err)
@@ -554,7 +554,7 @@ func TestCooldownRoundTrips(t *testing.T) {
 	}
 
 	created.Cooldown = time.Hour
-	updated, err := s.Update(t.Context(), created, "")
+	updated, err := s.Update(t.Context(), created, "", time.Now().UTC())
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestRecordReturnsTheStateItWroteIncludingTheIncident(t *testing.T) {
 	s := newStore(t)
 	created := mustCreate(t, s, "checkout errors")
 	created.For = 0
-	created, _ = s.Update(t.Context(), created, "")
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 
 	written, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True))
@@ -617,7 +617,7 @@ func TestSavingADisabledWatchRetiresIt(t *testing.T) {
 	s := newStore(t)
 	created := mustCreate(t, s, "checkout errors")
 	created.For = 0
-	created, _ = s.Update(t.Context(), created, "")
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
 	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
 	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
 		t.Fatalf("record: %v", err)
@@ -648,5 +648,65 @@ func TestSavingADisabledWatchRetiresIt(t *testing.T) {
 	again, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
 	if again[0].ClosedReason != alerting.ClosedDisabled || !again[0].ResolvedAt.Equal(*incidents[0].ResolvedAt) {
 		t.Errorf("a second save changed the closed episode: %+v", again[0])
+	}
+}
+
+// Disabling a watch closes its episode in the same transaction as the save.
+//
+// They used to be two calls with the disable first, so a failing retire returned
+// an error while leaving the watch disabled with its incident open — and the
+// runner skips disabled watches, so nothing would evaluate it again and nothing
+// could ever resolve that incident. A dashboard row frozen on fire, with no way
+// back short of re-enabling the watch.
+func TestDisablingAWatchRetiresItsEpisodeInOneWrite(t *testing.T) {
+	s := newStore(t)
+	created := mustCreate(t, s, "checkout errors")
+	created.For = 0
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
+
+	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
+	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	open, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	if len(open) != 1 || !open[0].Open() {
+		t.Fatalf("wanted an open episode to retire, got %+v", open)
+	}
+
+	created.Enabled = false
+	if _, err := s.Update(t.Context(), created, "", storeNow.Add(time.Minute)); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	after, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	if after[0].Open() || after[0].ClosedReason != alerting.ClosedDisabled {
+		t.Errorf("incident %+v, want it closed as disabled by the save itself", after[0])
+	}
+	due, _ := s.Due(t.Context(), storeNow.Add(time.Hour), 10)
+	if len(due) == 1 && due[0].State.IncidentID != "" {
+		t.Errorf("state still points at an episode: %+v", due[0].State)
+	}
+}
+
+// An update that leaves the watch enabled must not touch its episode: a rename
+// or a new recipient is not a reason to close what is currently firing.
+func TestUpdatingAnEnabledWatchLeavesItsEpisodeAlone(t *testing.T) {
+	s := newStore(t)
+	created := mustCreate(t, s, "checkout errors")
+	created.For = 0
+	created, _ = s.Update(t.Context(), created, "", time.Now().UTC())
+	prev := alerting.State{WatchID: created.ID, Phase: alerting.PhaseOK, DefinitionHash: created.DefinitionHash}
+	if _, err := s.Record(t.Context(), firing(created, prev, storeNow, alerting.True)); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+
+	created.Description = "now with prose"
+	if _, err := s.Update(t.Context(), created, "", storeNow.Add(time.Minute)); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	after, _ := s.Incidents(t.Context(), alerting.IncidentFilter{WatchID: created.ID})
+	if !after[0].Open() {
+		t.Errorf("a rename closed the open episode: %+v", after[0])
 	}
 }

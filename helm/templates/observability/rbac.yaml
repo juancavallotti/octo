@@ -16,7 +16,11 @@
 {{- define "octo.observability.rules" -}}
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
-  verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # What client-go's LeaseLock actually calls, and nothing else. It reads its
+  # lease by name, creates one when there is none, and updates it to renew —
+  # never lists, never watches, never patches. The wider set was copied from a
+  # controller that does.
+  verbs: ["get", "create", "update"]
 {{- end }}
 {{- include "octo-common.rbac" (dict
       "root" $

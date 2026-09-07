@@ -64,7 +64,7 @@ Is this number above (or below) that one, over a window.
 }
 ```
 
-For a **ratio** the comparison is made against the [Wilson score bound](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval) rather than the raw proportion. One failure out of two traces is a 50% error rate by the point estimate, and a 5% threshold would page you about two requests; the bound at two trials is about 9% and does not fire, while at four hundred trials it is about 45% and does. The gate scales itself with the evidence. The number *reported* is still the plain proportion, because that is the one you recognise.
+For a **ratio** the comparison is made against the [Wilson score bound](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval) rather than the raw proportion. One failure out of two traces is a 50% error rate by the point estimate, and a 10% threshold would page you about two requests; the bound at two trials is about 9%, so a 10% threshold does not fire on it, while at four hundred trials the bound is about 45% and does. The gate scales itself with the evidence. The number *reported* is still the plain proportion, because that is the one you recognise.
 
 `windowBuckets` is also the whole of the smoothing: five one-minute buckets is a five-minute rate, with no phase lag and no invented points.
 
@@ -228,7 +228,7 @@ Sent through the orchestrator's [email settings](/platform/admin-settings#email)
 
 A watch with no actions still records every evaluation and opens incidents — it simply tells nobody, which the editor warns about rather than forbidding: a watch you are still tuning is a real thing to want.
 
-Every attempt is recorded with its outcome, so "the alert fired but I got no email" is answerable from the history rather than from somebody's inbox. A failed delivery never rolls back the transition that caused it — the watch did fire — and a failed delivery does not start the cooldown either.
+Every attempt is logged with its outcome — which action, which type, and the error — so "the alert fired but I got no email" is answerable. The history records whether an announcement reached anybody at all; *which* of several actions failed is in the service's logs rather than in a row, because an action is not a thing you can look up later by id. A failed delivery never rolls back the transition that caused it — the watch did fire — and a failed delivery does not start the cooldown either.
 
 ## Trying a watch before you save it
 

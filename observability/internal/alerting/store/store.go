@@ -90,6 +90,18 @@ func (s *Store) Create(ctx context.Context, w alerting.Watch, createdBy string) 
 
 	var out alerting.Watch
 	err = s.inTx(ctx, func(tx pgx.Tx) error {
+		// Counted inside the transaction that inserts, so two creates racing
+		// cannot both see room and both take it. In the service it was a count
+		// read on one connection and an insert on another — two facts about
+		// different moments, with nothing keeping them true together.
+		var n int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM alert_watches`).Scan(&n); err != nil {
+			return err
+		}
+		if n >= alerting.MaxWatches {
+			return fmt.Errorf("store: %w: this installation already has %d",
+				alerting.ErrTooManyWatches, n)
+		}
 		row := tx.QueryRow(ctx, `
 			INSERT INTO alert_watches (name, description, enabled, severity, combinator,
 			                           conditions, actions, on_no_data, step_seconds,
@@ -123,7 +135,17 @@ func (s *Store) Create(ctx context.Context, w alerting.Watch, createdBy string) 
 // sees the stored hash no longer matches — which keeps every reason a hold can
 // restart in the one function that owns holds, rather than splitting it between
 // the editor and the evaluator.
-func (s *Store) Update(ctx context.Context, w alerting.Watch, updatedBy string) (alerting.Watch, error) {
+// Update saves a definition and, when the saved watch is disabled, retires its
+// open episode in the SAME transaction.
+//
+// The two were separate calls, and the order made a trap: the disable landed
+// first, so a failing retire returned an error while leaving the watch disabled
+// with its incident still open. The runner skips disabled watches, so nothing
+// would ever evaluate it again and nothing could resolve that incident — a
+// dashboard row frozen on fire, and no path back short of re-enabling the watch.
+func (s *Store) Update(
+	ctx context.Context, w alerting.Watch, updatedBy string, retireAt time.Time,
+) (alerting.Watch, error) {
 	hash, err := w.Fingerprint()
 	if err != nil {
 		return alerting.Watch{}, err
@@ -132,7 +154,9 @@ func (s *Store) Update(ctx context.Context, w alerting.Watch, updatedBy string) 
 	if err != nil {
 		return alerting.Watch{}, err
 	}
-	row := s.pool.QueryRow(ctx, `
+	var out alerting.Watch
+	err = s.inTx(ctx, func(tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, `
 		UPDATE alert_watches AS w
 		   SET name = $2, description = $3, enabled = $4, severity = $5, combinator = $6,
 		       conditions = $7, actions = $8, on_no_data = $9, step_seconds = $10,
@@ -141,17 +165,32 @@ func (s *Store) Update(ctx context.Context, w alerting.Watch, updatedBy string) 
 		       updated_by = `+nullableUUID(15)+`
 		 WHERE w.id = $1::uuid
 		RETURNING `+watchColumns,
-		w.ID, w.Name, w.Description, w.Enabled, w.Severity, w.Combinator,
-		conditions, actions, w.OnNoData, seconds(w.Step),
-		seconds(w.Interval), seconds(w.For), seconds(w.Cooldown),
-		hash, nullOrString(updatedBy))
+			w.ID, w.Name, w.Description, w.Enabled, w.Severity, w.Combinator,
+			conditions, actions, w.OnNoData, seconds(w.Step),
+			seconds(w.Interval), seconds(w.For), seconds(w.Cooldown),
+			hash, nullOrString(updatedBy))
 
-	out, err := scanWatch(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return alerting.Watch{}, alerting.ErrWatchNotFound
-	}
+		saved, err := scanWatch(row)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return alerting.ErrWatchNotFound
+		}
+		if err != nil {
+			return translate(err, "update a watch")
+		}
+		// Retired whenever the saved watch is disabled rather than only on the
+		// enabled-to-disabled edge: retiring an already-quiet watch touches
+		// nothing, and keying it to the transition would leave an episode open on
+		// a watch disabled by a path this call did not observe.
+		if !saved.Enabled {
+			if err := retireTx(ctx, tx, saved.ID, alerting.ClosedDisabled, retireAt); err != nil {
+				return err
+			}
+		}
+		out = saved
+		return nil
+	})
 	if err != nil {
-		return alerting.Watch{}, translate(err, "update a watch")
+		return alerting.Watch{}, err
 	}
 	return out, nil
 }

@@ -232,22 +232,29 @@ func (s *Store) RecordNotification(ctx context.Context, watchID, incidentID stri
 	return nil
 }
 
+// retireTx is the retirement itself, so it can run inside a transaction that is
+// already doing something else — saving a watch as disabled, in particular,
+// which must not be able to succeed while this fails.
+func retireTx(ctx context.Context, tx pgx.Tx, watchID, reason string, at time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE alert_incidents SET resolved_at = $2, closed_reason = $3
+		 WHERE watch_id = $1::uuid AND resolved_at IS NULL`, watchID, at, reason); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE alert_watch_state
+		   SET phase = 'ok', since = $2, consecutive_firing = 0, consecutive_ok = 0,
+		       consecutive_errors = 0, incident_id = NULL, last_notified_at = NULL
+		 WHERE watch_id = $1::uuid`, watchID, at)
+	return err
+}
+
 // Retire closes a watch's open episode and returns its machine to rest, for a
 // watch being disabled or deleted. Run in the same transaction as the change it
 // accompanies, because an episode that outlives its watch can never resolve.
 func (s *Store) Retire(ctx context.Context, watchID, reason string, at time.Time) error {
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
-			UPDATE alert_incidents SET resolved_at = $2, closed_reason = $3
-			 WHERE watch_id = $1::uuid AND resolved_at IS NULL`, watchID, at, reason); err != nil {
-			return err
-		}
-		_, err := tx.Exec(ctx, `
-			UPDATE alert_watch_state
-			   SET phase = 'ok', since = $2, consecutive_firing = 0, consecutive_ok = 0,
-			       consecutive_errors = 0, incident_id = NULL, last_notified_at = NULL
-			 WHERE watch_id = $1::uuid`, watchID, at)
-		return err
+		return retireTx(ctx, tx, watchID, reason, at)
 	})
 	if err != nil {
 		return fmt.Errorf("store: retire watch %s: %w", watchID, err)

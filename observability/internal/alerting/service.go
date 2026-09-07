@@ -20,7 +20,7 @@ const MaxWatches = 200
 // depend on methods it never calls.
 type watchStore interface {
 	Create(ctx context.Context, w Watch, createdBy string) (Watch, error)
-	Update(ctx context.Context, w Watch, updatedBy string) (Watch, error)
+	Update(ctx context.Context, w Watch, updatedBy string, retireAt time.Time) (Watch, error)
 	Get(ctx context.Context, id string) (Watch, error)
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context) ([]Due, error)
@@ -86,18 +86,13 @@ func (s *Service) Update(ctx context.Context, w Watch, userID string) (Watch, er
 	if err := s.check(w); err != nil {
 		return Watch{}, err
 	}
-	updated, err := s.store.Update(ctx, normalize(w), userID)
+	// The retirement happens inside the store's transaction, not here after it.
+	// Two calls meant the disable could land and the retire fail, leaving the
+	// watch disabled with its incident open — and the runner skips disabled
+	// watches, so nothing would ever resolve it.
+	updated, err := s.store.Update(ctx, normalize(w), userID, s.now())
 	if err != nil {
 		return Watch{}, err
-	}
-	// Retired whenever the saved watch is disabled, rather than only on the
-	// enabled-to-disabled transition. Retiring an already-quiet watch is a no-op
-	// on both rows, and keying it to the transition would leave an episode open
-	// forever on a watch disabled by any path this call did not observe.
-	if !updated.Enabled {
-		if err := s.store.Retire(ctx, updated.ID, ClosedDisabled, s.now()); err != nil {
-			return Watch{}, err
-		}
 	}
 	return updated, nil
 }

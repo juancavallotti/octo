@@ -24,6 +24,17 @@ const (
 	// evalTimeout bounds one watch. Generous enough for a percentile over an hour
 	// of summaries, short enough that a stuck query cannot hold the tick open.
 	evalTimeout = 30 * time.Second
+	// The two things a worker does after deciding, each bounded on its own. The
+	// write is short because it is one transaction against a database in the same
+	// cluster; the announcement is longer because it may be an HTTP call to the
+	// orchestrator's mailer, and a slow send is better than a lost alert.
+	//
+	// Bounded at all because the parent context has no deadline: without these, a
+	// blocked write or a hanging mailer holds a worker open forever, and enough of
+	// them hold the tick's WaitGroup with them — at which point evaluation stops
+	// for the whole installation and the symptom is silence.
+	writeTimeout    = 15 * time.Second
+	announceTimeout = 30 * time.Second
 
 	// maxDuePerTick caps one pass. A backlog is drained over several ticks rather
 	// than in one long pass that holds the pool.
@@ -224,7 +235,16 @@ func (r *Runner) evaluateOne(ctx context.Context, item Due, now time.Time, inges
 		Duration: r.now().Sub(started),
 	}
 
-	recorded, err := r.store.Record(ctx, result)
+	// Bounded separately from the evaluation. evalTimeout covers the fetch, and
+	// the parent context has no deadline at all — so a database write or a
+	// notification that blocks holds this worker open indefinitely, and four of
+	// them hold the tick's WaitGroup with it, which stops every later tick. Its
+	// own deadline rather than evalCtx's, because a fetch that ran out of time
+	// still has a decision worth writing down.
+	writeCtx, writeCancel := context.WithTimeout(ctx, writeTimeout)
+	defer writeCancel()
+
+	recorded, err := r.store.Record(writeCtx, result)
 	if err != nil {
 		if errors.Is(err, ErrStaleEvaluation) {
 			// Another evaluator got there first, which means the lease has moved
@@ -236,7 +256,9 @@ func (r *Runner) evaluateOne(ctx context.Context, item Due, now time.Time, inges
 		slog.Error("could not record an evaluation", "watch", item.Watch.Name, "error", err)
 		return
 	}
-	r.announce(ctx, item, result, recorded)
+	announceCtx, announceCancel := context.WithTimeout(ctx, announceTimeout)
+	defer announceCancel()
+	r.announce(announceCtx, item, result, recorded)
 }
 
 // fetchAll runs a watch's plan.
@@ -276,7 +298,20 @@ func (r *Runner) announce(ctx context.Context, item Due, result Result, next Sta
 		notification := NewNotification(item.Watch, next, result.Evaluation, action)
 		delivered := r.notify.Notify(ctx, item.Watch, notification)
 		if !anyDelivered(delivered) {
+			// Said once per announcement, beside the per-action errors the
+			// dispatcher already logs. Without it the only trace of an alert that
+			// reached nobody is the absence of a notification row, which reads
+			// exactly like an alert that was never announced at all.
+			slog.Error("an alert reached nobody: every action failed",
+				"watch", item.Watch.Name, "kind", action.Kind,
+				"incident", next.IncidentID, "actions", len(delivered))
 			continue
+		}
+		for _, d := range delivered {
+			if d.Err != "" {
+				slog.Warn("an alert action failed while another succeeded",
+					"watch", item.Watch.Name, "action", d.ActionID, "type", d.Type, "error", d.Err)
+			}
 		}
 		// Only a delivery that actually reached somebody stamps the notification.
 		// Recording an attempt would leave the history claiming a watch had spoken

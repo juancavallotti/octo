@@ -65,7 +65,14 @@ func newTopicAction(spec alerting.ActionSpec, topics *Topics) (Deliverer, error)
 	if err := decodeParams(spec.Params, &p); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(p.DeploymentID) == "" {
+	// Trimmed into the params, not just for the check. Validating a trimmed copy
+	// and publishing the original meant " alerts " passed — nothing in the
+	// trimmed form contains whitespace — and then went to `octo.<id>.t. alerts `,
+	// a subject no events source is subscribed to. The action reported success
+	// and reached nobody.
+	p.DeploymentID = strings.TrimSpace(p.DeploymentID)
+	p.Subject = strings.TrimSpace(p.Subject)
+	if p.DeploymentID == "" {
 		return nil, fmt.Errorf(
 			"action: %w: a topic action needs the deployment whose subject it publishes to",
 			alerting.ErrInvalidParams)
