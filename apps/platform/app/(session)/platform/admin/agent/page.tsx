@@ -1,4 +1,6 @@
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
+import AgentSaveBar from "@/app/components/admin/AgentSaveBar";
+import AgentSettingsForm from "@/app/components/admin/AgentSettingsForm";
 import AgentSettingsManager from "@/app/components/admin/AgentSettingsManager";
 import LlmSettingsManager from "@/app/components/admin/LlmSettingsManager";
 import WebSearchSettingsManager from "@/app/components/admin/WebSearchSettingsManager";
@@ -50,11 +52,20 @@ export default function AdminAgentPage() {
             deployment is him. Dividers say "parts of one thing" where borders say
             "separate things".
           */}
-          <div className="mt-5 divide-y divide-black/10 overflow-hidden rounded-xl border border-black/10 dark:divide-white/10 dark:border-white/10">
-            <LlmSettingsManager />
-            <WebSearchSettingsManager />
-            <AgentSettingsManager />
-          </div>
+          {/*
+            One provider around all three, because they are one form: it loads
+            once, holds the single draft, and knows what is dirty across sections
+            — which is what lets one Save write only what changed and apply the
+            two pod-level settings in a single roll-out.
+          */}
+          <AgentSettingsForm>
+            <div className="mt-5 divide-y divide-black/10 overflow-hidden rounded-xl border border-black/10 dark:divide-white/10 dark:border-white/10">
+              <LlmSettingsManager />
+              <WebSearchSettingsManager />
+              <AgentSettingsManager />
+            </div>
+            <AgentSaveBar />
+          </AgentSettingsForm>
         </div>
       </div>
     </ConfirmProvider>

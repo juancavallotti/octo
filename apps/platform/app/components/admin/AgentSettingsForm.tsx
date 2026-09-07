@@ -9,14 +9,16 @@ import {
   useReducer,
 } from "react";
 import type { ReactNode } from "react";
-import { getAgentStatus, type AgentStatus } from "@/app/model/agent";
+import { getAgentStatus } from "@/app/model/agent";
+import { getLlmSettings, getWebSearchSettings } from "@/app/model/siteSettings";
 import {
-  getLlmSettings,
-  getWebSearchSettings,
-  type LlmSettings,
-  type WebSearchSettings,
-} from "@/app/model/siteSettings";
-import { providerById } from "./llmProviders";
+  initial,
+  reducer,
+  dirtyOf,
+  type AgentDraft,
+  type Dirty,
+  type Stored,
+} from "./agentDraft";
 
 /**
  * Everything the agent page reads and edits, in one place.
@@ -41,136 +43,6 @@ import { providerById } from "./llmProviders";
  * the agent is not a setting at all.
  */
 
-/** The editable copy. Secrets are write-only: empty means keep what is stored. */
-export interface AgentDraft {
-  provider: string;
-  model: string;
-  llmApiKey: string;
-  webSearchApiKey: string;
-  /** Free text, because empty is a real value meaning "the definition decides". */
-  maxIterations: string;
-  autoFix: boolean;
-}
-
-/** What is stored, as read back from the three sources. */
-interface Stored {
-  llm: LlmSettings | null;
-  webSearch: WebSearchSettings | null;
-  status: AgentStatus | null;
-}
-
-type Action =
-  | { type: "loading" }
-  | { type: "loaded"; stored: Stored }
-  | { type: "loadFailed"; error: string }
-  | { type: "set"; field: keyof AgentDraft; value: string | boolean }
-  | { type: "error"; error: string | null }
-  | { type: "busy"; busy: boolean };
-
-interface State {
-  stored: Stored;
-  /** What was loaded, as a draft, so dirty is one comparison. */
-  base: AgentDraft | null;
-  draft: AgentDraft | null;
-  loading: boolean;
-  loadFailed: boolean;
-  busy: boolean;
-  error: string | null;
-}
-
-const EMPTY: Stored = { llm: null, webSearch: null, status: null };
-
-const initial: State = {
-  stored: EMPTY,
-  base: null,
-  draft: null,
-  loading: true,
-  loadFailed: false,
-  busy: false,
-  error: null,
-};
-
-function draftOf(stored: Stored): AgentDraft {
-  // Normalised through the provider list rather than taken as given: an
-  // unconfigured site has no provider, and a stored one no longer offered would
-  // leave the select showing something a save would not send.
-  const provider = providerById(stored.llm?.provider ?? "").id;
-  return {
-    provider,
-    model: stored.llm?.model || providerById(provider).defaultModel,
-    llmApiKey: "",
-    webSearchApiKey: "",
-    maxIterations: stored.status?.maxIterations
-      ? String(stored.status.maxIterations)
-      : "",
-    autoFix: stored.status?.autoFix ?? false,
-  };
-}
-
-function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case "loading":
-      return { ...state, loading: true, loadFailed: false, error: null };
-    // A load replaces the baseline AND the draft. This is the first read or a
-    // re-read after a save, and in both cases what is on screen should become
-    // what is stored — including the secrets, which go back to empty because
-    // what is stored is not something this page can show back.
-    case "loaded": {
-      const draft = draftOf(action.stored);
-      return {
-        ...state,
-        stored: action.stored,
-        base: draft,
-        draft,
-        loading: false,
-        loadFailed: false,
-      };
-    }
-    case "loadFailed":
-      return {
-        ...state,
-        loading: false,
-        loadFailed: true,
-        error: action.error,
-      };
-    case "set":
-      if (!state.draft) return state;
-      return {
-        ...state,
-        draft: { ...state.draft, [action.field]: action.value },
-      };
-    case "error":
-      return { ...state, error: action.error };
-    case "busy":
-      return { ...state, busy: action.busy };
-  }
-}
-
-/** Which parts of the draft differ from what is stored. */
-export interface Dirty {
-  llm: boolean;
-  webSearch: boolean;
-  /** Either setting that lives on the pods, so the two save together. */
-  deployment: boolean;
-  any: boolean;
-}
-
-function dirtyOf(base: AgentDraft | null, draft: AgentDraft | null): Dirty {
-  const none = { llm: false, webSearch: false, deployment: false, any: false };
-  if (!base || !draft) return none;
-  const llm =
-    draft.provider !== base.provider ||
-    draft.model.trim() !== base.model.trim() ||
-    // Non-empty rather than different: there is no draft value meaning "the key
-    // already stored", so anything typed here is a change by definition.
-    draft.llmApiKey.length > 0;
-  const webSearch = draft.webSearchApiKey.length > 0;
-  const deployment =
-    draft.maxIterations.trim() !== base.maxIterations.trim() ||
-    draft.autoFix !== base.autoFix;
-  return { llm, webSearch, deployment, any: llm || webSearch || deployment };
-}
-
 interface AgentFormValue {
   stored: Stored;
   draft: AgentDraft | null;
@@ -189,7 +61,11 @@ interface AgentFormValue {
 
 const AgentFormContext = createContext<AgentFormValue | null>(null);
 
-export function AgentSettingsForm({ children }: { children: ReactNode }) {
+export default function AgentSettingsForm({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const [state, dispatch] = useReducer(reducer, initial);
 
   const reload = useCallback(async () => {
@@ -197,16 +73,35 @@ export function AgentSettingsForm({ children }: { children: ReactNode }) {
     try {
       // Settled rather than all: the agent status needs a cluster and the site
       // settings do not, so one being unavailable must not blank the other two.
+      // Failure is counted, not inferred from a null. A site with no LLM settings
+      // and no search key legitimately resolves null for both, and reading that
+      // as "everything failed" would keep the previous state on screen while
+      // pretending it had been refreshed.
+      let failure: string | null = null;
+      let failures = 0;
+      const keep = <T,>(p: Promise<T>): Promise<T | null> =>
+        p.catch((e: unknown) => {
+          failures += 1;
+          failure ??= (e as Error).message;
+          return null;
+        });
       const [llm, webSearch, status] = await Promise.all([
-        getLlmSettings().catch(() => null),
-        getWebSearchSettings().catch(() => null),
-        getAgentStatus().catch(() => null),
+        keep(getLlmSettings()),
+        keep(getWebSearchSettings()),
+        keep(getAgentStatus()),
       ]);
-      if (llm === null && webSearch === null && status === null) {
-        dispatch({ type: "loadFailed", error: "Could not read the settings." });
+      if (failures === 3) {
+        dispatch({
+          type: "loadFailed",
+          error: failure ?? "Could not read the settings.",
+        });
         return;
       }
-      dispatch({ type: "loaded", stored: { llm, webSearch, status } });
+      dispatch({
+        type: "loaded",
+        stored: { llm, webSearch, status },
+        error: failure,
+      });
     } catch (e) {
       dispatch({ type: "loadFailed", error: (e as Error).message });
     }

@@ -9,6 +9,7 @@ const setAgentTracing = vi.fn();
 const setAgentAutoFix = vi.fn();
 const setAgentMaxIterations = vi.fn();
 const uninstallAgent = vi.fn();
+const setAgentDeploymentSettings = vi.fn();
 vi.mock("@/app/model/agent", () => ({
   getAgentStatus: () => getAgentStatus(),
   installAgent: () => installAgent(),
@@ -16,10 +17,20 @@ vi.mock("@/app/model/agent", () => ({
   setAgentTracing: (on: boolean) => setAgentTracing(on),
   setAgentAutoFix: (on: boolean) => setAgentAutoFix(on),
   setAgentMaxIterations: (n: number) => setAgentMaxIterations(n),
+  setAgentDeploymentSettings: (s: unknown) => setAgentDeploymentSettings(s),
   uninstallAgent: (purge: boolean) => uninstallAgent(purge),
+}));
+// The provider reads the site settings too, even for a suite about the agent.
+vi.mock("@/app/model/siteSettings", () => ({
+  getLlmSettings: () => Promise.resolve(null),
+  saveLlmSettings: () => Promise.resolve(null),
+  getWebSearchSettings: () => Promise.resolve(null),
+  saveWebSearchSettings: () => Promise.resolve(null),
 }));
 
 import AgentSettingsManager from "./AgentSettingsManager";
+import AgentSettingsForm from "./AgentSettingsForm";
+import AgentSaveBar from "./AgentSaveBar";
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import type { AgentStatus } from "@/app/model/agent";
 
@@ -44,10 +55,15 @@ const DEPLOYED: AgentStatus = {
   deploymentStatus: "running",
 };
 
+// With the page's provider and its one Save, because the turn limit and the
+// troubleshooter's permission are drafted here and written there.
 function renderManager() {
   return render(
     <ConfirmProvider>
-      <AgentSettingsManager />
+      <AgentSettingsForm>
+        <AgentSettingsManager />
+        <AgentSaveBar />
+      </AgentSettingsForm>
     </ConfirmProvider>,
   );
 }
@@ -181,8 +197,19 @@ describe("AgentSettingsManager", () => {
       name: /Allow Dr. Octo to troubleshoot applications/,
     });
     expect(box).not.toBeChecked();
+
+    // Ticking it drafts the change; the page's Save writes it, together with the
+    // turn limit, in one roll-out.
     await user.click(box);
-    await waitFor(() => expect(setAgentAutoFix).toHaveBeenCalledWith(true));
+    expect(box).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(setAgentDeploymentSettings).toHaveBeenCalledWith({
+        maxIterations: 0,
+        autoFix: true,
+      }),
+    );
   });
 
   // Off is not "nothing happens": the triage and the email still run, and only
@@ -320,7 +347,10 @@ describe("AgentSettingsManager", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Install" })).toBeTruthy(),
     );
-    getAgentStatus.mockRejectedValueOnce(new Error("orchestrator unreachable"));
+    // Persistent rather than once: "the refresh after an action fails" means it
+    // stays failed, and the suite-wide default resolve would otherwise win a
+    // later refresh and put the stale card back.
+    getAgentStatus.mockRejectedValue(new Error("orchestrator unreachable"));
     await user.click(screen.getByRole("button", { name: "Install" }));
 
     await waitFor(() =>
@@ -390,8 +420,9 @@ describe("AgentSettingsManager turn limit", () => {
     const field = await turnLimit();
 
     expect(field.value).toBe("");
+    // And nothing to save: an untouched field is not a change.
     expect(
-      screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled"),
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
     ).toBe(true);
   });
 
@@ -400,9 +431,16 @@ describe("AgentSettingsManager turn limit", () => {
     const field = await turnLimit();
 
     await user.type(field, "40");
-    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(setAgentMaxIterations).toHaveBeenCalledWith(40));
+    // Through the combined call, so the pods are replaced once even when the
+    // permission below changed in the same edit.
+    await waitFor(() =>
+      expect(setAgentDeploymentSettings).toHaveBeenCalledWith({
+        maxIterations: 40,
+        autoFix: false,
+      }),
+    );
   });
 
   // Clearing the field is the only way back to the shipped default, so it has to
@@ -416,9 +454,14 @@ describe("AgentSettingsManager turn limit", () => {
     expect(field.value).toBe("40");
 
     await user.clear(field);
-    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(setAgentMaxIterations).toHaveBeenCalledWith(0));
+    await waitFor(() =>
+      expect(setAgentDeploymentSettings).toHaveBeenCalledWith({
+        maxIterations: 0,
+        autoFix: false,
+      }),
+    );
   });
 
   // Answered here rather than by the orchestrator, because the round trip that
@@ -430,9 +473,12 @@ describe("AgentSettingsManager turn limit", () => {
     await user.type(field, "500");
 
     expect(screen.getByText(/Between 1 and 200/)).toBeTruthy();
+    // The page's one Save validates what the per-section buttons used to: an
+    // out-of-range limit would otherwise be found by the orchestrator having
+    // already replaced the pods to reject it.
     expect(
-      screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled"),
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
     ).toBe(true);
-    expect(setAgentMaxIterations).not.toHaveBeenCalled();
+    expect(setAgentDeploymentSettings).not.toHaveBeenCalled();
   });
 });

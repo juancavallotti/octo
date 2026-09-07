@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { Field, INPUT, SecondaryButton } from "./fields";
+import { Field, INPUT } from "./fields";
 
 /**
  * How many tool-calling turns one of the agent's answers may take.
@@ -12,10 +11,14 @@ import { Field, INPUT, SecondaryButton } from "./fields";
  * decides. That is the only way back to the shipped default once a number has been
  * set, so it has to be expressible rather than merely allowed.
  *
- * The draft resets by remount rather than by an effect: the caller keys this on the
- * value in force, so a successful apply builds a fresh component seeded from what
- * came back. Syncing it in an effect instead would leave the old text on screen for
- * a render, and would fight anyone typing while a roll-out was in flight.
+ * Controlled, with no draft and no Apply of its own. Both belonged to a page where
+ * every section committed separately; the value now lives in the page's one draft
+ * and is written by the page's one Save, together with the permission below it so
+ * the pods are replaced once rather than twice.
+ *
+ * It still validates as you type. The bounds are the orchestrator's and it is still
+ * the one that decides — this only answers a typo without a round trip that would
+ * have replaced the pods to reject it.
  */
 
 /**
@@ -38,48 +41,35 @@ export function turnLimitError(raw: string): string | null {
 }
 
 export default function AgentTurnLimit({
-  /** The limit in force, or undefined when the definition's default is. */
+  /** The drafted limit as typed. Empty means the definition's own default. */
   value,
   disabled,
-  onApply,
+  onChange,
 }: {
-  value: number | undefined;
+  value: string;
   disabled: boolean;
-  /** Called with the new limit, or 0 to clear the override. */
-  onApply: (limit: number) => void;
+  onChange: (value: string) => void;
 }) {
-  const applied = value ? String(value) : "";
-  const [draft, setDraft] = useState(applied);
-
-  const error = turnLimitError(draft);
-  const changed = draft.trim() !== applied;
+  const error = turnLimitError(value);
 
   return (
     <div>
       <Field
         label="Turn limit"
-        hint="How many tool-calling turns one answer may take before he gives up. Leave it empty to use the limit his definition ships with. Applying it replaces his pods, the same as tracing."
+        hint="How many tool-calling turns one answer may take before he gives up. Leave it empty to use the limit his definition ships with."
       >
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            inputMode="numeric"
-            min={MIN}
-            max={MAX}
-            value={draft}
-            disabled={disabled}
-            placeholder="default"
-            aria-label="Turn limit"
-            onChange={(e) => setDraft(e.target.value)}
-            className={`${INPUT} w-28`}
-          />
-          <SecondaryButton
-            onClick={() => onApply(draft.trim() === "" ? 0 : Number(draft))}
-            disabled={disabled || !changed || error !== null}
-          >
-            Apply
-          </SecondaryButton>
-        </div>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={MIN}
+          max={MAX}
+          value={value}
+          disabled={disabled}
+          placeholder="default"
+          aria-label="Turn limit"
+          onChange={(e) => onChange(e.target.value)}
+          className={`${INPUT} w-28`}
+        />
       </Field>
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
     </div>
