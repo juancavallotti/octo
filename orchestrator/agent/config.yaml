@@ -2063,6 +2063,14 @@ flows:
       type: events
       settings:
         subject: ${ALERT_SUBJECT}
+        # Only the kinds that mean something is wrong.
+        #
+        # A watch announces four things: it opened, it is still going, it
+        # recovered, and it was closed without recovering. The last two are good
+        # news with nothing to triage — but they arrive on the same subject, and
+        # without this every recovery would start a sixty-turn investigation into
+        # an app that had just got better and email a report about it.
+        filter: 'body.kind == "open" || body.kind == "repeat"' 
     process:
       # The run's identity, set before the agent starts so the events path can see
       # it — an event message is a fresh message carrying the parent's variables,
@@ -2077,7 +2085,8 @@ flows:
           name: runKey
           value: >-
             "troubleshoot:" + (has(body.incidentId) && body.incidentId != ""
-              ? body.incidentId : body.watchId)
+              ? string(body.incidentId)
+              : (has(body.watchId) ? string(body.watchId) : "unknown"))
 
       # Pulled out of the alert while the alert is still the body. After the agent
       # block the body is its answer, and the payload that started all this is
@@ -2192,19 +2201,32 @@ flows:
 
 
           The alert carries previousOccurrences: what this same watch has done
-          before, and what you concluded each time. Read it. Something that has
-          happened once is transient and gets a report, not a change; something
-          that keeps coming back is what acting is for. If an earlier entry says
-          you already tried something, do not try it again.
+          before, and what you concluded each time. Read it. Something ambiguous
+          that has happened once gets a report and no change; something that keeps
+          coming back is what acting is for. But a fault that is total,
+          deterministic and explained — every request failing the same way, and
+          you can point at the cause — is permanent on the first occurrence, and
+          waiting for a second is leaving a broken app broken. If an earlier entry
+          says you already tried something, do not try it again.
 
 
-          Work in three acts: triage the fault and email a first report saying what
-          is happening; then, if you are permitted and confident and it is
-          recurring rather than a one-off, try to fix it;
-          then email a second report with what you found, what you did and what is
-          left. Send the first report before you attempt anything, even when the
-          cause is obvious — the person woken by this wants to know now, not after
-          you have finished.
+          Work in three acts: triage the fault and email ONE report saying what is
+          happening; then, if you are permitted and confident and it is recurring
+          rather than a one-off, try to fix it; then stop. Send that report before
+          you attempt anything, even when the cause is obvious — the person woken
+          by this wants to know now, not after you have finished.
+
+
+          Send exactly one email yourself. The follow-up is sent FOR you, built
+          from your final answer with the record of what you did attached — so do
+          not send it, and do not claim that you did.
+
+
+          Your final answer IS that follow-up, so write it as the body of an email
+          to the person who was woken: plain prose in short paragraphs. No
+          Markdown — no asterisks, no backticks, no hyphens used as bullets —
+          because nothing renders them where it is going. Say what was wrong, what
+          you did, and what is left for a person to do.
 
 
           Whether you may change anything is decided by the installation and not by
@@ -2259,7 +2281,7 @@ flows:
                 level: info
                 message: >-
                   "troubleshooter: " + body.type +
-                  (has(body.name) ? " tool=" + string(body.name) : "") +
+                  (has(body.tool) ? " tool=" + string(body.tool) : "") +
                   (has(body.stopReason) ? " stop=" + string(body.stopReason) : "") +
                   (has(body.error) ? " error=" + string(body.error) : "")
 
@@ -2285,15 +2307,21 @@ flows:
               settings:
                 volatile: true
                 key: vars.runKey
+                # Only what somebody reading the record afterwards would want:
+                # which tool was called, and anything that went wrong. Turn
+                # boundaries were in here and they were noise — thirty lines of
+                # turn_start/turn_end wrapped around the four facts that mattered,
+                # and they went into an email like that.
                 value: >-
-                  {"lines": size(vars.transcript.lines) >= 400
+                  {"lines": size(vars.transcript.lines) >= 200
                     ? vars.transcript.lines
-                    : vars.transcript.lines + [
-                        body.type +
-                        (has(body.name) ? " " + string(body.name) : "") +
-                        (has(body.stopReason) ? " (" + string(body.stopReason) + ")" : "") +
-                        (has(body.error) ? " error: " + string(body.error) : "")
-                      ]}
+                    : (body.type == "tool_call" && has(body.tool)
+                        ? vars.transcript.lines + ["called " + string(body.tool)]
+                        : (body.type == "guardrail"
+                            ? vars.transcript.lines + ["gave up and took the guardrail"]
+                            : (body.type == "error"
+                                ? vars.transcript.lines + ["error: " + string(body.error)]
+                                : vars.transcript.lines)))}
 
         tools:
           # The two specialists, on exactly the terms the coordinator has them.
@@ -2532,11 +2560,31 @@ flows:
       - type: set-payload
         name: build-report
         settings:
+          # HTML as well as text. The first went out as text alone and arrived as
+          # what it literally was: a wall of unrendered prose with a bare list of
+          # event names under it. Mail clients are not terminals.
+          #
+          # Inline styles and no <style> block, because Gmail strips those; a
+          # table for the record, because that is the one layout every client
+          # still agrees on. See the email-reports skill for the rest of it.
           value: >-
             {"to": vars.reportTo,
              "subject": "Alert follow-up: " + vars.watchName,
-             "text": vars.answer + "\n\n---\nWhat I did\n\n" +
-                     vars.transcript.lines.join("\n")}
+             "text": vars.answer + "\n\nWhat I did\n\n" +
+                     vars.transcript.lines.join("\n"),
+             "html":
+               "<div style=\"font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;" +
+               "font-size:14px;line-height:1.5;color:#18181b;max-width:640px\">" +
+               "<p style=\"margin:0 0 16px\">" +
+               vars.answer.replace("\n\n", "</p><p style=\"margin:0 0 16px\">") +
+               "</p>" +
+               "<p style=\"margin:24px 0 8px;font-weight:600;color:#52525b\">What I did</p>" +
+               "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"" +
+               " style=\"border-collapse:collapse;width:100%;font-size:13px\">" +
+               vars.transcript.lines.map(l,
+                 "<tr><td style=\"padding:4px 8px;border-bottom:1px solid #e4e4e7;" +
+                 "color:#52525b\">" + l + "</td></tr>").join("") +
+               "</table></div>"}
 
       - type: rest
         name: send-final-report

@@ -73,10 +73,23 @@ it survives restarts and redeploys.
 **Read it before you decide to act.** It is the difference between a blip and a
 fault, and that difference is the whole question of whether to touch anything.
 
-- **Nothing there, or one entry a long time ago.** Treat it as transient. Triage
-  it properly and report what you found, but do not change anything: a thing that
-  has happened once may well not happen again, and a fix applied to a coincidence
-  leaves an installation modified for no reason and a false lesson in the record.
+- **Nothing there, or one entry a long time ago.** Usually transient: triage it
+  properly, report what you found, and change nothing. A thing that has happened
+  once may well not happen again, and a fix applied to a coincidence leaves an
+  installation modified for no reason and a false lesson in the record.
+
+  **Unless the fault is deterministic on its face.** The history is a way of
+  telling a blip from a fault, and it is not the only one. When *every* request
+  is failing, with the same error every time, and you can point at the line that
+  causes it, you already know it will not fix itself — a first occurrence of that
+  is not a coincidence, it is a fault that has only just started. Waiting for it
+  to happen twice means leaving a wholly broken app broken so the record can catch
+  up with what you can already see.
+
+  What the history protects against is acting on *ambiguity*: a rate that moved,
+  a spike that might be load, a timeout that might be somebody else's network.
+  Those get a report and nothing else, however bad they look. A total, repeatable,
+  explainable failure is the opposite of ambiguous.
 - **Several entries close together.** It is recurring. This is what acting is
   for. Say in the report how many times and over what period — "the fourth time
   in two hours" is the sentence that justifies the change you are about to make.
@@ -96,6 +109,10 @@ worth acting on, because something is making it come back.
 When you are unsure which of these you are looking at, treat it as transient. The
 cost of reporting and not acting is a person reads an email. The cost of acting on
 a coincidence is a change nobody asked for on a system that was fine.
+
+But "unsure" has to be real. If you have named the cause, pointed at the line, and
+can say why every request fails, you are not unsure — and saying you are, to avoid
+the decision, is its own kind of wrong answer.
 
 ## Fixing
 
