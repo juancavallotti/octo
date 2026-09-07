@@ -72,6 +72,15 @@ export const HOLDS: Duration[] = [
   { seconds: 1800, label: "…if it lasts 30 minutes" },
 ];
 
+export const COOLDOWNS: Duration[] = [
+  { seconds: 0, label: "No cooldown — tell me every time" },
+  { seconds: 900, label: "Stay quiet for 15 minutes afterwards" },
+  { seconds: 1800, label: "Stay quiet for 30 minutes afterwards" },
+  { seconds: 3600, label: "Stay quiet for an hour afterwards" },
+  { seconds: 21600, label: "Stay quiet for 6 hours afterwards" },
+  { seconds: 86400, label: "Stay quiet for a day afterwards" },
+];
+
 export const REPEATS: Duration[] = [
   { seconds: 0, label: "Only once per incident" },
   { seconds: 900, label: "Every 15 minutes while it lasts" },

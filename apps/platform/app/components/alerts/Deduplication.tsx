@@ -1,7 +1,7 @@
 "use client";
 
 import { Field, INPUT } from "@/app/components/admin/fields";
-import { HOLDS, REPEATS, withCurrent } from "./resolution";
+import { COOLDOWNS, HOLDS, REPEATS, withCurrent } from "./resolution";
 import type { AlertNoData, WatchInput } from "@/app/model/alerts";
 
 /**
@@ -68,6 +68,26 @@ export function Deduplication({
           className={`${INPUT} w-full sm:w-80`}
         >
           {withCurrent(REPEATS, watch.renotifySeconds).map((p) => (
+            <option key={p.seconds} value={p.seconds}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field
+        label="After telling them"
+        hint="Renotify only bounds repeats inside one incident. This spans them: a watch that resolves and fires again has opened a new one. Worth setting when whatever receives the alert is slow on purpose — a person, or an agent working the problem — since telling it again is telling it to start over. A recovery is never held back."
+      >
+        <select
+          value={String(watch.cooldownSeconds)}
+          aria-label="After telling them"
+          onChange={(e) =>
+            onChange({ ...watch, cooldownSeconds: Number(e.target.value) })
+          }
+          className={`${INPUT} w-full sm:w-80`}
+        >
+          {withCurrent(COOLDOWNS, watch.cooldownSeconds).map((p) => (
             <option key={p.seconds} value={p.seconds}>
               {p.label}
             </option>

@@ -325,6 +325,34 @@ describe("WatchEditor", () => {
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
   });
 
+  // The case the cooldown exists for: something slow receives the alert and
+  // being told again is being told to start over. It is off by default, because
+  // suppression loses alerts.
+  it("sends the cooldown, and defaults it to off", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.type(screen.getByLabelText("Name"), "x");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createWatch).toHaveBeenCalled());
+    expect(
+      (createWatch.mock.calls[0][0] as { cooldownSeconds: number })
+        .cooldownSeconds,
+    ).toBe(0);
+
+    createWatch.mockClear();
+    await user.selectOptions(
+      screen.getByLabelText("After telling them"),
+      "1800",
+    );
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createWatch).toHaveBeenCalled());
+    expect(
+      (createWatch.mock.calls[0][0] as { cooldownSeconds: number })
+        .cooldownSeconds,
+    ).toBe(1800);
+  });
+
   it("saves an existing watch through save rather than create", async () => {
     const user = userEvent.setup();
     renderEditor("w_1");

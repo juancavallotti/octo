@@ -43,6 +43,7 @@ function watch(over: Partial<WatchListItem["watch"]> = {}): WatchListItem {
       intervalSeconds: 60,
       forSeconds: 300,
       renotifySeconds: 0,
+      cooldownSeconds: 0,
       ...over,
     },
     state: {

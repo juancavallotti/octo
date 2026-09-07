@@ -98,6 +98,15 @@ export interface Watch {
   forSeconds: number;
   /** How often a still-firing watch says so again. Zero announces once. */
   renotifySeconds: number;
+  /**
+   * How long the watch stays quiet after announcing something, across episodes.
+   * Zero is off.
+   *
+   * Not the same as renotify, which only bounds repeats inside one incident: a
+   * watch that resolves and fires again has opened a new one, and renotify has
+   * nothing to say about it.
+   */
+  cooldownSeconds: number;
   createdAt?: string | null;
   updatedAt?: string | null;
 }

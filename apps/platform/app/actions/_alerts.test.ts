@@ -124,6 +124,7 @@ describe("the alerting client", () => {
         intervalSeconds: 60,
         forSeconds: 300,
         renotifySeconds: 0,
+        cooldownSeconds: 0,
       },
       "u_1",
     );
@@ -253,6 +254,7 @@ describe("the alerting client", () => {
         intervalSeconds: 60,
         forSeconds: 0,
         renotifySeconds: 0,
+        cooldownSeconds: 0,
       },
       "u_1",
     );
