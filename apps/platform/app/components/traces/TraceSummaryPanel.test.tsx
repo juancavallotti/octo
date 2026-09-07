@@ -29,6 +29,7 @@ const SUMMARY: TraceSummary = {
   llmCalls: 2,
   inputTokens: 1800,
   outputTokens: 260,
+  thinkingTokens: 0,
   cachedTokens: 0,
   costUsd: 0.0094,
   unpricedCalls: 0,
@@ -131,6 +132,29 @@ describe("TraceSummaryPanel", () => {
       />,
     );
     expect(screen.getByText(/1,200 cached/)).toBeInTheDocument();
+  });
+
+  it("names thinking tokens only when there were some, and never in the total", () => {
+    const { unmount } = render(
+      <TraceSummaryPanel summary={SUMMARY} waterfall={sequential()} />,
+    );
+    expect(screen.queryByText(/thinking/)).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <TraceSummaryPanel
+        summary={{
+          ...SUMMARY,
+          inputTokens: 1_000,
+          outputTokens: 400,
+          thinkingTokens: 300,
+        }}
+        waterfall={sequential()}
+      />,
+    );
+    expect(screen.getByText(/300 thinking/)).toBeInTheDocument();
+    // 1,400 and not 1,700: output already includes the thinking tokens.
+    expect(screen.getByText("1,400")).toBeInTheDocument();
   });
 
   it("marks a partly priced trace as a lower bound", () => {

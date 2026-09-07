@@ -1447,8 +1447,34 @@ func (a *aiAgent) runTool(
 	ctx context.Context, call core.LLMToolCall, current *types.Message, branchBase string,
 	sess *memorySession,
 ) (core.LLMToolResult, *types.Message) {
-	slog.Info("ai-agent tool call", "block", a.name, "tool", call.Name)
+	// The tool name goes in the message, not only in an attribute: the log viewer
+	// lists messages, so twenty calls that all read "ai-agent tool call" are twenty
+	// rows nobody can tell apart without expanding each one. It stays in the
+	// attributes too, so filtering by tool still works.
+	slog.Info("ai-agent tool call: "+call.Name, "block", a.name, "tool", call.Name)
+	// The arguments stay at DEBUG. They are the model's, but they are built out of
+	// the message, so they carry whatever the flow carries — and on the platform the
+	// log viewer is readable by anyone signed in. That is the same reason a deployed
+	// pod no longer captures trace bodies by default, and this line would put the
+	// payload back on the other path. The events path exposes the full input to a
+	// flow that asks for it.
 	slog.Debug("ai-agent tool input", "block", a.name, "tool", call.Name, "input", truncForLog(string(call.Input)))
+	started := time.Now()
+	res, out := a.dispatchTool(ctx, call, current, branchBase, sess)
+	// The closing line is what makes a run readable after the fact: without it a
+	// tool that took forty seconds, one that errored and one that returned at once
+	// all look identical, because only the call was ever logged.
+	slog.Info("ai-agent tool result: "+call.Name,
+		"block", a.name, "tool", call.Name, "duration", time.Since(started), "isError", res.IsError)
+	return res, out
+}
+
+// dispatchTool routes one tool call to whatever handles it — a built-in, or the
+// flow branch of that name — and is the body runTool times and logs around.
+func (a *aiAgent) dispatchTool(
+	ctx context.Context, call core.LLMToolCall, current *types.Message, branchBase string,
+	sess *memorySession,
+) (core.LLMToolResult, *types.Message) {
 	if call.Name == skillLoadToolName {
 		return a.loadSkill(ctx, call, current), current
 	}

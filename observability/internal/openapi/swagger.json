@@ -946,6 +946,10 @@
                     "status": {
                         "type": "string"
                     },
+                    "thinking_tokens": {
+                        "description": "ThinkingTokens is reporting only; OutputTokens already includes it.",
+                        "type": "integer"
+                    },
                     "trace_id": {
                         "type": "string"
                     },

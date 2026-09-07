@@ -94,6 +94,8 @@ export interface TraceSummary {
   llmCalls: number;
   inputTokens: number;
   outputTokens: number;
+  /** Already counted inside `outputTokens`. Reporting only — never add the two. */
+  thinkingTokens: number;
   cachedTokens: number;
   costUsd: number;
   unpricedCalls: number;

@@ -136,6 +136,10 @@ function TokenStat({ summary }: { summary: TraceSummary }) {
       detail={
         <>
           {formatTokens(summary.inputTokens)} in · {formatTokens(summary.outputTokens)} out
+          {/* Directly after "out", because that is what it is a slice of. */}
+          {summary.thinkingTokens > 0 && (
+            <> ({formatTokens(summary.thinkingTokens)} thinking)</>
+          )}
           {summary.cachedTokens > 0 && <> · {formatTokens(summary.cachedTokens)} cached</>}
         </>
       }

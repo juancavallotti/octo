@@ -1,10 +1,12 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -904,4 +906,61 @@ func newMessageBody(t *testing.T, body string) *types.Message {
 		t.Fatalf("set body: %v", err)
 	}
 	return msg
+}
+
+// TestAIAgentToolLogging pins what the default logs say about a tool call, which
+// is the whole point of them: the log viewer lists messages, so the tool name has
+// to be in the message rather than only in an attribute, and a call that returned
+// has to be distinguishable from one that is still running or that failed.
+func TestAIAgentToolLogging(t *testing.T) {
+	restore := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	for _, tc := range []struct {
+		name     string
+		settings types.Settings
+		isError  string
+	}{
+		{name: "success", settings: types.Settings{"result": `{"found":true}`}, isError: "false"},
+		{name: "branch error", settings: types.Settings{"fail": true}, isError: "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
+			var seen []any
+			fake := &scriptedLLM{responses: []*core.LLMResponse{
+				toolCallResp("lookup", `{"id":7}`),
+				endTurnResp(`{"ok":true}`),
+			}}
+			cfg := types.BlockConfig{Type: "ai-agent", Settings: types.Settings{
+				"connector": "claude", "prompt": "work",
+				"tools": []map[string]any{toolBranch("lookup", "looks things up", tc.settings)}}}
+			if _, err := mustBuildAI(t, agentRegistry(&seen), depsLLM(fake), cfg).
+				Process(context.Background(), aiMessage(t)); err != nil {
+				t.Fatalf("process: %v", err)
+			}
+
+			out := logs.String()
+			// The name in the message is what makes the list scannable; the closing
+			// line with its duration and status is what makes a finished run
+			// readable.
+			for _, want := range []string{
+				`msg="ai-agent tool call: lookup"`,
+				`msg="ai-agent tool result: lookup"`,
+				"duration=",
+				"isError=" + tc.isError,
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("logs missing %q:\n%s", want, out)
+				}
+			}
+			// The arguments are not among them. They are built from the message, so
+			// they carry whatever the flow carries, and the default log is readable
+			// by anyone signed in to the platform.
+			if strings.Contains(out, `\"id\":7`) {
+				t.Errorf("tool arguments must not reach the default log:\n%s", out)
+			}
+		})
+	}
 }

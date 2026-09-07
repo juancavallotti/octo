@@ -141,7 +141,7 @@ func upsertSummaries(ctx context.Context, tx pgx.Tx, deltas []TraceDelta) error 
 			delta.RootFlow, delta.RootFlowSeq,
 			delta.EntryKind, delta.EntryLabel, delta.EntryRank, delta.EntrySeq,
 			delta.Status, delta.RootDurationNs, delta.Records, delta.LLMCalls,
-			delta.InputTokens, delta.OutputTokens, delta.CachedTokens,
+			delta.InputTokens, delta.OutputTokens, delta.ThinkingTokens, delta.CachedTokens,
 			delta.CostUSD, delta.UnpricedCalls, emptyIfNil(delta.Models))
 	}
 
@@ -188,13 +188,13 @@ INSERT INTO trace_summaries (
     started_at, ended_at, root_flow, root_flow_seq,
     entry_kind, entry_label, entry_rank, entry_seq,
     status, root_duration_ns, records, llm_calls,
-    input_tokens, output_tokens, cached_tokens, cost_usd, unpriced_calls, models
+    input_tokens, output_tokens, thinking_tokens, cached_tokens, cost_usd, unpriced_calls, models
 ) VALUES (
     $1, $2::uuid, $3::uuid[], $4::uuid, $5, $6,
     $7, $8, $9, $10,
     $11, $12, $13, $14,
     $15, $16, $17, $18,
-    $19, $20, $21, $22, $23, $24
+    $19, $20, $21, $22, $23, $24, $25
 )
 ON CONFLICT (trace_id) DO UPDATE SET
     started_at       = LEAST(trace_summaries.started_at, excluded.started_at),
@@ -205,6 +205,9 @@ ON CONFLICT (trace_id) DO UPDATE SET
     llm_calls      = trace_summaries.llm_calls      + excluded.llm_calls,
     input_tokens   = trace_summaries.input_tokens   + excluded.input_tokens,
     output_tokens  = trace_summaries.output_tokens  + excluded.output_tokens,
+    -- Summed like the rest, and reporting only: output_tokens already includes
+    -- these, so cost_usd must never see them.
+    thinking_tokens = trace_summaries.thinking_tokens + excluded.thinking_tokens,
     cached_tokens  = trace_summaries.cached_tokens  + excluded.cached_tokens,
     cost_usd       = trace_summaries.cost_usd       + excluded.cost_usd,
     unpriced_calls = trace_summaries.unpriced_calls + excluded.unpriced_calls,

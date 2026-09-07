@@ -489,6 +489,57 @@ CREATE TABLE IF NOT EXISTS trace_summaries (
     last_seen_at     timestamptz NOT NULL DEFAULT now()
 );
 
+-- thinking_tokens rolls up traces.thinking_tokens, and is reporting only: it
+-- answers "how much of this run was reasoning?" from the rollup, like every other
+-- total on the summary panel, instead of leaving the detail view to re-sum the
+-- records and become a second implementation of the same arithmetic.
+--
+-- It must never reach a cost. output_tokens ALREADY INCLUDES it — the runtime
+-- normalizes every provider to that inclusive figure — so a total that adds the
+-- two double-counts, and cost_usd above is computed without it.
+--
+-- NOT NULL DEFAULT 0, unlike its nullable namesake on `traces`, because these are
+-- sums rather than reports: a row has accumulated some number of thinking tokens
+-- and zero is a number. That default alone would be wrong for rows written before
+-- the column existed, though — a finished trace is never written to again, so its
+-- summary would report no reasoning forever while its records hold the real
+-- figures. The add is therefore paired with a one-time backfill from those
+-- records, which is the only moment the two can be reconciled.
+--
+-- Guarded on the column's absence rather than written as an idempotent UPDATE,
+-- because this file is re-applied on every deploy and the aggregate is over the
+-- whole traces table. Running once is both cheaper and safer: retention prunes a
+-- trace's records and its summary together, but anything that ever left a summary
+-- behind would have a later re-run recompute its total as zero.
+DO $$
+BEGIN
+    -- Scoped to current_schema(), which is the one the unqualified ALTER below
+    -- targets. information_schema.columns spans every schema this role can see, so
+    -- an unscoped check is satisfied by a trace_summaries in ANY of them — and then
+    -- the guard skips an add the real table still needed, silently, with the file
+    -- reporting success and the first insert failing on a missing column.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'trace_summaries'
+           AND column_name = 'thinking_tokens'
+    ) THEN
+        ALTER TABLE trace_summaries
+            ADD COLUMN thinking_tokens bigint NOT NULL DEFAULT 0;
+
+        UPDATE trace_summaries s
+           SET thinking_tokens = agg.total
+          FROM (
+                SELECT trace_id, SUM(thinking_tokens)::bigint AS total
+                  FROM traces
+                 WHERE thinking_tokens IS NOT NULL
+                 GROUP BY trace_id
+               ) agg
+         WHERE s.trace_id = agg.trace_id
+           AND agg.total > 0;
+    END IF;
+END $$;
+
 -- The list view's orderings. Each carries trace_id as a tiebreaker because the cursor
 -- is composite: traces routinely start within the same millisecond, and a cursor on
 -- the timestamp alone skips or repeats rows that tie across a page boundary.

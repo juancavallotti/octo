@@ -70,6 +70,7 @@ type storedSummary struct {
 	LLMCalls       int
 	InputTokens    int64
 	OutputTokens   int64
+	ThinkingTokens int64
 	CachedTokens   int64
 	CostUSD        float64
 	UnpricedCalls  int
@@ -83,12 +84,13 @@ func readSummary(t *testing.T, store *Traces, traceID string) storedSummary {
 		`SELECT deployment_id, deployment_ids, integration_id, app_name, app_version,
 		        started_at, ended_at, root_flow, entry_kind, entry_label, entry_rank,
 		        status, root_duration_ns, records, llm_calls,
-		        input_tokens, output_tokens, cached_tokens, cost_usd, unpriced_calls, models
+		        input_tokens, output_tokens, thinking_tokens, cached_tokens, cost_usd, unpriced_calls, models
 		   FROM trace_summaries WHERE trace_id = $1`, traceID).Scan(
 		&got.DeploymentID, &got.DeploymentIDs, &got.IntegrationID, &got.AppName, &got.AppVersion,
 		&got.StartedAt, &got.EndedAt, &got.RootFlow, &got.EntryKind, &got.EntryLabel, &got.EntryRank,
 		&got.Status, &got.RootDurationNs, &got.Records, &got.LLMCalls,
-		&got.InputTokens, &got.OutputTokens, &got.CachedTokens, &got.CostUSD, &got.UnpricedCalls, &got.Models)
+		&got.InputTokens, &got.OutputTokens, &got.ThinkingTokens, &got.CachedTokens,
+		&got.CostUSD, &got.UnpricedCalls, &got.Models)
 	if err != nil {
 		t.Fatalf("read summary: %v", err)
 	}
@@ -274,7 +276,7 @@ func TestTracesSummaryMergesAcrossBatchesEitherWay(t *testing.T) {
 			storedRecord(traceID, 6, ingest.KindBlockPostInvoke, inFlow("checkout"), endingAt(30, 25)),
 			storedRecord(traceID, 7, ingest.KindLLMTurn, func(r *ingest.TraceRow) {
 				r.Record.Model = "m"
-				r.Record.Usage = &cost.Usage{InputTokens: 1000, OutputTokens: 200}
+				r.Record.Usage = &cost.Usage{InputTokens: 1000, OutputTokens: 200, ThinkingTokens: 120}
 				r.Priced = priced(0.01, "OPENAI", rateID)
 			}),
 		}
@@ -331,6 +333,10 @@ func TestTracesSummaryMergesAcrossBatchesEitherWay(t *testing.T) {
 				t.Errorf("interval = %s..%s, want 0..95ms", got.StartedAt, got.EndedAt)
 			case got.LLMCalls != 1 || got.InputTokens != 1000 || got.OutputTokens != 200:
 				t.Errorf("model accounting = %d calls %d/%d tokens", got.LLMCalls, got.InputTokens, got.OutputTokens)
+			// Rolled up like the other counters, and already inside the 200 output
+			// tokens — so the cost checked below must be unmoved by it.
+			case got.ThinkingTokens != 120:
+				t.Errorf("thinking tokens = %d, want 120", got.ThinkingTokens)
 			case got.CostUSD < 0.0099 || got.CostUSD > 0.0101:
 				t.Errorf("cost = %v, want 0.01", got.CostUSD)
 			}

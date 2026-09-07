@@ -54,6 +54,7 @@ export interface RawSummary {
   llm_calls: number;
   input_tokens: number;
   output_tokens: number;
+  thinking_tokens: number;
   cached_tokens: number;
   cost_usd: number;
   unpriced_calls: number;
@@ -146,6 +147,7 @@ export function toSummary(r: RawSummary): TraceSummary {
     llmCalls: r.llm_calls,
     inputTokens: r.input_tokens,
     outputTokens: r.output_tokens,
+    thinkingTokens: r.thinking_tokens,
     cachedTokens: r.cached_tokens,
     costUsd: r.cost_usd,
     unpricedCalls: r.unpriced_calls,

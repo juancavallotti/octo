@@ -60,6 +60,7 @@ const SUMMARY: RawSummary = {
   llm_calls: 1,
   input_tokens: 400,
   output_tokens: 120,
+  thinking_tokens: 0,
   cached_tokens: 0,
   cost_usd: 0,
   unpriced_calls: 1,
