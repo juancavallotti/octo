@@ -70,7 +70,12 @@ type actorRequest struct {
 
 // autoFixRequest is the body of the troubleshooter's permission toggle.
 type autoFixRequest struct {
-	AutoFix bool `json:"autoFix"`
+	// Declared for the same reason tracingRequest declares it: the client sends an
+	// actorId on every agent mutation, and a body that does not name the field
+	// drops it silently — the request still succeeds, and the actor the platform
+	// resolved is simply lost.
+	ActorID string `json:"actorId"`
+	AutoFix bool   `json:"autoFix"`
 }
 
 // tracingRequest is the body of the tracing toggle.

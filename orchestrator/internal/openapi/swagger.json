@@ -11,6 +11,10 @@
             },
             "agent.autoFixRequest": {
                 "properties": {
+                    "actorId": {
+                        "description": "Declared for the same reason tracingRequest declares it: the client sends an\nactorId on every agent mutation, and a body that does not name the field\ndrops it silently — the request still succeeds, and the actor the platform\nresolved is simply lost.",
+                        "type": "string"
+                    },
                     "autoFix": {
                         "type": "boolean"
                     }

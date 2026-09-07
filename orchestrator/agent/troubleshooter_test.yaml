@@ -151,3 +151,48 @@ cases:
       # can reach this turn.
       troubleshooter.read-history:
         count: 1
+
+  # Everything in the report is untrusted: the answer is model output and the
+  # record carries the alert's own text, which a person wrote. Markup in either
+  # must reach a mail client as characters, not as tags.
+  - name: untrusted text is escaped before it becomes HTML
+    input: an alert
+    mocks:
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body:
+            answer: 'checkout fails: <script>alert(1)</script> & the template reads {{body.name}}'
+    spies:
+      troubleshooter.send-final-report:
+        count: 1
+        records:
+          - input:
+              that:
+                - '!body.html.contains("<script>")'
+                - 'body.html.contains("&lt;script&gt;")'
+                - 'body.html.contains("&amp;")'
+                # The plain-text half is not markup and keeps what was written.
+                - 'body.text.contains("<script>")'
+
+  # A run that produced no answer at all still has to report: the alert is
+  # already marked handled, so silence here is the worst outcome available.
+  - name: a run with no answer still reports
+    input: an alert
+    mocks:
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_2" }
+      troubleshooter.troubleshoot:
+        default:
+          body: {}
+    spies:
+      troubleshooter.send-final-report:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.to == ["ada@example.com"]'
+                - 'body.subject.contains("checkout errors")'

@@ -1,8 +1,59 @@
 "use client";
 
+import { useState } from "react";
 import { Field, INPUT } from "@/app/components/admin/fields";
 import type { AlertAction } from "@/app/model/alerts";
 import type { WatchTarget } from "./target";
+
+/**
+ * A comma-separated list of addresses.
+ *
+ * The raw text is local state and the parsed list is what leaves, which is the
+ * whole point: parsing on every keystroke and rendering the result back means a
+ * separator disappears the moment it is typed — `filter(Boolean)` drops the
+ * empty segment after the comma, the value re-renders without it, and a second
+ * address cannot be started. Both address fields here had that.
+ *
+ * Re-seeded by remount rather than by an effect, the way AgentTurnLimit is: the
+ * caller keys this on the action, so a different action builds a fresh control
+ * instead of an effect fighting whoever is typing.
+ */
+function AddressList({
+  value,
+  label,
+  hint,
+  placeholder,
+  ariaLabel,
+  onChange,
+}: {
+  value: string[];
+  label: string;
+  hint: string;
+  placeholder?: string;
+  ariaLabel: string;
+  onChange: (addresses: string[]) => void;
+}) {
+  const [raw, setRaw] = useState(value.join(", "));
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        value={raw}
+        aria-label={ariaLabel}
+        onChange={(e) => {
+          setRaw(e.target.value);
+          onChange(
+            e.target.value
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          );
+        }}
+        className={`${INPUT} w-full`}
+        placeholder={placeholder}
+      />
+    </Field>
+  );
+}
 
 /**
  * The two action bodies. Split from the list because the list is about adding
@@ -18,31 +69,23 @@ export function EmailFields({
   index: number;
   onChange: (next: AlertAction) => void;
 }) {
-  const to = (action.params?.to as string[]) ?? [];
+  // Guarded: params come from stored JSON with no runtime shape check, and a
+  // non-array here would throw on join and take the editor down with it.
+  const to = Array.isArray(action.params?.to)
+    ? (action.params.to as string[])
+    : [];
   return (
     <div className="mt-3">
-      <Field
+      <AddressList
+        key={action.id}
+        value={to}
         label="To"
         hint="Comma separated. Sent from the address configured in the platform's email settings."
-      >
-        <input
-          value={to.join(", ")}
-          aria-label={`Action ${index + 1} recipients`}
-          onChange={(e) =>
-            onChange({
-              ...action,
-              params: {
-                ...action.params,
-                to: e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              },
-            })
-          }
-          className={`${INPUT} w-full`}
-        />
-      </Field>
+        ariaLabel={`Action ${index + 1} recipients`}
+        onChange={(addresses) =>
+          onChange({ ...action, params: { ...action.params, to: addresses } })
+        }
+      />
     </div>
   );
 }
@@ -79,7 +122,11 @@ export function TopicFields({
   const params = action.params ?? {};
   const deploymentId = String(params.deploymentId ?? "");
   const listId = `topics-${action.id}`;
-  const reportTo = (params.reportTo as string[]) ?? [];
+  // Guarded for the same reason `to` is: a stored action whose reportTo is not
+  // an array would throw on join and crash the editor rather than render.
+  const reportTo = Array.isArray(params.reportTo)
+    ? (params.reportTo as string[])
+    : [];
   // Which app this action actually publishes to: the one chosen here, or the
   // watch's own app when that is left blank. Filtering on the raw field alone
   // showed every subject on the installation whenever it was blank, and then
@@ -178,29 +225,17 @@ export function TopicFields({
         that whoever edits the watch can see who hears about it. It is optional
         because a flow that only records or reacts needs nobody's address.
       */}
-      <Field
+      <AddressList
+        key={action.id}
+        value={reportTo}
         label="Who it should report to"
         hint="Optional, comma separated. For an app that investigates and writes back — it is told where to send its findings rather than deciding for itself."
-      >
-        <input
-          value={reportTo.join(", ")}
-          aria-label={`Action ${index + 1} report recipients`}
-          onChange={(e) =>
-            onChange({
-              ...action,
-              params: {
-                ...params,
-                reportTo: e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              },
-            })
-          }
-          className={`${INPUT} w-full`}
-          placeholder="ada@example.com"
-        />
-      </Field>
+        ariaLabel={`Action ${index + 1} report recipients`}
+        placeholder="ada@example.com"
+        onChange={(addresses) =>
+          onChange({ ...action, params: { ...params, reportTo: addresses } })
+        }
+      />
     </div>
   );
 }

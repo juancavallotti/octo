@@ -6,6 +6,7 @@ const getAgentStatus = vi.fn();
 const installAgent = vi.fn();
 const rolloutAgent = vi.fn();
 const setAgentTracing = vi.fn();
+const setAgentAutoFix = vi.fn();
 const setAgentMaxIterations = vi.fn();
 const uninstallAgent = vi.fn();
 vi.mock("@/app/model/agent", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/app/model/agent", () => ({
   installAgent: () => installAgent(),
   rolloutAgent: () => rolloutAgent(),
   setAgentTracing: (on: boolean) => setAgentTracing(on),
+  setAgentAutoFix: (on: boolean) => setAgentAutoFix(on),
   setAgentMaxIterations: (n: number) => setAgentMaxIterations(n),
   uninstallAgent: (purge: boolean) => uninstallAgent(purge),
 }));
@@ -164,6 +166,40 @@ describe("AgentSettingsManager", () => {
     await user.click(screen.getByRole("button", { name: /Turn tracing off/ }));
 
     await waitFor(() => expect(setAgentTracing).toHaveBeenCalledWith(false));
+  });
+
+  // Whether the troubleshooter may act is the sharpest switch on this page: on,
+  // an alert firing at four in the morning can end in a rollout nobody watched.
+  // The control says what is true now and the button says what would change, so
+  // both directions are asserted.
+  it("lets the troubleshooter be allowed to act, and restricted again", async () => {
+    const user = userEvent.setup();
+    getAgentStatus.mockResolvedValue({ ...DEPLOYED, autoFix: false });
+    renderManager();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Let him fix things/ }),
+      ).toBeTruthy(),
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Let him fix things/ }),
+    );
+    await waitFor(() => expect(setAgentAutoFix).toHaveBeenCalledWith(true));
+
+    setAgentAutoFix.mockClear();
+    getAgentStatus.mockResolvedValue({ ...DEPLOYED, autoFix: true });
+    renderManager();
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: /Restrict to reporting/ })[0],
+      ).toBeTruthy(),
+    );
+    await user.click(
+      screen.getAllByRole("button", { name: /Restrict to reporting/ })[0],
+    );
+    await waitFor(() => expect(setAgentAutoFix).toHaveBeenCalledWith(false));
   });
 
   // The headline risk of rolling out: an edited agent is replaced by the shipped

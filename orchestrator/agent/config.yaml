@@ -2060,6 +2060,22 @@ flows:
   # coordinator does, which keeps the property that file has today: there is one
   # unrestricted octo_api and it is in one flow.
   - name: troubleshooter
+    # One at a time.
+    #
+    # Two reasons, and either alone would be enough. The watch history is read
+    # before the agent starts and written after it finishes, so two overlapping
+    # runs for one watch both read the same snapshot and the second write drops
+    # the first one's entry — the record that decides whether a fault is
+    # recurring, quietly losing occurrences.
+    #
+    # And a run can change this installation. Two of them doing that at once,
+    # unwatched, on evidence each gathered before the other acted, is not a race
+    # worth having however it is serialized.
+    #
+    # The cost is a queue: alerts arriving while one is working wait, and a run
+    # takes minutes. That is the right trade at alert volumes, where the
+    # alternative is concurrency nobody asked for on the platform's own API.
+    workers: 1
     source:
       type: events
       settings:
@@ -2551,8 +2567,15 @@ flows:
         name: keep-answer
         settings:
           name: answer
+          # string() has no overload for a map, so the old fallback — string(body) —
+          # crashed the flow outright on any run whose body was not a plain
+          # string: a guardrail answer, a run that produced nothing, an agent
+          # replying with JSON. It failed at exactly the moment the report matters
+          # most, and the report is sent from here, so the alert went unanswered.
           value: >-
-            has(body.answer) ? string(body.answer) : string(body)
+            has(body.answer)
+              ? (type(body.answer) == string ? body.answer : toJson(body.answer))
+              : toJson(body)
 
       # This occurrence, appended for the next one to read. The agent's own answer
       # goes in with it: the most useful thing the next run can know is not only
@@ -2608,6 +2631,22 @@ flows:
       # that the report is a value this flow produced and can be looked at — a
       # test spies on it here, and a debugger stops on it — instead of a string
       # assembled inside a block on its way out of the process.
+      # Escaped before it becomes HTML.
+      #
+      # Everything in this report is untrusted: the answer is model output, and
+      # the record carries tool arguments, which carry the alert — whose watch
+      # name and description are text a person wrote. A `<script>` or a stray
+      # `<` in any of them would otherwise reach a mail client as markup rather
+      # than as the characters somebody typed.
+      #
+      # Ampersand first, or the escapes escape each other.
+      - type: set-variable
+        name: escape-answer
+        settings:
+          name: answerHtml
+          value: >-
+            vars.answer.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
       - type: set-payload
         name: build-report
         settings:
@@ -2627,14 +2666,16 @@ flows:
                "<div style=\"font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;" +
                "font-size:14px;line-height:1.5;color:#18181b;max-width:640px\">" +
                "<p style=\"margin:0 0 16px\">" +
-               vars.answer.replace("\n\n", "</p><p style=\"margin:0 0 16px\">") +
+               vars.answerHtml.replace("\n\n", "</p><p style=\"margin:0 0 16px\">") +
                "</p>" +
                "<p style=\"margin:24px 0 8px;font-weight:600;color:#52525b\">What I did</p>" +
                "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"" +
                " style=\"border-collapse:collapse;width:100%;font-size:13px\">" +
                vars.transcript.lines.map(l,
                  "<tr><td style=\"padding:4px 8px;border-bottom:1px solid #e4e4e7;" +
-                 "color:#52525b\">" + l + "</td></tr>").join("") +
+                 "color:#52525b\">" +
+                 l.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") +
+                 "</td></tr>").join("") +
                "</table></div>"}
 
       - type: rest
