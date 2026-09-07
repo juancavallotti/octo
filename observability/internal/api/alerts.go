@@ -365,7 +365,10 @@ func (h *AlertsHandler) acknowledge(w http.ResponseWriter, r *http.Request) {
 	// The body is optional: acknowledging with no actor is an unattributed
 	// acknowledgement rather than a refused one.
 	var req actorRequest
-	if r.ContentLength > 0 {
+	// Anything but a stated zero. A chunked request sets ContentLength to -1, and
+	// `> 0` skipped its body — so an acknowledgement sent that way was recorded
+	// with no actor at all and still answered 204, which reads as success.
+	if r.ContentLength != 0 {
 		if err := httpx.DecodeJSON(w, r, &req); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 			return

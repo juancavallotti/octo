@@ -31,6 +31,14 @@ export function EvaluationHistory({ watchId }: { watchId: string }) {
     async (before?: string) => {
       const mine = ++sequence.current;
       setBusy(true);
+      // A base read replaces; only a paged one appends. Cleared before the
+      // request rather than after it, because a base read that FAILS would
+      // otherwise leave the previous filter's rows on screen underneath the new
+      // filter's state — the old answer presented as the new question's.
+      if (!before) {
+        setRows([]);
+        setCursor(null);
+      }
       try {
         const page = await listEvaluations({
           watchId,

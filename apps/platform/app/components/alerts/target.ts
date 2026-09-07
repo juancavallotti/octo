@@ -144,17 +144,25 @@ export function targetOf(conditions: AlertCondition[]): WatchTarget {
  * arrangement, so the editor warns instead of silently normalising it.
  */
 export function targetsAgree(conditions: AlertCondition[]): boolean {
-  const seen = new Set(
-    conditions.map((c) => {
-      const scope = c.scope ?? {};
-      return [
-        scope.integrationId ?? "",
-        scope.deploymentId ?? "",
-        scope.appName ?? "",
-      ].join("|");
-    }),
-  );
-  return seen.size <= 1;
+  // Compared field by field, and only where a field is actually set.
+  //
+  // The whole tuple was compared, which made three conditions on ONE app look
+  // like three different apps: scopeFor writes a different field per source —
+  // integrationId for traces, appName for logs, deploymentId for pod stats — so
+  // a watch built entirely by this editor reported itself as mixed and warned
+  // that choosing an app would repoint conditions that already pointed there.
+  //
+  // Two conditions disagree only when both name the same axis and name it
+  // differently.
+  const axes = ["integrationId", "deploymentId", "appName"] as const;
+  return axes.every((axis) => {
+    const values = new Set(
+      conditions
+        .map((c) => (c.scope ?? {})[axis])
+        .filter((v): v is string => Boolean(v)),
+    );
+    return values.size <= 1;
+  });
 }
 
 /** Everything a scope holds that is not the target. */

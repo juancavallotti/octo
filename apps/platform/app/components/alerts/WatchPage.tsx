@@ -70,7 +70,15 @@ export default function WatchPage({ watchId }: { watchId: string }) {
           <p className="mt-4 text-sm text-zinc-500">Loading…</p>
         ) : (
           <div className="mt-4 flex flex-col gap-8">
+            {/*
+        Keyed on the watch, so navigating from one to another builds a fresh
+        editor rather than reusing the one holding the previous watch's draft.
+        WatchEditor seeds its state from `initial` once; a reused instance would
+        keep the old definition while the new one loaded, and Save sends what the
+        editor holds — writing one watch's contents over another's id.
+      */}
             <WatchEditor
+              key={watchId}
               initial={initial}
               watchId={creating ? null : watchId}
             />

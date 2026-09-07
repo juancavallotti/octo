@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
   createWatch,
@@ -56,6 +56,11 @@ export function WatchEditor({
     targetOf(initial.conditions),
   );
   const [preview, setPreview] = useState<WatchPreview | null>(null);
+  // A preview describes the definition it was asked about, and the form stays
+  // editable while the request is in flight. Without a version to compare, an
+  // answer that arrives after an edit is shown against a watch it never saw —
+  // and two overlapping previews resolve in whatever order the network chose.
+  const version = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -64,9 +69,18 @@ export function WatchEditor({
   // and leaves them alone until somebody actually picks one.
   const [mixed] = useState(() => !targetsAgree(initial.conditions));
 
+  // Every edit goes through this, so a preview on screen is always about what is
+  // on screen: the moment the definition changes, the old answer stops being an
+  // answer and any in-flight request stops being wanted.
+  const edit = (next: WatchInput) => {
+    version.current += 1;
+    setPreview(null);
+    setWatch(next);
+  };
+
   const retarget = (next: WatchTarget) => {
     setTarget(next);
-    setWatch((w) => ({ ...w, conditions: applyTarget(w.conditions, next) }));
+    edit({ ...watch, conditions: applyTarget(watch.conditions, next) });
   };
 
   const run = async (fn: () => Promise<void>) => {
@@ -101,7 +115,14 @@ export function WatchEditor({
     });
 
   const tryIt = () =>
-    run(async () => setPreview(await previewWatch(submitted())));
+    run(async () => {
+      const asked = version.current;
+      const result = await previewWatch(submitted());
+      // Dropped rather than shown if the definition moved while we waited. The
+      // reader asked about one watch; answering with a preview of another, under
+      // the same button, is worse than not answering.
+      if (version.current === asked) setPreview(result);
+    });
 
   const remove = async () => {
     if (!watchId) return;
@@ -132,7 +153,7 @@ export function WatchEditor({
       </Section>
 
       <Section title="How often should we check?" step={2}>
-        <Schedule watch={watch} onChange={setWatch} />
+        <Schedule watch={watch} onChange={edit} />
       </Section>
 
       <Section title="What to watch for?" step={3}>
@@ -141,12 +162,12 @@ export function WatchEditor({
           conditions={watch.conditions}
           target={target}
           step={stepFor(watch.intervalSeconds)}
-          onCombinator={(combinator) => setWatch({ ...watch, combinator })}
+          onCombinator={(combinator) => edit({ ...watch, combinator })}
           // Filled rather than replaced: a condition just added, or one whose
           // measure changed, has no scope yet and would otherwise be measured
           // over the whole installation.
           onChange={(conditions) =>
-            setWatch({ ...watch, conditions: fillTarget(conditions, target) })
+            edit({ ...watch, conditions: fillTarget(conditions, target) })
           }
         />
       </Section>
@@ -155,16 +176,16 @@ export function WatchEditor({
         <ActionList
           actions={watch.actions}
           target={target}
-          onChange={(actions) => setWatch({ ...watch, actions })}
+          onChange={(actions) => edit({ ...watch, actions })}
         />
       </Section>
 
       <Section title="How often should we tell them?" step={5}>
-        <Deduplication watch={watch} onChange={setWatch} />
+        <Deduplication watch={watch} onChange={edit} />
       </Section>
 
       <Section title="Name it" step={6}>
-        <WatchIdentity watch={watch} onChange={setWatch} />
+        <WatchIdentity watch={watch} onChange={edit} />
       </Section>
 
       {error && (

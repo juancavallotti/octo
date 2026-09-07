@@ -132,3 +132,37 @@ describe("targetOf and targetsAgree", () => {
     expect(hasTarget(TARGET)).toBe(true);
   });
 });
+
+// The editor writes a different scope field per source — integrationId for
+// traces, appName for logs, deploymentId for pod stats — so comparing whole
+// tuples made a watch this editor had just built report itself as mixed, and
+// warn that choosing an app would repoint conditions already pointing there.
+describe("targetsAgree across sources", () => {
+  it("accepts one app scoped the way each source wants it", () => {
+    expect(
+      targetsAgree([
+        condition({ source: "traces", scope: { integrationId: "i_1" } }),
+        condition({ source: "logs", scope: { appName: "checkout" } }),
+        condition({ source: "pod_stats", scope: { deploymentId: "d_1" } }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("still refuses two conditions naming the same axis differently", () => {
+    expect(
+      targetsAgree([
+        condition({ source: "traces", scope: { integrationId: "i_1" } }),
+        condition({ source: "traces", scope: { integrationId: "i_2" } }),
+      ]),
+    ).toBe(false);
+  });
+
+  it("treats an unscoped condition as agreeing with anything", () => {
+    expect(
+      targetsAgree([
+        condition({ source: "traces", scope: { integrationId: "i_1" } }),
+        condition({ source: "logs", scope: {} }),
+      ]),
+    ).toBe(true);
+  });
+});
