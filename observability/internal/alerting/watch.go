@@ -10,10 +10,12 @@ import (
 )
 
 const (
-	// MinInterval is how often a watch may be asked. Below a minute the
-	// evaluation lag is a large fraction of the gap between ticks, so a watch
-	// would mostly be re-reading buckets it has already judged.
-	MinInterval = time.Minute
+	// MinInterval is how often a watch may be asked.
+	//
+	// It matches MinStep, and that is the relationship worth keeping: a watch
+	// asked more often than its buckets close spends the extra checks re-reading
+	// one it has already judged, which costs a query to reach the same answer.
+	MinInterval = MinStep
 	MaxInterval = time.Hour
 
 	// MaxName bounds a watch name, which is rendered into notification subjects.

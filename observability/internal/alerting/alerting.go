@@ -29,11 +29,19 @@ const (
 	// is the exact shape every downward condition here is watching for.
 	EvalLag = 90 * time.Second
 
-	// MinStep and MaxStep bound the bucket width a watch may ask for. Below the
-	// minimum the evaluation lag is longer than the bucket and every series is
-	// mostly hole; above the maximum a baseline of a dozen points is a week of
-	// history, which is no longer a baseline for anything that happened today.
-	MinStep = time.Minute
+	// MinStep and MaxStep bound the bucket width a watch may ask for.
+	//
+	// Half a minute at the fine end. The evaluation lag is longer than that, which
+	// sounds wrong and is not: the lag delays when a bucket becomes readable, it
+	// does not stop one closing, so a thirty-second series still advances a bucket
+	// every thirty seconds — it is simply read a minute and a half after the fact.
+	// Below this, the lag starts to be several buckets and the delay stops being
+	// explainable.
+	//
+	// An hour at the coarse end, because a baseline of a dozen points is then a
+	// half a day, and beyond it a baseline stops describing anything that happened
+	// today.
+	MinStep = 30 * time.Second
 	MaxStep = time.Hour
 )
 
