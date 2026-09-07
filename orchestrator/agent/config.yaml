@@ -219,6 +219,8 @@ resources:
       as: email-reports
     - resource: skills/troubleshooting.md
       as: troubleshooting
+    - resource: skills/alerts.md
+      as: alerts
 
 connectors:
   - name: llm
@@ -1946,6 +1948,55 @@ flows:
                       settings:
                         value: '{"error": "This installation has not granted this deployment the observability API, so stored logs and traces cannot be read. Say so — it does not mean there are none."}'
 
+          - name: alerts_api
+            description: >
+              Read and write alert watches, and preview a definition before
+              saving it. Bounded to /alerts — this is the one tool that can
+              change what the platform announces, and it can reach nothing
+              else. Preview with POST /alerts/preview before POST
+              /alerts/watches: it evaluates the definition against real data
+              without storing anything or telling anybody, and it is the only
+              way to know a watch would ever fire. A 4xx comes back as data;
+              read it and correct the call, because the validator names the
+              field it refused.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path", "method"],
+                "properties": {
+                  "path":   { "type": "string", "description": "Path under /alerts, e.g. /alerts/watches. Never a full URL." },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE"] },
+                  "query":  { "type": "object", "description": "Query parameters." },
+                  "body":   { "type": "object", "description": "The watch definition, for POST and PUT." }
+                }
+              }
+            process:
+              - type: if
+                name: observability-granted
+                condition: env.OBSERVABILITY_URL != "http://observability-not-granted.invalid"
+                then:
+                  process:
+                    # pathPrefix is what makes this safe to hand write methods:
+                    # the same connector also serves PUT /settings/retention and
+                    # POST /retention/run, and the second of those deletes. The
+                    # prefix bounds this tool to alerting and nothing beside it.
+                    - type: rest-dynamic
+                      settings:
+                        connector: observability
+                        method: body.method
+                        path: body.path
+                        pathPrefix: /alerts
+                        allowMethods: [GET, POST, PUT, DELETE]
+                        query: 'has(body.query) ? body.query : {}'
+                        body: 'has(body.body) ? body.body : {}'
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-granted
+                      settings:
+                        value: '{"error": "This installation has not granted this deployment the observability API, so alerts cannot be read or written. Say so — it does not mean there are none."}'
+
           - name: http_fetch
             description: >
               Make an HTTP request to any address this pod can reach, and
@@ -2036,6 +2087,14 @@ flows:
               The shape of a flow definition: service, env, resources,
               connectors, flows, sources and process chains.
             resource: flow-file
+          - name: alerts
+            description: >
+              How to build a watch that fires when somebody would want to be
+              woken and stays quiet otherwise: the metrics you can ask about,
+              the three kinds of condition, scope, the four durations, and
+              previewing a definition before it becomes somebody's pager. Load
+              before creating or editing an alert.
+            resource: alerts
 
   # ------------------------------------------------------- the troubleshooter
   #
