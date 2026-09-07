@@ -29,6 +29,12 @@ stop there.
 
 - **Read the logs for the deployment**, around the window in the alert. The error
   text is usually in them, and it is usually the whole answer.
+
+  Logs and traces are the operator's to fetch, which means every question you ask
+  of them is a whole model run. So ask once and ask for everything: the error
+  lines in the window, how far back they go, and what the deployment looks like
+  now, in one brief. Three separate delegations for three facts is three times the
+  cost and three chances for a thin brief to come back with a confident guess.
 - **Compare with before.** A number is only alarming next to what it used to be.
   The alert carries the baseline it judged against; say what changed and when.
 - **Check what is deployed.** A fault that started at a particular minute and a
