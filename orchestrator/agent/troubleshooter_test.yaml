@@ -129,4 +129,25 @@ cases:
         records:
           - input:
               that:
-                - 'body.to == []' 
+                - 'body.to == []'
+
+  # The judgement this agent is trusted with is "again, or just once", and it is
+  # only as good as the record behind it. Recorded by the flow rather than by a
+  # tool the model has to remember to call: an occurrence that goes unwritten
+  # makes the fourth failure look like the first.
+  - name: the occurrence is written down for next time
+    input: an alert
+    mocks:
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body: { answer: "checkout fails every request on a missing field." }
+    spies:
+      troubleshooter.append-history:
+        count: 1
+      # The history is read before the agent runs, so what it concluded last time
+      # can reach this turn.
+      troubleshooter.read-history:
+        count: 1

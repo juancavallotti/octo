@@ -2094,6 +2094,24 @@ flows:
           name: watchName
           value: 'has(body.watchName) ? string(body.watchName) : "an alert"'
 
+      - type: set-variable
+        name: alert-at
+        settings:
+          name: alertAt
+          value: 'has(body.at) ? string(body.at) : ""'
+
+      - type: set-variable
+        name: incident-id
+        settings:
+          name: incidentId
+          value: 'has(body.incidentId) ? string(body.incidentId) : ""'
+
+      - type: set-variable
+        name: watch-id
+        settings:
+          name: watchId
+          value: 'has(body.watchId) ? string(body.watchId) : "unknown"'
+
       - type: log
         name: alert-received
         settings:
@@ -2104,6 +2122,31 @@ flows:
             " kind=" + body.kind +
             " incident=" + (has(body.incidentId) ? body.incidentId : "-") +
             " matched=" + string(body.matched) + "/" + string(body.total)
+
+      # What this watch has done before, in the PERSISTENT tier.
+      #
+      # The transcript below is volatile because losing it costs one report. This
+      # is not: it is the whole basis for telling a blip apart from a fault that
+      # keeps coming back, and a fault that keeps coming back is precisely the one
+      # worth acting on. It has to survive the pod, the rollout and the week.
+      #
+      # Keyed by watch rather than by incident: an incident is one episode, and
+      # the question here is how many episodes there have been.
+      - type: object-read
+        name: read-history
+        settings:
+          key: '"alert-history:" + vars.watchId'
+          as: history
+          # seq is a monotonic counter, and it is what bounds the list: CEL has no
+          # slicing, so the cap is a filter on "recent enough" rather than a take
+          # of the last N. It also survives entries being dropped, which a plain
+          # length would not.
+          default: '{"seq": 0, "seen": []}'
+
+      # The history is handed to the agent through the block's `input` below rather
+      # than merged into the body: CEL cannot merge two maps, and rebuilding the
+      # alert field by field to add one key would silently drop whatever the
+      # alerting side adds next.
 
       # A fresh transcript per run. Written before the agent starts rather than
       # lazily on first append, so the events path only ever reads a key that
@@ -2119,10 +2162,24 @@ flows:
         name: troubleshoot
         connector: llm
         answer: text
-        # The alert itself is the opening turn. Handed over whole rather than
-        # summarised into a sentence: which conditions matched, the numbers they
-        # matched on and the window they cover are the entire starting evidence,
-        # and a paraphrase would drop precisely the parts worth reading.
+        # The opening turn: the alert, whole, and what this watch has done before.
+        #
+        # The alert is handed over verbatim rather than summarised — which
+        # conditions matched, the numbers they matched on and the window they
+        # cover are the entire starting evidence, and a paraphrase would drop
+        # precisely the parts worth reading.
+        #
+        # The history goes in the same turn because it is not background, it is
+        # half the decision: the same alert means "report it" the first time and
+        # "fix it" the fourth, and an agent that had to go and ask for the
+        # difference would sometimes not ask.
+        input: >-
+          "An alert has fired. Here it is, verbatim:\n\n" + toJson(body) +
+          "\n\nWhat this same watch has done before, oldest first — each entry is a" +
+          " separate episode, with what you concluded at the time:\n\n" +
+          toJson(vars.history.seen) +
+          "\n\nTriage it. Read the history before you decide whether to change" +
+          " anything: once is transient, again and again is a fault."
         maxIterations: ${AGENT_TROUBLESHOOT_ITERATIONS}
         prompt: >
           You are Dr. Octo, triaging an alert that has just fired on this octo
@@ -2134,8 +2191,16 @@ flows:
           order the work goes in and what you are and are not allowed to do.
 
 
+          The alert carries previousOccurrences: what this same watch has done
+          before, and what you concluded each time. Read it. Something that has
+          happened once is transient and gets a report, not a change; something
+          that keeps coming back is what acting is for. If an earlier entry says
+          you already tried something, do not try it again.
+
+
           Work in three acts: triage the fault and email a first report saying what
-          is happening; then, if you are permitted and confident, try to fix it;
+          is happening; then, if you are permitted and confident and it is
+          recurring rather than a one-off, try to fix it;
           then email a second report with what you found, what you did and what is
           left. Send the first report before you attempt anything, even when the
           cause is obvious — the person woken by this wants to know now, not after
@@ -2407,6 +2472,27 @@ flows:
           name: answer
           value: >-
             has(body.answer) ? string(body.answer) : string(body)
+
+      # This occurrence, appended for the next one to read. The agent's own answer
+      # goes in with it: the most useful thing the next run can know is not only
+      # that this fired before, but what was concluded and what was tried.
+      #
+      # Capped at fifty. Old enough episodes stop informing the judgement, and an
+      # unbounded list would be read into a prompt on every alert.
+      - type: object-write
+        name: append-history
+        settings:
+          key: '"alert-history:" + vars.watchId'
+          value: >-
+            {"seq": int(vars.history.seq) + 1,
+             "seen": vars.history.seen.filter(e, int(e.seq) > int(vars.history.seq) - 49) + [{
+               "seq": int(vars.history.seq) + 1,
+               "at": vars.alertAt != "" ? vars.alertAt : string(now),
+               "incidentId": vars.incidentId,
+               "finding": vars.answer.size() > 400
+                            ? vars.answer.substring(0, 400) + "…"
+                            : vars.answer
+             }]}
 
       - type: log
         name: run-finished

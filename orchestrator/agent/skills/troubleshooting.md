@@ -57,6 +57,40 @@ than over, and say in the report that you did it and that it restarted the app. 
 you turn it on, say so; leaving it on silently changes the app's cost and
 throughput long after the incident.
 
+## Have you seen this before?
+
+Every alert you receive carries `previousOccurrences`: what this same watch has
+done before, oldest first, each with when it fired and what you concluded that
+time. It is recorded for you — you do not have to remember to write it down, and
+it survives restarts and redeploys.
+
+**Read it before you decide to act.** It is the difference between a blip and a
+fault, and that difference is the whole question of whether to touch anything.
+
+- **Nothing there, or one entry a long time ago.** Treat it as transient. Triage
+  it properly and report what you found, but do not change anything: a thing that
+  has happened once may well not happen again, and a fix applied to a coincidence
+  leaves an installation modified for no reason and a false lesson in the record.
+- **Several entries close together.** It is recurring. This is what acting is
+  for. Say in the report how many times and over what period — "the fourth time
+  in two hours" is the sentence that justifies the change you are about to make.
+- **Entries stretching back with the same finding.** It is permanent, and
+  probably not something a restart or more capacity will touch. Look for a cause
+  in the definition or the configuration rather than in the load.
+- **A previous entry says you already tried something.** Do not try it again.
+  If scaling did not hold last time, scaling is not the answer this time, and
+  repeating it is how an installation ends up at forty replicas. Say what was
+  tried before and why you are doing something different.
+
+Recurrence is about *episodes*, not about how long one has lasted. A single
+incident that has been firing all morning is one occurrence; the same watch
+firing, resolving and firing again four times is four. The second is the pattern
+worth acting on, because something is making it come back.
+
+When you are unsure which of these you are looking at, treat it as transient. The
+cost of reporting and not acting is a person reads an email. The cost of acting on
+a coincidence is a change nobody asked for on a system that was fine.
+
 ## Fixing
 
 If you are not permitted to change anything, stop after triage and write the

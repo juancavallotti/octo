@@ -167,10 +167,13 @@ Every notification carries `incidentId`, which is the idempotency key a receiver
 Publishes the alert onto a **deployment's own subject**, where a flow picks it up with an ordinary [`events` source](/reference/connectors/events).
 
 ```json
-{ "id": "a_1", "type": "topic", "params": { "deploymentId": "…", "subject": "alerts" } }
+{ "id": "a_1", "type": "topic",
+  "params": { "deploymentId": "…", "subject": "alerts", "reportTo": ["ada@example.com"] } }
 ```
 
 The deployment named here is the one that *acts* on the alert, which is usually not the one the alert is about — a platform agent watching an integration it does not run. The flow subscribes to `alerts`; the platform publishes to that deployment's scoped subject, and the runtime does the rest.
+
+`reportTo` is optional and is for the receiver that writes back rather than merely reacting: it arrives on the payload as `reportTo`, and it is where that app should send what it finds. It lives here, on the action, for two reasons. Configured inside the receiving app the addresses would sit somewhere nobody editing the watch can see; left to the app to choose, an agent would be deciding who hears about an incident, which is not a decision to hand to a model. Addresses are validated and capped when the watch is saved.
 
 <Callout type="warn">
 There is deliberately no way to broadcast an alert to every deployment. The runtime refuses to let a flow subscribe to the platform's own subject plane, because that plane carries every deployment's logs and traces — a flow that could listen to it could read other workloads' traffic. So an alert is addressed to a deployment, and a watch that should reach several names several topic actions.

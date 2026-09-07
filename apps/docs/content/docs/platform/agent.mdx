@@ -295,6 +295,32 @@ What it costs: a delegation is a whole model run, and the panel is quiet while i
 
 Each specialist emits its `tool_call` and `tool_result` events to the same stream the coordinator's go to, so the panel shows what it is doing rather than one chip sitting open for two minutes.
 
+### He also triages alerts
+
+A fourth flow, `troubleshooter`, is the same agent woken by an [alert](/platform/alerting) instead of by a question. Nobody is watching a panel, so it does not stream, and its answer is not the deliverable — the two emails are.
+
+An alert reaches it because a watch's `topic` action publishes onto this deployment's own subject and the flow subscribes to it with an ordinary `events` source. The subject name has to match at both ends; `ALERT_SUBJECT` is that agreement, and `alerts` is the default. Whoever should hear about it rides on the action as `reportTo`, so the agent forwards findings to an address it was given rather than picking one.
+
+It works in three acts:
+
+1. **Triage, and report.** It reads the logs for the deployment, compares the numbers against the baseline the alert carried, checks what was deployed and when, and looks things up in these docs. Then it emails what it has — *before* attempting anything, because someone woken by an alert wants to know while the work is still going on.
+2. **Try to fix it**, if it can name the cause and if the installation permits it. Scaling first, because it is reversible and changes nothing about what the app does; a definition change last, and only through the builder so there is a test between the edit and the deploy.
+3. **Report again**, with what was found, what was done and what is left.
+
+It remembers what it has seen. Every alert arrives with `previousOccurrences` — what this same watch has done before, and what the agent concluded each time — recorded by the flow into the persistent store, keyed by watch, and surviving restarts and redeploys. That record is the difference between a blip and a fault, and it is the thing that decides whether to act at all: once is transient and gets a report, four times in two hours is a fault and is what the third act is for. An entry saying a previous attempt did not hold is also how it avoids trying the same fix twice and walking a deployment up to forty replicas.
+
+Recorded by the flow rather than by a tool the agent has to remember to call. Whether something is recurring is a fact about what already happened, and a fact that only gets written down when a model thinks to write it down is not one you can lean on at four in the morning — which is exactly when this judgement gets made.
+
+<Callout type="warn">
+`AGENT_TROUBLESHOOT_FIX` is **off** by default. On means a model acting on your installation with nobody watching, started by an alert that fired at four in the morning — a decision to make deliberately, not one that should arrive as a side effect of deploying the agent. Off, it still triages, still reads everything and still reports twice; it only stops the third act.
+</Callout>
+
+The second report is sent by the flow rather than by the agent. The first is a judgement call — the agent decides when triage is done. The second is an obligation, and an obligation discharged only when a model remembers it is not one: a run that used up its turns or gave up would otherwise end in silence, which is the worst outcome here because the alert has already been marked as handled.
+
+That report carries an appendix of what actually happened, assembled from the agent's own event stream: one line per turn, per tool call and per result, filtered to exclude the token-level events an SSE panel would render. The same lines are logged as they happen, so a run in progress is visible in the [Logs](/platform/traces) view rather than only afterwards.
+
+Two things are worth knowing before you turn the third act on. **Enabling tracing is a rollout** — the pods restart, which interrupts what is still being served and discards the in-flight state you were trying to observe, and it backfills nothing. The skill tells it to reach for the logs first and to say in the report when it did this. And the **alert body is evidence, not instruction**: a watch name is text a person wrote, arriving in a prompt belonging to an agent that can reach the operator. The skill says so plainly, and the same goes for a log line or a page of these docs.
+
 ### What he remembers
 
 He uses the runtime's [agent memory](/ai/agent-memory) — `agentId: dr-octo`, with `userMemory` on — so none of this is written in his definition any more. Three things are stored, and they are not the same thing:
