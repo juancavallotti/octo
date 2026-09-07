@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { PrimaryButton } from "./fields";
-import { useAgentForm, type AgentDraft } from "./AgentSettingsForm";
+import { useAgentForm } from "./AgentSettingsForm";
 import {
   saveLlmSettings,
   saveWebSearchSettings,
@@ -13,35 +12,27 @@ import { setAgentDeploymentSettings } from "@/app/model/agent";
  * The one Save.
  *
  * It writes only what changed, in a deliberate order: the provider first,
- * because it is the thing the agent cannot run without and the thing a
- * roll-out would carry; then the search key; then the two settings that live on
- * the pods, in a single call so they replace the pods once rather than twice.
+ * because it is the thing the agent cannot run without and the thing a roll-out
+ * would carry; then the search key; then the two settings that live on the pods,
+ * in a single call so they replace the pods once rather than twice.
  *
- * Saying what will happen matters more here than under the old per-section
- * buttons. "Apply" beside the turn limit was obviously about the deployment;
- * "Save" at the foot of a page is not, so when a pod-level field is dirty the
- * button says so before it is pressed.
+ * Saying what will happen matters more here than under the buttons this
+ * replaced. "Apply" beside the turn limit was self-evidently about the
+ * deployment; "Save" at the foot of a page is not, so when a pod-level field is
+ * dirty the button says so before it is pressed rather than after.
  */
-export default function AgentSaveBar({
-  deployed,
-  onSaved,
-}: {
-  /** Pod settings can only be applied to something that exists. */
-  deployed: boolean;
-  onSaved: () => Promise<void> | void;
-}) {
-  const { draft, dirty, committed } = useAgentForm();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+export default function AgentSaveBar() {
+  const { draft, dirty, stored, busy, error, run } = useAgentForm();
   if (!draft) return null;
 
+  // Pod settings can only reach something that exists. Changed while the agent
+  // is not deployed, they stay in the draft and travel with the install instead
+  // of being sent to an orchestrator that would refuse them.
+  const deployed = Boolean(stored.status?.deploymentId);
   const rolls = dirty.deployment && deployed;
 
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
+  const save = () =>
+    run(async () => {
       if (dirty.llm) {
         await saveLlmSettings({
           provider: draft.provider,
@@ -53,7 +44,7 @@ export default function AgentSaveBar({
         await saveWebSearchSettings({ apiKey: draft.webSearchApiKey });
       }
       if (rolls) {
-        // Sent together, so the pods are replaced once. An empty turn limit is
+        // Together, so the pods are replaced once. An empty turn limit sends
         // zero, which the orchestrator reads as "no override" — the only way
         // back to the definition's own default.
         await setAgentDeploymentSettings({
@@ -61,21 +52,7 @@ export default function AgentSaveBar({
           autoFix: draft.autoFix,
         });
       }
-      // The secrets are cleared from the draft because they were write-only: what
-      // is stored now is not something the page can show back.
-      const saved: AgentDraft = {
-        ...draft,
-        llmApiKey: "",
-        webSearchApiKey: "",
-      };
-      committed(saved);
-      await onSaved();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   return (
     <div className="mt-4 flex flex-wrap items-center gap-3">
