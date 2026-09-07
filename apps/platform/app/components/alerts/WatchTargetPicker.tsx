@@ -3,34 +3,55 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { AppPicker } from "@/app/components/AppPicker";
-import { listTraceApps, type TraceApp } from "@/app/model/traces";
+import { listAllDeployments } from "@/app/model/orchestrator";
+import { listTraceApps } from "@/app/model/traces";
 import { NO_TARGET, type WatchTarget } from "./target";
 
 /**
  * Which app the watch is about — the first thing asked, because it is the first
  * thing anybody has decided.
  *
- * The list comes from what has actually produced telemetry rather than from the
- * deployment registry, and that is the useful difference: these are the apps
- * there is something to watch, each carrying the three ids the three sources
- * need. An app that has never reported cannot be alerted on, and offering it
- * would be offering a watch that can only ever say "no data".
+ * The list is what is **deployed**, not what has already reported.
+ *
+ * It was the other way round, on the reasoning that an app which has never
+ * reported cannot be alerted on. That reasoning was wrong twice over. Traces are
+ * only one of three sources — an app with tracing switched off still has logs and
+ * pod stats, and neither is represented in the trace table at all. And even for
+ * traces it defeats the point: the watch you most want is the one armed before
+ * the first failure, which is exactly the moment there is nothing to have seen.
+ * A picker drawn from telemetry offers you an app only once you no longer need
+ * to be told about it.
+ *
+ * Telemetry is still read, but only to annotate: it orders the apps that are
+ * actually live above the ones that are quiet, and marks the quiet ones so
+ * nobody writes a trace condition against an app that has never traced and
+ * waits for an alert that cannot come.
  *
  * The same searchable popover every other page uses to choose an app. Versions
- * are collapsed here, unlike on traces: a watch is about the app across its
- * rollouts, and a threshold that stopped applying when somebody deployed is the
- * failure this is trying to avoid.
+ * are collapsed, unlike on traces: a watch is about the app across its rollouts,
+ * and a threshold that stopped applying when somebody deployed is the failure
+ * this is trying to avoid.
  */
 
-/** How far back the app list is drawn from. Wide, because a watch outlives a day. */
-const WINDOW = { from: undefined, to: undefined };
+/**
+ * How far back to look for signs of life.
+ *
+ * Explicit, and wide. Leaving both bounds off does not mean "all time" — the
+ * service defaults an unbounded trace query to the last 24 hours — so the
+ * previous `{ from: undefined, to: undefined }` quietly asked for one day while
+ * its comment claimed a watch outlives a day.
+ */
+const SEEN_WITHIN_DAYS = 90;
 
 interface AppChoice {
   key: string;
   integrationId: string;
   deploymentId: string;
   appName: string;
-  lastSeenAt: string;
+  /** Whether this deployment's pods run with the tracer on. */
+  tracing: boolean;
+  /** When it last produced a trace, if it ever has. */
+  lastSeenAt: string | null;
 }
 
 export function WatchTargetPicker({
@@ -47,16 +68,28 @@ export function WatchTargetPicker({
   useEffect(() => {
     let stopped = false;
     const load = async () => {
-      try {
-        const page = await listTraceApps(WINDOW);
-        if (!stopped) setApps(collapse(page.items));
-      } catch (e) {
-        if (!stopped) setError((e as Error).message);
-      } finally {
-        if (!stopped) setLoading(false);
-      }
+      const from = new Date(
+        Date.now() - SEEN_WITHIN_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      // The registry is the list; telemetry only decorates it, so a failure to
+      // read traces must not empty the picker.
+      const [deployments, seen] = await Promise.all([
+        listAllDeployments(),
+        listTraceApps({ from, to: undefined }).then(
+          (page) => page.items,
+          () => [],
+        ),
+      ]);
+      if (stopped) return;
+      setApps(collapse(deployments, seen));
     };
-    void load();
+    load()
+      .catch((e) => {
+        if (!stopped) setError((e as Error).message);
+      })
+      .finally(() => {
+        if (!stopped) setLoading(false);
+      });
     return () => {
       stopped = true;
     };
@@ -87,13 +120,13 @@ export function WatchTargetPicker({
         renderRow={(app) => (
           <span className="flex w-full items-center justify-between gap-3">
             <span className="truncate">{app.appName}</span>
-            {!app.integrationId && (
+            {noteFor(app) && (
               <span
-                title="This deployment could not be resolved to an integration, so a watch on it will not survive a rollout."
+                title={noteFor(app)?.title}
                 className="flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-400"
               >
                 <AlertTriangle size={11} />
-                no integration
+                {noteFor(app)?.label}
               </span>
             )}
           </span>
@@ -103,8 +136,7 @@ export function WatchTargetPicker({
         loading={loading}
         empty={
           <p className="px-3 py-6 text-center text-xs text-zinc-500">
-            Nothing has reported telemetry yet, so there is nothing to watch.
-            Deploy an integration and let it run once.
+            Nothing is deployed yet, so there is nothing to watch.
           </p>
         }
       />
@@ -120,31 +152,82 @@ export function WatchTargetPicker({
   );
 }
 
-/**
- * One row per app rather than per (app, version).
- *
- * Traces splits them because a cost belongs to one version or the other. A watch
- * does not: it is about the app across its rollouts, and a threshold that stopped
- * applying the moment somebody deployed is exactly the silence this feature is
- * meant to prevent. The most recently seen version wins the ids.
- */
-function collapse(items: TraceApp[]): AppChoice[] {
-  const byApp = new Map<string, AppChoice>();
-  for (const item of items) {
-    const key = item.integrationId || item.deploymentId;
-    const existing = byApp.get(key);
-    if (existing && existing.lastSeenAt >= item.lastSeenAt) continue;
-    byApp.set(key, {
-      key,
-      integrationId: item.integrationId,
-      deploymentId: item.deploymentId,
-      appName: item.appName,
-      lastSeenAt: item.lastSeenAt,
-    });
+/** What is worth warning about on a row, if anything. */
+function noteFor(app: AppChoice): { label: string; title: string } | null {
+  if (!app.tracing) {
+    return {
+      label: "tracing off",
+      title:
+        "This deployment runs without the tracer, so it produces no traces. Log and pod-stat conditions still work; trace conditions will never have anything to read.",
+    };
   }
-  return [...byApp.values()].sort((a, b) =>
-    b.lastSeenAt.localeCompare(a.lastSeenAt),
-  );
+  if (!app.lastSeenAt) {
+    return {
+      label: "no telemetry yet",
+      title:
+        "Nothing has been recorded for this app in the last 90 days. A watch on it is still worth writing — it is the first failure you want to hear about — but there is nothing yet to preview it against.",
+    };
+  }
+  return null;
+}
+
+/**
+ * One row per integration rather than per deployment or per version.
+ *
+ * Traces splits by version because a cost belongs to one or the other. A watch
+ * does not: it is about the app across its rollouts, and a threshold that
+ * stopped applying the moment somebody deployed is exactly the silence this
+ * feature is meant to prevent. The most recent deployment wins the ids.
+ *
+ * Live apps sort first, most recently seen at the top, because on an
+ * installation with a long history of retired integrations those are the ones
+ * anybody is here to watch. The rest follow by name, which is a stable order to
+ * search through rather than an interesting one.
+ */
+function collapse(
+  deployments: Array<{
+    id: string;
+    integrationId: string;
+    name: string;
+    tracing?: boolean;
+    lastUpdated: string;
+  }>,
+  seen: Array<{ integrationId: string; appName: string; lastSeenAt: string }>,
+): AppChoice[] {
+  const lastSeen = new Map<string, string>();
+  for (const item of seen) {
+    for (const key of [item.integrationId, item.appName]) {
+      if (!key) continue;
+      const existing = lastSeen.get(key);
+      if (!existing || existing < item.lastSeenAt) {
+        lastSeen.set(key, item.lastSeenAt);
+      }
+    }
+  }
+
+  const newest = new Map<string, (typeof deployments)[number]>();
+  for (const d of deployments) {
+    const key = d.integrationId || d.id;
+    const held = newest.get(key);
+    if (!held || held.lastUpdated < d.lastUpdated) newest.set(key, d);
+  }
+
+  const byIntegration = [...newest].map(([key, d]) => ({
+    key,
+    integrationId: d.integrationId,
+    deploymentId: d.id,
+    appName: d.name,
+    tracing: d.tracing ?? false,
+    lastSeenAt: lastSeen.get(d.integrationId) ?? lastSeen.get(d.name) ?? null,
+  }));
+
+  return byIntegration.sort((a, b) => {
+    if (a.lastSeenAt && b.lastSeenAt)
+      return b.lastSeenAt.localeCompare(a.lastSeenAt);
+    if (a.lastSeenAt) return -1;
+    if (b.lastSeenAt) return 1;
+    return a.appName.localeCompare(b.appName);
+  });
 }
 
 export { NO_TARGET };

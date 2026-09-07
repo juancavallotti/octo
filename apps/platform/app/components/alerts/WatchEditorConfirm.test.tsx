@@ -21,6 +21,9 @@ vi.mock("@/app/model/alerts", () => ({
 vi.mock("@/app/model/traces", () => ({
   listTraceApps: () => Promise.resolve({ items: [], from: "", to: "" }),
 }));
+vi.mock("@/app/model/orchestrator", () => ({
+  listAllDeployments: () => Promise.resolve([]),
+}));
 vi.mock("@/app/model/queues", () => ({
   listQueueStats: () => Promise.resolve({ destinations: [] }),
 }));

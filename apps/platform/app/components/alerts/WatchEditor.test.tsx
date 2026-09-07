@@ -26,6 +26,13 @@ vi.mock("@/app/model/traces", () => ({
   listTraceApps: () => listTraceApps(),
 }));
 
+// The app picker lists what is deployed, so the registry is the fixture and the
+// trace list only decorates it.
+const listAllDeployments = vi.fn();
+vi.mock("@/app/model/orchestrator", () => ({
+  listAllDeployments: () => listAllDeployments(),
+}));
+
 vi.mock("@/app/model/queues", () => ({
   listQueueStats: () => Promise.resolve({ destinations: [] }),
 }));
@@ -40,6 +47,14 @@ vi.mock("@/app/components/ConfirmDialog", () => ({
 
 import { WatchEditor } from "./WatchEditor";
 import { newWatch } from "./catalogue";
+
+const DEPLOYMENT = {
+  id: "d_1",
+  integrationId: "i_1",
+  name: "checkout",
+  tracing: true,
+  lastUpdated: "2026-09-06T09:00:00Z",
+};
 
 const APP = {
   deploymentId: "d_1",
@@ -81,6 +96,37 @@ describe("WatchEditor", () => {
     listTraceApps
       .mockReset()
       .mockResolvedValue({ items: [APP], from: "", to: "" });
+    listAllDeployments.mockReset().mockResolvedValue([DEPLOYMENT]);
+  });
+
+  // The picker lists what is deployed, not what has already reported. Sourcing it
+  // from telemetry meant an app could only be watched once it had produced some
+  // — which excludes every app with tracing off, whose logs and pod stats are
+  // perfectly watchable, and defeats the point for the rest: the watch worth
+  // writing is the one armed before the first failure.
+  it("offers a deployed app that has never reported", async () => {
+    const user = userEvent.setup();
+    listAllDeployments.mockResolvedValue([
+      DEPLOYMENT,
+      {
+        id: "d_2",
+        integrationId: "i_2",
+        name: "seneca-quote",
+        tracing: false,
+        lastUpdated: "2026-09-01T09:00:00Z",
+      },
+    ]);
+    // Only the first has ever traced.
+    listTraceApps.mockResolvedValue({ items: [APP], from: "", to: "" });
+    renderEditor();
+
+    await user.click(await screen.findByRole("button", { name: "Application" }));
+    const list = await screen.findByRole("listbox");
+    expect(within(list).getByRole("option", { name: /checkout/ })).toBeVisible();
+    const quiet = within(list).getByRole("option", { name: /seneca-quote/ });
+    expect(quiet).toBeVisible();
+    // And it says why a trace condition on it would never read anything.
+    expect(quiet).toHaveTextContent("tracing off");
   });
 
   // The app is the only answer everything else depends on, so it is asked first
