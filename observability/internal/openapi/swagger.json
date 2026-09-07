@@ -68,6 +68,7 @@
                         "type": "string"
                     },
                     "windowFrom": {
+                        "description": "omitzero, because an outcome that never reached a window — a fetch that\nfailed, a condition that could not be built — would otherwise report year\none as the period it measured, and a reader has to special-case that.",
                         "type": "string"
                     },
                     "windowTo": {
@@ -663,6 +664,10 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "cooldown_seconds": {
+                        "description": "CooldownSeconds is how long this watch stays quiet after announcing\nsomething, across episodes. Zero is off. Not the same as renotify, which\nonly bounds repeats inside one incident.",
+                        "type": "integer"
                     },
                     "created_at": {
                         "type": "string"

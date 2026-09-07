@@ -29,6 +29,7 @@ import (
 
 	"github.com/juancavallotti/octo/observability/internal/alerting"
 	alertaction "github.com/juancavallotti/octo/observability/internal/alerting/action"
+	alertcooldown "github.com/juancavallotti/octo/observability/internal/alerting/cooldown"
 	alertsource "github.com/juancavallotti/octo/observability/internal/alerting/source"
 	alertstore "github.com/juancavallotti/octo/observability/internal/alerting/store"
 	"github.com/juancavallotti/octo/observability/internal/api"
@@ -247,6 +248,11 @@ func startAlerting(
 		alertsource.New(pool, podstats.NewService(podstats.NewReader(rdb))),
 		elector,
 		dispatcher,
+		// The cooldown record is disposable on purpose, which is why it is the one
+		// piece of alerting state that lives in Redis: losing it means somebody is
+		// told twice, where losing what is in Postgres would restart a hold or
+		// re-announce an open incident.
+		alertcooldown.New(rdb),
 	)
 	go runner.Run(ctx)
 	slog.Info("evaluating alerting watches", "identity", elector.Identity())

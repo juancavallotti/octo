@@ -43,6 +43,10 @@ type watchBody struct {
 	IntervalSeconds int `json:"interval_seconds"`
 	ForSeconds      int `json:"for_seconds"`
 	RenotifySeconds int `json:"renotify_seconds"`
+	// CooldownSeconds is how long this watch stays quiet after announcing
+	// something, across episodes. Zero is off. Not the same as renotify, which
+	// only bounds repeats inside one incident.
+	CooldownSeconds int `json:"cooldown_seconds"`
 
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
@@ -153,6 +157,7 @@ func toWatchBody(w alerting.Watch) watchBody {
 		IntervalSeconds: int(w.Interval.Seconds()),
 		ForSeconds:      int(w.For.Seconds()),
 		RenotifySeconds: int(w.Renotify.Seconds()),
+		CooldownSeconds: int(w.Cooldown.Seconds()),
 		CreatedAt:       nonZero(w.CreatedAt), UpdatedAt: nonZero(w.UpdatedAt),
 	}
 }
@@ -213,6 +218,7 @@ func toWatch(b watchBody) (alerting.Watch, error) {
 		Interval: time.Duration(b.IntervalSeconds) * time.Second,
 		For:      time.Duration(b.ForSeconds) * time.Second,
 		Renotify: time.Duration(b.RenotifySeconds) * time.Second,
+		Cooldown: time.Duration(b.CooldownSeconds) * time.Second,
 	}
 	for _, obj := range b.Conditions {
 		var spec alerting.ConditionSpec

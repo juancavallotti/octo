@@ -105,6 +105,30 @@ func (f *fakeFetcher) count() int {
 	return f.fetches
 }
 
+// fakeQuiet stands in for the Redis cooldown: it allows the first claim per
+// watch and refuses the rest, which is the behaviour of SET NX with a TTL that
+// has not lapsed.
+type fakeQuiet struct {
+	mu      sync.Mutex
+	claimed map[string]int
+	err     error
+}
+
+func newFakeQuiet() *fakeQuiet { return &fakeQuiet{claimed: map[string]int{}} }
+
+func (f *fakeQuiet) Begin(_ context.Context, watchID string, ttl time.Duration) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return true, f.err
+	}
+	if ttl <= 0 {
+		return true, nil
+	}
+	f.claimed[watchID]++
+	return f.claimed[watchID] == 1, nil
+}
+
 type fakeElector struct{ leader bool }
 
 func (f *fakeElector) IsLeader() bool { return f.leader }
@@ -149,7 +173,11 @@ func dueWatch(t *testing.T, id string, threshold float64) Due {
 }
 
 func newRunner(s store, f fetcher, leader bool, n notifier) *Runner {
-	r := NewRunner(s, f, &fakeElector{leader: leader}, n)
+	return newRunnerWith(s, f, leader, n, newFakeQuiet())
+}
+
+func newRunnerWith(s store, f fetcher, leader bool, n notifier, quiet quieter) *Runner {
+	r := NewRunner(s, f, &fakeElector{leader: leader}, n, quiet)
 	r.now = func() time.Time { return nowAfter(5, time.Minute) }
 	return r
 }
@@ -382,5 +410,99 @@ func TestPreviewRefusesAWatchItCannotBuild(t *testing.T) {
 
 	if _, err := r.Preview(t.Context(), broken); !errors.Is(err, ErrUnknownCondition) {
 		t.Errorf("error = %v, want ErrUnknownCondition", err)
+	}
+}
+
+// The case the cooldown exists for: something slow is receiving the alert — a
+// person, or an agent working the problem — and being told again because the
+// metric flapped is being told to start over.
+func TestACooldownStopsAWatchAnnouncingAgain(t *testing.T) {
+	watch := runnerWatch(t, "w_1", 1)
+	watch.Cooldown = 30 * time.Minute
+	watch.For = 0
+	due := Due{Watch: watch, State: State{
+		WatchID: watch.ID, Phase: PhaseOK, DefinitionHash: watch.DefinitionHash,
+	}}
+	s := newFakeStore(due)
+	f := &fakeFetcher{series: counts(1, 2, 3, 4, 5), ingesting: true}
+	n := &fakeNotifier{delivers: true}
+	r := newRunner(s, f, true, n)
+
+	// Fire, resolve, fire again — two separate episodes, which renotify has
+	// nothing to say about because each opens a new incident.
+	r.tick(t.Context())
+	s.due[0].State = s.recorded[len(s.recorded)-1].State
+	if len(n.sent) != 1 {
+		t.Fatalf("%d notifications after the first firing, want 1", len(n.sent))
+	}
+
+	s.due[0].State.Phase = PhaseOK
+	s.due[0].State.IncidentID = ""
+	r.tick(t.Context())
+
+	if len(n.sent) != 1 {
+		t.Errorf("%d notifications, want 1 — the second episode was announced inside the cooldown", len(n.sent))
+	}
+	// And it was still evaluated and recorded: the cooldown suppresses telling
+	// somebody, not looking.
+	if len(s.recorded) != 2 {
+		t.Errorf("%d evaluations recorded, want 2", len(s.recorded))
+	}
+}
+
+// A watch with no cooldown behaves exactly as it did before it existed, which is
+// what makes zero a safe default: suppression loses alerts.
+func TestNoCooldownAnnouncesEveryEpisode(t *testing.T) {
+	watch := runnerWatch(t, "w_1", 1)
+	watch.For = 0
+	due := Due{Watch: watch, State: State{
+		WatchID: watch.ID, Phase: PhaseOK, DefinitionHash: watch.DefinitionHash,
+	}}
+	s := newFakeStore(due)
+	r := newRunner(s, &fakeFetcher{series: counts(1, 2, 3, 4, 5), ingesting: true}, true,
+		&fakeNotifier{delivers: true})
+
+	r.tick(t.Context())
+	s.due[0].State.Phase = PhaseOK
+	s.due[0].State.IncidentID = ""
+	r.tick(t.Context())
+
+	notifier := r.notify.(*fakeNotifier)
+	if len(notifier.sent) != 2 {
+		t.Errorf("%d notifications, want 2", len(notifier.sent))
+	}
+}
+
+// The end of an episode is never suppressed. Whoever the cooldown was protecting
+// is exactly who most needs to hear that it is over — suppressing that to be
+// consistent would leave them working on something already fixed.
+func TestACooldownNeverSwallowsARecovery(t *testing.T) {
+	watch := runnerWatch(t, "w_1", 1)
+	watch.Cooldown = time.Hour
+	r := newRunner(newFakeStore(), &fakeFetcher{}, true, &fakeNotifier{})
+
+	for _, kind := range []ActionKind{ActionResolve, ActionClose} {
+		if r.silenced(t.Context(), watch, Action{Kind: kind}) {
+			t.Errorf("a %s was suppressed by the cooldown", kind)
+		}
+	}
+	// While the two that start or repeat a claim are gated.
+	if !r.silenced(t.Context(), watch, Action{Kind: ActionRenotify}) &&
+		!r.silenced(t.Context(), watch, Action{Kind: ActionOpen}) {
+		t.Error("neither an open nor a renotify was ever gated")
+	}
+}
+
+// Being unable to check whether to suppress is not a reason to go quiet: an
+// alert delivered twice is recoverable where one never delivered is not.
+func TestAFailedCooldownCheckAnnouncesAnyway(t *testing.T) {
+	watch := runnerWatch(t, "w_1", 1)
+	watch.Cooldown = time.Hour
+	quiet := newFakeQuiet()
+	quiet.err = errors.New("redis is unreachable")
+	r := newRunnerWith(newFakeStore(), &fakeFetcher{}, true, &fakeNotifier{}, quiet)
+
+	if r.silenced(t.Context(), watch, Action{Kind: ActionOpen}) {
+		t.Error("a failed cooldown check silenced the watch")
 	}
 }

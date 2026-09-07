@@ -138,6 +138,28 @@ Before each pass the evaluator asks one shared question: has *anything at all* a
 
 **Mute** suppresses notifications for a while without stopping evaluation, so the history stays complete and an open incident still resolves on its own. To stop a watch entirely, disable it — which also closes whatever it had open.
 
+### The cooldown
+
+A **cooldown** keeps a watch quiet for a while after it has announced something, *across* episodes.
+
+That is the part renotify cannot do. Renotify bounds repeats inside one incident; a watch that resolves and fires again ten minutes later has opened a new one, and renotify has nothing to say about it. When what receives the alert is slow on purpose — a person, or an agent working the problem — being told again because the metric flapped is being told to start over.
+
+```json
+{ "cooldown_seconds": 1800 }
+```
+
+It suppresses the announcement, not the work: the check still runs, the evaluation is still recorded, and the incident still opens and closes. Only the message is withheld, and only for the two kinds that start or repeat a claim. **A recovery is never suppressed** — whoever the cooldown was protecting is exactly who most needs to hear that it is over.
+
+Zero is off, and off is the default. Suppression loses alerts.
+
+<Callout>
+The cooldown record is the one piece of alerting state kept in Redis rather than Postgres, and the reason is that it is disposable. Losing it means somebody is told twice, which is the recoverable direction. Losing what is in Postgres would restart a hold mid-wait or re-announce an incident that was already open — so that stays where it cannot expire.
+
+If Redis is unreachable the watch announces anyway. Being unable to check whether to suppress is not a reason to go quiet.
+</Callout>
+
+Every notification carries `incidentId`, which is the idempotency key a receiver needs: it is stable for the whole of one episode — the opening message, any repeats, and the resolution all share it — and changes when a new episode opens. A receiver that may see the same alert twice can key on it without any cooldown at all.
+
 ## Actions
 
 ### `topic`

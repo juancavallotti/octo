@@ -53,7 +53,7 @@ tasks:
     # with:
     #
     #   docker run --rm -d -p 63799:6379 redis:7-alpine
-    #   REDIS_TEST_URL=redis://127.0.0.1:63799 task observability:test
+    #   REDIS_TEST_URL=redis://127.0.0.1:63799/9 task observability:test
     #
     # The database is FLUSHED at the start of each case, so point it at a
     # throwaway server and never at one holding anything.

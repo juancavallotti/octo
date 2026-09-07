@@ -72,6 +72,12 @@ type notifier interface {
 	Notify(ctx context.Context, w Watch, n Notification) []DeliveryResult
 }
 
+// quieter is the cooldown: whether a watch may announce, and for how long it
+// then may not. Declared here because the runner is the only thing that asks.
+type quieter interface {
+	Begin(ctx context.Context, watchID string, ttl time.Duration) (bool, error)
+}
+
 // DeliveryResult is one action's outcome, as the notifier reports it.
 type DeliveryResult struct {
 	ActionID string `json:"actionId"`
@@ -88,13 +94,19 @@ type Runner struct {
 	fetch    fetcher
 	leader   elector
 	notify   notifier
+	quiet    quieter
 	interval time.Duration
 	now      func() time.Time
 }
 
-// NewRunner wires a runner over its collaborators.
-func NewRunner(s store, f fetcher, leader elector, n notifier) *Runner {
-	return &Runner{store: s, fetch: f, leader: leader, notify: n, interval: tickInterval, now: time.Now}
+// NewRunner wires a runner over its collaborators. quiet may be nil, which is a
+// process that enforces no cooldown — the honest behaviour without a Redis,
+// since the alternative is silently suppressing everything.
+func NewRunner(s store, f fetcher, leader elector, n notifier, quiet quieter) *Runner {
+	return &Runner{
+		store: s, fetch: f, leader: leader, notify: n, quiet: quiet,
+		interval: tickInterval, now: time.Now,
+	}
 }
 
 // Run evaluates due watches until ctx is done.
@@ -258,6 +270,9 @@ func (r *Runner) announce(ctx context.Context, item Due, result Result, next Sta
 		return
 	}
 	for _, action := range result.Actions {
+		if r.silenced(ctx, item.Watch, action) {
+			continue
+		}
 		notification := NewNotification(item.Watch, next, result.Evaluation, action)
 		delivered := r.notify.Notify(ctx, item.Watch, notification)
 		if !anyDelivered(delivered) {
@@ -270,6 +285,41 @@ func (r *Runner) announce(ctx context.Context, item Due, result Result, next Sta
 			slog.Error("could not record a notification", "watch", item.Watch.Name, "error", err)
 		}
 	}
+}
+
+// silenced reports whether the cooldown swallows this announcement.
+//
+// It gates the two that start or repeat a claim, and never the two that end one.
+// A receiver that is slow on purpose — a person, an agent working the problem —
+// is exactly who the cooldown is for, and exactly who most needs to be told it
+// is over. Suppressing the ending to be consistent would leave them working on
+// something that had already fixed itself.
+//
+// The claim is taken here rather than after delivery, and atomically: two
+// evaluators racing across a lease handover must not both decide they are first.
+// The cost is that a delivery which then fails still spent the cooldown, which is
+// the safe direction — the alternative is a failing mailer retried every tick.
+func (r *Runner) silenced(ctx context.Context, w Watch, action Action) bool {
+	if r.quiet == nil || w.Cooldown <= 0 {
+		return false
+	}
+	if action.Kind != ActionOpen && action.Kind != ActionRenotify {
+		return false
+	}
+	mayAnnounce, err := r.quiet.Begin(ctx, w.ID, w.Cooldown)
+	if err != nil {
+		// Allowed. Suppression is the feature; being unable to check whether to
+		// suppress is not a reason to go quiet, and an alert delivered twice is
+		// recoverable where one never delivered is not.
+		slog.Warn("could not check a watch's cooldown; announcing anyway",
+			"watch", w.Name, "error", err)
+		return false
+	}
+	if !mayAnnounce {
+		slog.Debug("watch is within its cooldown; not announcing",
+			"watch", w.Name, "cooldown", w.Cooldown)
+	}
+	return !mayAnnounce
 }
 
 func anyDelivered(results []DeliveryResult) bool {
