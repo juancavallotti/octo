@@ -35,6 +35,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/agent/rollout", h.rollout)
 	mux.HandleFunc("POST /settings/agent/tracing", h.tracing)
 	mux.HandleFunc("POST /settings/agent/autofix", h.autoFix)
+	mux.HandleFunc("POST /settings/agent/deployment", h.deploymentSettings)
 	mux.HandleFunc("POST /settings/agent/max-iterations", h.maxIterations)
 	mux.HandleFunc("DELETE /settings/agent", h.uninstall)
 }
@@ -66,6 +67,17 @@ type statusResponse struct {
 // does: the orchestrator has no session and trusts the BFF as the auth boundary.
 type actorRequest struct {
 	ActorID string `json:"actorId"`
+}
+
+// deploymentSettingsRequest carries the settings that live on the agent's pods.
+//
+// Both fields are optional, and absent means "leave it alone" — which is what
+// lets one Save send only what changed, and what keeps a request that changed
+// neither from rolling the pods for nothing.
+type deploymentSettingsRequest struct {
+	ActorID       string `json:"actorId"`
+	MaxIterations *int   `json:"maxIterations,omitempty"`
+	AutoFix       *bool  `json:"autoFix,omitempty"`
 }
 
 // autoFixRequest is the body of the troubleshooter's permission toggle.
@@ -240,6 +252,41 @@ func (h *Handler) autoFix(w http.ResponseWriter, r *http.Request) {
 	status, err := h.svc.SetAutoFix(ctx, req.AutoFix)
 	if err != nil {
 		h.writeError(w, "change what the troubleshooter may do", err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
+}
+
+// deploymentSettings godoc
+//
+//	@Summary		Apply the agent's pod-level settings together
+//	@Description	The turn limit and the troubleshooter's permission both reach the runtime
+//	@Description	as environment variables read at startup, so each replaces the pods.
+//	@Description	Sending them together replaces the pods once instead of twice, which is
+//	@Description	what makes a single Save on the settings page honest.
+//	@Description	An omitted field is left as it is; omitting both changes nothing.
+//	@Tags			agent
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		deploymentSettingsRequest	true	"The settings to apply"
+//	@Success		200		{object}	statusResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"not installed, or not deployed"
+//	@Failure		503		{object}	httpx.ErrorResponse	"no cluster access"
+//	@Router			/settings/agent/deployment [post]
+func (h *Handler) deploymentSettings(w http.ResponseWriter, r *http.Request) {
+	var req deploymentSettingsRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	status, err := h.svc.SetDeploymentSettings(ctx, req.MaxIterations, req.AutoFix)
+	if err != nil {
+		h.writeError(w, "apply the agent's deployment settings", err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toResponse(status))

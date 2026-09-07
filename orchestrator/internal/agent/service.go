@@ -1037,6 +1037,65 @@ func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status,
 	return s.Status(ctx)
 }
 
+// SetDeploymentSettings applies the settings that live on the agent's pods, in
+// one rollout.
+//
+// Both of these reach the runtime as environment variables read at startup, so
+// each one alone has to replace the pods — and setting them one after the other
+// replaces them twice. That was tolerable while each had its own button and the
+// second rollout was something you asked for; it is not tolerable behind a single
+// Save, where one click would roll the agent, wait, and roll it again.
+//
+// Nil means "leave this one alone", which is what lets the caller send only what
+// actually changed. Both nil is a no-op rather than a pointless rollout.
+func (s *Service) SetDeploymentSettings(
+	ctx context.Context, iterations *int, autoFix *bool,
+) (Status, error) {
+	if s.deployments == nil {
+		return Status{}, ErrClusterUnavailable
+	}
+	if iterations == nil && autoFix == nil {
+		return s.Status(ctx)
+	}
+	if iterations != nil && *iterations != 0 &&
+		(*iterations < MinIterations || *iterations > MaxIterationsCeiling) {
+		return Status{}, fmt.Errorf("%w: %d is outside %d..%d",
+			ErrInvalidIterations, *iterations, MinIterations, MaxIterationsCeiling)
+	}
+
+	if err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
+		if cur.IntegrationID == "" {
+			return cur, ErrNotInstalled
+		}
+		if cur.DeploymentID == "" {
+			return cur, ErrNotDeployed
+		}
+
+		next := cur
+		if iterations != nil {
+			next.MaxIterations = *iterations
+		}
+		if autoFix != nil {
+			next.AutoFix = *autoFix
+		}
+
+		bindings, err := s.envBindings(ctx, next)
+		if err != nil {
+			return cur, err
+		}
+		runner := agenticRunner
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
+			return cur, err
+		}
+
+		next.UpdatedAt = time.Now().UTC()
+		return next, nil
+	}); err != nil {
+		return Status{}, err
+	}
+	return s.Status(ctx)
+}
+
 // SetAutoFix decides whether the troubleshooter may change this installation, or
 // may only look at it and report.
 //

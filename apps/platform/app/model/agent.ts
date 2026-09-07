@@ -43,6 +43,17 @@ export async function setAgentAutoFix(autoFix: boolean): Promise<AgentStatus> {
 }
 
 /**
+ * Apply the agent's pod-level settings together, in one roll-out. Omit a field to
+ * leave it as it is.
+ */
+export async function setAgentDeploymentSettings(settings: {
+  maxIterations?: number;
+  autoFix?: boolean;
+}): Promise<AgentStatus> {
+  return unwrap(await actions.setAgentDeploymentSettings(settings));
+}
+
+/**
  * Set the turn limit for one run, or 0 to go back to the definition's default.
  * A rolling update, for the same reason tracing is: the runtime reads it at startup.
  */

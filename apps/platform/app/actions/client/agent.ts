@@ -97,6 +97,23 @@ export function setAgentAutoFix(
 }
 
 /**
+ * Apply the settings that live on the agent's pods, together.
+ *
+ * Both reach the runtime as startup environment, so each one alone replaces the
+ * pods; sent together they replace them once. An omitted field is left as it is,
+ * which is what lets one Save send only what changed.
+ */
+export function setAgentDeploymentSettings(
+  actorId: string,
+  settings: { maxIterations?: number; autoFix?: boolean },
+): Promise<ActionResult<AgentStatus>> {
+  return call<AgentStatus>("POST", "/settings/agent/deployment", {
+    actorId,
+    ...settings,
+  });
+}
+
+/**
  * Set how many turns one run may take. Zero clears the override and puts the
  * definition's own default back in force — the only way back to the shipped value.
  */

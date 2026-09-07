@@ -1877,3 +1877,70 @@ func TestInstallLeavesAutoFixOff(t *testing.T) {
 		t.Error("a fresh install reports the troubleshooter as allowed to act")
 	}
 }
+
+// The whole reason this method exists: one Save that changed both settings used
+// to mean two rollouts, because each setter rolled on its own. One click, one
+// replacement of the pods.
+func TestSetDeploymentSettingsRollsOnceForBoth(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	before := len(h.deployments.rollouts)
+
+	iterations, autoFix := 40, true
+	got, err := h.svc.SetDeploymentSettings(ctx, &iterations, &autoFix)
+	if err != nil {
+		t.Fatalf("SetDeploymentSettings: %v", err)
+	}
+
+	if rolled := len(h.deployments.rollouts) - before; rolled != 1 {
+		t.Errorf("%d rollouts, want exactly 1", rolled)
+	}
+	last := h.deployments.rollouts[len(h.deployments.rollouts)-1]
+	if last.env[envMaxIterations].Value != "40" {
+		t.Errorf("%s = %q, want \"40\"", envMaxIterations, last.env[envMaxIterations].Value)
+	}
+	if last.env[envAutoFix].Value != "true" {
+		t.Errorf("%s = %q, want \"true\"", envAutoFix, last.env[envAutoFix].Value)
+	}
+	if got.MaxIterations != 40 || !got.AutoFix {
+		t.Errorf("status came back as %+v", got)
+	}
+}
+
+// Nil means "leave it alone", which is what lets the page send only what
+// changed. Sending neither must not replace the pods for nothing.
+func TestSetDeploymentSettingsLeavesOmittedFieldsAlone(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	iterations := 40
+	if _, err := h.svc.SetDeploymentSettings(ctx, &iterations, nil); err != nil {
+		t.Fatalf("set iterations: %v", err)
+	}
+	before := len(h.deployments.rollouts)
+
+	// Only the permission this time; the limit must survive.
+	autoFix := true
+	got, err := h.svc.SetDeploymentSettings(ctx, nil, &autoFix)
+	if err != nil {
+		t.Fatalf("set autoFix: %v", err)
+	}
+	if got.MaxIterations != 40 {
+		t.Errorf("the turn limit was lost: %+v", got)
+	}
+
+	// And neither: no rollout at all.
+	if _, err := h.svc.SetDeploymentSettings(ctx, nil, nil); err != nil {
+		t.Fatalf("set nothing: %v", err)
+	}
+	if rolled := len(h.deployments.rollouts) - before; rolled != 1 {
+		t.Errorf("%d rollouts after one real change and one empty call, want 1", rolled)
+	}
+}

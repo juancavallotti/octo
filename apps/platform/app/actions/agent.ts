@@ -38,6 +38,15 @@ export async function setAgentAutoFix(
   return withWriteUser((userId) => client.setAgentAutoFix(userId, autoFix));
 }
 
+export async function setAgentDeploymentSettings(settings: {
+  maxIterations?: number;
+  autoFix?: boolean;
+}): Promise<ActionResult<AgentStatus>> {
+  return withWriteUser((userId) =>
+    client.setAgentDeploymentSettings(userId, settings),
+  );
+}
+
 export async function setAgentMaxIterations(
   maxIterations: number,
 ): Promise<ActionResult<AgentStatus>> {

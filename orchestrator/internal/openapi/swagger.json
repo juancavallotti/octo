@@ -21,6 +21,20 @@
                 },
                 "type": "object"
             },
+            "agent.deploymentSettingsRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "autoFix": {
+                        "type": "boolean"
+                    },
+                    "maxIterations": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "agent.maxIterationsRequest": {
                 "properties": {
                     "actorId": {
@@ -5764,6 +5778,77 @@
                     }
                 },
                 "summary": "Let the troubleshooter change things, or only report",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/deployment": {
+            "post": {
+                "description": "The turn limit and the troubleshooter's permission both reach the runtime\nas environment variables read at startup, so each replaces the pods.\nSending them together replaces the pods once instead of twice, which is\nwhat makes a single Save on the settings page honest.\nAn omitted field is left as it is; omitting both changes nothing.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.deploymentSettingsRequest",
+                                        "summary": "body",
+                                        "description": "The settings to apply"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The settings to apply",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or not deployed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Apply the agent's pod-level settings together",
                 "tags": [
                     "agent"
                 ]
