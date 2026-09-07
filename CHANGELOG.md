@@ -1,5 +1,90 @@
 # Changelog
 
+## [0.11.0](https://github.com/juancavallotti/octo/compare/v0.10.0...v0.11.0) (2026-09-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **observability:** drop the log action
+* **observability:** prune alert evaluation history on the retention policy
+
+### Features
+
+* **agent:** Dr. Octo triages an alert and reports twice ([13389cd](https://github.com/juancavallotti/octo/commit/13389cd0948e537e400ab274b9056e017c6304e7))
+* **agent:** the troubleshooter remembers what it has seen ([e7d37e8](https://github.com/juancavallotti/octo/commit/e7d37e8d6e5978cb20748f8714a1e8ec69f8bc7d))
+* **helm:** lease RBAC for the observability service ([2a9c509](https://github.com/juancavallotti/octo/commit/2a9c50933dcd633f8ad17b337a375acf053c9013))
+* **observability:** alert actions ([c6eac29](https://github.com/juancavallotti/octo/commit/c6eac2910ad6f76c47a5ac3312a8cbbd2dfbbfa7))
+* **observability:** alert conditions ([ec57b5e](https://github.com/juancavallotti/octo/commit/ec57b5ee1770c1e07a04bd8b6fc5836e67273e36))
+* **observability:** alert metric sources ([07af92e](https://github.com/juancavallotti/octo/commit/07af92eaf2ae6ace7de8db5cd4202f5100ba1093))
+* **observability:** alert series, buckets and gap policy ([f880049](https://github.com/juancavallotti/octo/commit/f88004958358eecb88402f31d7a1ced83ff144ba))
+* **observability:** alert state machine ([2c8b6d3](https://github.com/juancavallotti/octo/commit/2c8b6d3de0412d139152f8dec3707f041097b1b5))
+* **observability:** alert store ([1b77866](https://github.com/juancavallotti/octo/commit/1b77866bacb47432a338e1f0a3c3ecda251f687d))
+* **observability:** alerting HTTP API ([6112969](https://github.com/juancavallotti/octo/commit/6112969c1ffbaa23a1d10f01f126f3ce1eb1fa2b))
+* **observability:** allow a thirty-second resolution ([5f9f23d](https://github.com/juancavallotti/octo/commit/5f9f23ddabbe735f437f6e4d4ee5f9a0d0a12c68))
+* **observability:** composite watch evaluation ([b6e5c6b](https://github.com/juancavallotti/octo/commit/b6e5c6b8ed0e0152c7119572a3d93c65c810b80e))
+* **observability:** drop the log action ([ffd5a95](https://github.com/juancavallotti/octo/commit/ffd5a958cba1ee5eb240ab9f5b484d25536dec39))
+* **observability:** enforce a watch's cooldown in redis ([68646e6](https://github.com/juancavallotti/octo/commit/68646e6f123a00ab357befb1e6a3ee696d2c95c2))
+* **observability:** leader election on a kubernetes lease ([c74dfe9](https://github.com/juancavallotti/octo/commit/c74dfe9b53641009b93661729a1d599ca8788f56))
+* **observability:** let a topic action say who gets the report ([db4eae6](https://github.com/juancavallotti/octo/commit/db4eae60630afb08a914f80cb1b09b8d28c530fe))
+* **observability:** one repeat rate, not two ([d10a37f](https://github.com/juancavallotti/octo/commit/d10a37fd13ec9b9c55aa2911ac395ac19b65b03a))
+* **observability:** prune alert evaluation history on the retention policy ([b98ccb4](https://github.com/juancavallotti/octo/commit/b98ccb48a10105d2ff834e0581d65ac33c90273d))
+* **observability:** the alert runner ([39b66de](https://github.com/juancavallotti/octo/commit/39b66de40020d87adbe4715f7a9203135156d5f3))
+* **observability:** the cooldown is the repeat rate ([ecf4d43](https://github.com/juancavallotti/octo/commit/ecf4d43619f16baea4f372142dcbd05536a20fa0))
+* one roll-out for the agent's pod settings, and the form state behind one Save ([9778a2d](https://github.com/juancavallotti/octo/commit/9778a2d8521e35b5cfc6f8c2839d638e629df0b4))
+* **platform:** alerts client and server actions ([1ac67fc](https://github.com/juancavallotti/octo/commit/1ac67fc153335491e79ad7aaf1e889e316a09526))
+* **platform:** ask what you are watching first, then work down ([88d3d6c](https://github.com/juancavallotti/octo/commit/88d3d6c84f5557471e7ff063ecf70c46aaedbc61))
+* **platform:** decide on a screen whether Dr. Octo may fix things ([b6309e1](https://github.com/juancavallotti/octo/commit/b6309e12de40f6746fec224a075fdb4c38958329))
+* **platform:** name the deployment on its metrics page ([784f854](https://github.com/juancavallotti/octo/commit/784f854398d61a90e16cc68e20371264d8e95ff0))
+* **platform:** name the deployment on its metrics page ([7740dec](https://github.com/juancavallotti/octo/commit/7740dec44c89d97df3c244a216bd638f930ed00c))
+* **platform:** offer the cooldown beside the other repeat rules ([d5840da](https://github.com/juancavallotti/octo/commit/d5840da0ae6cd6058c607abfc24d3b77de3b1dc4))
+* **platform:** one card for the agent, and a checkbox for the permission ([99c31b3](https://github.com/juancavallotti/octo/commit/99c31b35379ef5cd1e9c4c490abba27439eb4a57))
+* **platform:** one report rate, and call step 3 what it asks ([19eae7f](https://github.com/juancavallotti/octo/commit/19eae7f6afbdb7ecb71c9031146761eeb488405f))
+* **platform:** pick metrics, choose spans, and name it last ([2fa8096](https://github.com/juancavallotti/octo/commit/2fa8096d12af5d49b4ae56a7b21ab58920ec63aa))
+* **platform:** pin the agent panel, and halo it while he works ([66fd0da](https://github.com/juancavallotti/octo/commit/66fd0dacc2e22569f1532bd8d16b142e066c4774))
+* **platform:** shrink the top bar to icons when the panel takes its room ([3a6f5e9](https://github.com/juancavallotti/octo/commit/3a6f5e944e40c5ac3a5ffb68c75ea04875f3cde8))
+* **platform:** the alerts tab ([b73a0ed](https://github.com/juancavallotti/octo/commit/b73a0eda73e3da91ff14537eaa986b2990f3e165))
+* **sql:** alerting tables ([1d880c8](https://github.com/juancavallotti/octo/commit/1d880c8d7bc8e80a008cc4784d288cc8a262102a))
+* **sql:** give a watch a cooldown ([aa6afff](https://github.com/juancavallotti/octo/commit/aa6afff54e8acecb9d33520a76ce484807111419))
+
+
+### Bug Fixes
+
+* **agent:** log what the events actually carry ([a22863f](https://github.com/juancavallotti/octo/commit/a22863f76b1c35ef357727358cfccfe570271abd))
+* **agent:** one report, rendered, and act on a fault that is already known ([1a23b36](https://github.com/juancavallotti/octo/commit/1a23b36252b114ca9b63a7f41d54364d6bc9657c))
+* **agent:** the troubleshooting skill had taken email-reports' alias ([c0cbe87](https://github.com/juancavallotti/octo/commit/c0cbe876eb2446356aafd3f1a6eace31ba09a4a3))
+* **observability:** four ways a reading could be wrong and look fine ([c201f51](https://github.com/juancavallotti/octo/commit/c201f51244e2af4c78017fdaf17fcece13f15fe8))
+* **observability:** hold a ratio to the same sample floor as everything else ([f1ce1b0](https://github.com/juancavallotti/octo/commit/f1ce1b047f965bc5ef0497c30e6317f380451756))
+* **observability:** omit a window nothing measured ([0baf9df](https://github.com/juancavallotti/octo/commit/0baf9df43149d06fa1fbd06af6a9918eceb4d629))
+* **observability:** refuse pod-stat data too coarse to answer ([c64bba7](https://github.com/juancavallotti/octo/commit/c64bba7894d3a70a6ac7f89b742cdeac7408286a))
+* **observability:** retire a watch whenever it is saved disabled ([3cf8662](https://github.com/juancavallotti/octo/commit/3cf8662a0b864b88d7327fa4fac7c418514c46a6))
+* **observability:** the review findings on the probes ([6f40de3](https://github.com/juancavallotti/octo/commit/6f40de350fe7c4ce359adff45e45ed3c37e9ecc2))
+* one .env at the root, and never inside an image ([b457b23](https://github.com/juancavallotti/octo/commit/b457b233a3d394c6ec326579b808b9496a01fafd))
+* one .env at the root, and never inside an image ([c220305](https://github.com/juancavallotti/octo/commit/c220305e57f26cb8e32cab0fb8b1049a78c3e862))
+* **platform:** give the watch page its confirm dialog ([f01e9be](https://github.com/juancavallotti/octo/commit/f01e9bea89aeb96340088d5a00ecba6f5abcc15e))
+* **platform:** list what is deployed, not what has already reported ([d4e6294](https://github.com/juancavallotti/octo/commit/d4e6294eef1b742e3deddd38b4bf3b6fc24bfd45))
+* **platform:** mark a quiet app with a pill, on a signal that means something ([0f0c9d4](https://github.com/juancavallotti/octo/commit/0f0c9d4d2ef04f553170c4ada5d4c9a6be99183d))
+* **platform:** only call a watch muted while the mute lasts ([4086677](https://github.com/juancavallotti/octo/commit/4086677bebb66eab3da1e3423be5d0487f63427f))
+* **platform:** save what changed, and stop losing edits to a reload ([7b60f28](https://github.com/juancavallotti/octo/commit/7b60f286e58f5cfa601ee9358679445ad40c0d0f))
+* **platform:** show a topic's real name, and stop autofill going white ([570c44d](https://github.com/juancavallotti/octo/commit/570c44d23f7a733c2d15a981aeaad6fe64c172ae))
+* **platform:** stop a docked panel from crushing the page on a narrow window ([ffd4a4c](https://github.com/juancavallotti/octo/commit/ffd4a4cb3e37b9ead5358ba92cf0814a99828603))
+* **platform:** the review findings on the alerts tab ([a933a30](https://github.com/juancavallotti/octo/commit/a933a309d64bbb7df241daa5a239ea23850f5250))
+* **platform:** update the retention client test for the third window ([81b7a94](https://github.com/juancavallotti/octo/commit/81b7a9483e7630072b2364fb5d7c898fbc5ed8c7))
+* the review findings that held up ([5d7e710](https://github.com/juancavallotti/octo/commit/5d7e71065790282bb97c060068f7379026ceec2d))
+
+
+### Refactoring
+
+* one Save for the platform agent page ([971b0c2](https://github.com/juancavallotti/octo/commit/971b0c2382ab1b880999fb1cf1a24e539cbd4768))
+* **platform:** hoist the agent page's state into one provider ([e1c3cc2](https://github.com/juancavallotti/octo/commit/e1c3cc2481216043d8b6b64fdcbae03e4091beb9))
+* **platform:** one Save for the agent page ([7f5a496](https://github.com/juancavallotti/octo/commit/7f5a4967c47443510cc0c1cebfc70c89a25a7679))
+
+
+### Documentation
+
+* **agent:** ask the operator once, not three times ([f1b3353](https://github.com/juancavallotti/octo/commit/f1b33531dda2cc35e57f5a24eef7737483d6763f))
+* **platform:** alerting ([4b8ec2d](https://github.com/juancavallotti/octo/commit/4b8ec2d64a138ae94fe64040da3f02aa5b8e8b2a))
+* **platform:** the shape a topic action puts on the wire ([9536727](https://github.com/juancavallotti/octo/commit/953672767ee1f434ceea4027d06e92a4f68f922b))
+
 ## [0.10.0](https://github.com/juancavallotti/octo/compare/v0.9.1...v0.10.0) (2026-09-06)
 
 
