@@ -41,8 +41,8 @@ type Notification struct {
 	Degraded   bool       `json:"degraded,omitempty"`
 	Outcomes   []Outcome  `json:"outcomes"`
 
-	WindowFrom time.Time `json:"windowFrom"`
-	WindowTo   time.Time `json:"windowTo"`
+	WindowFrom time.Time `json:"windowFrom,omitzero"`
+	WindowTo   time.Time `json:"windowTo,omitzero"`
 }
 
 // NewNotification builds the payload for one action.

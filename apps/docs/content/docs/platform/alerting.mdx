@@ -154,7 +154,47 @@ The deployment named here is the one that *acts* on the alert, which is usually 
 There is deliberately no way to broadcast an alert to every deployment. The runtime refuses to let a flow subscribe to the platform's own subject plane, because that plane carries every deployment's logs and traces — a flow that could listen to it could read other workloads' traffic. So an alert is addressed to a deployment, and a watch that should reach several names several topic actions.
 </Callout>
 
-The payload is the notification: the watch, the episode, and every condition's outcome with the value it observed and the threshold it was judged against.
+### What arrives
+
+The message body is the notification, as JSON. The runtime puts a published payload straight into the message body, so a flow addresses it with ordinary CEL — `body.watchName`, `body.outcomes[0].observed`.
+
+```json
+{
+  "kind": "open",
+  "at": "2026-09-07T10:00:00Z",
+  "watchId": "8f3c…",
+  "watchName": "checkout error rate",
+  "severity": "critical",
+  "incidentId": "71ccdca0…",
+  "combinator": "any",
+  "matched": 1,
+  "total": 2,
+  "outcomes": [
+    {
+      "conditionId": "c_1",
+      "kind": "threshold",
+      "label": "error_rate gt over 15m, integration checkout",
+      "unit": "ratio",
+      "op": "gt",
+      "threshold": 0.1,
+      "observed": 0.24,
+      "score": 6.4,
+      "samples": 15,
+      "denominator": 350,
+      "windowFrom": "2026-09-07T09:45:00Z",
+      "windowTo": "2026-09-07T10:00:00Z",
+      "verdict": "true",
+      "reason": "condition_met"
+    }
+  ],
+  "windowFrom": "2026-09-07T09:45:00Z",
+  "windowTo": "2026-09-07T10:00:00Z"
+}
+```
+
+`kind` is `open`, `renotify`, `resolve` or `close` — a flow that only wants to act on the beginning of an episode reads that, and `incidentId` is what ties the four together. Every condition is in `outcomes`, including the ones that did **not** hold: a watch that fired on `any` is more useful to a receiver that can see which clause it was. `observed` is the number in the units a human recognises, `score` the confidence bound or robust z the comparison was actually made against, and `reason` the machine code for why a clause declined.
+
+Fields that never got a value are absent rather than zero. An outcome from a fetch that failed carries no window at all, rather than a timestamp in year one.
 
 ### `email`
 
