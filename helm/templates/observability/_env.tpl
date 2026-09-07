@@ -1,6 +1,24 @@
 {{- define "octo.observability.env" -}}
 - name: PORT
   value: {{ .Values.observability.service.port | quote }}
+# Who this replica is, and where its lease lives. The alerting evaluator runs on
+# exactly one replica — two would open two incidents and send two emails for one
+# outage — and a Lease needs an identity to be held as and a namespace to be held
+# in. Their absence is also how the service recognises that it is not running in a
+# cluster at all, in which case it evaluates in-process without an election.
+- name: POD_NAME
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
+- name: POD_NAMESPACE
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.namespace
+# The orchestrator, which is where an alert action sends mail from. This service
+# holds no provider credentials of its own: the Resend key lives in one place,
+# encrypted in site_settings, and is decrypted by the one service that owns it.
+- name: ORCHESTRATOR_URL
+  value: {{ include "octo.orchestrator.url" . | quote }}
 {{ include "octo.database.env" . }}
 {{- if .Values.nats.enabled }}
 # In-cluster NATS broker carrying the two subjects this service consumes as a

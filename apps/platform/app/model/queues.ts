@@ -71,9 +71,9 @@ export interface QueueSubscriber {
 /**
  * A queue destination: a subject that one or more clients consume from, derived
  * from the broker's per-subscription detail. The platform scopes its queues as
- * `octo.<deployment>.q.<name>` and queue-subscribes on that same string, so for
- * platform queues `name`/`deployment` carry the readable parts and `queue` is set;
- * other (non-internal) subjects pass through with `name` = the raw subject. The
+ * `octo.<deployment>.<q|t>.<name>` — `q` for a queue, `t` for a topic — so for either
+ * of those `name`/`deployment` carry the readable parts and `scope` says which it
+ * is; other (non-internal) subjects pass through with `name` = the raw subject. The
  * consuming clients hang off `subscribers`, revealed when the destination is
  * expanded.
  */
@@ -82,8 +82,14 @@ export interface QueueDestination {
   subject: string;
   /** Queue-group name when this is a load-balanced queue, else null. */
   queue: string | null;
-  /** Deployment id parsed from a platform queue subject, else null. */
+  /** Deployment id parsed from a scoped platform subject, else null. */
   deployment: string | null;
+  /**
+   * Which kind of scoped subject this is, or null for one the platform did not
+   * scope. Distinct from `queue` above: that is the NATS queue group, which is
+   * absent on a topic and also absent on a queue nobody is consuming right now.
+   */
+  scope: "queue" | "topic" | null;
   /** Readable queue name (the user subject) for platform queues, else the subject. */
   name: string;
   /** Total subscriptions on this destination across all connections. */

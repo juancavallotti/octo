@@ -1,0 +1,198 @@
+flow: troubleshooter
+
+# The troubleshooter, driven directly with an alert.
+#
+# What is worth proving here is not the diagnosis — that is the model's, and a
+# mock has none. It is everything around it: that the alert's addresses are
+# carried past the agent block, that the observer path records what happened, and
+# above all that the second report goes out even on the runs where the agent
+# produced nothing worth reporting. That last one is the whole design: an alert
+# already marked as handled, whose investigation ended in silence, is the failure
+# this flow exists to avoid.
+
+env:
+  LLM_CONNECTOR_TYPE: llm-anthropic
+  LLM_API_KEY: sk-ant-not-a-real-key
+  LLM_MODEL: claude-sonnet-4-6
+  ORCHESTRATOR_URL: http://127.0.0.1:9
+  OCTO_DOCS_URL: http://127.0.0.1:9
+  AGENT_WORKSPACE: /tmp
+  AGENT_OCTO_BIN: /bin/echo
+  AGENT_DOLPHIN_BIN: /bin/echo
+  AGENT_CURL_BIN: /bin/echo
+  AGENT_FIND_BIN: /bin/echo
+  AGENT_JQ_BIN: /bin/echo
+
+inputs:
+  an alert:
+    data:
+      kind: open
+      watchId: w_1
+      watchName: checkout errors
+      incidentId: i_1
+      severity: critical
+      combinator: all
+      matched: 1
+      total: 1
+      reportTo: ["ada@example.com"]
+      outcomes:
+        - kind: threshold
+          label: octo_flow_errors_total gt over 1m
+          observed: 102
+          verdict: "true"
+
+  an alert nobody reads:
+    data:
+      kind: open
+      watchId: w_2
+      watchName: a watch that only feeds a flow
+      incidentId: i_2
+      matched: 1
+      total: 1
+
+cases:
+  - name: the findings are mailed to the address the alert carried
+    input: an alert
+    mocks:
+      # The send itself is mocked in every case: failOnError covers an HTTP
+      # status, not a refused connection, and what is under test is the report
+      # this flow built rather than the transport that carries it.
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body: { answer: "checkout fails every request on a missing field." }
+    spies:
+      # Spied where the report ARRIVES rather than where it is built: a spy records
+      # a block's input, and build-report's input is still the agent's answer.
+      troubleshooter.send-final-report:
+        count: 1
+        records:
+          - input:
+              that:
+                # Sent where the alert said, and nowhere the agent chose.
+                - 'body.to == ["ada@example.com"]'
+                # The subject names the watch, so a reply lands in the right thread.
+                - 'body.subject.contains("checkout errors")'
+                # The agent's narrative leads, and the record of the run follows it
+                # verbatim rather than being retold.
+                - 'body.text.contains("missing field")'
+                - 'body.text.contains("What I did")'
+
+  # The case the flow-level send exists for. A run that gave up produced no
+  # report of its own, and this is the one that most needs to reach a person.
+  - name: a run that reached no answer still reports
+    input: an alert
+    mocks:
+      # The send itself is mocked in every case: failOnError covers an HTTP
+      # status, not a refused connection, and what is under test is the report
+      # this flow built rather than the transport that carries it.
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body: { answer: "I stopped short of a diagnosis on this alert." }
+    spies:
+      # Spied where the report ARRIVES rather than where it is built: a spy records
+      # a block's input, and build-report's input is still the agent's answer.
+      troubleshooter.send-final-report:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.to == ["ada@example.com"]'
+                - 'body.text.contains("stopped short")'
+
+  # An alert routed here with no reportTo is a misconfiguration: this flow's only
+  # output is the email. The run still happens and the send is still attempted —
+  # the orchestrator refuses an empty list — so what is asserted is that nothing
+  # was invented to fill the gap.
+  - name: an alert with no recipients invents none
+    input: an alert nobody reads
+    mocks:
+      # The send itself is mocked in every case: failOnError covers an HTTP
+      # status, not a refused connection, and what is under test is the report
+      # this flow built rather than the transport that carries it.
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body: { answer: "Looked at it." }
+    spies:
+      # Spied where the report ARRIVES rather than where it is built: a spy records
+      # a block's input, and build-report's input is still the agent's answer.
+      troubleshooter.send-final-report:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.to == []'
+
+  # The judgement this agent is trusted with is "again, or just once", and it is
+  # only as good as the record behind it. Recorded by the flow rather than by a
+  # tool the model has to remember to call: an occurrence that goes unwritten
+  # makes the fourth failure look like the first.
+  - name: the occurrence is written down for next time
+    input: an alert
+    mocks:
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body: { answer: "checkout fails every request on a missing field." }
+    spies:
+      troubleshooter.append-history:
+        count: 1
+      # The history is read before the agent runs, so what it concluded last time
+      # can reach this turn.
+      troubleshooter.read-history:
+        count: 1
+
+  # Everything in the report is untrusted: the answer is model output and the
+  # record carries the alert's own text, which a person wrote. Markup in either
+  # must reach a mail client as characters, not as tags.
+  - name: untrusted text is escaped before it becomes HTML
+    input: an alert
+    mocks:
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body:
+            answer: 'checkout fails: <script>alert(1)</script> & the template reads {{body.name}}'
+    spies:
+      troubleshooter.send-final-report:
+        count: 1
+        records:
+          - input:
+              that:
+                - '!body.html.contains("<script>")'
+                - 'body.html.contains("&lt;script&gt;")'
+                - 'body.html.contains("&amp;")'
+                # The plain-text half is not markup and keeps what was written.
+                - 'body.text.contains("<script>")'
+
+  # A run that produced no answer at all still has to report: the alert is
+  # already marked handled, so silence here is the worst outcome available.
+  - name: a run with no answer still reports
+    input: an alert
+    mocks:
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_2" }
+      troubleshooter.troubleshoot:
+        default:
+          body: {}
+    spies:
+      troubleshooter.send-final-report:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.to == ["ada@example.com"]'
+                - 'body.subject.contains("checkout errors")'

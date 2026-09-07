@@ -9,60 +9,41 @@ import {
   type RetentionPolicy,
   type RetentionRun,
 } from "@/app/model/retention";
-import { Field, INPUT, PrimaryButton } from "./fields";
+import { PrimaryButton } from "./fields";
+import { RetentionWindows, type Draft } from "./RetentionWindows";
+import {
+  describe,
+  describeRun,
+  describeScope,
+  MAX_DAYS,
+  parseDays,
+  toDraft,
+} from "./retentionText";
 
 /**
- * How long this installation keeps logs and traces, and a way to enforce it now.
+ * How long this installation keeps logs, traces and alerting history, and a way
+ * to enforce it now.
  *
- * Two windows rather than one because the streams have very different weights: a
- * ten-block flow emits a couple of dozen trace records, each able to carry a
- * captured body, where the same request produces a log line or two.
+ * Three windows rather than one because the streams have very different weights:
+ * a ten-block flow emits a couple of dozen trace records, each able to carry a
+ * captured body, where the same request produces a log line or two — and a watch
+ * writes an evaluation every time it runs whether or not anything happened.
  *
- * Zero means keep forever and is the default, so an installation that never
- * visits this page behaves as it always did. That is also why the field renders
- * its meaning in words — a bare 0 in a box labelled "days" reads as a mistake
- * rather than as a decision.
+ * Zero means keep forever, and on the two evidence streams it is also the
+ * default, so an installation that never visits this page behaves as it always
+ * did. The alerting window is the exception and defaults to a real number; the
+ * fields render their meaning in words for exactly that reason — a bare 0 in a
+ * box labelled "days" reads as a mistake rather than as a decision.
  */
-
-/** The maximum the aggregator will store, mirrored here so the form says so first. */
-const MAX_DAYS = 3650;
-
-/** A window as the form holds it: a string, so the field can be empty mid-edit. */
-type Draft = { logs: string; traces: string };
-
-function toDraft(p: RetentionPolicy): Draft {
-  return { logs: String(p.logsDays), traces: String(p.tracesDays) };
-}
-
-/** Parse one field. Returns null when it is not a window that can be stored. */
-function parseDays(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) return null;
-  const days = Number(trimmed);
-  return days > MAX_DAYS ? null : days;
-}
-
-/** What a stored window means, in words. */
-function describe(days: number): string {
-  if (days === 0) return "Kept forever — nothing is deleted.";
-  if (days === 1) return "Deleted the day after it is recorded.";
-  return `Deleted after ${days} days.`;
-}
-
-/** One line summarising a sweep, in the order the tables matter. */
-function describeRun(run: RetentionRun): string {
-  const parts = [
-    `${run.logsDeleted.toLocaleString()} log ${run.logsDeleted === 1 ? "event" : "events"}`,
-    `${run.tracesDeleted.toLocaleString()} trace ${run.tracesDeleted === 1 ? "record" : "records"}`,
-    `${run.traceSummariesDeleted.toLocaleString()} ${run.traceSummariesDeleted === 1 ? "trace" : "traces"}`,
-  ];
-  return `Deleted ${parts.join(", ")}.`;
-}
 
 export default function RetentionSettingsManager() {
   const confirm = useConfirm();
   const [policy, setPolicy] = useState<RetentionPolicy | null>(null);
-  const [draft, setDraft] = useState<Draft>({ logs: "0", traces: "0" });
+  const [draft, setDraft] = useState<Draft>({
+    logs: "0",
+    traces: "0",
+    alerts: "0",
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -109,21 +90,32 @@ export default function RetentionSettingsManager() {
 
   const logsDays = parseDays(draft.logs);
   const tracesDays = parseDays(draft.traces);
+  const alertsDays = parseDays(draft.alerts);
 
   // Gated on the policy having loaded, not just on the fields parsing. The form
   // seeds itself with zeros before the request resolves, so without this a fast
   // click saves "keep everything" over whatever was stored.
   const canSave =
-    policy !== null && !busy && logsDays !== null && tracesDays !== null;
+    policy !== null &&
+    !busy &&
+    logsDays !== null &&
+    tracesDays !== null &&
+    alertsDays !== null;
 
   const dirty =
     policy !== null &&
-    (logsDays !== policy.logsDays || tracesDays !== policy.tracesDays);
+    (logsDays !== policy.logsDays ||
+      tracesDays !== policy.tracesDays ||
+      alertsDays !== policy.alertsDays);
 
   const save = () => {
     if (!canSave) return;
     run(async () => {
-      await saveRetention({ logsDays: logsDays!, tracesDays: tracesDays! });
+      await saveRetention({
+        logsDays: logsDays!,
+        tracesDays: tracesDays!,
+        alertsDays: alertsDays!,
+      });
       setSaved(true);
     });
   };
@@ -132,17 +124,14 @@ export default function RetentionSettingsManager() {
   // deleting to a policy the operator can see they have edited, the button waits
   // for the save — otherwise the numbers in front of them would not be the ones
   // the confirmation is about.
-  const sweeps = policy !== null && (policy.logsDays > 0 || policy.tracesDays > 0);
+  const sweeps =
+    policy !== null &&
+    (policy.logsDays > 0 || policy.tracesDays > 0 || policy.alertsDays > 0);
   const canRun = policy !== null && !busy && !dirty && sweeps;
 
   const runNow = async () => {
     if (!canRun || policy === null) return;
-    const scope = [
-      policy.logsDays > 0 ? `log events older than ${policy.logsDays} days` : null,
-      policy.tracesDays > 0 ? `traces older than ${policy.tracesDays} days` : null,
-    ]
-      .filter(Boolean)
-      .join(" and ");
+    const scope = describeScope(policy);
     const ok = await confirm({
       title: "Delete everything past its retention?",
       body: `This deletes ${scope}, now. A trace is deleted with all of its records. Nothing here can be undone.`,
@@ -160,8 +149,10 @@ export default function RetentionSettingsManager() {
       <div className="mx-auto w-full max-w-2xl">
         <h1 className="text-lg font-semibold">Data retention</h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          How long this installation keeps stored logs and traces. A job enforces
-          this nightly; nothing is deleted until you set a window.
+          How long this installation keeps stored logs, traces and alerting
+          history. A job enforces this nightly. Logs and traces are kept until
+          you set a window; alerting history has one by default, because a watch
+          records an evaluation every time it runs.
         </p>
 
         {/* Live regions, because every one of these appears after an await
@@ -174,46 +165,36 @@ export default function RetentionSettingsManager() {
           </p>
         )}
         {saved && !error && (
-          <p role="status" className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <p
+            role="status"
+            className="mt-3 text-sm text-emerald-600 dark:text-emerald-400"
+          >
             Policy saved.
           </p>
         )}
         {lastRun && !error && (
-          <p role="status" className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <p
+            role="status"
+            className="mt-3 text-sm text-emerald-600 dark:text-emerald-400"
+          >
             {describeRun(lastRun)}
           </p>
         )}
 
         <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
-          <Field
-            label="Keep logs for (days)"
-            hint={logsDays === null ? undefined : describe(logsDays)}
-          >
-            <input
-              value={draft.logs}
-              disabled={busy}
-              inputMode="numeric"
-              aria-label="Keep logs for (days)"
-              onChange={(e) => setDraft((d) => ({ ...d, logs: e.target.value }))}
-              className={`${INPUT} w-full font-mono`}
-            />
-          </Field>
+          <RetentionWindows
+            draft={draft}
+            parsed={{ logs: logsDays, traces: tracesDays, alerts: alertsDays }}
+            busy={busy}
+            describe={describe}
+            onChange={(window, value) =>
+              setDraft((d) => ({ ...d, [window]: value }))
+            }
+          />
 
-          <Field
-            label="Keep traces for (days)"
-            hint={tracesDays === null ? undefined : describe(tracesDays)}
-          >
-            <input
-              value={draft.traces}
-              disabled={busy}
-              inputMode="numeric"
-              aria-label="Keep traces for (days)"
-              onChange={(e) => setDraft((d) => ({ ...d, traces: e.target.value }))}
-              className={`${INPUT} w-full font-mono`}
-            />
-          </Field>
-
-          {(logsDays === null || tracesDays === null) && (
+          {(logsDays === null ||
+            tracesDays === null ||
+            alertsDays === null) && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
               A window is a whole number of days, from 0 (keep forever) to{" "}
               {MAX_DAYS.toLocaleString()}.
@@ -246,7 +227,7 @@ export default function RetentionSettingsManager() {
           )}
           {!dirty && policy !== null && !sweeps && (
             <p className="text-xs text-zinc-500">
-              Nothing to delete: both streams are set to be kept forever.
+              Nothing to delete: every stream is set to be kept forever.
             </p>
           )}
         </div>

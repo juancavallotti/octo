@@ -186,6 +186,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		InstalledDigest: cur.InstalledDigest,
 		BundleDigest:    digest,
 		Tracing:         cur.Tracing,
+		AutoFix:         cur.AutoFix,
 		MaxIterations:   cur.MaxIterations,
 		Blocked:         s.blocked(ctx),
 	}
@@ -723,6 +724,12 @@ func (s *Service) envBindings(ctx context.Context, cur stored) (map[string]deplo
 	if cur.MaxIterations > 0 {
 		bindings[envMaxIterations] = deployment.EnvBinding{Value: strconv.Itoa(cur.MaxIterations)}
 	}
+	// Bound only when it is on, on the same terms: the definition ships with it
+	// off, so leaving it out is the same as saying false — and an installation
+	// that never touched this keeps whatever the definition decides is safe.
+	if cur.AutoFix {
+		bindings[envAutoFix] = deployment.EnvBinding{Value: "true"}
+	}
 	return bindings, nil
 }
 
@@ -1017,6 +1024,110 @@ func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status,
 		// The runner is stated for the same reason Rollout states it: an installation
 		// older than runners has nothing in its row, and preserving that would move
 		// the agent onto an image his flow cannot even load from.
+		runner := agenticRunner
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
+			return cur, err
+		}
+
+		next.UpdatedAt = time.Now().UTC()
+		return next, nil
+	}); err != nil {
+		return Status{}, err
+	}
+	return s.Status(ctx)
+}
+
+// SetDeploymentSettings applies the settings that live on the agent's pods, in
+// one rollout.
+//
+// Both of these reach the runtime as environment variables read at startup, so
+// each one alone has to replace the pods — and setting them one after the other
+// replaces them twice. That was tolerable while each had its own button and the
+// second rollout was something you asked for; it is not tolerable behind a single
+// Save, where one click would roll the agent, wait, and roll it again.
+//
+// Nil means "leave this one alone", which is what lets the caller send only what
+// actually changed. Both nil is a no-op rather than a pointless rollout.
+func (s *Service) SetDeploymentSettings(
+	ctx context.Context, iterations *int, autoFix *bool,
+) (Status, error) {
+	if s.deployments == nil {
+		return Status{}, ErrClusterUnavailable
+	}
+	if iterations == nil && autoFix == nil {
+		return s.Status(ctx)
+	}
+	if iterations != nil && *iterations != 0 &&
+		(*iterations < MinIterations || *iterations > MaxIterationsCeiling) {
+		return Status{}, fmt.Errorf("%w: %d is outside %d..%d",
+			ErrInvalidIterations, *iterations, MinIterations, MaxIterationsCeiling)
+	}
+
+	if err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
+		if cur.IntegrationID == "" {
+			return cur, ErrNotInstalled
+		}
+		if cur.DeploymentID == "" {
+			return cur, ErrNotDeployed
+		}
+
+		next := cur
+		if iterations != nil {
+			next.MaxIterations = *iterations
+		}
+		if autoFix != nil {
+			next.AutoFix = *autoFix
+		}
+
+		bindings, err := s.envBindings(ctx, next)
+		if err != nil {
+			return cur, err
+		}
+		runner := agenticRunner
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
+			return cur, err
+		}
+
+		next.UpdatedAt = time.Now().UTC()
+		return next, nil
+	}); err != nil {
+		return Status{}, err
+	}
+	return s.Status(ctx)
+}
+
+// SetAutoFix decides whether the troubleshooter may change this installation, or
+// may only look at it and report.
+//
+// A roll-out for the same reason SetMaxIterations is: the value reaches the
+// runtime as an environment variable read at startup, so it takes effect by
+// replacing the pods, and it travels in the env bindings.
+//
+// It is deliberately its own call rather than a field on some general update.
+// Turning this on changes what an alert at four in the morning can do to a
+// production installation — from sending an email to rolling out a definition —
+// and that deserves to be a thing somebody did, on purpose, with its own audit
+// point, rather than a value that arrived alongside four others.
+func (s *Service) SetAutoFix(ctx context.Context, on bool) (Status, error) {
+	if s.deployments == nil {
+		return Status{}, ErrClusterUnavailable
+	}
+
+	if err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
+		if cur.IntegrationID == "" {
+			return cur, ErrNotInstalled
+		}
+		if cur.DeploymentID == "" {
+			return cur, ErrNotDeployed
+		}
+
+		next := cur
+		next.AutoFix = on
+
+		bindings, err := s.envBindings(ctx, next)
+		if err != nil {
+			return cur, err
+		}
 		runner := agenticRunner
 		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
 			return cur, err

@@ -9,6 +9,32 @@
                 },
                 "type": "object"
             },
+            "agent.autoFixRequest": {
+                "properties": {
+                    "actorId": {
+                        "description": "Declared for the same reason tracingRequest declares it: the client sends an\nactorId on every agent mutation, and a body that does not name the field\ndrops it silently — the request still succeeds, and the actor the platform\nresolved is simply lost.",
+                        "type": "string"
+                    },
+                    "autoFix": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "agent.deploymentSettingsRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "autoFix": {
+                        "type": "boolean"
+                    },
+                    "maxIterations": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "agent.maxIterationsRequest": {
                 "properties": {
                     "actorId": {
@@ -22,6 +48,9 @@
             },
             "agent.statusResponse": {
                 "properties": {
+                    "autoFix": {
+                        "type": "boolean"
+                    },
                     "blocked": {
                         "description": "Blocked is empty, or names what stands in the way: kubernetes, encryption or\nllm_key.",
                         "type": "string"
@@ -5678,6 +5707,148 @@
                     }
                 },
                 "summary": "The platform agent's status",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/autofix": {
+            "post": {
+                "description": "The agent triages an alert either way. This decides whether it may act on\nwhat it finds — scaling, tracing, rolling out a corrected definition — all\nof which it does by delegating to the operator that holds the\nunrestricted API. Off means investigate and recommend only.\nA rolling update, because the runtime reads the setting at startup.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.autoFixRequest",
+                                        "summary": "body",
+                                        "description": "Whether the troubleshooter may act"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Whether the troubleshooter may act",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or not deployed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Let the troubleshooter change things, or only report",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/deployment": {
+            "post": {
+                "description": "The turn limit and the troubleshooter's permission both reach the runtime\nas environment variables read at startup, so each replaces the pods.\nSending them together replaces the pods once instead of twice, which is\nwhat makes a single Save on the settings page honest.\nAn omitted field is left as it is; omitting both changes nothing.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.deploymentSettingsRequest",
+                                        "summary": "body",
+                                        "description": "The settings to apply"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The settings to apply",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or not deployed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Apply the agent's pod-level settings together",
                 "tags": [
                     "agent"
                 ]

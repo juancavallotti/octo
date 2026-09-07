@@ -1,18 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import {
-  getAgentStatus,
   installAgent,
   rolloutAgent,
-  setAgentMaxIterations,
   setAgentTracing,
   uninstallAgent,
-  type AgentStatus,
 } from "@/app/model/agent";
+import { useAgentForm } from "./AgentSettingsForm";
 import AgentActions from "./AgentActions";
 import AgentStatusCard from "./AgentStatusCard";
+import AgentAutoFix from "./AgentAutoFix";
 import AgentTurnLimit from "./AgentTurnLimit";
 import { SecondaryButton } from "./fields";
 
@@ -29,69 +27,20 @@ import { SecondaryButton } from "./fields";
  * configured above it, in the order they are needed, because an install is refused
  * outright until the LLM provider is set.
  *
- * The buttons live in AgentActions and the turn limit in AgentTurnLimit: this file
- * is the state machine — load, run, refresh, confirm — and reading it used to mean
- * scrolling past a screenful of JSX to find it.
+ * The buttons live in AgentActions and the turn limit in AgentTurnLimit. What is
+ * left here is the lifecycle: install, roll out, trace, remove — the actions that
+ * happen when clicked and have nothing to draft.
+ *
+ * The turn limit and the troubleshooter's permission are NOT among them any more.
+ * They are settings, they belong to the page's one draft, and they are written by
+ * the page's one Save — together, so the pods are replaced once rather than twice.
+ * Tracing stays an action because it is a switch somebody flips to look at
+ * something, not a value they edit alongside others.
  */
 export default function AgentSettingsManager() {
   const confirm = useConfirm();
-  const [status, setStatus] = useState<AgentStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Two failure modes with different remedies, so they are tracked separately: an
-  // action that failed leaves a status on screen to act on again, whereas a load
-  // that failed leaves nothing at all and needs a way to ask once more.
-  const [loadFailed, setLoadFailed] = useState(false);
-
-  const load = useCallback(
-    () =>
-      getAgentStatus().then(
-        (next) => {
-          setStatus(next);
-          setLoadFailed(false);
-        },
-        (e) => {
-          // Dropping the status rather than keeping the last one matters most
-          // *after* an action: an install that succeeded and then failed to
-          // refresh would otherwise leave the pre-install card on screen, with
-          // buttons offering to install an agent that now exists. A status that
-          // cannot be read is unknown, not unchanged.
-          setStatus(null);
-          setError((e as Error).message);
-          setLoadFailed(true);
-        },
-      ),
-    [],
-  );
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  /** Run a mutation, then refresh; surface failures inline. */
-  const run = useCallback(
-    async (fn: () => Promise<unknown>) => {
-      setBusy(true);
-      setError(null);
-      try {
-        await fn();
-        await load();
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [load],
-  );
-
-  /** Ask for the status again after a failed load. */
-  const retry = () => {
-    setBusy(true);
-    setError(null);
-    load().finally(() => setBusy(false));
-  };
+  const { stored, draft, set, busy, loading, reload, run } = useAgentForm();
+  const status = stored.status;
 
   // Nothing is actionable before the first load resolves: every button below is a
   // decision about what is already installed, and a fast click on a page that does
@@ -126,11 +75,6 @@ export default function AgentSettingsManager() {
     run(() => setAgentTracing(!status?.tracing));
   };
 
-  const applyTurns = (limit: number) => {
-    if (!canAct || !deployed) return;
-    run(() => setAgentMaxIterations(limit));
-  };
-
   const remove = async () => {
     if (!canAct) return;
     const ok = await confirm({
@@ -142,8 +86,10 @@ export default function AgentSettingsManager() {
     if (ok) run(() => uninstallAgent(false));
   };
 
+  const retry = () => void reload();
+
   return (
-    <section aria-labelledby="deployment-heading" className="mt-8">
+    <section aria-labelledby="deployment-heading" className="p-5">
       <h2 id="deployment-heading" className="text-base font-semibold">
         Deployment
       </h2>
@@ -154,14 +100,19 @@ export default function AgentSettingsManager() {
         scaling all work on him.
       </p>
 
-      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
-
-      {status === null && loadFailed ? (
+      {/*
+        A finished load with no status is a failed one, whatever the other two
+        sources managed. The provider reads all three and reports failure only
+        when every one of them fails — right for the page, wrong for this
+        section, which has nothing to show and needs a way to ask again rather
+        than a "Loading…" that never resolves.
+      */}
+      {loading ? (
+        <p className="mt-4 text-sm text-zinc-500">Loading…</p>
+      ) : status === null ? (
         <SecondaryButton onClick={retry} disabled={busy}>
           Try again
         </SecondaryButton>
-      ) : status === null ? (
-        <p className="mt-4 text-sm text-zinc-500">Loading…</p>
       ) : (
         <>
           <AgentStatusCard
@@ -186,12 +137,18 @@ export default function AgentSettingsManager() {
             // would fight anyone typing mid-roll-out.
             footer={
               deployed && (
-                <AgentTurnLimit
-                  key={status.maxIterations ?? "default"}
-                  value={status.maxIterations}
-                  disabled={!canAct}
-                  onApply={applyTurns}
-                />
+                <div className="flex flex-col gap-4">
+                  <AgentTurnLimit
+                    value={draft?.maxIterations ?? ""}
+                    disabled={!canAct}
+                    onChange={(v) => set("maxIterations", v)}
+                  />
+                  <AgentAutoFix
+                    autoFix={draft?.autoFix ?? false}
+                    disabled={!canAct}
+                    onToggle={() => set("autoFix", !(draft?.autoFix ?? false))}
+                  />
+                </div>
               )
             }
           />

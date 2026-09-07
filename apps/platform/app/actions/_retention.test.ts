@@ -39,7 +39,12 @@ describe("the retention client", () => {
   });
 
   it("reads the policy from the aggregator", async () => {
-    ok({ logs_days: 30, traces_days: 7, updated_at: "2026-08-11T03:00:00Z" });
+    ok({
+      logs_days: 30,
+      traces_days: 7,
+      alerts_days: 14,
+      updated_at: "2026-08-11T03:00:00Z",
+    });
 
     const res = await retention.getRetention();
     expect(res.ok).toBe(true);
@@ -50,6 +55,7 @@ describe("the retention client", () => {
     expect(res.data).toEqual({
       logsDays: 30,
       tracesDays: 7,
+      alertsDays: 14,
       updatedAt: "2026-08-11T03:00:00Z",
     });
   });
@@ -57,7 +63,7 @@ describe("the retention client", () => {
   // Zero is a policy, not a missing field. A mapper that treated it as absent
   // would turn "keep everything" into whatever it defaulted to.
   it("carries a zero window through as a zero", async () => {
-    ok({ logs_days: 0, traces_days: 0, updated_at: null });
+    ok({ logs_days: 0, traces_days: 0, alerts_days: 0, updated_at: null });
 
     const res = await retention.getRetention();
     expect(res.ok).toBe(true);
@@ -65,19 +71,33 @@ describe("the retention client", () => {
 
     expect(res.data.logsDays).toBe(0);
     expect(res.data.tracesDays).toBe(0);
+    expect(res.data.alertsDays).toBe(0);
     expect(res.data.updatedAt).toBeNull();
   });
 
-  it("sends both windows on a save, in the wire's casing", async () => {
-    ok({ logs_days: 30, traces_days: 0, updated_at: "2026-08-11T03:00:00Z" });
+  it("sends every window on a save, in the wire's casing", async () => {
+    ok({
+      logs_days: 30,
+      traces_days: 0,
+      alerts_days: 14,
+      updated_at: "2026-08-11T03:00:00Z",
+    });
 
-    await retention.saveRetention({ logsDays: 30, tracesDays: 0 });
+    await retention.saveRetention({
+      logsDays: 30,
+      tracesDays: 0,
+      alertsDays: 14,
+    });
 
     expect(requestJson.mock.calls[0][0]).toBe("PUT");
     expect(requestJson.mock.calls[0][1]).toBe(`${BASE}/settings/retention`);
-    // Both fields, and traces_days present rather than dropped for being zero:
+    // Every field, and traces_days present rather than dropped for being zero:
     // the service refuses a partial policy precisely so this cannot happen.
-    expect(requestJson.mock.calls[0][2]).toEqual({ logs_days: 30, traces_days: 0 });
+    expect(requestJson.mock.calls[0][2]).toEqual({
+      logs_days: 30,
+      traces_days: 0,
+      alerts_days: 14,
+    });
   });
 
   it("posts a sweep and maps what it deleted", async () => {
@@ -85,8 +105,11 @@ describe("the retention client", () => {
       logs_deleted: 120,
       traces_deleted: 44,
       trace_summaries_deleted: 6,
+      alert_evaluations_deleted: 900,
+      alert_incidents_deleted: 2,
       logs_cutoff: "2026-07-12T03:00:00Z",
       traces_cutoff: null,
+      alerts_cutoff: "2026-08-28T03:00:00Z",
       duration_ms: 1500,
     });
 
@@ -106,7 +129,7 @@ describe("the retention client", () => {
 
   it("trims a trailing slash off the configured address", async () => {
     process.env.OBSERVABILITY_URL = `${BASE}/`;
-    ok({ logs_days: 0, traces_days: 0, updated_at: null });
+    ok({ logs_days: 0, traces_days: 0, alerts_days: 0, updated_at: null });
 
     await retention.getRetention();
 
@@ -118,7 +141,7 @@ describe("the retention client", () => {
 
     for (const call of [
       retention.getRetention(),
-      retention.saveRetention({ logsDays: 1, tracesDays: 1 }),
+      retention.saveRetention({ logsDays: 1, tracesDays: 1, alertsDays: 1 }),
       retention.runRetention(),
     ]) {
       const res = await call;

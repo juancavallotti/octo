@@ -1,13 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
-import {
-  getWebSearchSettings,
-  saveWebSearchSettings,
-  type WebSearchSettings,
-} from "@/app/model/siteSettings";
-import { ApiKeyField, EncryptionWarning, PrimaryButton } from "./fields";
+import { saveWebSearchSettings } from "@/app/model/siteSettings";
+import { ApiKeyField, EncryptionWarning } from "./fields";
+import { useAgentForm } from "./AgentSettingsForm";
 
 /**
  * The key Dr. Octo searches the open web with.
@@ -23,61 +19,18 @@ import { ApiKeyField, EncryptionWarning, PrimaryButton } from "./fields";
  *
  * As with the other two forms the key draft is never seeded from the server, and an
  * empty draft means "keep the stored key".
+ *
+ * Presentational: what is stored, what is being typed and when it is written are
+ * all the page's, held in AgentSettingsForm. This renders one field and owns the
+ * prose around it. Removing the key is the exception and stays here, because it
+ * is destructive, it asks first, and a revocation deferred behind a Save that is
+ * never pressed is a key somebody believes is gone.
  */
 export default function WebSearchSettingsManager() {
   const confirm = useConfirm();
-  const [settings, setSettings] = useState<WebSearchSettings | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  const [apiKey, setApiKey] = useState("");
-
-  // A promise chain rather than an async body, so nothing sets state in the
-  // synchronous part of the effect below — the form the other managers use.
-  const load = useCallback(
-    () =>
-      getWebSearchSettings().then(setSettings, (e) =>
-        setError((e as Error).message),
-      ),
-    [],
-  );
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  /** Run a mutation, then refresh; surface failures inline. */
-  const run = useCallback(
-    async (fn: () => Promise<unknown>) => {
-      setBusy(true);
-      setError(null);
-      setSaved(false);
-      try {
-        await fn();
-        await load();
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [load],
-  );
-
-  // Gated on the settings having loaded and on there being something to send: a
-  // save with an empty draft is a write that changes nothing, and the button
-  // offering it reads as though it would store what was typed.
-  const canSave = settings !== null && !busy && apiKey.trim().length > 0;
-
-  const save = () => {
-    if (!canSave) return;
-    run(async () => {
-      await saveWebSearchSettings({ apiKey });
-      setApiKey("");
-      setSaved(true);
-    });
-  };
+  const { stored, draft, set, busy, loading, run } = useAgentForm();
+  const settings = stored.webSearch;
+  const apiKey = draft?.webSearchApiKey ?? "";
 
   const removeKey = async () => {
     if (settings === null || busy) return;
@@ -88,9 +41,9 @@ export default function WebSearchSettingsManager() {
       danger: true,
     });
     if (!ok) return;
-    run(async () => {
+    await run(async () => {
       await saveWebSearchSettings({ apiKey: "" });
-      setApiKey("");
+      set("webSearchApiKey", "");
     });
   };
 
@@ -98,7 +51,7 @@ export default function WebSearchSettingsManager() {
   const configured = settings?.configured ?? false;
 
   return (
-    <section aria-labelledby="websearch-heading" className="mt-5">
+    <section aria-labelledby="websearch-heading" className="p-5">
       <h3 id="websearch-heading" className="text-sm font-semibold">
         Web search
       </h3>
@@ -120,25 +73,17 @@ export default function WebSearchSettingsManager() {
       </p>
 
       {!encryptionAvailable && <EncryptionWarning />}
-      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
-      {saved && !error && (
-        <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
-          Settings saved. Roll him out below for it to reach him.
-        </p>
-      )}
 
-      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
+      <div className="mt-4 flex flex-col gap-3">
         <ApiKeyField
           value={apiKey}
-          onChange={setApiKey}
+          onChange={(v) => set("webSearchApiKey", v)}
           configured={configured}
           last4={settings?.last4 ?? ""}
-          disabled={busy || !encryptionAvailable}
+          disabled={busy || loading || !encryptionAvailable}
           placeholder="Your Parallel API key"
           onRemove={removeKey}
         />
-
-        <PrimaryButton onClick={save} disabled={!canSave} />
 
         {/* The key is read when the deployment's bindings are written, which is
             install and roll-out and nothing else. Saying so here is the

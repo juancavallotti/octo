@@ -4,12 +4,22 @@ import userEvent from "@testing-library/user-event";
 
 const getWebSearchSettings = vi.fn();
 const saveWebSearchSettings = vi.fn();
+// The provider loads all three sources, so a suite exercising one section still
+// has to mock the others it reads.
 vi.mock("@/app/model/siteSettings", () => ({
   getWebSearchSettings: () => getWebSearchSettings(),
   saveWebSearchSettings: (input: unknown) => saveWebSearchSettings(input),
+  getLlmSettings: () => Promise.resolve(null),
+  saveLlmSettings: () => Promise.resolve(null),
+}));
+vi.mock("@/app/model/agent", () => ({
+  getAgentStatus: () => Promise.resolve(null),
+  setAgentDeploymentSettings: () => Promise.resolve(null),
 }));
 
 import WebSearchSettingsManager from "./WebSearchSettingsManager";
+import AgentSettingsForm from "./AgentSettingsForm";
+import AgentSaveBar from "./AgentSaveBar";
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 
 const CONFIGURED = {
@@ -27,10 +37,15 @@ const UNCONFIGURED = {
   updatedAt: null,
 };
 
+// Rendered with the page's provider and its one Save: the draft and the writing
+// live there now, and this section renders one field.
 function renderManager() {
   return render(
     <ConfirmProvider>
-      <WebSearchSettingsManager />
+      <AgentSettingsForm>
+        <WebSearchSettingsManager />
+        <AgentSaveBar />
+      </AgentSettingsForm>
     </ConfirmProvider>,
   );
 }
@@ -99,7 +114,6 @@ describe("WebSearchSettingsManager", () => {
   });
 
   it("cannot save before the settings have loaded", async () => {
-    const user = userEvent.setup();
     let resolveLoad: (v: typeof CONFIGURED) => void = () => {};
     getWebSearchSettings.mockReturnValue(
       new Promise<typeof CONFIGURED>((r) => {
@@ -111,11 +125,17 @@ describe("WebSearchSettingsManager", () => {
     const save = screen.getByRole("button", {
       name: "Save",
     }) as HTMLButtonElement;
-    await user.type(keyField(), "parallel-typed-key");
+    // The field is disabled until the draft exists, so nothing typed before the
+    // load can be silently dropped into a draft that is not there yet.
+    expect((keyField() as HTMLInputElement).disabled).toBe(true);
     expect(save.disabled).toBe(true);
 
     resolveLoad(CONFIGURED);
-    await waitFor(() => expect(save.disabled).toBe(false));
+    await waitFor(() =>
+      expect((keyField() as HTMLInputElement).disabled).toBe(false),
+    );
+    // Still nothing to save: a loaded form nobody has edited is not dirty.
+    expect(save.disabled).toBe(true);
   });
 
   it("removes the stored key only after confirming", async () => {
@@ -168,6 +188,10 @@ describe("WebSearchSettingsManager", () => {
     await user.type(keyField(), "parallel-typed-key");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText(/Roll him out below/)).toBeTruthy();
+    // Said standing rather than as a banner after a save: the key reaching him
+    // on his next roll-out is true whenever there is a key, and somebody reading
+    // the field before typing needs it more than somebody who has just typed.
+    await waitFor(() => expect(saveWebSearchSettings).toHaveBeenCalled());
+    expect(screen.getByText(/takes effect on his next roll-out/)).toBeTruthy();
   });
 });

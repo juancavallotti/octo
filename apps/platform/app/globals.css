@@ -78,3 +78,46 @@ body {
     background: rgb(56 189 248 / 0.55);
   }
 }
+
+/*
+ * Autofill, in the app's colours rather than the browser's.
+ *
+ * Chrome paints an autofilled field with its own opaque background — a pale
+ * yellow or blue depending on the version — and it wins over any background the
+ * class sets, because it is applied through a UA stylesheet on -webkit-autofill.
+ * On a dark theme the result is a white box with dark text sitting in the middle
+ * of a dark form: the field the browser recognised is the one that stops matching
+ * the page.
+ *
+ * There is no property that turns it off. The trick that works is an inset shadow
+ * large enough to cover the field, since the shadow paints over that background,
+ * plus -webkit-text-fill-color for the text, which `color` alone does not reach.
+ * The long transition delay is for the moment right after autofill, when Chrome
+ * re-applies its own background on a short animation.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: rgb(24 24 27); /* zinc-900 */
+  -webkit-box-shadow: 0 0 0 1000px rgb(250 250 250) inset; /* zinc-50 */
+  box-shadow: 0 0 0 1000px rgb(250 250 250) inset;
+  caret-color: rgb(24 24 27);
+  transition: background-color 600000s 0s;
+}
+
+/* The app follows the system scheme rather than a class, exactly as :root above
+   does — a .dark selector here would never match anything. */
+@media (prefers-color-scheme: dark) {
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: rgb(244 244 245); /* zinc-100 */
+    -webkit-box-shadow: 0 0 0 1000px rgb(10 10 10) inset; /* the page's own dark */
+    box-shadow: 0 0 0 1000px rgb(10 10 10) inset;
+    caret-color: rgb(244 244 245);
+  }
+}

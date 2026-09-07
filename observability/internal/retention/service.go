@@ -34,6 +34,10 @@ type tracePruner interface {
 	Prune(ctx context.Context, cutoff time.Time, batch int) (repo.TracePruneResult, error)
 }
 
+type alertPruner interface {
+	Prune(ctx context.Context, cutoff time.Time, batch int) (repo.AlertPruneResult, error)
+}
+
 type locker interface {
 	tryLock(ctx context.Context) (func(), bool, error)
 }
@@ -43,6 +47,7 @@ type Service struct {
 	settings settingsRepo
 	logs     logPruner
 	traces   tracePruner
+	alerts   alertPruner
 	lock     locker
 	batch    int
 	now      func() time.Time
@@ -54,6 +59,7 @@ func NewService(pool *pgxpool.Pool) *Service {
 		settings: NewRepo(pool),
 		logs:     repo.NewLogs(pool),
 		traces:   repo.NewTraces(pool),
+		alerts:   repo.NewAlerts(pool),
 		lock:     &sweepLock{pool: pool},
 		batch:    pruneBatch,
 		now:      time.Now,
@@ -78,9 +84,13 @@ func (s *Service) Update(ctx context.Context, u Update) (Policy, error) {
 	if err := validateUpdate(u); err != nil {
 		return Policy{}, err
 	}
+	alerts := u.AlertsDays
 	next := stored{
 		LogsDays:   u.LogsDays,
 		TracesDays: u.TracesDays,
+		// Written explicitly on every save, so a policy somebody has looked at
+		// stops depending on the default and starts saying what it means.
+		AlertsDays: &alerts,
 		UpdatedAt:  s.now().UTC(),
 	}
 	if err := s.settings.Put(ctx, next); err != nil {
@@ -93,12 +103,15 @@ func (s *Service) Update(ctx context.Context, u Update) (Policy, error) {
 // keep everything, which is what tells a reader that a zero count means "nothing
 // was asked for" rather than "nothing had expired".
 type RunResult struct {
-	LogsDeleted           int64
-	TracesDeleted         int64
-	TraceSummariesDeleted int64
-	LogsCutoff            *time.Time
-	TracesCutoff          *time.Time
-	Duration              time.Duration
+	LogsDeleted             int64
+	TracesDeleted           int64
+	TraceSummariesDeleted   int64
+	AlertEvaluationsDeleted int64
+	AlertIncidentsDeleted   int64
+	LogsCutoff              *time.Time
+	TracesCutoff            *time.Time
+	AlertsCutoff            *time.Time
+	Duration                time.Duration
 }
 
 // Run enforces the stored policy now.
@@ -149,11 +162,23 @@ func (s *Service) Run(ctx context.Context) (RunResult, error) {
 		}
 	}
 
+	if cut, ok := cutoff(policy.AlertsDays, started); ok {
+		out.AlertsCutoff = &cut
+		result, err := s.alerts.Prune(ctx, cut, s.batch)
+		out.AlertEvaluationsDeleted = result.Evaluations
+		out.AlertIncidentsDeleted = result.Incidents
+		if err != nil {
+			return out, err
+		}
+	}
+
 	out.Duration = s.now().Sub(started)
 	slog.Info("retention sweep complete",
 		"logs_deleted", out.LogsDeleted,
 		"traces_deleted", out.TracesDeleted,
 		"trace_summaries_deleted", out.TraceSummariesDeleted,
+		"alert_evaluations_deleted", out.AlertEvaluationsDeleted,
+		"alert_incidents_deleted", out.AlertIncidentsDeleted,
 		"duration", out.Duration)
 	return out, nil
 }

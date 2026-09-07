@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Every delete here is issued in bounded batches and looped until a statement
@@ -174,4 +175,72 @@ func (t *Traces) pruneTraceBatch(ctx context.Context, cutoff time.Time, batch in
 		return out, fmt.Errorf("repo: commit trace prune: %w", err)
 	}
 	return out, nil
+}
+
+// AlertPruneResult reports what an alerting sweep removed. Evaluations and
+// incidents are counted apart because one is a log and the other is a record of
+// episodes, and a run that removed episodes but no evaluations means something
+// quite specific went wrong.
+type AlertPruneResult struct {
+	Evaluations int64
+	Incidents   int64
+}
+
+// Alerts prunes the alerting history.
+type Alerts struct {
+	pool *pgxpool.Pool
+}
+
+// NewAlerts returns the alerting pruner over pool.
+func NewAlerts(pool *pgxpool.Pool) *Alerts { return &Alerts{pool: pool} }
+
+// Prune deletes evaluations recorded before cutoff, and the episodes that closed
+// before it.
+//
+// Open incidents are never pruned, whatever their age. An open incident is
+// current state rather than history — something is on fire right now — and
+// deleting one out from under a firing watch would leave the state row pointing
+// at an episode that no longer exists.
+//
+// Evaluations go first. They reference an incident, so removing the episodes
+// first would leave rows pointing at nothing for the length of the sweep; this
+// way an incident is only ever removed once the history that named it has gone.
+func (a *Alerts) Prune(ctx context.Context, cutoff time.Time, batch int) (AlertPruneResult, error) {
+	var out AlertPruneResult
+	evaluations, err := pruneBatched(ctx, a.pool, batch,
+		`DELETE FROM alert_evaluations WHERE id IN (
+		   SELECT id FROM alert_evaluations WHERE evaluated_at < $1 ORDER BY evaluated_at LIMIT $2
+		 )`, cutoff)
+	out.Evaluations = evaluations
+	if err != nil {
+		return out, fmt.Errorf("repo: prune alert evaluations: %w", err)
+	}
+
+	incidents, err := pruneBatched(ctx, a.pool, batch,
+		`DELETE FROM alert_incidents WHERE id IN (
+		   SELECT id FROM alert_incidents
+		    WHERE resolved_at IS NOT NULL AND resolved_at < $1
+		    ORDER BY resolved_at LIMIT $2
+		 )`, cutoff)
+	out.Incidents = incidents
+	if err != nil {
+		return out, fmt.Errorf("repo: prune alert incidents: %w", err)
+	}
+	return out, nil
+}
+
+// pruneBatched runs one bounded delete in a loop until a statement removes fewer
+// rows than it asked for, which is the shape every sweep in this file uses.
+func pruneBatched(ctx context.Context, pool *pgxpool.Pool, batch int, sql string, cutoff time.Time) (int64, error) {
+	var total int64
+	for {
+		tag, err := pool.Exec(ctx, sql, cutoff, batch)
+		if err != nil {
+			return total, err
+		}
+		total += tag.RowsAffected()
+		if tag.RowsAffected() < int64(batch) {
+			return total, nil
+		}
+	}
 }

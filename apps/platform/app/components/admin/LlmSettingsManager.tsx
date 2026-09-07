@@ -1,19 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
-import {
-  getLlmSettings,
-  saveLlmSettings,
-  type LlmSettings,
-} from "@/app/model/siteSettings";
-import {
-  ApiKeyField,
-  EncryptionWarning,
-  Field,
-  INPUT,
-  PrimaryButton,
-} from "./fields";
+import { saveLlmSettings } from "@/app/model/siteSettings";
+import { ApiKeyField, EncryptionWarning, Field, INPUT } from "./fields";
+import { useAgentForm } from "./AgentSettingsForm";
 import {
   LLM_PROVIDERS,
   modelForProviderChange,
@@ -26,86 +16,35 @@ import {
  *
  * As with the email settings, the API key draft is never seeded from the server and
  * an empty draft means "keep the stored key".
+ *
+ * Presentational: the draft, what is stored and when it is written all live in
+ * AgentSettingsForm, because they are the page's and not this section's. What
+ * stays here is the provider list, the rule about what happens to the model when
+ * the provider changes, and removing a stored key — which is immediate, because
+ * a revocation deferred behind a Save is a key somebody believes is gone.
  */
 export default function LlmSettingsManager() {
   const confirm = useConfirm();
-  const [settings, setSettings] = useState<LlmSettings | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const { stored, draft, set, busy, loading, run } = useAgentForm();
+  const settings = stored.llm;
+  const provider = draft?.provider ?? LLM_PROVIDERS[0].id;
+  const model = draft?.model ?? "";
+  const apiKey = draft?.llmApiKey ?? "";
 
-  const [provider, setProvider] = useState(LLM_PROVIDERS[0].id);
-  const [model, setModel] = useState(LLM_PROVIDERS[0].defaultModel);
-  const [apiKey, setApiKey] = useState("");
-
-  const apply = useCallback((next: LlmSettings) => {
-    setSettings(next);
-    // Normalised through the provider list rather than taken as given: an
-    // unconfigured site has no provider, and a stored one we no longer offer would
-    // leave the select with no matching option — showing a provider that is not the
-    // one a save would send. providerById falls back to the first entry for both.
-    const provider = providerById(next.provider).id;
-    setProvider(provider);
-    setModel(next.model || providerById(provider).defaultModel);
-  }, []);
-
-  // Shaped as a promise chain rather than an async body so nothing sets state in the
-  // synchronous part of the effect below — the same form the other managers use.
-  const load = useCallback(
-    () => getLlmSettings().then(apply, (e) => setError((e as Error).message)),
-    [apply],
-  );
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  /** Run a mutation, then refresh; surface failures inline. */
-  const run = useCallback(
-    async (fn: () => Promise<unknown>) => {
-      setBusy(true);
-      setError(null);
-      setSaved(false);
-      try {
-        await fn();
-        await load();
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [load],
-  );
-
+  // Changing the provider carries the model with it, because a model id belongs
+  // to a provider: OpenRouter prefixes the vendor, so the same model is named
+  // differently there. Only a model the previous provider had by default is
+  // replaced — one somebody typed is theirs and is kept.
   const changeProvider = (next: string) => {
-    setModel((current) => modelForProviderChange(current, next));
-    setProvider(next);
-  };
-
-  // Gated on the settings having loaded, not just on the fields being valid. The
-  // form seeds itself with a provider and model before the request resolves, so
-  // without this a fast click saves those defaults over whatever was stored.
-  const canSave = settings !== null && !busy && model.trim().length > 0;
-
-  const save = () => {
-    if (!canSave) return;
-    run(async () => {
-      await saveLlmSettings({
-        provider,
-        model: model.trim(),
-        ...(apiKey ? { apiKey } : {}),
-      });
-      setApiKey("");
-      setSaved(true);
-    });
+    set("model", modelForProviderChange(model, next));
+    set("provider", next);
   };
 
   const removeKey = async () => {
-    // Removing the key still writes the rest of the row, so it has to clear the
-    // same bar a save does — otherwise clearing Model and pressing Remove sends a
-    // state the Save button refuses.
-    if (!canSave) return;
+    // Refused while the model is empty for the same reason the save is: removing
+    // writes the rest of the row, so clearing Model and pressing Remove would
+    // send a state the Save button is refusing to send.
+    if (settings === null || busy || model.trim() === "") return;
     const ok = await confirm({
       title: "Remove the stored API key?",
       body: "The platform agent will not be able to reach the provider until a new key is saved.",
@@ -113,16 +52,19 @@ export default function LlmSettingsManager() {
       danger: true,
     });
     if (!ok) return;
-    run(async () => {
+    // Removing writes the rest of the row too, so it sends what is drafted
+    // rather than what is stored — otherwise removing a key would silently
+    // revert an unsaved model change beside it.
+    await run(async () => {
       await saveLlmSettings({ provider, model: model.trim(), apiKey: "" });
-      setApiKey("");
+      set("llmApiKey", "");
     });
   };
 
   const encryptionAvailable = settings?.encryptionAvailable ?? true;
 
   return (
-    <section aria-labelledby="llm-heading" className="mt-5">
+    <section aria-labelledby="llm-heading" className="p-5">
       <h3 id="llm-heading" className="text-sm font-semibold">
         LLM provider
       </h3>
@@ -133,18 +75,12 @@ export default function LlmSettingsManager() {
       </p>
 
       {!encryptionAvailable && <EncryptionWarning />}
-      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
-      {saved && !error && (
-        <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
-          Settings saved.
-        </p>
-      )}
 
-      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
+      <div className="mt-4 flex flex-col gap-3">
         <Field label="Provider">
           <select
             value={provider}
-            disabled={busy}
+            disabled={busy || loading}
             onChange={(e) => changeProvider(e.target.value)}
             className={`${INPUT} w-full`}
           >
@@ -162,24 +98,22 @@ export default function LlmSettingsManager() {
         >
           <input
             value={model}
-            disabled={busy}
+            disabled={busy || loading}
             placeholder={providerById(provider).defaultModel}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(e) => set("model", e.target.value)}
             className={`${INPUT} w-full font-mono`}
           />
         </Field>
 
         <ApiKeyField
           value={apiKey}
-          onChange={setApiKey}
+          onChange={(v) => set("llmApiKey", v)}
           configured={settings?.configured ?? false}
           last4={settings?.last4 ?? ""}
-          disabled={busy || !encryptionAvailable}
+          disabled={busy || loading || !encryptionAvailable}
           placeholder={providerById(provider).keyPlaceholder}
           onRemove={removeKey}
         />
-
-        <PrimaryButton onClick={save} disabled={!canSave} />
       </div>
     </section>
   );

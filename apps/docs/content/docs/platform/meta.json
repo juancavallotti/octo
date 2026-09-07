@@ -16,7 +16,8 @@
     "agent",
     "event-bus",
     "traces",
-    "pod-stats"
+    "pod-stats",
+    "alerting"
   ],
   "title": "Platform"
 }

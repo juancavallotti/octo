@@ -1,0 +1,28 @@
+{{- /* RBAC for the observability service.
+
+       It needs exactly one thing from the API server: a coordination Lease, so
+       that the alerting evaluator runs on one replica. Everything else this
+       service does — consuming NATS, reading Redis, writing Postgres — is a
+       competing consumer by design and needs no cluster permission at all.
+
+       Modelled on the runtime's rbac.yaml, and narrower than it in one respect:
+       there is no `delete`. That verb is there for the runtime's other Lease
+       user, core.Leases, where a claim is released by deleting its object so the
+       name is free again immediately. Election has no use for it — it releases
+       by letting its own lease lapse, or by giving it up on shutdown.
+
+       Namespaced deliberately, like every other Role in this chart: the service
+       can only act inside the release namespace. */}}
+{{- define "octo.observability.rules" -}}
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  # What client-go's LeaseLock actually calls, and nothing else. It reads its
+  # lease by name, creates one when there is none, and updates it to renew —
+  # never lists, never watches, never patches. The wider set was copied from a
+  # controller that does.
+  verbs: ["get", "create", "update"]
+{{- end }}
+{{- include "octo-common.rbac" (dict
+      "root" $
+      "component" "observability"
+      "rules" (include "octo.observability.rules" .)) }}
