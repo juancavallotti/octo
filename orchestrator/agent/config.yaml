@@ -2089,54 +2089,41 @@ flows:
         # an app that had just got better and email a report about it.
         filter: 'body.kind == "open" || body.kind == "repeat"' 
     process:
-      # The run's identity, set before the agent starts so the events path can see
-      # it — an event message is a fresh message carrying the parent's variables,
-      # so a variable set here is readable from inside the observer path and a
-      # body written there is not.
+      # Everything the run needs out of the alert, taken while the alert is still
+      # the body: after the agent block the body is its answer and the payload
+      # that started all this is gone, so anything the reporting below wants has
+      # to be lifted now.
       #
-      # Keyed by incident rather than by notification: an incident that renotifies
-      # produces several alerts about one episode, and they belong to one record.
-      - type: set-variable
-        name: run-key
+      # These are variables rather than a body because the events path has to see
+      # them — an event message is a fresh message carrying the parent's
+      # variables, so a variable set here is readable from inside the observer
+      # path and a body written there is not.
+      - type: multi-transform
+        name: alert-facts
         settings:
-          name: runKey
-          value: >-
-            "troubleshoot:" + (has(body.incidentId) && body.incidentId != ""
-              ? string(body.incidentId)
-              : (has(body.watchId) ? string(body.watchId) : "unknown"))
-
-      # Pulled out of the alert while the alert is still the body. After the agent
-      # block the body is its answer, and the payload that started all this is
-      # gone — so anything the reporting below needs has to be taken now.
-      - type: set-variable
-        name: report-to
-        settings:
-          name: reportTo
-          value: 'has(body.reportTo) ? body.reportTo : []'
-
-      - type: set-variable
-        name: watch-name
-        settings:
-          name: watchName
-          value: 'has(body.watchName) ? string(body.watchName) : "an alert"'
-
-      - type: set-variable
-        name: alert-at
-        settings:
-          name: alertAt
-          value: 'has(body.at) ? string(body.at) : ""'
-
-      - type: set-variable
-        name: incident-id
-        settings:
-          name: incidentId
-          value: 'has(body.incidentId) ? string(body.incidentId) : ""'
-
-      - type: set-variable
-        name: watch-id
-        settings:
-          name: watchId
-          value: 'has(body.watchId) ? string(body.watchId) : "unknown"'
+          transforms:
+            - setVar: reportTo
+              value: 'has(body.reportTo) ? body.reportTo : []'
+            - setVar: watchName
+              value: 'has(body.watchName) ? string(body.watchName) : "an alert"'
+            - setVar: alertAt
+              value: 'has(body.at) ? string(body.at) : ""'
+            - setVar: incidentId
+              value: 'has(body.incidentId) ? string(body.incidentId) : ""'
+            - setVar: watchId
+              value: 'has(body.watchId) ? string(body.watchId) : "unknown"'
+            # Last, because the steps are additive: it reads the two ids the
+            # steps above just normalized instead of repeating their has()
+            # guards against the raw body.
+            #
+            # Keyed by incident rather than by notification: an incident that
+            # renotifies produces several alerts about one episode, and they
+            # belong to one record.
+            - setVar: runKey
+              value: >-
+                "troubleshoot:" + (vars.incidentId != ""
+                  ? vars.incidentId
+                  : vars.watchId)
 
       - type: log
         name: alert-received
@@ -2629,54 +2616,55 @@ flows:
 
       # Built into the body rather than inline in the rest block's settings, so
       # that the report is a value this flow produced and can be looked at — a
-      # test spies on it here, and a debugger stops on it — instead of a string
-      # assembled inside a block on its way out of the process.
-      # Escaped before it becomes HTML.
+      # debugger stops on it — instead of a string assembled inside a block on
+      # its way out of the process.
       #
-      # Everything in this report is untrusted: the answer is model output, and
-      # the record carries tool arguments, which carry the alert — whose watch
-      # name and description are text a person wrote. A `<script>` or a stray
-      # `<` in any of them would otherwise reach a mail client as markup rather
-      # than as the characters somebody typed.
-      #
-      # Ampersand first, or the escapes escape each other.
-      - type: set-variable
-        name: escape-answer
-        settings:
-          name: answerHtml
-          value: >-
-            vars.answer.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-      - type: set-payload
+      # The escape and the body it feeds are one block because they are one step:
+      # the steps are additive, so setBody below reads the answerHtml set above
+      # it, and separating them only added a block whose entire purpose was to
+      # hand a value to the next one.
+      - type: multi-transform
         name: build-report
         settings:
-          # HTML as well as text. The first went out as text alone and arrived as
-          # what it literally was: a wall of unrendered prose with a bare list of
-          # event names under it. Mail clients are not terminals.
-          #
-          # Inline styles and no <style> block, because Gmail strips those; a
-          # table for the record, because that is the one layout every client
-          # still agrees on. See the email-reports skill for the rest of it.
-          value: >-
-            {"to": vars.reportTo,
-             "subject": "Alert follow-up: " + vars.watchName,
-             "text": vars.answer + "\n\nWhat I did\n\n" +
-                     vars.transcript.lines.join("\n"),
-             "html":
-               "<div style=\"font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;" +
-               "font-size:14px;line-height:1.5;color:#18181b;max-width:640px\">" +
-               "<p style=\"margin:0 0 16px\">" +
-               vars.answerHtml.replace("\n\n", "</p><p style=\"margin:0 0 16px\">") +
-               "</p>" +
-               "<p style=\"margin:24px 0 8px;font-weight:600;color:#52525b\">What I did</p>" +
-               "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"" +
-               " style=\"border-collapse:collapse;width:100%;font-size:13px\">" +
-               vars.transcript.lines.map(l,
-                 "<tr><td style=\"padding:4px 8px;border-bottom:1px solid #e4e4e7;" +
-                 "color:#52525b\">" +
-                 l.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") +
-                 "</td></tr>").join("") +
-               "</table></div>"}
+          transforms:
+            # Everything in this report is untrusted: the answer is model output,
+            # and the record carries tool arguments, which carry the alert — whose
+            # watch name and description are text a person wrote. A `<script>` or a
+            # stray `<` in any of them would otherwise reach a mail client as
+            # markup rather than as the characters somebody typed.
+            #
+            # Ampersand first, or the escapes escape each other.
+            - setVar: answerHtml
+              value: >-
+                vars.answer.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+            # HTML as well as text. The first went out as text alone and arrived as
+            # what it literally was: a wall of unrendered prose with a bare list of
+            # event names under it. Mail clients are not terminals.
+            #
+            # Inline styles and no <style> block, because Gmail strips those; a
+            # table for the record, because that is the one layout every client
+            # still agrees on. See the email-reports skill for the rest of it.
+            - setBody: >-
+                  {"to": vars.reportTo,
+                   "subject": "Alert follow-up: " + vars.watchName,
+                   "text": vars.answer + "\n\nWhat I did\n\n" +
+                           vars.transcript.lines.join("\n"),
+                   "html":
+                     "<div style=\"font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;" +
+                     "font-size:14px;line-height:1.5;color:#18181b;max-width:640px\">" +
+                     "<p style=\"margin:0 0 16px\">" +
+                     vars.answerHtml.replace("\n\n", "</p><p style=\"margin:0 0 16px\">") +
+                     "</p>" +
+                     "<p style=\"margin:24px 0 8px;font-weight:600;color:#52525b\">What I did</p>" +
+                     "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"" +
+                     " style=\"border-collapse:collapse;width:100%;font-size:13px\">" +
+                     vars.transcript.lines.map(l,
+                       "<tr><td style=\"padding:4px 8px;border-bottom:1px solid #e4e4e7;" +
+                       "color:#52525b\">" +
+                       l.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") +
+                       "</td></tr>").join("") +
+                     "</table></div>"}
 
       - type: rest
         name: send-final-report
