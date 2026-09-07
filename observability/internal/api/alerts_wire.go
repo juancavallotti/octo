@@ -42,10 +42,10 @@ type watchBody struct {
 	StepSeconds     int `json:"step_seconds"`
 	IntervalSeconds int `json:"interval_seconds"`
 	ForSeconds      int `json:"for_seconds"`
-	RenotifySeconds int `json:"renotify_seconds"`
-	// CooldownSeconds is how long this watch stays quiet after announcing
-	// something, across episodes. Zero is off. Not the same as renotify, which
-	// only bounds repeats inside one incident.
+	// CooldownSeconds is how long this watch stays quiet after it has announced
+	// something. It is the only bound on how often a watch reports: a still-firing
+	// watch offers to say so on every evaluation, and this is what swallows all
+	// but the first. Zero lets every one through.
 	CooldownSeconds int `json:"cooldown_seconds"`
 
 	CreatedAt *time.Time `json:"created_at,omitempty"`
@@ -156,7 +156,6 @@ func toWatchBody(w alerting.Watch) watchBody {
 		StepSeconds:     int(w.Step.Seconds()),
 		IntervalSeconds: int(w.Interval.Seconds()),
 		ForSeconds:      int(w.For.Seconds()),
-		RenotifySeconds: int(w.Renotify.Seconds()),
 		CooldownSeconds: int(w.Cooldown.Seconds()),
 		CreatedAt:       nonZero(w.CreatedAt), UpdatedAt: nonZero(w.UpdatedAt),
 	}
@@ -217,7 +216,6 @@ func toWatch(b watchBody) (alerting.Watch, error) {
 		Step:     time.Duration(b.StepSeconds) * time.Second,
 		Interval: time.Duration(b.IntervalSeconds) * time.Second,
 		For:      time.Duration(b.ForSeconds) * time.Second,
-		Renotify: time.Duration(b.RenotifySeconds) * time.Second,
 		Cooldown: time.Duration(b.CooldownSeconds) * time.Second,
 	}
 	for _, obj := range b.Conditions {

@@ -450,8 +450,9 @@ func TestACooldownStopsAWatchAnnouncingAgain(t *testing.T) {
 	}
 }
 
-// A watch with no cooldown behaves exactly as it did before it existed, which is
-// what makes zero a safe default: suppression loses alerts.
+// Zero cooldown lets every announcement through. It is no longer the default —
+// with nothing else bounding repeats it means a message per evaluation — but it
+// stays reachable, because a receiver that is a machine may well want each one.
 func TestNoCooldownAnnouncesEveryEpisode(t *testing.T) {
 	watch := runnerWatch(t, "w_1", 1)
 	watch.For = 0
@@ -487,9 +488,9 @@ func TestACooldownNeverSwallowsARecovery(t *testing.T) {
 		}
 	}
 	// While the two that start or repeat a claim are gated.
-	if !r.silenced(t.Context(), watch, Action{Kind: ActionRenotify}) &&
+	if !r.silenced(t.Context(), watch, Action{Kind: ActionRepeat}) &&
 		!r.silenced(t.Context(), watch, Action{Kind: ActionOpen}) {
-		t.Error("neither an open nor a renotify was ever gated")
+		t.Error("neither an open nor a repeat was ever gated")
 	}
 }
 
@@ -504,5 +505,37 @@ func TestAFailedCooldownCheckAnnouncesAnyway(t *testing.T) {
 
 	if r.silenced(t.Context(), watch, Action{Kind: ActionOpen}) {
 		t.Error("a failed cooldown check silenced the watch")
+	}
+}
+
+// The repeat rate, end to end. The state machine offers a repeat on every
+// evaluation that still finds the condition true, so this is the only thing
+// standing between a firing watch and a message every interval — which is
+// exactly why it is now the one place that rate is configured.
+func TestACooldownIsTheWholeRepeatRate(t *testing.T) {
+	watch := runnerWatch(t, "w_1", 1)
+	watch.For = 0
+	watch.Cooldown = time.Hour
+	due := Due{Watch: watch, State: State{
+		WatchID: watch.ID, Phase: PhaseOK, DefinitionHash: watch.DefinitionHash,
+	}}
+	s := newFakeStore(due)
+	r := newRunner(s, &fakeFetcher{series: counts(1, 2, 3, 4, 5), ingesting: true}, true,
+		&fakeNotifier{delivers: true})
+
+	// One episode, ten evaluations, all of them still firing. The machine offers
+	// ten announcements and the cooldown swallows nine.
+	for range 10 {
+		r.tick(t.Context())
+		s.due[0].State.Phase = PhaseFiring
+		s.due[0].State.IncidentID = "i_1"
+	}
+
+	notifier := r.notify.(*fakeNotifier)
+	if len(notifier.sent) != 1 {
+		t.Errorf("%d notifications, want 1 — the cooldown is the only thing bounding repeats", len(notifier.sent))
+	}
+	if len(s.recorded) != 10 {
+		t.Errorf("%d evaluations recorded, want 10 — suppression is about telling, not looking", len(s.recorded))
 	}
 }

@@ -19,7 +19,7 @@ One schedule, a set of conditions, and what to do when they hold.
 
 - **Conditions** are the questions. A watch has between one and ten, and they are combined with `all` or `any`.
 - **The schedule** is one interval for the whole set, plus `for` — how long the *combined* verdict must hold before the watch fires.
-- **Actions** are what happens then: publish to a topic, send an email, write a log line.
+- **Actions** are what happens then: publish to a topic, or send an email.
 
 Conditions may read different sources, and that is where most of the expressiveness is. "Error rate up **and** memory above 1.5 GB" is one watch.
 
@@ -140,9 +140,9 @@ Before each pass the evaluator asks one shared question: has *anything at all* a
 
 ### The cooldown
 
-A **cooldown** keeps a watch quiet for a while after it has announced something, *across* episodes.
+A **cooldown** keeps a watch quiet for a while after it has announced something. It is the only thing that bounds how often a watch reports, and it bounds it the same way whether the alert is still the same episode or a new one.
 
-That is the part renotify cannot do. Renotify bounds repeats inside one incident; a watch that resolves and fires again ten minutes later has opened a new one, and renotify has nothing to say about it. When what receives the alert is slow on purpose — a person, or an agent working the problem — being told again because the metric flapped is being told to start over.
+A still-firing watch offers to say so on *every* evaluation. There is no separate repeat interval, deliberately: "repeat every fifteen minutes" and "stay quiet for fifteen minutes after announcing" cannot disagree about anything, so offering both would only invite setting them to different numbers, at which point the smaller silently wins. One number decides, and it decides across episodes too — a watch that resolves and fires again ten minutes later has opened a new incident, which a repeat interval would have had nothing to say about. When what receives the alert is slow on purpose — a person, or an agent working the problem — being told again because the metric flapped is being told to start over.
 
 ```json
 { "cooldown_seconds": 1800 }
@@ -150,7 +150,7 @@ That is the part renotify cannot do. Renotify bounds repeats inside one incident
 
 It suppresses the announcement, not the work: the check still runs, the evaluation is still recorded, and the incident still opens and closes. Only the message is withheld, and only for the two kinds that start or repeat a claim. **A recovery is never suppressed** — whoever the cooldown was protecting is exactly who most needs to hear that it is over.
 
-Zero is off, and off is the default. Suppression loses alerts.
+The default is fifteen minutes. Zero lets every announcement through, which now means one per evaluation — a real setting if the receiver is a machine that wants each one, but not a default.
 
 <Callout>
 The cooldown record is the one piece of alerting state kept in Redis rather than Postgres, and the reason is that it is disposable. Losing it means somebody is told twice, which is the recoverable direction. Losing what is in Postgres would restart a hold mid-wait or re-announce an incident that was already open — so that stays where it cannot expire.
@@ -214,7 +214,7 @@ The message body is the notification, as JSON. The runtime puts a published payl
 }
 ```
 
-`kind` is `open`, `renotify`, `resolve` or `close` — a flow that only wants to act on the beginning of an episode reads that, and `incidentId` is what ties the four together. Every condition is in `outcomes`, including the ones that did **not** hold: a watch that fired on `any` is more useful to a receiver that can see which clause it was. `observed` is the number in the units a human recognises, `score` the confidence bound or robust z the comparison was actually made against, and `reason` the machine code for why a clause declined.
+`kind` is `open`, `repeat`, `resolve` or `close` — a flow that only wants to act on the beginning of an episode reads that, and `incidentId` is what ties the four together. Every condition is in `outcomes`, including the ones that did **not** hold: a watch that fired on `any` is more useful to a receiver that can see which clause it was. `observed` is the number in the units a human recognises, `score` the confidence bound or robust z the comparison was actually made against, and `reason` the machine code for why a clause declined.
 
 Fields that never got a value are absent rather than zero. An outcome from a fetch that failed carries no window at all, rather than a timestamp in year one.
 
@@ -228,7 +228,7 @@ Sent through the orchestrator's [email settings](/platform/admin-settings#email)
 
 A watch with no actions still records every evaluation and opens incidents — it simply tells nobody, which the editor warns about rather than forbidding: a watch you are still tuning is a real thing to want.
 
-Every attempt is recorded with its outcome, so "the alert fired but I got no email" is answerable from the history rather than from somebody's inbox. A failed delivery never rolls back the transition that caused it — the watch did fire — and a failed delivery does not start the renotify cooldown either.
+Every attempt is recorded with its outcome, so "the alert fired but I got no email" is answerable from the history rather than from somebody's inbox. A failed delivery never rolls back the transition that caused it — the watch did fire — and a failed delivery does not start the cooldown either.
 
 ## Trying a watch before you save it
 

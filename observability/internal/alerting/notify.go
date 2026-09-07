@@ -78,7 +78,7 @@ func (n Notification) Headline() string {
 		return n.WatchName + " recovered"
 	case ActionClose:
 		return n.WatchName + " closed (" + n.Reason + ")"
-	case ActionRenotify:
+	case ActionRepeat:
 		return n.WatchName + " is still firing"
 	default:
 		return n.WatchName + " is firing"

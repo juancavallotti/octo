@@ -666,7 +666,7 @@
                         "uniqueItems": false
                     },
                     "cooldown_seconds": {
-                        "description": "CooldownSeconds is how long this watch stays quiet after announcing\nsomething, across episodes. Zero is off. Not the same as renotify, which\nonly bounds repeats inside one incident.",
+                        "description": "CooldownSeconds is how long this watch stays quiet after it has announced\nsomething. It is the only bound on how often a watch reports: a still-firing\nwatch offers to say so on every evaluation, and this is what swallows all\nbut the first. Zero lets every one through.",
                         "type": "integer"
                     },
                     "created_at": {
@@ -692,9 +692,6 @@
                     },
                     "on_no_data": {
                         "type": "string"
-                    },
-                    "renotify_seconds": {
-                        "type": "integer"
                     },
                     "severity": {
                         "type": "string"

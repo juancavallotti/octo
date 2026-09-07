@@ -6,7 +6,7 @@
 //
 // A delivery failure never rolls back a state transition. The watch did fire,
 // and losing that fact because a mailer was down is strictly the worse failure —
-// the incident is open, the history says so, and the next renotify tries again.
+// the incident is open, the history says so, and the next repeat tries again.
 package action
 
 import (

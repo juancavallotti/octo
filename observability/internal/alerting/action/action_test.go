@@ -214,7 +214,7 @@ func TestResolvedNotificationsReadAsEndings(t *testing.T) {
 		want string
 	}{
 		{alerting.ActionOpen, "checkout errors is firing"},
-		{alerting.ActionRenotify, "checkout errors is still firing"},
+		{alerting.ActionRepeat, "checkout errors is still firing"},
 		{alerting.ActionResolve, "checkout errors recovered"},
 	} {
 		n := notification(c.kind)

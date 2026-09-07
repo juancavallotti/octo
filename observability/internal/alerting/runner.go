@@ -259,8 +259,8 @@ func (r *Runner) fetchAll(ctx context.Context, built *Built, now time.Time) map[
 //
 // A delivery failure never rolls back the transition that has already been
 // recorded. The watch did fire, the incident is open, and losing that fact
-// because a mailer was down is strictly the worse failure — the next renotify
-// tries again.
+// because a mailer was down is strictly the worse failure — the next evaluation
+// offers the repeat again.
 func (r *Runner) announce(ctx context.Context, item Due, result Result, next State) {
 	if len(result.Actions) == 0 || r.notify == nil {
 		return
@@ -278,9 +278,9 @@ func (r *Runner) announce(ctx context.Context, item Due, result Result, next Sta
 		if !anyDelivered(delivered) {
 			continue
 		}
-		// Only a delivery that actually reached somebody restarts the renotify
-		// cooldown. Stamping it on an attempt would silence a watch for the whole
-		// interval because a mailer was briefly down.
+		// Only a delivery that actually reached somebody stamps the notification.
+		// Recording an attempt would leave the history claiming a watch had spoken
+		// when a mailer was briefly down and nobody heard it.
 		if err := r.store.RecordNotification(ctx, item.Watch.ID, next.IncidentID, action.At); err != nil {
 			slog.Error("could not record a notification", "watch", item.Watch.Name, "error", err)
 		}
@@ -303,7 +303,7 @@ func (r *Runner) silenced(ctx context.Context, w Watch, action Action) bool {
 	if r.quiet == nil || w.Cooldown <= 0 {
 		return false
 	}
-	if action.Kind != ActionOpen && action.Kind != ActionRenotify {
+	if action.Kind != ActionOpen && action.Kind != ActionRepeat {
 		return false
 	}
 	mayAnnounce, err := r.quiet.Begin(ctx, w.ID, w.Cooldown)
