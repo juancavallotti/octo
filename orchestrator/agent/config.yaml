@@ -2200,6 +2200,12 @@ flows:
           order the work goes in and what you are and are not allowed to do.
 
 
+          Load the others only when you reach the thing they are about. Opening a
+          run by loading every skill you have spends a large part of your context
+          before you have read a single log line, and most of it on subjects this
+          particular fault will turn out to have nothing to do with.
+
+
           The alert carries previousOccurrences: what this same watch has done
           before, and what you concluded each time. Read it. Something ambiguous
           that has happened once gets a report and no change; something that keeps
@@ -2279,10 +2285,42 @@ flows:
               name: agent-event
               settings:
                 level: info
+                # Everything the event carries that a person reading this back
+                # would want, which is a great deal more than the type name.
+                #
+                # The first version logged the type, the tool and the stop reason
+                # and dropped the rest on the floor: the arguments the model
+                # actually passed, what came back, what it SAID on the turn, the
+                # token usage and how full its context was. All of that is on the
+                # event already — a run was being narrated as a list of nouns when
+                # the verbs were sitting right there.
+                #
+                # Truncated rather than dropped: a tool result can be a whole log
+                # query, and the first three hundred characters are what identify
+                # it. Trimmed at the end, because these read as prefixes.
                 message: >-
                   "troubleshooter: " + body.type +
                   (has(body.tool) ? " tool=" + string(body.tool) : "") +
+                  (has(body.isError) && body.isError ? " FAILED" : "") +
                   (has(body.stopReason) ? " stop=" + string(body.stopReason) : "") +
+                  (has(body.usage)
+                    ? " tokens=" + string(body.usage.inputTokens) + "/" +
+                      string(body.usage.outputTokens) : "") +
+                  (has(body.contextTokens)
+                    ? " ctx=" + string(body.contextTokens) + "/" +
+                      string(body.contextMaxTokens) : "") +
+                  (has(body.input)
+                    ? " input=" + (toJson(body.input).size() > 300
+                        ? toJson(body.input).substring(0, 300) + "…"
+                        : toJson(body.input)) : "") +
+                  (has(body.output)
+                    ? " output=" + (toJson(body.output).size() > 300
+                        ? toJson(body.output).substring(0, 300) + "…"
+                        : toJson(body.output)) : "") +
+                  (has(body.text) && body.text != ""
+                    ? " said=" + (body.text.size() > 400
+                        ? body.text.substring(0, 400) + "…"
+                        : body.text) : "") +
                   (has(body.error) ? " error=" + string(body.error) : "")
 
             - type: object-read
@@ -2316,12 +2354,18 @@ flows:
                   {"lines": size(vars.transcript.lines) >= 200
                     ? vars.transcript.lines
                     : (body.type == "tool_call" && has(body.tool)
-                        ? vars.transcript.lines + ["called " + string(body.tool)]
-                        : (body.type == "guardrail"
-                            ? vars.transcript.lines + ["gave up and took the guardrail"]
-                            : (body.type == "error"
-                                ? vars.transcript.lines + ["error: " + string(body.error)]
-                                : vars.transcript.lines)))}
+                        ? vars.transcript.lines + ["called " + string(body.tool) +
+                            (has(body.input)
+                              ? ": " + (toJson(body.input).size() > 200
+                                  ? toJson(body.input).substring(0, 200) + "…"
+                                  : toJson(body.input)) : "")]
+                        : (body.type == "tool_result" && has(body.isError) && body.isError
+                            ? vars.transcript.lines + [string(body.tool) + " failed"]
+                            : (body.type == "guardrail"
+                                ? vars.transcript.lines + ["gave up and took the guardrail"]
+                                : (body.type == "error"
+                                    ? vars.transcript.lines + ["error: " + string(body.error)]
+                                    : vars.transcript.lines))))}
 
         tools:
           # The two specialists, on exactly the terms the coordinator has them.
@@ -2444,21 +2488,25 @@ flows:
             description: >
               How the platform runs an integration: version tags, deployments,
               resources, cluster secrets, and what a failing deployment looks like.
+              Load when the fault looks like a deployment or a rollout rather than
+              like the code — not before you know which.
             resource: platform
           - name: email-reports
             description: >
               Sending a report by email: the HTML that survives a mail client and
-              what must never go in one. Load before calling send_email_report.
+              what must never go in one. Load just before your first
+              send_email_report, not at the start.
             resource: email-reports
           - name: blocks
             description: >
-              The blocks a process chain can contain, for reading a definition you
-              are diagnosing.
+              The blocks a process chain can contain. Load only once you are
+              actually reading a definition, which is after the logs have pointed
+              you at one.
             resource: blocks
           - name: expressions
             description: >
-              CEL as octo uses it — the usual home of a definition fault that only
-              shows up at runtime.
+              CEL as octo uses it. Load only when the fault is in an expression —
+              the error text will say so.
             resource: expressions
 
         default:
