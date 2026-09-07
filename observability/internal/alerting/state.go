@@ -65,9 +65,9 @@ type State struct {
 type ActionKind string
 
 const (
-	ActionOpen     ActionKind = "open"     // the hold has been met: announce it
-	ActionRenotify ActionKind = "renotify" // still firing, and the cooldown elapsed
-	ActionResolve  ActionKind = "resolve"  // it recovered
+	ActionOpen    ActionKind = "open"    // the hold has been met: announce it
+	ActionRepeat  ActionKind = "repeat"  // still firing, and saying so again
+	ActionResolve ActionKind = "resolve" // it recovered
 	// ActionClose ends an episode that did not recover: the evidence ran out, or
 	// somebody edited, disabled or deleted the watch underneath it. Distinct from
 	// ActionResolve all the way into the incident row, because collapsing the two
@@ -141,10 +141,13 @@ func firing(next State, w Watch, now time.Time, actions []Action) (State, []Acti
 		next.IncidentID = "" // the store mints one and writes it back
 		return next, append(actions, Action{Kind: ActionOpen, At: now})
 	}
-	if renotifyDue(next, w, now) {
-		return next, append(actions, Action{Kind: ActionRenotify, At: now})
-	}
-	return next, actions
+	// Still firing, so it is offered again — every time, with no period of its
+	// own. What decides whether anybody hears it is the cooldown, and that is
+	// deliberately the only thing that decides: a repeat interval here and a
+	// suppression window there are the same setting written twice, and two copies
+	// of one setting can be given different numbers, at which point the smaller
+	// silently wins and the larger is a lie on the form.
+	return next, append(actions, Action{Kind: ActionRepeat, At: now})
 }
 
 // recovered handles an evaluation whose verdict does not hold.
@@ -199,17 +202,6 @@ func undecided(next State, w Watch, now time.Time, actions []Action) (State, []A
 	default:
 		return next, actions
 	}
-}
-
-// renotifyDue reports whether a still-firing watch should say so again.
-func renotifyDue(s State, w Watch, now time.Time) bool {
-	if w.Renotify <= 0 {
-		return false
-	}
-	if s.LastNotifiedAt.IsZero() {
-		return true
-	}
-	return !now.Before(s.LastNotifiedAt.Add(w.Renotify))
 }
 
 // reset returns the machine to rest, closing any open episode with the reason

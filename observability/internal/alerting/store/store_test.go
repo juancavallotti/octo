@@ -40,7 +40,7 @@ func sampleWatch(t *testing.T, name string) alerting.Watch {
 	w := alerting.Watch{
 		Name: name, Description: "watches the checkout error rate", Enabled: true, Severity: "warning",
 		Combinator: alerting.CombineAny, OnNoData: alerting.NoDataOK,
-		Step: time.Minute, Interval: time.Minute, For: 3 * time.Minute, Renotify: 10 * time.Minute,
+		Step: time.Minute, Interval: time.Minute, For: 3 * time.Minute, Cooldown: 10 * time.Minute,
 		Conditions: []alerting.ConditionSpec{{
 			ID: "c_1", Type: alerting.KindThreshold, Source: alerting.SourceTraces, Metric: "error_rate",
 			Scope:  alerting.Scope{AppName: "checkout"},
@@ -76,8 +76,8 @@ func TestCreateRoundTripsTheDefinition(t *testing.T) {
 	if got.Name != "checkout errors" || got.Combinator != alerting.CombineAny {
 		t.Errorf("watch came back as %+v", got)
 	}
-	if got.Step != time.Minute || got.For != 3*time.Minute || got.Renotify != 10*time.Minute {
-		t.Errorf("durations came back as step=%s for=%s renotify=%s", got.Step, got.For, got.Renotify)
+	if got.Step != time.Minute || got.For != 3*time.Minute || got.Cooldown != 10*time.Minute {
+		t.Errorf("durations came back as step=%s for=%s cooldown=%s", got.Step, got.For, got.Cooldown)
 	}
 	if len(got.Conditions) != 1 || got.Conditions[0].ID != "c_1" ||
 		got.Conditions[0].Scope.AppName != "checkout" {

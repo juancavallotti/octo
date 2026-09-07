@@ -34,10 +34,9 @@ type ActionSpec struct {
 // Watch is a standing question, exactly as it is stored.
 //
 // One schedule for the whole set: Interval is how often the conditions are asked
-// together, For is how long their combined verdict must hold, and Renotify is how
-// often a still-firing watch says so again. Nothing here is per condition, which
-// is the point — a watch is the unit a human reasons about and the unit an action
-// fires for.
+// together, and For is how long their combined verdict must hold. Nothing here is
+// per condition, which is the point — a watch is the unit a human reasons about
+// and the unit an action fires for.
 type Watch struct {
 	ID          string
 	Name        string
@@ -53,10 +52,10 @@ type Watch struct {
 	Step     time.Duration
 	Interval time.Duration
 	For      time.Duration
-	Renotify time.Duration
-	// Cooldown is how long this watch stays quiet after announcing something,
-	// across episodes. Zero is off. See the column comment in sql/schema.sql for
-	// why it is not the same thing as Renotify.
+	// Cooldown is how long this watch stays quiet after announcing something. It
+	// is the only bound on how often a watch reports: the machine offers to
+	// announce on every evaluation that still finds the condition true, and this
+	// is what swallows all but the first. Zero lets every one through.
 	Cooldown time.Duration
 
 	DefinitionHash string
@@ -134,8 +133,8 @@ func validate(w Watch) error {
 	case w.Interval < MinInterval || w.Interval > MaxInterval:
 		return fmt.Errorf("alerting: %w: interval must be between %s and %s, got %s",
 			ErrInvalidWatch, MinInterval, MaxInterval, w.Interval)
-	case w.For < 0 || w.Renotify < 0 || w.Cooldown < 0:
-		return fmt.Errorf("alerting: %w: for, renotify and cooldown may not be negative", ErrInvalidWatch)
+	case w.For < 0 || w.Cooldown < 0:
+		return fmt.Errorf("alerting: %w: for and cooldown may not be negative", ErrInvalidWatch)
 	}
 	return nil
 }

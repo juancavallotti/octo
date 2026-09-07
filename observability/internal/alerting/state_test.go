@@ -49,7 +49,7 @@ func (d *driver) tick(verdict Truth) *driver {
 			d.state.IncidentID = "i_1"
 			d.state.LastNotifiedAt = d.now
 		}
-		if a.Kind == ActionRenotify {
+		if a.Kind == ActionRepeat {
 			d.state.LastNotifiedAt = d.now
 		}
 	}
@@ -95,8 +95,8 @@ func TestHoldRequiresConsecutiveEvaluations(t *testing.T) {
 	d.tick(True).wantPhase(PhasePending).wantActions()
 	d.tick(True).wantPhase(PhasePending).wantActions()
 	d.tick(True).wantPhase(PhaseFiring).wantActions(ActionOpen)
-	// Already firing: no second announcement without a renotify interval.
-	d.tick(True).wantPhase(PhaseFiring).wantActions()
+	// Already firing: it stays firing, and says so again rather than re-opening.
+	d.tick(True).wantPhase(PhaseFiring).wantActions(ActionRepeat)
 }
 
 func TestAHoleInTheHoldIsNotAHold(t *testing.T) {
@@ -131,11 +131,14 @@ func TestResolutionNeedsMoreThanOneCleanEvaluation(t *testing.T) {
 func TestFlappingAtTheThresholdDoesNotEmitAPairPerMinute(t *testing.T) {
 	d := newDriver(t, held(time.Minute))
 	d.tick(True).wantActions(ActionOpen)
-	// Alternating true/false forever must produce nothing further: each lone
-	// clean evaluation is undone by the next firing one before it can resolve.
+	// Alternating true/false forever stays inside the one episode: each lone
+	// clean evaluation is undone by the next firing one before it can resolve,
+	// so nothing here opens or resolves anything. The firing ticks do offer a
+	// repeat, which is the announcement the cooldown is there to swallow — a
+	// second ActionOpen would not be, because it would be a second incident.
 	for range 10 {
 		d.tick(False).wantPhase(PhaseFiring).wantActions()
-		d.tick(True).wantPhase(PhaseFiring).wantActions()
+		d.tick(True).wantPhase(PhaseFiring).wantActions(ActionRepeat)
 	}
 }
 
@@ -166,24 +169,28 @@ func TestUndecidedDoesNotAdvanceRecovery(t *testing.T) {
 	d.tick(False).wantPhase(PhaseOK).wantActions(ActionResolve)
 }
 
-func TestRenotifyRespectsItsCooldown(t *testing.T) {
-	w := held(time.Minute)
-	w.Renotify = 5 * time.Minute
-	d := newDriver(t, w)
-	d.tick(True).wantActions(ActionOpen)
-	for range 4 {
-		d.tick(True).wantActions()
-	}
-	d.tick(True).wantActions(ActionRenotify)
-	d.tick(True).wantActions()
-}
-
-func TestNoRenotifyIntervalAnnouncesOnce(t *testing.T) {
+// A still-firing watch offers to say so on every single evaluation, and the
+// machine has no period of its own to decide otherwise. What a receiver actually
+// hears is decided one layer up, by the cooldown — which is the only place a
+// repeat rate is configured, so there is nowhere for two rates to disagree.
+func TestStillFiringOffersARepeatEveryEvaluation(t *testing.T) {
 	d := newDriver(t, held(time.Minute))
 	d.tick(True).wantActions(ActionOpen)
 	for range 20 {
-		d.tick(True).wantActions()
+		d.tick(True).wantActions(ActionRepeat)
 	}
+}
+
+// Repeats are for an episode that is still running. Nothing repeats while a hold
+// is still being counted, and nothing repeats after it recovered.
+func TestNothingRepeatsOutsideAnEpisode(t *testing.T) {
+	d := newDriver(t, held(3*time.Minute))
+	d.tick(True).wantPhase(PhasePending).wantActions()
+	d.tick(True).wantPhase(PhasePending).wantActions()
+	d.tick(True).wantPhase(PhaseFiring).wantActions(ActionOpen)
+	d.tick(False).wantActions()
+	d.tick(False).wantPhase(PhaseOK).wantActions(ActionResolve)
+	d.tick(False).wantPhase(PhaseOK).wantActions()
 }
 
 // A retuned threshold restarts the hold, and closes any episode it was already

@@ -42,16 +42,16 @@ func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 const watchColumns = `
     w.id, w.name, w.description, w.enabled, w.severity,
     w.combinator, w.conditions, w.actions, w.on_no_data,
-    w.step_seconds, w.interval_seconds, w.for_seconds, w.renotify_seconds, w.cooldown_seconds,
+    w.step_seconds, w.interval_seconds, w.for_seconds, w.cooldown_seconds,
     w.definition_hash, w.created_at, w.updated_at`
 
 func scanWatch(row pgx.Row) (alerting.Watch, error) {
 	var w alerting.Watch
 	var conditions, actions []byte
-	var step, interval, hold, renotify, cooldown int
+	var step, interval, hold, cooldown int
 	err := row.Scan(&w.ID, &w.Name, &w.Description, &w.Enabled, &w.Severity,
 		&w.Combinator, &conditions, &actions, &w.OnNoData,
-		&step, &interval, &hold, &renotify, &cooldown,
+		&step, &interval, &hold, &cooldown,
 		&w.DefinitionHash, &w.CreatedAt, &w.UpdatedAt)
 	if err != nil {
 		return alerting.Watch{}, err
@@ -59,7 +59,6 @@ func scanWatch(row pgx.Row) (alerting.Watch, error) {
 	w.Step = time.Duration(step) * time.Second
 	w.Interval = time.Duration(interval) * time.Second
 	w.For = time.Duration(hold) * time.Second
-	w.Renotify = time.Duration(renotify) * time.Second
 	w.Cooldown = time.Duration(cooldown) * time.Second
 
 	// A definition this process cannot decode is an error, never a partial
@@ -94,13 +93,13 @@ func (s *Store) Create(ctx context.Context, w alerting.Watch, createdBy string) 
 		row := tx.QueryRow(ctx, `
 			INSERT INTO alert_watches (name, description, enabled, severity, combinator,
 			                           conditions, actions, on_no_data, step_seconds,
-			                           interval_seconds, for_seconds, renotify_seconds,
-			                           cooldown_seconds, definition_hash, created_by, updated_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,`+nullableUUID(15)+`,`+nullableUUID(15)+`)
+			                           interval_seconds, for_seconds, cooldown_seconds,
+			                           definition_hash, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,`+nullableUUID(14)+`,`+nullableUUID(14)+`)
 			RETURNING `+strip(watchColumns),
 			w.Name, w.Description, w.Enabled, w.Severity, w.Combinator,
 			conditions, actions, w.OnNoData, seconds(w.Step),
-			seconds(w.Interval), seconds(w.For), seconds(w.Renotify), seconds(w.Cooldown),
+			seconds(w.Interval), seconds(w.For), seconds(w.Cooldown),
 			hash, nullOrString(createdBy))
 		created, err := scanWatch(row)
 		if err != nil {
@@ -137,14 +136,14 @@ func (s *Store) Update(ctx context.Context, w alerting.Watch, updatedBy string) 
 		UPDATE alert_watches AS w
 		   SET name = $2, description = $3, enabled = $4, severity = $5, combinator = $6,
 		       conditions = $7, actions = $8, on_no_data = $9, step_seconds = $10,
-		       interval_seconds = $11, for_seconds = $12, renotify_seconds = $13,
-		       cooldown_seconds = $14, definition_hash = $15, updated_at = now(),
-		       updated_by = `+nullableUUID(16)+`
+		       interval_seconds = $11, for_seconds = $12, cooldown_seconds = $13,
+		       definition_hash = $14, updated_at = now(),
+		       updated_by = `+nullableUUID(15)+`
 		 WHERE w.id = $1::uuid
 		RETURNING `+watchColumns,
 		w.ID, w.Name, w.Description, w.Enabled, w.Severity, w.Combinator,
 		conditions, actions, w.OnNoData, seconds(w.Step),
-		seconds(w.Interval), seconds(w.For), seconds(w.Renotify), seconds(w.Cooldown),
+		seconds(w.Interval), seconds(w.For), seconds(w.Cooldown),
 		hash, nullOrString(updatedBy))
 
 	out, err := scanWatch(row)

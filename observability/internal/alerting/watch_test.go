@@ -72,7 +72,7 @@ func TestBuildValidates(t *testing.T) {
 		{"bad combinator", func(w *Watch) { w.Combinator = "either" }, ErrInvalidWatch},
 		{"step too small", func(w *Watch) { w.Step = time.Second }, ErrInvalidWatch},
 		{"interval too large", func(w *Watch) { w.Interval = 48 * time.Hour }, ErrInvalidWatch},
-		{"negative renotify", func(w *Watch) { w.Renotify = -time.Minute }, ErrInvalidWatch},
+		{"negative cooldown", func(w *Watch) { w.Cooldown = -time.Minute }, ErrInvalidWatch},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -328,7 +328,7 @@ func TestFingerprintCoversMeaningNotPresentation(t *testing.T) {
 		{"re-addressed", func(w *Watch) {
 			w.Actions = []ActionSpec{{ID: "a", Type: "email", Params: json.RawMessage(`{}`)}}
 		}},
-		{"renotified", func(w *Watch) { w.Renotify = time.Hour }},
+		{"re-cooled", func(w *Watch) { w.Cooldown = time.Hour }},
 	}
 	for _, c := range unchanged {
 		t.Run(c.name+" keeps the hold", func(t *testing.T) {

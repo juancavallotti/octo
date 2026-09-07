@@ -736,12 +736,10 @@ CREATE INDEX IF NOT EXISTS idx_agent_user_memories_unembedded
 -- `actions` is the same shape for what to do about it: publish to a deployment's
 -- topic, send mail through the orchestrator.
 --
--- `interval_seconds` is how often the watch is asked, `for_seconds` how long the
--- combined verdict must hold before it fires, and `renotify_seconds` how often a
--- still-firing watch says so again (0 = announce an episode once). `for` is
--- compared as a count of consecutive evaluations rather than as wall-clock time,
--- because five minutes of firing with an evaluation missing in the middle is not
--- five minutes of firing.
+-- `interval_seconds` is how often the watch is asked, and `for_seconds` how long
+-- the combined verdict must hold before it fires. `for` is compared as a count of
+-- consecutive evaluations rather than as wall-clock time, because five minutes of
+-- firing with an evaluation missing in the middle is not five minutes of firing.
 --
 -- `definition_hash` covers only the parts of the definition that change what a
 -- pending clock means — the conditions, the combinator, the hold and the no-data
@@ -778,21 +776,28 @@ CREATE TABLE IF NOT EXISTS alert_watches (
     step_seconds     integer     NOT NULL DEFAULT 60,
     interval_seconds integer     NOT NULL DEFAULT 60,
     for_seconds      integer     NOT NULL DEFAULT 300,
-    renotify_seconds integer     NOT NULL DEFAULT 0,
 
-    -- How long this watch stays quiet after it has announced something, across
-    -- episodes rather than within one.
+    -- How long this watch stays quiet after it has announced something. It is the
+    -- only thing that bounds how often a watch reports, and it bounds it the same
+    -- way whether the alert is still the same episode or a new one.
     --
-    -- renotify_seconds already bounds repeats inside a single incident, and is
-    -- the wrong tool for the case this exists for: a watch that resolves and
-    -- fires again ten minutes later opens a NEW incident, which renotify has
-    -- nothing to say about. When what receives the alert is something slow —
-    -- a person, or an agent working the problem — being told again because the
-    -- metric flapped is being told to start over.
+    -- There was briefly a second knob here — a renotify period, repeating inside
+    -- one incident — and it was removed because the two were the same setting
+    -- wearing different hats: "do not repeat for fifteen minutes" and "report at
+    -- most every fifteen minutes" cannot disagree, and offering both invited
+    -- somebody to set them to different numbers and get the smaller one. So the
+    -- machine now offers to report on every evaluation that still finds the
+    -- condition true, and this is what stops it: while the key is held, nothing
+    -- is announced.
     --
-    -- Zero is off, and off is the default: suppression loses alerts, and losing
-    -- them is not something to do to anybody who did not ask.
-    cooldown_seconds integer     NOT NULL DEFAULT 0,
+    -- Zero means every evaluation announces, which at a 30-second interval is a
+    -- message every 30 seconds — real, and occasionally what somebody feeding a
+    -- machine wants, but not a default. The default below is fifteen minutes.
+    --
+    -- Held in Redis rather than here, keyed by watch. Losing it on a flush costs
+    -- one duplicate announcement, which is why it is the one piece of alert state
+    -- that is allowed to be cached; the hold and the episode are not.
+    cooldown_seconds integer     NOT NULL DEFAULT 900,
 
     definition_hash  varchar     NOT NULL DEFAULT '',
 
@@ -856,7 +861,7 @@ CREATE INDEX IF NOT EXISTS idx_alert_watch_state_due
 --
 -- It exists because "is this watch firing" and "how many times has it fired" are
 -- different questions and the state row only answers the first. It is also the
--- notification key: a renotify or a resolve is per episode, so a notifier that
+-- notification key: a repeat or a resolve is per episode, so a notifier that
 -- restarts does not re-announce one it already announced.
 --
 -- `closed_reason` keeps 'resolved' — the metric came back — apart from 'stale',
