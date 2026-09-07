@@ -79,6 +79,7 @@ export function TopicFields({
   const params = action.params ?? {};
   const deploymentId = String(params.deploymentId ?? "");
   const listId = `topics-${action.id}`;
+  const reportTo = (params.reportTo as string[]) ?? [];
   const forThisApp = destinations.filter(
     (d) => !deploymentId || d.deploymentId === deploymentId,
   );
@@ -137,6 +138,35 @@ export function TopicFields({
           <option key={`${d.deploymentId}:${d.subject}`} value={d.subject} />
         ))}
       </datalist>
+
+      {/*
+        Carried on the alert rather than configured inside the receiving app, so
+        that whoever edits the watch can see who hears about it. It is optional
+        because a flow that only records or reacts needs nobody's address.
+      */}
+      <Field
+        label="Who it should report to"
+        hint="Optional, comma separated. For an app that investigates and writes back — it is told where to send its findings rather than deciding for itself."
+      >
+        <input
+          value={reportTo.join(", ")}
+          aria-label={`Action ${index + 1} report recipients`}
+          onChange={(e) =>
+            onChange({
+              ...action,
+              params: {
+                ...params,
+                reportTo: e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              },
+            })
+          }
+          className={`${INPUT} w-full`}
+          placeholder="ada@example.com"
+        />
+      </Field>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/mail"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -53,6 +54,21 @@ type TopicParams struct {
 	// different: a platform agent watching an integration it does not run.
 	DeploymentID string `json:"deploymentId"`
 	Subject      string `json:"subject"`
+
+	// ReportTo is who the receiving app should send its findings to, carried on
+	// the alert rather than configured inside that app.
+	//
+	// It exists because the receiver of an alert is often something that will
+	// write back — an agent that triages and then reports — and the alternative
+	// is worse in both directions. Configured inside the app, the addresses live
+	// somewhere nobody editing the watch can see. Left to the app to choose, an
+	// agent is deciding who hears about an incident, which is not a decision to
+	// hand to a model.
+	//
+	// Optional and empty by default: a topic action feeding a flow that only
+	// records or reacts needs nobody's address, and asking for one would make
+	// every such watch carry a field it does not use.
+	ReportTo []string `json:"reportTo,omitempty"`
 }
 
 type topicAction struct {
@@ -72,6 +88,9 @@ func newTopicAction(spec alerting.ActionSpec, topics *Topics) (Deliverer, error)
 	// and reached nobody.
 	p.DeploymentID = strings.TrimSpace(p.DeploymentID)
 	p.Subject = strings.TrimSpace(p.Subject)
+	for i, address := range p.ReportTo {
+		p.ReportTo[i] = strings.TrimSpace(address)
+	}
 	if p.DeploymentID == "" {
 		return nil, fmt.Errorf(
 			"action: %w: a topic action needs the deployment whose subject it publishes to",
@@ -79,6 +98,20 @@ func newTopicAction(spec alerting.ActionSpec, topics *Topics) (Deliverer, error)
 	}
 	if err := validSubject(p.Subject); err != nil {
 		return nil, err
+	}
+	// Validated here even though this action sends no mail, on the same terms the
+	// email action validates its own: an address that is not an address should be
+	// refused while somebody is looking at the form, not discovered by whatever
+	// picks the alert up an hour later — at which point the mistake is a silent
+	// non-delivery in an app nobody is watching.
+	if len(p.ReportTo) > maxRecipients {
+		return nil, fmt.Errorf("action: %w: %d recipients exceeds the limit of %d",
+			alerting.ErrInvalidParams, len(p.ReportTo), maxRecipients)
+	}
+	for _, address := range p.ReportTo {
+		if _, err := mail.ParseAddress(address); err != nil {
+			return nil, fmt.Errorf("action: %w: %q is not an address", alerting.ErrInvalidParams, address)
+		}
 	}
 	return &topicAction{params: p, topics: topics}, nil
 }
@@ -110,6 +143,17 @@ func validSubject(subject string) error {
 	return nil
 }
 
+// topicPayload is what goes on the wire: the notification every action shares,
+// plus the parts that belong to this delivery alone.
+//
+// Embedded rather than added to Notification, because a recipient list is not a
+// fact about the watch firing — it is a fact about where this one action sends
+// it, and an email action carrying a `reportTo` would be nonsense.
+type topicPayload struct {
+	alerting.Notification
+	ReportTo []string `json:"reportTo,omitempty"`
+}
+
 // Deliver publishes the notification as JSON.
 //
 // Fire and forget, followed by a flush. A publish with no flush returns before
@@ -117,7 +161,7 @@ func validSubject(subject string) error {
 // and this is the one moment the caller can still record that the alert did not
 // get out.
 func (a *topicAction) Deliver(ctx context.Context, n alerting.Notification) error {
-	payload, err := json.Marshal(n)
+	payload, err := json.Marshal(topicPayload{Notification: n, ReportTo: a.params.ReportTo})
 	if err != nil {
 		return fmt.Errorf("action: encode an alert notification: %w", err)
 	}

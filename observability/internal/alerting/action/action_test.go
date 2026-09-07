@@ -59,6 +59,8 @@ func TestValidateRefusesWhatCannotDeliver(t *testing.T) {
 		{"wildcard subject", spec("a", alerting.ActionTypeTopic, `{"deploymentId":"d1","subject":"alerts.*"}`), alerting.ErrInvalidParams},
 		{"greedy subject", spec("a", alerting.ActionTypeTopic, `{"deploymentId":"d1","subject":"alerts.>"}`), alerting.ErrInvalidParams},
 		{"system subject", spec("a", alerting.ActionTypeTopic, `{"deploymentId":"d1","subject":"system:internal.alerts"}`), alerting.ErrInvalidParams},
+		{"topic with a bad reportTo", spec("a", alerting.ActionTypeTopic,
+			`{"deploymentId":"d1","subject":"alerts","reportTo":["not an address"]}`), alerting.ErrInvalidParams},
 		{"email without a recipient", spec("a", alerting.ActionTypeEmail, `{"to":[]}`), alerting.ErrInvalidParams},
 		{"email to something that is not an address", spec("a", alerting.ActionTypeEmail, `{"to":["not an address"]}`), alerting.ErrInvalidParams},
 	}
@@ -240,7 +242,7 @@ func TestResolvedNotificationsReadAsEndings(t *testing.T) {
 func TestTopicParametersAreTrimmedBeforeTheyAreUsed(t *testing.T) {
 	d, err := newTopicAction(
 		spec("a_1", alerting.ActionTypeTopic,
-			`{"deploymentId":"  d1  ","subject":"  alerts  "}`),
+			`{"deploymentId":"  d1  ","subject":"  alerts  ","reportTo":["  ada@example.com  "]}`),
 		&Topics{})
 	if err != nil {
 		t.Fatalf("build: %v", err)
@@ -248,5 +250,51 @@ func TestTopicParametersAreTrimmedBeforeTheyAreUsed(t *testing.T) {
 	got := d.(*topicAction).params
 	if got.DeploymentID != "d1" || got.Subject != "alerts" {
 		t.Errorf("stored as deploymentId=%q subject=%q", got.DeploymentID, got.Subject)
+	}
+	// The addresses are trimmed on the same terms, and they reach the wire.
+	if len(got.ReportTo) != 1 || got.ReportTo[0] != "ada@example.com" {
+		t.Errorf("reportTo stored as %q", got.ReportTo)
+	}
+}
+
+// reportTo rides on the published payload rather than on the Notification every
+// action shares, because it is a fact about this delivery and not about the watch
+// firing. The receiver is often something that writes back — an agent that triages
+// and then reports — and the addresses belong where somebody editing the watch can
+// see them, not inside the app that received it and certainly not chosen by a model.
+func TestATopicPayloadCarriesWhoTheReportGoesTo(t *testing.T) {
+	var p topicPayload
+	raw, err := json.Marshal(topicPayload{
+		Notification: alerting.Notification{WatchName: "checkout errors", Kind: alerting.ActionOpen},
+		ReportTo:     []string{"ada@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// The notification's own fields stay at the top level, so a receiver that
+	// knows nothing about reportTo reads the payload exactly as before.
+	if p.WatchName != "checkout errors" || p.Kind != alerting.ActionOpen {
+		t.Errorf("the notification did not survive the envelope: %+v", p)
+	}
+	if len(p.ReportTo) != 1 || p.ReportTo[0] != "ada@example.com" {
+		t.Errorf("reportTo came back as %v", p.ReportTo)
+	}
+	if !strings.Contains(string(raw), `"watchName"`) {
+		t.Errorf("the notification was nested rather than embedded: %s", raw)
+	}
+}
+
+// An action that feeds a flow which only records or reacts needs nobody's
+// address, and the field must stay off the wire entirely in that case.
+func TestATopicPayloadOmitsAnEmptyReportTo(t *testing.T) {
+	raw, err := json.Marshal(topicPayload{Notification: alerting.Notification{WatchName: "w"}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "reportTo") {
+		t.Errorf("an empty reportTo reached the wire: %s", raw)
 	}
 }
