@@ -27,7 +27,7 @@ export type AlertConditionKind = "threshold" | "spike" | "absence";
 export type AlertOp = "gt" | "gte" | "lt" | "lte";
 
 /** What a watch does when it fires. */
-export type AlertActionKind = "topic" | "email" | "log";
+export type AlertActionKind = "topic" | "email";
 
 /**
  * How an absent measurement is read. `ok` is the default, because the ordinary

@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useConfirm } from "@/app/components/ConfirmDialog";
-import { Field, INPUT } from "@/app/components/admin/fields";
 import {
   createWatch,
   deleteWatch,
@@ -12,19 +11,31 @@ import {
   type WatchInput,
   type WatchPreview,
 } from "@/app/model/alerts";
-import { ActionList } from "./ActionRow";
+import { ActionList } from "./ActionList";
 import { ConditionList } from "./ConditionList";
+import { Deduplication } from "./Deduplication";
 import { PreviewPanel } from "./PreviewPanel";
-import { ScheduleFields } from "./ScheduleFields";
+import { Schedule } from "./Schedule";
+import { Section } from "./Section";
+import { WatchIdentity } from "./WatchIdentity";
+import { WatchTargetPicker } from "./WatchTargetPicker";
+import { STEP_SECONDS } from "./catalogue";
+import {
+  applyTarget,
+  fillTarget,
+  targetOf,
+  targetsAgree,
+  type WatchTarget,
+} from "./target";
 
 /**
- * Write a watch: name it, say what to ask, say when to ask it, say who to tell.
+ * Writing a watch, in the order the decisions are actually made: what you are
+ * watching, what to call it, how often to look, what would be wrong, who to
+ * tell, and how not to be told twice.
  *
- * The Preview button is the part worth having. Tuning a spike against a
- * definition you cannot run is guesswork, and the alternative to guessing is
- * saving it and waiting to find out that it never fires — so this runs the real
- * evaluation against real history, records nothing, and shows every condition's
- * number against the threshold it was judged by.
+ * The app comes first because it is the only answer everything else depends on —
+ * every condition is measured over it, and the earlier form asked for it once per
+ * condition, as a uuid, near the bottom.
  */
 export function WatchEditor({
   initial,
@@ -37,9 +48,22 @@ export function WatchEditor({
   const router = useRouter();
   const confirm = useConfirm();
   const [watch, setWatch] = useState(initial);
+  const [target, setTarget] = useState<WatchTarget>(() =>
+    targetOf(initial.conditions),
+  );
   const [preview, setPreview] = useState<WatchPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // A watch written over the API may scope its conditions differently from one
+  // another. There is no single app that describes that, so the editor says so
+  // and leaves them alone until somebody actually picks one.
+  const [mixed] = useState(() => !targetsAgree(initial.conditions));
+
+  const retarget = (next: WatchTarget) => {
+    setTarget(next);
+    setWatch((w) => ({ ...w, conditions: applyTarget(w.conditions, next) }));
+  };
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -47,24 +71,29 @@ export function WatchEditor({
     try {
       await fn();
     } catch (e) {
-      // The service's message names the field and the bound — "minSamples 9
-      // exceeds the 3-bucket window" — so it is shown rather than replaced.
+      // The service's message names the field and the bound, so it is shown
+      // rather than replaced with something generic.
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
 
+  // The bucket width is not on the form; every save writes the one the editor
+  // measures in, so a window in minutes means minutes.
+  const submitted = (): WatchInput => ({ ...watch, stepSeconds: STEP_SECONDS });
+
   const save = () =>
     run(async () => {
       const saved = watchId
-        ? await saveWatch(watchId, watch)
-        : await createWatch(watch);
+        ? await saveWatch(watchId, submitted())
+        : await createWatch(submitted());
       router.push(`/platform/metrics/alerts/${encodeURIComponent(saved.id)}`);
       router.refresh();
     });
 
-  const tryIt = () => run(async () => setPreview(await previewWatch(watch)));
+  const tryIt = () =>
+    run(async () => setPreview(await previewWatch(submitted())));
 
   const remove = async () => {
     if (!watchId) return;
@@ -82,64 +111,52 @@ export function WatchEditor({
     });
   };
 
-  const setConditions = (next: WatchInput["conditions"]) =>
-    setWatch({ ...watch, conditions: next });
-
   return (
-    <div className="flex flex-col gap-5">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Name">
-          <input
-            value={watch.name}
-            aria-label="Name"
-            onChange={(e) => setWatch({ ...watch, name: e.target.value })}
-            className={`${INPUT} w-full`}
-          />
-        </Field>
-        <Field label="Description">
-          <input
-            value={watch.description}
-            aria-label="Description"
-            onChange={(e) =>
-              setWatch({ ...watch, description: e.target.value })
-            }
-            className={`${INPUT} w-full`}
-          />
-        </Field>
-      </div>
+    <div className="flex flex-col gap-6">
+      <Section title="What are you watching?" step={1}>
+        <WatchTargetPicker target={target} onChange={retarget} />
+        {mixed && (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+            This watch&rsquo;s conditions were set up to look at different
+            things. Choosing an app here will point all of them at it.
+          </p>
+        )}
+      </Section>
 
-      <label className="flex w-fit items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={watch.enabled}
-          onChange={(e) => setWatch({ ...watch, enabled: e.target.checked })}
+      <Section title="What is it called?" step={2}>
+        <WatchIdentity watch={watch} onChange={setWatch} />
+      </Section>
+
+      <Section title="How often should we look?" step={3}>
+        <Schedule watch={watch} onChange={setWatch} />
+      </Section>
+
+      <Section title="What would be wrong?" step={4}>
+        <ConditionList
+          combinator={watch.combinator}
+          conditions={watch.conditions}
+          target={target}
+          onCombinator={(combinator) => setWatch({ ...watch, combinator })}
+          // Filled rather than replaced: a condition just added, or one whose
+          // measure changed, has no scope yet and would otherwise be measured
+          // over the whole installation.
+          onChange={(conditions) =>
+            setWatch({ ...watch, conditions: fillTarget(conditions, target) })
+          }
         />
-        Enabled
-      </label>
+      </Section>
 
-      <ConditionList
-        combinator={watch.combinator}
-        conditions={watch.conditions}
-        onCombinator={(combinator) => setWatch({ ...watch, combinator })}
-        onChange={setConditions}
-      />
+      <Section title="Who should hear about it?" step={5}>
+        <ActionList
+          actions={watch.actions}
+          target={target}
+          onChange={(actions) => setWatch({ ...watch, actions })}
+        />
+      </Section>
 
-      <section>
-        <h2 className="text-sm font-medium">Schedule</h2>
-        <div className="mt-3">
-          <ScheduleFields watch={watch} onChange={setWatch} />
-        </div>
-      </section>
-
-      <section>
-        <h2 className="text-sm font-medium">Then</h2>
-        <div className="mt-3">
-          <ActionList
-            actions={watch.actions}
-            onChange={(actions) => setWatch({ ...watch, actions })}
-          />
-        </div>
-      </section>
+      <Section title="How often should we say so?" step={6}>
+        <Deduplication watch={watch} onChange={setWatch} />
+      </Section>
 
       {error && (
         <p
@@ -151,7 +168,7 @@ export function WatchEditor({
       )}
       {preview && <PreviewPanel preview={preview} />}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 border-t border-black/10 pt-4 dark:border-white/10">
         <button
           type="button"
           onClick={save}

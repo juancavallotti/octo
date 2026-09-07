@@ -1,17 +1,19 @@
 "use client";
 
 import { Field, INPUT } from "@/app/components/admin/fields";
-import { ScopeFields } from "./ScopeFields";
 import type { AlertCondition } from "@/app/model/alerts";
 
 /**
- * The parameters one condition kind takes, plus the scope it reads over.
+ * How a condition is judged, in minutes.
  *
- * Only the parameters worth setting by hand are here. A spike has a dozen knobs
- * and eleven of them have defaults chosen to make a quiet series behave; putting
- * every one on the form would suggest they all want an opinion, when the honest
- * advice is to leave them alone and use Preview. The whole set is still settable
- * over the API for the case where somebody genuinely needs one.
+ * Minutes rather than "buckets" because the bucket width is fixed at a minute —
+ * see catalogue.ts. "Window (buckets): 5" asked somebody to know a width that was
+ * on a different part of the form; "over the last 5 minutes" does not.
+ *
+ * Only the parameters worth an opinion are here. A spike has a dozen knobs and
+ * most have defaults chosen so that a quiet app behaves — putting them all on
+ * screen would suggest they all want tuning, when the honest advice is to leave
+ * them and press Try it now. The rest are still settable over the API.
  */
 export function ConditionParams({
   condition,
@@ -32,22 +34,22 @@ export function ConditionParams({
     <div className="mt-3 grid gap-3 sm:grid-cols-3">
       {condition.type === "threshold" && (
         <>
-          <Field label="Comparison">
+          <Field label="When it is">
             <select
               value={String(params.op ?? "gt")}
               aria-label={`Condition ${index + 1} comparison`}
               onChange={(e) => set("op", e.target.value)}
               className={`${INPUT} w-full`}
             >
-              <option value="gt">is above</option>
-              <option value="gte">is at or above</option>
-              <option value="lt">is below</option>
-              <option value="lte">is at or below</option>
+              <option value="gt">above</option>
+              <option value="gte">at or above</option>
+              <option value="lt">below</option>
+              <option value="lte">at or below</option>
             </select>
           </Field>
           <Field
-            label="Threshold"
-            hint={unit === "ratio" ? "A proportion: 0.05 is 5%" : undefined}
+            label={unit === "ratio" ? "This rate" : "This number"}
+            hint={unit === "ratio" ? "0.05 is 5%" : undefined}
           >
             <input
               value={String(params.threshold ?? "")}
@@ -57,8 +59,8 @@ export function ConditionParams({
               className={`${INPUT} w-full font-mono`}
             />
           </Field>
-          <Buckets
-            label="Window (buckets)"
+          <Minutes
+            label="Over the last"
             value={params.windowBuckets}
             index={index}
             name="window"
@@ -69,7 +71,7 @@ export function ConditionParams({
 
       {condition.type === "spike" && (
         <>
-          <Field label="Direction">
+          <Field label="In which direction">
             <select
               value={String(params.direction ?? "up")}
               aria-label={`Condition ${index + 1} direction`}
@@ -80,27 +82,27 @@ export function ConditionParams({
               <option value="down">dropped</option>
             </select>
           </Field>
-          <Buckets
-            label="Window (buckets)"
+          <Minutes
+            label="Comparing the last"
             value={params.windowBuckets}
             index={index}
             name="window"
             onChange={(v) => set("windowBuckets", v)}
           />
-          <Buckets
-            label="Baseline (buckets)"
+          <Minutes
+            label="Against the previous"
             value={params.baselineBuckets}
             index={index}
             name="baseline"
-            hint="How much history counts as normal. It needs at least a dozen reporting buckets before it will fire at all."
+            hint="What counts as normal. It needs at least a dozen minutes that reported before it will fire at all."
             onChange={(v) => set("baselineBuckets", v)}
           />
         </>
       )}
 
       {condition.type === "absence" && (
-        <Buckets
-          label="Silent for (buckets)"
+        <Minutes
+          label="Silent for"
           value={params.forBuckets}
           index={index}
           name="silence"
@@ -108,13 +110,11 @@ export function ConditionParams({
           onChange={(v) => set("forBuckets", v)}
         />
       )}
-
-      <ScopeFields condition={condition} index={index} onChange={onChange} />
     </div>
   );
 }
 
-function Buckets({
+function Minutes({
   label,
   value,
   index,
@@ -130,7 +130,7 @@ function Buckets({
   onChange: (value: number | undefined) => void;
 }) {
   return (
-    <Field label={label} hint={hint}>
+    <Field label={`${label} (minutes)`} hint={hint}>
       <input
         value={value === undefined || value === null ? "" : String(value)}
         inputMode="numeric"
@@ -146,10 +146,9 @@ function Buckets({
  * Read a number out of a field, leaving it undefined while it is empty or
  * half-typed.
  *
- * Undefined rather than zero, because the service treats an absent parameter as
+ * Undefined rather than zero, because the service reads an absent parameter as
  * "use the default" and a zero as a value. Coercing "" to 0 mid-keystroke would
- * quietly set a threshold of zero on a field somebody was in the middle of
- * clearing.
+ * quietly set a threshold of zero on a field somebody was clearing.
  */
 function numeric(raw: string): number | undefined {
   const trimmed = raw.trim();

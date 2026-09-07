@@ -16,6 +16,18 @@ vi.mock("@/app/model/alerts", () => ({
   deleteWatch: (...a: unknown[]) => deleteWatch(...a),
 }));
 
+// The editor reads the app list, the broker's destinations and a deployment's
+// exported metrics. Mocked at the model layer, like everything else here.
+vi.mock("@/app/model/traces", () => ({
+  listTraceApps: () => Promise.resolve({ items: [], from: "", to: "" }),
+}));
+vi.mock("@/app/model/queues", () => ({
+  listQueueStats: () => Promise.resolve({ destinations: [] }),
+}));
+vi.mock("@/app/model/stats", () => ({
+  listStatsMetrics: () => Promise.resolve({ items: [] }),
+}));
+
 import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import { WatchEditor } from "./WatchEditor";
 import { newWatch } from "./catalogue";

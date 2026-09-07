@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +21,18 @@ vi.mock("@/app/model/alerts", () => ({
   previewWatch: (...a: unknown[]) => previewWatch(...a),
 }));
 
+const listTraceApps = vi.fn();
+vi.mock("@/app/model/traces", () => ({
+  listTraceApps: () => listTraceApps(),
+}));
+
+vi.mock("@/app/model/queues", () => ({
+  listQueueStats: () => Promise.resolve({ destinations: [] }),
+}));
+vi.mock("@/app/model/stats", () => ({
+  listStatsMetrics: () => Promise.resolve({ items: [] }),
+}));
+
 const confirm = vi.fn();
 vi.mock("@/app/components/ConfirmDialog", () => ({
   useConfirm: () => confirm,
@@ -29,8 +41,33 @@ vi.mock("@/app/components/ConfirmDialog", () => ({
 import { WatchEditor } from "./WatchEditor";
 import { newWatch } from "./catalogue";
 
+const APP = {
+  deploymentId: "d_1",
+  integrationId: "i_1",
+  appName: "checkout",
+  appVersion: "v1",
+  lastSeenAt: "2026-09-06T10:00:00Z",
+  traces: 10,
+  failed: 1,
+  costUsd: 0,
+  unpricedCalls: 0,
+  droppedRecords: 0,
+};
+
 function renderEditor(watchId: string | null = null) {
   return render(<WatchEditor initial={newWatch()} watchId={watchId} />);
+}
+
+/**
+ * Choose the app in step 1, which everything below it is measured over.
+ *
+ * The rows only exist once the popover is open, and they are scoped to its own
+ * listbox — the selects on the form answer to the same role.
+ */
+async function pickApp(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Application" }));
+  const list = await screen.findByRole("listbox");
+  await user.click(within(list).getByRole("option", { name: /checkout/ }));
 }
 
 describe("WatchEditor", () => {
@@ -41,51 +78,96 @@ describe("WatchEditor", () => {
     deleteWatch.mockReset().mockResolvedValue(undefined);
     previewWatch.mockReset();
     confirm.mockReset().mockResolvedValue(true);
+    listTraceApps
+      .mockReset()
+      .mockResolvedValue({ items: [APP], from: "", to: "" });
   });
 
-  // The composable part: a watch is a set, and the set has to be editable.
+  // The app is the only answer everything else depends on, so it is asked first
+  // and written onto every condition rather than typed once per condition.
+  it("scopes every condition to the app chosen at the top", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await pickApp(user);
+
+    await user.type(screen.getByLabelText("Name"), "checkout errors");
+    await user.click(screen.getByRole("button", { name: /add a condition/i }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(createWatch).toHaveBeenCalled());
+    const sent = createWatch.mock.calls[0][0] as {
+      conditions: { scope: Record<string, string> }[];
+    };
+    expect(sent.conditions).toHaveLength(2);
+    // Traces are scoped by integration, which survives a rollout where a
+    // deployment id does not.
+    for (const condition of sent.conditions) {
+      expect(condition.scope.integrationId).toBe("i_1");
+      expect(condition.scope.deploymentId).toBeUndefined();
+    }
+  });
+
+  // Logs have no integration column, so the same app is a different predicate.
+  it("scopes a log condition by app name instead", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await pickApp(user);
+
+    await user.type(screen.getByLabelText("Name"), "noisy logs");
+    await user.selectOptions(
+      screen.getByLabelText("Condition 1 measure"),
+      "logs:events",
+    );
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(createWatch).toHaveBeenCalled());
+    const sent = createWatch.mock.calls[0][0] as {
+      conditions: { scope: Record<string, string> }[];
+    };
+    expect(sent.conditions[0].scope.appName).toBe("checkout");
+    expect(sent.conditions[0].scope.integrationId).toBeUndefined();
+  });
+
   it("adds and removes conditions", async () => {
     const user = userEvent.setup();
     renderEditor();
 
-    expect(screen.getByText("Condition 1")).toBeInTheDocument();
-    // With one condition there is nothing to remove: a watch with none asks
-    // nothing, and the service refuses it.
     expect(
       screen.queryByRole("button", { name: "Remove condition 1" }),
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /add a condition/i }));
-    expect(screen.getByText("Condition 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Condition 2 measure")).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "Remove condition 2" }),
     );
-    expect(screen.queryByText("Condition 2")).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Condition 2 measure"),
+    ).not.toBeInTheDocument();
   });
 
-  it("sends the whole set, joined by the combinator", async () => {
+  // A dropdown with one option is a question with one answer.
+  it("only offers an aggregate when there is a choice", async () => {
     const user = userEvent.setup();
     renderEditor();
 
-    await user.type(screen.getByLabelText("Name"), "checkout errors");
-    await user.selectOptions(screen.getByLabelText("Combinator"), "any");
-    await user.click(screen.getByRole("button", { name: /add a condition/i }));
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    // Error rate is only ever a rate.
+    expect(
+      screen.queryByLabelText("Condition 1 aggregate"),
+    ).not.toBeInTheDocument();
 
-    await waitFor(() => expect(createWatch).toHaveBeenCalled());
-    const sent = createWatch.mock.calls[0][0] as Record<string, unknown>;
-    expect(sent.name).toBe("checkout errors");
-    expect(sent.combinator).toBe("any");
-    expect((sent.conditions as unknown[]).length).toBe(2);
+    await user.selectOptions(
+      screen.getByLabelText("Condition 1 measure"),
+      "traces:duration_ns",
+    );
+    expect(screen.getByLabelText("Condition 1 aggregate")).toBeInTheDocument();
   });
 
-  // Switching what a condition is judged by must not carry the previous kind's
-  // parameters across: a spike's baseline means nothing to a threshold, and the
-  // service would refuse a field nobody can see on the form.
   it("resets a condition's parameters when its kind changes", async () => {
     const user = userEvent.setup();
     renderEditor();
+    await pickApp(user);
 
     await user.type(screen.getByLabelText("Name"), "x");
     await user.selectOptions(
@@ -107,28 +189,57 @@ describe("WatchEditor", () => {
     expect(sent.conditions[0].params.direction).toBe("up");
   });
 
-  // Changing the source rescopes the metric, or the form would offer a trace
-  // metric against the log tables.
-  it("picks a metric that belongs to the chosen source", async () => {
+  // The bucket width is not on the form, so a window in minutes has to mean
+  // minutes — which only holds if every save writes the width it assumes.
+  it("always saves the bucket width the windows are expressed in", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.type(screen.getByLabelText("Name"), "x");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(createWatch).toHaveBeenCalled());
+    expect(
+      (createWatch.mock.calls[0][0] as { stepSeconds: number }).stepSeconds,
+    ).toBe(60);
+  });
+
+  // Scheduling and suppression are different questions and now live apart.
+  it("keeps the schedule and the repeat rules in separate sections", async () => {
     const user = userEvent.setup();
     renderEditor();
 
+    await user.selectOptions(screen.getByLabelText("Check"), "300");
     await user.selectOptions(
-      screen.getByLabelText("Condition 1 source"),
-      "logs",
+      screen.getByLabelText("Wait before telling me"),
+      "900",
     );
-    expect(screen.getByLabelText("Condition 1 levels")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Tell me again"), "3600");
+    await user.type(screen.getByLabelText("Name"), "x");
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
-    // Pod stats have no catalogue: the names come from the runtime, so the
-    // field becomes free text rather than an empty dropdown.
-    await user.selectOptions(
-      screen.getByLabelText("Condition 1 source"),
-      "pod_stats",
-    );
-    expect(screen.getByLabelText("Condition 1 metric")).toHaveAttribute(
-      "value",
-      "",
-    );
+    await waitFor(() => expect(createWatch).toHaveBeenCalled());
+    const sent = createWatch.mock.calls[0][0] as Record<string, number>;
+    expect(sent.intervalSeconds).toBe(300);
+    expect(sent.forSeconds).toBe(900);
+    expect(sent.renotifySeconds).toBe(3600);
+  });
+
+  // A watch created over the API can hold a value no preset offers, and a select
+  // that dropped it would move it the next time anything else was saved.
+  it("keeps a schedule no preset offers", async () => {
+    const odd = { ...newWatch(), intervalSeconds: 90, name: "odd" };
+    render(<WatchEditor initial={odd} watchId="w_1" />);
+
+    const select = screen.getByLabelText("Check") as HTMLSelectElement;
+    expect(select.value).toBe("90");
+    expect(screen.getByText("90 seconds")).toBeInTheDocument();
+  });
+
+  // A watch that fires and tells nobody is the easiest mistake here, so a new
+  // watch has no action and the form says what that means.
+  it("starts with no action, and says so", () => {
+    renderEditor();
+    expect(screen.getByText(/will not tell anybody/i)).toBeInTheDocument();
   });
 
   it("previews without saving or navigating", async () => {
@@ -163,18 +274,11 @@ describe("WatchEditor", () => {
     await waitFor(() => expect(previewWatch).toHaveBeenCalled());
     expect(createWatch).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
-    // The declining condition explains itself in words, which is the point of
-    // previewing at all.
     expect(
       await screen.findByText(/did not reach the threshold/i),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/records nothing and notifies nobody/i),
-    ).toBeInTheDocument();
   });
 
-  // The service's message names the field and the bound, so it is shown rather
-  // than replaced with something generic.
   it("surfaces the service's own refusal", async () => {
     const user = userEvent.setup();
     createWatch.mockRejectedValue(
@@ -190,33 +294,11 @@ describe("WatchEditor", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("minSamples 9");
   });
 
-  // An unnamed watch cannot be saved, and the button says so before the round
-  // trip rather than after it.
   it("will not create a watch with no name", () => {
     renderEditor();
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
   });
 
-  it("confirms before deleting, and says what goes with it", async () => {
-    const user = userEvent.setup();
-    confirm.mockResolvedValue(false);
-    renderEditor("w_1");
-
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(confirm).toHaveBeenCalled());
-    expect(deleteWatch).not.toHaveBeenCalled();
-
-    const asked = confirm.mock.calls[0][0] as { body: string; danger: boolean };
-    expect(asked.body).toMatch(/history/i);
-    expect(asked.danger).toBe(true);
-
-    confirm.mockResolvedValue(true);
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(deleteWatch).toHaveBeenCalledWith("w_1"));
-  });
-
-  // A new watch has no history to show, and an empty panel would read as "it has
-  // never fired" rather than "it does not exist".
   it("saves an existing watch through save rather than create", async () => {
     const user = userEvent.setup();
     renderEditor("w_1");

@@ -5,6 +5,7 @@ import { INPUT } from "@/app/components/admin/fields";
 import { ConditionRow } from "./ConditionRow";
 import { newCondition } from "./catalogue";
 import type { AlertCondition, WatchInput } from "@/app/model/alerts";
+import type { WatchTarget } from "./target";
 
 /** The service's own cap, mirrored so the button says so before a save is refused. */
 const MAX_CONDITIONS = 10;
@@ -12,25 +13,27 @@ const MAX_CONDITIONS = 10;
 /**
  * The condition set and the combinator that joins it.
  *
- * "Fire when all/any of these hold" reads as the sentence somebody would say,
- * and the combinator sits in it rather than in a settings block, because it is
- * the word that changes what the whole list means.
+ * "Alert when all/any of these are true" reads as the sentence somebody would
+ * say, and the combinator sits inside it rather than in a settings block,
+ * because it is the word that changes what the whole list means.
  */
 export function ConditionList({
   combinator,
   conditions,
+  target,
   onCombinator,
   onChange,
 }: {
   combinator: WatchInput["combinator"];
   conditions: AlertCondition[];
+  target: WatchTarget;
   onCombinator: (next: WatchInput["combinator"]) => void;
   onChange: (next: AlertCondition[]) => void;
 }) {
   return (
-    <section>
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-medium">Fire when</h2>
+    <div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span>Alert when</span>
         <select
           value={combinator}
           aria-label="Combinator"
@@ -42,7 +45,7 @@ export function ConditionList({
           <option value="all">all</option>
           <option value="any">any</option>
         </select>
-        <span className="text-sm">of these hold:</span>
+        <span>of these are true:</span>
       </div>
 
       <ul className="mt-3 flex flex-col gap-3">
@@ -51,6 +54,7 @@ export function ConditionList({
             key={condition.id}
             condition={condition}
             index={index}
+            target={target}
             removable={conditions.length > 1}
             onChange={(next) =>
               onChange(conditions.map((c, i) => (i === index ? next : c)))
@@ -69,6 +73,6 @@ export function ConditionList({
         <Plus size={12} />
         Add a condition
       </button>
-    </section>
+    </div>
   );
 }

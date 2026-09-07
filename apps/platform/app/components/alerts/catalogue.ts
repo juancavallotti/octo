@@ -1,4 +1,5 @@
 import type {
+  AlertAction,
   AlertAggregate,
   AlertCondition,
   AlertConditionKind,
@@ -7,70 +8,139 @@ import type {
 } from "@/app/model/alerts";
 
 /**
- * What the editor's pickers offer, and what a new watch starts as.
+ * What the editor offers, and what a new watch starts as.
  *
- * The metric list is a UI-side copy of the service's catalogue. It is here for
- * the dropdowns and nothing else — the service validates every definition and
- * refuses one it cannot evaluate, with a message naming the field, so this being
- * momentarily out of date shows up as a save that is refused rather than as a
- * watch that silently measures the wrong thing.
+ * Two things are deliberately not settable here and are worth saying why.
  *
- * Pod-stat metrics are deliberately absent: their names come from whatever the
- * runtime exports, which is a per-deployment question answered by
- * `GET /stats/{id}/metrics` rather than something to enumerate here.
+ * The bucket width is fixed at a minute. It is the resolution a condition is
+ * measured in, it has one sensible answer for every alert anybody writes, and
+ * leaving it on the form meant every window was expressed in "buckets" — a unit
+ * that only means anything once you know the width. With it fixed, a window is
+ * measured in minutes, which is what somebody was going to say anyway.
+ *
+ * The metric list is a UI-side copy of the service's catalogue, for the pickers.
+ * The service validates every definition and refuses one it cannot evaluate,
+ * naming the field, so this being briefly out of date is a save that is refused
+ * rather than a watch that quietly measures the wrong thing.
  */
 
-export interface MetricChoice {
+/** The one bucket width the editor writes. See the note above. */
+export const STEP_SECONDS = 60;
+
+/**
+ * One measurable thing: a source and a metric, offered together.
+ *
+ * Together rather than as two dropdowns because the second only ever means
+ * anything given the first, and picking "Logs" and then finding out what logs
+ * can measure is a worse way round than reading the list of things you can
+ * measure.
+ */
+export interface Measure {
+  source: AlertSource;
   metric: string;
   label: string;
+  group: string;
   aggregates: AlertAggregate[];
-  /** What the number is, so the editor can render a threshold in its own units. */
+  /** What the number is, so a threshold can be rendered in its own units. */
   unit?: string;
 }
 
-export const METRICS: Record<AlertSource, MetricChoice[]> = {
-  traces: [
-    { metric: "traces", label: "Traces started", aggregates: ["count"] },
-    { metric: "failed_traces", label: "Failed traces", aggregates: ["count"] },
-    {
-      metric: "error_rate",
-      label: "Error rate",
-      aggregates: ["ratio"],
-      unit: "ratio",
-    },
-    {
-      metric: "duration_ns",
-      label: "Trace duration",
-      aggregates: ["p95", "avg", "max"],
-      unit: "ns",
-    },
-    {
-      metric: "cost_usd",
-      label: "Model cost",
-      aggregates: ["sum"],
-      unit: "usd",
-    },
-    { metric: "tokens", label: "Tokens", aggregates: ["sum"] },
-    { metric: "llm_calls", label: "Model calls", aggregates: ["sum"] },
-    { metric: "unpriced_calls", label: "Unpriced calls", aggregates: ["sum"] },
-  ],
-  logs: [
-    { metric: "events", label: "Log events", aggregates: ["count"] },
-    {
-      metric: "error_rate",
-      label: "Error rate",
-      aggregates: ["ratio"],
-      unit: "ratio",
-    },
-  ],
-  pod_stats: [],
-};
+export const MEASURES: Measure[] = [
+  {
+    source: "traces",
+    metric: "error_rate",
+    label: "Error rate",
+    group: "Traces",
+    aggregates: ["ratio"],
+    unit: "ratio",
+  },
+  {
+    source: "traces",
+    metric: "failed_traces",
+    label: "Failed runs",
+    group: "Traces",
+    aggregates: ["count"],
+  },
+  {
+    source: "traces",
+    metric: "traces",
+    label: "Runs",
+    group: "Traces",
+    aggregates: ["count"],
+  },
+  {
+    source: "traces",
+    metric: "duration_ns",
+    label: "Run duration",
+    group: "Traces",
+    aggregates: ["p95", "avg", "max"],
+    unit: "ns",
+  },
+  {
+    source: "traces",
+    metric: "cost_usd",
+    label: "Model cost",
+    group: "Traces",
+    aggregates: ["sum"],
+    unit: "usd",
+  },
+  {
+    source: "traces",
+    metric: "tokens",
+    label: "Tokens",
+    group: "Traces",
+    aggregates: ["sum"],
+  },
+  {
+    source: "traces",
+    metric: "llm_calls",
+    label: "Model calls",
+    group: "Traces",
+    aggregates: ["sum"],
+  },
+  {
+    source: "traces",
+    metric: "unpriced_calls",
+    label: "Unpriced model calls",
+    group: "Traces",
+    aggregates: ["sum"],
+  },
+  {
+    source: "logs",
+    metric: "error_rate",
+    label: "Error rate",
+    group: "Logs",
+    aggregates: ["ratio"],
+    unit: "ratio",
+  },
+  {
+    source: "logs",
+    metric: "events",
+    label: "Log lines",
+    group: "Logs",
+    aggregates: ["count"],
+  },
+  {
+    source: "pod_stats",
+    metric: "",
+    label: "A runtime metric…",
+    group: "Pod stats",
+    aggregates: ["max", "avg", "sum", "min"],
+  },
+];
 
-export const SOURCE_LABEL: Record<AlertSource, string> = {
-  traces: "Traces",
-  logs: "Logs",
-  pod_stats: "Pod stats",
-};
+/** The stable key a measure is chosen by. */
+export function measureKey(source: AlertSource, metric: string): string {
+  return source === "pod_stats" ? "pod_stats" : `${source}:${metric}`;
+}
+
+export function measureOf(condition: AlertCondition): Measure | undefined {
+  return MEASURES.find(
+    (m) =>
+      measureKey(m.source, m.metric) ===
+      measureKey(condition.source, condition.metric),
+  );
+}
 
 export const KIND_LABEL: Record<AlertConditionKind, string> = {
   threshold: "Above or below a number",
@@ -83,17 +153,53 @@ export const KIND_HINT: Record<AlertConditionKind, string> = {
   threshold:
     "Compares a windowed number with one you choose. A rate is judged by a confidence bound, so a handful of requests cannot clear it.",
   spike:
-    "Compares the last window with this series' own recent history. Fires only when the change is large statistically, absolutely and proportionally.",
+    "Compares the last window with this app's own recent history. Fires only when the change is large statistically, absolutely and proportionally.",
   absence:
-    "Fires when nothing has been recorded for a while — and only if the series was reporting before, so a deployment that never ran does not alert forever.",
+    "Fires when nothing has been recorded for a while — and only if it was reporting before, so an app that never ran does not alert forever.",
 };
 
-export const METRIC_UNITS: Record<string, string | undefined> =
-  Object.fromEntries(
-    Object.values(METRICS)
-      .flat()
-      .map((m) => [m.metric, m.unit]),
+/** A preset offered in a duration select. */
+export interface Preset {
+  seconds: number;
+  label: string;
+}
+
+export const INTERVALS: Preset[] = [
+  { seconds: 60, label: "Every minute" },
+  { seconds: 300, label: "Every 5 minutes" },
+  { seconds: 900, label: "Every 15 minutes" },
+  { seconds: 3600, label: "Every hour" },
+];
+
+export const HOLDS: Preset[] = [
+  { seconds: 0, label: "Alert straight away" },
+  { seconds: 120, label: "…if it lasts 2 minutes" },
+  { seconds: 300, label: "…if it lasts 5 minutes" },
+  { seconds: 900, label: "…if it lasts 15 minutes" },
+  { seconds: 1800, label: "…if it lasts 30 minutes" },
+];
+
+export const REPEATS: Preset[] = [
+  { seconds: 0, label: "Only once per incident" },
+  { seconds: 900, label: "Every 15 minutes while it lasts" },
+  { seconds: 3600, label: "Every hour while it lasts" },
+  { seconds: 21600, label: "Every 6 hours while it lasts" },
+  { seconds: 86400, label: "Once a day while it lasts" },
+];
+
+/**
+ * The presets, plus whatever the watch is actually set to.
+ *
+ * A watch created over the API can hold a value no preset offers, and a select
+ * that did not contain it would silently move it to whichever option happened to
+ * be first the moment somebody saved anything else on the form.
+ */
+export function withCurrent(presets: Preset[], seconds: number): Preset[] {
+  if (presets.some((p) => p.seconds === seconds)) return presets;
+  return [...presets, { seconds, label: `${seconds} seconds` }].sort(
+    (a, b) => a.seconds - b.seconds,
   );
+}
 
 /** A short, stable id for a new row. Collisions within one watch are what matter. */
 export function newId(prefix: string): string {
@@ -101,8 +207,8 @@ export function newId(prefix: string): string {
 }
 
 /**
- * A new condition, defaulted to the most common question anybody asks: is the
- * error rate for this integration above something.
+ * A new condition, defaulted to the question most people come here to ask: is
+ * this app's error rate above something.
  */
 export function newCondition(): AlertCondition {
   return {
@@ -131,12 +237,12 @@ export function defaultParams(
 }
 
 /**
- * A new watch.
+ * A new watch: one condition, and no actions.
  *
- * It starts with a `log` action rather than none: a watch that fires and tells
- * nobody is the easiest mistake to make here, and the log action needs no
- * configuration at all, so the default is a watch that at least records itself
- * somewhere an operator will see.
+ * No action rather than a harmless-looking default. A watch that fires and tells
+ * nobody is the easiest mistake to make here, and the way to stop somebody
+ * making it is to leave the section visibly empty and say so — not to fill it
+ * with something that looks configured and reaches no one.
  */
 export function newWatch(): WatchInput {
   return {
@@ -146,9 +252,9 @@ export function newWatch(): WatchInput {
     severity: "warning",
     combinator: "all",
     conditions: [newCondition()],
-    actions: [{ id: newId("a"), type: "log", params: {} }],
+    actions: [] as AlertAction[],
     onNoData: "ok",
-    stepSeconds: 60,
+    stepSeconds: STEP_SECONDS,
     intervalSeconds: 60,
     forSeconds: 300,
     renotifySeconds: 0,

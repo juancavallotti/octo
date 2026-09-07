@@ -5,163 +5,144 @@ import { Field, INPUT } from "@/app/components/admin/fields";
 import {
   KIND_HINT,
   KIND_LABEL,
-  METRICS,
-  SOURCE_LABEL,
+  MEASURES,
   defaultParams,
+  measureKey,
+  measureOf,
 } from "./catalogue";
 import { ConditionParams } from "./ConditionParams";
-import type {
-  AlertCondition,
-  AlertConditionKind,
-  AlertSource,
-} from "@/app/model/alerts";
+import { ConditionScope } from "./ConditionScope";
+import type { AlertCondition, AlertConditionKind } from "@/app/model/alerts";
+import type { WatchTarget } from "./target";
 
 /**
- * One condition in a watch's set.
+ * One condition: what to measure, and how to judge it.
  *
- * Source, then metric, then how to judge it — in that order because each narrows
- * the next, and because it is the order somebody says it out loud: "the error
- * rate on traces, suddenly up".
+ * Source and metric are one picker rather than two. The second only ever meant
+ * anything given the first, so choosing "Logs" and then discovering what logs can
+ * measure was the wrong way round — the list of things you can measure is the
+ * thing to read.
  *
- * Changing the source or the kind resets what depends on it rather than carrying
- * parameters across. A spike's baseline means nothing to a threshold, and leaving
- * it in place would save a definition with a field the service refuses — which is
- * safe, but the refusal would name a parameter nobody can see.
+ * The aggregate appears only when there is a choice to make. Most measures have
+ * exactly one, and a dropdown with one option is a question with one answer.
+ *
+ * Changing the measure or the kind resets what depended on it. A spike's baseline
+ * means nothing to a threshold, and carrying it across would save a definition
+ * with a field nobody can see — refused by the service, naming a parameter that
+ * is not on the form.
  */
 export function ConditionRow({
   condition,
   index,
+  target,
   removable,
   onChange,
   onRemove,
 }: {
   condition: AlertCondition;
   index: number;
+  target: WatchTarget;
   removable: boolean;
   onChange: (next: AlertCondition) => void;
   onRemove: () => void;
 }) {
-  const metrics = METRICS[condition.source];
-  const choice = metrics.find((m) => m.metric === condition.metric);
+  const measure = measureOf(condition);
+  const aggregates = measure?.aggregates ?? [];
 
-  const setSource = (source: AlertSource) => {
-    const first = METRICS[source][0];
+  const setMeasure = (key: string) => {
+    const next = MEASURES.find((m) => measureKey(m.source, m.metric) === key);
+    if (!next) return;
     onChange({
       ...condition,
-      source,
-      // Pod-stat metrics are named by the operator, so switching to that source
-      // leaves the field empty for them to fill rather than inventing a name.
-      metric: first?.metric ?? "",
-      aggregate:
-        first?.aggregates[0] ?? (source === "pod_stats" ? "max" : "count"),
+      source: next.source,
+      metric: next.metric,
+      aggregate: next.aggregates[0],
+      // The source-specific refinements do not survive: log levels mean nothing
+      // to a pod-stat metric.
       scope: {},
     });
   };
 
-  const setKind = (type: AlertConditionKind) =>
-    onChange({ ...condition, type, params: defaultParams(type) });
-
   return (
     <li className="rounded-lg border border-black/10 p-3 dark:border-white/10">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-          Condition {index + 1}
-        </span>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1 grid gap-3 sm:grid-cols-2">
+          <Field label={index === 0 ? "Measure" : "And measure"}>
+            <select
+              value={measureKey(condition.source, condition.metric)}
+              aria-label={`Condition ${index + 1} measure`}
+              onChange={(e) => setMeasure(e.target.value)}
+              className={`${INPUT} w-full`}
+            >
+              {groups().map(([group, measures]) => (
+                <optgroup key={group} label={group}>
+                  {measures.map((m) => (
+                    <option
+                      key={measureKey(m.source, m.metric)}
+                      value={measureKey(m.source, m.metric)}
+                    >
+                      {m.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </Field>
+
+          {aggregates.length > 1 && (
+            <Field label="Measured as">
+              <select
+                value={condition.aggregate ?? aggregates[0]}
+                aria-label={`Condition ${index + 1} aggregate`}
+                onChange={(e) =>
+                  onChange({
+                    ...condition,
+                    aggregate: e.target.value as AlertCondition["aggregate"],
+                  })
+                }
+                className={`${INPUT} w-full`}
+              >
+                {aggregates.map((a) => (
+                  <option key={a} value={a}>
+                    {AGGREGATE_LABEL[a] ?? a}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+        </div>
+
         {removable && (
           <button
             type="button"
             onClick={onRemove}
             aria-label={`Remove condition ${index + 1}`}
-            className="rounded p-1 text-zinc-500 hover:bg-black/5 hover:text-red-600 dark:hover:bg-white/5"
+            className="mt-5 rounded p-1 text-zinc-500 hover:bg-black/5 hover:text-red-600 dark:hover:bg-white/5"
           >
             <Trash2 size={14} />
           </button>
         )}
       </div>
 
-      <div className="mt-2 grid gap-3 sm:grid-cols-3">
-        <Field label="Source">
-          <select
-            value={condition.source}
-            aria-label={`Condition ${index + 1} source`}
-            onChange={(e) => setSource(e.target.value as AlertSource)}
-            className={`${INPUT} w-full`}
-          >
-            {(Object.keys(SOURCE_LABEL) as AlertSource[]).map((s) => (
-              <option key={s} value={s}>
-                {SOURCE_LABEL[s]}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field
-          label="Metric"
-          hint={
-            condition.source === "pod_stats"
-              ? "Any metric the runtime exports, e.g. go_memstats_heap_inuse_bytes"
-              : undefined
-          }
-        >
-          {condition.source === "pod_stats" ? (
-            <input
-              value={condition.metric}
-              aria-label={`Condition ${index + 1} metric`}
-              onChange={(e) =>
-                onChange({ ...condition, metric: e.target.value })
-              }
-              className={`${INPUT} w-full font-mono`}
-            />
-          ) : (
-            <select
-              value={condition.metric}
-              aria-label={`Condition ${index + 1} metric`}
-              onChange={(e) => {
-                const next = metrics.find((m) => m.metric === e.target.value);
-                onChange({
-                  ...condition,
-                  metric: e.target.value,
-                  aggregate: next?.aggregates[0],
-                });
-              }}
-              className={`${INPUT} w-full`}
-            >
-              {metrics.map((m) => (
-                <option key={m.metric} value={m.metric}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-
-        <Field label="Aggregate">
-          <select
-            value={condition.aggregate ?? ""}
-            aria-label={`Condition ${index + 1} aggregate`}
-            onChange={(e) =>
-              onChange({
-                ...condition,
-                aggregate: e.target.value as AlertCondition["aggregate"],
-              })
-            }
-            className={`${INPUT} w-full`}
-          >
-            {(choice?.aggregates ?? ["max", "avg", "sum", "min"]).map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
+      <ConditionScope
+        condition={condition}
+        index={index}
+        target={target}
+        onChange={onChange}
+      />
 
       <div className="mt-3">
         <Field label="Judge it by" hint={KIND_HINT[condition.type]}>
           <select
             value={condition.type}
             aria-label={`Condition ${index + 1} kind`}
-            onChange={(e) => setKind(e.target.value as AlertConditionKind)}
+            onChange={(e) =>
+              onChange({
+                ...condition,
+                type: e.target.value as AlertConditionKind,
+                params: defaultParams(e.target.value as AlertConditionKind),
+              })
+            }
             className={`${INPUT} w-full sm:w-72`}
           >
             {(Object.keys(KIND_LABEL) as AlertConditionKind[]).map((k) => (
@@ -176,9 +157,29 @@ export function ConditionRow({
       <ConditionParams
         condition={condition}
         index={index}
-        unit={choice?.unit}
+        unit={measure?.unit}
         onChange={onChange}
       />
     </li>
   );
+}
+
+/** Plain words for the statistic, rather than the column name. */
+const AGGREGATE_LABEL: Record<string, string> = {
+  count: "a count",
+  sum: "a total",
+  avg: "the average",
+  min: "the lowest",
+  max: "the highest",
+  p95: "the 95th percentile",
+  ratio: "a rate",
+};
+
+/** The measures grouped by where they come from, in offer order. */
+function groups(): [string, typeof MEASURES][] {
+  const out = new Map<string, typeof MEASURES>();
+  for (const measure of MEASURES) {
+    out.set(measure.group, [...(out.get(measure.group) ?? []), measure]);
+  }
+  return [...out.entries()];
 }
