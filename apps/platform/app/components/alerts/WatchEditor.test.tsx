@@ -189,9 +189,10 @@ describe("WatchEditor", () => {
     expect(sent.conditions[0].params.direction).toBe("up");
   });
 
-  // The bucket width is not on the form, so a window in minutes has to mean
-  // minutes — which only holds if every save writes the width it assumes.
-  it("always saves the bucket width the windows are expressed in", async () => {
+  // The bucket width is not on the form: it follows from how often the watch is
+  // checked, and is written on every save so a stored width cannot drift from
+  // the durations the form showed.
+  it("saves the bucket width its check interval implies", async () => {
     const user = userEvent.setup();
     renderEditor();
     await user.type(screen.getByLabelText("Name"), "x");
@@ -201,6 +202,31 @@ describe("WatchEditor", () => {
     expect(
       (createWatch.mock.calls[0][0] as { stepSeconds: number }).stepSeconds,
     ).toBe(60);
+  });
+
+  // Checking every thirty seconds narrows the buckets, and every window has to
+  // keep covering the span it already covered — silently halving them would not
+  // show up on a form that displays durations.
+  it("keeps window spans when the check interval narrows the bucket", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    // The default condition is a five-minute window at a one-minute bucket.
+    await user.selectOptions(screen.getByLabelText("Check"), "30");
+    await user.type(screen.getByLabelText("Name"), "x");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(createWatch).toHaveBeenCalled());
+    const sent = createWatch.mock.calls[0][0] as {
+      stepSeconds: number;
+      conditions: { params: Record<string, number> }[];
+    };
+    expect(sent.stepSeconds).toBe(30);
+    expect(sent.conditions[0].params.windowBuckets).toBe(10);
+    // And the form still says five minutes.
+    expect(
+      (screen.getByLabelText("Condition 1 window") as HTMLSelectElement).value,
+    ).toBe("300");
   });
 
   // Scheduling and suppression are different questions and now live apart.

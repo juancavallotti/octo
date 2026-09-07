@@ -10,22 +10,15 @@ import type {
 /**
  * What the editor offers, and what a new watch starts as.
  *
- * Two things are deliberately not settable here and are worth saying why.
- *
- * The bucket width is fixed at a minute. It is the resolution a condition is
- * measured in, it has one sensible answer for every alert anybody writes, and
- * leaving it on the form meant every window was expressed in "buckets" — a unit
- * that only means anything once you know the width. With it fixed, a window is
- * measured in minutes, which is what somebody was going to say anyway.
+ * The bucket width is not on the form: it follows from how often the watch is
+ * checked, and windows are shown as durations rather than as counts of it. See
+ * resolution.ts.
  *
  * The metric list is a UI-side copy of the service's catalogue, for the pickers.
  * The service validates every definition and refuses one it cannot evaluate,
  * naming the field, so this being briefly out of date is a save that is refused
  * rather than a watch that quietly measures the wrong thing.
  */
-
-/** The one bucket width the editor writes. See the note above. */
-export const STEP_SECONDS = 60;
 
 /**
  * One measurable thing: a source and a metric, offered together.
@@ -158,49 +151,6 @@ export const KIND_HINT: Record<AlertConditionKind, string> = {
     "Fires when nothing has been recorded for a while — and only if it was reporting before, so an app that never ran does not alert forever.",
 };
 
-/** A preset offered in a duration select. */
-export interface Preset {
-  seconds: number;
-  label: string;
-}
-
-export const INTERVALS: Preset[] = [
-  { seconds: 60, label: "Every minute" },
-  { seconds: 300, label: "Every 5 minutes" },
-  { seconds: 900, label: "Every 15 minutes" },
-  { seconds: 3600, label: "Every hour" },
-];
-
-export const HOLDS: Preset[] = [
-  { seconds: 0, label: "Alert straight away" },
-  { seconds: 120, label: "…if it lasts 2 minutes" },
-  { seconds: 300, label: "…if it lasts 5 minutes" },
-  { seconds: 900, label: "…if it lasts 15 minutes" },
-  { seconds: 1800, label: "…if it lasts 30 minutes" },
-];
-
-export const REPEATS: Preset[] = [
-  { seconds: 0, label: "Only once per incident" },
-  { seconds: 900, label: "Every 15 minutes while it lasts" },
-  { seconds: 3600, label: "Every hour while it lasts" },
-  { seconds: 21600, label: "Every 6 hours while it lasts" },
-  { seconds: 86400, label: "Once a day while it lasts" },
-];
-
-/**
- * The presets, plus whatever the watch is actually set to.
- *
- * A watch created over the API can hold a value no preset offers, and a select
- * that did not contain it would silently move it to whichever option happened to
- * be first the moment somebody saved anything else on the form.
- */
-export function withCurrent(presets: Preset[], seconds: number): Preset[] {
-  if (presets.some((p) => p.seconds === seconds)) return presets;
-  return [...presets, { seconds, label: `${seconds} seconds` }].sort(
-    (a, b) => a.seconds - b.seconds,
-  );
-}
-
 /** A short, stable id for a new row. Collisions within one watch are what matter. */
 export function newId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -254,7 +204,7 @@ export function newWatch(): WatchInput {
     conditions: [newCondition()],
     actions: [] as AlertAction[],
     onNoData: "ok",
-    stepSeconds: STEP_SECONDS,
+    stepSeconds: 60,
     intervalSeconds: 60,
     forSeconds: 300,
     renotifySeconds: 0,

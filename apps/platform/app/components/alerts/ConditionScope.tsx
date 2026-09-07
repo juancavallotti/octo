@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Field, INPUT } from "@/app/components/admin/fields";
-import { listStatsMetrics } from "@/app/model/stats";
+import { MetricPicker } from "./MetricPicker";
 import type { AlertCondition, AlertScope } from "@/app/model/alerts";
 import type { WatchTarget } from "./target";
 
@@ -36,12 +35,13 @@ export function ConditionScope({
 
   if (condition.source === "pod_stats") {
     return (
-      <PodStatMetric
-        condition={condition}
-        index={index}
-        target={target}
-        onChange={onChange}
-      />
+      <div className="mt-3">
+        <MetricPicker
+          deploymentId={scope.deploymentId || target.deploymentId}
+          value={condition.metric}
+          onChange={(metric) => onChange({ ...condition, metric })}
+        />
+      </div>
     );
   }
 
@@ -77,82 +77,6 @@ export function ConditionScope({
           className={`${INPUT} w-full`}
         />
       </Field>
-    </div>
-  );
-}
-
-/**
- * A runtime metric, completed from what this deployment is actually exporting.
- *
- * Pod-stat metric names come from the runtime's own registry rather than from any
- * catalogue this app could hold, so they are looked up per deployment. Typing a
- * name that nothing exports is the easy mistake here, and it produces a watch
- * that is permanently "no data" rather than an error.
- */
-function PodStatMetric({
-  condition,
-  index,
-  target,
-  onChange,
-}: {
-  condition: AlertCondition;
-  index: number;
-  target: WatchTarget;
-  onChange: (next: AlertCondition) => void;
-}) {
-  const deploymentId = condition.scope?.deploymentId || target.deploymentId;
-  const [names, setNames] = useState<string[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
-  const listId = `metrics-${condition.id}`;
-
-  useEffect(() => {
-    if (!deploymentId) return;
-    let stopped = false;
-    const load = async () => {
-      try {
-        const page = await listStatsMetrics(deploymentId, {});
-        if (!stopped) setNames(page.items.map((m) => m.name).sort());
-      } catch (e) {
-        if (!stopped) setProblem((e as Error).message);
-      }
-    };
-    void load();
-    return () => {
-      stopped = true;
-    };
-  }, [deploymentId]);
-
-  return (
-    <div className="mt-3 flex flex-col gap-3">
-      <Field
-        label="Runtime metric"
-        hint={
-          names.length > 0
-            ? `${names.length} exported by this deployment.`
-            : (problem ??
-              "Nothing is exporting metrics for this app yet — pod stats have to be turned on in the chart.")
-        }
-      >
-        <input
-          value={condition.metric}
-          list={listId}
-          aria-label={`Condition ${index + 1} metric`}
-          onChange={(e) => onChange({ ...condition, metric: e.target.value })}
-          className={`${INPUT} w-full font-mono`}
-          placeholder="octo_flow_errors_total"
-        />
-      </Field>
-      <datalist id={listId}>
-        {names.map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
-      {!deploymentId && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          Pod stats are stored per deployment, so this condition needs one.
-          Choose the app above.
-        </p>
-      )}
     </div>
   );
 }

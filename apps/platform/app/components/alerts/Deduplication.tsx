@@ -1,7 +1,7 @@
 "use client";
 
 import { Field, INPUT } from "@/app/components/admin/fields";
-import { HOLDS, REPEATS, withCurrent } from "./catalogue";
+import { HOLDS, REPEATS, withCurrent } from "./resolution";
 import type { AlertNoData, WatchInput } from "@/app/model/alerts";
 
 /**

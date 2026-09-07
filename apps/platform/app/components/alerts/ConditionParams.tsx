@@ -1,14 +1,22 @@
 "use client";
 
 import { Field, INPUT } from "@/app/components/admin/fields";
+import {
+  BASELINES,
+  WINDOWS,
+  bucketsFor,
+  secondsFor,
+  withCurrent,
+} from "./resolution";
 import type { AlertCondition } from "@/app/model/alerts";
 
 /**
- * How a condition is judged, in minutes.
+ * How a condition is judged, in durations.
  *
- * Minutes rather than "buckets" because the bucket width is fixed at a minute —
- * see catalogue.ts. "Window (buckets): 5" asked somebody to know a width that was
- * on a different part of the form; "over the last 5 minutes" does not.
+ * Never in buckets. "Window (buckets): 5" asked somebody to know a width that
+ * lived on a different part of the form; "over the last 5 minutes" does not, and
+ * it stays true when the width changes because the count is recomputed rather
+ * than the label.
  *
  * Only the parameters worth an opinion are here. A spike has a dozen knobs and
  * most have defaults chosen so that a quiet app behaves — putting them all on
@@ -19,11 +27,14 @@ export function ConditionParams({
   condition,
   index,
   unit,
+  step,
   onChange,
 }: {
   condition: AlertCondition;
   index: number;
   unit?: string;
+  /** The bucket width this watch is measured in, which durations convert by. */
+  step: number;
   onChange: (next: AlertCondition) => void;
 }) {
   const params = condition.params ?? {};
@@ -59,9 +70,11 @@ export function ConditionParams({
               className={`${INPUT} w-full font-mono`}
             />
           </Field>
-          <Minutes
+          <Span
             label="Over the last"
-            value={params.windowBuckets}
+            options={WINDOWS}
+            buckets={params.windowBuckets}
+            step={step}
             index={index}
             name="window"
             onChange={(v) => set("windowBuckets", v)}
@@ -82,28 +95,34 @@ export function ConditionParams({
               <option value="down">dropped</option>
             </select>
           </Field>
-          <Minutes
+          <Span
             label="Comparing the last"
-            value={params.windowBuckets}
+            options={WINDOWS}
+            buckets={params.windowBuckets}
+            step={step}
             index={index}
             name="window"
             onChange={(v) => set("windowBuckets", v)}
           />
-          <Minutes
+          <Span
             label="Against the previous"
-            value={params.baselineBuckets}
+            options={BASELINES}
+            buckets={params.baselineBuckets}
+            step={step}
             index={index}
             name="baseline"
-            hint="What counts as normal. It needs at least a dozen minutes that reported before it will fire at all."
+            hint="What counts as normal. It needs at least a dozen reporting buckets before it will fire at all."
             onChange={(v) => set("baselineBuckets", v)}
           />
         </>
       )}
 
       {condition.type === "absence" && (
-        <Minutes
+        <Span
           label="Silent for"
-          value={params.forBuckets}
+          options={WINDOWS}
+          buckets={params.forBuckets}
+          step={step}
           index={index}
           name="silence"
           hint="It also has to have been reporting beforehand, or its silence means nothing."
@@ -114,30 +133,50 @@ export function ConditionParams({
   );
 }
 
-function Minutes({
+/**
+ * A span, chosen as a duration and stored as a count of buckets.
+ *
+ * The conversion is here rather than at save time so the select always reflects
+ * what is stored: a watch whose width changed under it shows the span it now
+ * covers, not the one somebody originally picked.
+ */
+function Span({
   label,
-  value,
+  options,
+  buckets,
+  step,
   index,
   name,
   hint,
   onChange,
 }: {
   label: string;
-  value: unknown;
+  options: { seconds: number; label: string }[];
+  buckets: unknown;
+  step: number;
   index: number;
   name: string;
   hint?: string;
-  onChange: (value: number | undefined) => void;
+  onChange: (buckets: number) => void;
 }) {
+  const current =
+    typeof buckets === "number"
+      ? secondsFor(buckets, step)
+      : options[0].seconds;
   return (
-    <Field label={`${label} (minutes)`} hint={hint}>
-      <input
-        value={value === undefined || value === null ? "" : String(value)}
-        inputMode="numeric"
+    <Field label={label} hint={hint}>
+      <select
+        value={String(current)}
         aria-label={`Condition ${index + 1} ${name}`}
-        onChange={(e) => onChange(numeric(e.target.value))}
-        className={`${INPUT} w-full font-mono`}
-      />
+        onChange={(e) => onChange(bucketsFor(Number(e.target.value), step))}
+        className={`${INPUT} w-full`}
+      >
+        {withCurrent(options, current).map((option) => (
+          <option key={option.seconds} value={option.seconds}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </Field>
   );
 }

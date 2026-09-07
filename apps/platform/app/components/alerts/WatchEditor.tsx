@@ -19,7 +19,7 @@ import { Schedule } from "./Schedule";
 import { Section } from "./Section";
 import { WatchIdentity } from "./WatchIdentity";
 import { WatchTargetPicker } from "./WatchTargetPicker";
-import { STEP_SECONDS } from "./catalogue";
+import { stepFor } from "./resolution";
 import {
   applyTarget,
   fillTarget,
@@ -30,12 +30,16 @@ import {
 
 /**
  * Writing a watch, in the order the decisions are actually made: what you are
- * watching, what to call it, how often to look, what would be wrong, who to
- * tell, and how not to be told twice.
+ * watching, how often to look at it, what would count as wrong, who to tell, how
+ * not to tell them twice — and only then what to call it.
  *
- * The app comes first because it is the only answer everything else depends on —
- * every condition is measured over it, and the earlier form asked for it once per
- * condition, as a uuid, near the bottom.
+ * The app comes first because it is the only answer everything else depends on:
+ * every condition is measured over it, and it decides what they can even measure.
+ *
+ * The name comes last because it is the one thing you cannot write until the rest
+ * is decided. Asked second, it was a blank box at the top of a form nobody had
+ * filled in yet — and a watch called "Untitled" is worse than one named after
+ * what it turned out to be watching.
  */
 export function WatchEditor({
   initial,
@@ -79,9 +83,13 @@ export function WatchEditor({
     }
   };
 
-  // The bucket width is not on the form; every save writes the one the editor
-  // measures in, so a window in minutes means minutes.
-  const submitted = (): WatchInput => ({ ...watch, stepSeconds: STEP_SECONDS });
+  // The bucket width is not on the form: it follows from how often the watch is
+  // checked, and is written on every save so a stored width can never drift from
+  // the durations the form showed.
+  const submitted = (): WatchInput => ({
+    ...watch,
+    stepSeconds: stepFor(watch.intervalSeconds),
+  });
 
   const save = () =>
     run(async () => {
@@ -123,19 +131,16 @@ export function WatchEditor({
         )}
       </Section>
 
-      <Section title="What is it called?" step={2}>
-        <WatchIdentity watch={watch} onChange={setWatch} />
-      </Section>
-
-      <Section title="How often should we look?" step={3}>
+      <Section title="How often should we check?" step={2}>
         <Schedule watch={watch} onChange={setWatch} />
       </Section>
 
-      <Section title="What would be wrong?" step={4}>
+      <Section title="What counts as a problem?" step={3}>
         <ConditionList
           combinator={watch.combinator}
           conditions={watch.conditions}
           target={target}
+          step={stepFor(watch.intervalSeconds)}
           onCombinator={(combinator) => setWatch({ ...watch, combinator })}
           // Filled rather than replaced: a condition just added, or one whose
           // measure changed, has no scope yet and would otherwise be measured
@@ -146,7 +151,7 @@ export function WatchEditor({
         />
       </Section>
 
-      <Section title="Who should hear about it?" step={5}>
+      <Section title="Who should hear about it?" step={4}>
         <ActionList
           actions={watch.actions}
           target={target}
@@ -154,8 +159,12 @@ export function WatchEditor({
         />
       </Section>
 
-      <Section title="How often should we say so?" step={6}>
+      <Section title="How often should we tell them?" step={5}>
         <Deduplication watch={watch} onChange={setWatch} />
+      </Section>
+
+      <Section title="Name it" step={6}>
+        <WatchIdentity watch={watch} onChange={setWatch} />
       </Section>
 
       {error && (

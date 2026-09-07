@@ -35,6 +35,7 @@ export function ConditionRow({
   condition,
   index,
   target,
+  step,
   removable,
   onChange,
   onRemove,
@@ -42,6 +43,8 @@ export function ConditionRow({
   condition: AlertCondition;
   index: number;
   target: WatchTarget;
+  /** The bucket width this watch is measured in, which durations convert by. */
+  step: number;
   removable: boolean;
   onChange: (next: AlertCondition) => void;
   onRemove: () => void;
@@ -158,6 +161,7 @@ export function ConditionRow({
         condition={condition}
         index={index}
         unit={measure?.unit}
+        step={step}
         onChange={onChange}
       />
     </li>

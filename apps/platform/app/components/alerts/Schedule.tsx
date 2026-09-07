@@ -1,7 +1,7 @@
 "use client";
 
 import { Field, INPUT } from "@/app/components/admin/fields";
-import { INTERVALS, withCurrent } from "./catalogue";
+import { INTERVALS, rescale, stepFor, withCurrent } from "./resolution";
 import type { WatchInput } from "@/app/model/alerts";
 
 /**
@@ -22,14 +22,12 @@ export function Schedule({
   return (
     <Field
       label="Check"
-      hint="Each check reads the window every condition asks for, ending a minute or so ago — long enough that a bucket is complete before it is judged."
+      hint={`Each check reads the window every condition asks for, ending about ninety seconds ago — long enough that a ${stepFor(watch.intervalSeconds)}-second bucket is complete before it is judged.`}
     >
       <select
         value={String(watch.intervalSeconds)}
         aria-label="Check"
-        onChange={(e) =>
-          onChange({ ...watch, intervalSeconds: Number(e.target.value) })
-        }
+        onChange={(e) => onChange(recheck(watch, Number(e.target.value)))}
         className={`${INPUT} w-full sm:w-72`}
       >
         {withCurrent(INTERVALS, watch.intervalSeconds).map((p) => (
@@ -40,4 +38,22 @@ export function Schedule({
       </select>
     </Field>
   );
+}
+
+/**
+ * Change how often a watch is checked, keeping every window covering the span it
+ * already covered.
+ *
+ * Checking more often narrows the buckets, and a bucket count left alone would
+ * then mean half the time it used to — silently, since the form shows durations
+ * and nothing on screen would appear to have moved.
+ */
+function recheck(watch: WatchInput, intervalSeconds: number): WatchInput {
+  const step = stepFor(intervalSeconds);
+  return {
+    ...watch,
+    intervalSeconds,
+    stepSeconds: step,
+    conditions: rescale(watch.conditions, watch.stepSeconds, step),
+  };
 }

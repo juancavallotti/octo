@@ -21,12 +21,14 @@ export function ConditionList({
   combinator,
   conditions,
   target,
+  step,
   onCombinator,
   onChange,
 }: {
   combinator: WatchInput["combinator"];
   conditions: AlertCondition[];
   target: WatchTarget;
+  step: number;
   onCombinator: (next: WatchInput["combinator"]) => void;
   onChange: (next: AlertCondition[]) => void;
 }) {
@@ -55,6 +57,7 @@ export function ConditionList({
             condition={condition}
             index={index}
             target={target}
+            step={step}
             removable={conditions.length > 1}
             onChange={(next) =>
               onChange(conditions.map((c, i) => (i === index ? next : c)))
