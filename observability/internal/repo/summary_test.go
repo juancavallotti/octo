@@ -342,7 +342,7 @@ func TestFoldModelCalls(t *testing.T) {
 			&cost.Usage{InputTokens: 1000, OutputTokens: 200, ThinkingTokens: 50, CachedTokens: 300},
 			priced(0.01, "ANTHROPIC", rateID))),
 		record(3, ingest.KindLLMTurn, modelCall("claude-3-5-sonnet-20241022",
-			&cost.Usage{InputTokens: 500, OutputTokens: 100, CachedTokens: 0},
+			&cost.Usage{InputTokens: 500, OutputTokens: 100, ThinkingTokens: 30, CachedTokens: 0},
 			priced(0.005, "ANTHROPIC", rateID))),
 		record(4, ingest.KindLLMEmbed, modelCall("text-embedding-3-small",
 			&cost.Usage{InputTokens: 900}, priced(0.002, "OPENAI", rateID))),
@@ -356,6 +356,10 @@ func TestFoldModelCalls(t *testing.T) {
 		t.Errorf("input tokens = %d, want 2400", got.InputTokens)
 	case got.OutputTokens != 300:
 		t.Errorf("output tokens = %d, want 300", got.OutputTokens)
+	// Summed like the rest and reporting only: these 80 are already inside the 300
+	// output tokens, so nothing may add the two and the cost below is unmoved by them.
+	case got.ThinkingTokens != 80:
+		t.Errorf("thinking tokens = %d, want 80", got.ThinkingTokens)
 	case got.CachedTokens != 300:
 		t.Errorf("cached tokens = %d, want 300", got.CachedTokens)
 	case got.UnpricedCalls != 0:

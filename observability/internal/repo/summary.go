@@ -80,13 +80,17 @@ type TraceDelta struct {
 	Status         string
 	RootDurationNs int64
 
-	Records       int
-	LLMCalls      int
-	InputTokens   int64
-	OutputTokens  int64
-	CachedTokens  int64
-	CostUSD       float64
-	UnpricedCalls int
+	Records      int
+	LLMCalls     int
+	InputTokens  int64
+	OutputTokens int64
+	// ThinkingTokens is reporting only. OutputTokens already includes it — the
+	// runtime normalizes every provider to that inclusive figure — so it is summed
+	// alongside the others and never into a cost.
+	ThinkingTokens int64
+	CachedTokens   int64
+	CostUSD        float64
+	UnpricedCalls  int
 
 	Models []string
 
@@ -280,6 +284,7 @@ func (d *TraceDelta) considerModelCall(row ingest.TraceRow) {
 	if usage := row.Record.Usage; usage != nil {
 		d.InputTokens += int64(usage.InputTokens)
 		d.OutputTokens += int64(usage.OutputTokens)
+		d.ThinkingTokens += int64(usage.ThinkingTokens)
 		d.CachedTokens += int64(usage.CachedTokens)
 	}
 

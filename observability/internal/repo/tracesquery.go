@@ -147,13 +147,15 @@ type TraceListRow struct {
 	RootDurationNs int64  `json:"root_duration_ns"`
 	Records        int    `json:"records"`
 
-	LLMCalls      int      `json:"llm_calls"`
-	InputTokens   int64    `json:"input_tokens"`
-	OutputTokens  int64    `json:"output_tokens"`
-	CachedTokens  int64    `json:"cached_tokens"`
-	CostUSD       float64  `json:"cost_usd"`
-	UnpricedCalls int      `json:"unpriced_calls"`
-	Models        []string `json:"models"`
+	LLMCalls     int   `json:"llm_calls"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	// ThinkingTokens is reporting only; OutputTokens already includes it.
+	ThinkingTokens int64    `json:"thinking_tokens"`
+	CachedTokens   int64    `json:"cached_tokens"`
+	CostUSD        float64  `json:"cost_usd"`
+	UnpricedCalls  int      `json:"unpriced_calls"`
+	Models         []string `json:"models"`
 }
 
 // TraceCursor is where a page resumes from.
@@ -200,7 +202,7 @@ const traceListColumns = `
     deployment_ids::text[], started_at, ended_at,
     root_flow, entry_kind, entry_label,
     status, root_duration_ns, records,
-    llm_calls, input_tokens, output_tokens, cached_tokens, cost_usd, unpriced_calls, models`
+    llm_calls, input_tokens, output_tokens, thinking_tokens, cached_tokens, cost_usd, unpriced_calls, models`
 
 // List returns traces matching f, newest first.
 func (t *Traces) List(ctx context.Context, f TraceFilter) ([]TraceListRow, error) {
@@ -300,7 +302,7 @@ func scanTraceListRow(src scanner) (TraceListRow, error) {
 		&row.DeploymentIDs, &row.StartedAt, &row.EndedAt,
 		&row.RootFlow, &row.EntryKind, &row.EntryLabel,
 		&row.Status, &row.RootDurationNs, &row.Records,
-		&row.LLMCalls, &row.InputTokens, &row.OutputTokens, &row.CachedTokens,
+		&row.LLMCalls, &row.InputTokens, &row.OutputTokens, &row.ThinkingTokens, &row.CachedTokens,
 		&row.CostUSD, &row.UnpricedCalls, &row.Models,
 	)
 	if err != nil {
