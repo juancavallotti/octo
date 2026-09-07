@@ -1,21 +1,18 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
-import { SecondaryButton } from "./fields";
-
 /**
- * Whether the alert troubleshooter may change this installation, or may only
- * look at it and say what it found.
+ * Whether Dr. Octo may act on what an alert tells him, or only report it.
  *
- * Its own control rather than an icon toggle beside tracing, because the two are
- * not the same size of decision. Tracing costs throughput and a pod restart. This
- * one decides whether an alert firing at four in the morning can end in a rollout
- * nobody watched — so it gets a sentence explaining what it means, and turning it
- * on takes a deliberate click on a button that says so.
+ * A checkbox rather than a button, because it is a standing permission and not
+ * an action: it describes how this installation is configured, and a button
+ * ("Let him fix things") read as something that would happen when clicked. It
+ * also sits with the other deployment settings rather than in a box of its own —
+ * it changes the same pods the buttons above it do.
  *
- * The state is rendered as prose rather than as a switch for the same reason. A
- * switch invites flipping; a line that says what is currently true, next to a
- * button that says what would change, invites reading first.
+ * The label says what is allowed and the line beneath says what happens when it
+ * is not, because "off" here is not "nothing" — it is still a full triage and a
+ * report. Somebody deciding this needs to know they lose the fixing, not the
+ * investigating.
  */
 export default function AgentAutoFix({
   autoFix,
@@ -27,38 +24,25 @@ export default function AgentAutoFix({
   onToggle: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">
-          {autoFix
-            ? "Dr. Octo may fix what an alert finds"
-            : "Dr. Octo investigates alerts, but changes nothing"}
-        </p>
-        <p className="mt-0.5 max-w-prose text-xs text-zinc-500 dark:text-zinc-400">
-          {autoFix ? (
-            <>
-              An alert can end in a change nobody watched — scaling, tracing, or
-              rolling out a corrected definition. He still reports what he did,
-              and he still refuses to act on a fault he cannot explain.
-            </>
-          ) : (
-            <>
-              He triages every alert and emails what he found, including what he
-              would change. Turning this on lets him carry that out.
-            </>
-          )}
-        </p>
-      </div>
-      <SecondaryButton onClick={onToggle} disabled={disabled}>
-        {autoFix ? "Restrict to reporting" : "Let him fix things"}
-      </SecondaryButton>
-      {autoFix && (
-        <p className="flex w-full items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-          <AlertTriangle size={12} className="shrink-0" />
-          Changes are made through the agent&rsquo;s operator, which holds the
-          unrestricted API.
-        </p>
-      )}
-    </div>
+    <label className="flex cursor-pointer items-start gap-2.5">
+      <input
+        type="checkbox"
+        checked={autoFix}
+        disabled={disabled}
+        onChange={onToggle}
+        className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">
+          Allow Dr. Octo to troubleshoot applications
+        </span>
+        <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
+          When an alert fires he triages it either way and emails what he found.
+          Ticked, he may also act on it — scaling, turning tracing on, or
+          rolling out a corrected definition — and reports what he did.
+          Unticked, you get the triage and nothing changes.
+        </span>
+      </span>
+    </label>
   );
 }

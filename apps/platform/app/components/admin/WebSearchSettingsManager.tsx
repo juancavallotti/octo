@@ -98,7 +98,7 @@ export default function WebSearchSettingsManager() {
   const configured = settings?.configured ?? false;
 
   return (
-    <section aria-labelledby="websearch-heading" className="mt-5">
+    <section aria-labelledby="websearch-heading" className="p-5">
       <h3 id="websearch-heading" className="text-sm font-semibold">
         Web search
       </h3>
@@ -127,7 +127,7 @@ export default function WebSearchSettingsManager() {
         </p>
       )}
 
-      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
+      <div className="mt-4 flex flex-col gap-3">
         <ApiKeyField
           value={apiKey}
           onChange={setApiKey}

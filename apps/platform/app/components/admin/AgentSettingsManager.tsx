@@ -150,7 +150,7 @@ export default function AgentSettingsManager() {
   };
 
   return (
-    <section aria-labelledby="deployment-heading" className="mt-8">
+    <section aria-labelledby="deployment-heading" className="p-5">
       <h2 id="deployment-heading" className="text-base font-semibold">
         Deployment
       </h2>
@@ -193,25 +193,22 @@ export default function AgentSettingsManager() {
             // would fight anyone typing mid-roll-out.
             footer={
               deployed && (
-                <AgentTurnLimit
-                  key={status.maxIterations ?? "default"}
-                  value={status.maxIterations}
-                  disabled={!canAct}
-                  onApply={applyTurns}
-                />
+                <div className="flex flex-col gap-4">
+                  <AgentTurnLimit
+                    key={status.maxIterations ?? "default"}
+                    value={status.maxIterations}
+                    disabled={!canAct}
+                    onApply={applyTurns}
+                  />
+                  <AgentAutoFix
+                    autoFix={status.autoFix}
+                    disabled={!canAct}
+                    onToggle={toggleAutoFix}
+                  />
+                </div>
               )
             }
           />
-
-          {deployed && (
-            <div className="mt-3 rounded-lg border border-black/10 p-3 dark:border-white/10">
-              <AgentAutoFix
-                autoFix={status.autoFix}
-                disabled={!canAct}
-                onToggle={toggleAutoFix}
-              />
-            </div>
-          )}
 
           {deployed && (
             <p className="mt-2 text-xs text-zinc-500">

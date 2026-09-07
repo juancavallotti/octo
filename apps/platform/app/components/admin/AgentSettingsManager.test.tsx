@@ -177,29 +177,26 @@ describe("AgentSettingsManager", () => {
     getAgentStatus.mockResolvedValue({ ...DEPLOYED, autoFix: false });
     renderManager();
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /Let him fix things/ }),
-      ).toBeTruthy(),
-    );
-    await user.click(
-      screen.getByRole("button", { name: /Let him fix things/ }),
-    );
+    const box = await screen.findByRole("checkbox", {
+      name: /Allow Dr. Octo to troubleshoot applications/,
+    });
+    expect(box).not.toBeChecked();
+    await user.click(box);
     await waitFor(() => expect(setAgentAutoFix).toHaveBeenCalledWith(true));
+  });
 
-    setAgentAutoFix.mockClear();
-    getAgentStatus.mockResolvedValue({ ...DEPLOYED, autoFix: true });
+  // Off is not "nothing happens": the triage and the email still run, and only
+  // the acting stops. The label has to say so, because that is the whole of what
+  // somebody is deciding here.
+  it("says what still happens when it is not allowed to act", async () => {
+    getAgentStatus.mockResolvedValue({ ...DEPLOYED, autoFix: false });
     renderManager();
 
     await waitFor(() =>
       expect(
-        screen.getAllByRole("button", { name: /Restrict to reporting/ })[0],
+        screen.getByText(/he triages it either way and emails what he found/i),
       ).toBeTruthy(),
     );
-    await user.click(
-      screen.getAllByRole("button", { name: /Restrict to reporting/ })[0],
-    );
-    await waitFor(() => expect(setAgentAutoFix).toHaveBeenCalledWith(false));
   });
 
   // The headline risk of rolling out: an edited agent is replaced by the shipped

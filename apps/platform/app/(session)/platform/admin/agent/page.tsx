@@ -39,11 +39,22 @@ export default function AdminAgentPage() {
             integrations. What he reasons with is configured here, and so is he.
           </p>
 
-          <LlmSettingsManager />
-
-          <WebSearchSettingsManager />
-
-          <AgentSettingsManager />
+          {/*
+            One card, three rows, divided.
+            
+            These were three bordered boxes stacked down the page, each under its
+            own heading, and the deployment one had grown a fourth box inside it
+            for a single checkbox. Four frames for one subject reads as four
+            unrelated settings pages — and they are not unrelated: the provider is
+            what he reasons with, the search key is a tool he holds, and the
+            deployment is him. Dividers say "parts of one thing" where borders say
+            "separate things".
+          */}
+          <div className="mt-5 divide-y divide-black/10 overflow-hidden rounded-xl border border-black/10 dark:divide-white/10 dark:border-white/10">
+            <LlmSettingsManager />
+            <WebSearchSettingsManager />
+            <AgentSettingsManager />
+          </div>
         </div>
       </div>
     </ConfirmProvider>

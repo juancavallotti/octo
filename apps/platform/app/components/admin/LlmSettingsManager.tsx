@@ -122,7 +122,7 @@ export default function LlmSettingsManager() {
   const encryptionAvailable = settings?.encryptionAvailable ?? true;
 
   return (
-    <section aria-labelledby="llm-heading" className="mt-5">
+    <section aria-labelledby="llm-heading" className="p-5">
       <h3 id="llm-heading" className="text-sm font-semibold">
         LLM provider
       </h3>
@@ -140,7 +140,7 @@ export default function LlmSettingsManager() {
         </p>
       )}
 
-      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/10">
+      <div className="mt-4 flex flex-col gap-3">
         <Field label="Provider">
           <select
             value={provider}
