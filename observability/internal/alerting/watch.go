@@ -54,6 +54,10 @@ type Watch struct {
 	Interval time.Duration
 	For      time.Duration
 	Renotify time.Duration
+	// Cooldown is how long this watch stays quiet after announcing something,
+	// across episodes. Zero is off. See the column comment in sql/schema.sql for
+	// why it is not the same thing as Renotify.
+	Cooldown time.Duration
 
 	DefinitionHash string
 	CreatedAt      time.Time
@@ -130,8 +134,8 @@ func validate(w Watch) error {
 	case w.Interval < MinInterval || w.Interval > MaxInterval:
 		return fmt.Errorf("alerting: %w: interval must be between %s and %s, got %s",
 			ErrInvalidWatch, MinInterval, MaxInterval, w.Interval)
-	case w.For < 0 || w.Renotify < 0:
-		return fmt.Errorf("alerting: %w: for and renotify may not be negative", ErrInvalidWatch)
+	case w.For < 0 || w.Renotify < 0 || w.Cooldown < 0:
+		return fmt.Errorf("alerting: %w: for, renotify and cooldown may not be negative", ErrInvalidWatch)
 	}
 	return nil
 }

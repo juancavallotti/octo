@@ -780,6 +780,20 @@ CREATE TABLE IF NOT EXISTS alert_watches (
     for_seconds      integer     NOT NULL DEFAULT 300,
     renotify_seconds integer     NOT NULL DEFAULT 0,
 
+    -- How long this watch stays quiet after it has announced something, across
+    -- episodes rather than within one.
+    --
+    -- renotify_seconds already bounds repeats inside a single incident, and is
+    -- the wrong tool for the case this exists for: a watch that resolves and
+    -- fires again ten minutes later opens a NEW incident, which renotify has
+    -- nothing to say about. When what receives the alert is something slow —
+    -- a person, or an agent working the problem — being told again because the
+    -- metric flapped is being told to start over.
+    --
+    -- Zero is off, and off is the default: suppression loses alerts, and losing
+    -- them is not something to do to anybody who did not ask.
+    cooldown_seconds integer     NOT NULL DEFAULT 0,
+
     definition_hash  varchar     NOT NULL DEFAULT '',
 
     created_at       timestamptz NOT NULL DEFAULT now(),

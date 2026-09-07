@@ -29,14 +29,14 @@ func scanWatchAndState(rows pgx.Rows, into *Listed) error {
 	var w alerting.Watch
 	var st alerting.State
 	var conditions, actions []byte
-	var step, interval, hold, renotify int
+	var step, interval, hold, renotify, cooldown int
 	var since, lastEval, lastNotified, mutedUntil, nextDue *time.Time
 	var incidentID *string
 
 	err := rows.Scan(
 		&w.ID, &w.Name, &w.Description, &w.Enabled, &w.Severity,
 		&w.Combinator, &conditions, &actions, &w.OnNoData,
-		&step, &interval, &hold, &renotify,
+		&step, &interval, &hold, &renotify, &cooldown,
 		&w.DefinitionHash, &w.CreatedAt, &w.UpdatedAt,
 		&st.Phase, &since, &st.ConsecutiveFiring, &st.ConsecutiveOK, &st.ConsecutiveErrors,
 		&st.DefinitionHash, &lastEval, &st.LastStatus, &st.LastValue,
@@ -49,6 +49,7 @@ func scanWatchAndState(rows pgx.Rows, into *Listed) error {
 	w.Interval = time.Duration(interval) * time.Second
 	w.For = time.Duration(hold) * time.Second
 	w.Renotify = time.Duration(renotify) * time.Second
+	w.Cooldown = time.Duration(cooldown) * time.Second
 	if err := json.Unmarshal(conditions, &w.Conditions); err != nil {
 		return fmt.Errorf("store: decode the conditions of watch %s: %w", w.ID, err)
 	}

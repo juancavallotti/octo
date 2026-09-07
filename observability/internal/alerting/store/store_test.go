@@ -536,3 +536,38 @@ func TestCountAndDefer(t *testing.T) {
 		t.Errorf("due = %+v, want only the watch that was not deferred", due)
 	}
 }
+
+// The cooldown is a schedule field like the others, and has to survive the round
+// trip — a watch that read back with no cooldown would announce again the moment
+// something flapped, which is the whole thing it exists to prevent.
+func TestCooldownRoundTrips(t *testing.T) {
+	s := newStore(t)
+	w := sampleWatch(t, "checkout errors")
+	w.Cooldown = 30 * time.Minute
+
+	created, err := s.Create(t.Context(), w, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.Cooldown != 30*time.Minute {
+		t.Errorf("cooldown came back as %s", created.Cooldown)
+	}
+
+	created.Cooldown = time.Hour
+	updated, err := s.Update(t.Context(), created, "")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Cooldown != time.Hour {
+		t.Errorf("updated cooldown came back as %s", updated.Cooldown)
+	}
+
+	// And on the joined read the scheduler uses, which scans its own columns.
+	due, err := s.Due(t.Context(), storeNow, 10)
+	if err != nil {
+		t.Fatalf("due: %v", err)
+	}
+	if len(due) != 1 || due[0].Watch.Cooldown != time.Hour {
+		t.Errorf("due list lost the cooldown: %+v", due)
+	}
+}
