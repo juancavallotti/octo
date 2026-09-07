@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle } from "lucide-react";
 import { AppPicker } from "@/app/components/AppPicker";
 import { listAllDeployments } from "@/app/model/orchestrator";
 import { listTraceApps } from "@/app/model/traces";
@@ -24,8 +23,15 @@ import { NO_TARGET, type WatchTarget } from "./target";
  *
  * Telemetry is still read, but only to annotate: it orders the apps that are
  * actually live above the ones that are quiet, and marks the quiet ones so
- * nobody writes a trace condition against an app that has never traced and
- * waits for an alert that cannot come.
+ * nobody writes a condition against an app with nothing to preview it against.
+ *
+ * What is emphatically NOT used for that is the deployment's `tracing` flag,
+ * which looks like the right signal and is not. Dr. Octo runs with tracing off
+ * and has produced two hundred traces regardless — the flag records a per-
+ * deployment switch, not whether anything has arrived — so a row marked from it
+ * would tell you a trace condition could never read anything, about an app where
+ * it plainly can. What has actually been recorded is the only honest answer, and
+ * it is the one the metric picker one step down already gives.
  *
  * The same searchable popover every other page uses to choose an app. Versions
  * are collapsed, unlike on traces: a watch is about the app across its rollouts,
@@ -48,8 +54,6 @@ interface AppChoice {
   integrationId: string;
   deploymentId: string;
   appName: string;
-  /** Whether this deployment's pods run with the tracer on. */
-  tracing: boolean;
   /** When it last produced a trace, if it ever has. */
   lastSeenAt: string | null;
 }
@@ -120,13 +124,12 @@ export function WatchTargetPicker({
         renderRow={(app) => (
           <span className="flex w-full items-center justify-between gap-3">
             <span className="truncate">{app.appName}</span>
-            {noteFor(app) && (
+            {!app.lastSeenAt && (
               <span
-                title={noteFor(app)?.title}
-                className="flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-400"
+                title={`Nothing has been recorded for this app in the last ${SEEN_WITHIN_DAYS} days. A watch on it is still worth writing — the first failure is the one you want to hear about — but there is nothing yet to preview it against.`}
+                className="shrink-0 rounded-full bg-zinc-500/15 px-2 py-0.5 text-[11px] text-zinc-600 dark:text-zinc-400"
               >
-                <AlertTriangle size={11} />
-                {noteFor(app)?.label}
+                no data yet
               </span>
             )}
           </span>
@@ -152,25 +155,6 @@ export function WatchTargetPicker({
   );
 }
 
-/** What is worth warning about on a row, if anything. */
-function noteFor(app: AppChoice): { label: string; title: string } | null {
-  if (!app.tracing) {
-    return {
-      label: "tracing off",
-      title:
-        "This deployment runs without the tracer, so it produces no traces. Log and pod-stat conditions still work; trace conditions will never have anything to read.",
-    };
-  }
-  if (!app.lastSeenAt) {
-    return {
-      label: "no telemetry yet",
-      title:
-        "Nothing has been recorded for this app in the last 90 days. A watch on it is still worth writing — it is the first failure you want to hear about — but there is nothing yet to preview it against.",
-    };
-  }
-  return null;
-}
-
 /**
  * One row per integration rather than per deployment or per version.
  *
@@ -189,7 +173,6 @@ function collapse(
     id: string;
     integrationId: string;
     name: string;
-    tracing?: boolean;
     lastUpdated: string;
   }>,
   seen: Array<{ integrationId: string; appName: string; lastSeenAt: string }>,
@@ -217,7 +200,6 @@ function collapse(
     integrationId: d.integrationId,
     deploymentId: d.id,
     appName: d.name,
-    tracing: d.tracing ?? false,
     lastSeenAt: lastSeen.get(d.integrationId) ?? lastSeen.get(d.name) ?? null,
   }));
 

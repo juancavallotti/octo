@@ -52,7 +52,6 @@ const DEPLOYMENT = {
   id: "d_1",
   integrationId: "i_1",
   name: "checkout",
-  tracing: true,
   lastUpdated: "2026-09-06T09:00:00Z",
 };
 
@@ -99,11 +98,10 @@ describe("WatchEditor", () => {
     listAllDeployments.mockReset().mockResolvedValue([DEPLOYMENT]);
   });
 
-  // The picker lists what is deployed, not what has already reported. Sourcing it
-  // from telemetry meant an app could only be watched once it had produced some
-  // — which excludes every app with tracing off, whose logs and pod stats are
-  // perfectly watchable, and defeats the point for the rest: the watch worth
-  // writing is the one armed before the first failure.
+  // The picker lists what is deployed, not what has already reported. Sourcing
+  // it from telemetry meant an app could only be watched once it had produced
+  // some, which defeats the point: the watch worth writing is the one armed
+  // before the first failure.
   it("offers a deployed app that has never reported", async () => {
     const user = userEvent.setup();
     listAllDeployments.mockResolvedValue([
@@ -112,7 +110,6 @@ describe("WatchEditor", () => {
         id: "d_2",
         integrationId: "i_2",
         name: "seneca-quote",
-        tracing: false,
         lastUpdated: "2026-09-01T09:00:00Z",
       },
     ]);
@@ -125,8 +122,12 @@ describe("WatchEditor", () => {
     expect(within(list).getByRole("option", { name: /checkout/ })).toBeVisible();
     const quiet = within(list).getByRole("option", { name: /seneca-quote/ });
     expect(quiet).toBeVisible();
-    // And it says why a trace condition on it would never read anything.
-    expect(quiet).toHaveTextContent("tracing off");
+    // And it is marked, because there is nothing to preview a watch against.
+    expect(quiet).toHaveTextContent("no data yet");
+    // The one that has reported carries no marker at all.
+    expect(
+      within(list).getByRole("option", { name: /checkout/ }),
+    ).not.toHaveTextContent("no data yet");
   });
 
   // The app is the only answer everything else depends on, so it is asked first
