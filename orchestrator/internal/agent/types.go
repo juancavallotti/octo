@@ -99,6 +99,7 @@ const (
 	envAPIKey        = "LLM_API_KEY"
 	envOrchestrator  = "ORCHESTRATOR_URL"
 	envMaxIterations = "AGENT_MAX_ITERATIONS"
+	envAutoFix       = "AGENT_TROUBLESHOOT_FIX"
 	envWebSearchKey  = "PARALLEL_API_KEY"
 )
 
@@ -140,6 +141,15 @@ type stored struct {
 	// the cluster, and a redeploy carries it forward.
 	MaxIterations int `json:"maxIterations,omitempty"`
 
+	// AutoFix lets the troubleshooter change this installation when an alert wakes
+	// it, rather than only investigating and reporting.
+	//
+	// Off unless an operator turns it on, and it is a setting rather than a
+	// deployment env var precisely so that turning it on is a decision somebody
+	// makes on a screen that can explain what it means. On, an alert firing at
+	// four in the morning can end in a rollout that nobody watched.
+	AutoFix bool `json:"autoFix,omitempty"`
+
 	InstalledAt time.Time `json:"installedAt,omitzero"`
 	UpdatedAt   time.Time `json:"updatedAt,omitzero"`
 }
@@ -166,6 +176,11 @@ type Status struct {
 	Edited bool
 
 	Tracing bool
+
+	// AutoFix reports whether the troubleshooter may change the installation when
+	// an alert wakes it, or may only investigate and report. Off unless somebody
+	// turned it on.
+	AutoFix bool
 
 	// MaxIterations is the operator's override, or zero when the definition's own
 	// default is in force. Zero is a real answer rather than a missing one — the

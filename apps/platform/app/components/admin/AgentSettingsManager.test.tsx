@@ -26,6 +26,7 @@ const NOT_INSTALLED: AgentStatus = {
   updateAvailable: false,
   edited: false,
   tracing: false,
+  autoFix: false,
 };
 
 const DEPLOYED: AgentStatus = {
@@ -37,6 +38,7 @@ const DEPLOYED: AgentStatus = {
   updateAvailable: false,
   edited: false,
   tracing: false,
+  autoFix: false,
   deploymentStatus: "running",
 };
 
@@ -52,9 +54,14 @@ function renderManager() {
  * Press the confirm dialog's affirmative button. Scoped to the dialog because it
  * shares its label with the page button that opened it.
  */
-async function confirmDialog(user: ReturnType<typeof userEvent.setup>, label: RegExp) {
+async function confirmDialog(
+  user: ReturnType<typeof userEvent.setup>,
+  label: RegExp,
+) {
   await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: label }));
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: label }),
+  );
 }
 
 describe("AgentSettingsManager", () => {
@@ -75,9 +82,13 @@ describe("AgentSettingsManager", () => {
   it("offers Install when nothing is installed, and nothing else", async () => {
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Install" })).toBeTruthy(),
+    );
     expect(screen.queryByRole("button", { name: /tracing/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Remove the agent" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Remove the agent" }),
+    ).toBeNull();
   });
 
   // Every button on this page is a decision about what is already installed, so a
@@ -96,7 +107,9 @@ describe("AgentSettingsManager", () => {
     expect(screen.getByText(/Loading/)).toBeTruthy();
 
     release(NOT_INSTALLED);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Install" })).toBeTruthy(),
+    );
     await user.click(screen.getByRole("button", { name: "Install" }));
     expect(installAgent).toHaveBeenCalledTimes(1);
   });
@@ -108,13 +121,16 @@ describe("AgentSettingsManager", () => {
     renderManager();
 
     await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Install" }) as HTMLButtonElement).disabled).toBe(
-        true,
-      ),
+      expect(
+        (screen.getByRole("button", { name: "Install" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
     );
-    expect(screen.getByRole("link", { name: /Configure the LLM provider/ }).getAttribute("href")).toBe(
-      "#llm-heading",
-    );
+    expect(
+      screen
+        .getByRole("link", { name: /Configure the LLM provider/ })
+        .getAttribute("href"),
+    ).toBe("#llm-heading");
   });
 
   it("offers Deploy, not Install, when the integration exists but nothing runs", async () => {
@@ -127,7 +143,9 @@ describe("AgentSettingsManager", () => {
     });
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deploy" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Deploy" })).toBeTruthy(),
+    );
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
     // Tracing is a rolling update of a deployment that does not exist yet.
     expect(screen.queryByRole("button", { name: /tracing/i })).toBeNull();
@@ -138,7 +156,11 @@ describe("AgentSettingsManager", () => {
     getAgentStatus.mockResolvedValue({ ...DEPLOYED, tracing: true });
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /Turn tracing off/ })).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Turn tracing off/ }),
+      ).toBeTruthy(),
+    );
     await user.click(screen.getByRole("button", { name: /Turn tracing off/ }));
 
     await waitFor(() => expect(setAgentTracing).toHaveBeenCalledWith(false));
@@ -158,7 +180,11 @@ describe("AgentSettingsManager", () => {
     });
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Roll out update" })).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Roll out update" }),
+      ).toBeTruthy(),
+    );
     await user.click(screen.getByRole("button", { name: "Roll out update" }));
 
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
@@ -178,9 +204,13 @@ describe("AgentSettingsManager", () => {
     renderManager();
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Reinstall from stock" })).toBeTruthy(),
+      expect(
+        screen.getByRole("button", { name: "Reinstall from stock" }),
+      ).toBeTruthy(),
     );
-    await user.click(screen.getByRole("button", { name: "Reinstall from stock" }));
+    await user.click(
+      screen.getByRole("button", { name: "Reinstall from stock" }),
+    );
 
     await confirmDialog(user, /^Reinstall$/);
     await waitFor(() => expect(rolloutAgent).toHaveBeenCalledTimes(1));
@@ -195,7 +225,11 @@ describe("AgentSettingsManager", () => {
     });
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Roll out update" })).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Roll out update" }),
+      ).toBeTruthy(),
+    );
     await user.click(screen.getByRole("button", { name: "Roll out update" }));
 
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
@@ -209,7 +243,11 @@ describe("AgentSettingsManager", () => {
     getAgentStatus.mockResolvedValue(DEPLOYED);
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Remove the agent" })).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Remove the agent" }),
+      ).toBeTruthy(),
+    );
     await user.click(screen.getByRole("button", { name: "Remove the agent" }));
     await confirmDialog(user, /^Remove$/);
 
@@ -223,13 +261,19 @@ describe("AgentSettingsManager", () => {
     getAgentStatus.mockRejectedValueOnce(new Error("orchestrator unreachable"));
     renderManager();
 
-    await waitFor(() => expect(screen.getByText("orchestrator unreachable")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("orchestrator unreachable")).toBeTruthy(),
+    );
     expect(screen.queryByText(/Loading/)).toBeNull();
 
     getAgentStatus.mockResolvedValue(DEPLOYED);
     await user.click(screen.getByRole("button", { name: "Try again" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Remove the agent" })).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Remove the agent" }),
+      ).toBeTruthy(),
+    );
     expect(screen.queryByText("orchestrator unreachable")).toBeNull();
   });
 
@@ -240,11 +284,15 @@ describe("AgentSettingsManager", () => {
     getAgentStatus.mockResolvedValueOnce(NOT_INSTALLED);
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Install" })).toBeTruthy(),
+    );
     getAgentStatus.mockRejectedValueOnce(new Error("orchestrator unreachable"));
     await user.click(screen.getByRole("button", { name: "Install" }));
 
-    await waitFor(() => expect(screen.getByText("orchestrator unreachable")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("orchestrator unreachable")).toBeTruthy(),
+    );
     // The agent was installed; offering to install it again would be acting on a
     // status the page knows it could not read.
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
@@ -260,7 +308,9 @@ describe("AgentSettingsManager", () => {
     });
     renderManager();
 
-    await waitFor(() => expect(screen.getByText("ImagePullBackOff")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("ImagePullBackOff")).toBeTruthy(),
+    );
     expect(screen.getByRole("button", { name: "Redeploy" })).toBeTruthy();
   });
 });
@@ -284,7 +334,9 @@ describe("AgentSettingsManager turn limit", () => {
   /** The field, once the page has loaded a deployed agent. */
   async function turnLimit() {
     renderManager();
-    return waitFor(() => screen.getByLabelText("Turn limit") as HTMLInputElement);
+    return waitFor(
+      () => screen.getByLabelText("Turn limit") as HTMLInputElement,
+    );
   }
 
   // Nothing to configure when nothing is running: the setting reaches the runtime
@@ -293,7 +345,9 @@ describe("AgentSettingsManager turn limit", () => {
     getAgentStatus.mockResolvedValue(NOT_INSTALLED);
     renderManager();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Install" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Install" })).toBeTruthy(),
+    );
     expect(screen.queryByLabelText("Turn limit")).toBeNull();
   });
 
@@ -303,7 +357,9 @@ describe("AgentSettingsManager turn limit", () => {
     const field = await turnLimit();
 
     expect(field.value).toBe("");
-    expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("applies a limit that is in range", async () => {
@@ -341,7 +397,9 @@ describe("AgentSettingsManager turn limit", () => {
     await user.type(field, "500");
 
     expect(screen.getByText(/Between 1 and 200/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled"),
+    ).toBe(true);
     expect(setAgentMaxIterations).not.toHaveBeenCalled();
   });
 });

@@ -1810,3 +1810,70 @@ func TestRepairIsANoOpWhenNothingIsDeployed(t *testing.T) {
 		t.Error("want nothing repaired when nothing is deployed")
 	}
 }
+
+// Whether the troubleshooter may act reaches the runtime the same way the turn
+// limit does — an environment variable read at startup — so it rolls the pods and
+// sends the bindings with it.
+func TestSetAutoFixRollsWithTheBindingApplied(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	got, err := h.svc.SetAutoFix(ctx, true)
+	if err != nil {
+		t.Fatalf("SetAutoFix: %v", err)
+	}
+	if len(h.deployments.rollouts) != 1 {
+		t.Fatalf("rollouts = %d, want 1", len(h.deployments.rollouts))
+	}
+	if binding := h.deployments.rollouts[0].env[envAutoFix]; binding.Value != "true" {
+		t.Errorf("%s = %q, want \"true\"", envAutoFix, binding.Value)
+	}
+	if !got.AutoFix {
+		t.Error("the status does not report it as on")
+	}
+}
+
+// Off is the shipped default and has to be reachable again, so turning it back off
+// drops the binding entirely rather than sending "false". The definition already
+// says false; a variable that repeats it is one more place the answer lives.
+func TestAutoFixOffLeavesTheBindingOut(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	if _, err := h.svc.Install(ctx, ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := h.svc.SetAutoFix(ctx, true); err != nil {
+		t.Fatalf("SetAutoFix on: %v", err)
+	}
+	got, err := h.svc.SetAutoFix(ctx, false)
+	if err != nil {
+		t.Fatalf("SetAutoFix off: %v", err)
+	}
+
+	last := h.deployments.rollouts[len(h.deployments.rollouts)-1]
+	if _, bound := last.env[envAutoFix]; bound {
+		t.Errorf("%s is still bound after being turned off", envAutoFix)
+	}
+	if got.AutoFix {
+		t.Error("the status still reports it as on")
+	}
+}
+
+// The install itself must not quietly enable it: a fresh installation reports it
+// off and binds nothing, so an agent nobody has configured cannot change anything.
+func TestInstallLeavesAutoFixOff(t *testing.T) {
+	h := newHarness(t, true)
+
+	got, err := h.svc.Install(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if got.AutoFix {
+		t.Error("a fresh install reports the troubleshooter as allowed to act")
+	}
+}

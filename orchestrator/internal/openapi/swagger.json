@@ -9,6 +9,14 @@
                 },
                 "type": "object"
             },
+            "agent.autoFixRequest": {
+                "properties": {
+                    "autoFix": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "agent.maxIterationsRequest": {
                 "properties": {
                     "actorId": {
@@ -22,6 +30,9 @@
             },
             "agent.statusResponse": {
                 "properties": {
+                    "autoFix": {
+                        "type": "boolean"
+                    },
                     "blocked": {
                         "description": "Blocked is empty, or names what stands in the way: kubernetes, encryption or\nllm_key.",
                         "type": "string"
@@ -5678,6 +5689,77 @@
                     }
                 },
                 "summary": "The platform agent's status",
+                "tags": [
+                    "agent"
+                ]
+            }
+        },
+        "/settings/agent/autofix": {
+            "post": {
+                "description": "The agent triages an alert either way. This decides whether it may act on\nwhat it finds — scaling, tracing, rolling out a corrected definition — all\nof which it does by delegating to the operator that holds the\nunrestricted API. Off means investigate and recommend only.\nA rolling update, because the runtime reads the setting at startup.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/agent.autoFixRequest",
+                                        "summary": "body",
+                                        "description": "Whether the troubleshooter may act"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Whether the troubleshooter may act",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/agent.statusResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "not installed, or not deployed"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "Let the troubleshooter change things, or only report",
                 "tags": [
                     "agent"
                 ]

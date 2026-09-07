@@ -34,6 +34,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/agent/install", h.install)
 	mux.HandleFunc("POST /settings/agent/rollout", h.rollout)
 	mux.HandleFunc("POST /settings/agent/tracing", h.tracing)
+	mux.HandleFunc("POST /settings/agent/autofix", h.autoFix)
 	mux.HandleFunc("POST /settings/agent/max-iterations", h.maxIterations)
 	mux.HandleFunc("DELETE /settings/agent", h.uninstall)
 }
@@ -49,6 +50,7 @@ type statusResponse struct {
 	UpdateAvailable bool   `json:"updateAvailable"`
 	Edited          bool   `json:"edited"`
 	Tracing         bool   `json:"tracing"`
+	AutoFix         bool   `json:"autoFix"`
 	// MaxIterations is the operator's override, omitted when the definition's own
 	// default is in force. Omitted rather than zero because zero is not a limit
 	// anyone set — it is the absence of one.
@@ -64,6 +66,11 @@ type statusResponse struct {
 // does: the orchestrator has no session and trusts the BFF as the auth boundary.
 type actorRequest struct {
 	ActorID string `json:"actorId"`
+}
+
+// autoFixRequest is the body of the troubleshooter's permission toggle.
+type autoFixRequest struct {
+	AutoFix bool `json:"autoFix"`
 }
 
 // tracingRequest is the body of the tracing toggle.
@@ -89,6 +96,7 @@ func toResponse(s Status) statusResponse {
 		UpdateAvailable:  s.UpdateAvailable,
 		Edited:           s.Edited,
 		Tracing:          s.Tracing,
+		AutoFix:          s.AutoFix,
 		MaxIterations:    s.MaxIterations,
 		Blocked:          s.Blocked,
 		DeploymentStatus: s.DeploymentStatus,
@@ -192,6 +200,41 @@ func (h *Handler) tracing(w http.ResponseWriter, r *http.Request) {
 	status, err := h.svc.SetTracing(ctx, req.Tracing)
 	if err != nil {
 		h.writeError(w, "change tracing on", err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
+}
+
+// autoFix godoc
+//
+//	@Summary		Let the troubleshooter change things, or only report
+//	@Description	The agent triages an alert either way. This decides whether it may act on
+//	@Description	what it finds — scaling, tracing, rolling out a corrected definition — all
+//	@Description	of which it does by delegating to the operator that holds the
+//	@Description	unrestricted API. Off means investigate and recommend only.
+//	@Description	A rolling update, because the runtime reads the setting at startup.
+//	@Tags			agent
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		autoFixRequest	true	"Whether the troubleshooter may act"
+//	@Success		200		{object}	statusResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"not installed, or not deployed"
+//	@Failure		503		{object}	httpx.ErrorResponse	"no cluster access"
+//	@Router			/settings/agent/autofix [post]
+func (h *Handler) autoFix(w http.ResponseWriter, r *http.Request) {
+	var req autoFixRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	status, err := h.svc.SetAutoFix(ctx, req.AutoFix)
+	if err != nil {
+		h.writeError(w, "change what the troubleshooter may do", err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toResponse(status))

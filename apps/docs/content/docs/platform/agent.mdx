@@ -312,7 +312,9 @@ It remembers what it has seen. Every alert arrives with `previousOccurrences` �
 Recorded by the flow rather than by a tool the agent has to remember to call. Whether something is recurring is a fact about what already happened, and a fact that only gets written down when a model thinks to write it down is not one you can lean on at four in the morning — which is exactly when this judgement gets made.
 
 <Callout type="warn">
-`AGENT_TROUBLESHOOT_FIX` is **off** by default. On means a model acting on your installation with nobody watching, started by an alert that fired at four in the morning — a decision to make deliberately, not one that should arrive as a side effect of deploying the agent. Off, it still triages, still reads everything and still reports twice; it only stops the third act.
+The third act is **off** by default, and it is a switch on **Admin → Agent**: *Let him fix things*. On means a model acting on your installation with nobody watching, started by an alert that fired at four in the morning — a decision to make deliberately, not one that should arrive as a side effect of deploying the agent. Off, he still triages, still reads everything and still reports; it only stops him carrying out what he recommends.
+
+Flipping it rolls the agent's pods, for the same reason the tracing toggle does: the runtime reads the setting at startup. Underneath it is the `AGENT_TROUBLESHOOT_FIX` binding, set the same way the model and the search key are.
 </Callout>
 
 The second report is sent by the flow rather than by the agent. The first is a judgement call — the agent decides when triage is done. The second is an obligation, and an obligation discharged only when a model remembers it is not one: a run that used up its turns or gave up would otherwise end in silence, which is the worst outcome here because the alert has already been marked as handled.

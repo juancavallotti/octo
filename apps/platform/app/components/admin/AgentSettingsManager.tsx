@@ -7,12 +7,14 @@ import {
   installAgent,
   rolloutAgent,
   setAgentMaxIterations,
+  setAgentAutoFix,
   setAgentTracing,
   uninstallAgent,
   type AgentStatus,
 } from "@/app/model/agent";
 import AgentActions from "./AgentActions";
 import AgentStatusCard from "./AgentStatusCard";
+import AgentAutoFix from "./AgentAutoFix";
 import AgentTurnLimit from "./AgentTurnLimit";
 import { SecondaryButton } from "./fields";
 
@@ -126,6 +128,11 @@ export default function AgentSettingsManager() {
     run(() => setAgentTracing(!status?.tracing));
   };
 
+  const toggleAutoFix = () => {
+    if (!canAct || !deployed) return;
+    run(() => setAgentAutoFix(!status?.autoFix));
+  };
+
   const applyTurns = (limit: number) => {
     if (!canAct || !deployed) return;
     run(() => setAgentMaxIterations(limit));
@@ -195,6 +202,16 @@ export default function AgentSettingsManager() {
               )
             }
           />
+
+          {deployed && (
+            <div className="mt-3 rounded-lg border border-black/10 p-3 dark:border-white/10">
+              <AgentAutoFix
+                autoFix={status.autoFix}
+                disabled={!canAct}
+                onToggle={toggleAutoFix}
+              />
+            </div>
+          )}
 
           {deployed && (
             <p className="mt-2 text-xs text-zinc-500">

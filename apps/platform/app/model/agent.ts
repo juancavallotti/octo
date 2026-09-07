@@ -35,10 +35,20 @@ export async function setAgentTracing(tracing: boolean): Promise<AgentStatus> {
 }
 
 /**
+ * Let the alert troubleshooter act on what it finds, or restrict it to reporting.
+ * A rolling update, for the same reason tracing is: the runtime reads it at startup.
+ */
+export async function setAgentAutoFix(autoFix: boolean): Promise<AgentStatus> {
+  return unwrap(await actions.setAgentAutoFix(autoFix));
+}
+
+/**
  * Set the turn limit for one run, or 0 to go back to the definition's default.
  * A rolling update, for the same reason tracing is: the runtime reads it at startup.
  */
-export async function setAgentMaxIterations(maxIterations: number): Promise<AgentStatus> {
+export async function setAgentMaxIterations(
+  maxIterations: number,
+): Promise<AgentStatus> {
   return unwrap(await actions.setAgentMaxIterations(maxIterations));
 }
 

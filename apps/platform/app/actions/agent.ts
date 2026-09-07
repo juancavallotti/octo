@@ -32,10 +32,18 @@ export async function setAgentTracing(
   return withWriteUser((userId) => client.setAgentTracing(userId, tracing));
 }
 
+export async function setAgentAutoFix(
+  autoFix: boolean,
+): Promise<ActionResult<AgentStatus>> {
+  return withWriteUser((userId) => client.setAgentAutoFix(userId, autoFix));
+}
+
 export async function setAgentMaxIterations(
   maxIterations: number,
 ): Promise<ActionResult<AgentStatus>> {
-  return withWriteUser((userId) => client.setAgentMaxIterations(userId, maxIterations));
+  return withWriteUser((userId) =>
+    client.setAgentMaxIterations(userId, maxIterations),
+  );
 }
 
 /**
@@ -45,6 +53,8 @@ export async function setAgentMaxIterations(
  * attributed today. Sending one would describe an attribution that is not recorded.
  * It still goes through the user gate so an unprovisioned caller fails closed.
  */
-export async function uninstallAgent(purge: boolean): Promise<ActionResult<void>> {
+export async function uninstallAgent(
+  purge: boolean,
+): Promise<ActionResult<void>> {
   return withWriteUser(() => client.uninstallAgent(purge));
 }

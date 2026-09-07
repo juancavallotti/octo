@@ -39,6 +39,11 @@ export interface AgentStatus {
   edited: boolean;
   tracing: boolean;
   /**
+   * Whether the troubleshooter may change this installation when an alert wakes
+   * it, or may only investigate and report. Off unless somebody turned it on.
+   */
+  autoFix: boolean;
+  /**
    * How many tool-calling turns one run may take, when an operator has set a limit.
    * Absent means the agent's own definition decides, which is the default state and
    * is why this is optional rather than a number that is sometimes meaningless.
@@ -55,11 +60,15 @@ export function getAgentStatus(): Promise<ActionResult<AgentStatus>> {
   return call<AgentStatus>("GET", "/settings/agent");
 }
 
-export function installAgent(actorId: string): Promise<ActionResult<AgentStatus>> {
+export function installAgent(
+  actorId: string,
+): Promise<ActionResult<AgentStatus>> {
   return call<AgentStatus>("POST", "/settings/agent/install", { actorId });
 }
 
-export function rolloutAgent(actorId: string): Promise<ActionResult<AgentStatus>> {
+export function rolloutAgent(
+  actorId: string,
+): Promise<ActionResult<AgentStatus>> {
   return call<AgentStatus>("POST", "/settings/agent/rollout", { actorId });
 }
 
@@ -67,7 +76,24 @@ export function setAgentTracing(
   actorId: string,
   tracing: boolean,
 ): Promise<ActionResult<AgentStatus>> {
-  return call<AgentStatus>("POST", "/settings/agent/tracing", { actorId, tracing });
+  return call<AgentStatus>("POST", "/settings/agent/tracing", {
+    actorId,
+    tracing,
+  });
+}
+
+/**
+ * Decide whether the alert troubleshooter may act on what it finds, or only
+ * report it. A rolling update: the runtime reads the setting at startup.
+ */
+export function setAgentAutoFix(
+  actorId: string,
+  autoFix: boolean,
+): Promise<ActionResult<AgentStatus>> {
+  return call<AgentStatus>("POST", "/settings/agent/autofix", {
+    actorId,
+    autoFix,
+  });
 }
 
 /**
@@ -78,7 +104,10 @@ export function setAgentMaxIterations(
   actorId: string,
   maxIterations: number,
 ): Promise<ActionResult<AgentStatus>> {
-  return call<AgentStatus>("POST", "/settings/agent/max-iterations", { actorId, maxIterations });
+  return call<AgentStatus>("POST", "/settings/agent/max-iterations", {
+    actorId,
+    maxIterations,
+  });
 }
 
 /**
