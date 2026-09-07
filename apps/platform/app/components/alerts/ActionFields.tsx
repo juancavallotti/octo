@@ -80,9 +80,15 @@ export function TopicFields({
   const deploymentId = String(params.deploymentId ?? "");
   const listId = `topics-${action.id}`;
   const reportTo = (params.reportTo as string[]) ?? [];
+  // Which app this action actually publishes to: the one chosen here, or the
+  // watch's own app when that is left blank. Filtering on the raw field alone
+  // showed every subject on the installation whenever it was blank, and then
+  // counted them in the hint.
+  const receiving = deploymentId || target.deploymentId || "";
   const forThisApp = destinations.filter(
-    (d) => !deploymentId || d.deploymentId === deploymentId,
+    (d) => !receiving || d.deploymentId === receiving,
   );
+  const subjects = [...new Set(forThisApp.map((d) => d.subject))].sort();
 
   const set = (key: string, value: string) =>
     onChange({ ...action, params: { ...params, [key]: value } });
@@ -119,23 +125,51 @@ export function TopicFields({
       <Field
         label="On subject"
         hint={
-          forThisApp.length > 0
-            ? `${forThisApp.length} subscribed right now.`
+          subjects.length > 0
+            ? "Pick one this app already listens on, or type a new one."
             : "Nothing is subscribed to a topic on this app yet. The flow that receives it uses an events source with this subject."
         }
       >
-        <input
-          value={String(params.subject ?? "")}
-          list={listId}
-          aria-label={`Action ${index + 1} subject`}
-          onChange={(e) => set("subject", e.target.value)}
-          className={`${INPUT} w-full font-mono`}
-          placeholder="alerts"
-        />
+        <div className="flex gap-2">
+          <input
+            value={String(params.subject ?? "")}
+            list={listId}
+            aria-label={`Action ${index + 1} subject`}
+            onChange={(e) => set("subject", e.target.value)}
+            className={`${INPUT} w-full font-mono`}
+            placeholder="alerts"
+          />
+          {/*
+            The subscribed subjects, as a control rather than as a datalist.
+            A datalist only appears once somebody types, so the one thing worth
+            knowing here — what this app is actually listening on — was invisible
+            to anyone who did not already know it. This sets the field and holds
+            no state of its own, so a subject that does not exist yet can still
+            be typed: the receiving flow is often written after the watch.
+          */}
+          {subjects.length > 0 && (
+            <select
+              value=""
+              aria-label={`Action ${index + 1} subscribed subjects`}
+              onChange={(e) => {
+                if (e.target.value) set("subject", e.target.value);
+              }}
+              className={`${INPUT} shrink-0`}
+            >
+              <option value="">Subscribed…</option>
+              {subjects.map((subject) => (
+                <option key={subject} value={subject}>
+                  {subject}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </Field>
+
       <datalist id={listId}>
-        {forThisApp.map((d) => (
-          <option key={`${d.deploymentId}:${d.subject}`} value={d.subject} />
+        {subjects.map((subject) => (
+          <option key={subject} value={subject} />
         ))}
       </datalist>
 

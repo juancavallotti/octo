@@ -66,9 +66,16 @@ interface Connz {
   }>;
 }
 
-// Platform queue subjects are scoped as `octo.<deployment>.q.<name>` and queue-
-// subscribed on that same string (see runtime queues.go). Parse the readable parts.
-const QUEUE_SUBJECT_RE = /^octo\.([^.]+)\.q\.(.+)$/;
+// The platform scopes a deployment's own subjects as `octo.<deployment>.<kind>.<name>`,
+// where kind is `q` for a queue (competing consumers, queue-subscribed on that same
+// string) and `t` for a topic (broadcast). See runtime topics.go and queues.go.
+//
+// This used to match `q` alone, which was right when queues were the only scoped
+// subject there was. Topics arrived later and fell through to the raw-subject
+// fallback below, so every one of them showed in the view as its full internal
+// string — `octo.<uuid>.t.alerts` — with no deployment beside it, which is both
+// unreadable and the one presentation that leaks the scoping format at people.
+const SCOPED_SUBJECT_RE = /^octo\.([^.]+)\.([qt])\.(.+)$/;
 
 /** Skip NATS/JetStream internal subjects (reply inboxes, system, JS) as non-queues. */
 function isInternalSubject(subject: string): boolean {
@@ -134,12 +141,13 @@ function toDestinations(
       if (isInternalSubject(sub.subject)) continue;
       let dest = bySubject.get(sub.subject);
       if (!dest) {
-        const m = QUEUE_SUBJECT_RE.exec(sub.subject);
+        const m = SCOPED_SUBJECT_RE.exec(sub.subject);
         dest = {
           subject: sub.subject,
           queue: sub.qgroup ?? null,
+          scope: m ? (m[2] === "t" ? "topic" : "queue") : null,
           deployment: m?.[1] ?? null,
-          name: m?.[2] ?? sub.subject,
+          name: m?.[3] ?? sub.subject,
           subscriptions: 0,
           msgs: 0,
           subscribers: [],
