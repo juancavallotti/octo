@@ -206,7 +206,6 @@ describe("AgentSettingsManager", () => {
 
     await waitFor(() =>
       expect(setAgentDeploymentSettings).toHaveBeenCalledWith({
-        maxIterations: 0,
         autoFix: true,
       }),
     );
@@ -436,9 +435,10 @@ describe("AgentSettingsManager turn limit", () => {
     // Through the combined call, so the pods are replaced once even when the
     // permission below changed in the same edit.
     await waitFor(() =>
+      // Only the field that changed: an omitted one is left alone, so this
+      // cannot write a stale copy of the permission over a newer value.
       expect(setAgentDeploymentSettings).toHaveBeenCalledWith({
         maxIterations: 40,
-        autoFix: false,
       }),
     );
   });
@@ -459,13 +459,58 @@ describe("AgentSettingsManager turn limit", () => {
     await waitFor(() =>
       expect(setAgentDeploymentSettings).toHaveBeenCalledWith({
         maxIterations: 0,
-        autoFix: false,
       }),
     );
   });
 
   // Answered here rather than by the orchestrator, because the round trip that
   // would answer it also replaces the agent's pods.
+  // Both at once is the case the combined endpoint exists for: one call, one
+  // roll-out, rather than two replacements of the pods for one click.
+  it("sends both pod settings together when both changed", async () => {
+    const user = userEvent.setup();
+    const field = await turnLimit();
+
+    await user.type(field, "40");
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Allow Dr. Octo to troubleshoot applications/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(setAgentDeploymentSettings).toHaveBeenCalledWith({
+        maxIterations: 40,
+        autoFix: true,
+      }),
+    );
+    expect(setAgentDeploymentSettings).toHaveBeenCalledTimes(1);
+  });
+
+  // Every lifecycle action reloads, and a reload reseeds the draft. It used to
+  // take whatever somebody was halfway through typing with it — an edit lost to
+  // a button that had nothing to do with it.
+  it("keeps an unsaved edit when a lifecycle action reloads", async () => {
+    const user = userEvent.setup();
+    getAgentStatus.mockResolvedValue({ ...DEPLOYED, tracing: false });
+    setAgentTracing.mockResolvedValue({ ...DEPLOYED, tracing: true });
+    const field = await turnLimit();
+
+    await user.type(field, "40");
+    await user.click(screen.getByRole("button", { name: /Turn tracing on/ }));
+
+    await waitFor(() => expect(setAgentTracing).toHaveBeenCalled());
+    // The edit survived the reload, and is still offered for saving. Queried
+    // directly rather than through the helper, which renders a second manager.
+    expect(
+      (screen.getByLabelText("Turn limit") as HTMLInputElement).value,
+    ).toBe("40");
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
   it("refuses a limit outside the range without asking the server", async () => {
     const user = userEvent.setup();
     const field = await turnLimit();

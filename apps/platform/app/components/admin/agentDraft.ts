@@ -86,11 +86,23 @@ export function reducer(state: State, action: Action): State {
     // what is stored — including the secrets, which go back to empty because
     // what is stored is not something this page can show back.
     case "loaded": {
-      const draft = draftOf(action.stored);
+      const loaded = draftOf(action.stored);
+      // A reload replaces the baseline, but it must not discard edits nobody
+      // has saved yet. Anything a lifecycle action does — toggling tracing,
+      // removing a key, rolling out — goes through the same reload, and it used
+      // to silently take the field somebody was halfway through typing with it.
+      //
+      // So a field that differs from the OLD baseline is kept, and everything
+      // else takes the value that just came back. The new baseline is always
+      // what was loaded, so a kept field stays dirty and a saved one stops being.
+      const draft =
+        state.draft && state.base
+          ? keepEdits(loaded, state.base, state.draft)
+          : loaded;
       return {
         ...state,
         stored: action.stored,
-        base: draft,
+        base: loaded,
         draft,
         loading: false,
         loadFailed: false,
@@ -118,6 +130,25 @@ export function reducer(state: State, action: Action): State {
     case "busy":
       return { ...state, busy: action.busy };
   }
+}
+
+/**
+ * The freshly loaded values, with whatever was edited and not yet saved carried
+ * over. Field by field, because the two halves of the form are edited and saved
+ * independently and a reload triggered by one must not revert the other.
+ */
+function keepEdits(
+  loaded: AgentDraft,
+  base: AgentDraft,
+  draft: AgentDraft,
+): AgentDraft {
+  const next = { ...loaded };
+  for (const key of Object.keys(loaded) as (keyof AgentDraft)[]) {
+    if (draft[key] !== base[key]) {
+      (next as Record<string, string | boolean>)[key] = draft[key];
+    }
+  }
+  return next;
 }
 
 /** Which parts of the draft differ from what is stored. */
