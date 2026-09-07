@@ -47,8 +47,11 @@ type Outcome struct {
 	BaselineSamples int     `json:"baselineSamples,omitempty"`
 	Denominator     float64 `json:"denominator,omitempty"`
 
-	WindowFrom time.Time `json:"windowFrom"`
-	WindowTo   time.Time `json:"windowTo"`
+	// omitzero, because an outcome that never reached a window — a fetch that
+	// failed, a condition that could not be built — would otherwise report year
+	// one as the period it measured, and a reader has to special-case that.
+	WindowFrom time.Time `json:"windowFrom,omitzero"`
+	WindowTo   time.Time `json:"windowTo,omitzero"`
 
 	Verdict Truth  `json:"-"`
 	Truth   string `json:"verdict"`
@@ -102,8 +105,8 @@ type Evaluation struct {
 	// blind in one eye.
 	Degraded bool `json:"degraded"`
 
-	WindowFrom time.Time     `json:"windowFrom"`
-	WindowTo   time.Time     `json:"windowTo"`
+	WindowFrom time.Time     `json:"windowFrom,omitzero"`
+	WindowTo   time.Time     `json:"windowTo,omitzero"`
 	Duration   time.Duration `json:"-"`
 	Reason     string        `json:"reason,omitempty"`
 	Err        string        `json:"error,omitempty"`
