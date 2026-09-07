@@ -49,6 +49,44 @@ vars:
   EMBEDDINGS_DIMENSIONS:
     source: env
     default: "1536"
+  # --- Single sign-on for the editor -----------------------------------------
+  #
+  # These used to live in apps/platform/.env, which was the wrong place twice
+  # over. That file is inside the platform's build context and its DevSpace sync
+  # path, so a developer with SSO configured baked their client secret into every
+  # locally built image and pushed it into the running pod. And it configured only
+  # `pnpm dev` — a cluster deploy read none of it, so the same settings had to be
+  # written a second time as helm values.
+  #
+  # One file now: the repo root .env, which Taskfile.yml already loads and
+  # DevSpace reads for `source: env`. It feeds `task cluster:deploy` and
+  # `task cluster:dev` alike, because both run `devspace deploy` through the block
+  # below.
+  OIDC_ISSUER:
+    source: env
+    default: ""
+  OIDC_CLIENT_ID:
+    source: env
+    default: ""
+  OIDC_CLIENT_SECRET:
+    source: env
+    default: ""
+  AUTH_SECRET:
+    source: env
+    default: ""
+  # The callback origin. Stated rather than derived, because the chart's default
+  # is https://{ingress.host} with no port — right for a real deployment and wrong
+  # for the local profile, which serves on 8443 because Docker holds 443.
+  AUTH_URL:
+    source: env
+    default: ""
+  # Derived from the issuer for the same reason EMBEDDINGS_ENABLED is derived from
+  # the key: "enabled with no issuer" renders a chart whose secret template
+  # refuses, and there is no useful way to hold those two apart.
+  OIDC_ENABLED:
+    command: sh
+    args: ["-c", 'test -n "$OIDC_ISSUER" && echo true || echo false']
+
   # Derived from the key rather than set on its own, so there is one knob and no
   # way to hold it wrong — "enabled with no key" renders a chart the secret
   # template refuses, and "a key that does nothing" is worse than either.
@@ -78,6 +116,17 @@ deployments:
       # An empty key leaves embeddings.enabled false and the chart renders no
       # embedding server at all.
       values:
+        # Empty strings leave auth.oidc.enabled false, and the chart then renders
+        # no auth Secret and no OIDC env at all — the ordinary local setup, where
+        # the editor is open and every request runs as a local user.
+        auth:
+          url: "${AUTH_URL}"
+          secret: "${AUTH_SECRET}"
+          oidc:
+            enabled: ${OIDC_ENABLED}
+            issuer: "${OIDC_ISSUER}"
+            clientId: "${OIDC_CLIENT_ID}"
+            clientSecret: "${OIDC_CLIENT_SECRET}"
         embeddings:
           enabled: ${EMBEDDINGS_ENABLED}
           apiKey: "${EMBEDDINGS_API_KEY}"
@@ -113,6 +162,12 @@ dev:
           - .next/
           - .octo-run/
           - .git/
+          # A local .env must never reach the pod. The chart supplies this app's
+          # environment from values and a Secret; a synced file would silently
+          # win over both, and it is exactly how a client secret ended up inside
+          # a running container.
+          - .env
+          - .env.*
     # Stream this pod's logs to the terminal.
     logs: {}
   orchestrator:

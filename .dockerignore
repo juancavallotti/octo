@@ -9,3 +9,17 @@ data
 **/.next
 **/*.log
 .DS_Store
+
+# Local environment files, which are credentials.
+#
+# The platform image copies apps/platform/ wholesale, so a developer's .env was
+# landing in an image layer — client secret, session secret and all. CI never
+# noticed because it builds from a clean checkout where these do not exist; only
+# local builds carried them. Excluded here so the build context cannot see them
+# at all, whoever is building.
+#
+# The .example files are deliberately not excluded: they are committed, carry no
+# values, and are the documentation.
+**/.env
+**/.env.local
+**/.env.*.local

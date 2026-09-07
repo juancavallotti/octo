@@ -1,5 +1,22 @@
+import { loadEnvConfig } from "@next/env";
 import type { NextConfig } from "next";
 import path from "path";
+
+// Read the repo root's .env, not this app's.
+//
+// Next loads .env from the project directory only — there is no monorepo
+// awareness and no envDir option; the documented way to read one from anywhere
+// else is @next/env's loadEnvConfig, which is what this is.
+//
+// It is the root file because a second .env inside apps/platform was a hazard
+// rather than a convenience. This directory is the platform image's build
+// context AND its DevSpace sync path, so an SSO-configured developer baked their
+// client secret into every local image and pushed it into the running pod. The
+// root file is in neither.
+//
+// Only dev and build read this. A deployed container has no .env at all: its
+// environment comes from the chart, which is the one place secrets belong.
+loadEnvConfig(path.join(__dirname, "../.."));
 
 const nextConfig: NextConfig = {
   // Emit a self-contained server bundle (.next/standalone) so the container
