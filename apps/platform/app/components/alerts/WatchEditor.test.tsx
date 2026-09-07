@@ -239,7 +239,7 @@ describe("WatchEditor", () => {
       screen.getByLabelText("Wait before telling me"),
       "900",
     );
-    await user.selectOptions(screen.getByLabelText("Tell me again"), "3600");
+    await user.selectOptions(screen.getByLabelText("Report again"), "3600");
     await user.type(screen.getByLabelText("Name"), "x");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
@@ -247,7 +247,7 @@ describe("WatchEditor", () => {
     const sent = createWatch.mock.calls[0][0] as Record<string, number>;
     expect(sent.intervalSeconds).toBe(300);
     expect(sent.forSeconds).toBe(900);
-    expect(sent.renotifySeconds).toBe(3600);
+    expect(sent.cooldownSeconds).toBe(3600);
   });
 
   // A watch created over the API can hold a value no preset offers, and a select
@@ -325,10 +325,10 @@ describe("WatchEditor", () => {
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
   });
 
-  // The case the cooldown exists for: something slow receives the alert and
-  // being told again is being told to start over. It is off by default, because
-  // suppression loses alerts.
-  it("sends the cooldown, and defaults it to off", async () => {
+  // The cooldown is the only thing bounding how often a watch reports, so it
+  // defaults to a real interval rather than to off — off now means a message on
+  // every single check.
+  it("sends the report rate, and defaults it to 15 minutes", async () => {
     const user = userEvent.setup();
     renderEditor();
 
@@ -338,13 +338,10 @@ describe("WatchEditor", () => {
     expect(
       (createWatch.mock.calls[0][0] as { cooldownSeconds: number })
         .cooldownSeconds,
-    ).toBe(0);
+    ).toBe(900);
 
     createWatch.mockClear();
-    await user.selectOptions(
-      screen.getByLabelText("After telling them"),
-      "1800",
-    );
+    await user.selectOptions(screen.getByLabelText("Report again"), "1800");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(createWatch).toHaveBeenCalled());
     expect(

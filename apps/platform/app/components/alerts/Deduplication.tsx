@@ -1,17 +1,24 @@
 "use client";
 
 import { Field, INPUT } from "@/app/components/admin/fields";
-import { COOLDOWNS, HOLDS, REPEATS, withCurrent } from "./resolution";
+import { COOLDOWNS, HOLDS, withCurrent } from "./resolution";
 import type { AlertNoData, WatchInput } from "@/app/model/alerts";
 
 /**
  * Not being told the same thing twice.
  *
- * Three separate questions, and none of them is "how often do we look":
+ * Three questions, and none of them is "how often do we look":
  *
- *   the hold      how long it has to keep being true before you hear about it
- *   the repeat    whether you hear again while it is still true
+ *   the hold      how long it has to keep being true before anyone hears
+ *   the cadence   how often it may report while it stays true
  *   no data       what an empty window counts as
+ *
+ * There were four. A repeat interval sat between the hold and the cadence and
+ * said the same thing the cadence says: "report every 15 minutes" and "stay
+ * quiet for 15 minutes after reporting" are one setting written twice. Two
+ * copies of one setting can be given two numbers, and then the smaller one
+ * quietly wins while the form claims otherwise — so it is gone, and what is left
+ * is a single rate.
  *
  * The hold used to sit under Schedule as "Hold for (seconds)", which explained
  * nothing. It is here because what it is for is suppression: a momentary spike
@@ -56,32 +63,12 @@ export function Deduplication({
       </Field>
 
       <Field
-        label="Tell me again"
-        hint="Resolving is announced either way, and only once."
-      >
-        <select
-          value={String(watch.renotifySeconds)}
-          aria-label="Tell me again"
-          onChange={(e) =>
-            onChange({ ...watch, renotifySeconds: Number(e.target.value) })
-          }
-          className={`${INPUT} w-full sm:w-80`}
-        >
-          {withCurrent(REPEATS, watch.renotifySeconds).map((p) => (
-            <option key={p.seconds} value={p.seconds}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field
-        label="After telling them"
-        hint="Renotify only bounds repeats inside one incident. This spans them: a watch that resolves and fires again has opened a new one. Worth setting when whatever receives the alert is slow on purpose — a person, or an agent working the problem — since telling it again is telling it to start over. A recovery is never held back."
+        label="Report again"
+        hint="A watch that is still firing offers to say so on every check; this is what it is allowed through. It counts across episodes too — one that resolves and fires again has opened a new incident, and this still holds it. Worth widening when whatever receives the alert is slow on purpose, a person or an agent working the problem, since telling it again is telling it to start over. A recovery is never held back, and is announced once."
       >
         <select
           value={String(watch.cooldownSeconds)}
-          aria-label="After telling them"
+          aria-label="Report again"
           onChange={(e) =>
             onChange({ ...watch, cooldownSeconds: Number(e.target.value) })
           }

@@ -37,7 +37,6 @@ export interface RawWatch {
   step_seconds: number;
   interval_seconds: number;
   for_seconds: number;
-  renotify_seconds: number;
   cooldown_seconds: number;
   created_at?: string | null;
   updated_at?: string | null;
@@ -74,7 +73,6 @@ export function toWatch(r: RawWatch): Watch {
     stepSeconds: r.step_seconds,
     intervalSeconds: r.interval_seconds,
     forSeconds: r.for_seconds,
-    renotifySeconds: r.renotify_seconds,
     cooldownSeconds: r.cooldown_seconds ?? 0,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
@@ -95,7 +93,6 @@ export function fromWatch(w: WatchInput): Record<string, unknown> {
     step_seconds: w.stepSeconds,
     interval_seconds: w.intervalSeconds,
     for_seconds: w.forSeconds,
-    renotify_seconds: w.renotifySeconds,
     cooldown_seconds: w.cooldownSeconds,
   };
 }

@@ -129,11 +129,11 @@ describe("describeVerdict and describeSchedule", () => {
     const watch = {
       intervalSeconds: 60,
       forSeconds: 300,
-      renotifySeconds: 0,
+      cooldownSeconds: 0,
     } as Watch;
     expect(describeSchedule(watch)).toBe("every 1m · held 5m");
-    expect(describeSchedule({ ...watch, renotifySeconds: 3600 })).toBe(
-      "every 1m · held 5m · repeats 1h",
+    expect(describeSchedule({ ...watch, cooldownSeconds: 3600 })).toBe(
+      "every 1m · held 5m · reports at most 1h",
     );
   });
 });

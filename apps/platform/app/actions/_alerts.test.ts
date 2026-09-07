@@ -33,7 +33,6 @@ const rawWatch = {
   step_seconds: 60,
   interval_seconds: 60,
   for_seconds: 300,
-  renotify_seconds: 0,
   created_at: "2026-09-06T10:00:00Z",
   updated_at: null,
 };
@@ -123,7 +122,6 @@ describe("the alerting client", () => {
         stepSeconds: 60,
         intervalSeconds: 60,
         forSeconds: 300,
-        renotifySeconds: 0,
         cooldownSeconds: 0,
       },
       "u_1",
@@ -253,7 +251,6 @@ describe("the alerting client", () => {
         stepSeconds: 60,
         intervalSeconds: 60,
         forSeconds: 0,
-        renotifySeconds: 0,
         cooldownSeconds: 0,
       },
       "u_1",

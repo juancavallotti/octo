@@ -96,15 +96,12 @@ export interface Watch {
   intervalSeconds: number;
   /** How long the combined verdict must hold. Counted in evaluations. */
   forSeconds: number;
-  /** How often a still-firing watch says so again. Zero announces once. */
-  renotifySeconds: number;
   /**
-   * How long the watch stays quiet after announcing something, across episodes.
-   * Zero is off.
+   * How long the watch stays quiet after announcing something.
    *
-   * Not the same as renotify, which only bounds repeats inside one incident: a
-   * watch that resolves and fires again has opened a new one, and renotify has
-   * nothing to say about it.
+   * The only bound on how often a watch reports: a still-firing watch offers to
+   * say so on every evaluation, and this is what all but the first runs into. It
+   * counts across episodes as well as within one. Zero lets every one through.
    */
   cooldownSeconds: number;
   createdAt?: string | null;

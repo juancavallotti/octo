@@ -72,21 +72,26 @@ export const HOLDS: Duration[] = [
   { seconds: 1800, label: "…if it lasts 30 minutes" },
 ];
 
+/**
+ * How often a watch is allowed to report.
+ *
+ * There is one list here where there were two. A repeat interval ("every 15
+ * minutes while it lasts") and a suppression window ("stay quiet for 15 minutes
+ * afterwards") are the same setting said two ways — they cannot disagree, so
+ * offering both only invited setting them to different numbers and getting the
+ * smaller one. This is the survivor, and it reads as the cadence it is.
+ *
+ * Zero is genuinely every evaluation, which at a 30-second interval is a message
+ * every 30 seconds. It stays reachable because a receiver that is a machine may
+ * want each one; it is not the default.
+ */
 export const COOLDOWNS: Duration[] = [
-  { seconds: 0, label: "No cooldown — tell me every time" },
-  { seconds: 900, label: "Stay quiet for 15 minutes afterwards" },
-  { seconds: 1800, label: "Stay quiet for 30 minutes afterwards" },
-  { seconds: 3600, label: "Stay quiet for an hour afterwards" },
-  { seconds: 21600, label: "Stay quiet for 6 hours afterwards" },
-  { seconds: 86400, label: "Stay quiet for a day afterwards" },
-];
-
-export const REPEATS: Duration[] = [
-  { seconds: 0, label: "Only once per incident" },
-  { seconds: 900, label: "Every 15 minutes while it lasts" },
-  { seconds: 3600, label: "Every hour while it lasts" },
-  { seconds: 21600, label: "Every 6 hours while it lasts" },
-  { seconds: 86400, label: "Once a day while it lasts" },
+  { seconds: 0, label: "Every time it is still true" },
+  { seconds: 900, label: "At most every 15 minutes" },
+  { seconds: 1800, label: "At most every 30 minutes" },
+  { seconds: 3600, label: "At most once an hour" },
+  { seconds: 21600, label: "At most once every 6 hours" },
+  { seconds: 86400, label: "At most once a day" },
 ];
 
 /**

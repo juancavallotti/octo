@@ -176,7 +176,7 @@ export function describeEpisode(i: Incident, now = Date.now()): string {
 export function describeSchedule(w: Watch): string {
   const parts = [`every ${formatSeconds(w.intervalSeconds)}`];
   if (w.forSeconds > 0) parts.push(`held ${formatSeconds(w.forSeconds)}`);
-  if (w.renotifySeconds > 0)
-    parts.push(`repeats ${formatSeconds(w.renotifySeconds)}`);
+  if (w.cooldownSeconds > 0)
+    parts.push(`reports at most ${formatSeconds(w.cooldownSeconds)}`);
   return parts.join(" · ");
 }

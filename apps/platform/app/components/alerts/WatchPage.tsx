@@ -96,7 +96,6 @@ function toInput(watch: Watch): WatchInput {
     stepSeconds: watch.stepSeconds,
     intervalSeconds: watch.intervalSeconds,
     forSeconds: watch.forSeconds,
-    renotifySeconds: watch.renotifySeconds,
     cooldownSeconds: watch.cooldownSeconds,
   };
 }

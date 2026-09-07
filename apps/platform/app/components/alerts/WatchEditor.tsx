@@ -135,7 +135,7 @@ export function WatchEditor({
         <Schedule watch={watch} onChange={setWatch} />
       </Section>
 
-      <Section title="What counts as a problem?" step={3}>
+      <Section title="What to watch for?" step={3}>
         <ConditionList
           combinator={watch.combinator}
           conditions={watch.conditions}

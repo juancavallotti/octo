@@ -207,7 +207,6 @@ export function newWatch(): WatchInput {
     stepSeconds: 60,
     intervalSeconds: 60,
     forSeconds: 300,
-    renotifySeconds: 0,
-    cooldownSeconds: 0,
+    cooldownSeconds: 900,
   };
 }
