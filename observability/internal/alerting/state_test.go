@@ -292,3 +292,34 @@ func TestMuted(t *testing.T) {
 		t.Error("an expired mute is still muting")
 	}
 }
+
+// An episode that ends stops being pointed at. The row otherwise says phase=ok
+// beside the id of a closed incident, and anything reading incident_id as "the
+// one currently open" — a UI, a notification, the next repeat — reads a resolved
+// one. Both endings are checked, because they close the episode in different
+// functions and only one of them used to clear it.
+func TestAnEndedEpisodeIsNoLongerPointedAt(t *testing.T) {
+	t.Run("resolved", func(t *testing.T) {
+		d := newDriver(t, held(time.Minute))
+		d.tick(True).wantActions(ActionOpen)
+		if d.state.IncidentID == "" {
+			t.Fatal("no incident id was assigned, so this proves nothing")
+		}
+		d.tick(False).tick(False).wantPhase(PhaseOK).wantActions(ActionResolve)
+		if d.state.IncidentID != "" {
+			t.Errorf("incident id %q survived the resolve", d.state.IncidentID)
+		}
+	})
+
+	t.Run("closed as stale", func(t *testing.T) {
+		d := newDriver(t, held(time.Minute))
+		d.tick(True).wantActions(ActionOpen)
+		for range staleEvaluations {
+			d.tick(Unknown)
+		}
+		d.wantPhase(PhaseOK).wantActions(ActionClose)
+		if d.state.IncidentID != "" {
+			t.Errorf("incident id %q survived the close", d.state.IncidentID)
+		}
+	})
+}

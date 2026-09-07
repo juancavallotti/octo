@@ -307,3 +307,29 @@ func TestBucketStartAndEnd(t *testing.T) {
 		t.Errorf("BucketEnd(1) = %s, want %s", got.Format(time.RFC3339), want.Add(time.Minute).Format(time.RFC3339))
 	}
 }
+
+// Go truncates integer division toward zero, so a time one millisecond BEFORE
+// the series start divided to 0 and passed an `i < 0` check as bucket zero — a
+// sample from outside the window landing in its first bucket.
+func TestIndexOfRejectsATimeBeforeTheSeriesStarts(t *testing.T) {
+	start := time.Date(2026, 9, 7, 10, 0, 0, 0, time.UTC)
+	s := NewSeries(start, start.Add(5*time.Minute), time.Minute)
+
+	for _, c := range []struct {
+		name string
+		at   time.Time
+		want bool
+	}{
+		{"one millisecond before the start", start.Add(-time.Millisecond), false},
+		{"a whole bucket before the start", start.Add(-time.Minute), false},
+		{"the start itself", start, true},
+		{"inside the last bucket", start.Add(4*time.Minute + 30*time.Second), true},
+		{"past the end", start.Add(5 * time.Minute), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, ok := s.IndexOf(c.at); ok != c.want {
+				t.Errorf("IndexOf(%s) ok = %v, want %v", c.at, ok, c.want)
+			}
+		})
+	}
+}

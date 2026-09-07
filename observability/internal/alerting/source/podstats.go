@@ -25,6 +25,17 @@ const maxPodStatPoints = 5000
 // deployment's pods combine". Doing it the other way round would mix samples from
 // different pods before either question had been asked.
 func (f *Fetcher) fetchPodStats(ctx context.Context, q alerting.Query) (alerting.Series, error) {
+	// Checked before the read, not inside the collapse. Reduce's error is dropped
+	// there — a bucket that cannot be reduced is simply left unset — so an
+	// unrecognised Across produced an empty series and read as a quiet
+	// deployment rather than as the typo it is.
+	if q.Scope.Across != "" {
+		if _, err := alerting.Reduce(q.Scope.Across, []float64{0}); err != nil {
+			return alerting.Series{}, fmt.Errorf(
+				"source: %w: across must be an aggregate this source knows, got %q",
+				alerting.ErrInvalidParams, q.Scope.Across)
+		}
+	}
 	if f.stats == nil {
 		return alerting.Series{}, fmt.Errorf("source: pod stats are unavailable: this process has no reader")
 	}
@@ -55,10 +66,29 @@ func (f *Fetcher) fetchPodStats(ctx context.Context, q alerting.Query) (alerting
 	if err != nil {
 		return alerting.Series{}, fmt.Errorf("source: read pod stats %s: %w", q.Metric, err)
 	}
-	if err := refuseCoarse(q, result); err != nil {
+	if err := refuseIncomplete(q, result); err != nil {
 		return alerting.Series{}, err
 	}
 	return rebucket(q, result), nil
+}
+
+// refuseIncomplete rejects a result that cannot answer the question asked of it,
+// for either of the two reasons a pod-stat read comes back unable to.
+func refuseIncomplete(q alerting.Query, result podstats.Result) error {
+	if err := refuseCoarse(q, result); err != nil {
+		return err
+	}
+	// A truncated read is a subset of the pods, and every across-pod aggregate is
+	// a claim about all of them. "The worst pod" computed over the pods that fit
+	// is not the worst pod, and it is wrong in the quiet direction — the sick one
+	// is exactly what gets dropped when a deployment has more replicas than one
+	// read will carry.
+	if result.Truncated {
+		return fmt.Errorf(
+			"source: %w: %s returned more pods than one read carries, so an across-pod aggregate would describe a subset",
+			alerting.ErrCoarseData, q.Metric)
+	}
+	return nil
 }
 
 // refuseCoarse rejects a result served at a coarser step than the watch asked for.

@@ -290,8 +290,16 @@ func (s Series) IndexOf(t time.Time) (int, bool) {
 	if s.Step <= 0 {
 		return 0, false
 	}
-	i := int((t.UTC().UnixMilli() - s.StartMS) / s.Step.Milliseconds())
-	if i < 0 || i >= len(s.Values) {
+	// Offset first, then divide. Go truncates integer division toward zero, so a
+	// time one millisecond BEFORE the series start divides to 0 and would pass an
+	// `i < 0` check as bucket zero — a sample from before the window landing in
+	// its first bucket.
+	offset := t.UTC().UnixMilli() - s.StartMS
+	if offset < 0 {
+		return 0, false
+	}
+	i := int(offset / s.Step.Milliseconds())
+	if i >= len(s.Values) {
 		return 0, false
 	}
 	return i, true

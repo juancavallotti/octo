@@ -267,3 +267,21 @@ func TestALiveTierAnswerIsAccepted(t *testing.T) {
 		}
 	}
 }
+
+// A truncated read is a subset of the pods, and every across-pod aggregate is a
+// claim about all of them. "The worst pod" over the pods that fit is not the
+// worst pod, and it is wrong in the quiet direction: on a deployment with more
+// replicas than one read carries, the sick one is what gets dropped.
+func TestATruncatedReadIsRefusedRatherThanAggregated(t *testing.T) {
+	q := alerting.Query{Metric: "octo_flow_errors_total", Step: 30 * time.Second}
+	live := podstats.Result{Tier: podstats.TierLive, Step: time.Second}
+
+	truncated := live
+	truncated.Truncated = true
+	if err := refuseIncomplete(q, truncated); !errors.Is(err, alerting.ErrCoarseData) {
+		t.Fatalf("a truncated read returned %v, want ErrCoarseData", err)
+	}
+	if err := refuseIncomplete(q, live); err != nil {
+		t.Errorf("a complete read was refused: %v", err)
+	}
+}

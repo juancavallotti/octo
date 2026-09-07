@@ -162,6 +162,10 @@ func recovered(next State, w Watch, now time.Time, actions []Action) (State, []A
 			return next, actions
 		}
 		next.Phase, next.Since = PhaseOK, now
+		// The episode is over, so the state stops pointing at it. Left set, the
+		// row says phase=ok beside the id of a closed incident, and anything
+		// reading incident_id as "the one currently open" reads a resolved one.
+		next.IncidentID = ""
 		return next, append(actions, Action{Kind: ActionResolve, At: now, Reason: ClosedResolved})
 	case PhasePending:
 		next.Phase, next.Since = PhaseOK, now
@@ -198,6 +202,7 @@ func undecided(next State, w Watch, now time.Time, actions []Action) (State, []A
 			return next, actions
 		}
 		next.Phase, next.Since = PhaseOK, now
+		next.IncidentID = ""
 		return next, append(actions, Action{Kind: ActionClose, At: now, Reason: ClosedStale})
 	default:
 		return next, actions
