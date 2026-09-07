@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -234,6 +235,12 @@ func (b *Built) evaluateOne(c Condition, now time.Time, fetched map[string]Fetch
 	switch {
 	case !ok:
 		return c.Unavailable(ReasonFetchFailed, "no result was fetched for this condition")
+	case errors.Is(result.Err, ErrCoarseData):
+		// Not a failure to read: a refusal to answer at a resolution that would
+		// be misread. Its own reason, because "we have no data" and "we have the
+		// data but not this finely" call for opposite responses — the first is a
+		// broken pipeline, the second a shorter baseline.
+		return c.Unavailable(ReasonCoarseData, result.Err.Error())
 	case result.Err != nil:
 		return c.Unavailable(ReasonFetchFailed, result.Err.Error())
 	}

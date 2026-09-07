@@ -35,6 +35,17 @@ var (
 
 	ErrIncidentNotFound = errors.New("incident not found")
 
+	// ErrCoarseData is a fetch answered at a coarser step than the condition
+	// asked for.
+	//
+	// An error rather than a sparse series, because afterwards the two cannot be
+	// told apart. A tier whose step is ten minutes, re-bucketed onto thirty-second
+	// buckets, yields one value and nineteen empty ones — which is exactly what a
+	// series that stopped reporting looks like, and is read as silence by the one
+	// condition whose whole job is to detect silence. Refusing to answer is the
+	// only reply that cannot be mistaken for an observation.
+	ErrCoarseData = errors.New("data is not retained at this resolution")
+
 	ErrInvalidParams  = errors.New("invalid condition parameters")
 	ErrInvalidWatch   = errors.New("invalid watch")
 	ErrTooManyWatches = errors.New("too many watches")

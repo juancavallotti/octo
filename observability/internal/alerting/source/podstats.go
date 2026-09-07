@@ -55,7 +55,32 @@ func (f *Fetcher) fetchPodStats(ctx context.Context, q alerting.Query) (alerting
 	if err != nil {
 		return alerting.Series{}, fmt.Errorf("source: read pod stats %s: %w", q.Metric, err)
 	}
+	if err := refuseCoarse(q, result); err != nil {
+		return alerting.Series{}, err
+	}
 	return rebucket(q, result), nil
+}
+
+// refuseCoarse rejects a result served at a coarser step than the watch asked for.
+//
+// The tier is chosen by how far back the window reaches, not by the step the
+// condition wants, so a long baseline silently drops to the rollup — whose step is
+// the rollup interval. Re-bucketing that onto the watch's grid leaves one bucket
+// in ten populated, which no condition reads correctly: a threshold sees a window
+// with nothing in it and declines, and an absence condition sees a live service
+// that has fallen silent and fires on it. The second is the dangerous one, because
+// a false alarm about silence is indistinguishable from the real thing.
+//
+// Refusing produces an Unknown outcome, which neither fires nor resolves, and a
+// history row that says which problem it was.
+func refuseCoarse(q alerting.Query, result podstats.Result) error {
+	if result.Step <= q.Step {
+		return nil
+	}
+	return fmt.Errorf(
+		"source: %w: %s over %s is served from the %s tier at %s, coarser than the %s this watch asks for",
+		alerting.ErrCoarseData, q.Metric, q.To.Sub(q.From).Round(time.Second),
+		result.Tier, result.Step, q.Step)
 }
 
 // rebucket collapses podstats series onto the alerting grid.

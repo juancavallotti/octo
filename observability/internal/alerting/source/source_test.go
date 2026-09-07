@@ -1,6 +1,7 @@
 package source
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -225,5 +226,44 @@ func TestFetchRefusesWhatItCannotAnswer(t *testing.T) {
 	_, err := f.Fetch(t.Context(), alerting.Query{Source: alerting.SourcePodStats, Metric: "x"})
 	if err == nil {
 		t.Error("a pod-stat query with no deployment reported success")
+	}
+}
+
+// The bug this exists for, reproduced from the numbers that produced it: an
+// absence watch with a 30-bucket baseline at a 30-second step spans 16m30s, the
+// live tier only reaches ten minutes, so the read fell to the rollup tier at a
+// ten-minute step. Re-bucketed onto thirty-second buckets that is one value and
+// nineteen holes — and the watch fired, reporting a service doing ten requests a
+// second as silent.
+func TestACoarserTierIsRefusedRatherThanReadAsSilence(t *testing.T) {
+	q := alerting.Query{
+		Metric: "octo_flow_errors_total",
+		Step:   30 * time.Second,
+		From:   time.Date(2026, 9, 7, 3, 0, 0, 0, time.UTC),
+		To:     time.Date(2026, 9, 7, 3, 16, 30, 0, time.UTC),
+	}
+	result := podstats.Result{Tier: podstats.TierRollup, Step: 10 * time.Minute}
+
+	err := refuseCoarse(q, result)
+	if !errors.Is(err, alerting.ErrCoarseData) {
+		t.Fatalf("a rollup answer to a 30s question returned %v, want ErrCoarseData", err)
+	}
+	// The message has to name both steps: "shorten the baseline" is only
+	// actionable if you can see what the two resolutions were.
+	for _, want := range []string{"10m0s", "30s", "rollup"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message %q does not mention %q", err.Error(), want)
+		}
+	}
+}
+
+// The ordinary case must stay ordinary: a window inside the live tier is served
+// at or below the watch's step and is read normally.
+func TestALiveTierAnswerIsAccepted(t *testing.T) {
+	q := alerting.Query{Metric: "m", Step: 30 * time.Second}
+	for _, step := range []time.Duration{time.Second, 30 * time.Second} {
+		if err := refuseCoarse(q, podstats.Result{Tier: podstats.TierLive, Step: step}); err != nil {
+			t.Errorf("a %s answer to a 30s question was refused: %v", step, err)
+		}
 	}
 }

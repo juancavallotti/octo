@@ -6,14 +6,18 @@ import "time"
 // because "why did this not go off when I thought it would" is the question asked
 // after every missed incident, and it is unanswerable from a bare false.
 const (
-	ReasonNoData         = "no_data"
-	ReasonFewSamples     = "below_min_samples"
-	ReasonShortBaseline  = "below_min_baseline"
-	ReasonSmallDenom     = "denominator_too_small"
-	ReasonSmallDelta     = "below_min_delta"
-	ReasonSmallRatio     = "below_min_ratio"
-	ReasonBelowZ         = "below_z"
-	ReasonNeverReported  = "never_reported"
+	ReasonNoData        = "no_data"
+	ReasonFewSamples    = "below_min_samples"
+	ReasonShortBaseline = "below_min_baseline"
+	ReasonSmallDenom    = "denominator_too_small"
+	ReasonSmallDelta    = "below_min_delta"
+	ReasonSmallRatio    = "below_min_ratio"
+	ReasonBelowZ        = "below_z"
+	ReasonNeverReported = "never_reported"
+	// ReasonCoarseData is a source that reaches back far enough but not at the
+	// resolution the condition asked for. Distinct from no_data, because the
+	// difference is the whole story: the series is there and reporting.
+	ReasonCoarseData     = "resolution_unavailable"
 	ReasonNoIngest       = "no_ingest"
 	ReasonFetchFailed    = "fetch_failed"
 	ReasonWatchInvalid   = "watch_invalid"
