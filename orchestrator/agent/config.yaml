@@ -216,8 +216,9 @@ resources:
     - resource: skills/platform.md
       as: platform
     - resource: skills/email-reports.md
-    - resource: skills/troubleshooting.md
       as: email-reports
+    - resource: skills/troubleshooting.md
+      as: troubleshooting
 
 connectors:
   - name: llm
@@ -2127,10 +2128,11 @@ flows:
           level: info
           message: >-
             "troubleshooter: alert received" +
-            " watch=" + body.watchName +
-            " kind=" + body.kind +
-            " incident=" + (has(body.incidentId) ? body.incidentId : "-") +
-            " matched=" + string(body.matched) + "/" + string(body.total)
+            " watch=" + vars.watchName +
+            " kind=" + (has(body.kind) ? string(body.kind) : "-") +
+            " incident=" + (has(body.incidentId) ? string(body.incidentId) : "-") +
+            " matched=" + (has(body.matched) ? string(body.matched) : "-") +
+            "/" + (has(body.total) ? string(body.total) : "-")
 
       # What this watch has done before, in the PERSISTENT tier.
       #
@@ -2206,8 +2208,9 @@ flows:
           particular fault will turn out to have nothing to do with.
 
 
-          The alert carries previousOccurrences: what this same watch has done
-          before, and what you concluded each time. Read it. Something ambiguous
+          The message you are given carries the alert and then, below it, what
+          this same watch has done before and what you concluded each time. Read
+          that history. Something ambiguous
           that has happened once gets a report and no change; something that keeps
           coming back is what acting is for. But a fault that is total,
           deterministic and explained — every request failing the same way, and

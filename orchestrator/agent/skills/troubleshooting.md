@@ -65,10 +65,11 @@ throughput long after the incident.
 
 ## Have you seen this before?
 
-Every alert you receive carries `previousOccurrences`: what this same watch has
-done before, oldest first, each with when it fired and what you concluded that
-time. It is recorded for you — you do not have to remember to write it down, and
-it survives restarts and redeploys.
+The message that woke you carries the alert and then, below it, what this same
+watch has done before: oldest first, each with when it fired and what you
+concluded that time. It is recorded for you — you do not have to remember to
+write it down, and it survives restarts and redeploys. An empty list there means
+this is the first time it has fired.
 
 **Read it before you decide to act.** It is the difference between a blip and a
 fault, and that difference is the whole question of whether to touch anything.

@@ -117,3 +117,71 @@ func TestIsSkillRecognisesTheBundlesOwnResources(t *testing.T) {
 		t.Error("IsSkill matched a resource the bundle does not own")
 	}
 }
+
+// Every skill a block loads has to name an alias the templates block declares.
+//
+// The test above proves each `- resource: skills/x.md` is bundled; it says
+// nothing about the `as:` beneath it, or about the `resource: x` that a skill
+// slot uses to reach it. Those are two different names and only the second is
+// what an agent asks for.
+//
+// It exists because they came apart. A new template was inserted between an
+// existing `- resource:` and its `as:`, which left one file with no alias and
+// gave its name to the other — so a skill slot named an alias that did not exist
+// while every load of the stolen name returned the wrong text. Nothing failed:
+// the file was still bundled, the config still parsed, the agent still ran and
+// still loaded "a" skill. It was found by review, which is not a repeatable way
+// to find it.
+func TestEverySkillSlotNamesADeclaredAlias(t *testing.T) {
+	definition, err := Definition()
+	if err != nil {
+		t.Fatalf("Definition: %v", err)
+	}
+
+	// The aliases the templates block declares: an `as:` is only one when it
+	// follows a `- resource:` line, which is exactly the adjacency that broke.
+	declared := map[string]bool{}
+	previousWasResource := false
+	for _, line := range strings.Split(definition, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "- resource: skills/"):
+			previousWasResource = true
+		case previousWasResource && strings.HasPrefix(trimmed, "as: "):
+			declared[strings.TrimSpace(strings.TrimPrefix(trimmed, "as: "))] = true
+			previousWasResource = false
+		default:
+			previousWasResource = false
+		}
+	}
+	if len(declared) == 0 {
+		t.Fatal("no template aliases found, so this test proves nothing")
+	}
+
+	// Every bundled skill file must have got one. A file with no alias is
+	// unreachable, which is the other half of what went wrong.
+	skills, err := Skills()
+	if err != nil {
+		t.Fatalf("Skills: %v", err)
+	}
+	if len(declared) != len(skills) {
+		t.Errorf("%d skills bundled but %d aliases declared — one of them has no `as:`",
+			len(skills), len(declared))
+	}
+
+	// And every slot that asks for one must name an alias that exists.
+	for _, line := range strings.Split(definition, "\n") {
+		trimmed := strings.TrimSpace(line)
+		const marker = "resource: "
+		if !strings.HasPrefix(trimmed, marker) || strings.HasPrefix(trimmed, "- resource:") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(trimmed, marker))
+		if strings.Contains(name, "/") || strings.Contains(name, ".") {
+			continue // a path, handled by the bundling test above
+		}
+		if !declared[name] {
+			t.Errorf("a skill slot names resource %q, which no template declares", name)
+		}
+	}
+}
