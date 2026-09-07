@@ -6,9 +6,10 @@ import "time"
 // error at save time on the same terms a condition type is: an action silently
 // skipped is an alert that fired and told nobody.
 const (
+	// ActionTypeTopic publishes into a deployment's own subject, where a flow
+	// picks it up with an ordinary events source.
 	ActionTypeTopic = "topic"
 	ActionTypeEmail = "email"
-	ActionTypeLog   = "log"
 )
 
 // MaxActions bounds one watch. Generous next to the condition limit, because

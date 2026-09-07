@@ -38,7 +38,6 @@ func TestValidateAcceptsAWellFormedSet(t *testing.T) {
 	w := alerting.Watch{Actions: []alerting.ActionSpec{
 		spec("a_1", alerting.ActionTypeTopic, `{"deploymentId":"d1","subject":"alerts"}`),
 		spec("a_2", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
-		spec("a_3", alerting.ActionTypeLog, `{}`),
 	}}
 	if err := Validate(w); err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -51,7 +50,7 @@ func TestValidateRefusesWhatCannotDeliver(t *testing.T) {
 		spec alerting.ActionSpec
 		want error
 	}{
-		{"no id", spec("", alerting.ActionTypeLog, `{}`), alerting.ErrInvalidParams},
+		{"no id", spec("", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`), alerting.ErrInvalidParams},
 		{"unknown type", spec("a", "carrier-pigeon", `{}`), alerting.ErrUnknownAction},
 		{"topic without a deployment", spec("a", alerting.ActionTypeTopic, `{"subject":"alerts"}`), alerting.ErrInvalidParams},
 		{"topic without a subject", spec("a", alerting.ActionTypeTopic, `{"deploymentId":"d1"}`), alerting.ErrInvalidParams},
@@ -75,8 +74,8 @@ func TestValidateRefusesWhatCannotDeliver(t *testing.T) {
 
 func TestValidateRefusesDuplicateActionIDs(t *testing.T) {
 	w := alerting.Watch{Actions: []alerting.ActionSpec{
-		spec("same", alerting.ActionTypeLog, `{}`),
-		spec("same", alerting.ActionTypeLog, `{}`),
+		spec("same", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
+		spec("same", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
 	}}
 	if err := Validate(w); !errors.Is(err, alerting.ErrInvalidWatch) {
 		t.Errorf("error = %v, want ErrInvalidWatch", err)
@@ -120,10 +119,17 @@ func TestNotifyRecordsWhatThisProcessCannotDo(t *testing.T) {
 // One action failing must not stop the next: a watch that emails and publishes
 // has two audiences, and the second has done nothing wrong.
 func TestOneFailingActionDoesNotStopTheOthers(t *testing.T) {
-	d := NewDispatcher(nil, nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"messageId":"m_1"}`))
+	}))
+	defer server.Close()
+
+	// A mailer but no broker, so the topic action cannot deliver and the mail
+	// action can.
+	d := NewDispatcher(nil, NewMailer(server.URL))
 	w := alerting.Watch{Actions: []alerting.ActionSpec{
-		spec("a_1", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
-		spec("a_2", alerting.ActionTypeLog, `{}`),
+		spec("a_1", alerting.ActionTypeTopic, `{"deploymentId":"d1","subject":"alerts"}`),
+		spec("a_2", alerting.ActionTypeEmail, `{"to":["ops@example.com"]}`),
 	}}
 	results := d.Notify(t.Context(), w, notification(alerting.ActionOpen))
 
@@ -131,10 +137,10 @@ func TestOneFailingActionDoesNotStopTheOthers(t *testing.T) {
 		t.Fatalf("%d results, want 2", len(results))
 	}
 	if results[0].Delivered() {
-		t.Error("the mail action reported success with no mailer")
+		t.Error("the topic action reported success with no broker")
 	}
 	if !results[1].Delivered() {
-		t.Errorf("the log action was skipped after an earlier failure: %s", results[1].Err)
+		t.Errorf("the mail action was skipped after an earlier failure: %s", results[1].Err)
 	}
 }
 

@@ -164,9 +164,7 @@ The payload is the notification: the watch, the episode, and every condition's o
 
 Sent through the orchestrator's [email settings](/platform/admin-settings#email), so the address it goes out under is defined once and the provider key is never held by this service. Configure email first, or the action records that it could not deliver.
 
-### `log`
-
-Writes the alert to the observability service's own log, where your logging pipeline stores it. It costs nothing and needs no configuration, which makes it the honest choice for a watch you are still tuning.
+A watch with no actions still records every evaluation and opens incidents — it simply tells nobody, which the editor warns about rather than forbidding: a watch you are still tuning is a real thing to want.
 
 Every attempt is recorded with its outcome, so "the alert fired but I got no email" is answerable from the history rather than from somebody's inbox. A failed delivery never rolls back the transition that caused it — the watch did fire — and a failed delivery does not start the renotify cooldown either.
 

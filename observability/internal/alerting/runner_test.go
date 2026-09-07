@@ -120,7 +120,7 @@ func (f *fakeNotifier) Notify(_ context.Context, _ Watch, n Notification) []Deli
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, n)
 	if f.delivers {
-		return []DeliveryResult{{ActionID: "a_1", Type: ActionTypeLog}}
+		return []DeliveryResult{{ActionID: "a_1", Type: ActionTypeEmail}}
 	}
 	return []DeliveryResult{{ActionID: "a_1", Type: ActionTypeEmail, Err: "the mailer is down"}}
 }
@@ -135,7 +135,10 @@ func runnerWatch(t *testing.T, id string, threshold float64) Watch {
 		Step: time.Minute, Interval: time.Minute, For: 0,
 		DefinitionHash: "h1",
 		Conditions:     []ConditionSpec{countThreshold(t, "c_1", threshold)},
-		Actions:        []ActionSpec{{ID: "a_1", Type: ActionTypeLog, Params: json.RawMessage(`{}`)}},
+		Actions: []ActionSpec{{
+			ID: "a_1", Type: ActionTypeEmail,
+			Params: json.RawMessage(`{"to":["ops@example.com"]}`),
+		}},
 	}
 }
 

@@ -1,8 +1,8 @@
 // Package action delivers what a watch decided.
 //
-// Three kinds, and every attempt is recorded with its outcome, because "the
-// alert fired but I got no email" has to be answerable from the history rather
-// than from somebody's inbox.
+// Two kinds — a deployment's topic, and email — and every attempt is recorded
+// with its outcome, because "the alert fired but I got no email" has to be
+// answerable from the history rather than from somebody's inbox.
 //
 // A delivery failure never rolls back a state transition. The watch did fire,
 // and losing that fact because a mailer was down is strictly the worse failure —
@@ -88,8 +88,6 @@ func (d *Dispatcher) build(spec alerting.ActionSpec) (Deliverer, error) {
 			return nil, fmt.Errorf("action: cannot send mail: this process has no orchestrator address")
 		}
 		return newEmailAction(spec, d.mail)
-	case alerting.ActionTypeLog:
-		return newLogAction(spec)
 	default:
 		return nil, fmt.Errorf("action: %w: %q on action %q", alerting.ErrUnknownAction, spec.Type, spec.ID)
 	}
