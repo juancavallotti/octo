@@ -35,6 +35,12 @@ describe("GET /api/vault", () => {
     await expect((await GET()).json()).resolves.toMatchObject({ name: "two" });
   });
 
+  it("still names a filesystem root, which has no basename", async () => {
+    // path.basename("/") is "", which would render as a nameless chip.
+    process.env.OCTO_FS_DIR = "/";
+    await expect((await GET()).json()).resolves.toEqual({ path: "/", name: "/" });
+  });
+
   it("falls back to the store's default root when unset", async () => {
     delete process.env.OCTO_FS_DIR;
     const body = (await (await GET()).json()) as { path: string; name: string };

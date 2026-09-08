@@ -23,8 +23,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const root = fsRoot();
+  // basename("/") is the empty string, and a filesystem root is a legitimate if
+  // eccentric thing to point OCTO_FS_DIR at — a bind mount of "/" in the Docker
+  // image reaches here. An empty name renders as a nameless chip in the header,
+  // so fall back to the root itself.
+  const name = path.basename(root) || path.parse(root).root;
   return NextResponse.json(
-    { path: root, name: path.basename(root) },
+    { path: root, name },
     { headers: { "cache-control": "no-store" } },
   );
 }
