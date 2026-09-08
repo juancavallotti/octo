@@ -5,25 +5,18 @@ description: "Write a flow's tests beside it, stand in for the blocks that call 
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A flow that calls a payment API can only be run where that API is. So it gets run
-once, by hand, on the day it is written — and after that nobody dares touch it.
+`dolphin` is octo's test runner. A test is a
+[debug config](/guides/debugging-flows#drive-it-all-from-a-file) with assertions: the
+same `input`, `mocks` and `spies` you would pass to `octo invoke` by hand, plus what
+should have happened.
 
 <Callout type="info">
 Never written one? [Your first test](/testing/first-test) walks the first suite end to
 end in about ten minutes. This page is the format in full.
 </Callout>
 
-`dolphin` is octo's test runner, and it removes the reason not to touch it. A test
-is a [debug config](/guides/debugging-flows#drive-it-all-from-a-file) with
-assertions: the same `input`, the same `mocks`, the same `spies` you would pass to
-`octo invoke` by hand, plus what should have happened. The mocks are what make the
-flow runnable anywhere — the HTTP call, the LLM, the database write never happen —
-and the assertions are what make running it mean something.
-
-Tests live **beside the flow**, named for it the way Go names its own:
-`orders.yaml` is tested by `orders_test.yaml`. octo skips `_test.yaml` when it
-loads a directory, so a suite can sit next to the flows it exercises without ever
-being mistaken for one.
+Tests live **beside the flow**, named for it the way Go names its own: `orders.yaml`
+is tested by `orders_test.yaml`. octo skips `_test.yaml` when it loads a directory.
 
 ## Set up
 
@@ -38,12 +31,9 @@ then your `PATH`. See [installation](/getting-started/installation#install-dolph
 ## A first suite
 
 [`samples/error-handling.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/error-handling.yaml)
-charges a card over HTTP and has a flow-level `error:` chain to catch the failure.
-Its payments connector points at a discard port, so the real call **always** fails
-to connect — fine for a demo, useless for a test, because "it failed" is the only
-outcome it can produce.
-
-Mocking that one block is what lets the same flow show both paths:
+charges a card over HTTP and has a flow-level `error:` chain to catch the failure. Its
+payments connector points at a discard port, so the real call **always** fails to
+connect. Mocking that one block lets the same flow show both paths:
 
 ```yaml title="samples/error-handling_test.yaml"
 flow: charge-flowlevel
@@ -79,14 +69,17 @@ cases:
               body: { id: ch_1, status: captured }
 
   # The point of the sample: a failing block redirects to the flow's `error:` chain,
-  # whose output BECOMES the flow result — so the flow completes rather than failing.
+  # whose output BECOMES the flow result, so the flow completes rather than failing.
   - name: a declined card takes the flow error path and answers 502
     input: large
     expect:
+      # set-variable's `value` is CEL, so "502" in the flow evaluates to the NUMBER
+      # 502. The quotes there are YAML's, not CEL's.
       vars: { httpStatus: 502 }
       that:
         - 'body.error.contains("card declined")'
         - 'body.failedBlock == "call-charge"'
+        - 'body.flow == "charge-flowlevel"'
     spies:
       charge-flowlevel.call-charge:
         count: 1
@@ -94,8 +87,7 @@ cases:
           - error: card declined
 ```
 
-The same mock, written in the editor's Testing tab rather than by hand — it is the
-same file either way:
+The same mock in the editor's Testing tab. It is the same file either way:
 
 ![The same mock in the editor's form: a When case failing with card declined, above an Otherwise default returning the captured charge](/screenshots/editor-testing-mocks.png)
 
@@ -111,17 +103,15 @@ ok   samples/error-handling_test.yaml  (charge-flowlevel)  73ms
 2 passed, 0 failed, 0 errored, 0 skipped  (73ms)
 ```
 
-Two things happened that are worth naming. The declined case asserts on
-`body.failedBlock` — a **mocked** failure is indistinguishable from the real block
-failing, so an error chain that branches on which block died behaves exactly as it
-would in production. And the spy proves the block was reached with the right amount
-*and* that it failed: without it, a flow that skipped the charge entirely and
-returned the error body for some other reason would still pass.
+The declined case asserts on `body.failedBlock`: a **mocked** failure is
+indistinguishable from the real block failing, so an error chain that branches on which
+block died behaves as in production. The spy proves the block was reached with the
+right amount and that it failed; without it, a flow that skipped the charge and
+returned the error body for another reason would still pass.
 
 ## When it fails
 
-This is the part that decides whether a test runner is worth having. Change the
-expected `httpStatus` to 500 and run it again:
+Change the expected `httpStatus` to 500 and run it again:
 
 ```
 FAIL samples/error-handling_test.yaml  (charge-flowlevel)  44ms
@@ -137,30 +127,25 @@ FAIL samples/error-handling_test.yaml  (charge-flowlevel)  44ms
 the runs are in /tmp/dolphin-2432200989
 ```
 
-The editor reports the same failure, because it runs the same binary — the verdict
-does not depend on where you pressed the button:
+The editor reports the same failure, because it runs the same binary:
 
 ![A failing case in the editor's Tests tab, showing what was expected against what the flow returned](/screenshots/editor-testing-failure.png)
 
-The failure names the case, says what it wanted and what it got — and hands you a
-**real, runnable octo command** that reproduces it. The debug config for a failing
-case is deliberately kept (a command pointing at a file we deleted is not a
-command), so you can edit it, re-run it, break on a block inside it. That command
-is the single biggest thing driving the real binary buys: a failing test in CI is
-one paste away from a debugging session on your laptop.
+The failure names the case, says what it wanted and got, and hands you a **real,
+runnable octo command** that reproduces it. The debug config for a failing case is
+kept on disk so you can edit it, re-run it, or break on a block inside it.
 
 <Callout type="warn">
 A block's `value:` setting is a **CEL expression**, so `value: "502"` in a flow
-evaluates to the *number* 502 — the quotes are YAML's, not CEL's. When a type looks
-surprising, dolphin says so rather than making you guess: a mismatch that is only a
-type reads `want "502", got 502 (a string, not a number)`.
+evaluates to the number 502 (the quotes are YAML's, not CEL's). A mismatch that is only
+a type reads `want "502", got 502 (a string, not a number)`.
 </Callout>
 
 ## Prove the loop looped
 
-`spies` are how you assert on what happened *inside* the flow, not just what came
-out of it. A block in a `foreach` body is crossed once per item, and every crossing
-is recorded — so the count *is* the iteration count.
+`spies` assert on what happened inside the flow. A block in a `foreach` body is
+crossed once per item and every crossing is recorded, so the count is the iteration
+count.
 
 [`samples/builtins-demo.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/builtins-demo.yaml)
 seeds two orders and classifies each against a threshold:
@@ -209,20 +194,18 @@ cases:
 
 ![The same spy in the editor's form: the bracketed address, a crossing count of two, and the first crossing's CEL assertions](/screenshots/editor-testing-spies.png)
 
-`count: 0` is an assertion, and a valuable one — it is how a case proves a branch
-was **not** taken or an error path **not** reached. Records are positional: the
-first entry is the first crossing. Asserting on fewer crossings than happened is
-fine; naming more than happened is a failure.
+`count: 0` is how a case proves a branch was **not** taken or an error path **not**
+reached. Records are positional: the first entry is the first crossing. Asserting on
+fewer crossings than happened is fine; naming more than happened is a failure.
 
 ![A spy with its crossing count set to zero, labelled in the form as asserting that the block never ran](/screenshots/editor-testing-spy-count-zero.png)
 
-Addresses are the same [block-address grammar](/reference/cli#addressing-a-block)
-the debugging flags use, and they work unquoted as YAML keys.
+Addresses are the same [block-address grammar](/reference/cli#addressing-a-block) the
+debugging flags use, and they work unquoted as YAML keys.
 
 ## What a case asserts
 
-Omitting `expect` entirely still asserts something: **the flow completed and did not
-fail.**
+Omitting `expect` entirely still asserts that **the flow completed and did not fail.**
 
 | Key | Meaning |
 | --- | --- |
@@ -232,32 +215,23 @@ fail.**
 | `dropped: true` | The flow filtered the message out and returned nothing. |
 | `error: "…"` | The flow failed, with a message **containing** this text. |
 
-`dropped` and `error` are exclusive with each other and with the message fields — a
-flow that dropped or failed returned no message to check.
-
-**Why `body` is exact but `vars` is a subset.** The body is the flow's answer, and a
-test should fail when a field appears in it that nobody expected. Variables are
-scratch space that the engine and the blocks add to, so pinning the whole map would
-break on every unrelated change. Reach for `that: ['vars.size() == 2']` when you do
-want it exact.
-
-The CEL is [the same CEL](/reference/cel) every block in the flow uses, over the
-same variables: `body`, `vars`, `eventID`, `correlationID`, `now`.
+`dropped` and `error` are exclusive with each other and with the message fields.
+`body` is exact because it is the flow's answer; `vars` is a subset because variables
+are scratch space (`that: ['vars.size() == 2']` pins them exactly). The CEL is
+[the same CEL](/reference/cel) every block uses, over `body`, `vars`, `eventID`,
+`correlationID` and `now`. The [test file reference](/testing/test-file#expect) has the
+full field list.
 
 <Callout type="info">
-**`env` is not bound in an assertion.** dolphin never loads your config — octo does,
-in the child process — so there is no resolved environment to evaluate against.
-Assert on what the flow *put in* the body or the variables instead.
+**`env` is not bound in an assertion.** dolphin never loads your config; octo does, in
+the child process. Assert on what the flow put in the body or the variables instead.
 </Callout>
 
 ## The environment
 
-A config's env is resolved when the config is **loaded**, before any block runs. So
-a flow whose connector reads `${ANTHROPIC_API_KEY}` cannot even be *built* without
-one — and mocking the block that would use it does not help, because the mock
-replaces the block long after the connector was configured.
-
-Give the suite its own environment:
+A config's env is resolved when the config is **loaded**, before any block runs, so a
+flow whose connector reads `${ANTHROPIC_API_KEY}` cannot be built without one, and
+mocking the block that would use it does not help. Give the suite its own environment:
 
 ```yaml
 env:
@@ -265,47 +239,42 @@ env:
   DB_DSN: 'file::memory:'
 ```
 
-A test key belongs there in plain sight: it is fake by construction, so it can be
-read, reviewed, and committed. For a value several suites share, put it in a file and
-pass [`--env-file`](/testing/running-and-ci#the-environment) — a suite's own `env:`
-still wins over it, and both win over whatever you happen to have exported.
+A test key is fake by construction, so it can be committed. For a value several suites
+share, put it in a file and pass [`--env-file`](/testing/running-and-ci#the-environment).
+A suite's own `env:` wins over it, and both win over whatever you have exported.
 
 <Callout type="warn">
-**Mocking a block does not stop its connector from starting.** The mock replaces the
-*block*; the connector is started by the service regardless. A suite over a config
-with a `database` connector still opens the database — so its DSN has to be a valid
-one, even when every SQL block is mocked. `file::memory:` is usually the answer.
+**Mocking a block does not stop its connector from starting.** A suite over a config
+with a `database` connector still opens the database, so its DSN has to be valid even
+when every SQL block is mocked. `file::memory:` is usually the answer.
 </Callout>
 
 ## Things worth knowing
 
-- **One case is one `octo` process.** The debug seam is a config *rewrite* — mocks
-  and spies are baked into the flow tree when it is built — so a service can only
-  ever serve the case it was built for. That is not a cost we chose; it is what the
-  seam is. It also means cases are fully isolated, and `dolphin` runs them in
-  parallel (one per CPU; `--parallel 1` to serialize).
-- **Sources do not run under `invoke`.** No cron ticks, no HTTP request arrives, no
-  queue delivers. Nothing populates the message for you, so a case seeds what the
-  source would have produced — including the variables an HTTP source copies out of
-  the request. That is what `input.vars` is for.
-- **Mocking a composite removes everything inside it.** The mock replaces the block,
-  and its whole subtree goes with it. So you cannot mock an `ai-router` and then
-  assert on which route ran — the routes are gone. Mock a block *inside* the
-  composite instead (`charge.resilient-charge[process].build-charge`): the composite
-  runs for real, and only the leaf is stood in for.
-- **A message matching no mock case fails the block.** It does not fall through to
-  the real one, which is no longer in the flow. Give the spec a `default` when you
-  want a catch-all — a "mocked" call that quietly still reached the network would be
-  the exact bug mocking exists to prevent.
-- **A case can un-mock, with `address: null`.** That lifts the file's mock for one
-  case, so the real block runs there — for the case whose whole point is what the
-  real block does. `mocks: {}` is not that: an empty map contributes nothing and the
-  file's mocks all still apply. See
-  [un-mocking](/testing/test-file#un-mocking-a-block-for-one-case).
-- **`skip: "a reason"`** reports the case as skipped and never runs it. The reason is
-  required, because a skip with no reason is a test nobody will ever come back to.
-- **A `cache-scope` hit skips its body.** Each case is a fresh process with an empty
-  in-memory cache, so a case can only ever exercise the miss.
+One case is one `octo` process, because mocks and spies are baked into the flow tree
+when it is built. Cases are fully isolated, and `dolphin` runs them in parallel, one
+per CPU (`--parallel 1` to serialize).
+
+Sources do not run under `invoke`: no cron ticks, no HTTP request arrives, no queue
+delivers. A case seeds what the source would have produced, including the variables an
+HTTP source copies out of the request; that is what `input.vars` is for.
+
+Mocking a composite removes everything inside it, so you cannot mock an `ai-router`
+and then assert on which route ran. Mock a block inside the composite instead
+(`charge.resilient-charge[process].build-charge`).
+
+A message matching no mock case fails the block; it does not fall through to the real
+one, which is no longer in the flow. Give the spec a `default` for a catch-all.
+
+A case can un-mock with `address: null`, so the real block runs for that case.
+`mocks: {}` is not that: an empty map contributes nothing. See
+[un-mocking](/testing/test-file#un-mocking-a-block-for-one-case).
+
+`skip: "a reason"` reports the case as skipped and never runs it. The reason is
+required.
+
+A `cache-scope` hit skips its body. Each case is a fresh process with an empty
+in-memory cache, so a case can only exercise the miss.
 
 ## The schema
 
@@ -315,17 +284,16 @@ To have your editor complete a suite and a validator check it:
 ./bin/dolphin schema --format yaml
 ```
 
-It is the same shape this guide walks through, described field by field — and it is
-drift-tested against the Go structs, so it cannot quietly fall out of date. The
-[test file reference](/testing/test-file) is that schema, rendered.
+It is drift-tested against the Go structs. The [test file reference](/testing/test-file)
+is that schema, rendered.
 
 ## See also
 
-- [Test file reference](/testing/test-file) — every key of a suite, field by field.
-- [Running tests](/testing/running-and-ci) — `dolphin test`'s flags, the exit codes,
+- [Test file reference](/testing/test-file): every key of a suite, field by field.
+- [Running tests](/testing/running-and-ci): `dolphin test`'s flags, the exit codes,
   and CI.
-- [Debugging a flow](/guides/debugging-flows) — the mocks, spies, and breakpoints a
+- [Debugging a flow](/guides/debugging-flows): the mocks, spies, and breakpoints a
   test is built out of, driven by hand.
-- [Testing in the editor](/testing/in-the-editor) — the same suites, written in
-  a form and run from the Testing tab.
-- [CLI reference](/reference/cli#mocks) — the full mock spec and address grammar.
+- [Testing in the editor](/testing/in-the-editor): the same suites, written in a form
+  and run from the Testing tab.
+- [CLI reference](/reference/cli#mocks): the full mock spec and address grammar.

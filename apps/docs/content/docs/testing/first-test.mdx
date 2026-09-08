@@ -8,15 +8,10 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { FlaskConical, SquarePen, Terminal, FileCode } from 'lucide-react';
 
-Testing a flow sounds like it should be hard. The flow calls a payment API, and you
-do not have a payment API — so how do you run it?
-
-You stand in for the block that calls out, and let the rest of the flow run for real.
-That is the whole trick, and this page walks it end to end on a flow that ships with
-octo. By the end you will have a suite with two cases, you will have made it fail on
-purpose, and you will have read the failure.
-
-Every command and every line of output on this page was run to produce it.
+A flow that calls a payment API cannot run where there is no payment API. The trick is
+to stand in for the block that calls out and let the rest of the flow run for real.
+This page walks that end to end on a flow that ships with octo. Every command and every
+line of output on this page was run to produce it.
 
 <Steps>
 
@@ -32,25 +27,21 @@ export OCTO_PATH=$PWD/bin/octo      # the octo dolphin will drive
 export PATH=$PWD/bin:$PATH          # so `dolphin` is on your path
 ```
 
-`dolphin` runs your tests by running the real `octo` — it is not a reimplementation of
-the engine, it is the engine, driven per case. That is why it needs to find a binary.
+`dolphin` runs your tests by running the real `octo`, so it needs to find a binary.
 See [installation](/getting-started/installation#install-dolphin) for the release
 tarballs if you would rather not build.
 
-Now make a scratch directory with one flow in it:
+Make a scratch directory with one flow in it:
 
 ```bash
 mkdir ~/octo-first-test && cd ~/octo-first-test
 cp /path/to/octo/samples/error-handling.yaml .
 ```
 
-The flow you are about to test is `charge-inline`. It POSTs a charge to an upstream,
-and wraps that call in a `handle-errors` block so a failure becomes a friendly
-"degraded" body rather than a 500.
-
-Its upstream is `http://127.0.0.1:9` — the **discard port**. Every call it makes fails
-to connect, on purpose, so the sample needs no server. That is fine for a demo and
-useless for a test: "it failed" is the only outcome the real flow can produce.
+The flow under test is `charge-inline`. It POSTs a charge to an upstream inside a
+`handle-errors` block, so a failure becomes a "degraded" body rather than a 500. Its
+upstream is `http://127.0.0.1:9`, the **discard port**: every call fails to connect, so
+"it failed" is the only outcome the real flow can produce.
 
 </Step>
 
@@ -80,16 +71,12 @@ ok   error-handling_test.yaml  (charge-inline)  68ms
 1 passed, 0 failed, 0 errored, 0 skipped  (68ms)
 ```
 
-Green, in four lines of YAML. Two things just happened that are worth naming.
-
-**dolphin found the suite by itself.** You pointed at the *flow* file and it ran the
-`_test.yaml` beside it — the same convention Go uses, where `orders.go` is tested by
-`orders_test.go`. octo skips `_test.yaml` when it loads a directory, so the suite can
-live next to the flows without ever being mistaken for one.
+**dolphin found the suite by itself**: you pointed at the flow file and it ran the
+`_test.yaml` beside it, as Go pairs `orders.go` with `orders_test.go`. octo skips
+`_test.yaml` when it loads a directory.
 
 **An empty `expect` is not an empty test.** It asserts that the flow ran to the end
-and did not fail. Here that passes because the flow's `handle-errors` chain catches
-the failing charge and recovers — which is exactly what the flow was written to do.
+and did not fail, which passes here because the `handle-errors` chain recovers.
 
 </Step>
 
@@ -97,7 +84,7 @@ the failing charge and recovers — which is exactly what the flow was written t
 
 ## Stand in for the block that calls the world
 
-Now make the flow do something you can check. Replace the file with:
+Replace the file with:
 
 ```yaml title="error-handling_test.yaml"
 flow: charge-inline
@@ -125,21 +112,19 @@ ok   error-handling_test.yaml  (charge-inline)  94ms
 1 passed, 0 failed, 0 errored, 0 skipped  (94ms)
 ```
 
-The mock **replaces** the `call-charge` block, so the HTTP request never happens and
-the flow gets `{ id: ch_1, status: captured }` as if the bank had said so. Everything
-around it — the `handle-errors` wrapper, the flow's own plumbing — ran for real.
+The mock **replaces** the `call-charge` block: the HTTP request never happens and the
+flow gets `{ id: ch_1, status: captured }` as if the bank had said so. Everything
+around it ran for real.
 
-**About that address.** `charge-inline.charge[process].call-charge` reads left to
-right: the flow, the `handle-errors` block named `charge`, its `process` slot, and the
-block inside it. Nested blocks get bracketed slot names; see the [address
-grammar](/reference/cli#addressing-a-block). In the editor you never type one — a
-picker lists the addressable blocks in the flow.
+The address `charge-inline.charge[process].call-charge` reads left to right: the flow,
+the `handle-errors` block named `charge`, its `process` slot, and the block inside it.
+See the [address grammar](/reference/cli#addressing-a-block). In the editor a picker
+lists the addressable blocks.
 
 <Callout type="info">
-`input.data` is the body the flow is called with. It matters here even though the mock
-ignores it, because **sources do not run under a test**: no HTTP request arrives, so
-nothing populates the message unless the case does. A flow reading request headers
-needs `input.vars` too.
+`input.data` is the body the flow is called with. It matters even though the mock
+ignores it, because **sources do not run under a test**: nothing populates the message
+unless the case does. A flow reading request headers needs `input.vars` too.
 </Callout>
 
 </Step>
@@ -148,8 +133,7 @@ needs `input.vars` too.
 
 ## Break it on purpose
 
-A test you have never seen fail is a test you have no reason to trust. Change the
-expected id from `ch_1` to `ch_2` — leave the mock alone — and run it again:
+Change the expected id from `ch_1` to `ch_2`, leave the mock alone, and run it again:
 
 ```
 FAIL error-handling_test.yaml  (charge-inline)  77ms
@@ -168,24 +152,16 @@ FAIL error-handling_test.yaml  (charge-inline)  77ms
 the runs are in /tmp/dolphin-143073336
 ```
 
-Read the three parts:
-
-1. **The case name**, in the words you wrote. This is why names are sentences.
-2. **`want` against `got`** — not just "assertion failed", but both sides.
-3. **`reproduce`** — a real, runnable `octo` command that re-runs exactly this case.
-
-That third one is the point. The debug config for a *failing* case is deliberately
-kept on disk (a command pointing at a file we deleted is not a command), so a failure
-in CI is one paste away from a debugging session on your laptop, where you can edit
-the input or break on a block inside it.
+The failure has three parts: the case name in the words you wrote, `want` against
+`got`, and `reproduce`, a runnable `octo` command that re-runs exactly this case. The
+debug config for a failing case is kept on disk so that command works.
 
 Put `ch_1` back and confirm it is green again before moving on.
 
 <Callout type="warn">
 A block's `value:` setting is a **CEL expression**, so `value: "502"` in a flow
-evaluates to the *number* 502 — the quotes are YAML's, not CEL's. When a mismatch is
-only a type, dolphin says so rather than making you guess: `want "502", got 502 (a
-string, not a number)`.
+evaluates to the number 502 (the quotes are YAML's, not CEL's). When a mismatch is
+only a type, dolphin says so: `want "502", got 502 (a string, not a number)`.
 </Callout>
 
 </Step>
@@ -194,10 +170,8 @@ string, not a number)`.
 
 ## Test the path you wrote the flow for
 
-`charge-inline` exists to survive a failing charge. So far you have only proved it
-works when the charge succeeds — the easy half.
-
-Add a second case. It overrides the mock for itself, so the block fails:
+`charge-inline` exists to survive a failing charge. Add a second case that overrides
+the mock for itself, so the block fails:
 
 ```yaml title="error-handling_test.yaml"
 flow: charge-inline
@@ -238,18 +212,12 @@ ok   error-handling_test.yaml  (charge-inline)  119ms
 2 passed, 0 failed, 0 errored, 0 skipped  (119ms)
 ```
 
-Three new ideas in one case:
-
-- **`error:` on a mock** fails the block. A mocked failure is indistinguishable from
-  the real block failing, so the flow's recovery path behaves exactly as it would in
-  production.
-- **`that:`** holds [CEL](/reference/cel) expressions over the result, each of which
-  must be true. Use it instead of an exact `body` when part of the answer is a message
-  you do not want to pin word for word.
-- **`spies:`** assert on what happened *inside* the flow. Without the spy, a flow that
-  skipped the charge entirely and returned a degraded body for some unrelated reason
-  would still pass. `count: 1` says the block was reached exactly once, and the record
-  says it failed.
+Three new ideas. `error:` on a mock fails the block exactly as a real failure would.
+`that:` holds [CEL](/reference/cel) expressions over the result, each of which must be
+true; use it instead of an exact `body` when you do not want to pin a message word for
+word. `spies:` assert on what happened inside the flow: `count: 1` says the block was
+reached exactly once, and the record says it failed. Without the spy, a flow that
+skipped the charge and returned a degraded body for another reason would still pass.
 
 </Step>
 
@@ -275,11 +243,10 @@ The exit code is the contract a pipeline acts on:
 | --- | --- |
 | **0** | Every case passed. |
 | **1** | A case ran and did not do what it said. **The flows are wrong.** |
-| **2** | A case never ran — a bad address, a config that will not parse. **The suite is wrong.** |
+| **2** | A case never ran: a bad address, a config that will not parse. **The suite is wrong.** |
 
-The split between 1 and 2 is what stops a CI job from sending someone to debug a flow
-that was never called. Add `--junit report.xml` and your CI system will render the
-cases by name; see [running tests](/testing/running-and-ci#in-ci).
+Add `--junit report.xml` and your CI system will render the cases by name; see
+[running tests](/testing/running-and-ci#in-ci).
 
 </Step>
 
@@ -287,16 +254,15 @@ cases by name; see [running tests](/testing/running-and-ci#in-ci).
 
 ## The same file, in the editor
 
-Nothing about this file is a terminal thing. Start the editor over the directory you
-just worked in:
+Start the editor over the directory you just worked in:
 
 ```bash
 docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
 ```
 
-The image ships `dolphin` and points the editor at it, so the **Testing** tab opens the
-suite you just wrote — the same two cases, in a form — and its **Run tests** gives the
-same verdict, because it shells out to the same binary.
+The image ships `dolphin` and points the editor at it. The **Testing** tab opens the
+suite you just wrote as a form, and **Run tests** gives the same verdict because it
+shells out to the same binary.
 
 ![A suite's cases passing in the editor's Tests tab, with the suite name, its tally and each case's elapsed time](/screenshots/editor-testing-run-results.png)
 
