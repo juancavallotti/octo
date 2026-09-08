@@ -102,6 +102,8 @@ A trace id rides on the message and survives a queue or topic hop, so a flow tha
 
 ## Reading the chart
 
+![A trace waterfall: a flow of eight spans, with a validate and a transform in milliseconds, an ai-agent covering two seconds, the tool call and the model turn nested inside it, and the Slack post and the report email at the end](/screenshots/platform-trace-waterfall.png)
+
 A trace's waterfall draws time at a **constant scale**, a fixed number of pixels
 per second, rather than stretching each trace to the width available. A long
 execution is a long chart that scrolls sideways, and a ten-second trace is drawn

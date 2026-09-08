@@ -59,6 +59,12 @@ The range buttons span both tiers, and the line under the title says which one a
 
 A counter is charted as growth on both tiers, so a rate reads the same whichever one answered. A gap in the scrape is drawn as a gap: the line breaks rather than dropping to zero.
 
+Below the two headline charts, the same page lists every other series the pods report, one card each: the metric's name, what it currently reads, and its shape. Most of the ninety-odd metrics are answered by a number rather than a trend, so the reading is the headline and the chart is what tells you which kind you are looking at.
+
+![Four metric cards: CPU seconds and resident memory with two pods each, message throughput as a per-second rate, and goroutines](/screenshots/platform-metric-cards.png)
+
+A counter is charted as a rate rather than a climbing total, which is why `octo_flow_messages_total` reads in messages per second.
+
 ## Settings
 
 | Value | Default | What it does |

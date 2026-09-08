@@ -158,7 +158,7 @@ The deployment named here is the one that *acts* on the alert, which is usually 
 
 `reportTo` is optional and is for a receiver that writes back: it arrives on the payload as `reportTo`, and it is where that app should send what it finds. It lives on the action so that the addresses are visible to whoever edits the watch, and so that an agent is not the one deciding who hears about an incident. Addresses are validated and capped when the watch is saved.
 
-For the whole loop, from this action to an agent that triages the alert and asks a person in Slack before it changes anything, see [Agentic self-healing](/guides/agentic-self-healing).
+For how this fits together with the pods that emit the signals and the app that consumes them, see [The self-healing loop](/platform/self-healing-loop). For the whole thing built end to end, from this action to an agent that triages the alert and asks a person in Slack before it changes anything, see [Agentic self-healing](/guides/agentic-self-healing).
 
 <Callout type="warn">
 There is no way to broadcast an alert to every deployment. The runtime refuses to let a flow subscribe to the platform's own subject plane, because that plane carries every deployment's logs and traces. An alert is addressed to a deployment, and a watch that should reach several names several topic actions.
@@ -220,6 +220,10 @@ Every delivery attempt is logged with which action, which type, and the error. T
 
 The **Alerts** tab under Metrics in the platform UI. The list gives each watch its phase, its last value and when it last ran; whatever is firing sits above it. Opening a watch gives you the editor and its history together. **Try it now** runs the definition against real data without saving it, which is the same `POST /alerts/preview` below.
 
+![The Alerts list: four watches with their severity, phase, last value, schedule and last run, one firing, one pending and one muted](/screenshots/platform-watch-table.png)
+
+The schedule column reads back as a sentence, so how often a watch is asked, how long its verdict has to hold, and how often it may report are all answerable without opening it.
+
 ## Trying a watch before you save it
 
 Press **Try it now** in the watch editor. It runs the definition against real data and reports what each condition observed, without recording anything, moving any state or telling anybody.
@@ -236,6 +240,10 @@ This is how a spike's gates get tuned: against history that already exists, rath
 ## The execution log
 
 Every evaluation is recorded, including the ones where nothing happened, so an alert that did not go off can be told apart from one that was never evaluated. Opening a watch in the platform shows this history beneath its editor; reaching the service directly, it is one call:
+
+![The execution log with the filter off: six evaluations newest first, one expanded to show the condition it judged, the value observed and the threshold it was judged against](/screenshots/platform-evaluation-history.png)
+
+**Only what happened** is on by default and narrows the log to the evaluations that changed something. Turning it off is what answers the question above.
 
 ```bash
 curl -sS "$OBSERVABILITY_URL/alerts/watches/$ID/evaluations?notable=true"
