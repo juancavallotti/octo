@@ -6,15 +6,12 @@ description: "Configure the OpenAI, Anthropic, Gemini, and OpenRouter connectors
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-Octo ships four LLM provider connectors — `llm-anthropic`, `llm-openai`,
-`llm-gemini`, and `llm-openrouter` — that all satisfy the same client
-interface. Every AI block references a provider by connector **name**, so
-switching providers is a connector-level change: the blocks stay untouched.
-
-The first three talk to one vendor each. `llm-openrouter` talks to
-[OpenRouter](https://openrouter.ai), which fronts hundreds of models from
-many vendors behind a single key — reach for it when you want to compare
-models without opening an account with each of them.
+Octo ships four LLM provider connectors, `llm-anthropic`, `llm-openai`,
+`llm-gemini`, and `llm-openrouter`, that all satisfy the same client interface.
+Every AI block references a provider by connector **name**, so switching
+providers is a connector-level change. The first three talk to one vendor each;
+`llm-openrouter` talks to [OpenRouter](https://openrouter.ai), which fronts
+hundreds of models from many vendors behind a single key.
 
 ## Configuring a provider
 
@@ -75,9 +72,9 @@ connectors:
       # siteURL: https://octo.example         # the same, as HTTP-Referer
 ```
 
-Model ids here carry the vendor as a prefix — `openai/gpt-5.4`,
-`google/gemini-3.5-flash` — so switching models is a one-word change and
-never a change of key.
+Model ids here carry the vendor as a prefix (`openai/gpt-5.4`,
+`google/gemini-3.5-flash`), so switching models is a one-word change and never
+a change of key.
 
 </Tab>
 </Tabs>
@@ -91,10 +88,11 @@ All four connectors take the same four settings:
 | `maxTokens` | No | Default response token cap; a block may override it per call. Anthropic defaults to `4096`; the other three default to `0`, meaning the model's own default. |
 | `baseURL` | No | Overrides the API endpoint. |
 
-Each also takes settings of its own — reasoning and thinking effort, and for OpenRouter the two attribution headers. See the [connector reference](/reference/connectors/llm).
-
-A connector validates its settings at startup — a missing `apiKey` fails the
-service immediately rather than on the first request.
+Each also takes settings of its own: reasoning and thinking effort, and for
+OpenRouter the two attribution headers. See the
+[connector reference](/reference/connectors/llm). A connector validates its
+settings at startup, so a missing `apiKey` fails the service immediately rather
+than on the first request.
 
 ## One interface, any provider
 
@@ -109,17 +107,14 @@ shared client interface, by name:
           prompt: "..."
 ```
 
-Because the binding is by name against the shared interface, providers are
-interchangeable: repoint `claude` at a different `type`, or configure
-several providers side by side and give each block the one that fits.
-Referencing a connector that is not an LLM provider is a startup error, not
-a runtime surprise.
+Repoint `claude` at a different `type`, or configure several providers side by
+side. Referencing a connector that is not an LLM provider is a startup error.
 
 ## OpenAI-compatible and local endpoints
 
 The `llm-openai` connector's `baseURL` targets any server that speaks the
-OpenAI Responses API — a corporate proxy, Azure OpenAI, or a local
-runtime such as Ollama or vLLM:
+OpenAI Responses API: a corporate proxy, Azure OpenAI, or a local runtime such
+as Ollama or vLLM:
 
 ```yaml
 connectors:
@@ -132,8 +127,8 @@ connectors:
 ```
 
 Every AI block then runs against the local model with no other changes. The
-`baseURL` on `llm-anthropic`, `llm-gemini` and `llm-openrouter` serves the
-same purpose for proxies and testing against their respective APIs.
+`baseURL` on `llm-anthropic`, `llm-gemini` and `llm-openrouter` serves the same
+purpose for proxies and testing.
 
 ## Key hygiene
 
@@ -153,30 +148,24 @@ connectors:
 ```
 
 `required: true` makes a missing key a startup failure with a clear message.
-The flow file stays committable, keys stay in the environment, and the
-connectors never log them.
+The flow file stays committable and the connectors never log the key.
 
 ## Choosing models
 
-The `model` setting is per connector, and a flow can define several
-connectors against the same provider — so match the model to each block's
-job rather than picking one for the whole service:
-
-- **High-volume, narrow tasks** — routing decisions, mapping, formatting —
-  run constantly and favor speed and cost; a smaller model is the usual
-  default. The [Slack agent capstone](/ai/slack-agent) runs its whole
-  pipeline on `claude-haiku-4-5` with a `1200` token cap.
-- **Agents** reason across multiple tool calls, so a more capable model can
-  pay for itself in fewer iterations and better tool use.
-- **`maxTokens`** is a cost and latency guard: set it near the size of the
-  output you actually expect (a router's decision is tiny; a summary is
-  not).
+The `model` setting is per connector, and a flow can define several connectors
+against the same provider, so match the model to each block's job. High-volume,
+narrow tasks (routing, mapping, formatting) favor a smaller model; the
+[Slack agent capstone](/ai/slack-agent) runs its whole pipeline on
+`claude-haiku-4-5` with a `1200` token cap. Agents reason across multiple tool
+calls, so a more capable model can pay for itself in fewer iterations.
+`maxTokens` is a cost and latency guard: set it near the size of the output you
+expect (a router's decision is tiny; a summary is not).
 
 Model ids pass through to the provider as-is, so new models work as soon as
-your account has access — update the setting and restart.
+your account has access: update the setting and restart.
 
 <Callout type="info">
-Two connectors can point at the same provider with different models — for
-example, a `fast` connector for an `ai-router` and a `deep` connector for
-the `ai-agent` behind it. Blocks choose per `connector` name.
+Two connectors can point at the same provider with different models, for
+example a `fast` connector for an `ai-router` and a `deep` connector for the
+`ai-agent` behind it. Blocks choose per `connector` name.
 </Callout>
