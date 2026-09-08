@@ -1,19 +1,15 @@
 ---
 title: "Connectors and Blocks"
-description: "Trigger connectors, service connectors, blocks, and composites — the building model."
+description: "Trigger connectors, service connectors, blocks, and composites: the building model."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Everything in a flow is built from two kinds of parts: connectors, which own a piece of the outside world, and blocks, which process messages. This page explains how they relate and how a flow wires them together.
+Everything in a flow is built from two kinds of parts: connectors, which own a piece of the outside world, and blocks, which process messages.
 
 ## Connectors
 
-A connector owns an external resource — a socket, a client, a connection pool — and acquires it on start, releases it on stop. You declare instances under `connectors:` with a `name`, a `type`, and `settings`, then reference them by name.
-
-Connectors serve flows in two ways, and some do both:
-
-**Trigger connectors** provide a *source* that feeds messages into a flow:
+A connector owns an external resource (a socket, a client, a connection pool), acquired on start and released on stop. You declare instances under `connectors:` with a `name`, a `type`, and `settings`, then reference them by name. Connectors serve flows in two ways, and some do both. Trigger connectors provide a *source* that feeds messages into a flow:
 
 | Type | Triggers a flow when |
 | --- | --- |
@@ -22,22 +18,22 @@ Connectors serve flows in two ways, and some do both:
 | `events` | A message is broadcast on a topic subject (fan-out: every subscriber gets a copy). |
 | `queue` | A message lands on a queue subject (competing consumers: exactly one gets it). |
 
-**Service connectors** provide *blocks* that a flow calls mid-pipeline:
+Service connectors provide *blocks* that a flow calls mid-pipeline:
 
 | Type | Provides |
 | --- | --- |
-| `http-client` | The `rest` block — outbound HTTP with base URL, auth, retries. |
-| `database` | The `sql` block — queries against Postgres or SQLite. |
-| `logger` | The `log` block — structured log output. |
+| `http-client` | The `rest` block: outbound HTTP with base URL, auth, retries. |
+| `database` | The `sql` block: queries against Postgres or SQLite. |
+| `logger` | The `log` block: structured log output. |
 | `slack` | Blocks to send messages, look up data, and verify inbound events. |
 | `notion` | Blocks to retrieve pages, query data sources, and verify webhooks. |
 | `llm-anthropic`, `llm-openai`, `llm-gemini`, `llm-openrouter` | The `ai-mapping` block and the AI composites (`ai-router`, `ai-agent`, `ai-retry`). |
 
-`cron`, `queue`, and `events` need no per-instance settings, so a source can use them without a `connectors:` entry — the runtime starts a default instance on demand. See [implicit connectors](/concepts/flows#implicit-connectors).
+`cron`, `queue`, and `events` need no per-instance settings, so a source can use them without a `connectors:` entry; the runtime starts a default instance on demand. See [implicit connectors](/concepts/flows#implicit-connectors).
 
 ## Blocks
 
-A block is one step in a flow's `process` chain: it receives a message, transforms it or performs a side effect, and passes it on. Built-in blocks like `set-payload`, `set-variable`, and `template-resource` need nothing external. Connector-backed blocks name the instance they use with a `connector:` setting (the `log` block uses `logger:`):
+A block is one step in a flow's `process` chain: it receives a message, transforms it or performs a side effect, and passes it on. Built-in blocks like `set-payload`, `set-variable`, and `template-resource` need nothing external. Connector-backed blocks name their instance with a `connector:` setting (the `log` block uses `logger:`):
 
 ```yaml
 connectors:
@@ -57,11 +53,11 @@ flows:
           body: '{"amount": body.amount}'
 ```
 
-The binding is by *instance name*, so two `rest` blocks can call two different APIs by pointing at two `http-client` instances.
+The binding is by *instance name*, so two `rest` blocks can call two different APIs through two `http-client` instances.
 
 ## Composites
 
-Composite blocks nest other blocks through typed slots — this is how you get branching, iteration, parallelism, and error boundaries. They are built directly by the flow builder rather than registered as leaf blocks, and their slots are flow fields, not `settings`:
+Composite blocks nest other blocks through typed slots: branching, iteration, parallelism, and error boundaries. Slots are flow fields, not `settings`:
 
 | Composite | Slots | What it does |
 | --- | --- | --- |
@@ -90,11 +86,11 @@ process:
           settings: { name: priority, value: '"normal"' }
 ```
 
-Slots contain sub-flows, and sub-flows contain blocks — including more composites — so pipelines nest to any depth.
+Slots contain sub-flows, and sub-flows contain blocks (including more composites), so pipelines nest to any depth.
 
 ## Reuse with named processors
 
-Declare a block once under `processors:` and reference it from any flow with `ref:`. The reference takes the definition's type and settings; block-level settings override key by key.
+Declare a block once under `processors:` and reference it from any flow with `ref:`. The reference takes the definition's type and settings and may override settings key by key.
 
 ```yaml title="hello-world.yaml (excerpt)"
 processors:
@@ -117,9 +113,9 @@ flows:
 ```
 
 <Callout type="info">
-Named processors mirror connectors: both are declared once at the top level and referenced by name, so shared configuration lives in exactly one place.
+Named processors mirror connectors: both are declared once at the top level and referenced by name.
 </Callout>
 
 ## The complete catalogue
 
-This page covers the model; the [Reference](/reference) documents every connector, source, block, and composite with its full settings.
+The [Reference](/reference) documents every connector, source, block, and composite with its full settings.

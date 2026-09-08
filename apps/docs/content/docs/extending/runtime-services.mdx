@@ -5,17 +5,17 @@ description: "The provider and hosted facets, and how to choose between them."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A runtime service is part of what the runtime **is**, rather than something a flow can do. It is never named in a config: no flow references it, and there is no YAML for it.
+A runtime service is part of what the runtime **is**, rather than something a flow can do. No flow references it, and there is no YAML for it.
 
 <Callout type="info">
-This page is about the Go extension point. It shares a name with [Runtime Services](/concepts/runtime-services) in Core Concepts, which is the flow author's view of the same layer — the object store, cache, queues and topics you use from YAML. This page is about how those get *supplied*.
+This page is about the Go extension point. [Runtime Services](/concepts/runtime-services) in Core Concepts is the flow author's view of the same layer (the object store, cache, queues and topics); this page is about how those get *supplied*.
 </Callout>
 
-A service lives in `runtime/services/<name>` and implements one of two facets, or both — and may bring CLI commands alongside either.
+A service lives in `runtime/services/<name>` and implements one or both facets, and may bring CLI commands alongside either.
 
 | | Provider | Hosted |
 | --- | --- | --- |
-| Supplies | `core.RuntimeServices` | nothing — it *runs* |
+| Supplies | `core.RuntimeServices` | nothing; it *runs* |
 | Selected by | `RUNTIME_SERVICES_MODULE` | nothing; always on when compiled in |
 | Active at once | exactly one | all of them |
 | Configured by | environment | CLI flags on `octo run` |
@@ -23,7 +23,7 @@ A service lives in `runtime/services/<name>` and implements one of two facets, o
 
 ## The provider facet
 
-A provider supplies the platform capability flows depend on: leader election, the object store, secrets, queues, topics, resources. Providers are **module-selected** — exactly one is active — so registration is conditional by design:
+A provider supplies the platform capability flows depend on: leader election, the object store, secrets, queues, topics, resources. Providers are **module-selected**, so exactly one is active and registration is conditional:
 
 ```go
 const Module = "standalone"
@@ -37,15 +37,13 @@ func New(ctx context.Context, opts services.Options) (core.RuntimeServices, erro
 }
 ```
 
-Every imported provider registers unconditionally and only the selected one wins, which is why a binary can carry several without ambiguity. Which ones it carries is decided by build tag: `runtime/octo/providers_k8s.go` is behind `//go:build k8s`, so client-go and NATS stay out of the default binary entirely.
+Every imported provider registers unconditionally and only the selected one wins. Build tags decide which providers a binary carries: `runtime/octo/providers_k8s.go` is behind `//go:build k8s`, so client-go and NATS stay out of the default binary. The tags are mutually exclusive.
 
-There are three. `standalone` is the default build; `k8s` is Octo's own PaaS; and `api` delegates every capability to an HTTP server you implement, which is how Octo runs on Cloud Run or against a platform of your own — see [The platform API](/extending/platform-api). The tags are mutually exclusive, so a binary is never ambiguous about which platform it is talking to.
+There are three providers. `standalone` is the default build; `k8s` is Octo's own PaaS; and `api` delegates every capability to an HTTP server you implement, which is how Octo runs on Cloud Run or against a platform of your own (see [The platform API](/extending/platform-api)).
 
 ### Adding a capability is usually the wrong move
 
-`core.RuntimeServices` is already annotated `//nolint:interfacebloat`. Widening it forces every provider to implement something most of them cannot.
-
-The pattern instead is an **optional side interface the caller type-asserts**. `core.LogShipper` is the worked example: the `k8s` module implements it to ship logs to a central sink and the `api` module ships them to whatever server it was pointed at, while the standalone module has nowhere to ship them and does not implement it at all. The caller asserts and nil-checks rather than assuming.
+`core.RuntimeServices` is annotated `//nolint:interfacebloat`; widening it forces every provider to implement something most cannot. Use an **optional side interface the caller type-asserts** instead. `core.LogShipper` is the worked example: the `k8s` and `api` modules implement it to ship logs, the standalone module does not, and the caller asserts and nil-checks.
 
 ```go
 type LogShipper interface {
@@ -60,11 +58,9 @@ if shipper, ok := svc.(core.LogShipper); ok {
 }
 ```
 
-Copy that shape before you copy the interface.
-
 ## The hosted facet
 
-A hosted service runs for the life of the process instead of supplying capability. It starts before the first flow generation, stops after the last, and spans every `--watch` reload. Because it has no YAML, it configures itself from **CLI flags**.
+A hosted service runs for the life of the process. It starts before the first flow generation, stops after the last, and spans every `--watch` reload. Because it has no YAML, it configures itself from **CLI flags**.
 
 ```go
 func init() {
@@ -89,29 +85,25 @@ func (s *Service) Start(ctx context.Context, health *services.Health) error {
 func (s *Service) Stop(ctx context.Context) error { /* ... */ }
 ```
 
-Hosted services are not module-selected: every one compiled in runs. A binary chooses which it ships purely by blank import — and by build tag, if it should be droppable (`//go:build !no_observability`).
+Hosted services are not module-selected: every one compiled in runs. A binary chooses which it ships by blank import, and by build tag if it should be droppable (`//go:build !no_observability`).
 
 ### Four things that are easy to get wrong
 
-**Make the flag's default the environment variable.** Then "flag wins when passed" falls out of `flag` for free, and `--help` prints what is actually in effect — no precedence code at all.
+Make the flag's default the environment variable, so "flag wins when passed" falls out of `flag` for free and `--help` prints what is in effect. These are read from the **process environment**, not from a `.env` file, because flags are parsed before any config is loaded.
 
 ```go
 fs.StringVar(&s.addr, "observability-addr", envString("OCTO_OBSERVABILITY_ADDR", ":39999"), "...")
 ```
 
-Note these are read from the **process environment**, not from a `.env` file: flags are parsed before any config is loaded.
+`Usage` is not optional if you have flags; it is appended to `octo --help`.
 
-**`Usage` is not optional if you have flags.** It is appended to `octo --help`. A flag that exists but is absent from the help page may as well not exist.
+`Start` must not block, and an error it returns fails the run, so bind ports and open files there. The observability service is the deliberate exception: a bind failure on its fixed admin port logs at error level and returns `nil`, so a second `octo run` on the same host still serves its flows.
 
-**`Start` must not block, and its errors are fatal.** Bind the port there so a conflict fails the run, rather than logging a failure nobody reads and leaving the process up without the thing it was asked for.
-
-**`Stop` gets a live context.** The CLI passes one that outlives cancellation of the run, so a graceful drain has somewhere to happen.
+`Stop` gets a live context that outlives cancellation of the run, so a graceful drain has somewhere to happen.
 
 ### Readiness
 
-`Start` receives the `*services.Health` gate the CLI drives as the runtime's lifecycle advances — `starting`, `ready`, `reloading`, `draining`, `stopped`. Read it; do not write it. The [observability service](/runtime/observability) turns it into `/readyz`.
-
-There is no liveness gate, on purpose: liveness asks whether the process is wedged, and a server answering at all is the answer.
+`Start` receives the `*services.Health` gate the CLI drives through the lifecycle: `starting`, `ready`, `reloading`, `draining`, `stopped`. Read it; do not write it. The [observability service](/runtime/observability) turns it into `/readyz`. There is no liveness gate: a server answering at all is the answer.
 
 ### Seeing the config
 
@@ -121,11 +113,11 @@ Implement the optional `services.ConfigAware` to be handed each generation's con
 func (s *Service) Configured(config types.Config) { /* ... */ }
 ```
 
-It is called once per generation — again on every `--watch` reload. A generation is **not** a fresh start: anything you accumulate must survive it. The observability service uses this to pre-create each flow's metric series without ever resetting a counter, because a reset would make `rate()` read a reload as a restart and invent a spike.
+It is called once per generation, again on every `--watch` reload. A generation is **not** a fresh start: anything you accumulate must survive it. The observability service pre-creates each flow's metric series here without resetting a counter, since a reset would make `rate()` read a reload as a restart.
 
 ## CLI commands
 
-A module may also bring subcommands, registered from the same `init` manifest:
+A module may bring subcommands, registered from the same `init` manifest:
 
 ```go
 func init() {
@@ -134,17 +126,17 @@ func init() {
 }
 ```
 
-`main.go` dispatches any command it does not recognize through the registry, and the help page picks up each command's `Usage()` exactly as it already does for hosted services. Commands are **not** module-selected — like hosted services, one is available whenever its package is compiled in, whatever `RUNTIME_SERVICES_MODULE` says. `octo verify-platform-api` is the reason: you run it to find out whether a server is ready, which is before anyone would set the variable that selects the module talking to it.
+`main.go` dispatches any command it does not recognize through the registry, and the help page picks up each command's `Usage()`. Commands are **not** module-selected: one is available whenever its package is compiled in, whatever `RUNTIME_SERVICES_MODULE` says. `octo verify-platform-api` checks whether a server is ready, before anyone would set the variable that selects the module talking to it.
 
-The point of registering from the module rather than from `main.go` is that a capability then appears in a binary exactly when the thing that can act on it does. `octo openapi` prints the platform API contract, and in a build with no `api` provider it would be inviting somebody to implement an interface that binary cannot speak — which they would discover only after writing a server.
+Registering from the module rather than from `main.go` makes a capability appear in a binary exactly when the thing that can act on it does: `octo openapi` prints the platform API contract, and a build with no `api` provider should not offer it.
 
 ## Both facets
 
-Nothing stops a module from implementing both — a provider that also wants to run something for the life of the process registers with `services.Register` *and* `services.RegisterHosted`, with no new machinery.
+A module may implement both: register with `services.Register` *and* `services.RegisterHosted`.
 
 ## See also
 
-- [Observability](/runtime/observability) — the only hosted service today, and the worked example above.
-- [The platform API](/extending/platform-api) — the provider that delegates every capability to a server you implement.
-- [Clustering](/runtime/clustering) — what the k8s provider supplies and why.
-- [Runtime Services](/concepts/runtime-services) — the same layer from a flow author's side.
+- [Observability](/runtime/observability): the only hosted service today, and the worked example above.
+- [The platform API](/extending/platform-api): the provider that delegates every capability to a server you implement.
+- [Clustering](/runtime/clustering): what the k8s provider supplies and why.
+- [Runtime Services](/concepts/runtime-services): the same layer from a flow author's side.

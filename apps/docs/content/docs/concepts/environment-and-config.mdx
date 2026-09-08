@@ -5,7 +5,7 @@ description: "Declaring env vars, substitution, precedence, and secrets."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A config declares every environment variable it depends on under `env:`, then references them in settings as `${NAME}` and in expressions as `env.NAME`. Declaring them up front documents every external input in one place — and referencing an undeclared variable is an error at load time, not in production.
+A config declares every environment variable it depends on under `env:`, then references them in settings as `${NAME}` and in expressions as `env.NAME`. Referencing an undeclared variable is an error at load time.
 
 ## Declaring variables
 
@@ -23,12 +23,11 @@ env:
     required: true      # must be supplied externally; a default would not satisfy it
 ```
 
-- **`default`** is used when nothing external supplies the variable. An explicit empty default (`default: ""`) is valid and distinct from no default at all.
-- **`required: true`** fails the load when the variable is not supplied by the OS environment or a `.env` file. A `default` does not satisfy `required` — required means *externally supplied*.
+`default` is used when nothing external supplies the variable; an explicit empty default (`default: ""`) is valid and distinct from no default at all. `required: true` fails the load when the variable is not supplied by the OS environment or a `.env` file. A `default` does not satisfy `required`.
 
 ## `${NAME}` substitution
 
-Any value in the config accepts `${NAME}` references to declared variables — settings at any depth, and the flow's own fields too:
+Any value in the config accepts `${NAME}` references to declared variables: settings at any depth, and the flow's own fields too:
 
 ```yaml
 connectors:
@@ -44,16 +43,10 @@ flows:
     workers: ${FLOW_WORKERS}    # the same, on a typed flow field
 ```
 
-A value that is *exactly* one `${NAME}` is substituted with the variable's natural type — `"8080"` becomes the integer `8080`, `"true"` a boolean — so env vars can fill numeric and boolean fields. A `${NAME}` embedded in a longer string is replaced textually and the value stays a string.
-
-`workers` is the case that makes this matter: it is exactly the setting you want to differ between a laptop and a production node, and baking it into the YAML means a separate config per environment — the opposite of promoting one artifact across them.
-
-The `env:` and `resources:` sections are the exceptions. They are read to build the environment before substitution runs, so they must be written literally.
-
-Two mistakes fail at load time with a clear message: referencing a name not declared under `env:`, and referencing a declared name that resolved to no value and has no default.
+A value that is *exactly* one `${NAME}` takes the variable's natural type (`"8080"` becomes the integer `8080`, `"true"` a boolean), so env vars can fill numeric and boolean fields such as `workers`. A `${NAME}` embedded in a longer string is replaced textually. The `env:` and `resources:` sections are read to build the environment before substitution runs, so they must be written literally. Two mistakes fail at load time: referencing a name not declared under `env:`, and referencing a declared name that resolved to no value and has no default.
 
 <Callout type="warn">
-  **Changed in 0.5.0.** Substitution used to reach only `settings` values. A `${NAME}` anywhere else was left as literal text; now it is resolved, and a reference to a name that is not declared under `env:` fails the load instead of passing through. If a value legitimately contains `${...}`, declare the variable or rewrite the value.
+  **Changed in 0.5.0.** Substitution used to reach only `settings` values. A `${NAME}` anywhere else was left as literal text; now it is resolved, and a reference to a name not declared under `env:` fails the load. If a value legitimately contains `${...}`, declare the variable or rewrite the value.
 </Callout>
 
 ## `env.NAME` in expressions
@@ -72,9 +65,9 @@ Use `${NAME}` for static configuration and `env.NAME` when a value participates 
 
 Each declared variable resolves from the first source that supplies it:
 
-1. **The OS environment** — always wins. `HTTP_PORT=9090 octo run --config orders.yaml` overrides everything.
-2. **`.env` files** — `./.env`, overlaid by the file named in `$OCTO_ENV_FILE` (when set), overlaid by any declared [`resources.env` files](/concepts/resources) in listed order.
-3. **The declared `default`** — the fallback when nothing external supplies the variable.
+1. The OS environment, which always wins. `HTTP_PORT=9090 octo run --config orders.yaml` overrides everything.
+2. `.env` files: `./.env`, overlaid by the file named in `$OCTO_ENV_FILE` (when set), overlaid by any declared [`resources.env` files](/concepts/resources) in listed order.
+3. The declared `default`.
 
 ```bash
 # override at startup without editing the config
@@ -90,4 +83,4 @@ echo 'HTTP_PORT=9090' > .env
 
 ## On the platform
 
-When an integration runs on the Octo platform, you do not manage `.env` files by hand: secrets and env resources are managed per integration through the platform, which supplies them to the runtime with the same precedence — the declarations in your config stay the single source of truth for what the integration needs. See [Resources and Secrets](/platform/resources-and-secrets).
+On the Octo platform, secrets and env resources are managed per integration and supplied to the runtime with the same precedence, so the declarations in your config stay the single source of truth. See [Resources and Secrets](/platform/resources-and-secrets).
