@@ -8,10 +8,10 @@ import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-Octo releases are fully automated: Conventional Commits drive
+Octo releases are automated: Conventional Commits drive
 [release-please](https://github.com/googleapis/release-please), a version tag
-triggers the build pipelines, and published artifacts roll out to deployments
-by bumping a tag.
+triggers the build pipelines, and published artifacts roll out to deployments by
+bumping a tag.
 
 ## How a release is cut
 
@@ -32,8 +32,8 @@ minor/patch per the release-please config).
 
 The `release-please` workflow (`.github/workflows/release-please.yml`) runs on
 every push to `main` and keeps a release PR up to date with the accumulated
-changelog and the next version. Do not hand-edit `CHANGELOG.md` or the
-manifest version — release-please owns them.
+changelog and the next version. Do not hand-edit `CHANGELOG.md` or the manifest
+version; release-please owns them.
 
 </Step>
 <Step>
@@ -41,51 +41,53 @@ manifest version — release-please owns them.
 ### Merging the release PR tags a version
 
 Merging creates the GitHub release, the `CHANGELOG.md` entry, and the clean
-`vX.Y.Z` tag. Because release-please pushes the tag with the default
-`GITHUB_TOKEN` (which cannot cascade-trigger tag workflows), it invokes the
-release workflow directly, passing the fresh tag.
+`vX.Y.Z` tag. release-please pushes the tag with the default `GITHUB_TOKEN`,
+which cannot cascade-trigger tag workflows, so it invokes the release workflow
+directly, passing the fresh tag.
 
 </Step>
 <Step>
 
 ### The release workflow builds and publishes
 
-`.github/workflows/release.yml` runs `release-check` first, then the publish
-jobs in parallel:
+`.github/workflows/release.yml` runs `release-check` first: it checks out the
+tag and runs `task release-check` (governance and release-readiness files) and
+`task build` (all Go modules plus the pnpm workspace). Then the publish jobs run
+in parallel:
 
-- **release-check** — checks out the tag, runs `task release-check`
-  (governance and release-readiness files) and `task build` (all Go modules
-  plus the pnpm workspace).
-- **publish-standalone** — builds the standalone editor image from
+- `publish-standalone` builds the standalone editor image from
   `apps/standalone/Dockerfile` as a multi-arch build (`linux/amd64` +
-  `linux/arm64`) and pushes it to Docker Hub as
-  `juancavallotti/octo:<version>` and `juancavallotti/octo:latest`.
-- **publish-runtime** — builds `runtime/Dockerfile` with `GOTAGS=` (the
-  default, standalone-services build) and pushes the same two tags for
-  `juancavallotti/octo-runtime`, so integrations can be run from Docker
-  without a cluster. See [Docker images](/deploy/docker-images#octo-runtime).
-- **publish-api-runtime** — builds `runtime/Dockerfile` with `GOTAGS=api` and
-  pushes `juancavallotti/octo-api` and `juancavallotti/octo-api-paas` off that
-  one build, so the public image and the private-registry one share a digest.
-  This is the runtime whose platform capabilities come from a server you
-  implement. See [The platform API](/extending/platform-api).
-- **publish-paas-images** — builds the five platform images
+  `linux/arm64`) and pushes it to Docker Hub as `juancavallotti/octo:<version>`
+  and `juancavallotti/octo:latest`.
+- `publish-runtime` builds `runtime/Dockerfile` with `GOTAGS=` (the default,
+  standalone-services build) and pushes the same two tags for
+  `juancavallotti/octo-runtime`, so integrations can be run from Docker without
+  a cluster. `octo-devruntime-paas` is tagged off that same build, because it is
+  byte-for-byte the standalone runtime. See
+  [Docker images](/deploy/docker-images#octo-runtime).
+- `publish-api-runtime` builds `runtime/Dockerfile` with `GOTAGS=api` and pushes
+  `juancavallotti/octo-api` and `juancavallotti/octo-api-paas` off that one
+  build, so the public image and the private-registry one share a digest. This
+  is the runtime whose platform capabilities come from a server you implement.
+  See [The platform API](/extending/platform-api).
+- `build-paas-images` builds the nine platform images per architecture
   (`octo-platform-paas`, `octo-orchestrator-paas`, `octo-observability-paas`,
-  `octo-schema-paas`, `octo-runtime-paas`) multi-arch and pushes them to public
-  Docker Hub. These are what the Helm chart installs by default.
-- **publish-charts** — packages both Helm charts and pushes them to
+  `octo-schema-paas`, `octo-runtime-paas`, `octo-devsidecar-paas`,
+  `octo-statssidecar-paas`, `octo-agenticrunner-paas`, `octo-embeddings-paas`),
+  and `publish-paas-images` assembles the multi-arch manifests on Docker Hub.
+  These are what the Helm chart installs by default.
+- `publish-charts` packages both Helm charts and pushes them to
   `oci://ghcr.io/juancavallotti/charts`. The job first fails the build if either
   chart's `version`, or the application chart's `appVersion`, disagrees with the
-  tag — see below.
-- **publish-cli** — runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`),
-  which cross-compiles both CLIs — `octo` and `dolphin` — for macOS, Linux, and
+  tag (see below).
+- `publish-cli` runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`),
+  which cross-compiles both CLIs (`octo` and `dolphin`) for macOS, Linux, and
   Windows (amd64 and arm64 each) and attaches the twelve archives, plus one
   combined `checksums.txt`, to the GitHub release. Both are pure Go, so
   `CGO_ENABLED=0` builds every target from one Linux runner. release-please
   created the release and wrote its notes before this job runs, so GoReleaser
   works in `keep-existing` mode and only uploads the assets. The archives are
-  what [Installation](/getting-started/installation#download-the-cli) links
-  to.
+  what [Installation](/getting-started/installation#download-the-cli) links to.
 
 </Step>
 <Step>
@@ -96,10 +98,12 @@ In the [GCP reference deployment](/deploy/gcp-terraform), a Cloud Build
 trigger (created by the `infra` root with `enable_cloudbuild = true`) fires on
 the same version tag and runs `cloudbuild.yaml`:
 
-- Builds the five platform images (`octo-platform-paas`,
+- Builds the eleven platform images (`octo-platform-paas`,
   `octo-orchestrator-paas`, `octo-observability-paas`, `octo-schema-paas`,
-  `octo-runtime-paas`) and pushes each to Artifact Registry tagged with both the
-  git tag and `latest`.
+  `octo-runtime-paas`, `octo-devsidecar-paas`, `octo-statssidecar-paas`,
+  `octo-devruntime-paas`, `octo-agenticrunner-paas`, `octo-embeddings-paas` and
+  `octo-api-paas`) and pushes each to Artifact Registry tagged with both the git
+  tag and `latest`.
 - Reads back the **digest** of each pushed image and renders
   `dist/values.images.yaml` pinning them, so the deploy installs exactly what
   this build produced rather than whatever the tag points at later. The file is
@@ -107,8 +111,8 @@ the same version tag and runs `cloudbuild.yaml`:
 - Packages **both** Helm charts (versions from their `Chart.yaml` files, kept in
   step with the repo release by release-please) and pushes them as OCI
   artifacts.
-- With `_DEPLOY=true` (the default when `cloudbuild_auto_deploy` is on),
-  applies the Terraform `release` root — rolling the cluster to the new tag
+- With `_DEPLOY=true` (the default when `cloudbuild_auto_deploy` is on), applies
+  the Terraform `release` root, rolling the cluster to the new tag
   automatically.
 
 </Step>
@@ -126,8 +130,8 @@ task deploy TAG=v0.2.0
 ```
 
 This fetches a fresh kubeconfig, derives the chart version from
-`helm/Chart.yaml`, and applies the `release` root — pre-pulling the images
-onto the node and upgrading the Helm release. See
+`helm/Chart.yaml`, and applies the `release` root, pre-pulling the images onto
+the node and upgrading the Helm release. See
 [GCP with Terraform](/deploy/gcp-terraform#deploy-and-roll-upgrades).
 
 ### Plain Helm deployment
@@ -144,9 +148,9 @@ to the chart's `appVersion`, which release-please keeps equal to the release
 version. Bumping the chart moves the images with it.
 
 The application Deployments roll automatically, the schema hook Job re-applies
-`sql/schema.sql` idempotently, and Postgres data is untouched — nothing in the
+`sql/schema.sql` idempotently, and Postgres data is untouched: nothing in the
 chart can remove it, since the StatefulSet retains its claim on uninstall.
-Integrations keep running on the runtime image they were deployed with —
+Integrations keep running on the runtime image they were deployed with, so
 redeploy them from the editor to move them to the new `octo-runtime`. See
 [Helm chart](/deploy/helm#upgrade).
 
@@ -154,7 +158,7 @@ redeploy them from the editor to move them to the new `octo-runtime`. See
 
 Download the new archive for your platform from the
 [latest release](https://github.com/juancavallotti/octo/releases/latest) and
-replace the binary on your PATH — see
+replace the binary on your PATH, as in
 [Installation](/getting-started/installation#download-the-cli). `octo version`
 reports what you are on.
 
@@ -189,25 +193,23 @@ every upgrade against existing data.
 ### Charts and images are versioned together
 
 Both Helm charts and the application chart's `appVersion` are stamped by
-release-please and carry the **same** version as the release. The release
-workflow fails if any of them disagrees with the tag, because `appVersion` is
-load-bearing rather than decorative: it is what `image.tag` falls back to, so a
-stale one would silently ship a chart that installs the wrong images.
+release-please and carry the **same** version as the release. The release workflow
+fails if any of them disagrees with the tag, because `appVersion` is what
+`image.tag` falls back to: a stale one would silently ship a chart that installs
+the wrong images.
 
-The practical consequence is that a chart at version X is tested against the
-images of release X, and installs them by default. Pinning `image.tag` to an
-older release while running a newer chart is not a tested combination — the
-security contexts in the cloud profiles are the most likely thing to break,
-since they pin the UIDs the current images run as. See
+So a chart at version X is tested against the images of release X, and installs
+them by default. Pinning `image.tag` to an older release while running a newer
+chart is untested: the security contexts in the cloud profiles are the most
+likely thing to break, since they pin the UIDs the current images run as. See
 [image and chart compatibility](/deploy/helm#image-and-chart-compatibility).
 
 ## Where to watch releases
 
-- **GitHub Releases** — every version tag has a release with its notes and the
-  CLI archives for macOS, Linux, and Windows.
-- **`CHANGELOG.md`** — the accumulated, release-please-maintained changelog
-  at the repo root.
-- **Docker Hub** — [`juancavallotti/octo`](https://hub.docker.com/r/juancavallotti/octo)
-  (standalone editor) and
-  [`juancavallotti/octo-runtime`](https://hub.docker.com/r/juancavallotti/octo-runtime)
-  (runtime alone) track releases.
+GitHub Releases carries every version tag with its notes and the CLI archives
+for macOS, Linux, and Windows. `CHANGELOG.md` at the repo root is the
+accumulated, release-please-maintained changelog. On Docker Hub,
+[`juancavallotti/octo`](https://hub.docker.com/r/juancavallotti/octo)
+(standalone editor) and
+[`juancavallotti/octo-runtime`](https://hub.docker.com/r/juancavallotti/octo-runtime)
+(runtime alone) track releases.

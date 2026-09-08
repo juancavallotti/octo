@@ -7,23 +7,26 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-Octo builds its images from seven Dockerfiles. Six produce the **platform
+Octo builds its images from ten Dockerfiles. Most produce the **platform
 images**, published to public Docker Hub under a `-paas` suffix
 (`juancavallotti/octo-platform-paas`, …) and, in the reference deployment, also
-to Artifact Registry. Three more are **public images** for use without this
-cluster: the standalone editor, the runtime on its own, and the runtime that
-delegates its platform capabilities to a server you implement.
+to Artifact Registry. Three are **public images** for use without this cluster:
+the standalone editor, the runtime on its own, and the runtime that delegates
+its platform capabilities to a server you implement.
 
 The Helm chart's defaults point at the public `-paas` images, so installing the
-chart needs no registry of your own — see [Helm chart](#helm-charts) below.
+chart needs no registry of your own (see [Helm chart](#helm-charts) below).
 
 | Image | Dockerfile | Build context | Role |
 |---|---|---|---|
 | `octo-runtime` | `runtime/Dockerfile` | Repo root | Runs deployed integrations (one pod set per integration) |
-| `octo-agenticrunner` | `runtime/Dockerfile.agentic` | Repo root | Runs a deployment that asked for the agentic runner — adds a shell, curl, jq, the standalone CLI and dolphin |
+| `octo-agenticrunner` | `runtime/Dockerfile.agentic` | Repo root | Runs a deployment that asked for the agentic runner; adds a shell, curl, jq, the standalone CLI and dolphin |
 | `octo-platform` | `apps/platform/Dockerfile` | Repo root | Editor UI (Next.js) with the `octo` runtime binary bundled |
 | `octo-orchestrator` | `orchestrator/Dockerfile` | `./orchestrator` | Deploys and manages integrations via the Kubernetes API |
 | `octo-observability` | `observability/Dockerfile` | `./observability` | Observability service: NATS `internal.logs`/`internal.traces` → Postgres + query API, pod stats, retention |
+| `octo-devsidecar` | `sidecars/dev/Dockerfile` | `./sidecars` | Owns a dev run's workspace and reports its status |
+| `octo-statssidecar` | `sidecars/stats/Dockerfile` | `./sidecars` | Samples a deployed integration's pod metrics into Redis |
+| `octo-embeddings` | `embeddings/Dockerfile` | Repo root | Embedding server for agent-memory search |
 | `octo-schema` | `sql/Dockerfile` | `./sql` | Applies `sql/schema.sql` as an install/upgrade Job |
 | `juancavallotti/octo` | `apps/standalone/Dockerfile` | Repo root | Public standalone editor ("try Octo"), no cluster needed |
 | `juancavallotti/octo-runtime` | `runtime/Dockerfile` | Repo root | Public runtime alone: run integrations from Docker, no cluster |
@@ -32,29 +35,30 @@ chart needs no registry of your own — see [Helm chart](#helm-charts) below.
 Every image that contains a Go binary builds from the **repo root**, because the
 Go module is rooted there and a narrower context cannot reach `runtime/`.
 
-The last three rows share `runtime/Dockerfile` with the cluster's `octo-runtime`
+The last two rows share `runtime/Dockerfile` with the cluster's `octo-runtime`
 but not a binary: the cluster image is built with `-tags k8s`, the public runtime
-is the default build, and `octo-api` is built with `-tags api`. See
+is the default build, and `octo-api` is built with `-tags api`. `octo-devruntime`
+comes off the same file with the default build. See
 [octo-runtime](#octo-runtime) below.
 
 ## Where they are built
 
-The same six platform images are built in three places, always from the same
-Dockerfiles and contexts (they differ only in where the Go binaries come from —
-see [Where the Go binaries come from](#where-the-go-binaries-come-from)):
+The platform images are built in three places, always from the same Dockerfiles
+and contexts. They differ only in where the Go binaries come from, described in
+[Where the Go binaries come from](#where-the-go-binaries-come-from):
 
-- **Locally for k3d** — `task cluster:images` builds them tagged `:dev` and
+- Locally for k3d, where `task cluster:images` builds them tagged `:dev` and
   loads them into the cluster with `k3d image import` (no registry). See
   [Local cluster](/deploy/local-k3d).
-- **Locally for a registry** — `task images:push IMAGE_BASE=… TAG=…` builds
-  and pushes all six to `IMAGE_BASE/<name>:<TAG>`.
-- **Cloud Build on version tags** — `cloudbuild.yaml` builds all six, tags
+- Locally for a registry, where `task images:push IMAGE_BASE=… TAG=…` builds
+  and pushes them to `IMAGE_BASE/<name>:<TAG>`.
+- On Cloud Build, on version tags: `cloudbuild.yaml` builds all eleven, tags
   each with both the git tag and `latest`, pushes them to Artifact Registry,
   and packages and pushes both Helm charts as OCI artifacts. See
   [Releases and upgrades](/deploy/releases-and-upgrades).
 
-The public images — both the `-paas` platform set and the three cluster-less ones
-— are built by the GitHub Actions release workflow
+The public images, both the `-paas` platform set and the three cluster-less ones,
+are built by the GitHub Actions release workflow
 (`.github/workflows/release.yml`) on every version tag, as multi-arch builds
 (`linux/amd64` and `linux/arm64`) tagged with the release version and `latest`,
 and pushed to public Docker Hub.
@@ -64,14 +68,15 @@ and pushed to public Docker Hub.
 Every Dockerfile that carries a Go binary can get it two ways, chosen by the
 `BIN_SOURCE` build argument:
 
-- **`compile`** (the default) — the Dockerfile builds the binary itself, in a
-  `golang:1.27-alpine` stage. Nothing extra has to be passed, and the file works
-  on its own. This is what Cloud Build and the release workflow use, so a
-  published image is always built from source inside the image.
-- **`prebuilt`** — the binary is copied in from `dist/bin/linux_<arch>/`, filled
-  by `task bins:linux`. Used by every local target: `task cluster:images`,
-  `cluster:images:kind`, `cluster:images:dev`, `images:push`, `images:ttl` and
-  `images:ar`.
+With `compile` (the default) the Dockerfile builds the binary itself, in a
+`golang:1.27-alpine` stage, so the file works on its own with nothing extra
+passed. This is what Cloud Build and the release workflow use, so a published
+image is always built from source inside the image.
+
+With `prebuilt` the binary is copied in from `dist/bin/linux_<arch>/`, filled by
+`task bins:linux`. Used by every local target: `task cluster:images`,
+`cluster:images:kind`, `cluster:images:dev`, `images:push`, `images:ttl` and
+`images:ar`.
 
 `runtime/Dockerfile` is the one file where the choice also names a variant, since
 it builds every provider: `prebuilt-k8s`, `prebuilt-standalone` and `prebuilt-api`
@@ -80,43 +85,38 @@ rather than two arguments, so there is no way to ask for the k8s image and get t
 standalone binary.
 
 The reason is build time. Left to the Dockerfiles, one `task cluster:deploy` runs
-the Go compiler ten times across eight images — seven of them on the root module,
-for three distinct binaries — each in its own container starting from an empty
-build cache. `task bins:linux` compiles all six binaries once on the host, where
-the cache persists between runs; every binary is pure Go with `CGO_ENABLED=0`, so
-cross-compiling needs nothing but the Go toolchain.
+the Go compiler ten times across eight images, each in its own container starting
+from an empty build cache. `task bins:linux` compiles all eight binaries once on
+the host, where the cache persists between runs; every binary is pure Go with
+`CGO_ENABLED=0`, so cross-compiling needs nothing but the Go toolchain.
 
 <Callout type="warn">
-  These Dockerfiles require **BuildKit**, and not only for the cache mounts. The
-  `prebuilt` stage is unreachable when `BIN_SOURCE=compile`, and BuildKit builds
-  only the stages the target depends on — the legacy builder builds every stage
-  and fails on it with `invalid from flag value prebuilt`. Each file therefore
-  opens with `# syntax=docker/dockerfile:1`, which also pins a frontend new
-  enough for named contexts (1.4+) no matter how old the daemon is.
+  These Dockerfiles require **BuildKit**. The `prebuilt` stage is unreachable
+  when `BIN_SOURCE=compile`, and the legacy builder builds every stage anyway and
+  fails on it with `invalid from flag value prebuilt`. Each file opens with
+  `# syntax=docker/dockerfile:1`, which also pins a frontend new enough for named
+  contexts (1.4+).
 
   Every caller is already on BuildKit: buildx in the release workflow, the
   default on any current local Docker, and `DOCKER_BUILDKIT=1` on each
-  `cloudbuild.yaml` build step — that last one had to be set explicitly, because
+  `cloudbuild.yaml` build step, which had to be set explicitly because
   `gcr.io/cloud-builders/docker` still defaults to the legacy builder.
 </Callout>
 
 <Callout type="info">
   The binaries reach the build through a **named build context**
-  (`--build-context prebuilt=dist/bin`), not a path inside the ordinary one.
-  Three of the images build with their own module directory as the context and
-  could not otherwise reach a repo-root `dist/` — and a named context is exempt
-  from the root `.dockerignore`, which excludes `dist/`.
+  (`--build-context prebuilt=dist/bin`), not a path inside the ordinary one:
+  several images use their own module directory as the context, and a named
+  context is exempt from the root `.dockerignore`, which excludes `dist/`.
 
   `TARGETARCH` keys the directory, so the same `COPY` serves a native build and a
   `--platform` one. That matters for `images:ttl` and `images:ar`, which build
-  `linux/amd64`: a compile inside those images would run the Go toolchain under
-  QEMU emulation.
+  `linux/amd64`.
 </Callout>
 
 ### Images are pinned by digest on the GCP path
 
-Tags move: the same tag can be rebuilt, and `latest` always points somewhere
-new. So after pushing, Cloud Build reads back the digest of each image and
+Tags move, so after pushing, Cloud Build reads back the digest of each image and
 renders a values file naming them exactly:
 
 ```yaml
@@ -127,10 +127,10 @@ platform:
 ```
 
 The deploy step hands that to the chart, so a release runs precisely what that
-build produced rather than whatever the tag resolves to later, and the file is
-archived beside the release in the state bucket so a rollback can reproduce the
-coordinates. `task helm:values:images IMAGE_BASE=… TAG=…` renders the same file
-locally for any published tag.
+build produced, and the file is archived beside the release in the state bucket so
+a rollback can reproduce the coordinates.
+`task helm:values:images IMAGE_BASE=… TAG=…` renders the same file locally for
+any published tag.
 
 ## Helm charts
 
@@ -139,7 +139,7 @@ release and at the same version:
 
 | Chart | Purpose |
 |---|---|
-| `oci://ghcr.io/juancavallotti/charts/octo` | The application chart — installs the whole platform |
+| `oci://ghcr.io/juancavallotti/charts/octo` | The application chart, which installs the whole platform |
 | `oci://ghcr.io/juancavallotti/charts/octo-common` | The library chart it is built from; only needed if you depend on it directly |
 
 <DynamicCodeBlock lang="bash" code={`helm install octo oci://ghcr.io/juancavallotti/charts/octo --version ${OCTO_VERSION} \\
@@ -158,7 +158,7 @@ apply a restricted security context:
 |---|---|
 | `octo-platform-paas` | `1000` (`node`) |
 | `octo-orchestrator-paas`, `octo-observability-paas`, `octo-runtime-paas`, `octo-devruntime-paas`, `octo-devsidecar-paas`, `octo-statssidecar-paas` | `65532` (distroless `nonroot`) |
-| `octo-agenticrunner-paas` | `65532` — the same uid deliberately, so a file written by one runner is readable by the other |
+| `octo-agenticrunner-paas` | `65532`, the same uid deliberately, so a file written by one runner is readable by the other |
 | `octo-schema-paas` | `70` (`postgres`) |
 
 The Go services write nothing to disk, so they also tolerate
@@ -169,14 +169,14 @@ The Go services write nothing to disk, so they also tolerate
 
 ### octo-runtime
 
-A generic image that runs *any* integration: it carries only the compiled
-`octo` binary, built `CGO_ENABLED=0`. The final stage is
-`gcr.io/distroless/static-debian12:nonroot` — no shell, no package manager,
-runs as `nonroot`. The default command is
+A generic image that runs *any* integration: it carries only the compiled `octo`
+binary, built `CGO_ENABLED=0`. The final stage is
+`gcr.io/distroless/static-debian12:nonroot`, so no shell, no package manager, and
+it runs as `nonroot`. The default command is
 `octo run --config /etc/octo/integrations`, which loads every `.yaml`/`.yml`
 mounted into that directory.
 
-One Dockerfile, four images, differing only in the `GOTAGS` build arg — which
+One Dockerfile, four images, differing only in the `GOTAGS` build arg, which
 selects the [services provider](/concepts/runtime-services) compiled into the
 binary:
 
@@ -187,20 +187,18 @@ binary:
 | **Dev runs** `octo-devruntime` | *empty* | The same standalone provider, published to your registry for the editor's Run | Your registry, by `cloudbuild.yaml` |
 | **Platform API** `juancavallotti/octo-api` | `api` | Every capability delegated to the HTTP server at `OCTO_PLATFORM_API_URL` | Docker Hub, by the release workflow |
 
-The build tags are mutually exclusive, which is why the dev-run image is a
-separate image and not a second tag of the cluster one: run `octo-runtime` with
-no services module configured and the process exits with *no runtime services
-provider registered*. An editor's Run wants none of that machinery anyway — it is
-one process running one integration for one person, holding no cluster credential
-at all.
+The build tags are mutually exclusive, which is why the dev-run image is separate
+rather than a second tag of the cluster one: run `octo-runtime` with no services
+module configured and the process exits with *no runtime services provider
+registered*.
 
 The cluster image is what the orchestrator deploys: one Deployment per
 integration, with the integration's YAML mounted into the config directory via
 a per-deployment ConfigMap. The Helm chart hands the image reference to the
 orchestrator as `RUNTIME_IMAGE`.
 
-The public image is for running integrations from Docker with no cluster at
-all — the same engine and the same standalone services a local `octo run` uses,
+The public image is for running integrations from Docker with no cluster at all.
+It is the same engine and the same standalone services a local `octo run` uses,
 so a config that works on your machine works here unchanged:
 
 ```bash
@@ -216,25 +214,21 @@ The runner a deployment gets when it asks for `runner: agentic`, instead of
 `octo-runtime` above. See [the platform agent](/platform/agent) for the
 deployment that uses it.
 
-It exists because the distroless image is not merely minimal for some
-integrations, it is *empty of the programs they name*. A flow with a
-[`cli-run`](/reference/blocks/integration) block in an image with no local
-programs cannot run anything, and a [`file`](/reference/connectors/file)
-connector needs somewhere writable to point at.
-
-So this image carries three binaries rather than one:
+It exists because the distroless image is *empty of the programs some
+integrations name*: a [`cli-run`](/reference/blocks/integration) block has
+nothing to run, and a [`file`](/reference/connectors/file) connector has nowhere
+writable to point at. So this image carries three binaries rather than one:
 
 | Path | Build | Why |
 |---|---|---|
-| `/usr/local/bin/octo` | `-tags k8s` | The pod's own entrypoint — the same cluster runtime `octo-runtime` ships |
+| `/usr/local/bin/octo` | `-tags k8s` | The pod's own entrypoint: the same cluster runtime `octo-runtime` ships |
 | `/opt/octo/bin/octo` | default | The **standalone** CLI the flow invokes. It has to be a second binary: the two providers are mutually exclusive build tags, and the k8s build exits without a services module, so it cannot double as a CLI |
 | `/opt/octo/bin/dolphin` | default | The test runner, driving the binary beside it |
 
 plus `curl`, `jq`, GNU `find` and a workspace at `/workspace`, on `alpine`. All
 three binaries come from one build stage, so the runtime running the flow, the
 runtime that flow invokes, and the dolphin driving it are three views of one
-commit — a skew there would have an agent testing against a runtime that is not
-the one the platform would deploy.
+commit.
 
 `/opt/octo/bin` is deliberately **not** on `PATH`, so a bare `octo` is
 unambiguously the cluster build; the image sets `OCTO_PATH` instead, which is how
@@ -245,13 +239,12 @@ changes nothing else about the pod.
 The chart hands the reference to the orchestrator as `AGENTIC_RUNNER_IMAGE`.
 Unlike `RUNTIME_IMAGE` it has no default: an installation that does not configure
 it does not have this runner, and a deployment asking for one is refused with the
-setting named rather than served the distroless image and left to fail with
-*not found* on its first command.
+setting named.
 
 <Callout type="warn">
   Treat this runner as **privileged**, not merely larger. A pod holding a shell
   and a runtime it can point at a definition it wrote a moment ago is a general
-  execution environment — so the boundary it offers is the pod, not the
+  execution environment, so the boundary it offers is the pod rather than the
   `cli-run` allow list inside it. Everything that pod holds, including any secret
   bound to its environment, and everything it can reach on the network, is
   reachable by anything it runs. Grant it per deployment, and not to an
@@ -261,10 +254,10 @@ setting named rather than served the distroless image and left to fail with
 ### octo-devsidecar
 
 The other container of a dev run, and the only thing in the pod that talks to the
-orchestrator. It owns the run's workspace: on each reload it pulls the
-integration's saved definition and resources, stages them beside the config, and
-writes the config atomically so the runtime's directory watcher sees exactly one
-event. It also reads the runtime's admin port for the status it reports back.
+orchestrator. It owns the run's workspace: on each reload it pulls the integration's saved
+definition and resources, stages them beside the config, and writes the config
+atomically so the runtime's directory watcher sees one event. It also reads the
+runtime's admin port for the status it reports back.
 
 Built from `sidecars/dev/Dockerfile` with the `sidecars` module as its context.
 Distroless `nonroot`, matching the runtime image's UID so both containers can use
@@ -273,15 +266,15 @@ it asks the orchestrator for, authenticated by the run's own token.
 
 ### octo-statssidecar
 
-The pod stats sidecar, which runs beside a **deployed** integration rather than a dev
-run. It samples that pod's own runtime metrics once a second and writes a rolling week
-of them to Redis — see [Pod Stats](/platform/pod-stats). Off by default; the chart
-value is `orchestrator.podStats.enabled`.
+The pod stats sidecar, which runs beside a **deployed** integration rather than a
+dev run. It samples that pod's own runtime metrics once a second and writes a
+rolling week of them to Redis (see [Pod Stats](/platform/pod-stats)). Off by
+default; the chart value is `orchestrator.podStats.enabled`.
 
-Built from `sidecars/stats/Dockerfile` with the `sidecars` module as its context, the
-same module and context as `octo-devsidecar`. Distroless `nonroot`. It holds **no**
-Kubernetes credential and mounts no volume: it speaks to the runtime on the pod's own
-loopback and to Redis, and to nothing else.
+Built from `sidecars/stats/Dockerfile` with the `sidecars` module as its context,
+the same module and context as `octo-devsidecar`. Distroless `nonroot`. It holds
+**no** Kubernetes credential and mounts no volume: it speaks to the runtime on
+the pod's own loopback and to Redis, and to nothing else.
 
 ### octo-platform
 
@@ -296,31 +289,31 @@ the orchestrator and logs APIs through its BFF.
 The Go orchestrator service. Watches for deploy requests and creates the
 per-integration ConfigMap, Deployment, Service, and optional Ingress through
 the Kubernetes API (`client-go`), and serves the KV store to runtime pods.
-Listens on 8090, ClusterIP only — it is reached solely through the platform's
+Listens on 8090, ClusterIP only, reached solely through the platform's
 authenticated BFF.
 
 ### octo-observability
 
 The Go observability service. Consumes the NATS `internal.logs` and
 `internal.traces` subjects as a competing consumer, persists them to Postgres,
-and serves the query API behind the platform's logs, traces and metrics views —
+and serves the query API behind the platform's logs, traces and metrics views,
 plus the retention policy and the storage report. Listens on 8091, ClusterIP
 only. Replicas scale safely thanks to the NATS queue groups.
 
 ### octo-schema
 
-A thin `postgres:16-alpine` that bundles `sql/schema.sql` — reused purely for
-its `psql` client. The Helm chart (and the k3d manifests) run it as a Job that
+A thin `postgres:16-alpine` that bundles `sql/schema.sql`, reused purely for its
+`psql` client. The Helm chart (and the k3d manifests) run it as a Job that
 executes `psql -f /schema/schema.sql` against the Postgres service on every
 install and upgrade; the schema is idempotent, so re-runs are safe.
 
 ### juancavallotti/octo (standalone editor)
 
 The self-contained public "try Octo" image: the standalone editor plus the
-`octo` runtime binary, with a local-disk flow store — no orchestrator, auth,
-or database. Published to
-[Docker Hub](https://hub.docker.com/r/juancavallotti/octo) on every release as
-a multi-arch build (`linux/amd64` and `linux/arm64`), tagged with the release
+`octo` runtime binary, with a local-disk flow store and no orchestrator, auth, or
+database. Published to
+[Docker Hub](https://hub.docker.com/r/juancavallotti/octo) on every release as a
+multi-arch build (`linux/amd64` and `linux/arm64`), tagged with the release
 version and `latest`.
 
 ```bash
@@ -332,7 +325,7 @@ build with the standalone services provider; it adds the editor on top. See
 [Running from Docker](/editor/docker) for usage.
 
 <Callout type="info">
-  There are also `Dockerfile.dev` variants for the platform, orchestrator,
-  and logs images (`task cluster:images:dev`). These are hot-reload images
-  used only by the local DevSpace dev loop — they are never published.
+  There are also `Dockerfile.dev` variants for the platform, orchestrator, and
+  observability images (`task cluster:images:dev`). These are hot-reload images
+  used only by the local DevSpace dev loop, and are never published.
 </Callout>

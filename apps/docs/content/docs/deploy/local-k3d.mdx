@@ -6,10 +6,9 @@ description: "Run the full platform locally with k3d and DevSpace."
 import { Callout } from 'fumadocs-ui/components/callout';
 
 For day-to-day development the full platform runs on a local
-[k3d](https://k3d.io) cluster — real k3s inside Docker — with images built
-locally and no registry, GCP, or Terraform involved. One task brings the whole
-stack up; a second adds a hot-reload dev loop via
-[DevSpace](https://devspace.sh).
+[k3d](https://k3d.io) cluster (real k3s inside Docker) with images built locally
+and no registry, GCP, or Terraform involved. One task brings the whole stack up;
+a second adds a hot-reload dev loop via [DevSpace](https://devspace.sh).
 
 ## Prerequisites
 
@@ -35,29 +34,34 @@ This single target:
 1. Runs the preflight check.
 2. Creates a k3d cluster named `octo` from `deploy/k3d/cluster.yaml` (one
    server, no agents), mounting `./data` from the repo root onto
-   `/var/lib/octo-data` in the node — the fixed path the chart's static
+   `/var/lib/octo-data` in the node. That is the fixed path the chart's static
    PersistentVolume binds, so the database lives at `./data/pgdata` and outlives
    the cluster. See [Database persistence](#database-persistence).
 3. Cross-compiles every Go binary the images need for the node's architecture
    into `dist/bin/linux_<arch>/` (`task bins:linux`), on the host, where the Go
    build cache persists between runs.
-4. Builds the eight images locally (`task cluster:images`): `octo-platform`,
+4. Builds the eleven images locally (`task cluster:images`): `octo-platform`,
    `octo-orchestrator`, `octo-observability`, `octo-schema`, `octo-runtime`,
-   `octo-devsidecar`, `octo-devruntime` and `octo-agenticrunner`, all tagged
-   `:dev`, copying in the binaries from the step above rather than compiling
-   them again per image — see
-   [Where the Go binaries come from](/deploy/docker-images#where-the-go-binaries-come-from).
+   `octo-devsidecar`, `octo-statssidecar`, `octo-devruntime`,
+   `octo-agenticrunner`, `octo-embeddings` and `octo-api`, all tagged `:dev`,
+   copying in the binaries from the step above rather than compiling them again
+   per image (see
+   [Where the Go binaries come from](/deploy/docker-images#where-the-go-binaries-come-from)).
    They are then loaded straight into the cluster's containerd with
-   `k3d image import` — no registry needed.
+   `k3d image import`, so no registry is needed, and `task cluster:images:verify`
+   checks each one landed.
 5. Installs the Helm chart via `devspace deploy`, using
    `helm/values-k3d.yaml` for the local shape: no registry, `:dev` images,
    NodePorts instead of an Ingress, and SSO off. The schema Job runs as a
    Helm hook on every install and upgrade.
-6. Restarts the platform and orchestrator Deployments so they pick up freshly
-   imported images (the `:dev` tag never changes between runs).
+6. Restarts the platform, orchestrator, observability and embeddings Deployments
+   so they pick up freshly imported images (the `:dev` tag never changes between
+   runs).
 
-The target is idempotent — re-run it after code changes to rebuild the images
-and roll the pods.
+The target is idempotent: re-run it after code changes to rebuild the images and
+roll the pods. The embedding server is deployed only when `EMBEDDINGS_API_KEY`
+is set in your shell; without it agent-memory search matches text rather than
+meaning.
 
 <Callout type="info">
   Local development runs the same Helm chart as every other target, so a change
@@ -72,8 +76,8 @@ and roll the pods.
 The k3d load balancer maps localhost ports to NodePort services, so nothing
 needs a long-running port-forward:
 
-- **Editor UI** — [http://localhost:3000](http://localhost:3000)
-- **Orchestrator** — [http://localhost:8090/healthz](http://localhost:8090/healthz)
+- Editor UI: [http://localhost:3000](http://localhost:3000)
+- Orchestrator: [http://localhost:8090/healthz](http://localhost:8090/healthz)
   (and `/db-version`)
 
 Check pod status with:
@@ -92,13 +96,13 @@ This ensures the cluster is up (`cluster:deploy`), builds the dev-flavored
 images (`cluster:images:dev`, from the `Dockerfile.dev` files), then hands off
 to `devspace dev`, which:
 
-- Swaps the platform pod for a `next dev` image and live-syncs
-  `apps/platform/` into it — edits hot-reload in the browser.
+- Swaps the platform pod for a `next dev` image and live-syncs `apps/platform/`
+  into it, so edits hot-reload in the browser.
 - Swaps the orchestrator and observability pods for `go run` images, syncing
-  `orchestrator/` and `observability/` and restarting the container on each upload so
-  Go recompiles.
-- Tails the platform, orchestrator, observability, Postgres, and NATS logs to your
-  terminal.
+  `orchestrator/` and `observability/` and restarting the container on each
+  upload so Go recompiles.
+- Tails the platform, orchestrator, observability, Postgres, and NATS logs to
+  your terminal.
 
 The session stays attached until you press Ctrl-C. The NodePort mappings keep
 working during dev mode, so the editor stays on `localhost:3000`. To restore
@@ -115,8 +119,8 @@ task cluster:stop
 ```
 
 This purges the DevSpace deployment and deletes the k3d cluster, reclaiming
-Docker memory — but keeps `./data`, so Postgres comes back with its data on
-the next `task cluster:deploy`.
+Docker memory. It keeps `./data`, so Postgres comes back with its data on the
+next `task cluster:deploy`.
 
 To wipe the database as well:
 
@@ -129,15 +133,15 @@ directory open), prompts for confirmation, then deletes `./data`. The next
 `task cluster:deploy` recreates Postgres and re-applies the schema fresh.
 
 <Callout type="warn">
-  `task cluster:db:reset` permanently deletes all local Postgres data —
+  `task cluster:db:reset` permanently deletes all local Postgres data:
   integrations, deployments, logs, and KV contents.
 </Callout>
 
 ## Database persistence
 
 `task cluster:stop` deletes the whole k3d cluster, and with it every Kubernetes
-object — including the claim Postgres writes to. For the data to survive that,
-the claim has to resolve to a path that does not change when the cluster is
+object, including the claim Postgres writes to. For the data to survive, the
+claim has to resolve to a path that does not change when the cluster is
 recreated, which is what `postgres.storage.hostPath` in `helm/values-k3d.yaml`
 gives it:
 
@@ -151,15 +155,14 @@ Only `task cluster:db:reset` removes it. Nothing in the chart can: the
 StatefulSet sets `persistentVolumeClaimRetentionPolicy: Retain` so neither
 `helm uninstall` nor scaling to zero deletes the claim, and the volume carries
 `helm.sh/resource-policy: keep` so uninstalling leaves it in place for the next
-install to adopt. Destroying storage is the infrastructure layer's job.
+install to adopt.
 
 <Callout type="info">
-  This is why local dev does **not** use k3s's `local-path` provisioner, which
-  is otherwise the obvious choice. That provisioner names each volume's
-  directory after the claim's UID (`pvc-3b9766b4-…_octo-dev_data-octo-postgres-0`),
-  and a recreated cluster mints a new UID — so every `task cluster:stop` would
-  quietly start you on an empty database while the old directory accumulated on
-  disk. The same reasoning applies to any single-node cluster, including a k3s
-  VM; on a real multi-node cluster use a StorageClass instead and leave
-  `hostPath` empty.
+  This is why local dev does **not** use k3s's `local-path` provisioner. That
+  provisioner names each volume's directory after the claim's UID
+  (`pvc-3b9766b4-…_octo-dev_data-octo-postgres-0`), and a recreated cluster mints
+  a new UID, so every `task cluster:stop` would quietly start you on an empty
+  database while the old directory accumulated on disk. The same applies to any
+  single-node cluster, including a k3s VM. On a multi-node cluster use a
+  StorageClass instead and leave `hostPath` empty.
 </Callout>
