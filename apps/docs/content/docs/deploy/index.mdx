@@ -30,12 +30,23 @@ editor, deployment history, and log aggregation behind them. A single
 integration needs none of that: it is YAML plus resources, and the public
 runtime image runs a directory of exactly that.
 
+That image runs standalone, so its queues, KV store and leader election are
+in-process and last as long as the container. When you want them to survive a
+scale to zero, or to live in systems you already run, the `octo-api` build
+delegates every one of them to an HTTP server you implement.
+
 <Cards>
   <Card
     icon={<Container />}
     href="/deploy/self-hosted"
     title="Self-Hosted Integrations"
     description="Bake flows and resources into an image on the public runtime, and run it on Cloud Run or any container platform."
+  />
+  <Card
+    icon={<Cloud />}
+    href="/extending/platform-api"
+    title="The Platform API"
+    description="Give the runtime a platform of your own: object store, secrets, queues, leases and leader election behind one HTTP contract."
   />
 </Cards>
 

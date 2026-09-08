@@ -27,7 +27,8 @@ paid cores or enterprise tier.
 
 You describe connectors, flows, and processors in a YAML file, and the same
 file runs unchanged from the `octo` CLI on your laptop, in the Docker-based
-visual editor, and as a Kubernetes workload on the platform. LLM connectors,
+visual editor, as a Kubernetes workload on the platform, and on infrastructure
+of your own once you implement [the platform API](/extending/platform-api). LLM connectors,
 agents, AI-assisted mapping, and an MCP server for authoring flows with an
 assistant are part of the runtime. Octo is open source under the AGPL-3.0
 license.
@@ -68,8 +69,8 @@ also CEL, so it can read the body. Run it with `octo run --config hello.yaml`.
 
 <Cards>
   <Card icon={<Rocket />} href="/getting-started" title="Getting Started">
-    Install the CLI, run your first flow, and pick between the CLI, the editor,
-    and the platform.
+    Install the CLI, run your first flow, and pick between the four ways to
+    run Octo.
   </Card>
   <Card icon={<Workflow />} href="/concepts/flows" title="Core Concepts">
     Flows, connectors, blocks, expressions, state, and error handling: the
