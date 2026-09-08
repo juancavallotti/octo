@@ -25,6 +25,8 @@ does not know paints as a serif, so the exporter maps the hand-drawn ones onto
 Virgil and the monospace one onto Cascadia. Only the export is rewritten, never
 the source.
 
-To edit a scene: open it at excalidraw.com, change it, share a link, and the
-scene comes back out of the browser's own storage. Arrows are bound to the shapes
-they connect, so dragging a box drags its arrows with it.
+To edit a scene: open it at excalidraw.com, change it, then **Export → Save
+to...** and put the `.excalidraw` file back in this directory. That is a plain
+save; it does not touch the canvas you were working on, which loading a shared
+link does. Arrows are bound to the shapes they connect, so dragging a box drags
+its arrows with it.

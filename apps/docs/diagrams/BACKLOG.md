@@ -38,7 +38,6 @@ share links, nothing overwritten. `node export.mjs <name>` renders the PNG.
 | `error-paths` | concepts/error-handling | The three different recoveries side by side: the flow-level `error:` pipeline, the scoped `handle-errors`, and `validate`'s `onReject` stopping the chain. They are three shapes, not three settings |
 | `agent-turn-loop` | ai/agents | The model turn, tools dispatched as sub-flows, the `events` sub-flow watching from the side, and the answer. Readers who have not built an agent do not picture the loop |
 | `tool-authorization` | ai/tool-authorization | A run parking mid-flight, the `authorizationId` going out, a person answering, the run resuming from where it stopped, and the timeout path. Time is the axis, which prose handles badly |
-| `agent-memory-tiers` | ai/agent-memory | The thread's conversation, the uncompacted history behind it, and durable user memory keyed by `agentId`. Three tiers people currently have to hold in their head |
 | `deployment-lifecycle` | platform/deployments | Integration to snapshot to deployment to Deployment and pods, and the arrow back that a rollback is |
 | `dev-run` | platform/dev-runs | One pod holding two containers: the dev sidecar owning the workspace, the runtime watching it. The sidecar-pulls-and-runtime-watches split is the whole feature |
 | `dolphin-run` | testing/index | One case as one `octo` process, with mocks and spies baked into the flow tree before it starts. Explains at a glance why a mock replaces a block rather than intercepting a call |

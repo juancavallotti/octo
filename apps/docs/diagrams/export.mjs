@@ -25,7 +25,14 @@ const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } });
 page.on("pageerror", (e) => console.log("pageerror:", e.message));
 await page.goto(`http://localhost:8123/viewer.html?f=${name}.excalidraw`, { waitUntil: "networkidle" });
-await page.waitForFunction(() => document.title === "ready", null, { timeout: 20000 });
+await page.waitForFunction(() => document.title !== "diagram export", null, { timeout: 20000 });
+const title = await page.title();
+if (title !== "ready") {
+  console.error(title);
+  await browser.close();
+  stop();
+  process.exit(1);
+}
 await page.locator("#shot").screenshot({ path: out });
 console.log("wrote", out);
 await browser.close();
