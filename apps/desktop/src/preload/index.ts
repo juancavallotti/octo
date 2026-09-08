@@ -45,3 +45,20 @@ const bridge: OctoDesktopBridge = {
 };
 
 contextBridge.exposeInMainWorld("octoDesktop", bridge);
+
+/**
+ * Tell the page it is being shown by the desktop shell, before it renders.
+ *
+ * The window hides the macOS title bar and draws the page under it, so the app's
+ * header has to leave room for the traffic lights and stand in as the window's
+ * drag handle. Both are one CSS rule keyed on this class
+ * (`.octo-desktop header` in apps/standalone/app/globals.css) — styling belongs to
+ * the app, and the fact that a shell is present belongs to the shell.
+ *
+ * Set from the preload rather than from the main process after load, because the
+ * preload runs before the document does: there is no frame where the header is
+ * drawn without the padding.
+ */
+document.addEventListener("DOMContentLoaded", () => {
+  document.documentElement.classList.add("octo-desktop");
+});

@@ -24,6 +24,23 @@ tasks:
     cmds:
       - pnpm install
 
+  stage:
+    desc: Stage the built Next standalone server into build/server for the app to spawn
+    deps:
+      - standalone:build
+    cmds:
+      # Exactly the three copies apps/standalone/Dockerfile makes, and for the same
+      # reason: `output: "standalone"` emits a server that expects .next/static and
+      # public/ to be put back beside it, nested under the workspace path the app
+      # lives at. Get this wrong and the server boots and serves an unstyled page.
+      - rm -rf build/server
+      - mkdir -p build/server
+      - cp -R ../standalone/.next/standalone/. build/server/
+      - mkdir -p build/server/apps/standalone/.next
+      - cp -R ../standalone/.next/static build/server/apps/standalone/.next/static
+      - cp -R ../standalone/public build/server/apps/standalone/public
+      - echo "✓ staged the editor server in apps/desktop/build/server"
+
   build:
     desc: Bundle the Electron main and preload processes into dist/
     cmds:
@@ -40,8 +57,13 @@ tasks:
       - pnpm run test
 
   dev:
-    desc: Build and run Octo Desktop, rebuilding on change
+    desc: Build and run Octo Desktop, rebuilding on change (RUN enabled)
     deps:
+      # The binaries the app spawns, and the editor server it wraps. Dev resolves
+      # both from the repo (bin/ and build/server), so `task desktop:dev` on a
+      # fresh checkout is enough — nothing has to be installed first.
+      - runtime:build
+      - stage
       - build
     cmds:
       - pnpm run dev

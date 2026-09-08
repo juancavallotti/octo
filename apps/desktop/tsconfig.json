@@ -11,6 +11,10 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "*.mjs", "*.config.ts"],
+  // Main only. The preload has its own project (tsconfig.preload.json) because it
+  // runs in a renderer and needs DOM types — and main must NOT have them, or a
+  // stray `document` reference in the main process would typecheck cleanly and
+  // then throw at runtime.
+  "include": ["src/main/**/*.ts", "*.mjs", "*.config.ts"],
   "exclude": ["node_modules", "dist", "build"]
 }
