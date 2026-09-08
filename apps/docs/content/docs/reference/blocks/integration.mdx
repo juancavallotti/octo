@@ -12,17 +12,16 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## flow-ref
 
-Invokes another flow by name. The target must be a flow with no `source:` (a source-less flow gets an implicit source and becomes callable by name). The called flow receives a fresh sub-message — a clone of the body and variables under a new event ID — so the sub-invocation correlates independently of the caller's own terminal event.
+Invokes another flow by name. The target must be a flow with no `source:` (a source-less flow gets an implicit source and becomes callable by name). The called flow receives a fresh sub-message, a clone of the body and variables under a new event ID, so the sub-invocation correlates independently of the caller's own terminal event.
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `flow` | string | Yes | — | Name of the flow to invoke. |
+| `flow` | string | Yes | none | Name of the flow to invoke. |
 | `oneWay` | bool | No | `false` | Fire-and-forget when true; otherwise wait and fold the result back in. |
 
-Semantics:
+Synchronously (the default) the caller waits: the called flow's body **replaces** the caller's body and its variables are merged over the caller's key-by-key. If the called flow drops the message, the caller's message continues unchanged.
 
-- **Synchronous (default):** the caller waits; the called flow's body **replaces** the caller's body and its variables are merged over the caller's variables key-by-key. If the called flow drops the message, the caller's message continues unchanged.
-- **One-way (`oneWay: true`):** the message is dispatched and the caller continues immediately, ignoring the result. Useful for audit trails and side effects.
+With `oneWay: true` the message is dispatched and the caller continues immediately, ignoring the result. Use it for audit trails and side effects.
 
 **Errors:** a synchronous call propagates the called flow's error to the caller; a one-way call errors only if dispatch itself fails.
 
@@ -66,11 +65,10 @@ makes streaming a long command to a caller possible.
           data: '{"stream": body.type, "text": body.text}'
 ```
 
-The block is **synchronous**: it returns once the command has exited. That is
-deliberate. A block that took the flow over and resumed it once per line would
-end the caller's own chain, so an HTTP request would be answered and its
-connection torn down while the command was still running — and every line after
-that would be written to a stream nobody was reading.
+The block is **synchronous**: it returns once the command has exited. A block
+that resumed the flow once per line would end the caller's own chain, so an HTTP
+request would be answered and its connection torn down while the command was
+still running.
 
 ### Settings
 
@@ -79,7 +77,7 @@ that would be written to a stream nobody was reading.
 | `program` | CEL expression naming the program: a bare name resolved through `$PATH`, or an absolute path. |
 | `args` | CEL expression yielding a list of strings, passed as argv. |
 | `stdin` | CEL expression written to the process's standard input, then closed. |
-| `allow` | Every program this block may run. Empty means no restriction — see below. |
+| `allow` | Every program this block may run. Empty means no restriction (see below). |
 | `allowInterpreters` | Permit an interpreter on `allow`. Default `false`. |
 | `env` | Environment variables passed to the child, by name. Nothing else is passed. |
 | `workDir` | Directory the command runs in. |
@@ -92,8 +90,7 @@ that would be written to a stream nobody was reading.
 ### The allow list
 
 `allow` is **optional**. A block without one may run anything that resolves,
-which keeps `cli-run` pleasant for the local, iterative work it is best at —
-requiring a list that repeats the program two lines above would be ceremony.
+which keeps `cli-run` pleasant for local, iterative work.
 
 ```yaml
 # Fine: the program is written right there.
@@ -101,10 +98,10 @@ program: '"go"'
 ```
 
 `program` is an expression, though, so which program runs can come from the
-message. That is the point — it is what lets an [`ai-agent`](/reference/blocks/ai)
-tool branch hand a model a set of commands and let it choose. In that
-arrangement `allow` is the only thing standing between the caller and arbitrary
-execution, and it is checked on **every message**, before anything is spawned:
+message. That is what lets an [`ai-agent`](/reference/blocks/ai) tool branch hand
+a model a set of commands and let it choose. There `allow` is the only thing
+standing between the caller and arbitrary execution, and it is checked on **every
+message**, before anything is spawned:
 
 ```yaml
 program: vars.program
@@ -113,60 +110,51 @@ allow: [ls, df, date]
 
 <Callout type="warn">
   A block with no `allow` whose `program` comes from the message will run
-  whatever it is handed. That is exactly what you want at a terminal, and it is
-  remote code execution if the flow is reachable by anyone else. **Declare an
-  allow list for anything you deploy.** The builder logs a warning at startup for
-  precisely that combination — no list and a message-supplied program — so the
-  answer arrives before the postmortem does.
+  whatever it is handed. That is what you want at a terminal, and it is remote
+  code execution if the flow is reachable by anyone else. **Declare an allow list
+  for anything you deploy.** The builder logs a warning at startup for that
+  combination: no list and a message-supplied program.
 </Callout>
 
 Rules worth knowing:
 
-- **Bare names or absolute paths, either way.** A bare name is resolved through
-  `$PATH`; an absolute path is used as it stands. Every entry is resolved at
-  build time, so an entry naming a program that is not installed fails at
-  startup, not on the message that first reached for it.
-- **Matching is on the resolved path, not the string you typed.** A bare name
-  matches the absolute path `$PATH` resolves it to, and `..` segments are
-  normalized, so `/bin/../bin/sh` cannot dodge an entry for `/bin/sh`.
-  Symlinks are deliberately *not* followed: on a busybox system every applet is
-  a symlink to the same binary, so following them would make an allow list of
-  `["cat"]` also admit `sh`. The cost is that on a usr-merged Linux `/bin/ls`
-  and `/usr/bin/ls` are two spellings of one file that do not match each other —
-  so write the list the way the flow names the program.
-- **Interpreters are refused** on an explicit list unless
-  `allowInterpreters: true`. An interpreter's arguments *are* a program, so
-  listing `sh` or `python` allows everything it can reach. The check applies only
-  to a list — a block with no list has already said "anything". It is a guardrail
-  against an easy mistake, not a sandbox: the list can never be complete (`git`
-  runs a pager, `tar` has `--to-command`), so the list is the boundary either
-  way.
+- An entry is a bare name resolved through `$PATH`, or an absolute path used as
+  it stands. Every entry is resolved at build time, so an entry naming a program
+  that is not installed fails at startup rather than on the message that first
+  reached for it.
+- Matching is on the resolved path, not the string you typed. `..` segments are
+  normalized, so `/bin/../bin/sh` cannot dodge an entry for `/bin/sh`. Symlinks
+  are deliberately not followed: on a busybox system every applet is a symlink to
+  the same binary, so following them would make an allow list of `["cat"]` also
+  admit `sh`. The cost is that on a usr-merged Linux `/bin/ls` and `/usr/bin/ls`
+  do not match each other, so write the list the way the flow names the program.
+- Interpreters are refused on an explicit list unless `allowInterpreters: true`,
+  because listing `sh` or `python` allows everything it can reach. The check
+  applies only to a list; a block with no list has already said "anything". It is
+  a guardrail against an easy mistake, not a sandbox: the list can never be
+  complete (`git` runs a pager, `tar` has `--to-command`).
 
 ### What is not a risk
 
-- **No shell is ever involved.** Arguments are passed as argv, so a semicolon, a
-  pipe or a `$(…)` in an argument is just bytes to the callee. The injection
-  class that command-running usually falls to is closed by construction rather
-  than by escaping.
-- **The child inherits nothing.** It sees exactly the variables named in `env`
-  and no others, so a command cannot read an API key the integration holds.
+- No shell is ever involved. Arguments are passed as argv, so a semicolon, a pipe
+  or a `$(…)` in an argument is just bytes to the callee.
+- The child inherits nothing. It sees exactly the variables named in `env` and no
+  others, so a command cannot read an API key the integration holds.
 
 ### Output
 
 The chain carries on with a body of `{exitCode, stdout, stderr, lines}`. The
-output is captured whether or not an `events` path watched it go by: the path is
-an observer, and watching is not consuming. `maxOutputBytes` caps what is kept,
-while `lines` always counts everything the command produced — so a truncated
-capture is visible rather than silent.
+output is captured whether or not an `events` path watched it go by.
+`maxOutputBytes` caps what is kept, while `lines` always counts everything the
+command produced, so a truncated capture is visible rather than silent.
 
 Each event's body is `{type, text, index}` for `stdout`/`stderr`, and
-`{type: "exit", exitCode, lines}` at the end. The exit event fires for every
-run, even one that printed nothing — which is why it is its own event rather
-than a flag on the last line. It still passes through `emit`, so a path that
+`{type: "exit", exitCode, lines}` at the end. The exit event fires for every run,
+even one that printed nothing. It still passes through `emit`, so a path that
 wants it must not filter it out.
 
-An events path that stops the flow — an `sse-event` whose caller hung up, with
-`ifClosed: stop` — stops the command too, rather than letting it produce output
+An events path that stops the flow (an `sse-event` whose caller hung up, with
+`ifClosed: stop`) stops the command too, rather than letting it produce output
 nobody will read.
 
 <Callout>
@@ -188,23 +176,23 @@ The token is read from a request-header **variable** (default `Authorization`, w
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `mode` | enum `discover` \| `jwks` \| `inline` | No | `discover` | How signing keys are resolved: OIDC discovery from `issuer`, direct JWKS fetch from `jwksUrl`, or an inline public key. |
-| `issuer` | string | For `discover` | — | Expected token issuer (`iss`). In `discover` mode it is also the discovery URL (`<issuer>/.well-known/openid-configuration`). For `jwks`/`inline` the `iss` check is applied when set and skipped when empty. |
-| `audience` | string | No | — | Expected token audience (`aud`). Empty skips the audience check. |
+| `issuer` | string | For `discover` | none | Expected token issuer (`iss`). In `discover` mode it is also the discovery URL (`<issuer>/.well-known/openid-configuration`). For `jwks`/`inline` the `iss` check is applied when set and skipped when empty. |
+| `audience` | string | No | none | Expected token audience (`aud`). Empty skips the audience check. |
 | `algorithms` | list of strings | No | go-oidc defaults | Accepted signing algorithms, e.g. `[RS256]`. |
-| `jwksUrl` | string | For `jwks` | — | JWKS endpoint fetched directly (cached and refreshed). |
-| `publicKey` | string | For `inline`* | — | Literal PEM public key or certificate (RSA/ECDSA, PKIX or a certificate). |
-| `publicKeyResource` | string | For `inline`* | — | Resource id whose content is the PEM public key. *Set exactly one of `publicKey` / `publicKeyResource`. |
+| `jwksUrl` | string | For `jwks` | none | JWKS endpoint fetched directly (cached and refreshed). |
+| `publicKey` | string | For `inline`* | none | Literal PEM public key or certificate (RSA/ECDSA, PKIX or a certificate). |
+| `publicKeyResource` | string | For `inline`* | none | Resource id whose content is the PEM public key. *Set exactly one of `publicKey` / `publicKeyResource`. |
 | `tokenHeader` | string | No | `Authorization` | Variable holding the bearer token (a `Bearer ` prefix is stripped). |
 | `claimsVar` | string | No | `jwt` | Variable the verified claims map is stored under on success (the subject is also set on `vars.sub`). |
 | `rejectStatus` | int | No | `401` | HTTP status of the built-in rejection response. |
-| `resourceMetadataUrl` | string | No | — | Protected-resource-metadata URL (RFC 9728) advertised as `resource_metadata="…"` in the `WWW-Authenticate` challenge; set it to make the endpoint an MCP-compliant protected resource. |
+| `resourceMetadataUrl` | string | No | none | Protected-resource-metadata URL (RFC 9728) advertised as `resource_metadata="…"` in the `WWW-Authenticate` challenge; set it to make the endpoint an MCP-compliant protected resource. |
 | `disableWwwAuthenticate` | bool | No | `false` | By default, when an issuer is configured, a rejection sets a `WWW-Authenticate: Bearer` challenge in vars (list `WWW-Authenticate` in the route source's `responseHeaders` to emit it). Set true to opt out. |
 
 Behavior notes:
 
 - Key material for `discover`/`jwks` is resolved lazily on the first request, so a briefly unreachable provider does not fail deployment; `inline` needs no network and fails fast on a bad key.
 - A rejection sets the body to `{"error": "unauthorized"}`, sets `vars.httpStatus` to `rejectStatus`, and requests the flow stop. A missing token yields a bare challenge; a present-but-invalid token adds `error="invalid_token"` (per RFC 6750).
-- A key-resolution failure (provider unreachable) is an operational **error** — it aborts the flow rather than rejecting the request.
+- A key-resolution failure (provider unreachable) is an operational **error**: it aborts the flow rather than rejecting the request.
 
 ```yaml
 flows:
@@ -238,10 +226,10 @@ Renders a declared template resource against the current message. The template i
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `id` | string | Yes | — | The template to render: its `resources.templates` alias (the `as`), or its resource path when unaliased. |
-| `target` | string | No | — | Variable to store the rendered text in. Empty replaces the message body. |
-| `rawBody` | bool | No | `false` | Write the rendered text as a raw-content body `{contentType, rawData}` so a connector (e.g. the HTTP source) serves it verbatim. Body only — `target` must be empty. |
-| `contentType` | string | When `rawBody` | — | MIME type recorded on the raw body, e.g. `text/html`. |
+| `id` | string | Yes | none | The template to render: its `resources.templates` alias (the `as`), or its resource path when unaliased. |
+| `target` | string | No | none | Variable to store the rendered text in. Empty replaces the message body. |
+| `rawBody` | bool | No | `false` | Write the rendered text as a raw-content body `{contentType, rawData}` so a connector (e.g. the HTTP source) serves it verbatim. Body only: `target` must be empty. |
+| `contentType` | string | When `rawBody` | none | MIME type recorded on the raw body, e.g. `text/html`. |
 
 **Errors:** an unknown template id or a render failure (a failing embedded expression) errors the block. Declared resources are loaded when the config loads, so a missing template file fails at deployment.
 

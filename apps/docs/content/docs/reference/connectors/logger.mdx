@@ -8,13 +8,13 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `logger` connector owns a configured structured logger (Go `slog`) — output, format, and level — and the `log` block writes a line per message through it, passing the message through unchanged.
+The `logger` connector owns a configured structured logger (Go `slog`) with its own output, format, and level. The `log` block writes a line per message through it, passing the message through unchanged.
 
 ## `logger` connector
 
-The connector owns its output: when `output` names a file, the file is opened on start (created or appended, mode `0600`) and closed on shutdown. Every setting has a sensible default, so a logger connector can be declared with no settings at all.
+The connector owns its output: when `output` names a file, the file is opened on start (created or appended, mode `0600`) and closed on shutdown. Every setting has a default, so a logger connector can be declared with no settings at all.
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `log`.
+Provides a source: no, it is a service connector. Blocks that bind to it: `log`.
 
 ### Settings
 
@@ -29,7 +29,7 @@ In the Kubernetes module, output is additionally teed to the runtime's central l
 
 ## `log` block
 
-**Log** — a wire-tap that logs the message and passes it through unchanged. The logged line is a CEL [expression](/concepts/expressions) evaluated against the message; with no expression, a JSON object with the body and variables is logged. Every record carries the message's `event_id` as a structured attribute.
+**Log** is a wire-tap that logs the message and passes it through unchanged. The logged line is a CEL [expression](/concepts/expressions) evaluated against the message; with no expression, a JSON object with the body and variables is logged. Every record carries the message's `event_id` as a structured attribute.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
@@ -38,11 +38,11 @@ In the Kubernetes module, output is additionally teed to the runtime's central l
 | `logger` | string | No | process default logger | Optional named `logger` connector to write to. |
 | `full` | boolean | No | `false` | Attach the whole message (correlation ID, variables, body, schema) as structured log attributes. |
 
-With no `logger` set, the block writes through the process default logger. With `full: true` and no `message` expression, the line is the fixed label `message` — the whole message is already attached as structured attributes.
+With no `logger` set, the block writes through the process default logger. With `full: true` and no `message` expression, the line is the fixed label `message`, since the whole message is already attached as structured attributes.
 
 ## Example
 
-From `samples/file-logger.yaml` — a named logger connector writing JSON to a file:
+From `samples/file-logger.yaml`, a named logger connector writing JSON to a file:
 
 ```yaml
 service:
@@ -79,5 +79,5 @@ flows:
 ```
 
 <Callout type="info">
-Use `full: true` with a JSON-format logger while developing to dump the entire message — event ID, correlation ID, variables, and body — at any point in a flow.
+Use `full: true` with a JSON-format logger while developing to dump the entire message (event ID, correlation ID, variables, and body) at any point in a flow.
 </Callout>

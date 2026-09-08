@@ -13,22 +13,22 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `notion` connector holds the integration token and talks to the Notion API; its blocks retrieve pages and their content, query data sources, verify and normalize inbound webhooks, and render page blocks to Markdown. Inbound Notion webhooks arrive over the [http](/reference/connectors/http) connector — Notion posts JSON to a route you own — and the `notion-verify-request` and `notion-event` blocks process that request.
+The `notion` connector holds the integration token and talks to the Notion API; its blocks retrieve pages and their content, query data sources, verify and normalize inbound webhooks, and render page blocks to Markdown. Inbound Notion webhooks arrive over the [http](/reference/connectors/http) connector, since Notion posts JSON to a route you own, and the `notion-verify-request` and `notion-event` blocks process that request.
 
 ## `notion` connector
 
-**Provides a source:** no — inbound webhooks arrive through an `http` source. **Blocks that bind to it:** `notion-query-datasource`, `notion-retrieve-page`, `notion-retrieve-blocks`, `notion-verify-request` (`notion-event` and `notion-page-to-markdown` are pure transformers and reference no connector).
+The connector provides no source; inbound webhooks arrive through an `http` source. The blocks that bind to it are `notion-query-datasource`, `notion-retrieve-page`, `notion-retrieve-blocks` and `notion-verify-request`. `notion-event` and `notion-page-to-markdown` are pure transformers and reference no connector.
 
 ### Settings
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `token` | string | Yes | — | Notion integration token used as a Bearer credential for the API. |
+| `token` | string | Yes | none | Notion integration token used as a Bearer credential for the API. |
 | `notionVersion` | string | No | `2025-09-03` | `Notion-Version` header sent on every request; the data-sources query API requires `2025-09-03` or later. |
-| `verificationToken` | string | No | — | Verifies inbound Notion webhook signatures. Leave it unset to [bootstrap a new subscription](#webhook-verification-handshake); set it once you have the token. |
+| `verificationToken` | string | No | none | Verifies inbound Notion webhook signatures. Leave it unset to [bootstrap a new subscription](#webhook-verification-handshake); set it once you have the token. |
 | `timeout` | duration | No | `30s` | Bounds each Notion API call. |
 
-An `apiBaseURL` setting also exists to override the API base (default `https://api.notion.com/v1`), mainly for tests; it is not exposed in the editor.
+An `apiBaseURL` setting also overrides the API base (default `https://api.notion.com/v1`), mainly for tests; it is not exposed in the editor.
 
 <Callout type="warn">
 Quote `notionVersion` in YAML (`notionVersion: "2025-09-03"`): an unquoted date is parsed as a timestamp. The connector normalizes it back, but quoting is clearer.
@@ -36,18 +36,16 @@ Quote `notionVersion` in YAML (`notionVersion: "2025-09-03"`): an unquoted date 
 
 ### Error handling
 
-Notion signals errors with an HTTP status ≥ 400 carrying `{object: "error", code, message}`. Every block that calls the API has a `failOnError` setting (default `true`): when true, a Notion error [fails the flow](/concepts/error-handling); when false, the message passes through unchanged.
+Notion signals errors with an HTTP status ≥ 400 carrying `{object: "error", code, message}`. Every block that calls the API has a `failOnError` setting (default `true`): when true a Notion error [fails the flow](/concepts/error-handling), when false the message passes through unchanged.
 
 ## Webhook verification handshake
 
-A Notion webhook subscription is bootstrapped by a one-time handshake, and the token it delivers is the same one every later event is signed with. You do not have that token until Notion sends it, so **start the service with `verificationToken` unset** and let the handshake bring it in.
+A Notion webhook subscription is bootstrapped by a one-time handshake, and the token it delivers is the same one every later event is signed with. You do not have that token until Notion sends it, so start the service with `verificationToken` unset and let the handshake bring it in.
 
-The full pattern, start to finish:
-
-1. Configure the connector **without** a `verificationToken` and start the service. It runs, and the webhook route accepts requests.
+1. Configure the connector without a `verificationToken` and start the service. It runs, and the webhook route accepts requests.
 2. Create the subscription in Notion, pointing at your `/notion/events` route (use a tunnel such as ngrok while developing).
-3. Notion's **first request** carries a bare `{"verification_token": "secret_..."}` payload. `notion-verify-request` accepts it, captures the token, logs it, and sets `vars.notionVerification` so your flow can branch and log it too.
-4. Paste the token into Notion's UI to confirm the subscription. Real events **start verifying against the captured token immediately** — no restart.
+3. Notion's first request carries a bare `{"verification_token": "secret_..."}` payload. `notion-verify-request` accepts it, captures the token, logs it, and sets `vars.notionVerification` so your flow can branch and log it too.
+4. Paste the token into Notion's UI to confirm the subscription. Real events start verifying against the captured token immediately, with no restart.
 5. Persist the token as the connector's `verificationToken` (from an env var, e.g. `NOTION_VERIFICATION_TOKEN`) so it survives a restart. The captured token is held in memory only, for the life of the process.
 
 Every event after the handshake is signed: Notion sends `X-Notion-Signature: sha256=<hex>`, an HMAC-SHA256 over the exact request bytes keyed by the verification token, which the block verifies in constant time.
@@ -56,9 +54,8 @@ Every event after the handshake is signed: Notion sends `X-Notion-Signature: sha
 env:
   - name: NOTION_TOKEN
     required: true
-  # Not required, and defaulted to empty: the token does not exist until the
-  # handshake delivers it, so the first run has nothing to supply. A referenced
-  # variable that is neither set nor defaulted fails at config load.
+  # Defaulted to empty: the token does not exist until the handshake delivers
+  # it, and a referenced variable with neither value nor default fails at load.
   - name: NOTION_VERIFICATION_TOKEN
     default: ""
 
@@ -71,20 +68,20 @@ connectors:
 ```
 
 <Callout type="warn">
-The handshake is the **only** request accepted without a valid signature, and only while no token is known — neither configured nor already captured. Once a token exists, an unsigned handshake is rejected like any other unsigned request, so nobody can push a new token into a running service. The exemption also applies only to a body that is *nothing but* the handshake, so an event cannot smuggle itself through by carrying a `verification_token` field.
+The handshake is the only request accepted without a valid signature, and only while no token is known (neither configured nor already captured). Once a token exists, an unsigned handshake is rejected like any other unsigned request, so nobody can push a new token into a running service. The exemption also applies only to a body that is *nothing but* the handshake, so an event cannot smuggle itself through by carrying a `verification_token` field.
 </Callout>
 
 If you rotate the subscription later, unset `verificationToken` and restart to reopen the bootstrap window.
 
 ## `notion-verify-request` block
 
-**Notion Verify Request** — authenticate an inbound Notion webhook delivered over the `http` connector. It verifies the signature over the exact request bytes using the connector's `verificationToken`, and aborts the flow on a bad signature. While no token is known, it accepts and captures the [subscription handshake](#webhook-verification-handshake) — the one request whose signature cannot be checked, because the token to check it against is what the request carries.
+**Notion Verify Request** authenticates an inbound Notion webhook delivered over the `http` connector. It verifies the signature over the exact request bytes using the connector's `verificationToken`, and aborts the flow on a bad signature. While no token is known, it accepts and captures the [subscription handshake](#webhook-verification-handshake).
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `notion` connector to use. Its `verificationToken` may be unset while bootstrapping a subscription. |
+| `connector` | string | Yes | none | Name of the `notion` connector to use. Its `verificationToken` may be unset while bootstrapping a subscription. |
 | `signatureHeader` | string | No | `X-Notion-Signature` | Variable holding Notion's request signature. |
-| `rawBodyVar` | string | No | `rawBody` | Variable holding the exact request body; must match the http source's `rawBodyVar`. Optional when the http source uses raw-content mode (`rawBody: true`) — the block then reads the raw body directly and re-parses it into `body`. |
+| `rawBodyVar` | string | No | `rawBody` | Variable holding the exact request body; must match the http source's `rawBodyVar`. Optional when the http source uses raw-content mode (`rawBody: true`), where the block reads the raw body directly and re-parses it into `body`. |
 
 The http source must expose the exact request bytes, either with `rawBodyVar: rawBody` or with `rawBody: true`, and copy the signature header into a variable:
 
@@ -97,23 +94,23 @@ source:
     rawBody: true
 ```
 
-**Variables set:** for the subscription handshake, `vars.notionVerification` holds the `verification_token` so the flow can branch and log it. The block also captures the token itself, so events verify against it without a restart even if your flow does nothing with the variable.
+For the subscription handshake, `vars.notionVerification` holds the `verification_token` so the flow can branch and log it. The block also captures the token itself, so events verify against it without a restart even if your flow does nothing with the variable.
 
 ## `notion-event` block
 
-**Notion Event** — normalize a verified Notion webhook into a friendly, flat shape and filter it. Events whose type is not in the allowlist, or that fail the filter predicate, are **dropped**.
+**Notion Event** normalizes a verified Notion webhook into a flat shape and filters it. Events whose type is not in the allowlist, or that fail the filter predicate, are dropped.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `eventTypes` | string[] | No | allow all | Allowlist of event types (e.g. `page.created`, `page.content_updated`). |
-| `filter` | expression | No | — | CEL predicate over the normalized body; drop the event when false. |
+| `filter` | expression | No | none | CEL predicate over the normalized body; drop the event when false. |
 
-**Normalized body shape** — the block replaces `body` with:
+The block replaces `body` with:
 
 | Field | Source |
 | --- | --- |
 | `body.type` | Event `type` (e.g. `page.content_updated`). |
-| `body.entityId` | `entity.id` — the affected object's ID. |
+| `body.entityId` | `entity.id`, the affected object's ID. |
 | `body.entityType` | `entity.type` (e.g. `page`). |
 | `body.workspaceId` | Event `workspace_id`. |
 | `body.timestamp` | Event `timestamp`. |
@@ -121,57 +118,57 @@ source:
 
 ## `notion-query-datasource` block
 
-**Notion Query Data Source** — query a Notion data source (`POST /data_sources/{id}/query`) with an optional filter and sorts, and store the response. Target it by data source ID, or by database ID (the block derives the data source). In the 2025-09-03 API a database holds one or more data sources; deriving from a database costs an extra GET and uses its first data source.
+**Notion Query Data Source** queries a Notion data source (`POST /data_sources/{id}/query`) with an optional filter and sorts, and stores the response. Target it by data source ID, or by database ID (the block derives the data source). In the 2025-09-03 API a database holds one or more data sources; deriving from a database costs an extra GET and uses its first data source.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `notion` connector to use. |
-| `dataSource` | expression | Exactly one of `dataSource` / `database` | — | CEL expression for the data source ID to query. |
-| `database` | expression | Exactly one of `dataSource` / `database` | — | CEL expression for a database ID; the block retrieves the database and queries its first data source. |
-| `filter` | expression | No | — | CEL expression producing a Notion filter object. |
-| `sorts` | expression | No | — | CEL expression producing a list of Notion sort objects. |
-| `pageSize` | int | No | — | Maximum number of results per call (Notion's own max is 100). |
+| `connector` | string | Yes | none | Name of the `notion` connector to use. |
+| `dataSource` | expression | Exactly one of `dataSource` / `database` | none | CEL expression for the data source ID to query. |
+| `database` | expression | Exactly one of `dataSource` / `database` | none | CEL expression for a database ID; the block retrieves the database and queries its first data source. |
+| `filter` | expression | No | none | CEL expression producing a Notion filter object. |
+| `sorts` | expression | No | none | CEL expression producing a list of Notion sort objects. |
+| `pageSize` | int | No | none | Maximum number of results per call (Notion's own max is 100). |
 | `resultVar` | string | No | `notionResults` | Variable the query response is stored in. |
 | `failOnError` | boolean | No | `true` | Turn a Notion API error into a flow error. |
 
-The stored value is Notion's response envelope — rows are under `vars.notionResults.results`.
+The stored value is Notion's response envelope: rows are under `vars.notionResults.results`.
 
 ## `notion-retrieve-page` block
 
-**Notion Retrieve Page** — retrieve a Notion page object by ID (`GET /pages/{id}`) and store it in a variable. A page's content lives in its child blocks, not the page object, so this returns **properties only**; pair it with `notion-retrieve-blocks` for content.
+**Notion Retrieve Page** retrieves a Notion page object by ID (`GET /pages/{id}`) and stores it in a variable. A page's content lives in its child blocks, not the page object, so this returns properties only; pair it with `notion-retrieve-blocks` for content.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `notion` connector to use. |
-| `page` | expression | Yes | — | CEL expression for the page ID to retrieve. |
+| `connector` | string | Yes | none | Name of the `notion` connector to use. |
+| `page` | expression | Yes | none | CEL expression for the page ID to retrieve. |
 | `resultVar` | string | No | `notionPage` | Variable the retrieved page object is stored in. |
 | `failOnError` | boolean | No | `true` | Turn a Notion API error into a flow error. |
 
 ## `notion-retrieve-blocks` block
 
-**Notion Retrieve Blocks** — retrieve a page's (or any block's) child blocks (`GET /blocks/{id}/children`), following pagination (100 per request, up to 100 pages), and store them as a `{results: [...]}` object. That shape matches the Notion API and feeds `notion-page-to-markdown` directly.
+**Notion Retrieve Blocks** retrieves a page's (or any block's) child blocks (`GET /blocks/{id}/children`), following pagination (100 per request, up to 100 pages), and stores them as a `{results: [...]}` object. That shape matches the Notion API and feeds `notion-page-to-markdown` directly.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `notion` connector to use. |
-| `block` | expression | Yes | — | CEL expression for the block or page ID whose children to retrieve. |
-| `resultVar` | string | No | — | When set, store the `{results: [...]}` object here and leave the body; when empty, replace the body with it. |
+| `connector` | string | Yes | none | Name of the `notion` connector to use. |
+| `block` | expression | Yes | none | CEL expression for the block or page ID whose children to retrieve. |
+| `resultVar` | string | No | none | When set, store the `{results: [...]}` object here and leave the body; when empty, replace the body with it. |
 | `failOnError` | boolean | No | `true` | Turn a Notion API error into a flow error. |
 
 ## `notion-page-to-markdown` block
 
-**Notion Page to Markdown** — a pure transformer that renders a Notion blocks array (as returned under `results` by the block-children endpoint) into Markdown. It makes no API call — fetch the blocks first (e.g. with `notion-retrieve-blocks`) and point this block's `source` at them.
+**Notion Page to Markdown** is a pure transformer that renders a Notion blocks array (as returned under `results` by the block-children endpoint) into Markdown. It makes no API call, so fetch the blocks first (e.g. with `notion-retrieve-blocks`) and point this block's `source` at them.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `source` | expression | No | `body.results` | CEL expression producing the blocks array to render. |
-| `resultVar` | string | No | — | When set, store the Markdown here and leave the body; when empty, replace the body with the Markdown as raw content (`text/markdown`). |
+| `resultVar` | string | No | none | When set, store the Markdown here and leave the body; when empty, replace the body with the Markdown as raw content (`text/markdown`). |
 
 Supported block types: paragraphs, headings 1–3, bulleted/numbered list items, quotes, callouts, to-dos, code blocks, and dividers, with bold/italic/strikethrough/code annotations. Unsupported types are skipped; nested children are not fetched.
 
 ## Example
 
-Adapted from `samples/notion-webhook.yaml` — verify webhooks, handle the handshake, and react to page updates:
+Adapted from `samples/notion-webhook.yaml`: verify webhooks, handle the handshake, and react to page updates.
 
 ```yaml
 service:

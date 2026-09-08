@@ -11,13 +11,11 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Octo ships two HTTP connectors: `http`, a server connector whose sources turn inbound requests into flow executions and write the flow's result back as the response, and `http-client`, an outbound client that the `rest` block runs requests through.
+Octo ships two HTTP connectors. `http` is a server connector whose sources turn inbound requests into flow executions and write the flow's result back as the response. `http-client` is an outbound client that the `rest` block runs requests through.
 
 ## `http` connector
 
-The `http` connector (label: **HTTP Server**) owns a single HTTP server — host, port, base path, server timeouts, and CORS. Each flow fronted by an `http` source registers a route on that shared server.
-
-**Provides a source:** yes — the **HTTP route** source (below). **Blocks that bind to it:** none; the `rest` block binds to `http-client`.
+The `http` connector (label: **HTTP Server**) owns a single HTTP server: host, port, base path, server timeouts, and CORS. Each flow fronted by an `http` source registers a route on that shared server. It provides the **HTTP route** source (below) and no blocks; `rest` binds to `http-client` instead.
 
 ### Settings
 
@@ -25,13 +23,13 @@ The `http` connector (label: **HTTP Server**) owns a single HTTP server — host
 | --- | --- | --- | --- | --- |
 | `host` | string | No | `$HTTP_HOST`, else `0.0.0.0` | Bind address. An explicit value wins over the `HTTP_HOST` environment variable. |
 | `port` | int | No | `$HTTP_PORT`, else `8080` | Bind port. An explicit `0` lets the OS pick a free port. An explicit value wins over the `HTTP_PORT` environment variable. |
-| `basePath` | string | No | — | Prefix for all routes (e.g. `/api/v1`). |
-| `keepAlive` | boolean | No | — | Enable HTTP keep-alives. |
+| `basePath` | string | No | unset | Prefix for all routes (e.g. `/api/v1`). |
+| `keepAlive` | boolean | No | unset | Enable HTTP keep-alives. |
 | `requestTimeout` | duration | No | `30s` | How long a handler waits for the flow to finish. |
-| `readTimeout` | duration | No | — | Server read timeout. |
-| `writeTimeout` | duration | No | — | Server write timeout. |
-| `idleTimeout` | duration | No | — | Server idle timeout. |
-| `cors` | object | No | — | Cross-origin resource sharing. Inert unless `allowedOrigins` is set. |
+| `readTimeout` | duration | No | unset | Server read timeout. |
+| `writeTimeout` | duration | No | unset | Server write timeout. |
+| `idleTimeout` | duration | No | unset | Server idle timeout. |
+| `cors` | object | No | unset | Cross-origin resource sharing. Inert unless `allowedOrigins` is set. |
 
 Duration settings accept Go duration strings (`5s`, `250ms`).
 
@@ -41,12 +39,12 @@ CORS is off unless `allowedOrigins` is non-empty. When set, the connector answer
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `allowedOrigins` | string[] | No | — | Origins allowed to make cross-origin requests. Exact matches; a single `*` allows any origin. |
+| `allowedOrigins` | string[] | No | unset | Origins allowed to make cross-origin requests. Exact matches; a single `*` allows any origin. |
 | `allowedMethods` | string[] | No | `GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS` | Methods allowed on preflight. |
 | `allowedHeaders` | string[] | No | echo requested headers | Request headers allowed on preflight; when unset, the requested headers are echoed back. |
-| `exposedHeaders` | string[] | No | — | Response headers exposed to the browser on actual responses. |
+| `exposedHeaders` | string[] | No | unset | Response headers exposed to the browser on actual responses. |
 | `allowCredentials` | boolean | No | `false` | Allow credentialed (cookie/authorization) requests. When true, the origin is echoed rather than `*`, per the CORS spec. |
-| `maxAge` | duration | No | — | How long a browser may cache the preflight response. |
+| `maxAge` | duration | No | unset | How long a browser may cache the preflight response. |
 
 ### `http` source
 
@@ -54,34 +52,33 @@ Each `http` source binds one route pattern to a flow. The request becomes the fl
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `path` | string | Yes | — | Route pattern; `{name}` params become `vars.name`. |
-| `methods` | string[] | No | — (every method) | HTTP methods the route answers. Naming any means every other method gets a `405` (with an `Allow` header) from the router, before any flow runs. Listing `GET` also answers `HEAD`, which is Go's router following HTTP: a `HEAD` is a `GET` whose body is discarded, and the flow runs for it. A name that is not an HTTP method fails at startup. |
-| `headers` | string[] | No | — | Request header names to copy into variables. |
-| `responseHeaders` | string[] | No | — | Response header names to propagate from message variables of the same name after the flow completes. `Content-Type` is managed by the source. |
-| `correlationIdHeader` | string | No | — | Header to source the correlation ID from. |
-| `rawBodyVar` | string | No | — | Capture the exact request bytes into `vars.<name>` (e.g. to verify an HMAC signature over the raw body). |
-| `rawBody` | boolean | No | `false` | Source the request as raw content: skip the JSON check and store the body as `{contentType, rawData}` using the request's `Content-Type`, instead of parsing it. Lets non-JSON payloads (forms, XML, binary text) enter the flow. A `multipart/form-data` request is decoded either way — see [Multipart bodies](#multipart-bodies). |
+| `path` | string | Yes | none | Route pattern; `{name}` params become `vars.name`. |
+| `methods` | string[] | No | unset (every method) | HTTP methods the route answers. Naming any means every other method gets a `405` (with an `Allow` header) from the router, before any flow runs. Listing `GET` also answers `HEAD`, and the flow runs for it. A name that is not an HTTP method fails at startup. |
+| `headers` | string[] | No | unset | Request header names to copy into variables. |
+| `responseHeaders` | string[] | No | unset | Response header names to propagate from message variables of the same name after the flow completes. `Content-Type` is managed by the source. |
+| `correlationIdHeader` | string | No | unset | Header to source the correlation ID from. |
+| `rawBodyVar` | string | No | unset | Capture the exact request bytes into `vars.<name>` (e.g. to verify an HMAC signature over the raw body). |
+| `rawBody` | boolean | No | `false` | Source the request as raw content: skip the JSON check and store the body as `{contentType, rawData}` using the request's `Content-Type`. Lets non-JSON payloads (forms, XML, binary text) enter the flow. A `multipart/form-data` request is decoded either way, see [Multipart bodies](#multipart-bodies). |
 | `timeout` | duration | No | connector's `requestTimeout` | Per-route wait for the flow. On an SSE route this bounds the wait for the *first frame* instead. |
 | `maxBodyBytes` | int | No | `1048576` | Request body size cap (via `http.MaxBytesReader`). Oversized requests get `413`. |
-| `sse` | object | No | — | Serve the route as a [server-sent event stream](#server-sent-events). Inert unless `sse.enabled`. |
+| `sse` | object | No | unset | Serve the route as a [server-sent event stream](#server-sent-events). Inert unless `sse.enabled`. |
 
 #### How the request maps into the message
 
-- **Path parameters** — every `{name}` in `path` lands in `vars.name` (e.g. `/orders/{id}` sets `vars.id`).
-- **Method** — `vars.method` holds the HTTP method, so a flow can route on `vars.method == "POST"`.
-- **Query string** — `vars.query` is a map of query parameters (first value of each key); it is always present, possibly empty.
-- **Headers** — each header listed in `headers` is copied into a variable of the same name, e.g. `vars["X-Tenant"]`.
-- **Body** — a JSON body becomes `body`. A malformed JSON body is rejected with `400` before the flow runs, unless `rawBody: true`, in which case the body enters the flow as raw content carrying the request's `Content-Type`. A `multipart/form-data` body is decoded into `body.parts` regardless of `rawBody` — see [Multipart bodies](#multipart-bodies). An empty body is valid (`body` stays null).
-- **Raw bytes** — with `rawBodyVar` set, the exact request bytes are also stored in that variable as a string.
+| Request part | Lands in |
+| --- | --- |
+| Path parameters | Every `{name}` in `path` lands in `vars.name` (e.g. `/orders/{id}` sets `vars.id`). |
+| Method | `vars.method` holds the HTTP method, so a flow can route on `vars.method == "POST"`. |
+| Query string | `vars.query` is a map of query parameters (first value of each key). It is always present, possibly empty. |
+| Headers | Each header listed in `headers` is copied into a variable of the same name, e.g. `vars["X-Tenant"]`. |
+| Body | A JSON body becomes `body`. A malformed JSON body is rejected with `400` before the flow runs, unless `rawBody: true`, in which case the body enters the flow as raw content carrying the request's `Content-Type`. A `multipart/form-data` body is decoded into `body.parts` regardless of `rawBody` (see [Multipart bodies](#multipart-bodies)). An empty body is valid (`body` stays null). |
+| Raw bytes | With `rawBodyVar` set, the exact request bytes are also stored in that variable as a string. |
 
 #### How the response is written
 
-- A **completed** flow returns its final body as JSON with status `200`, or as raw content with its own `Content-Type` when the body is raw content.
-- Setting `vars.httpStatus` to a valid code (100–599) overrides the response status.
-- Variables named in `responseHeaders` are emitted as response headers (scalar values only).
-- A **dropped** message (e.g. a filter matched nothing) responds `204 No Content`.
-- A **failed** flow responds `500` with a JSON `{"error": ...}` body — see [error handling](/concepts/error-handling).
-- A flow that exceeds the timeout responds `504`.
+A **completed** flow returns its final body as JSON with status `200`, or as raw content with its own `Content-Type` when the body is raw content. Setting `vars.httpStatus` to a valid code (100 to 599) overrides the response status. Variables named in `responseHeaders` are emitted as response headers (scalar values only).
+
+A **dropped** message (e.g. a filter matched nothing) responds `204 No Content`. A **failed** flow responds `500` with a JSON `{"error": ...}` body, see [error handling](/concepts/error-handling). A flow that exceeds the timeout responds `504`.
 
 #### Multipart bodies
 
@@ -115,15 +112,11 @@ flow a body of:
 ```
 
 There is no setting to enable this, and `rawBody` does not turn it off. `parts`
-is added *alongside* `contentType` and `rawData`, which stay exactly what was
-received — so a flow verifying an HMAC over the raw request body and a flow
-reading `body.parts.avatar` are the same flow, and neither has to choose.
-
-Each part carries its **own** `contentType`, which is what tells you an upload is
-a PNG rather than a CSV. A part with a `filename` always has `encoding: base64`;
-a plain form field is always `text`. The rule follows the request's *shape*, not
-its bytes, so an expression means the same thing on every request. Read binary
-data with [`base64.decode`](/reference/cel/libraries):
+is added alongside `contentType` and `rawData`, which stay exactly what was
+received, so one flow can verify an HMAC over the raw body and read
+`body.parts.avatar`. A part with a `filename` always has `encoding: base64`; a
+plain form field is always `text`. Read binary data with
+[`base64.decode`](/reference/cel/libraries):
 
 ```yaml
 - type: set-payload
@@ -132,16 +125,15 @@ data with [`base64.decode`](/reference/cel/libraries):
 ```
 
 `size` is always the **decoded** byte length. A repeated part name becomes a
-list, so `body.parts.tag[0].data` reaches the first.
-
-A body that claims to be multipart but will not parse is rejected with `400`
-before the flow runs, the same way a malformed JSON body is.
+list, so `body.parts.tag[0].data` reaches the first. A body that claims to be
+multipart but will not parse is rejected with `400` before the flow runs, like a
+malformed JSON body.
 
 <Callout type="warn">
   A decoded upload is held in memory twice: once as `rawData` and once as the
-  parts, where base64 costs about 4/3 of the original bytes. Set `maxBodyBytes`
-  deliberately — a 10 MiB upload occupies roughly 23 MiB per message, and more
-  again if the flow forks or crosses a queue.
+  parts, where base64 costs about 4/3 of the original bytes. A 10 MiB upload
+  occupies roughly 23 MiB per message, and more again if the flow forks or
+  crosses a queue, so set `maxBodyBytes` deliberately.
 </Callout>
 
 To *send* a multipart body, see the [`rest` block](#rest-block)'s `bodyType`.
@@ -149,9 +141,9 @@ The [multipart CEL functions](/reference/cel/octo-extensions#frommultipart) buil
 and decode one anywhere else.
 
 The runtime reads the whole request into memory and writes the whole response at
-once. See [Raw Content and Streaming](/concepts/raw-content) for how to serve
-non-JSON payloads and why the payload is always materialized. To push output
-incrementally instead, enable [server-sent events](#server-sent-events).
+once. See [Raw Content and Streaming](/concepts/raw-content) for non-JSON
+payloads, or [server-sent events](#server-sent-events) to push output
+incrementally.
 
 ### Example
 
@@ -201,7 +193,7 @@ Setting `sse.enabled` on a route turns it into a [server-sent event](https://dev
 | `sse.enabled` | boolean | No | `false` | Serve this route as an event stream. |
 | `sse.streamVar` | string | No | `sseStream` | Variable the stream's address lands in. |
 | `sse.finalEvent` | boolean | No | `false` | Emit the flow's response message as one last frame before closing. |
-| `sse.finalEventName` | string | No | — | The `event:` name for that final frame. |
+| `sse.finalEventName` | string | No | unset | The `event:` name for that final frame. |
 | `sse.closeOnComplete` | boolean | No | `true` | Close the stream when the flow's own invocation terminates. |
 | `sse.heartbeat` | duration | No | `15s` | How often an idle stream writes a `: ping` comment. `0` means the default, not "off". |
 | `sse.maxDuration` | duration | No | unlimited | Hard cap on how long one stream may stay open. |
@@ -209,9 +201,9 @@ Setting `sse.enabled` on a route turns it into a [server-sent event](https://dev
 
 #### The stream address
 
-A stream is addressed by an id of its own, minted when the route accepts the request and published in `vars.sseStream` as `<connector>:<id>`. It is deliberately **not** the message's `EventID`, which is rekeyed whenever a message crosses into another invocation — `flow-ref`, `split` and `queue-dispatch` all do it, so a block reading `EventID` inside any of them would find the wrong one.
+A stream is addressed by an id of its own, minted when the route accepts the request and published in `vars.sseStream` as `<connector>:<id>`. It is not the message's `EventID`, which is rekeyed whenever a message crosses into another invocation (`flow-ref`, `split` and `queue-dispatch` all do it).
 
-The address is an ordinary string in an ordinary variable, so it survives every copy, rekey and serialization a message goes through. That is what makes an `sse-event` in a `flow-ref`'d sub-flow write to the caller's connection with no configuration at all. And because the address names its own connector, a flow can hand it somewhere else entirely:
+The address is an ordinary string in an ordinary variable, so it survives every copy, rekey and serialization: an `sse-event` in a `flow-ref`'d sub-flow writes to the caller's connection with no configuration. Because it names its own connector, a flow can hand it somewhere else entirely:
 
 ```yaml
 # Hand the stream to a queued job, which writes progress back to the same caller.
@@ -220,31 +212,26 @@ The address is an ordinary string in an ordinary variable, so it survives every 
     subject: '"jobs.render"'
 ```
 
-The worker points the block's `stream` setting at wherever the address landed — say `body.stream` — and needs nothing else.
+The worker points the block's `stream` setting at wherever the address landed, say `body.stream`.
 
 <Callout type="warn">
-A stream is a live connection on **one** process. A queued job picked up by another replica resolves the address and finds nothing, landing on the block's `ifClosed` policy. Cross-replica streaming is not supported yet.
+A stream is a live connection on one process. A queued job picked up by another replica resolves the address and finds nothing, landing on the block's `ifClosed` policy. Cross-replica streaming is not supported yet.
 </Callout>
 
 #### The response is committed by the first frame
 
-Nothing is written until a block emits, which is what lets everything before that behave like an ordinary route:
+Nothing is written until a block emits, so everything before that behaves like an ordinary route. A filter that rejects (`jwt-validate`, `validate`) still returns a real `401`/`400` with its own body. `vars.httpStatus` and `responseHeaders` still apply, and `responseHeaders` are read off the message that emits the *first* frame. A flow that emits nothing gets the ordinary buffered JSON response. A **dropped** message responds `204`, and a failure before any frame is an ordinary `500`.
 
-- A filter that rejects — `jwt-validate`, `validate` — still returns a real `401`/`400` with its own body, because no stream was ever opened.
-- `vars.httpStatus` and `responseHeaders` still apply, and `responseHeaders` are read off the message that emits the *first* frame.
-- A flow that emits nothing still gets the buffered JSON response it would have got without `sse`.
-- A **dropped** message responds `204`, and a failure before any frame is an ordinary `500`.
-
-Once a frame goes out the response is a committed `200 text/event-stream`, so from that point a failure can only be *told*, not signalled by status: an unhandled failure sends `event: error` with a `{"error": ...}` payload and closes. Put an `sse-event` in the flow's `error:` chain to say something else instead.
+Once a frame goes out the response is a committed `200 text/event-stream`, so a failure can only be told in-band: an unhandled failure sends `event: error` with a `{"error": ...}` payload and closes. Put an `sse-event` in the flow's `error:` chain to say something else instead.
 
 #### When the stream closes
 
 Whichever comes first: an `sse-event` with `close: true`; the flow's terminal event (unless `closeOnComplete: false`); the client disconnecting; `maxDuration`; or connector shutdown.
 
-`closeOnComplete: false` is for a flow that hands its work off and finishes early — a `split`, or a `queue-dispatch`. The invocation that opened the stream terminates immediately, but the detached invocations are the ones with something to say. Pair it with `maxDuration`, or a stream nothing closes leaks, and raise `timeout` to cover the wait for the first frame.
+`closeOnComplete: false` is for a flow that hands its work off and finishes early (a `split`, or a `queue-dispatch`), where the detached invocations are the ones with something to say. Pair it with `maxDuration`, or a stream nothing closes leaks, and raise `timeout` to cover the wait for the first frame.
 
 <Callout>
-The client disconnecting does **not** cancel the flow — a flow keeps running once it has accepted a message. The block's default `ifClosed: stop` is how a flow notices and stops producing output nobody will read.
+The client disconnecting does not cancel the flow; a flow keeps running once it has accepted a message. The block's default `ifClosed: stop` is how a flow notices and stops producing output nobody will read.
 </Callout>
 
 #### `sse-event` block
@@ -253,24 +240,24 @@ Writes one frame to an open stream.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `event` | string | No | — | The `event:` name. Empty means an unnamed event, which browsers deliver to `EventSource.onmessage`. |
+| `event` | string | No | unset | The `event:` name. Empty means an unnamed event, which browsers deliver to `EventSource.onmessage`. |
 | `data` | CEL | No | the message body as JSON | The frame's payload. Multi-line values are encoded as multiple `data:` lines. |
 | `stream` | CEL | No | `vars.sseStream` | Which stream to write to. Set it when the route renames the variable, or when the address reached this flow another way. |
-| `connector` | connector ref | No | `http` | Which `http` connector owns the stream. Rarely needed — an address published by a route already names its connector. It applies only to a bare id. |
+| `connector` | connector ref | No | `http` | Which `http` connector owns the stream. Rarely needed: an address published by a route already names its connector. It applies only to a bare id. |
 | `close` | boolean | No | `false` | End the stream after this frame. |
 | `stop` | boolean | No | `false` | Stop the flow after this frame. Usually paired with `close`. |
 | `ifClosed` | enum | No | `stop` | What to do when the stream has already ended: `stop`, `ignore`, or `error`. |
 
-A block with neither `event` nor data writes nothing — that is how you close a stream without sending a final frame.
+A block with neither `event` nor data writes nothing, which is how you close a stream without sending a final frame.
 
-The block draws a deliberate line between two failures. Being **wired up wrong** — no address resolvable, or a connector that is not configured — always fails the block, whatever `ifClosed` says. **Nobody listening** — the client hung up, the stream expired, or it lives on another replica — is an ordinary runtime condition that `ifClosed` decides.
+Being wired up wrong (no address resolvable, or a connector that is not configured) always fails the block, whatever `ifClosed` says. Nobody listening (the client hung up, the stream expired, or it lives on another replica) is decided by `ifClosed`.
 
 <Callout type="warn">
-**Authenticating a browser stream.** `EventSource` cannot set request headers, and `jwt-validate` reads the token from one — so putting it in front of an SSE route covers non-browser callers only: `curl`, server-to-server clients, and fetch-based SSE libraries, which can all send `Authorization`.
+**Authenticating a browser stream.** `EventSource` cannot set request headers, and `jwt-validate` reads the token from one, so putting it in front of an SSE route covers non-browser callers only: `curl`, server-to-server clients, and fetch-based SSE libraries, which can all send `Authorization`.
 
-For a browser, authenticate the stream with a **same-origin session cookie**, marked `HttpOnly`, `Secure`, and `SameSite`. `EventSource` sends cookies on same-origin requests by itself; cross-origin it needs `withCredentials: true` and the connector's `cors.allowCredentials`. Check the session at your edge — proxy or gateway — or copy the `Cookie` header into a variable with the source's `headers` setting and reject in a `filter` ahead of the stream.
+For a browser, authenticate the stream with a same-origin session cookie, marked `HttpOnly`, `Secure`, and `SameSite`. `EventSource` sends cookies on same-origin requests by itself; cross-origin it needs `withCredentials: true` and the connector's `cors.allowCredentials`. Check the session at your edge (proxy or gateway), or copy the `Cookie` header into a variable with the source's `headers` setting and reject in a `filter` ahead of the stream.
 
-Do not put the token in the query string. URLs reach browser history, `Referer` headers, and proxy and access logs, and anyone who can read a log can replay what they find there. A stream makes it worse than a normal request: the connection is long-lived, so the credential sits in those logs for as long as the stream does.
+Do not put the token in the query string: URLs reach browser history, `Referer` headers, and proxy and access logs, and a long-lived stream keeps the credential there for as long as it stays open.
 </Callout>
 
 #### Example
@@ -324,19 +311,19 @@ curl -N localhost:8080/progress
 
 The `http-client` connector (label: **HTTP Client**) owns a configured client for calling external HTTP APIs: base URL, authentication, default headers, a request timeout, retry on `429`, and an opt-in in-memory response cache for GETs. The `rest` block references it by name.
 
-**Provides a source:** no — it is outbound only. **Blocks that bind to it:** `rest` and `rest-dynamic`.
+**Provides a source:** no, it is outbound only. **Blocks that bind to it:** `rest` and `rest-dynamic`.
 
 ### Settings
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `baseURL` | string | Yes | — | Prepended to each request path. Must be absolute (scheme and host). |
+| `baseURL` | string | Yes | none | Prepended to each request path. Must be absolute (scheme and host). |
 | `timeout` | duration | No | `30s` | Bounds each request. |
-| `headers` | map | No | — | Applied to every request unless already set by the block. |
+| `headers` | map | No | unset | Applied to every request unless already set by the block. |
 | `maxResponseBytes` | int | No | `1048576` | Response body size cap. |
 | `auth` | object | No | none | Authentication applied to every request (below). |
-| `retry` | object | No | — | Retry policy for rate-limited (`429`) responses (below). |
-| `pool` | object | No | — | Connection pool sizing for outbound requests (below). |
+| `retry` | object | No | unset | Retry policy for rate-limited (`429`) responses (below). |
+| `pool` | object | No | unset | Connection pool sizing for outbound requests (below). |
 | `cache` | object | No | disabled | In-memory response cache for GET requests (below). Not exposed in the editor schema; configure it in YAML. |
 
 ### Authentication (`auth`)
@@ -344,13 +331,13 @@ The `http-client` connector (label: **HTTP Client**) owns a configured client fo
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `type` | enum: `bearer` \| `basic` \| `oauth2` \| `gcp` | No | none | Authentication scheme. |
-| `token` | string | With `type: bearer` | — | Token sent as `Authorization: Bearer`. |
-| `username` | string | With `type: basic` | — | Basic auth username. |
-| `password` | string | No | — | Basic auth password. |
-| `tokenURL` | string | With `type: oauth2` | — | OAuth2 token endpoint (client-credentials grant). |
-| `clientID` | string | With `type: oauth2` | — | OAuth2 client identifier. |
-| `clientSecret` | string | With `type: oauth2` | — | OAuth2 client secret. |
-| `scopes` | string[] | No | — | Requested OAuth2 scopes. |
+| `token` | string | With `type: bearer` | none | Token sent as `Authorization: Bearer`. |
+| `username` | string | With `type: basic` | none | Basic auth username. |
+| `password` | string | No | none | Basic auth password. |
+| `tokenURL` | string | With `type: oauth2` | none | OAuth2 token endpoint (client-credentials grant). |
+| `clientID` | string | With `type: oauth2` | none | OAuth2 client identifier. |
+| `clientSecret` | string | With `type: oauth2` | none | OAuth2 client secret. |
+| `scopes` | string[] | No | unset | Requested OAuth2 scopes. |
 | `gcpToken` | enum: `identity` \| `access` | No | `identity` | Which token the GCP metadata server mints. |
 | `gcpAudience` | string | No | the connector's base URL (origin) | Audience for a GCP identity token. |
 | `gcpScopes` | string[] | No | the service account's own scopes | Scopes for a GCP access token. |
@@ -359,31 +346,27 @@ For `oauth2`, the connector mints and refreshes a bearer token via the client-cr
 
 ### GCP workload identity (`type: gcp`)
 
-For a runtime running on Cloud Run, GCE, or GKE, `type: gcp` authenticates as the
-service account the process runs as. The token comes from the instance metadata
-server, so nothing secret is configured and nothing is stored.
+On Cloud Run, GCE, or GKE, `type: gcp` authenticates as the service account the
+process runs as. The token comes from the instance metadata server, so nothing
+secret is configured and nothing is stored.
 
-Two kinds of token, for two different callees:
-
-- **`identity`** (the default) is an OIDC token stamped with an audience. It is
-  what one Cloud Run service presents to another, and what an IAP-protected
-  endpoint expects. `gcpAudience` defaults to the connector's `baseURL` — origin
-  only — which is what the receiving service validates against, so calling
-  another service usually needs no more than `type: gcp`.
-- **`access`** is an OAuth token carrying scopes, for calling a Google API
-  (Storage, Pub/Sub, BigQuery) directly. With no `gcpScopes` the metadata server
-  returns the service account's own, which on Cloud Run is `cloud-platform`.
+`identity` (the default) is an OIDC token stamped with an audience: what one
+Cloud Run service presents to another, and what an IAP-protected endpoint
+expects. `gcpAudience` defaults to the connector's `baseURL` (origin only),
+which is what the receiving service validates against, so calling another
+service usually needs no more than `type: gcp`. `access` is an OAuth token
+carrying scopes, for calling a Google API (Storage, Pub/Sub, BigQuery) directly.
+With no `gcpScopes` the metadata server returns the service account's own, which
+on Cloud Run is `cloud-platform`.
 
 Tokens are cached until shortly before they expire and refreshed on demand.
-Nothing is written to the secret store: the metadata server is local and free,
-and a token minted for one instance's identity is not something to share between
-replicas.
+Nothing is written to the secret store.
 
 <Callout type="warn">
   `type: gcp` only works where a metadata server exists. Off Google Cloud the
   first request fails with an error saying so. Drive the scheme from an
-  environment variable — `type: ${API_AUTH}`, empty locally and `gcp` in
-  production — rather than expecting a local fallback; see
+  environment variable (`type: ${API_AUTH}`, empty locally and `gcp` in
+  production) rather than expecting a local fallback; see
   [Add authentication](/guides/call-external-apis#add-authentication).
 </Callout>
 
@@ -398,20 +381,20 @@ When an upstream returns `429 Too Many Requests`, the connector honors the `Retr
 
 ### Connection pool (`pool`)
 
-The connector keeps a pool of idle connections so outbound requests reuse them instead of dialling — and, against HTTPS, re-handshaking — every time. Size the pool against the flow's [`workers`](/reference/flow-file#flows): `workers: 512` asks for up to 512 concurrent outbound requests, and `maxIdleConnsPerHost` decides how many of those connections survive to serve the next batch. Set `maxIdleConnsPerHost` to at least the `workers` of the busiest flow calling this connector — below that, the excess is closed and re-dialled every round.
+The connector keeps a pool of idle connections so outbound requests reuse them instead of dialling and re-handshaking every time. Size it against the flow's [`workers`](/reference/flow-file#flows): `workers: 512` asks for up to 512 concurrent outbound requests, so set `maxIdleConnsPerHost` to at least the `workers` of the busiest flow calling this connector. Below that, the excess is closed and re-dialled every round.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `maxIdleConns` | int | No | `100` | Idle connections kept across all hosts. |
-| `maxIdleConnsPerHost` | int | No | `100` | Idle connections kept per host — the one that matters, since a connector talks to a single base URL. |
+| `maxIdleConnsPerHost` | int | No | `100` | Idle connections kept per host. This is the one that matters, since a connector talks to a single base URL. |
 | `idleConnTimeout` | duration | No | `90s` | How long an idle connection is kept before being closed. |
-| `disableKeepAlives` | boolean | No | `false` | Disable connection reuse entirely — one connection per request. For an upstream that mishandles persistent connections. |
+| `disableKeepAlives` | boolean | No | `false` | Disable connection reuse entirely, one connection per request. For an upstream that mishandles persistent connections. |
 
 <Callout type="info">
-  **Fixed in 0.5.0.** Before this the connector used Go's default transport, whose idle pool is **two** connections per host. Above two concurrent requests every further connection was closed rather than parked, so a proxying workload approached one new TCP connection — and one TLS handshake — per request, and could exhaust the ephemeral port range under sustained load. The `notion` and `slack` connectors shared the defect and now pool too, at these defaults.
+  Since 0.5.0 the `notion` and `slack` connectors pool too, at these same defaults.
 </Callout>
 
-Keep `maxResponseBytes` in mind when you size the pool: a connection returns to the pool only once its response body is read to the end. The connector drains what the cap hid, but only up to 4 KiB — past that the read is worth less than the connection, so the connection is dropped instead. Set `maxResponseBytes` above the responses you expect, and treat a cap that truncates by more than a few KiB as costing a connection per request.
+Keep `maxResponseBytes` in mind when you size the pool: a connection returns to the pool only once its response body is read to the end. The connector drains what the cap hid, but only up to 4 KiB; past that the connection is dropped instead. Set `maxResponseBytes` above the responses you expect.
 
 ### Cache (`cache`)
 
@@ -423,29 +406,28 @@ Keep `maxResponseBytes` in mind when you size the pool: a connection returns to 
 
 ## `rest` block
 
-**REST Call** — make an HTTP request through an `http-client` connector. Method and path are static; query parameters, headers, and the request body are CEL [expressions](/concepts/expressions) evaluated per message. The response is folded into the message body: JSON parses into `body`, anything else becomes raw content carrying the response's `Content-Type`, and an empty response leaves `body` null.
+**REST Call** makes an HTTP request through an `http-client` connector. Method and path are static; query parameters, headers, and the request body are CEL [expressions](/concepts/expressions) evaluated per message. The response is folded into the message body: JSON parses into `body`, anything else becomes raw content carrying the response's `Content-Type`, and an empty response leaves `body` null.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `http-client` connector to use. |
+| `connector` | string | Yes | none | Name of the `http-client` connector to use. |
 | `method` | enum: `GET` \| `POST` \| `PUT` \| `PATCH` \| `DELETE` \| `HEAD` | No | `GET` | HTTP method. |
-| `path` | string | No | — | Path appended to the connector base URL. |
-| `query` | map of expression | No | — | Query params; each value is a CEL expression. |
-| `headers` | map of expression | No | — | Request headers; each value is a CEL expression. Setting `Authorization` here sends a per-request credential — see [Sending a per-caller credential](#sending-a-per-caller-credential). |
-| `body` | expression | No | — | CEL expression for the request body. A string result is sent verbatim; any other value is JSON-encoded (with `Content-Type: application/json` unless a header overrides it). With `bodyType: multipart` it must evaluate to a parts map instead. |
-| `bodyType` | enum: `raw` \| `multipart` | No | `raw` | How the body is sent. `raw` sends the evaluated body as-is. `multipart` treats it as a parts map and renders a `multipart/form-data` body — see [Sending multipart](#sending-multipart). |
+| `path` | string | No | unset | Path appended to the connector base URL. |
+| `query` | map of expression | No | unset | Query params; each value is a CEL expression. |
+| `headers` | map of expression | No | unset | Request headers; each value is a CEL expression. Setting `Authorization` here sends a per-request credential, see [Sending a per-caller credential](#sending-a-per-caller-credential). |
+| `body` | expression | No | unset | CEL expression for the request body. A string result is sent verbatim; any other value is JSON-encoded (with `Content-Type: application/json` unless a header overrides it). With `bodyType: multipart` it must evaluate to a parts map instead. |
+| `bodyType` | enum: `raw` \| `multipart` | No | `raw` | How the body is sent. `raw` sends the evaluated body as-is. `multipart` treats it as a parts map and renders a `multipart/form-data` body, see [Sending multipart](#sending-multipart). |
 | `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. |
 | `statusVar` | string | No | `statusCode` | Variable to store the response status code in. |
 
 ### Sending a per-caller credential
 
-The connector's [`auth`](#authentication-auth) describes a credential that is
-known when the service starts — the deployment's own. A flow acting *on behalf of
-its caller* has a different one, and it is not configuration: it arrives with the
-message, as a token relayed from the inbound request, or one an earlier block
-exchanged or minted.
+The connector's [`auth`](#authentication-auth) describes the deployment's own
+credential. A flow acting on behalf of its caller carries a different one that
+arrives with the message: a token relayed from the inbound request, or one an
+earlier block exchanged or minted.
 
-Set the `Authorization` header, on either block. `rest` takes it as one entry in
+Set the `Authorization` header on either block. `rest` takes it as one entry in
 its `headers` map; `rest-dynamic` renders it with the rest of the map:
 
 ```yaml
@@ -467,26 +449,23 @@ flows:
             Authorization: 'vars["Authorization"]'
 ```
 
-The value is the whole header, scheme included, so relaying an inbound one is the
-identity case; a bare token needs its scheme written in, as `'"Bearer " + vars.token'`.
+The value is the whole header, scheme included, so relaying an inbound one needs
+no change; a bare token needs its scheme written in, as `'"Bearer " + vars.token'`.
 
-**A block credential and a connector credential do not contend.** The connector
-applies its own only when the request does not already carry an `Authorization`,
-so a block that sets one uses it, and a block that sets none gets the connector's.
-The same connector can therefore serve both kinds of call.
+A block credential and a connector credential do not contend: the connector
+applies its own only when the request does not already carry an `Authorization`.
 
 <Callout type="warn">
   Sending the caller's credential upstream lets that upstream use it for anything
   the credential permits. Send it only to an upstream you trust with it, and
-  prefer an exchange — trading the inbound token for a narrower one — when the two
-  are not the same trust domain. On `rest-dynamic`, `pathPrefix` and
-  `allowMethods` bound what a credential can be spent on; the connector's
-  `baseURL` bounds where it can be sent at all.
+  prefer an exchange for a narrower token across trust domains. On
+  `rest-dynamic`, `pathPrefix` and `allowMethods` bound what a credential can be
+  spent on; the connector's `baseURL` bounds where it can be sent at all.
 </Callout>
 
 ### Sending multipart
 
-Set `bodyType: multipart` and let `body` evaluate to a parts map — the same shape
+Set `bodyType: multipart` and let `body` evaluate to a parts map: the same shape
 `body.parts` holds on an inbound upload, and the one
 [`multipart()` and `addPart`](/reference/cel/octo-extensions#multipart) build.
 
@@ -503,13 +482,11 @@ Set `bodyType: multipart` and let `body` evaluate to a parts map — the same sh
         .addPart("avatar", body.parts.avatar)
 ```
 
-The block generates the boundary and sets `Content-Type` itself, so it is never
-written down twice. For that reason a `Content-Type` set in `headers` is
-**overridden** for a multipart body: the boundary is generated per request, so a
-header written by hand cannot describe the body being sent.
+The block generates the boundary per request and sets `Content-Type` itself,
+overriding any `Content-Type` set in `headers`.
 
-A scalar part value is shorthand for a text field. An object gives full control
-and may name only the keys it needs; `encoding` defaults to `text`:
+A scalar part value is shorthand for a text field. An object may name only the
+keys it needs; `encoding` defaults to `text`:
 
 ```yaml
     body: |
@@ -520,11 +497,8 @@ and may name only the keys it needs; `encoding` defaults to `text`:
       })
 ```
 
-Because a decoded part is already the shape `addPart` takes, forwarding an upload
-keeps its filename and content type — and because each call returns a value,
-parts can be added conditionally, which a static configuration map cannot express:
-
-Forward one untouched:
+A decoded part is already the shape `addPart` takes, so forwarding an upload
+keeps its filename and content type. Forward one untouched:
 
 ```yaml
     body: 'body.parts'
@@ -538,15 +512,13 @@ Or augment it on the way through:
 
 <Callout type="warn">
   A part name, filename, or content type containing a carriage return or line
-  feed is rejected when the body is rendered. Those characters would end the
-  header line the value is written into and split one part into several, so a
-  flow forwarding names chosen by whoever uploaded them cannot be turned into a
-  way to smuggle parts into the upstream request.
+  feed is rejected when the body is rendered, so names chosen by an uploader
+  cannot smuggle extra parts into the upstream request.
 </Callout>
 
 ### Example
 
-Adapted from `samples/weather.yaml` — a scheduled GET against a public API, cached for 60 seconds:
+Adapted from `samples/weather.yaml`, a scheduled GET against a public API, cached for 60 seconds:
 
 ```yaml
 service:
@@ -588,46 +560,46 @@ flows:
 ```
 
 <Callout type="info">
-Keep credentials out of the flow file: declare them in the `env` section and reference them as `${API_TOKEN}` — see [environment and config](/concepts/environment-and-config).
+Keep credentials out of the flow file: declare them in the `env` section and reference them as `${API_TOKEN}`, see [environment and config](/concepts/environment-and-config).
 </Callout>
 
 ## `rest-dynamic` block
 
-**Dynamic REST Call** — the same request, with the method, path, query, headers and body all built from CEL [expressions](/concepts/expressions) per message. Use `rest` when the flow calls a known endpoint and only the values vary; use this one when the endpoint itself is data — a flow relaying a request it was handed, or an agent deciding which route to call from a description of an API.
+**Dynamic REST Call** is the same request with the method, path, query, headers and body all built from CEL [expressions](/concepts/expressions) per message. Use `rest` when the flow calls a known endpoint and only the values vary; use this one when the endpoint itself is data, such as a flow relaying a request it was handed, or an agent choosing a route from an API description.
 
-Query and headers differ in shape from `rest`. Each is a **single expression evaluated to a whole map**, not a map of expressions, because a caller that does not know the path usually does not know the parameter names either. Values are rendered the way every other expression result is: a string verbatim, anything else as compact JSON.
+Query and headers differ in shape from `rest`. Each is a single expression evaluated to a whole map, not a map of expressions. Values are rendered like every other expression result: a string verbatim, anything else as compact JSON.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `http-client` connector to use. |
-| `method` | expression | Yes | — | CEL expression for the HTTP method. Rendered, upper-cased, and checked against `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`. |
-| `path` | expression | Yes | — | CEL expression for the path, resolved against the connector's base URL. |
-| `query` | expression | No | — | CEL expression evaluating to a map of query parameters. |
-| `headers` | expression | No | — | CEL expression evaluating to a map of request headers, `Authorization` included — see [Sending a per-caller credential](#sending-a-per-caller-credential). |
-| `body` | expression | No | — | CEL expression for the request body, as in `rest`. |
+| `connector` | string | Yes | none | Name of the `http-client` connector to use. |
+| `method` | expression | Yes | none | CEL expression for the HTTP method. Rendered, upper-cased, and checked against `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`. |
+| `path` | expression | Yes | none | CEL expression for the path, resolved against the connector's base URL. |
+| `query` | expression | No | unset | CEL expression evaluating to a map of query parameters. |
+| `headers` | expression | No | unset | CEL expression evaluating to a map of request headers, `Authorization` included, see [Sending a per-caller credential](#sending-a-per-caller-credential). |
+| `body` | expression | No | unset | CEL expression for the request body, as in `rest`. |
 | `bodyType` | enum: `raw` \| `multipart` | No | `raw` | How the body is sent, as in `rest`. |
-| `allowMethods` | list of string | No | — | Methods this block may issue. Empty allows any of the standard set. |
-| `pathPrefix` | string | No | — | Path prefix this block may call under, matched on segment boundaries. Empty allows the whole base URL. |
+| `allowMethods` | list of string | No | unset | Methods this block may issue. Empty allows any of the standard set. |
+| `pathPrefix` | string | No | unset | Path prefix this block may call under, matched on segment boundaries. Empty allows the whole base URL. |
 | `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. |
 | `statusVar` | string | No | `statusCode` | Variable to store the response status code in. |
 
 ### What a rendered request may not be
 
-A static path is written by whoever wrote the flow. A rendered one is data, so three things are checked before the request is made, and a failure makes no request at all:
+A rendered path is data, so three things are checked before the request is made, and a failure makes no request at all:
 
-- **The method must be one of the seven above.** Go's HTTP client accepts any token that lexes as a method, so without this the method is whatever produced it.
-- **The path must be a relative reference.** A full URL is refused by name. It would not have worked anyway — the connector resolves the request against its own base URL and takes only the path, query and fragment, so no expression here can reach another host — but it would have been rewritten silently, and a caller who wrote a URL deserves to be told it was ignored rather than have a different request made for them.
-- **The path may not contain a `..` segment.** Paths are joined without normalisation, so `..` escapes a base URL that carries a prefix like `/v1`. The check runs on the parsed path, so `%2e%2e` is refused with the literal form, and a `..` inside a query *value* is left alone — it cannot traverse anything.
+- The method must be one of the seven above.
+- The path must be a relative reference. A full URL is refused rather than silently rewritten. The connector resolves the request against its own base URL and takes only the path, query and fragment, so no expression here can reach another host.
+- The path may not contain a `..` segment, which would otherwise escape a base URL carrying a prefix like `/v1`. The check runs on the parsed path, so `%2e%2e` is refused with the literal form, and a `..` inside a query *value* is left alone.
 
-`allowMethods` and `pathPrefix` are the restriction you configure on top. Both are empty by default — the block is unrestricted unless you say otherwise — and an `allowMethods` entry that is not an HTTP method fails at startup rather than silently allowing nothing. `pathPrefix` matches on segment boundaries: `/integrations` admits `/integrations` and `/integrations/abc`, but not `/integrations-internal`.
+`allowMethods` and `pathPrefix` are the restriction you configure on top. Both are empty by default, and an `allowMethods` entry that is not an HTTP method fails at startup. `pathPrefix` matches on segment boundaries: `/integrations` admits `/integrations` and `/integrations/abc`, but not `/integrations-internal`.
 
 <Callout type="warn">
-The connector's `baseURL` is the security boundary, and it holds: nothing this block evaluates can change the host it calls. Everything *under* that host is reachable unless you set `pathPrefix`. Point the connector at the narrowest base URL that does the job.
+The connector's `baseURL` is the security boundary: nothing this block evaluates can change the host it calls. Everything *under* that host is reachable unless you set `pathPrefix`. Point the connector at the narrowest base URL that does the job.
 </Callout>
 
 ### Example
 
-Relaying a request described by the message — the shape an agent tool takes:
+Relaying a request described by the message, the shape an agent tool takes:
 
 ```yaml
 - type: rest-dynamic

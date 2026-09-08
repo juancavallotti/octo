@@ -16,25 +16,25 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Control-flow blocks are **composites**: they embed sub-flows and are assembled directly by the flow builder rather than the leaf-block registry.
+Control-flow blocks are **composites**: they embed sub-flows and are assembled by the flow builder rather than the leaf-block registry.
 
 <Callout type="warn">
-Composite blocks are configured with **top-level YAML keys** on the block (`condition`, `then`, `cases`, `branches`, `items`, `body`, ...), **not** under `settings:`. A composite that declares a slot it does not own, or a leaf block that declares any composite slot, fails at startup.
+Composite blocks are configured with **top-level YAML keys** on the block (`condition`, `then`, `cases`, `branches`, `items`, `body`, ...), **not** under `settings:`. A composite that declares a slot it does not own fails at startup.
 </Callout>
 
-Each sub-flow slot (`then`, `else`, `default`, `body`, a fork branch, a switch case) has the same shape as a flow: an optional `name` and a `process` block list. Sub-flows must not declare `source`, `workers`, `buffer`, `pool`, or `error` — those are root-flow-only fields.
+Each sub-flow slot (`then`, `else`, `default`, `body`, a fork branch, a switch case) has the same shape as a flow: an optional `name` and a `process` block list. Sub-flows must not declare `source`, `workers`, `buffer`, `pool`, or `error`, which are root-flow-only fields. See [Flow File](/reference/flow-file#block-entries) for how a block entry is written and for the whole slot vocabulary.
 
-All condition and key fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`). Expressions are compiled once at startup, so a malformed expression fails deployment rather than a message.
+All condition and key fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`). They are compiled once at startup, so a malformed expression fails deployment rather than a message.
 
 ## if
 
-Runs one of two sub-flows depending on a boolean condition. When the condition is false and no `else` is configured, the message passes through unchanged.
+Runs one of two sub-flows depending on a boolean condition. With no `else`, a false condition passes the message through unchanged.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `condition` | `expression` (bool) | Yes | — | Boolean CEL expression evaluated against the message. Errors if the result is not a bool. |
-| `then` | flow | Yes | — | Sub-flow run when the condition is true. |
-| `else` | flow | No | — | Sub-flow run when the condition is false. Omitted: pass through. |
+| `condition` | `expression` (bool) | Yes | none | Boolean CEL expression evaluated against the message. Errors if the result is not a bool. |
+| `then` | flow | Yes | none | Sub-flow run when the condition is true. |
+| `else` | flow | No | none | Sub-flow run when the condition is false. Omitted: pass through. |
 
 ```yaml
 - type: if
@@ -54,12 +54,12 @@ Runs one of two sub-flows depending on a boolean condition. When the condition i
 
 ## switch
 
-Multi-case routing: runs the sub-flow of the **first** case whose `when` guard is true, in order. When no case matches, the `default` flow runs; with no default, the message passes through unchanged.
+Runs the sub-flow of the **first** case whose `when` guard is true, in order. When no case matches, the `default` flow runs; with no default, the message passes through unchanged.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `cases` | list | Yes | — | Ordered case list. Each entry has a `when` (`expression`, bool, required) plus an inline flow (`process`, optional `name`). |
-| `default` | flow | No | — | Sub-flow run when no case matches. Omitted: pass through. |
+| `cases` | list | Yes | none | Ordered case list. Each entry has a `when` (`expression`, bool, required) plus an inline flow (`process`, optional `name`). |
+| `default` | flow | No | none | Sub-flow run when no case matches. Omitted: pass through. |
 
 ```yaml
 - type: switch
@@ -79,11 +79,11 @@ Multi-case routing: runs the sub-flow of the **first** case whose `when` guard i
 
 ## fork
 
-Scatters the message across parallel branches, then joins. Each branch receives its **own clone** of the message and runs on the flow's shared worker pool (sized by the root flow's `pool` field), so branch effects on body and variables never leak back — on success the original input message passes through unchanged. Branch outputs are not aggregated.
+Scatters the message across parallel branches, then joins. Each branch receives its **own clone** of the message and runs on the flow's shared worker pool (sized by the root flow's `pool` field), so branch effects on body and variables never leak back: on success the original input message passes through unchanged. Branch outputs are not aggregated.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `branches` | list of flows | Yes | — | Parallel sub-flows; each gets a clone of the message. At least one required. |
+| `branches` | list of flows | Yes | none | Parallel sub-flows; each gets a clone of the message. At least one required. |
 
 **Errors:** the first branch error aborts the fork (cancelling the remaining branches) and propagates, labeled with the failing branch's name.
 
@@ -103,19 +103,19 @@ Scatters the message across parallel branches, then joins. Each branch receives 
 
 ## foreach
 
-Sequentially iterates an array, running the `body` sub-flow once per element with the element bound to a loop variable. `mode` picks what the loop is *for*: running the body for its side effects (`iterate`, the default), or transforming the array into a new one (`map`).
+Sequentially iterates an array, running the `body` sub-flow once per element with the element bound to a loop variable. `mode` picks what the loop is for: running the body for its side effects (`iterate`, the default), or transforming the array into a new one (`map`).
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `items` | `expression` (array) | Yes | — | CEL expression that must evaluate to an array; anything else errors. |
+| `items` | `expression` (array) | Yes | none | CEL expression that must evaluate to an array; anything else errors. |
 | `as` | string | No | `item` | Variable name each element is bound to (`vars.<as>` inside the body). |
 | `mode` | enum: `iterate` \| `map` | No | `iterate` | `iterate` threads the message through the body per element; `map` collects each element's resulting body into an array that replaces the message body. |
-| `body` | flow | Yes | — | Sub-flow run once per element, in order. |
+| `body` | flow | Yes | none | Sub-flow run once per element, in order. |
 
 ### `iterate` mode (default)
 
 - Iteration is sequential and runs on the shared message, so body edits (body, variables) carry into the next iteration and past the loop.
-- The loop variable is restored to its pre-loop state (or removed) after the loop, so it does not leak.
+- The loop variable is restored to its pre-loop state (or removed) after the loop.
 - A body that drops the message stops the loop and drops it; a body error aborts the loop; a filter block inside the body that requests stop halts iteration and bubbles the stop to the root.
 
 ```yaml
@@ -132,7 +132,7 @@ Sequentially iterates an array, running the `body` sub-flow once per element wit
 
 ### `map` mode
 
-Each element's body runs on its **own scope** of the message, and the body it produces becomes one element of a new array, which replaces the message body. This is how you reshape a payload — call an API per element, project each element to a new shape — without hand-appending to a variable.
+Each element's body runs on its **own scope** of the message, and the body it produces becomes one element of a new array, which replaces the message body. This is how you reshape a payload without hand-appending to a variable.
 
 ```yaml
 - type: foreach
@@ -148,28 +148,28 @@ Each element's body runs on its **own scope** of the message, and the body it pr
 # body is now the array of the objects each iteration produced
 ```
 
-- **As many elements out as in.** An iteration whose body drops the message contributes `null` at that position rather than shortening the array or dropping the whole message — downstream blocks decide what a `null` element means.
-- **Iterations are independent.** Each runs on its own scope of the incoming message, so one element's variables cannot leak into the next, and the loop variable never escapes. (This is the opposite of `iterate` mode, where edits accumulate on the shared message.) A scope copies the variables but *shares* the body, which is what keeps the loop linear in the size of the collection — see [message copying semantics](/runtime/processing-pipeline#message-copying-semantics).
+- As many elements out as in. An iteration whose body drops the message contributes `null` at that position rather than shortening the array; downstream blocks decide what a `null` element means.
+- Iterations are independent. Each runs on its own scope, so one element's variables cannot leak into the next and the loop variable never escapes, the opposite of `iterate` mode. A scope copies the variables but shares the body, which keeps the loop linear in the size of the collection; see [message copying semantics](/runtime/processing-pipeline#message-copying-semantics).
 - A body error aborts the loop. A filter block inside the body that requests stop halts iteration, writes back what was collected so far, and bubbles the stop to the root.
 
 <Callout type="info">
-The mapped array replaces the message **body**. To keep the original body and put the result somewhere else, wrap the `foreach` in an [`enrich`](#enrich) block and use `setVars` to land the mapped array in a variable.
+The mapped array replaces the message **body**. To keep the original body, wrap the `foreach` in an [`enrich`](#enrich) block and use `setVars` to land the mapped array in a variable.
 </Callout>
 
 ## split
 
 Splits one message into many. Each element continues through **the rest of the flow** as an invocation of its own, so elements are processed concurrently and each has its own error fate.
 
-This is the point at which a flow becomes asynchronous. The blocks after `split` no longer run for the message that arrived — they run once per element, on borrowed workers — so the caller is answered by the `buildResponse` slot instead.
+This is where a flow becomes asynchronous: the blocks after `split` run once per element, on borrowed workers, and the caller is answered by the `buildResponse` slot instead.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `mode` | enum: `expression` \| `lines` \| `delimiter` \| `chunk` | No | `expression` | How the message is carved into elements. |
-| `items` | `expression` (array) | Yes for `expression` mode | — | CEL expression that must evaluate to an array. |
-| `delimiter` | string | Yes for `delimiter` mode | — | Separator to cut the text body on. |
-| `chunkSize` | number | Yes for `chunk` mode | — | Characters per element. |
+| `items` | `expression` (array) | Yes for `expression` mode | none | CEL expression that must evaluate to an array. |
+| `delimiter` | string | Yes for `delimiter` mode | none | Separator to cut the text body on. |
+| `chunkSize` | number | Yes for `chunk` mode | none | Characters per element. |
 | `onError` | enum: `skip` \| `abort` | No | `skip` | What to do when an element cannot be dispatched. |
-| `buildResponse` | flow | No | — | Sub-flow that shapes the caller's response, run once after every element is dispatched. |
+| `buildResponse` | flow | No | none | Sub-flow that shapes the caller's response, run once after every element is dispatched. |
 
 ```yaml
 - type: split
@@ -183,9 +183,9 @@ This is the point at which a flow becomes asynchronous. The blocks after `split`
 # every block below here runs once per line
 ```
 
-- **`expression` mode** takes the same input `foreach` does. **`lines`, `delimiter` and `chunk`** tokenize a text body (a raw-content payload or a string) one element at a time, which is what makes a large payload tractable rather than requiring the whole collection in memory first.
-- **Per-element error isolation.** Each element is a full invocation with its own event ID, so one bad record fails alone and the flow's `error:` chain recovers it independently. This is the gap `foreach` cannot close: there, one failing element aborts the loop.
-- **Backpressure is automatic.** Elements are scheduled onto the flow's pool while it has room, and run on the splitting worker when it does not — so a split can never outrun what the flow can absorb, and peak memory stays flat. Size it with the flow's [`pool`](/reference/flow-file) setting.
+- `expression` mode takes the same input `foreach` does. `lines`, `delimiter` and `chunk` tokenize a text body (raw content or a string) one element at a time, so a large payload is never held in memory whole.
+- Each element is a full invocation with its own event ID, so one bad record fails alone and the flow's `error:` chain recovers it independently. In a `foreach`, one failing element aborts the loop.
+- Backpressure is automatic: elements are scheduled onto the flow's pool while it has room and run on the splitting worker when it does not. Size it with the flow's [`pool`](/reference/flow-file) setting.
 - `onError` governs **dispatch** only. An element that fails once it is running always fails on its own.
 
 ### Correlation variables
@@ -198,36 +198,34 @@ Every element carries three variables. They are the entire contract between `spl
 | `groupIndex` | number | The element's 0-based position. |
 | `groupSize` | number | How many messages the group holds, or `-1` while not yet known. |
 
-In `expression` mode the total is known up front, so every element carries it. A tokenizing mode cannot know it while emitting, so `groupSize` is `-1` on every element except the last, which carries the real count. Either way the group learns its size exactly once.
-
-The `buildResponse` sub-flow always sees the **real** total, because it runs after every element has been dispatched — so `vars.groupSize` in a receipt is honest even in a streaming mode.
+In `expression` mode the total is known up front, so every element carries it. A tokenizing mode cannot know it while emitting, so `groupSize` is `-1` on every element except the last, which carries the real count. The `buildResponse` sub-flow always sees the **real** total, because it runs after every element has been dispatched.
 
 <Callout type="info">
-`split` and `aggregate` must be **top-level blocks** in a flow's `process` or `error` chain. Inside another block's slot there is no "rest of the flow" to continue into, so nesting one fails at startup. Both also require at least one block after them.
+`split` and `aggregate` must be **top-level blocks** in a flow's `process` or `error` chain: inside another block's slot there is no "rest of the flow" to continue into, so nesting one fails at startup. Both also require at least one block after them.
 </Callout>
 
 ## aggregate
 
-Combines many messages into one. Messages are grouped by a CEL expression and held until the group completes — by size, by timeout, or by a predicate — then the completed group continues through the rest of the flow as a single message.
+Combines many messages into one. Messages are grouped by a CEL expression and held until the group completes (by size, by timeout, or by a predicate), then the completed group continues through the rest of the flow as a single message.
 
-It is the only block that holds state between messages, which is what lets it combine messages that arrive **over time** (batch 100 webhook events; every event in a five-second window), not just elements of one body.
+It is the only block that holds state between messages, so it can combine messages that arrive **over time** (batch 100 webhook events; every event in a five-second window), not just elements of one body.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `correlation` | `expression` | No | `vars.groupId` | Which group a message belongs to. |
 | `strategy` | enum: `append` \| `expression` | No | `append` | `append` collects bodies into an array; `expression` folds through `expression`. |
-| `expression` | `expression` | Yes for `expression` strategy | — | Fold whose result becomes the new accumulator. |
+| `expression` | `expression` | Yes for `expression` strategy | none | Fold whose result becomes the new accumulator. |
 | `completionSize` | `expression` (number) | No | `vars.groupSize` | How many messages the group expects; it completes when the count reaches this. |
-| `completionTimeout` | duration | No | — | How long a group may stay open (e.g. `5s`). |
-| `completionExpression` | `expression` (bool) | No | — | Predicate checked after each message. |
+| `completionTimeout` | duration | No | none | How long a group may stay open (e.g. `5s`). |
+| `completionExpression` | `expression` (bool) | No | none | Predicate checked after each message. |
 | `timeoutFrom` | enum: `first` \| `last` | No | `first` | Fixed window from the group opening, or a sliding idle window. |
 | `storeKey` | string | No | the block's address | Identifies what the group state and leader election are namespaced by. |
 | `maxGroups` | number | No | `1000` | How many groups may be open at once. |
 | `onOverflow` | enum: `fail` \| `complete` \| `drop` | No | `fail` | At the cap: `fail` errors the message into the flow's error chain, `complete` releases the group that has been open the longest to make room, `drop` discards the message. |
-| `buildResponse` | flow | No | — | Sub-flow that shapes the caller's response for the message just absorbed. |
+| `buildResponse` | flow | No | none | Sub-flow that shapes the caller's response for the message just absorbed. |
 
 ```yaml
-# Re-join a split — no configuration needed, the defaults read the split's variables.
+# Re-join a split: no configuration needed, the defaults read the split's variables.
 - type: aggregate
   name: rejoin
   completionTimeout: 10s
@@ -241,9 +239,9 @@ It is the only block that holds state between messages, which is what lets it co
 
 **All three completion conditions may be combined; the first to fire wins.**
 
-- **Completion is a count, never a last-marker.** Elements run concurrently and routinely finish out of order, so "I saw the last one" would close a group of five with three arrived and silently drop two. There is deliberately no `groupLast` variable.
-- **`append` re-joins in the split's order.** Elements are placed by `groupIndex`, not by the order they finished, so the same input yields the same array every run. Messages with no `groupIndex` — events off a source — are appended in arrival order, the only order they have, as is one whose position is beyond the group's size or beyond 100,000. A group that completes with an element missing leaves `null` in the gap rather than renumbering the survivors.
-- **Only the timeout fires without a message.** Nothing re-evaluates a sitting group, so a group whose other conditions may never be met needs a `completionTimeout` — and after an element failed, that is the only thing that will ever close it. `vars.aggregateReason` tells the rest of the flow whether it received a whole group or a partial one.
+- Completion is a count, never a last-marker: elements finish out of order, so there is deliberately no `groupLast` variable.
+- `append` re-joins in the split's order. Elements are placed by `groupIndex`, so the same input yields the same array every run. Messages with no `groupIndex` (events off a source) are appended in arrival order, as is one whose position is beyond the group's size or beyond 100,000. A group that completes with an element missing leaves `null` in the gap.
+- Only the timeout fires without a message, so a group whose other conditions may never be met needs a `completionTimeout`. `vars.aggregateReason` tells the rest of the flow whether it received a whole group or a partial one.
 
 ### The completed message
 
@@ -253,9 +251,9 @@ It is the only block that holds state between messages, which is what lets it co
 | `aggregateCount` | How many messages it holds. |
 | `aggregateReason` | `size`, `timeout`, `expression`, or `overflow`. |
 
-The message inherits the `correlationID` of the group's first message rather than overwriting it. The three `group*` variables are cleared — they described the group that just closed, and forwarding them would make a second aggregation stage put every message in a batch of one.
+The message inherits the `correlationID` of the group's first message. The three `group*` variables are cleared, so a second aggregation stage does not put every message in a batch of one.
 
-### `vars.group` — the group so far
+### `vars.group`: the group so far
 
 Every expression the block evaluates sees the accumulated state under `vars.group`, so a predicate can ask about the group rather than only the message in hand.
 
@@ -264,7 +262,7 @@ Every expression the block evaluates sees the accumulated state under `vars.grou
 | `key` | The correlation key. |
 | `count` | Messages folded so far. |
 | `size` | The learned total, or `-1`. |
-| `acc` | The accumulator — under `append`, the array of bodies. |
+| `acc` | The accumulator; under `append`, the array of bodies. |
 | `firstAt` / `lastAt` | RFC3339 timestamps. |
 | `ageMs` / `idleMs` | Milliseconds since the group opened / since the last message. |
 
@@ -272,27 +270,27 @@ Every expression the block evaluates sees the accumulated state under `vars.grou
 completionExpression: "vars.group.count >= 5 && vars.group.idleMs > 2000"
 ```
 
-The **fold** expression sees `vars.group` *before* its message is folded (`acc` is the previous accumulator, `null` on a new group); `completionSize` and `completionExpression` see it *after*.
+The **fold** expression sees `vars.group` before its message is folded (`acc` is the previous accumulator, `null` on a new group); `completionSize` and `completionExpression` see it after.
 
 ### State and clustering
 
-Group state lives in the runtime [KV store](/runtime/runtime-services) under optimistic concurrency, so any replica can fold into a group and two replicas can never each hold half of one. The timeout sweep is gated on [leader election](/runtime/clustering), so a group is reaped once per cluster rather than once per replica. Both work the same way in the standalone module, where the store is in-process and leadership is permanent.
+Group state lives in the runtime [KV store](/runtime/runtime-services) under optimistic concurrency, so two replicas can never each hold half of a group. The timeout sweep is gated on [leader election](/runtime/clustering), so a group is reaped once per cluster. Both work the same way standalone, where the store is in-process and leadership is permanent.
 
-`storeKey` defaults to the block's own address, which is stable until the block moves. Set it explicitly to keep in-flight groups alive across an edit that renames or moves the block — otherwise those groups are stranded until their deadline. Two blocks may not share one; the runtime rejects a config where they do.
+`storeKey` defaults to the block's own address. Set it explicitly to keep in-flight groups alive across an edit that renames or moves the block; otherwise those groups are stranded until their deadline. Two blocks may not share one.
 
 <Callout type="warn">
-`strategy: append` rewrites the whole group on every message, so the stored bytes grow quadratically with group size. That is fine for batching a hundred events, and wrong for re-joining a fifty-thousand-element split — use `strategy: expression` with a running accumulator for large groups.
+`strategy: append` rewrites the whole group on every message, so the stored bytes grow quadratically with group size. That is fine for batching a hundred events and wrong for re-joining a fifty-thousand-element split: use `strategy: expression` with a running accumulator for large groups.
 </Callout>
 
 ## enrich
 
-Runs a `body` sub-flow on an **isolated scope** of the message, then merges back only what you name: `setBody` computes the new body and each `setVars` entry sets one variable. Everything else the scope did (scratch variables, intermediate bodies) stays isolated.
+Runs a `body` sub-flow on an **isolated scope** of the message, then merges back only what you name: `setBody` computes the new body and each `setVars` entry sets one variable. Everything else stays isolated.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `body` | flow | Yes | — | Sub-flow run once on an isolated scope of the message. |
-| `setBody` | `expression` | No | — | Evaluated against the **scope's result**; its value becomes the message body. Omitted or empty: the incoming body is unchanged. |
-| `setVars` | map of string → `expression` | No | — | Each expression is evaluated against the scope's result and set as a variable on the message. |
+| `body` | flow | Yes | none | Sub-flow run once on an isolated scope of the message. |
+| `setBody` | `expression` | No | none | Evaluated against the **scope's result**; its value becomes the message body. Omitted or empty: the incoming body is unchanged. |
+| `setVars` | map of string → `expression` | No | none | Each expression is evaluated against the scope's result and set as a variable on the message. |
 
 **Errors:** a body error aborts the block; a body that drops the message drops it here too.
 
@@ -311,19 +309,19 @@ Runs a `body` sub-flow on an **isolated scope** of the message, then merges back
 
 ## validate
 
-A **filter** block: asserts a list of boolean CEL rules against the message. If all hold, the message passes through unchanged. If any fail, the block rejects — it shapes a terminal response and requests the flow **stop**, so the rest of the chain never runs.
+A **filter** block: asserts boolean CEL rules against the message. If all hold, the message passes through unchanged. If any fail, the block rejects: it shapes a terminal response and requests the flow **stop**, so the rest of the chain never runs.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `rules` | list | Yes | — | Assertions; each entry is `{expr: <expression (bool)>, message: <text>}`. All must hold. |
+| `rules` | list | Yes | none | Assertions; each entry is `{expr: <expression (bool)>, message: <text>}`. All must hold. |
 | `rejectStatus` | int | No | `422` | HTTP status of the built-in rejection response (written to `vars.httpStatus`). Not used when `onReject` is set. |
-| `onReject` | flow | No | — | Sub-flow run on rejection, before the flow stops. It shapes the response itself (e.g. `set-payload` + set `httpStatus`) and can read `vars.validationErrors`. Omitted or empty: the built-in response is used. |
+| `onReject` | flow | No | none | Sub-flow run on rejection, before the flow stops. It shapes the response itself (e.g. `set-payload` + set `httpStatus`) and can read `vars.validationErrors`. Omitted or empty: the built-in response is used. |
 
 On rejection:
 
-- The failing rules' `message` texts are collected into `vars.validationErrors` (all rules are evaluated, so every failure is reported).
+- The failing rules' `message` texts are collected into `vars.validationErrors`; all rules are evaluated, so every failure is reported.
 - Without `onReject`, the built-in response body is `{"error": "validation_failed", "messages": [...]}` and `vars.httpStatus` is set to `rejectStatus`. Over an HTTP source that becomes the response status.
-- With `onReject`, the sub-flow's output is the terminal response; a sub-flow that drops the message drops it here too.
+- With `onReject`, the sub-flow's output is the terminal response; one that drops the message drops it here too.
 
 ```yaml
 - type: validate
@@ -343,14 +341,14 @@ On rejection:
 
 ## handle-errors
 
-Inline error recovery: runs the `process` chain and, on error, exposes the failure as `vars.error` and runs the `error` chain. Both are bare block lists, so the block reads as a mini-flow embedded inline. When the error chain succeeds, its output is the block's result and the flow continues normally (recovery).
+Inline error recovery: runs the `process` chain and, on error, exposes the failure as `vars.error` and runs the `error` chain. Both are bare block lists. When the error chain succeeds, its output is the block's result and the flow continues (recovery).
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `process` | block list | Yes | — | The happy-path chain. |
-| `error` | block list | Yes | — | Runs when the process chain errors; reads `vars.error`. |
+| `process` | block list | Yes | none | The happy-path chain. |
+| `error` | block list | Yes | none | Runs when the process chain errors; reads `vars.error`. |
 
-`vars.error` is a map: `{message: <error text>, flow: <handle-errors block name>, block: <failing block label>}`. If the error chain itself errors, the block fails with that error. A root flow's own `error:` chain provides the same recovery at flow level — see [Error handling](/concepts/error-handling).
+`vars.error` is a map: `{message: <error text>, flow: <handle-errors block name>, block: <failing block label>}`. If the error chain itself errors, the block fails with that error. A root flow's own `error:` chain provides the same recovery at flow level; see [Error handling](/concepts/error-handling).
 
 ```yaml
 - type: handle-errors
@@ -371,18 +369,18 @@ Inline error recovery: runs the `process` chain and, on error, exposes the failu
 
 ## cache-scope
 
-Memoizes the body its wrapped flow produces in the runtime store, keyed by an evaluated expression. On a fresh hit it restores the cached body and skips the `body` flow entirely; on a miss (or an expired entry) it runs the flow and stores its body for next time.
+Memoizes the body its wrapped flow produces in the runtime store, keyed by an evaluated expression. On a fresh hit it restores the cached body and skips the `body` flow; on a miss or an expired entry it runs the flow and stores its body.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `key` | `expression` (string) | Yes | — | Cache-key expression, evaluated per message. An [invalidate-cache](/reference/blocks/storage#invalidate-cache) block with the same key expression evicts this entry. |
+| `key` | `expression` (string) | Yes | none | Cache-key expression, evaluated per message. An [invalidate-cache](/reference/blocks/storage#invalidate-cache) block with the same key expression evicts this entry. |
 | `ttl` | duration string | No | `60s` | How long an entry stays fresh (e.g. `5m`). `"0"` never expires. Negative values are rejected at startup. |
-| `body` | flow | Yes | — | Sub-flow whose result body is cached and replayed on a hit. |
+| `body` | flow | Yes | none | Sub-flow whose result body is cached and replayed on a hit. |
 
 Notes:
 
 - Only the message **body** is cached; variables the wrapped flow sets are not restored on a hit.
-- Storing is best-effort: a version conflict (another worker cached first) or an absent store leaves the result correct, just uncached. A body error aborts the block; a body that drops the message drops it (nothing is cached).
+- Storing is best-effort: a version conflict (another worker cached first) or an absent store leaves the result correct, just uncached. A body error aborts the block; a body that drops the message drops it, and nothing is cached.
 - Entries live in the same per-deployment store as [object storage](/reference/blocks/storage); see [Runtime services](/concepts/runtime-services).
 
 ```yaml

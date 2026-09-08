@@ -7,18 +7,16 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 On top of the CEL standard library and [Octo's own
 functions](/reference/cel/octo-extensions), the runtime enables seven of
-cel-go's utility libraries. Together they cover the reshaping an integration
-actually does: cleaning up strings, sorting and de-duplicating lists,
-base64-encoding, rounding money, turning a list into a lookup map, testing set
+cel-go's utility libraries: cleaning up strings, sorting and de-duplicating
+lists, base64-encoding, rounding, turning a list into a lookup map, testing set
 membership, and pulling values out of semi-structured text.
 
 They are registered through the same seam as everything else, so they are
-available in **every** expression — block settings, `if`/`switch` conditions,
-`foreach` items, `validate` rules, connector fields, source payloads, and a
-template's `{{ }}` spans — with nothing to turn on.
-
-Reach for these before adding a [`foreach`](/reference/blocks/control-flow):
-most collection work that used to need a loop is now a single expression.
+available with nothing to turn on in **every** expression: block settings,
+`if`/`switch` conditions, `foreach` items, `validate` rules, connector fields,
+source payloads, and a template's `{{ }}` spans. Reach for them before adding
+a [`foreach`](/reference/blocks/control-flow), since most collection work that
+used to need a loop is now a single expression.
 
 Every example on this page was verified with
 [`octo eval`](/reference/cli#octo-eval); results are shown as it prints them.
@@ -61,7 +59,7 @@ percent is `%%`.
 | `"order %s: %d lines, %.2f total".format(["A-1", 3, 42.005])` | `"order A-1: 3 lines, 42.01 total"` |
 | `"%s scored %d%%".format(["Ada", 92])` | `"Ada scored 92%"` |
 
-In a flow — a log line that stays readable as it grows:
+In a flow, a log line that stays readable as it grows:
 
 ```yaml
 - type: log
@@ -72,8 +70,8 @@ In a flow — a log line that stays readable as it grows:
 
 ## Lists
 
-Collection reshaping. `sortBy` and `distinct` have no standard-CEL workaround
-at all — before these, both meant a `foreach`.
+Collection reshaping. `sortBy` and `distinct` have no standard-CEL
+workaround at all; before these, both meant a `foreach`.
 
 | Expression | Result |
 | --- | --- |
@@ -90,11 +88,11 @@ at all — before these, both meant a `foreach`.
 | `[1, 2, 3].last()` | `3` |
 | `[].first()` | `null` (empty is absent, not an error) |
 
-`sort` works on comparable scalars — int, uint, double, bool, duration,
+`sort` works on comparable scalars: int, uint, double, bool, duration,
 timestamp, string, bytes. Sorting a list of objects is `sortBy` with the key
 to sort on. Both sort ascending; compose with `reverse()` for descending.
 
-In a flow — the three most expensive lines, largest first:
+In a flow, the three most expensive lines, largest first:
 
 ```yaml
 - type: set-payload
@@ -117,7 +115,7 @@ Base64, which an expression previously could not do at all.
 bytes, so wrap it in `string(...)` to read it as text. Encoding is standard
 base64 with padding, not the URL-safe alphabet.
 
-In a flow — a basic-auth header built from the environment:
+In a flow, a basic-auth header built from the environment:
 
 ```yaml
 - type: rest
@@ -153,9 +151,9 @@ Aggregation over a mapped collection, and rounding.
 | `math.bitShiftLeft(1, 4)` | `16` |
 
 `bitOr`, `bitXor`, `bitNot`, and `bitShiftRight` round out the bit operations.
-`isInf` completes the float guards alongside `isNaN` and `isFinite` — worth
-knowing about because JSON has a single number type, so a value that arrived
-as a double can be anything.
+`isInf` completes the float guards alongside `isNaN` and `isFinite`, which
+matter because JSON has a single number type, so a value that arrived as a
+double can be anything.
 
 <Callout type="warn">
   **Do not round money into shape.** A JSON number is a binary double, so a
@@ -172,15 +170,15 @@ bin/octo eval --expr 'math.round(1.015 * 100.0) / 100.0'
 
   Which values break is a property of the binary representation, not something
   you can predict by looking. Carry money in **integer minor units** (cents)
-  end to end: integers up to 2^53 are exact in a double, multiplying by a
-  quantity keeps them exact, and no rounding step exists to get wrong. Divide
-  only to display, where `"%.2f".format([cents / 100.0])` is presentation and
-  nothing reads it back. [`samples/cel-extensions.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cel-extensions.yaml)
+  end to end: integers up to 2^53 are exact in a double, and multiplying by a
+  quantity keeps them exact. Divide only to display, where
+  `"%.2f".format([cents / 100.0])` is presentation and nothing reads it back.
+  [`samples/cel-extensions.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cel-extensions.yaml)
   does it this way.
 </Callout>
 
-`math.round` is still the right tool for a value that is genuinely fractional —
-a rate, a score, a percentage — where a cent is not on the line.
+`math.round` is still the right tool for a value that is genuinely fractional,
+such as a rate, a score, or a percentage, where a cent is not on the line.
 
 `math.greatest` and `math.least` take either a list or a set of arguments,
 which is what makes a maximum over a collection a single expression:
@@ -194,7 +192,7 @@ which is what makes a maximum over a collection a single expression:
 ```
 
 <Callout type="info">
-  There is no `sum` — CEL has no fold, and neither the standard library nor
+  There is no `sum`. CEL has no fold, and neither the standard library nor
   these extensions add one. Totalling a list still needs a
   [`foreach`](/reference/blocks/control-flow) that accumulates into a variable.
 </Callout>
@@ -202,8 +200,8 @@ which is what makes a maximum over a collection a single expression:
 ## Two-variable comprehensions
 
 The standard macros (`map`, `filter`, `all`, `exists`) bind one variable, which
-on a map is the **key** — so the value is out of reach. These bind both, and add
-transforms that produce a map rather than a list.
+on a map is the **key**, leaving the value out of reach. These bind both, and
+add transforms that produce a map rather than a list.
 
 | Expression | Result |
 | --- | --- |
@@ -218,7 +216,7 @@ transforms that produce a map rather than a list.
 
 On a list the first variable is the **index**; on a map it is the key.
 `transformMap` keeps the keys and rewrites the values; `transformMapEntry`
-chooses both, so it is what turns a list into a lookup map — the reshaping
+chooses both, so it is what turns a list into a lookup map, the reshaping
 that most often forced a `foreach`. An entry whose expression yields an empty
 map `{}` is skipped, which is how `transformMapEntry` filters.
 
@@ -242,8 +240,8 @@ roles.
 | `sets.intersects(["a"], ["b", "a"])` | `true` |
 | `sets.intersects([], ["a"])` | `false` (an empty list never intersects) |
 
-`sets.contains(a, b)` is true when every element of `b` appears in `a` — the
-subset test, so the required scopes go second:
+`sets.contains(a, b)` is true when every element of `b` appears in `a`. It is
+the subset test, so the required scopes go second:
 
 ```yaml
 - type: if
@@ -255,7 +253,7 @@ subset test, so the required scopes go second:
 
 Extraction from semi-structured text: the closest thing to a parser for a
 format Octo does not decode natively. Patterns are
-[RE2](https://github.com/google/re2/wiki/Syntax) — no backreferences or
+[RE2](https://github.com/google/re2/wiki/Syntax), with no backreferences or
 lookaheads, and linear-time by construction.
 
 | Expression | Result |
@@ -272,7 +270,7 @@ lookaheads, and linear-time by construction.
 
 `extract` and `extractAll` return the capture group when the pattern has
 exactly one, and the whole match when it has none. **More than one capture
-group is an error** — use a non-capturing group `(?:…)` for the parts you do
+group is an error**, so use a non-capturing group `(?:…)` for the parts you do
 not want. In `replace`, `\1`…`\9` insert the corresponding group.
 
 Remember the [YAML quoting rule](/reference/cel#the-yaml-quoting-rule): the
@@ -288,16 +286,16 @@ pattern is a CEL string literal, so a regex `\d` is written `\\d` inside it.
 
 ### Absent results
 
-`regex.extract` reports "no match" as an **optional** — a successful result
-meaning absent, not a failure. Octo resolves an optional to its value, or to
-`null` when it is absent, so a miss flows on as a null field rather than
+`regex.extract` reports "no match" as an **optional**, a successful result
+meaning absent rather than a failure. Octo resolves an optional to its value,
+or to `null` when it is absent, so a miss flows on as a null field rather than
 failing the message. Three ways to handle one:
 
 | Expression | Result |
 | --- | --- |
-| `regex.extract("walk-in", "ORDER-(\\d+)")` | `null` — let it through as absent |
-| `regex.extract("walk-in", "ORDER-(\\d+)").orValue("unknown")` | `"unknown"` — substitute a default |
-| `regex.extract("walk-in", "ORDER-(\\d+)").hasValue()` | `false` — branch on it |
+| `regex.extract("walk-in", "ORDER-(\\d+)")` | `null`, letting it through as absent |
+| `regex.extract("walk-in", "ORDER-(\\d+)").orValue("unknown")` | `"unknown"`, substituting a default |
+| `regex.extract("walk-in", "ORDER-(\\d+)").hasValue()` | `false`, to branch on |
 
 `optional.unwrap` drops the misses from a list of them, which is how a whole
 column gets extracted at once:
@@ -313,8 +311,8 @@ is `null` instead of an out-of-range error.
 <Callout type="info">
   Regex evaluation cost scales with the size of the input, and both the pattern
   and the text can come from a message. RE2 rules out catastrophic
-  backtracking, so this is a throughput consideration on large payloads, not a
-  denial-of-service surface.
+  backtracking, so this is a throughput consideration on large payloads rather
+  than a denial-of-service surface.
 </Callout>
 
 ## What is not available
@@ -323,22 +321,15 @@ The libraries are pinned to specific versions
 (`runtime/core/expr/stdext.go`), so this vocabulary does not shift under an
 existing flow when cel-go is upgraded. Deliberately outside it:
 
-- **`cel.bind()`** (the bindings library). It buys readability for an
-  expression that repeats a sub-term, not capability. `cel.bind(x, 2, x * x)`
-  fails to compile with `undeclared reference to 'cel'`.
-- **Protobuf and native-type helpers** (`proto.*`, `ext.NativeTypes`). Octo
-  messages are JSON-native; there are no protobuf messages or Go structs for
-  them to describe.
-- **A fold or `sum`.** CEL has no reduce. `[1, 2, 3].sum()` does not compile.
-- **String indexing.** `"abc"[0]` still does not parse — use `charAt(0)` or
-  `substring(0, 1)`.
-- **Slice syntax.** `[1,2,3][1:2]` does not parse; the list library's
-  `slice(1, 2)` is the supported form.
-- **Anything user-defined.** CEL has no user functions, and expressions cannot
-  define one. A transformation too large for an expression belongs in a
-  [`multi-transform`](/reference/blocks/data), a sub-flow, or an
-  [AI Mapping](/ai/ai-mapping) block.
+| Not available | Why, and what to use |
+| --- | --- |
+| `cel.bind()` (the bindings library) | It buys readability for an expression that repeats a sub-term, not capability. `cel.bind(x, 2, x * x)` fails to compile with `undeclared reference to 'cel'`. |
+| Protobuf and native-type helpers (`proto.*`, `ext.NativeTypes`) | Octo messages are JSON-native, so there are no protobuf messages or Go structs for them to describe. |
+| A fold or `sum` | CEL has no reduce. `[1, 2, 3].sum()` does not compile. |
+| String indexing | `"abc"[0]` does not parse. Use `charAt(0)` or `substring(0, 1)`. |
+| Slice syntax | `[1,2,3][1:2]` does not parse; the list library's `slice(1, 2)` is the supported form. |
+| Anything user-defined | CEL has no user functions, and expressions cannot define one. A transformation too large for an expression belongs in a [`multi-transform`](/reference/blocks/data), a sub-flow, or an [AI Mapping](/ai/ai-mapping) block. |
 
-Names outside the catalogue fail at **compile** time, when the flow is built —
+Names outside the catalogue fail at **compile** time, when the flow is built,
 so a typo like `"abc".toUpper()` fails the deployment with `undeclared
 reference to 'toUpper'`, never a live message.

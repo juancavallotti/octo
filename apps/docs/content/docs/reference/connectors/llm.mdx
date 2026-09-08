@@ -10,78 +10,78 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Octo ships four LLM provider connectors — `llm-openai`, `llm-anthropic`, `llm-gemini`, and `llm-openrouter`. All four register under the connector category `llm` and expose the same provider-agnostic completion capability, so the [AI blocks](/reference/blocks/ai) (`ai-agent`, `ai-router`, `ai-mapping`, `ai-retry`) reference **any** of them interchangeably through their `connector` setting.
+Octo ships four LLM provider connectors: `llm-openai`, `llm-anthropic`, `llm-gemini`, and `llm-openrouter`. All four register under the connector category `llm` and expose the same provider-agnostic completion capability, so the [AI blocks](/reference/blocks/ai) (`ai-agent`, `ai-router`, `ai-mapping`, `ai-retry`) reference any of them interchangeably through their `connector` setting.
 
-Three of them talk to one vendor each. `llm-openrouter` talks to [OpenRouter](https://openrouter.ai), which fronts hundreds of models from many vendors behind one key — so it is the one to reach for when you want to try several models without an account per vendor.
+Three of them talk to one vendor each. `llm-openrouter` talks to [OpenRouter](https://openrouter.ai), which fronts hundreds of models from many vendors behind one key, so reach for it to try several models without an account per vendor.
 
-**Provides a source:** no — all four are service connectors. **Blocks that bind to them:** the AI blocks, which accept any connector in the `llm` category. See [AI in Octo](/ai) for usage.
+All four are service connectors and provide no source. The blocks that bind to them are the AI blocks, which accept any connector in the `llm` category; see [AI in Octo](/ai) for usage.
 
-Each connector concentrates provider policy — API key, model, and the default response token cap — and validates its configuration at startup, so a missing key fails fast rather than on first request. An AI block's own `maxTokens` overrides the connector default per request.
+Each connector holds the provider policy (API key, model, and the default response token cap) and validates it at startup, so a missing key fails fast rather than on first request. An AI block's own `maxTokens` overrides the connector default per request.
 
 ## `llm-openai` connector
 
-**OpenAI** — a configured Responses API client.
+A configured **OpenAI** Responses API client.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `apiKey` | string | Yes | — | Authenticates with the OpenAI API; source from `${OPENAI_API_KEY}`. Never logged. |
+| `apiKey` | string | Yes | none | Authenticates with the OpenAI API; source from `${OPENAI_API_KEY}`. Never logged. |
 | `model` | string | No | `gpt-5.4` | Model ID. |
 | `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
-| `reasoning` | enum `default` \| `none` \| `minimal` \| `low` \| `medium` \| `high` | No | `default` | How much reasoning effort a reasoning-capable model spends. `default` sends no reasoning field at all and lets the model choose; the rest are sent as written. Setting any effort other than `none` also asks for a reasoning summary, which is what makes thinking visible. |
-| `baseURL` | string | No | OpenAI API | Overrides the API endpoint — for proxies, Azure, or **OpenAI-compatible servers** (any endpoint speaking the Responses protocol). |
+| `reasoning` | enum `default` \| `none` \| `minimal` \| `low` \| `medium` \| `high` | No | `default` | How much reasoning effort a reasoning-capable model spends. `default` sends no reasoning field at all and lets the model choose; the rest are sent as written. Any effort other than `none` also asks for a reasoning summary, which is what makes thinking visible. |
+| `baseURL` | string | No | OpenAI API | Overrides the API endpoint, for proxies, Azure, or OpenAI-compatible servers (any endpoint speaking the Responses protocol). |
 
 ## `llm-anthropic` connector
 
-**Anthropic** — a configured Messages API client.
+A configured **Anthropic** Messages API client.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `apiKey` | string | Yes | — | Authenticates with the Anthropic API; source from `${ANTHROPIC_API_KEY}`. Never logged. |
+| `apiKey` | string | Yes | none | Authenticates with the Anthropic API; source from `${ANTHROPIC_API_KEY}`. Never logged. |
 | `model` | string | No | `claude-sonnet-4-6` | Model ID. |
 | `maxTokens` | int | No | `4096` | Default response token cap; a request may override it. |
 | `thinking` | enum `off` \| `adaptive` \| `budgeted` | No | `off` | Extended thinking. `adaptive` lets the model decide how much; `budgeted` caps it at `thinkingBudget`. |
-| `thinkingBudget` | int | No | — | Thinking token budget, used when `thinking: budgeted`. Must be at least 1024 and below `maxTokens`, which it counts towards. Validated at startup, and re-checked per request — a block whose own `maxTokens` is too small to hold the budget omits thinking for that call rather than failing it. |
+| `thinkingBudget` | int | No | none | Thinking token budget, used when `thinking: budgeted`. Must be at least 1024 and below `maxTokens`, which it counts towards. Validated at startup and re-checked per request: a block whose own `maxTokens` is too small to hold the budget omits thinking for that call rather than failing it. |
 | `baseURL` | string | No | Anthropic API | Overrides the API endpoint (for proxies or testing). |
 
 ## `llm-gemini` connector
 
-**Gemini** — a configured Google Gemini client.
+A configured **Google Gemini** client.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `apiKey` | string | Yes | — | Authenticates with the Gemini API; source from `${GEMINI_API_KEY}`. Never logged. |
+| `apiKey` | string | Yes | none | Authenticates with the Gemini API; source from `${GEMINI_API_KEY}`. Never logged. |
 | `model` | string | No | `gemini-3.5-flash` | Model ID. |
 | `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
 | `thinking` | enum `off` \| `dynamic` \| `budgeted` | No | `off` | Thinking. `dynamic` lets the model decide how much; `budgeted` caps it at `thinkingBudget`. Either also asks for thought content to be returned. |
-| `thinkingBudget` | int | No | — | Thinking token budget, used when `thinking: budgeted`. |
+| `thinkingBudget` | int | No | none | Thinking token budget, used when `thinking: budgeted`. |
 | `baseURL` | string | No | Gemini API | Overrides the API endpoint (for proxies or testing). |
 
 ## `llm-openrouter` connector
 
-**OpenRouter** — a configured [OpenRouter](https://openrouter.ai) client, speaking Chat Completions.
+A configured [**OpenRouter**](https://openrouter.ai) client, speaking Chat Completions.
 
-Model ids here are vendor-prefixed as OpenRouter publishes them — `anthropic/claude-sonnet-4.5`, `openai/gpt-5.4`, `google/gemini-3.5-flash` — and a variant suffix (`:free`, `:thinking`) selects a routing variant. There is no bare model name.
+Model ids here are vendor-prefixed as OpenRouter publishes them (`anthropic/claude-sonnet-4.5`, `openai/gpt-5.4`, `google/gemini-3.5-flash`) and a variant suffix (`:free`, `:thinking`) selects a routing variant. There is no bare model name.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `apiKey` | string | Yes | — | Authenticates with the OpenRouter API; source from `${OPENROUTER_API_KEY}`. Never logged. |
+| `apiKey` | string | Yes | none | Authenticates with the OpenRouter API; source from `${OPENROUTER_API_KEY}`. Never logged. |
 | `model` | string | No | `anthropic/claude-sonnet-4.5` | Vendor-prefixed model id. |
 | `maxTokens` | int | No | model default | Default response token cap (0 = the model default); a request may override it. |
 | `reasoning` | enum `default` \| `none` \| `minimal` \| `low` \| `medium` \| `high` | No | `default` | How much reasoning effort a reasoning-capable model spends. `default` sends no reasoning field at all and lets the model choose; `none` switches reasoning off explicitly. |
 | `baseURL` | string | No | OpenRouter API | Overrides the API endpoint (for proxies or testing). |
-| `appName` | string | No | — | Sent as `X-Title`. How OpenRouter attributes this traffic in its dashboards. |
-| `siteURL` | string | No | — | Sent as `HTTP-Referer`, for the same purpose. |
+| `appName` | string | No | none | Sent as `X-Title`. How OpenRouter attributes this traffic in its dashboards. |
+| `siteURL` | string | No | none | Sent as `HTTP-Referer`, for the same purpose. |
 
 <Callout type="info">
-**Traced calls through OpenRouter report what they actually cost.** Every request asks for usage accounting, and OpenRouter answers with the amount it billed — including the per-request and per-image charges a token count cannot reconstruct. See [Traces](/platform/traces#pricing-model-calls) for how that reaches a trace.
+Traced calls through OpenRouter report what they actually cost. Every request asks for usage accounting, and OpenRouter answers with the amount it billed, including the per-request and per-image charges a token count cannot reconstruct. See [Traces](/platform/traces#pricing-model-calls) for how that reaches a trace.
 </Callout>
 
 <Callout type="warn">
-Traced OpenRouter calls report the provider `OPENROUTER`, not the vendor behind whichever model answered. That is deliberate: the vendor family names the *token accounting*, and OpenRouter reports an input count that already includes the tokens served from cache — the OpenAI-compatible convention — even when the model behind it is an Anthropic one that would have reported the uncached remainder on its own API. Pricing keys on that, so getting it wrong would mis-bill every cached call.
+Traced OpenRouter calls report the provider `OPENROUTER`, not the vendor behind whichever model answered. The vendor family names the *token accounting*, and OpenRouter reports an input count that already includes the tokens served from cache (the OpenAI-compatible convention), even when an Anthropic model behind it would have reported the uncached remainder on its own API. Pricing keys on that, so getting it wrong would mis-bill every cached call.
 </Callout>
 
 <Callout>
-**Embeddings work too.** OpenRouter serves an OpenAI-compatible embeddings endpoint, so an [ai-embed](/reference/blocks/ai#ai-embed) block may name an `llm-openrouter` connector. Embedding model ids are vendor-prefixed like every other model here — `openai/text-embedding-3-small`, `google/gemini-embedding-001`.
+OpenRouter serves an OpenAI-compatible embeddings endpoint, so an [ai-embed](/reference/blocks/ai#ai-embed) block may name an `llm-openrouter` connector. Embedding model ids are vendor-prefixed like every other model here: `openai/text-embedding-3-small`, `google/gemini-embedding-001`.
 </Callout>
 
 ## Streaming and thinking
@@ -89,8 +89,8 @@ Traced OpenRouter calls report the provider `OPENROUTER`, not the vendor behind 
 All four connectors stream, and an [ai-agent](/reference/blocks/ai#ai-agent) with
 `stream: true` reports the model's output to its `events` path as it is produced.
 A streamed turn returns exactly what the same turn would have returned unstreamed
-— same text, tool calls, stop reason and usage — so turning streaming on changes
-*when* a flow learns things, never *what* it learns.
+(same text, tool calls, stop reason and usage), so streaming changes *when* a flow
+learns things, never *what* it learns.
 
 The providers do not agree on what they stream, and the gaps are permanent rather
 than pending:
@@ -107,64 +107,52 @@ Leave `reasoning` at `default` unless you want a specific effort. The field is
 documented for gpt-5 and o-series models only, and `baseURL` points this connector
 at Azure, proxies and other compatible servers whose model list is not OpenAI's, so
 saying nothing is the setting that works everywhere.
-
-It used to default to an explicit `none`, because on `/v1/chat/completions` some
-models refused a request combining a non-none effort with function tools, answering
-400 and naming `reasoning_effort`. The Responses API has no such conflict, so the
-workaround retired with the API that needed it — and so did what it cost: a model
-told not to reason follows a prompt less closely, and one asked for prose answered
-with a copy of the JSON body it had been handed.
 </Callout>
 
-OpenAI returns reasoning as a **summary** rather than verbatim, and only when an
-effort other than `none` is set — the reasoning itself comes back encrypted and is
-echoed, unread, on the next turn so a tool loop keeps its train of thought. (On
-*OpenAI's* Chat Completions there was no reasoning content of any kind, so this
-column read *never* before `llm-openai` moved to Responses. That was a limit of
-that endpoint, not of Chat Completions as a protocol: OpenRouter returns reasoning
-on its own Chat Completions surface, which is why `llm-openrouter` streams
-thinking without needing Responses.) Gemini delivers a tool call's arguments complete
-rather than in pieces; a path that concatenates `tool_input` fragments per call
-still ends up with the same JSON on all three.
+OpenAI returns reasoning as a summary rather than verbatim, and only when an
+effort other than `none` is set. The reasoning itself comes back encrypted and is
+echoed, unread, on the next turn so a tool loop keeps its train of thought.
+Gemini delivers a tool call's arguments complete rather than in pieces; a path
+that concatenates `tool_input` fragments per call still ends up with the same
+JSON on all three.
 
-**A tool's result goes back to every provider as text**, under a single field on
-Gemini rather than spread into the function response. Gemini reads the structure
-it is given — a `#/...` string inside a function response is resolved against the
-response's parts — so a tool returning OpenAPI or JSON Schema, where every `$ref`
-looks like that, had its own document read as a set of dangling references and the
-turn refused. Your tools can return whatever JSON they like; the model still sees
-it, as text.
+A tool's result goes back to every provider as text, under a single field on
+Gemini rather than spread into the function response, because Gemini resolves a
+`#/...` string inside a function response against the response's parts and would
+read a tool returning OpenAPI or JSON Schema as dangling `$ref`s. Your tools can
+return whatever JSON they like; the model still sees it, as text.
 
-Two things to know before turning thinking on:
+Three things to know before turning thinking on.
 
-- **Reasoning never reaches the message body.** It rides on the assistant turn, not
-  in the answer, so a flow that folds the result into a body cannot publish the
-  model's chain of thought by accident.
-- **Anthropic thinking yields when a request cannot carry it**, rather than
-  failing. Two things it cannot be combined with are a forced tool choice — the
-  API answers 400, so `ai-router`, which forces one on every call, gets its
-  requests without thinking while `ai-agent` is unaffected — and a per-block
-  `maxTokens` too small to hold `thinkingBudget`, which startup validation cannot
-  see because it only knows the connector's own default.
-- **`off` and `default` mean *do not ask*, not *turn off*.** Every provider here
-  omits the field entirely for those values, leaving the model on its own default.
-  On a model that reasons by default — Gemini 2.5, and many of the reasoning
-  models OpenRouter fronts — a connector that reads `thinking: off` still reasons
-  on every call. `reasoning: none` on `llm-openrouter` and `llm-openai` is the one
-  value that switches it off explicitly; `llm-anthropic` needs no equivalent
-  because that API reasons only when asked. `llm-gemini` currently has no way to
-  express a zero budget.
+Reasoning never reaches the message body. It rides on the assistant turn, not in
+the answer, so a flow that folds the result into a body cannot publish the model's
+chain of thought by accident.
 
-  This matters most where a **block sets a small `maxTokens`**. Reasoning is spent
-  before any answer and counts against the same ceiling, so a reasoning model asked
-  for a hundred tokens can spend them all thinking and return an empty body — which
-  surfaces downstream as a parse failure, not as a token error. Until
-  [#344](https://github.com/juancavallotti/octo/issues/344) lands, pair a small
-  ceiling with a connector that asks for no reasoning.
+Anthropic thinking yields when a request cannot carry it, rather than failing. It
+cannot be combined with a forced tool choice, which the API answers with a 400, so
+`ai-router` (which forces one on every call) gets its requests without thinking
+while `ai-agent` is unaffected. Nor with a per-block `maxTokens` too small to hold
+`thinkingBudget`, which startup validation cannot see because it only knows the
+connector's own default.
+
+`off` and `default` mean *do not ask*, not *turn off*. Every provider here omits
+the field entirely for those values, leaving the model on its own default, so on a
+model that reasons by default (Gemini 2.5, and many of the reasoning models
+OpenRouter fronts) a connector reading `thinking: off` still reasons on every call.
+`reasoning: none` on `llm-openrouter` and `llm-openai` is the one value that
+switches it off explicitly; `llm-anthropic` needs no equivalent because that API
+reasons only when asked. `llm-gemini` currently has no way to express a zero budget.
+
+This matters most where a block sets a small `maxTokens`. Reasoning is spent before
+any answer and counts against the same ceiling, so a reasoning model asked for a
+hundred tokens can spend them all thinking and return an empty body, which surfaces
+downstream as a parse failure rather than a token error. Until
+[#344](https://github.com/juancavallotti/octo/issues/344) lands, pair a small
+ceiling with a connector that asks for no reasoning.
 
 ## Example
 
-Declare one or more providers and point an AI block at whichever you like — swapping providers is a one-line change:
+Declare one or more providers and point an AI block at whichever you like; swapping providers is a one-line change.
 
 ```yaml
 service:
@@ -192,5 +180,5 @@ flows:
 ```
 
 <Callout type="info">
-Keep API keys in the environment (`${OPENAI_API_KEY}`, `${ANTHROPIC_API_KEY}`, `${GEMINI_API_KEY}`, `${OPENROUTER_API_KEY}`), never inline — see [environment and config](/concepts/environment-and-config). For what the AI blocks can do with these connectors — agents, routing, mapping, and retries — start at [AI in Octo](/ai).
+Keep API keys in the environment (`${OPENAI_API_KEY}`, `${ANTHROPIC_API_KEY}`, `${GEMINI_API_KEY}`, `${OPENROUTER_API_KEY}`), never inline, see [environment and config](/concepts/environment-and-config). For what the AI blocks can do with these connectors, start at [AI in Octo](/ai).
 </Callout>

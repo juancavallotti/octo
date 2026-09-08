@@ -7,9 +7,9 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-The `octo` binary is the runtime's command-line interface. It starts
-integrations, calls flows directly, evaluates CEL expressions, and emits the
-capability catalogue the editor and documentation tooling consume.
+The `octo` binary starts integrations, calls flows directly, evaluates CEL
+expressions, and emits the capability catalogue the editor and documentation
+tooling consume.
 
 ```
 octo — run and invoke octo integration flows
@@ -41,8 +41,8 @@ Running `octo` with no arguments prints the help page above.
 
 Starts every connector and flow declared in the config and keeps them running
 until the process receives `SIGINT` (Ctrl-C) or `SIGTERM`. `run` is the default
-subcommand, so a leading flag dispatches to it: `octo --config app.yaml` is the
-same as `octo run --config app.yaml`.
+subcommand, so `octo --config app.yaml` is the same as
+`octo run --config app.yaml`.
 
 ```bash
 octo run --config samples/hello-world.yaml
@@ -50,14 +50,14 @@ octo run --config samples/hello-world.yaml
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--config` | path | (required) | Path to the runtime config — a YAML file or a directory. |
+| `--config` | path | (required) | Path to the runtime config: a YAML file or a directory. |
 | `--watch` | bool | `false` | Reload the runtime when the config changes. |
 | `--storage-dir` | path | `./octo-store` | Directory the [object store](/platform/kv-and-storage) is serialized into, so objects survive a restart. An empty value keeps the whole store in memory. Volatile and secret objects are never written there. |
 | `--observability` | bool | `true` | Serve liveness and readiness probes on the admin port. `--observability=false` binds nothing. |
 | `--observability-addr` | address | `:39999` | Admin listen address for the probes and metrics. An address already in use is logged and the run continues without them. |
 | `--metrics` | bool | `false` | Also serve Prometheus metrics at `/metrics` on the admin port. |
 | `--metrics-blocks` | addresses | (none) | Comma-separated [block addresses](#addressing-a-block) to add per-block timings for, or `*` for every block. |
-| `--traces` | bool | `false` | Record a [trace](/runtime/tracing) of every message. **Development feature — significant overhead.** |
+| `--traces` | bool | `false` | Record a [trace](/runtime/tracing) of every message. **Development feature with significant overhead.** |
 | `--traces-blocks` | addresses | `*` | Comma-separated [block addresses](#addressing-a-block) to trace, or `*` for every block. |
 | `--traces-file` | path | (auto) | Where the standalone runtime writes its JSONL trace. Defaults to `octo-trace-<time>-<pid>.jsonl` in the working directory. |
 | `--traces-bodies` | bool | `true` | Include message bodies in trace records. |
@@ -65,46 +65,43 @@ octo run --config samples/hello-world.yaml
 | `--traces-max-payload` | bytes | `32768` | Drop a captured body or variable map larger than this. |
 | `--traces-buffer` | int | `4096` | How many records to queue before dropping. |
 
-These configure the [observability runtime service](/runtime/observability), which
-serves on a port of its own — separate from any `http` connector, so probes never
-collide with a user route and answer even for a runtime with no HTTP source at
-all. Each flag defaults to the environment variable of the same name (see
+These configure the [observability runtime service](/runtime/observability),
+which serves on a port of its own, separate from any `http` connector. Each flag
+defaults to the environment variable of the same name (see
 [below](#environment-variables)), so passing the flag always wins.
 
 `--metrics` exports per-flow rate, errors and duration, the in-flight count per
 flow, and the Go runtime and process collectors. It is off by default because
-per-flow accounting is real work on the flow's own goroutine; probes are not.
-
-`--metrics-blocks` adds per-block timings for the blocks you name, in the same
-address grammar [`--spies`](#spies) accepts:
+per-flow accounting is real work on the flow's own goroutine. `--metrics-blocks`
+adds per-block timings for the blocks you name, in the same address grammar
+[`--spies`](#spies) accepts:
 
 ```bash
 octo run --config app.yaml --metrics \
   --metrics-blocks 'orders.charge,orders.fanout[audit].log-it'
 ```
 
-`--traces` is a different tool for a different question. Metrics tell you a flow
-is slow; a trace tells you what happened to **one message** — every flow it
-entered, every block it passed through, the model turns an agent took for it, all
-joined by a single id that survives flow-refs, splits, aggregates and the hop
-between processes:
+Metrics tell you a flow is slow. `--traces` tells you what happened to **one
+message**: every flow it entered, every block it passed through, the model turns
+an agent took, joined by one id that survives flow-refs, splits, aggregates and
+the hop between processes.
 
 ```bash
 octo run --config app.yaml --traces --traces-file /tmp/run.jsonl
 jq -c '{seq,kind,traceId,path,durationNs}' /tmp/run.jsonl
 ```
 
-It is a **development feature**. With the defaults it records two events for every
-block of every message and marshals the payload for each, on the flow's own
-goroutine — around 700ns and 30 allocations per block, against 15ns and none when
-payload capture is off. The run says so, loudly, at startup. See
+Tracing is a **development feature**, and the run says so at startup. With the
+defaults it records two events per block per message and marshals the payload for
+each, on the flow's own goroutine: around 700ns and 30 allocations per block,
+against 15ns and none when payload capture is off. See
 [Tracing](/runtime/tracing).
 
-It is a separate flag because a watched block is timed **on the flow's own
-goroutine**, so the measurement lands on the message's critical path. The counters
-are exact — nothing is queued and nothing is dropped, at any load — and blocks you
-did not name cost one comparison each. `*` watches every block in every flow,
-which makes it a debugging tool rather than a steady-state setting.
+Per-block timings are taken on the flow's own goroutine, so they land on the
+message's critical path. The counters are exact (nothing is queued or dropped, at
+any load) and blocks you did not name cost one comparison each. `*` watches every
+block in every flow, which makes it a debugging tool rather than a steady-state
+setting.
 
 When `--config` points to a directory, every `.yaml`/`.yml` file directly in it
 (sorted by name, subdirectories ignored) is loaded and merged into one config.
@@ -112,9 +109,7 @@ The config's directory also becomes the resource root that relative resource
 ids (templates, env files) resolve against.
 
 **Files ending in `_test.yaml` are skipped.** `orders_test.yaml` is a test suite
-for the flows in `orders.yaml`, the way `orders_test.go` tests `orders.go` — it
-lives beside them, and the runtime walks past it just as the Go compiler walks
-past a `_test.go`.
+for the flows in `orders.yaml`, the way `orders_test.go` tests `orders.go`.
 
 Once every connector and flow has started, the runtime prints a ready banner
 to stdout:
@@ -131,17 +126,16 @@ to stdout:
 ### Watch mode
 
 With `--watch`, the runtime watches the config path (and the `.env` files it
-consults) and rebuilds on every change: the current generation is stopped,
-the config is reloaded, and a new generation starts. Failures are not fatal in
-watch mode — a config that fails to load, build, or start logs an error and
-waits for the next change, so fixing the file recovers without restarting the
-process. Runtime services (connections, leases) are built once and reused
-across reloads.
+consults) and rebuilds on every change: the current generation is stopped, the
+config is reloaded, and a new generation starts. Failures are not fatal. A config
+that fails to load, build, or start logs an error and waits for the next change.
+Runtime services (connections, leases) are built once and reused across
+reloads.
 
 ## octo invoke
 
-Loads a config, starts the flows in invoke mode (sources are **not** started —
-no ports are bound, no schedules fire), calls the named flow once with the
+Loads a config, starts the flows in invoke mode (sources are **not** started, so
+no ports are bound and no schedules fire), calls the named flow once with the
 given body, prints the result **message** as JSON on stdout, and exits.
 
 ```bash
@@ -152,11 +146,10 @@ octo invoke --config samples/hello-invoke.yaml --flow greet --data '{"name": "Ad
 {"event_id":"5c12a0e3f47b4d19a6c8f0b21d3e4a97","body":{"greeting":"hello, Ada!"}}
 ```
 
-The result is the whole message — `event_id`, `variables`, `body` — and not the
-body alone, because the variables a flow builds up with `set-variable`, `enrich`
-or `foreach` are as much its result as the payload is. `variables` is omitted
-when the flow set none, as in the greeting above. To pipe just the payload
-onward, ask for it:
+The result is the whole message (`event_id`, `variables`, `body`), not the body
+alone, because the variables a flow builds up with `set-variable`, `enrich` or
+`foreach` are as much its result as the payload. `variables` is omitted when the
+flow set none. To pipe just the payload onward:
 
 ```bash
 octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.body'
@@ -176,9 +169,9 @@ octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.b
 | `--mocks` | JSON | (none) | Blocks to answer for instead of running. See [Mocks](#mocks). |
 | `--run-debug-config` | path | (none) | A file holding the whole run. See [Debug config](#debug-config-file). |
 | `--envelope` | bool | `false` | Always print the [outcome envelope](#the-outcome-envelope), reporting a flow failure in it rather than exiting non-zero. |
-| `--envelope-out` | string | — | Write the envelope to this file instead of stdout (implies `--envelope`). Use it when [the flow itself prints](#envelope-out--path--when-the-flow-itself-prints). |
+| `--envelope-out` | string | (none) | Write the envelope to this file instead of stdout (implies `--envelope`). Use it when [the flow itself prints](#envelope-out-path-when-the-flow-itself-prints). |
 
-The body can also arrive on stdin — `--data` and a pipe are interchangeable:
+The body can also arrive on stdin. `--data` and a pipe are interchangeable:
 
 ```bash
 echo '{"name": "Grace"}' | octo invoke --config samples/hello-invoke.yaml --flow greet
@@ -191,18 +184,16 @@ echo '{"name": "Grace"}' | octo invoke --config samples/hello-invoke.yaml --flow
 Stdin is only read when it is piped or redirected, never from an interactive
 terminal, and it must be valid JSON. When the flow drops the message (a filter
 rejected it, or a block returned nothing), `invoke` logs
-`flow dropped the message` and prints no result. Any flow is callable this
-way, including flows without a `source:` (see
+`flow dropped the message` and prints no result. Any flow is callable this way,
+including one without a `source:` (see
 [Flow File](/reference/flow-file#flows)).
 
 ### Raw bodies
 
-`--data` is JSON by default, so a flow fed by a
-[raw-content source](/concepts/raw-content) — XML, CSV, form-encoded, anything
-non-JSON — could not be invoked with a realistic payload. `--content-type` opts
-the body out of JSON: the bytes of `--data` become the message body verbatim,
-tagged with the MIME type you give, exactly as an HTTP source configured with
-`rawBody: true` would receive them.
+`--content-type` opts the body out of JSON, for a flow fed by a
+[raw-content source](/concepts/raw-content) (XML, CSV, form-encoded). The bytes
+of `--data` become the message body verbatim, tagged with the MIME type you give,
+exactly as an HTTP source configured with `rawBody: true` would receive them.
 
 ```bash
 octo invoke --config orders.yaml --flow intake \
@@ -210,19 +201,18 @@ octo invoke --config orders.yaml --flow intake \
   --data '<order><id>42</id></order>'
 ```
 
-Inside the flow the body takes the raw-content shape — `body.contentType` and
-`body.rawData` — rather than a parsed object; see
-[Raw Content](/concepts/raw-content) for what the flow then does with it. Without
-`--content-type`, nothing changes: the body is parsed as JSON as before.
+Inside the flow the body takes the raw-content shape (`body.contentType` and
+`body.rawData`) rather than a parsed object; see
+[Raw Content](/concepts/raw-content). Without `--content-type` the body is parsed
+as JSON.
 
 ### Seeding variables
 
-A message is a body **and** a set of variables, and `--data` only fills the
-body. Because `invoke` starts no sources, nothing populates those variables for
-you — the HTTP source is what normally copies request headers into them (see
-[State and Data](/concepts/state-and-data#how-http-requests-become-messages)).
-So a flow that reads `vars` needs them supplied explicitly, which is what
-`--vars` is for:
+`--data` only fills the body, and `invoke` starts no sources, so nothing
+populates the message variables for you: the HTTP source is what normally copies
+request headers into them (see
+[State and Data](/concepts/state-and-data#how-http-requests-become-messages)). A
+flow that reads `vars` needs them supplied with `--vars`:
 
 ```bash
 octo invoke --config orders.yaml --flow orders \
@@ -232,15 +222,14 @@ octo invoke --config orders.yaml --flow orders \
 
 The flow now sees `vars["x-api-key"]` exactly as it would behind a real request.
 Without `--vars`, an expression reading a variable that was never set fails with
-a missing-key error — which is usually the reason an invoked flow behaves
-differently from the same flow under its source.
+a missing-key error.
 
 ## Breakpoints
 
-`--break-at` answers a question a plain `invoke` cannot: **what did the message
-look like at this point in the flow?** The runtime wraps the block you address,
-runs the flow until it reaches that block, records the message the block
-produced, and stops — the rest of the chain never runs.
+`--break-at` shows **what the message looked like at one point in the flow**. The
+runtime wraps the block you address, runs the flow until it reaches that block,
+records the message the block produced, and stops. The rest of the chain never
+runs.
 
 ```bash
 octo invoke --config samples/builtins-demo.yaml --flow demo \
@@ -254,17 +243,18 @@ octo invoke --config samples/builtins-demo.yaml --flow demo \
   "body":{"firedAt":"2026-07-10T12:00:00Z","orders":[{"id":1,"amount":50},{"id":2,"amount":250}]}}}
 ```
 
-The snapshot is the message **after** the addressed block ran — what the next
-block would have received. It carries the body and every variable set so far.
+The snapshot is the message **after** the addressed block ran, which is what the
+next block would have received: the body and every variable set so far.
 
 Breakpoints are a debugging aid for `invoke` only. They are not a block you can
 write in a flow, they never appear in the editor palette, and they are refused
-outside invoke mode, so they can never halt live traffic.
+outside invoke mode.
 
 ### The debug envelope
 
-A run that was asked to **observe** itself — with `--break-at`, `--spies`, or both
-— prints one JSON envelope instead of the result message, wrapping what it saw:
+A run that was asked to **observe** itself, with `--break-at` or `--spies` or
+both, prints one JSON envelope instead of the result message, wrapping what it
+saw:
 
 | Field | Meaning |
 | --- | --- |
@@ -276,21 +266,19 @@ A run that was asked to **observe** itself — with `--break-at`, `--spies`, or 
 | `spies` | What each spied block saw. See [Spies](#spies). |
 | `error` | The flow's failure, when it failed before reaching the block. |
 
-A `--mocks`-only run prints its result message, like any other invoke — mocking
-changes what the flow does but produces no observations of its own, so there is
-no envelope to wrap them in. Ask for it outright with
+A `--mocks`-only run prints its result message, like any other invoke, because
+mocking produces no observations to wrap. Ask for the envelope outright with
 [`--envelope`](#the-outcome-envelope).
 
 ### The outcome envelope
 
 `--envelope` prints the same envelope for **any** run, even one that observed
-nothing. Use it when a *program* — rather than a person — reads the output.
+nothing. Use it when a program, rather than a person, reads the output.
 
-A plain invoke reports its three outcomes three different ways: a flow that
-completed prints its message, one that **dropped** the message prints nothing at
-all, and one that **failed** prints nothing and exits 1 with the error in a log
-line. Reading stdout, you cannot tell a drop from a result, and a failure has to
-be scraped out of the logs. `--envelope` says all three in one shape:
+A plain invoke reports its three outcomes three ways: a flow that completed
+prints its message, one that **dropped** the message prints nothing, and one that
+**failed** prints nothing and exits 1 with the error in a log line. `--envelope`
+says all three in one shape:
 
 ```bash
 octo invoke --config samples/builtins-demo.yaml --flow demo --data '{"firedAt":"x"}' --envelope
@@ -306,23 +294,20 @@ octo invoke --config samples/builtins-demo.yaml --flow demo --data '{"firedAt":"
 ```
 
 <Callout>
-  Under `--envelope`, **a flow that fails exits 0** — the flow failing is the
-  answer to the question you asked, not a failure of the CLI. A run that could not
-  **start** (an unresolvable block address, a broken config) is a bad request and
-  still exits non-zero, because there is no outcome to report.
+  Under `--envelope`, **a flow that fails exits 0**: the failure is the answer,
+  not a failure of the CLI. A run that could not **start** (an unresolvable block
+  address, a broken config) still exits non-zero, because there is no outcome to
+  report.
 </Callout>
 
-#### `--envelope-out <path>` — when the flow itself prints
+#### `--envelope-out <path>`: when the flow itself prints
 
 **stdout is not the CLI's alone.** A [`log`](/docs/blocks/log) block writes through
-a logger connector, whose `output` defaults to `stdout` — so a flow that logs
-anything interleaves its own JSON with the envelope, and a program reading stdout
-gets two documents where it expected one. It cannot be quieted from outside,
-either: the connector takes its level and destination from the **config**, not the
-environment.
-
-`--envelope-out` writes the envelope to a file instead, on a channel the flow
-cannot reach. stdout stays entirely the flow's.
+a logger connector, whose `output` defaults to `stdout`, so a flow that logs
+interleaves its own JSON with the envelope, and it cannot be quieted from outside
+(the connector takes its level and destination from the **config**).
+`--envelope-out` writes the envelope to a file instead, leaving stdout to the
+flow.
 
 ```bash
 octo invoke --config samples/multi-transform.yaml --flow order \
@@ -336,7 +321,7 @@ cat outcome.json
 {"result":{"event_id":"…","body":{"orderId":"A-1","subtotal":30,"total":33}}}
 ```
 
-This is what `dolphin`, the test runner, reads — which is why it can test a flow
+This is what `dolphin`, the test runner, reads, which is why it can test a flow
 that logs.
 
 **A block that is never reached is a normal result, not an error.** If the flow
@@ -347,14 +332,9 @@ the message first, you get `reached: false` and exit code 0:
 {"reached":false,"block":"demo.any-orders[else].log"}
 ```
 
-That is usually the most valuable answer the flag gives you — it tells you the
-branch you were debugging never ran at all.
-
 <Callout type="info">
-An **address that does not resolve** is a different thing entirely: it is a
-mistake in your command, so `invoke` exits **non-zero** and prints no envelope.
-A typo can never be mistaken for `reached: false`. The error lists what is
-actually there:
+An **address that does not resolve** is a mistake in your command, so `invoke`
+exits **non-zero** and prints no envelope. The error lists what is there:
 
 ```
 no block "nosuchblock" in that chain (blocks: seed-orders, set-threshold, any-orders, each-order, drop-threshold)
@@ -364,7 +344,7 @@ has no branch "nope" (branches: then, else)
 
 ### Addressing a block
 
-An address starts with the **flow name** and walks down to the block, one segment
+An address starts with the flow name and walks down to the block, one segment
 per step:
 
 ```
@@ -374,14 +354,13 @@ per step:
 ```
 
 A **bracket names the branch to descend into**. Every segment but the last names
-a composite and the branch to follow; the last segment names the block you want
-to break on.
+a composite and the branch to follow; the last names the target block.
 
 #### Naming a block
 
-Within a chain, a block is matched by its **`name`**, else its **`type`**, else
-its **`ref`** — in that order. So an unnamed block is still addressable, as long
-as it is the only one of its kind in that chain:
+Within a chain, a block is matched by its `name`, else its `type`, else its
+`ref`, in that order. An unnamed block is still addressable as long as it is the
+only one of its kind in that chain:
 
 ```yaml
 process:
@@ -392,7 +371,7 @@ process:
 ```
 
 If two blocks in the same chain would match, the address is **rejected** rather
-than guessed at — give the one you want a `name:`.
+than guessed at. Give the one you want a `name:`.
 
 #### Naming a branch
 
@@ -403,11 +382,13 @@ Every composite exposes its branches by name:
 | `if` | `then`, `else` |
 | `foreach`, `enrich`, `cache-scope` | `body` |
 | `handle-errors`, `ai-retry` | `process`, `error` |
-| `validate`, `jwt-validate` (filter blocks) | `onReject` |
-| `fork` | each branch's `name` — or its index (`0`, `1`, …) |
-| `switch` | each case's `name` — or its index — plus `default` |
+| `validate` | `onReject` |
+| `split`, `aggregate` | `buildResponse` |
+| `fork` | each branch's `name`, or its index (`0`, `1`, …) |
+| `switch` | each case's `name`, or its index, plus `default` |
 | `ai-router` | each route's `name`, plus `default` |
-| `ai-agent`, `mcp-router` | each tool's `name`, plus `default` |
+| `mcp-router` | each tool's `name` |
+| `ai-agent` | each tool's `name`, plus `events`, `nameThread` and `default` |
 
 A bracket on the **flow** itself selects its error chain: `orders[error].notify`.
 
@@ -466,16 +447,16 @@ flows:
 | `orders.seed` | The `set-payload`, in the flow's own chain. |
 | `orders.check-header[then].charge` | The `rest` inside the `if`'s **then** branch. |
 | `orders.check-header[else].log` | The `log` inside the **else** branch. Reports `reached: false` whenever the condition is true. |
-| `orders.each-order[body].classify` | The `switch`, on the **first** iteration of the loop — `vars.order` is the first item. |
+| `orders.each-order[body].classify` | The `switch`, on the **first** iteration of the loop, where `vars.order` is the first item. |
 | `orders.each-order[body].classify[0].log` | The `log` inside the switch's **first case**. The loop keeps going until a message actually reaches it, so this fires on whichever iteration first matches `amount >= 100`. |
 | `orders.each-order[body].classify[default].log` | The `log` in the switch's **default** branch. |
 | `orders.fanout[audit].log-it` | A block inside a **fork branch**, addressed by the branch's name. |
 | `orders.fanout[1].rest` | The same, by branch **index**. |
 | `orders[error].notify-failure` | A block on the flow's **error chain**. Reports `reached: false` unless the flow fails. |
 
-The address may name a flow **other than** the one you invoke, which is how you
-break inside a flow reached through `flow-ref`. The stop folds back through the
-call, so the calling flow halts too:
+The address may name a flow other than the one you invoke, which is how you break
+inside a flow reached through `flow-ref`. The stop folds back through the call,
+so the calling flow halts too:
 
 ```bash
 octo invoke --config ./flows --flow caller --break-at 'sub.step'
@@ -483,25 +464,23 @@ octo invoke --config ./flows --flow caller --break-at 'sub.step'
 
 ### Things worth knowing
 
-- **The block after the breakpoint never runs.** That is the point — the flow
-  halts, so no downstream side effects fire.
-- **In a `foreach`, the breakpoint fires on the first iteration that reaches
-  it**, and the loop stops there. Breaking inside a `switch` case that only some
-  items match is a good way to inspect the first item that does.
-- **In a `cache-scope`, a cache hit skips the body entirely**, so a breakpoint
-  inside the body correctly reports `reached: false`. Nothing is written to the
-  cache when a breakpoint halts the body.
-- **A `fork`'s sibling branches still run to completion.** A breakpoint in one
-  branch does not cancel the others; the flow halts after the fork joins.
-- **The block you break on still runs.** The snapshot is taken *after* it. If it
-  fails or drops the message, there is no message to show and you get
-  `reached: false` — with the failure in `error`.
+- The block after the breakpoint never runs, so no downstream side effects fire.
+- The block you break on does run. The snapshot is taken after it. If it fails or
+  drops the message there is nothing to show, so you get `reached: false` with
+  the failure in `error`.
+- In a `foreach`, the breakpoint fires on the first iteration that reaches it and
+  the loop stops there.
+- In a `cache-scope`, a cache hit skips the body entirely, so a breakpoint inside
+  the body correctly reports `reached: false`. Nothing is written to the cache
+  when a breakpoint halts the body.
+- A `fork`'s sibling branches still run to completion. A breakpoint in one branch
+  does not cancel the others; the flow halts after the fork joins.
 - Numbers in the printed body are JSON numbers, so integers may show as floats.
 
 ## Spies
 
-`--spies` records every message that crosses a block, and — unlike a breakpoint —
-leaves the run alone. It takes a comma-separated list of the same
+`--spies` records every message that crosses a block and, unlike a breakpoint,
+leaves the run alone. It takes a comma-separated list of
 [block addresses](#addressing-a-block). A [test suite](/testing/test-file#spies)
 takes the same addresses and adds assertions over what was recorded:
 
@@ -525,20 +504,19 @@ them. Each entry holds the crossings in the order they happened:
 | `records[].dropped` | The block filtered the message out. |
 | `records[].error` | The block failed, with this message. |
 
-A block that runs many times — inside a `foreach` body, a `fork` branch, a
-`cache-scope` — reports **one record per crossing**, which is the point: a spy
-that showed only the first iteration would hide the one that went wrong.
+A block that runs many times (inside a `foreach` body, a `fork` branch, a
+`cache-scope`) reports **one record per crossing**.
 
-A spy also sees what nothing else can. A `fork` runs each branch on a clone and
-discards the branch's message, so a block inside one has no way to report through
-the flow's result; the spy's records leave out of band.
+A `fork` runs each branch on a clone and discards the branch's message, so a
+block inside one has no way to report through the flow's result. A spy's records
+leave out of band, which is the only way to see what that block did.
 
 ## Mocks
 
-`--mocks` **replaces** a block with a canned answer, so its real work — an HTTP
-call, an LLM, a database write — never happens. It takes one JSON object keyed by
-block address. A [test suite](/testing/test-file#mocks) takes the same spec in YAML,
-which is the usual way to keep one:
+`--mocks` **replaces** a block with a canned answer, so its real work (an HTTP
+call, an LLM, a database write) never happens. It takes one JSON object keyed by
+block address. A [test suite](/testing/test-file#mocks) takes the same spec in
+YAML, which is the usual way to keep one:
 
 ```bash
 octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
@@ -548,10 +526,8 @@ octo invoke --config samples/error-handling.yaml --flow charge-flowlevel \
      "default":{"error":"unexpected input"}}}'
 ```
 
-It is one JSON blob rather than a repeated flag because a spec is nested — a list
-of cases, each with an expression and an outcome — and there is no honest way to
-flatten that onto argv. For anything real, put it in a
-[debug config file](#debug-config-file) instead.
+For anything real, put the spec in a
+[debug config file](#debug-config-file) instead of on argv.
 
 ### The mock spec
 
@@ -566,28 +542,23 @@ Each case has a condition and **exactly one** outcome:
 | --- | --- | --- |
 | `when` | CEL | Evaluated against the message the block **received** (`body`, `vars`, `env`, …). Required on a case, forbidden on the `default`. |
 | `body` | any | The body the block returned. A **literal value**, not an expression. |
-| `vars` | object | Variables the block set, alongside its `body` — for blocks that report through a variable, like an HTTP call setting `vars.status`. Only valid with a `body`. |
+| `vars` | object | Variables the block set, alongside its `body`, for blocks that report through a variable such as an HTTP call setting `vars.status`. Only valid with a `body`. |
 | `error` | string | Fail the block with this message. |
 | `drop` | bool | Filter the message out, as a filter block would. |
 
-`body` is a literal rather than an expression on purpose: the dispatch already
-happened in `when`, so a mock keeps exactly one CEL surface.
-
 ### Things worth knowing
 
-- **A mock replaces the block; it does not wrap it.** A wrapped HTTP call would
-  still fire.
-- **No matching case and no `default` fails the block** — it does *not* fall
-  through to the real one, which is gone from the flow. Keeping it wired would
-  mean a "mocked" call could still reach the network and spend money on a run you
-  believe is mocked. The escape hatch is one line: a `default`, or a trailing
-  case with `when: "true"`.
-- **A mocked failure is indistinguishable from a real one.** The mock takes the
+- A mock replaces the block; it does not wrap it. A wrapped HTTP call would still
+  fire.
+- No matching case and no `default` fails the block. It does not fall through to
+  the real one, which is gone from the flow, so a "mocked" call can never reach
+  the network. Add a `default`, or a trailing case with `when: "true"`.
+- A mocked failure is indistinguishable from a real one. The mock takes the
   target's label, so the error reads `block "call-charge": card declined` and an
   error path branching on `vars.error.block` behaves exactly as in production.
-- **Mocking a composite removes everything inside it** — that is how you cut out
-  a whole sub-tree. A spy or breakpoint addressed *inside* a mocked block is
-  therefore rejected, rather than silently reporting nothing.
+- Mocking a composite removes everything inside it, which is how you cut out a
+  whole sub-tree. A spy or breakpoint addressed inside a mocked block is
+  rejected rather than silently reporting nothing.
 
 ### Combining the three flags
 
@@ -597,16 +568,16 @@ They compose on the same block, and the nesting is fixed:
 breakpoint[ spy[ mock ] ]
 ```
 
-So a spy on a mocked block shows you what the flow fed it and what the mock
-answered, and a breakpoint on top stops the flow there. The order is not
-arbitrary — the mock has to be innermost because it replaces its target, and the
-breakpoint outermost because it halts the flow by marking the message, which a
-spy wrapped around it would record as part of the block's output.
+A spy on a mocked block shows you what the flow fed it and what the mock
+answered, and a breakpoint on top stops the flow there. The mock is innermost
+because it replaces its target, and the breakpoint outermost because it halts the
+flow by marking the message, which a spy wrapped around it would record as part
+of the block's output.
 
 ## Debug config file
 
 `--run-debug-config` reads a whole debugging run from one file, so a session is
-reproducible instead of a page of flags someone has to retype:
+reproducible instead of a page of flags to retype:
 
 ```yaml title="debug.yaml"
 input:
@@ -637,37 +608,32 @@ octo invoke --config orders.yaml --flow orders --run-debug-config debug.yaml
 | `spies` | `--spies` |
 | `mocks` | `--mocks` |
 
-Every section is optional. It is YAML, and JSON is accepted too — JSON is a
-subset of YAML, so a `--mocks` blob pastes straight in.
+Every section is optional. It is YAML, and JSON is accepted too, so a `--mocks`
+blob pastes straight in.
 
-**A flag overrides its section, whole.** `--spies` *replaces* the file's list
-rather than adding to it, so a flag always says exactly what the run will do —
-merging would leave no way to run the file with *fewer* spies than it lists.
+**A flag overrides its section, whole.** `--spies` replaces the file's list
+rather than adding to it.
 
 For the body the order is `--data`, then the file's `input.data`, then piped
-stdin. The file comes **before** stdin, unlike a bare `invoke`: a run fully
-described in a file must never sit waiting on a pipe for a body it already has.
-A file with no `input.data` still falls through to stdin.
+stdin. The file comes **before** stdin, unlike a bare `invoke`, so a run fully
+described in a file never waits on a pipe. A file with no `input.data` still
+falls through to stdin.
 
-**Unknown keys are rejected.** A debug config is hand-written, and a typo'd key
-that was silently ignored would look exactly like a feature that does not work —
-a misspelled `spys:` would report no records at all, and you would go hunting for
-the bug in your flow:
+**Unknown keys are rejected**, so a misspelled `spys:` says so rather than
+silently recording nothing:
 
 ```
 parse debug config "debug.yaml": field spys not found in type main.debugConfig
 ```
 
 Print the file's JSON Schema with
-[`octo schema --kind debug-config`](#octo-schema), so an editor can complete it
-and a validator can check it.
+[`octo schema --kind debug-config`](#octo-schema).
 
 ## octo eval
 
-Evaluates a CEL expression against an ad-hoc message — no config and no
-runtime services are involved. It is the fastest way to experiment with
-expressions before pasting them into a flow; see
-[CEL Expressions](/reference/cel) for a guided tour.
+Evaluates a CEL expression against an ad-hoc message. No config and no runtime
+services are involved, so it is the fastest way to try an expression before
+pasting it into a flow; see [CEL Expressions](/reference/cel).
 
 ```bash
 octo eval --expr '1 + 2'
@@ -704,11 +670,10 @@ The output is always a one-line JSON envelope:
 {"ok":false,"result":null,"error":"<message>"}
 ```
 
-`ok` distinguishes a successful evaluation from a compile or evaluation
-failure; `result` is always present so a legitimate `false`/`0`/`null` result
-is not confused with its absence. Both outcomes exit `0` — a bad expression is
-a normal result, not a CLI failure — so scripts should parse the envelope
-rather than inspect exit codes:
+`ok` distinguishes a successful evaluation from a compile or evaluation failure;
+`result` is always present so a legitimate `false`/`0`/`null` result is not
+confused with its absence. Both outcomes exit `0`, so scripts should parse the
+envelope rather than inspect exit codes:
 
 ```bash
 octo eval --expr '1 +'
@@ -720,16 +685,16 @@ octo eval --expr '1 +'
 
 <Callout type="info">
   `eval` runs without a loaded config, so the `templateResource()` function has
-  no resources to render — calling it reports `resource: not found`. Every
+  no resources to render and calling it reports `resource: not found`. Every
   other part of the expression environment behaves exactly as it does inside a
   flow. See [Octo Extensions](/reference/cel/octo-extensions).
 </Callout>
 
 ## octo schema
 
-Generates the capability catalogue — the machine-readable description of every
+Generates the capability catalogue, the machine-readable description of every
 registered block and connector (types, labels, categories, settings fields,
-defaults) — and prints it as JSON. `octo capabilities` is an alias.
+defaults), and prints it as JSON. `octo capabilities` is an alias.
 
 ```bash
 octo schema            # print to stdout
@@ -761,17 +726,15 @@ The output is an object with two arrays:
 }
 ```
 
-This catalogue powers the visual editor's block palette and property forms,
-and CI's documentation drift check compares it against the reference pages —
-every registered block and connector type must be documented by exactly one
-page. If you add a block or connector, `octo schema` is the source of truth
-the tooling holds the docs to.
+This catalogue powers the visual editor's block palette and property forms, and
+CI's documentation drift check reads `octo schema` and compares it against the
+reference pages: every registered block and connector type must be documented by
+exactly one page.
 
 ### The debug-config schema
 
 `--kind debug-config` prints the JSON Schema of a
-[`--run-debug-config`](#debug-config-file) file, so an editor can complete it and
-a validator can check it:
+[`--run-debug-config`](#debug-config-file) file, so an editor can complete it:
 
 ```bash
 octo schema --kind debug-config --out debug.schema.json
@@ -802,15 +765,15 @@ octo version
 <DynamicCodeBlock lang="text" code={`octo ${OCTO_VERSION} (built 2026-07-09T06:11:43Z)`} />
 
 `octo --version` and `octo -version` print the same line. The build date is
-stamped at link time for released binaries; a `go build` binary falls back to
-the VCS commit time, and the suffix is omitted when neither exists.
+stamped at link time for released binaries; a `go build` binary falls back to the
+VCS commit time, and the suffix is omitted when neither exists.
 
 ## Environment variables
 
 | Variable | Description |
 | --- | --- |
 | `LOG_LEVEL` | Log verbosity for the process logger: `debug`, `info` (default), `warn`, or `error`. An invalid value logs a warning and falls back to `info`. Logs are written to stderr. |
-| `OCTO_ENV_FILE` | Path to an extra `.env` file loaded in addition to `./.env`, overlaying it. See [Flow File — env](/reference/flow-file#env). |
+| `OCTO_ENV_FILE` | Path to an extra `.env` file loaded in addition to `./.env`, overlaying it. See [Flow File: env](/reference/flow-file#env). |
 | `OCTO_STORAGE_DIR` | Default for `--storage-dir`: the directory the object store is serialized into. For `octo run` it defaults to `./octo-store`; for the one-shot `octo invoke` it defaults to an in-memory store, so a probe is reproducible. Set it to an empty value to keep `run`'s store in memory too. See [KV Store and Persistence](/platform/kv-and-storage). |
 | `OCTO_OBSERVABILITY` | Default for `--observability`. Accepts `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no` (case-insensitive). An unparseable value logs a warning and is ignored. |
 | `OCTO_OBSERVABILITY_ADDR` | Default for `--observability-addr`. |
@@ -824,10 +787,11 @@ the VCS commit time, and the suffix is omitted when neither exists.
 | `OCTO_TRACING_MAX_PAYLOAD` | Default for `--traces-max-payload`. |
 | `OCTO_TRACING_BUFFER` | Default for `--traces-buffer`. |
 
-The `OCTO_OBSERVABILITY*`, `OCTO_METRICS*`, `OCTO_TRACING*` and `OCTO_STORAGE_DIR` variables are read from the **process environment only**,
-not from a `.env` file: they are resolved when `octo run` parses its flags, which
-happens before any config — and therefore any `.env` — is loaded. Passing the flag
-always wins over the variable.
+The `OCTO_OBSERVABILITY*`, `OCTO_METRICS*`, `OCTO_TRACING*` and
+`OCTO_STORAGE_DIR` variables are read from the **process environment only**, not
+from a `.env` file: they are resolved when `octo run` parses its flags, before
+any config (and therefore any `.env`) is loaded. Passing the flag wins over the
+variable.
 
 Config-declared environment variables (the `env:` section of a flow file) are
 resolved with the precedence OS environment > `.env` file > declared default;

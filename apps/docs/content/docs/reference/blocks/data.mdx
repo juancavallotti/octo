@@ -8,7 +8,7 @@ octo_types:
   - multi-transform
 ---
 
-The data blocks are leaf blocks that mutate the message in place: they replace the body, set or remove variables, or apply a whole sequence of edits in one pass. All value fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`), compiled once at startup so a malformed expression fails deployment rather than a message.
+The data blocks are leaf blocks that mutate the message in place: they replace the body, set or remove variables, or apply a sequence of edits in one pass. All value fields are [CEL expressions](/reference/cel) evaluated against the message (`body`, `vars`, `eventID`, `correlationID`, `env`, `now`). They are compiled once at startup, so a malformed expression fails deployment rather than a message.
 
 ## set-payload
 
@@ -16,9 +16,9 @@ Replaces the message body with the result of a CEL expression.
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `value` | `expression` | Yes | — | Evaluated against the message; the result becomes the new body. |
+| `value` | `expression` | Yes | none | Evaluated against the message; the result becomes the new body. |
 | `rawBody` | bool | No | `false` | Store the value as a raw-content body `{contentType, rawData}` instead of decoded JSON, so a connector (e.g. the HTTP source) serves it verbatim. The value expression must then evaluate to a string. |
-| `contentType` | string | When `rawBody` | — | MIME type recorded on the raw body, e.g. `text/html` or `application/x-www-form-urlencoded`. |
+| `contentType` | string | When `rawBody` | none | MIME type recorded on the raw body, e.g. `text/html` or `application/x-www-form-urlencoded`. |
 
 **Errors:** the block errors if the expression fails at runtime, or if `rawBody` is set and the value is not a string.
 
@@ -45,8 +45,8 @@ Stores the result of a CEL expression in a named variable, readable later as `va
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `name` | string | Yes | — | Variable name to set. |
-| `value` | `expression` | Yes | — | Evaluated against the message and stored under the name. |
+| `name` | string | Yes | none | Variable name to set. |
+| `value` | `expression` | Yes | none | Evaluated against the message and stored under the name. |
 
 ```yaml
 - type: set-variable
@@ -62,7 +62,7 @@ Removes a named variable from the message. Deleting an absent variable is a no-o
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `name` | string | Yes | — | Variable name to remove. |
+| `name` | string | Yes | none | Variable name to remove. |
 
 ```yaml
 - type: delete-variable
@@ -73,13 +73,13 @@ Removes a named variable from the message. Deleting an absent variable is a no-o
 
 ## multi-transform
 
-Applies an ordered list of additive CEL edits in a single block. Each step either replaces the body (`setBody`) or sets a variable (`setVar` + `value`). Steps are applied top to bottom and the edits **accumulate**: the evaluation context is rebuilt before every step, so a later expression sees the body and variables produced by the earlier ones. It compresses a chain of `set-payload` / `set-variable` blocks into one.
+Applies an ordered list of CEL edits in a single block, replacing a chain of `set-payload` / `set-variable` blocks. Each step either replaces the body (`setBody`) or sets a variable (`setVar` + `value`). Steps run top to bottom and the edits **accumulate**: the evaluation context is rebuilt before every step, so a later expression sees the body and variables produced by earlier ones.
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `transforms` | list | Yes | — | Ordered edit list; at least one entry. Each entry is either `{setBody: <expression>}` or `{setVar: <name>, value: <expression>}`. |
+| `transforms` | list | Yes | none | Ordered edit list; at least one entry. Each entry is either `{setBody: <expression>}` or `{setVar: <name>, value: <expression>}`. |
 
-Per step, exactly one of `setBody` or `setVar` must be set; a `setVar` step requires `value`, and a `setBody` step takes no `value` — anything else fails at startup. A runtime expression failure errors the block, identifying the step index.
+Per step, exactly one of `setBody` or `setVar` must be set; a `setVar` step requires `value`, and a `setBody` step takes no `value`. Anything else fails at startup. A runtime expression failure errors the block, identifying the step index.
 
 ```yaml
 - type: multi-transform

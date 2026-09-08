@@ -8,19 +8,19 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `queue` connector exposes the platform's competing-consumer queues to flows: a `queue` source runs each queued message through a flow, and the `queue-dispatch` block sends the current message to a subject. Every replica subscribed to a subject competes for messages, so each message is handled exactly once across the cluster — the cross-replica way to load balance work.
+The `queue` connector exposes the platform's competing-consumer queues to flows. A `queue` source runs each queued message through a flow, and the `queue-dispatch` block sends the current message to a subject. Every replica subscribed to a subject competes for messages, so each message is handled exactly once across the cluster: the cross-replica way to load balance work.
 
 ## `queue` connector
 
-The connector (label: **Platform Queue**) carries **no settings** — it is source-only. The queue itself is a core runtime service: in-process in the standalone module, and NATS-backed in the Kubernetes module.
+The connector (label: **Platform Queue**) carries **no settings**; it is source-only. The queue itself is a core runtime service: in-process in the standalone module, and NATS-backed in the Kubernetes module.
 
-**Provides a source:** yes — the **Platform Queue** source (below). **Blocks that bind to it:** none directly; `queue-dispatch` publishes onto the same platform queue service without referencing a connector instance.
+Provides a source: yes, the **Platform Queue** source (below). Blocks that bind to it: none directly. `queue-dispatch` publishes onto the same platform queue service without referencing a connector instance.
 
 ## `queue` source
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `subject` | string | Yes | — | Queue subject to subscribe to. Every replica subscribed to the same subject competes for messages, so each message is handled once across the cluster. |
+| `subject` | string | Yes | none | Queue subject to subscribe to. Every replica subscribed to the same subject competes for messages, so each message is handled once across the cluster. |
 | `listeners` | int | No | queue service default | Number of concurrent handler goroutines. |
 | `timeout` | duration | No | queue service timeout | How long a handler waits for its flow to finish (e.g. `30s`). |
 
@@ -28,19 +28,19 @@ Each delivered message is run through the flow. For a message sent as a **reques
 
 ## `queue-dispatch` block
 
-**Queue Dispatch** — send the message to a platform queue subject to load balance work across replicas. By default it publishes fire-and-forget (one-way); enable `awaitReply` to wait for one consumer's reply and fold it back in (request).
+**Queue Dispatch** sends the message to a platform queue subject to load balance work across replicas. By default it publishes fire-and-forget (one-way); enable `awaitReply` to wait for one consumer's reply and fold it back in (request).
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `subject` | expression | Yes | — | CEL expression for the queue subject to send to; enables per-message routing/sharding. |
+| `subject` | expression | Yes | none | CEL expression for the queue subject to send to; enables per-message routing/sharding. |
 | `awaitReply` | boolean | No | `false` | Wait for one consumer's reply and fold its body and variables back in (request). When false, the message is published fire-and-forget (one-way). |
 | `timeout` | duration | No | queue service timeout | How long to wait for a reply when `awaitReply` is set (e.g. `30s`). |
 
-The block sends a fresh sub-message (cloned and re-keyed so the sub-invocation correlates on its own event ID). With `awaitReply: true`, the reply's body replaces the current body and the reply's variables are merged into the current variables — the cross-replica analogue of a two-way `flow-ref`.
+The block sends a fresh sub-message (cloned and re-keyed so the sub-invocation correlates on its own event ID). With `awaitReply: true`, the reply's body replaces the current body and the reply's variables are merged into the current variables, the cross-replica analogue of a two-way `flow-ref`.
 
 ## Example
 
-Adapted from `samples/queue-loadbalance.yaml` — an HTTP flow dispatches to two worker flows, one one-way and one request/reply:
+Adapted from `samples/queue-loadbalance.yaml`: an HTTP flow dispatches to two worker flows, one one-way and one request/reply.
 
 ```yaml
 service:
@@ -79,7 +79,7 @@ flows:
   # its final message is returned to the requester as the reply.
   - name: order-enricher
     source:
-      type: queue                      # implicit connector — no instance needed
+      type: queue                      # implicit connector, no instance needed
       settings:
         subject: enrich-work
         listeners: 8                   # concurrent handlers on this replica
