@@ -85,7 +85,7 @@ flows:
   #     is returned to the requester as the reply. ---
   - name: order-enricher
     source:
-      type: queue                      # implicit connector — no instance needed
+      type: queue                      # implicit connector, no instance needed
       settings:
         subject: enrich-work
         listeners: 8                   # concurrent handlers on this replica
@@ -121,7 +121,7 @@ flows:
   #     result is discarded; it runs purely for the side effect (an audit log). ---
   - name: order-auditor
     source:
-      type: queue                      # implicit connector — no instance needed
+      type: queue                      # implicit connector, no instance needed
       settings:
         subject: audit-work
     process:

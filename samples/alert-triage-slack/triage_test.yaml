@@ -1,0 +1,116 @@
+# The agent flow, driven the way on-alert and on-slack-event drive it: with the
+# facts in variables and the opening turn in vars.turn.
+#
+# What the model concludes is the model's; a mock has no opinion. What is proved
+# here is the loop around it: the finding is posted into the incident's thread
+# (a new thread the first time, the same one after), the thread is written down
+# so a reply can find its incident, and the email goes out to exactly the
+# addresses the watch named, whatever the agent produced.
+flow: triage
+
+inputs:
+  an opening turn:
+    data: {}
+    vars:
+      incidentId: i_1
+      watchName: checkout errors
+      reportTo: ["ada@example.com"]
+      turn: "An alert has fired. Here it is, verbatim: {...}"
+
+  an opening turn nobody reads:
+    data: {}
+    vars:
+      incidentId: i_2
+      watchName: a watch that only feeds a flow
+      reportTo: []
+      turn: "An alert has fired."
+
+mocks:
+  triage.triage-agent:
+    default:
+      body: "checkout fails every request on a missing field."
+  # The two calls that leave the process. slack-send-message reports the posted
+  # message through vars.slackTs / vars.slackChannel, which the flow then writes
+  # down as the incident's thread.
+  triage.post-finding:
+    default:
+      body: { ok: true }
+      vars: { slackTs: "1700000000.000100", slackChannel: C0TESTCHANNEL }
+  triage.send-email:
+    default:
+      body: { messageId: msg_1 }
+
+cases:
+  - name: the first finding opens a thread and the thread is remembered
+    input: an opening turn
+    spies:
+      triage.post-finding:
+        count: 1
+        records:
+          - input:
+              that:
+                # No thread yet: a top-level post, which becomes the thread.
+                - 'vars.threadTs == null'
+                - 'vars.answer.contains("missing field")'
+      triage.first-post[then].remember-thread:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.slackTs == "1700000000.000100"'
+      triage.first-post[then].remember-root:
+        count: 1
+      triage.send-email:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.to == ["ada@example.com"]'
+                - 'body.subject.contains("checkout errors")'
+                - 'body.text.contains("missing field")'
+
+  - name: a later turn posts into the thread it already has
+    input: an opening turn
+    mocks:
+      # The thread lookup finds the root written by the first turn. The real block
+      # passes the body through, so the mock hands back the agent's answer.
+      triage.thread-for-incident:
+        default:
+          body: "checkout fails every request on a missing field."
+          vars: { threadTs: "1700000000.000100" }
+    spies:
+      triage.post-finding:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.threadTs == "1700000000.000100"'
+      triage.first-post[then].remember-thread:
+        count: 0
+
+  # The flow sends the email, not the model, so a run that produced nothing worth
+  # reading still reaches the people the watch named.
+  - name: an agent with no answer still reports
+    input: an opening turn
+    mocks:
+      triage.triage-agent:
+        default:
+          body: {}
+    spies:
+      triage.send-email:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.to == ["ada@example.com"]'
+
+  # The recipients come from the watch, and only from the watch.
+  - name: a watch with no recipients gets none invented
+    input: an opening turn nobody reads
+    spies:
+      triage.send-email:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.to == []'

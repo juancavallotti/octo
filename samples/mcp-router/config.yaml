@@ -6,7 +6,7 @@ service:
 # MCP JSON-RPC request; the flow's output body is the JSON-RPC response. The
 # router advertises its tool flows as MCP tools, its template resources as MCP
 # resources, and its template resources as MCP prompts, and routes tools/call to
-# the matching flow. It calls no LLM — it is a protocol adapter.
+# the matching flow. It calls no LLM: it is a protocol adapter.
 #
 #   task run:sample -- mcp-router
 #   PORT=8080
@@ -59,8 +59,7 @@ flows:
             # Display name for people; `name` stays the identifier clients call by.
             title: Weather forecast
             # Hints, so a client knows how much ceremony to put in front of a call.
-            # They are advisory — the runtime does not enforce them, and the
-            # protocol tells clients to treat them as untrusted.
+            # They are advisory: the runtime does not enforce them.
             annotations:
               readOnlyHint: true
               openWorldHint: true
