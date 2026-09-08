@@ -27,7 +27,7 @@ flows:
   # Publisher: fire on a schedule and broadcast a notification.
   - name: emitter
     source:
-      type: cron                 # implicit connector — no instance needed
+      type: cron                 # implicit connector, no instance needed
       settings:
         schedule: "@every 3s"
         payload: '{"tick": string(now)}'
@@ -41,7 +41,7 @@ flows:
   # Subscriber A: receives every notification broadcast to the subject.
   - name: subscriber-a
     source:
-      type: events               # implicit connector — no instance needed
+      type: events               # implicit connector, no instance needed
       settings:
         subject: notifications
     process:

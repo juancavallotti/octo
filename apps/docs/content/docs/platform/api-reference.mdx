@@ -5,9 +5,9 @@ description: "The orchestrator describes its own API: an OpenAPI 3.1 document, f
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The orchestrator serves a description of its own API. Everything the platform UI does — integrations, snapshots, deployments, resources, secrets, KV, users, API keys — goes through that API, so the description is the reference for driving it yourself.
+The orchestrator serves a description of its own API. Everything the platform UI does (integrations, snapshots, deployments, resources, secrets, KV, users, API keys) goes through that API, so the description is the reference for driving it yourself.
 
-The observability service describes itself the same way, on the same terms; stored logs, traces, pod stats, the retention policy and the storage report are read from [its API](/platform/observability-api-reference), not this one.
+The observability service describes itself the same way; stored logs, traces, pod stats, the retention policy and the storage report are read from [its API](/platform/observability-api-reference), not this one.
 
 ```bash
 curl -sS "$ORCHESTRATOR_URL/openapi.json"
@@ -21,7 +21,7 @@ Both routes answer whether or not a database is configured. The API description 
 
 ## The operation index
 
-The full document is large. `/openapi/operations` is a compact list of every route — method, path, summary and tags — and is a few kilobytes:
+The full document is large. `/openapi/operations` is a compact list of every route (method, path, summary and tags) and is a few kilobytes:
 
 ```bash
 curl -sS "$ORCHESTRATOR_URL/openapi/operations"
@@ -38,13 +38,13 @@ curl -sS "$ORCHESTRATOR_URL/openapi/operations"
 ]
 ```
 
-Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail — which is exactly how the [platform agent](/platform/agent) uses it, and the reason the index exists.
+Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail, which is how the [platform agent](/platform/agent) uses it.
 
-The tags are `apikeys`, `deployments`, `devruns`, `email`, `folders`, `integrations`, `kv`, `meta`, `objects`, `openapi`, `resources`, `secrets`, `settings`, `snapshots` and `users`.
+The tags are `agent`, `agent-memory`, `apikeys`, `bundles`, `deployments`, `devruns`, `email`, `folders`, `integrations`, `kv`, `meta`, `objects`, `openapi`, `resources`, `secrets`, `settings`, `snapshots` and `users`.
 
 ## Reading part of the document
 
-Two filters, and they are mutually exclusive — supplying both is a `400`:
+Two filters, mutually exclusive; supplying both is a `400`:
 
 | Query | Keeps |
 | --- | --- |
@@ -55,18 +55,18 @@ Two filters, and they are mutually exclusive — supplying both is a `400`:
 curl -sS "$ORCHESTRATOR_URL/openapi.json?tag=deployments"
 ```
 
-A filtered document is a **valid OpenAPI document**, not an excerpt: schemas are pruned to the ones the surviving operations can actually reach, following `$ref` transitively, so the result still resolves. An unknown tag yields a document with no paths rather than an error — nothing matched is an answer.
+A filtered document is a **valid OpenAPI document**, not an excerpt: schemas are pruned to the ones the surviving operations can reach, following `$ref` transitively, so the result still resolves. An unknown tag yields a document with no paths rather than an error.
 
 ## Keeping it honest
 
 The spec is regenerated in CI and the build fails if the committed copy differs, the same way it fails on unformatted code.
 
-A separate test compares the routes registered in the source against the routes described in the spec, in **both** directions. Regenerating cannot catch a route that was added without annotations — it simply regenerates without it, identically — so a new route with no documentation fails that test by name.
+A separate test compares the routes registered in the source against the routes described in the spec, in **both** directions. Regenerating cannot catch a route that was added without annotations, so a new route with no documentation fails that test by name.
 
 ## Authentication
 
 There is none. The orchestrator is `ClusterIP` in the chart and trusts its callers; the platform BFF is the authorization boundary in front of it.
 
 <Callout type="warn">
-This means anything that can reach the orchestrator's address can call every route on it. Keep it internal.
+Anything that can reach the orchestrator's address can call every route on it. Keep it internal.
 </Callout>

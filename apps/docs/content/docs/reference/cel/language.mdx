@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 A tour of the CEL language as it behaves in Octo, one example at a time. Every
 expression on this page was evaluated with [`octo
 eval`](/reference/cli#octo-eval), and the results are shown exactly as it
-prints them — as JSON-native values. Try any of them yourself:
+prints them, as JSON-native values. Try any of them yourself:
 
 ```bash
 bin/octo eval --expr '[1, 2, 3].filter(x, x % 2 == 1)'
@@ -17,8 +17,8 @@ bin/octo eval --expr '[1, 2, 3].filter(x, x % 2 == 1)'
 
 ## Types and literals
 
-CEL has eight scalar types — `int`, `uint`, `double`, `bool`, `string`,
-`bytes`, `timestamp`, `duration` — plus `list`, `map`, and `null`.
+CEL has eight scalar types (`int`, `uint`, `double`, `bool`, `string`,
+`bytes`, `timestamp`, `duration`) plus `list`, `map`, and `null`.
 
 | Expression | Result |
 | --- | --- |
@@ -35,7 +35,7 @@ CEL has eight scalar types — `int`, `uint`, `double`, `bool`, `string`,
 | `{"name": "Ada", "age": 36}` | `{"age":36,"name":"Ada"}` |
 | `null` | `null` |
 
-Ints, uints, and doubles are distinct types — `1`, `1u`, and `1.0` are three
+Ints, uints, and doubles are distinct types: `1`, `1u`, and `1.0` are three
 different values, and mixing them in operators is a compile error (see
 [Equality and numeric types](#equality-and-numeric-types)).
 
@@ -76,13 +76,13 @@ path](/reference/flow-file#error).
 | `size("hello")` | `5` |
 | `"quota: " + string(85) + "%"` | `"quota: 85%"` |
 
-`matches` uses [RE2](https://github.com/google/re2/wiki/Syntax) syntax — no
+`matches` uses [RE2](https://github.com/google/re2/wiki/Syntax) syntax, with no
 backreferences or lookaheads. It is also available as a global:
 `matches("hello", "^h")` is the same as `"hello".matches("^h")`.
 
 The table above is standard CEL. Octo also enables cel-go's strings library, so
 `trim`, `split`, `join`, `replace`, `substring`, `upperAscii`, `lowerAscii`, and
-`format` are available on top of it — see [Extension
+`format` are available on top of it. See [Extension
 Libraries](/reference/cel/libraries#strings).
 
 <Callout type="warn">
@@ -105,12 +105,12 @@ Libraries](/reference/cel/libraries#strings).
 | `[1, 2] + [3, 4]` | `[1,2,3,4]` |
 
 Indexing past the end of a list or reading a missing key is an evaluation
-error (`no such key`), not `null` — see [Presence and
+error (`no such key`), not `null`. See [Presence and
 defaults](#presence-and-defaults). There is no slice syntax (`[1,2,3][1:2]`
 does not parse) and maps cannot be concatenated with `+`.
 
 Sorting, de-duplicating, flattening, and slicing a list come from the lists
-library — see [Extension Libraries](/reference/cel/libraries#lists).
+library, in [Extension Libraries](/reference/cel/libraries#lists).
 
 ## Presence and defaults
 
@@ -157,8 +157,8 @@ index expression. For map keys held in variables, use `key in map` instead.
 | `int(timestamp("2026-01-01T00:00:00Z"))` | `1767225600` |
 | `duration("1h30m")` | `"5400s"` |
 
-`type(x)` returns a value's type and is useful in comparisons —
-`type("a") == string` evaluates to `true` — but a type itself is not a
+`type(x)` returns a value's type and is useful in comparisons, so
+`type("a") == string` evaluates to `true`. A type itself is not a
 JSON-serializable result, so an expression must not *return* one, and
 `string(type(x))` does not compile.
 
@@ -217,9 +217,9 @@ between statically known distinct types:
 | `"1" == 1` | compile error |
 | `dyn(1) == dyn(1.0)` | `true` (dynamic values compare numerically) |
 
-That last row matters in practice: message data is dynamically typed, and JSON
-numbers decode as doubles, so comparisons against int literals *work* —
+That last row matters in practice. Message data is dynamically typed and JSON
+numbers decode as doubles, so comparisons against int literals still work:
 `body.n == 1` and `body.n > 0` are both `true` for `--data '{"n": 1}'`.
-Arithmetic is stricter: `body.n + 1` fails at runtime with `no such overload`
-because a double cannot be added to an int. Write `body.n + 1.0`, or convert:
-`int(body.n) + 1`.
+Arithmetic is stricter: `body.n + 1` fails at runtime with `no such overload`,
+because a double cannot be added to an int. Write `body.n + 1.0`, or convert
+with `int(body.n) + 1`.

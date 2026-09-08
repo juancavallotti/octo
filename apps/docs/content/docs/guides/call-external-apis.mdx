@@ -5,19 +5,17 @@ description: "Use the HTTP client with auth, retries, and response caching."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-In this guide you call an external HTTP API from a flow with the `http-client`
-connector and the `rest` block, then layer on authentication, retries, and
-response caching. It follows
+This guide calls an external HTTP API with the `http-client` connector and the
+`rest` block, then adds authentication, retries, and response caching. It follows
 [`samples/weather.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/weather.yaml),
-which polls the free Open-Meteo forecast API — no API key needed.
+which polls the free Open-Meteo forecast API (no API key needed).
 
 ![The flow in the visual editor](/screenshots/sample-weather.png)
 
 ## Declare the client
 
-The `http-client` connector owns the client-wide policy: the base URL, a
-request timeout, default headers, authentication, retries, and an optional
-response cache. Blocks reference it by name and stay thin.
+The `http-client` connector owns the client-wide policy: base URL, timeout,
+default headers, authentication, retries, and an optional response cache.
 
 ```yaml
 env:
@@ -44,12 +42,12 @@ connectors:
       level: info
 ```
 
-A bad base URL or auth configuration fails at startup, not on the first
-request. You can also set `headers:` (a map applied to every request unless the
-block sets the same header) and `maxResponseBytes` (default 1 MiB) here.
+A bad base URL or auth configuration fails at startup. The connector also
+accepts `headers:` (applied to every request unless the block sets the same
+header) and `maxResponseBytes` (default 1 MiB).
 
-Write a block's `path` with or without a leading slash: it is joined onto the
-base URL's own path with exactly one slash between them. Any of these reach
+A block's `path` is joined onto the base URL's path with exactly one slash
+between them, whether or not it starts with one. Any of these reach
 `https://api.example.com/v1/things`:
 
 | `baseURL` | `path` |
@@ -59,13 +57,13 @@ base URL's own path with exactly one slash between them. Any of these reach
 | `https://api.example.com/v1/` | `things` |
 | `https://api.example.com` | `/v1/things` |
 
-Give the base URL no path at all when the block paths carry the whole route.
+Leave the base URL without a path when the block paths carry the whole route.
 
 ## Make the request
 
-The `rest` block runs one request through the connector and folds the response
-into the message body. The method and path are static; query parameters,
-headers, and the request body are CEL expressions evaluated per message.
+The `rest` block runs one request and folds the response into the message body.
+Method and path are static; query parameters, headers, and the request body are
+CEL expressions evaluated per message.
 
 ```yaml
 flows:
@@ -95,16 +93,11 @@ flows:
           message: '"current temperature: " + string(body.current.temperature_2m) + body.current_units.temperature_2m'
 ```
 
-Two settings control how the response is handled:
-
-- **`statusVar`** — the response status code lands in a variable, `vars.statusCode`
-  by default.
-- **`failOnError`** — defaults to `true`: a 400+ status fails the message and
-  triggers the flow's error handling. Set it to `false` to inspect the status
-  yourself and branch on `vars.statusCode`.
-
-A JSON response becomes the new message body; a non-JSON response is kept as a
-raw body with its Content-Type.
+`statusVar` names the variable that receives the status code, `vars.statusCode`
+by default. `failOnError` defaults to `true`: a 400+ status fails the message
+and triggers the flow's error handling. Set it to `false` to branch on
+`vars.statusCode` yourself. A JSON response becomes the new body; a non-JSON
+response is kept raw with its Content-Type.
 
 ## Run it
 
@@ -112,20 +105,20 @@ raw body with its Content-Type.
 bin/octo run --config samples/weather.yaml
 ```
 
-Every 30 seconds the flow logs the current temperature:
+Every 30 seconds the flow logs:
 
 ```
 current temperature: 21.4°C
 ```
 
-Not every tick hits the network: a tick that lands within the 60s cache TTL of
-a prior identical request is served from memory. Change the location by
-overriding `WEATHER_LAT` / `WEATHER_LON` (inline or in a `./.env` file).
+A tick within the 60s cache TTL of an identical request is served from memory.
+Change the location by overriding `WEATHER_LAT` / `WEATHER_LON` (inline or in a
+`./.env` file).
 
 ## Add authentication
 
-Auth is configured once on the connector and applied to every request. Four
-schemes are supported.
+Auth is configured once on the connector and applied to every request. There
+are four schemes.
 
 Bearer token:
 
@@ -147,9 +140,9 @@ Basic auth:
 ```
 
 OAuth 2.0 client-credentials, as in
-[`samples/runtime-services.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/runtime-services.yaml):
-on the first request the connector fetches an access token from `tokenURL`,
-caches it, and refreshes it automatically.
+[`samples/runtime-services.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/runtime-services.yaml).
+The connector fetches a token from `tokenURL` on the first request, caches it,
+and refreshes it:
 
 ```yaml
       auth:
@@ -161,17 +154,17 @@ caches it, and refreshes it automatically.
           - read
 ```
 
-Google Cloud workload identity, for a runtime deployed on Cloud Run, GCE, or
-GKE. The connector asks the instance metadata server for a token minted for the
-service account it runs as, so there is no secret to configure at all:
+Google Cloud workload identity, for a runtime on Cloud Run, GCE, or GKE. The
+connector asks the metadata server for a token for its own service account, so
+there is no secret to configure:
 
 ```yaml
       auth:
         type: gcp                # audience defaults to baseURL
 ```
 
-That covers calling another Cloud Run service. To call a Google API directly,
-ask for an access token and name the scopes:
+That calls another Cloud Run service. To call a Google API directly, ask for an
+access token and name the scopes:
 
 ```yaml
       auth:
@@ -186,10 +179,9 @@ for the full field list.
 
 ### Switch auth off in local development
 
-`auth.type` is an ordinary setting, so it takes an `${ENV}` reference like any
-other — and an empty type means no auth. That is the intended way to run the
-same config in both places: no auth against a local stub, the real scheme in
-production.
+`auth.type` takes an `${ENV}` reference like any setting, and an empty type
+means no auth. Run the same config unauthenticated against a local stub and
+with the real scheme in production.
 
 ```yaml
 env:
@@ -204,17 +196,13 @@ connectors:
         type: ${API_AUTH}        # set API_AUTH=gcp in Cloud Run
 ```
 
-This matters most for `gcp`, which can only work where a metadata server exists.
-Rather than a fallback credential path that behaves differently on a laptop than
-in production, the scheme is switched off by configuration and the difference
-stays visible in the environment.
+This matters most for `gcp`, which only works where a metadata server exists.
 
 ### Call as the caller, not as the deployment
 
-Every scheme above describes a credential known at startup. When the flow calls
-the upstream *as its caller* — relaying a bearer token that came in with the
-request, or one an earlier block minted — the credential is data on the message,
-not configuration. Set the `Authorization` header on the block:
+The schemes above are credentials known at startup. To call the upstream *as
+the caller* (relaying a bearer token from the request, or one an earlier block
+minted), set the `Authorization` header on the block:
 
 ```yaml
     source:
@@ -235,7 +223,6 @@ not configuration. Set the `Authorization` header on the block:
 `rest-dynamic` takes it the same way, as one entry in its rendered header map.
 
 <Callout type="info">
-If a block sets an `Authorization` header itself, the connector leaves it alone —
-per-request auth wins over the connector default. So one connector can serve both
-its own calls and calls made for a caller.
+A block's own `Authorization` header wins over the connector default, so one
+connector can serve both its own calls and calls made for a caller.
 </Callout>

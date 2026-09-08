@@ -5,11 +5,8 @@ description: "Run a local program from a flow, stream its output, and hand a mod
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Sometimes the thing you need is already a command-line tool. The
-[`cli-run`](/reference/blocks/integration#cli-run) block runs one, watches its
-output a line at a time while it is still running, and carries on with how it
-ended.
-
+The [`cli-run`](/reference/blocks/integration#cli-run) block runs a command-line
+tool, watches its output a line at a time, and carries on with how it ended.
 Three samples build this up:
 [`cli-run.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cli-run.yaml),
 [`cli-sse.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cli-sse.yaml),
@@ -31,18 +28,13 @@ The chain carries on with `{exitCode, stdout, stderr, lines}`. A non-zero exit
 errors the block by default so the [error path](/reference/flow-file#error) sees
 it; `onExit: continue` leaves the decision to a later block.
 
-`program` is a CEL expression, which is why a constant is written `'"go"'` —
-quoted twice, once for YAML and once for CEL. That looks fussy for a fixed
-command and pays for itself in the last section.
-
-A bare name is resolved through `$PATH`, so you do not have to know where the
-platform keeps it; an absolute path works too. No `allow` list is needed here,
-because the program is written right there.
+`program` is a CEL expression, so a constant is written `'"go"'`: quoted once for
+YAML and once for CEL. A bare name is resolved through `$PATH`; an absolute path
+works too. No `allow` list is needed when the program is a literal.
 
 ## Watching the output
 
-Add an `events` path and it runs once per output line, and once when the command
-exits:
+An `events` path runs once per output line, and once when the command exits:
 
 ```yaml
   emit: [stdout, stderr, exit]
@@ -55,25 +47,20 @@ exits:
 ```
 
 Each event's body is `{type, text, index}`, where `type` is `stdout` or
-`stderr`. The final one is `{type: "exit", exitCode, lines}`.
-
-The exit event fires for every run, even one that printed nothing — which is why
-it is its own event rather than a flag on the last line: a silent command would
-otherwise never report how it ended. It goes through `emit` like any other, so
-list it when the path wants it. (`samples/cli-sse.yaml` deliberately leaves it
-out, because there the route's own `finalEvent` already carries the exit status
-and emitting it here would send it twice.)
+`stderr`. The final one is `{type: "exit", exitCode, lines}`; it fires for every
+run, even one that printed nothing, and goes through `emit` like any other.
+`samples/cli-sse.yaml` leaves it out because the route's own `finalEvent` already
+carries the exit status.
 
 <Callout>
-  The path is an observer — its result is discarded. It reports on the run
-  without taking part in it, so a broken sink is a log line rather than a failed
-  message.
+  The path is an observer and its result is discarded, so a broken sink is a
+  log line rather than a failed message.
 </Callout>
 
 ## Streaming to an HTTP caller
 
 Point that path at an [`sse-event`](/reference/connectors/http) behind an SSE
-route and the caller sees output as it happens:
+route and the caller sees output live:
 
 ```yaml
 source:
@@ -102,30 +89,24 @@ process:
             ifClosed: stop
 ```
 
-Nothing there names the stream, and nothing has to: the route stamps its address
-into `vars.sseStream`, and an event message carries the parent's variables. The
-same block works behind any route.
-
-`cli-run` **blocks** until the command exits, and that is what makes this work at
-all — the request stays open for the whole run, so the stream is still there when
-the lines arrive.
+Nothing names the stream: the route stamps its address into `vars.sseStream`,
+and an event message carries the parent's variables. `cli-run` **blocks** until
+the command exits, so the request stays open for the whole run.
 
 <Callout>
-  Backpressure is free. The events path runs between reads of the process's
-  pipes, so a slow client blocks the child on write instead of letting its
-  output pile up in memory. And with `ifClosed: stop`, a caller that hangs up
-  stops the command rather than leaving it producing output nobody will read.
+  The events path runs between reads of the process's pipes, so a slow client
+  blocks the child on write instead of letting its output pile up in memory.
+  With `ifClosed: stop`, a caller that hangs up stops the command.
 </Callout>
 
 Set the command's own `timeout` below the route's `maxDuration`, so the command
-is what gives up first and the caller learns why.
+gives up first and the caller learns why.
 
 ## Giving a model a toolbox
 
-`program` being an expression means the command can come from the message — so
-an [`ai-agent`](/reference/blocks/ai) tool branch can offer a model a set of
-commands and let it choose. That is when `allow` earns its keep: it is checked on
-**every message**, before anything is spawned.
+Because `program` is an expression, an [`ai-agent`](/reference/blocks/ai) tool
+branch can offer a model a set of commands and let it choose. `allow` is checked
+on **every message**, before anything is spawned.
 
 ```yaml
 - type: cli-run
@@ -138,7 +119,7 @@ commands and let it choose. That is when `allow` earns its keep: it is checked o
   onExit: continue
 ```
 
-Have the flow map a command *name* to a program, rather than letting the model
+Have the flow map a command name to a program, rather than letting the model
 supply one:
 
 ```yaml
@@ -152,45 +133,36 @@ supply one:
           body.command == "disk-usage" ? "df" : ""
 ```
 
-A name outside the list maps to `""`, so there is nothing to run and nothing is
-spawned; anything else the mapping could produce still has to be on `allow`. Put
-that mapping in its own sourceless flow and you can test the whole boundary with
-no model and no API key — `samples/cli-agent_test.yaml` does.
+A name outside the list maps to `""`, so nothing is spawned; anything else the
+mapping could produce still has to be on `allow`. In its own sourceless flow, the
+mapping is testable with no model and no API key, as
+`samples/cli-agent_test.yaml` does.
 
 ## What keeps this safe
 
-**The allow list is the boundary — when you declare one.** `allow` is optional,
-and a block without one may run anything; that is the right default for a
-command you spelled out yourself, and the wrong one the moment the program comes
-from somewhere else. The builder warns at startup about exactly that
-combination.
+**The allow list is the boundary when you declare one.** `allow` is optional,
+and a block without one may run anything; the builder warns at startup when such
+a block takes its program from the message.
 
-Entries may be bare names or absolute paths, and both sides are compared **after
-resolution** — a bare name matches the absolute path `$PATH` resolves it to, and
-`/bin/../bin/sh` cannot dodge an entry for `/bin/sh`. Symlinks are not followed,
-on purpose: on a busybox system every applet is a symlink to the same binary, so
-following them would make `["cat"]` also admit `sh`. Every entry is resolved at
-build time, so one naming a program that is not installed fails at startup.
+Entries may be bare names or absolute paths, compared **after resolution**: a
+bare name matches the absolute path `$PATH` resolves it to, and `/bin/../bin/sh`
+cannot dodge an entry for `/bin/sh`. Symlinks are not followed, because on a
+busybox system following them would make `["cat"]` also admit `sh`. Every entry
+is resolved at build time, so one naming an uninstalled program fails at startup.
 
-**No shell is ever involved.** Arguments are passed as argv, so a semicolon, a
-pipe or a `$(…)` in a model-supplied argument is just bytes to the callee. The
-injection class that command-running usually falls to is closed by construction
-rather than by escaping.
-
-**The child inherits nothing.** It sees exactly the variables named in `env` and
-no others, so a command cannot read an API key the integration holds.
-
-**Interpreters are refused** on an explicit list unless
-`allowInterpreters: true`. An interpreter's arguments *are* a program, so listing
-`sh` or `python` allows everything it can reach.
+No shell is involved: arguments are passed as argv, so a semicolon, a pipe or a
+`$(…)` in a model-supplied argument is just bytes to the callee. The child sees
+exactly the variables named in `env` and no others, so it cannot read an API key
+the integration holds. Interpreters are refused on an explicit list unless
+`allowInterpreters: true`, because listing `sh` or `python` allows everything
+they can reach.
 
 <Callout type="warn">
-  **Declare an allow list for anything you deploy.** Everything above is about
-  keeping development quick; a flow the internet can reach and no allow list is
-  remote code execution, whatever else the flow does.
+  **Declare an allow list for anything you deploy.** A flow the internet can
+  reach with no allow list is remote code execution, whatever else the flow does.
 
-  The interpreter check is a guardrail against an easy mistake, not a sandbox.
-  The list can never be complete — `git` runs a pager, `tar` has `--to-command`,
-  `find` has `-exec` — so write the allow list as narrowly as the job allows and
-  treat everything on it as something the caller can run.
+  The interpreter check is a guardrail, not a sandbox. The list can never be
+  complete (`git` runs a pager, `tar` has `--to-command`, `find` has `-exec`), so
+  write the allow list as narrowly as the job allows and treat everything on it
+  as something the caller can run.
 </Callout>

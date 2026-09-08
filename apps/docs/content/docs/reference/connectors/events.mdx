@@ -8,37 +8,39 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `events` connector exposes the platform's broadcast pub/sub topics to flows: an `events` source runs every message published to a subject through a flow, and the `publish-event` block broadcasts the current message to a subject. Every subscriber on a subject receives every message — the fan-out counterpart to the [queue](/reference/connectors/queue) connector's competing consumers.
+The `events` connector exposes the platform's broadcast pub/sub topics to flows. An `events` source runs every message published to a subject through a flow, and the `publish-event` block broadcasts the current message to a subject. Every subscriber on a subject receives every message, the fan-out counterpart to the [queue](/reference/connectors/queue) connector's competing consumers.
 
 ## `events` connector
 
-The connector (label: **Platform Events**) carries **no settings** — it is source-only. The topic itself is a core runtime service: in-process in the standalone module, and NATS-backed in the Kubernetes module, where every replica's subscribers receive every message.
+The connector (label: **Platform Events**) carries **no settings**; it is source-only. The topic itself is a core runtime service: in-process in the standalone module, and NATS-backed in the Kubernetes module, where every replica's subscribers receive every message.
 
-**Provides a source:** yes — the **Event subscription** source (below). **Blocks that bind to it:** none directly; `publish-event` publishes onto the same platform topics service without referencing a connector instance.
+Provides a source: yes, the **Event subscription** source (below). Blocks that bind to it: none directly. `publish-event` publishes onto the same platform topics service without referencing a connector instance.
 
 ## `events` source
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `subject` | string | Yes | — | Topic subject to subscribe to. Every subscriber on the subject (including every replica) receives every message — broadcast fan-out, unlike a queue's competing consumers. |
+| `subject` | string | Yes | none | Topic subject to subscribe to. Every subscriber on the subject (including every replica) receives every message: broadcast fan-out, unlike a queue's competing consumers. |
 | `listeners` | int | No | topics service default | Number of concurrent handler goroutines. |
+
+Those two are the only settings the source reads, and it decodes leniently, so any other key under `settings` is silently ignored rather than rejected.
 
 The source is fire-and-forget: a topic has no reply, so each delivery is forwarded into the flow and the handler returns. Each subscriber's copy is cloned and re-keyed so its flow invocation correlates on its own event ID, preserving the body, variables, and correlation ID.
 
 ## `publish-event` block
 
-**Publish Event** — broadcast the current message to a platform topic subject, so every subscriber on that subject receives it (fire-and-forget fan-out). The message passes through unchanged.
+**Publish Event** broadcasts the current message to a platform topic subject, so every subscriber on that subject receives it (fire-and-forget fan-out). The message passes through unchanged.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `subject` | expression | Yes | — | CEL expression for the topic subject to broadcast to; enables per-message routing. |
+| `subject` | expression | Yes | none | CEL expression for the topic subject to broadcast to; enables per-message routing. |
 | `value` | expression | No | whole body | CEL expression whose result becomes the published body. Empty publishes the whole current body. |
 
 The block publishes a fresh sub-message (cloned and re-keyed, its body optionally replaced by `value`) and returns the current message unchanged.
 
 ## Example
 
-From `samples/events.yaml` — one publisher, two subscribers, each subscriber sees every message:
+From `samples/events.yaml`: one publisher and two subscribers, each subscriber seeing every message.
 
 ```yaml
 service:
@@ -55,7 +57,7 @@ flows:
   # Publisher: fire on a schedule and broadcast a notification.
   - name: emitter
     source:
-      type: cron                 # implicit connector — no instance needed
+      type: cron                 # implicit connector, no instance needed
       settings:
         schedule: "@every 3s"
         payload: '{"tick": string(now)}'
@@ -69,7 +71,7 @@ flows:
   # Subscriber A: receives every notification broadcast to the subject.
   - name: subscriber-a
     source:
-      type: events               # implicit connector — no instance needed
+      type: events               # implicit connector, no instance needed
       settings:
         subject: notifications
     process:
@@ -94,12 +96,12 @@ flows:
 ```
 
 <Callout type="info">
-Use events when every interested flow should see the message. When each message must be handled exactly once across replicas — or when you need a reply — use the [queue](/reference/connectors/queue) connector instead.
+Use events when every interested flow should see the message. When each message must be handled exactly once across replicas, or when you need a reply, use the [queue](/reference/connectors/queue) connector instead.
 </Callout>
 
 ## Reaching the platform: the `system:` prefix
 
-Every topic subject is scoped to the deployment that publishes it. On the cluster runtime `notifications` goes on the wire as `octo.<deploymentId>.t.notifications`, so two deployments using the same subject name never hear each other. That is right for a flow talking to itself, and wrong for one talking to the platform: a subject nobody else can name is a subject nobody else receives.
+Every topic subject is scoped to the deployment that publishes it. On the cluster runtime `notifications` goes on the wire as `octo.<deploymentId>.t.notifications`, so two deployments using the same subject name never hear each other. That scoping is wrong for a flow talking to the platform: a subject nobody else can name is a subject nobody else receives.
 
 A subject written with a **`system:` prefix opts out of that scoping**. The rest of the string is the subject, verbatim:
 
@@ -112,18 +114,18 @@ A subject written with a **`system:` prefix opts out of that scoping**. The rest
     value: '{"type": "integration.updated", "id": body.id, "name": body.name}'
 ```
 
-The example above is the real one: `internal.integrations.events` is the subject the platform relays to open browser tabs, so publishing an [`OctoEvent`](/platform/event-bus) on it makes an editor viewing that integration offer to reload. A deployed app can therefore tell the UI that something it changed is worth re-reading, without an HTTP hop back through the orchestrator.
+That example is a real one: `internal.integrations.events` is the subject the platform relays to open browser tabs, so publishing an [`OctoEvent`](/platform/event-bus) on it makes an editor viewing that integration offer to reload. A deployed app can tell the UI that something it changed is worth re-reading, without an HTTP hop back through the orchestrator.
 
-What is published is the message **body, as JSON** — the same payload any other topic message carries, which is what the platform hands to the browser.
+What is published is the message **body, as JSON**, the same payload any other topic message carries.
 
 ### Publish only
 
-A `system:` subject can be published to and **not subscribed to** — an `events` source naming one is refused when the flow starts.
+A `system:` subject can be published to and **not subscribed to**. An `events` source naming one is refused when the flow starts.
 
-The prefix buys a flow the ability to raise a platform event, not to read the platform's traffic. The unscoped plane carries `internal.logs` and `internal.traces`, which hold every deployment's records; a flow that could subscribe there would be reading workloads it has nothing to do with, wildcards included. Publishing has no equivalent reach — a publish subject cannot contain a wildcard, and the worst a wrong name does is go nowhere.
+The unscoped plane carries `internal.logs` and `internal.traces`, which hold every deployment's records, so a flow that could subscribe there would be reading workloads it has nothing to do with, wildcards included. Publishing has no equivalent reach: a publish subject cannot contain a wildcard, and the worst a wrong name does is go nowhere.
 
 <Callout type="warn">
-The runtime holds no list of system subjects and validates nothing about them. It does not know which exist, what may be published on them, or what shape a subscriber expects — the caller names the subject and owns the payload. An unroutable name publishes into the void, and a malformed payload is the subscriber's problem, exactly as they would be on any other subject. Check the name against the [event bus reference](/platform/event-bus) before relying on it.
+The runtime holds no list of system subjects and validates nothing about them. It does not know which exist, what may be published on them, or what shape a subscriber expects. An unroutable name publishes into the void, and a malformed payload is the subscriber's problem, exactly as they would be on any other subject. Check the name against the [event bus reference](/platform/event-bus) before relying on it.
 
 Only a leading `system:` opts out, so an ordinary subject that happens to contain the word is still scoped to its deployment. Standalone runs have no platform to notify: a `system:` subject there is an ordinary in-process topic name that reaches whatever subscribes to it locally, and nothing else.
 </Callout>

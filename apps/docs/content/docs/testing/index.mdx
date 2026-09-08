@@ -7,33 +7,28 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Bot, FileCode, FlaskConical, SquarePen, Terminal, Wand } from 'lucide-react';
 
-A flow that calls a payment API can only be run where that API is. So it gets run
-once, by hand, on the day it is written — and after that nobody dares touch it.
-
-**dolphin** is octo's test runner, and it removes the reason not to touch it. A test
-is a [debug config](/guides/debugging-flows#drive-it-all-from-a-file) with assertions:
-the same input, the same mocks, the same spies you would pass to `octo invoke` by
-hand, plus what should have happened. The mocks are what make the flow runnable
-anywhere — the HTTP call, the LLM, the database write never happen — and the
-assertions are what make running it mean something.
+**dolphin** is octo's test runner. A test is a
+[debug config](/guides/debugging-flows#drive-it-all-from-a-file) with assertions: the
+input, mocks and spies you would pass to `octo invoke` by hand, plus what should have
+happened. The mocks make the flow runnable anywhere (the HTTP call, the LLM, the
+database write never happen); the assertions make the run mean something.
 
 ![The editor's Testing tab: a rail of flows, one with a suite of two cases and one with none yet](/screenshots/editor-testing-tab.png)
 
 ## One file, four surfaces
 
-A suite is a YAML file that lives beside the flows it tests: `orders.yaml` is tested
-by `orders_test.yaml`. Nothing about it is private to a tool.
+A suite is a YAML file beside the flows it tests: `orders.yaml` is tested by
+`orders_test.yaml`.
 
 | You write it | You run it |
 | --- | --- |
 | By hand, in an editor | `dolphin test` in a terminal |
 | In the [Testing tab](/testing/in-the-editor), as a form | **Run tests**, per suite or for the whole document |
 | With an [agent over MCP](/testing/with-an-agent) | `run_tests` |
-| — | CI, on every push |
+| (any of the above) | CI, on every push |
 
-All four give the **same verdict**, because all four shell out to the same binary. The
-editor does not reimplement the assertions; it runs `dolphin` and reads its report.
-That is what makes a green tab mean a green pipeline.
+All four give the **same verdict** because all four shell out to the same binary. The
+editor runs `dolphin` and reads its report.
 
 ## The shape of a suite
 
@@ -72,8 +67,8 @@ cases:
 
 <Cards>
   <Card icon={<FlaskConical />} href="/testing/first-test" title="Your first test">
-    Zero to a green suite in about ten minutes, on a flow that ships with octo —
-    including making it fail on purpose and reading the failure.
+    Zero to a green suite in about ten minutes, on a flow that ships with octo,
+    including making it fail on purpose.
   </Card>
   <Card icon={<Wand />} href="/testing/writing-cases" title="Writing test cases">
     The format in full: mocks, shared inputs, spies over a `foreach`, and everything
@@ -83,7 +78,7 @@ cases:
     The Testing tab: a form over the same file, running one suite or all of them.
   </Card>
   <Card icon={<Bot />} href="/testing/with-an-agent" title="Testing with an agent">
-    Writing and running suites over MCP — and which tools touch the committed file.
+    Writing and running suites over MCP, and which tools touch the committed file.
   </Card>
   <Card icon={<Terminal />} href="/testing/running-and-ci" title="Running tests">
     `dolphin test`, its flags, the exit-code contract, and a CI job to copy.
@@ -95,19 +90,17 @@ cases:
 
 ## What dolphin is not
 
-- **Not an assertion DSL.** `expect.that` and a mock's `when` are
-  [CEL](/reference/cel) — the same expression language every block in the flow already
-  uses, over the same variables. There is nothing extra to learn to write an assertion.
-- **Not an in-process harness.** One case is one `octo` process. The debug seam is a
-  config *rewrite*, so a service can only serve the case it was built for. That buys
-  full isolation between cases, and it is why a failing case can hand you a runnable
-  command that reproduces it.
-- **Not a mock of octo.** The engine under test is the real one. A mocked block failure
-  is indistinguishable from the real block failing, so an error path behaves in a test
-  exactly as it will in production.
+It is not an assertion DSL: `expect.that` and a mock's `when` are [CEL](/reference/cel),
+the same language every block uses, over the same variables.
+
+It is not an in-process harness: one case is one `octo` process, so cases are fully
+isolated and a failing case can hand you a runnable command that reproduces it.
+
+It is not a mock of octo: the engine under test is the real one, so a mocked block
+failure behaves exactly as the real failure would in production.
 
 <Callout type="info">
-dolphin ships alongside `octo` as a second binary. If you have not installed it, see
-[installation](/getting-started/installation#install-dolphin) — or use the standalone
+dolphin ships alongside `octo` as a second binary. See
+[installation](/getting-started/installation#install-dolphin), or use the standalone
 editor's Docker image, which bundles both.
 </Callout>

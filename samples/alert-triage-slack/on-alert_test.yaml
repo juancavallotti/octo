@@ -1,0 +1,80 @@
+# The front door for alerts: only the kinds that mean something is wrong reach the
+# agent, and what the rest of the loop needs is lifted out of the alert before the
+# agent replaces the body with its answer.
+#
+# Sources do not run under invoke, so each case hands the flow the body the events
+# source would have delivered: the notification the platform published.
+flow: on-alert
+
+inputs:
+  an open alert:
+    data:
+      kind: open
+      watchId: w_1
+      watchName: checkout errors
+      incidentId: i_1
+      severity: critical
+      matched: 1
+      total: 1
+      reportTo: ["ada@example.com"]
+      outcomes:
+        - kind: threshold
+          label: error_rate gt over 15m, integration checkout
+          observed: 0.24
+          verdict: "true"
+
+  a recovery:
+    data:
+      kind: resolve
+      watchId: w_1
+      watchName: checkout errors
+      incidentId: i_1
+      reportTo: ["ada@example.com"]
+
+mocks:
+  # The agent flow is its own suite. Here it only needs to have been called, or not.
+  on-alert.triage:
+    default:
+      body: "checkout fails every request on a missing field."
+
+cases:
+  - name: a recovery is logged and never reaches the agent
+    input: a recovery
+    spies:
+      on-alert.only-bad-news[onReject].skip-good-news:
+        count: 1
+      on-alert.triage:
+        count: 0
+
+  - name: an open alert hands the agent the alert and the facts the loop needs
+    input: an open alert
+    spies:
+      on-alert.triage:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.incidentId == "i_1"'
+                - 'vars.watchName == "checkout errors"'
+                - 'vars.reportTo == ["ada@example.com"]'
+                # The alert goes in whole: the numbers it matched on are the evidence.
+                - 'vars.turn.contains("verbatim")'
+                - 'vars.turn.contains("\"observed\":0.24")'
+                - 'vars.turn.contains("Do not change anything yet")'
+
+  # A notification always carries watchId; incidentId and reportTo are the parts
+  # a hand-written or older alert might lack.
+  - name: an alert without an incident id is keyed on its watch
+    input:
+      data:
+        kind: repeat
+        watchId: w_2
+        watchName: a quieter watch
+    spies:
+      on-alert.triage:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.incidentId == "w_2"'
+                - 'vars.reportTo == []'

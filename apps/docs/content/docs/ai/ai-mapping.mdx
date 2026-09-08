@@ -5,10 +5,9 @@ description: "Map data to a target shape with prompts, examples, and schemas."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `ai-mapping` block reshapes the message body into a target shape
-described by a prompt, optional input/output examples, and an optional JSON
-Schema the result is validated against. It turns messy, inconsistent input
-into structured output you can rely on downstream.
+The `ai-mapping` block reshapes the message body into a target shape described
+by a prompt, optional input/output examples, and an optional JSON Schema the
+result is validated against.
 
 ## A complete example
 
@@ -78,45 +77,36 @@ configuration lives under `settings:`.
 | `outputSchema` | No | JSON Schema the result is validated against; a mismatch **errors the block**. |
 | `maxTokens` | No | Response token cap for this call; `0` uses the connector default. |
 
-The example and schema fields are JSON documents. In YAML you can write them
-either as an inline JSON string (a block scalar, as above) or as a native
-YAML map — both are normalized at build time. A malformed schema fails at
-startup, not on the first message.
+The example and schema fields are JSON documents, written either as an inline
+JSON string (a block scalar, as above) or as a native YAML map; both are
+normalized at build time. A malformed schema fails at startup, not on the first
+message.
 
 ## Deterministic-ish structured output
 
-The model is instructed to respond with only the output JSON — no prose, no
-code fences (a stray fence is stripped defensively). Then the block enforces
-the contract mechanically:
-
-1. the response must parse as JSON, and
-2. when `outputSchema` is set, it must validate against the schema.
-
-Either failure is a block **error**, so a bad generation never flows
-silently downstream — it goes to your recovery path instead. This is what
-makes `ai-mapping` compose so well with [`ai-retry`](/ai/ai-retry) (which
-feeds the validation error back to a model for another attempt) or
-`handle-errors`. On success the validated document becomes the message body,
-and the schema travels with the message as its body schema.
+The model is instructed to respond with only the output JSON, no prose and no
+code fences (a stray fence is stripped). The response must then parse as JSON
+and, when `outputSchema` is set, validate against it. Either failure is a block
+**error**, so a bad generation goes to your recovery path instead of flowing
+downstream, which is what makes `ai-mapping` compose with
+[`ai-retry`](/ai/ai-retry) (it feeds the validation error back to a model for
+another attempt) or `handle-errors`. On success the validated document becomes
+the message body, and the schema travels with the message as its body schema.
 
 ## Where it shines
 
-- **Normalization** — many partner formats in, one canonical shape out, as
-  in the contact example.
-- **Extraction** — pull structured fields out of free text: an email body, a
-  support ticket, a scraped page.
-- **Formatting** — rewrite content for a destination under a strict shape.
-  The [Slack agent capstone](/ai/slack-agent) ends its pipeline with an
-  `ai-mapping` that converts the agent's reply to Slack mrkdwn, validated
-  against `{"text": string}`.
-
-Prefer plain [`transform` blocks](/reference/blocks/data) when the mapping
-is mechanical — CEL is free and exact. Reach for `ai-mapping` when the input
-varies in ways you cannot enumerate.
+Normalization: many partner formats in, one canonical shape out, as in the
+contact example. Extraction: structured fields out of free text such as an
+email body, a support ticket, or a scraped page. Formatting: rewriting content
+for a destination under a strict shape; the
+[Slack agent capstone](/ai/slack-agent) ends with an `ai-mapping` that converts
+the agent's reply to Slack mrkdwn, validated against `{"text": string}`. Prefer
+plain [`transform` blocks](/reference/blocks/data) when the mapping is
+mechanical, since CEL is free and exact.
 
 <Callout type="info">
 Every `ai-mapping` call costs an LLM round-trip. When the same inputs recur
-— quote requests, repeated lookups — cache results in the object store keyed
-by the input and skip the model on a hit. See
+(quote requests, repeated lookups), cache results in the object store keyed by
+the input and skip the model on a hit. See
 [Object Storage and Caching](/guides/object-storage-and-caching).
 </Callout>

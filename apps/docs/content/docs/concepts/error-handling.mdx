@@ -5,15 +5,15 @@ description: "Flow-level error pipelines, scoped recovery, and retry strategies.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-When a block fails, the rest of the pipeline does not run. A flow recovers in one of two places: a `handle-errors` block around the risky section, or the flow's own `error:` pipeline as a last resort. Anything you don't catch ends the message as failed.
+When a block fails, the rest of the pipeline does not run. A flow recovers in a `handle-errors` block around the risky section, or in the flow's own `error:` pipeline as a last resort. Anything you don't catch ends the message as failed.
 
 ## The failure model
 
 A block error aborts the `process` chain at the failing block. The runtime then:
 
 1. Sets `vars.error` on the message.
-2. Runs the nearest recovery pipeline — an enclosing `handle-errors` block's `error` chain, or the root flow's `error:` chain.
-3. If the recovery pipeline succeeds, its output becomes the result: the failure is recovered and the flow completes normally. If there is no recovery pipeline (or it fails too), the message ends as failed.
+2. Runs the nearest recovery pipeline: an enclosing `handle-errors` block's `error` chain, or the root flow's `error:` chain.
+3. If the recovery pipeline succeeds, its output becomes the result and the flow completes normally. With no recovery pipeline (or if it fails too), the message ends as failed.
 
 Both recovery pipelines see the failure as a structured variable:
 
@@ -25,7 +25,7 @@ Both recovery pipelines see the failure as a structured variable:
 
 ## Flow-level recovery: the `error:` pipeline
 
-A root flow may declare an `error:` chain as a sibling of `process`. It is the whole-flow safety net — the difference between a per-section try/catch and a top-level one.
+A root flow may declare an `error:` chain as a sibling of `process`. It is the whole-flow safety net.
 
 ```yaml title="error-handling.yaml (excerpt)"
 flows:
@@ -56,15 +56,15 @@ flows:
             }
 ```
 
-The `rest` call fails, nothing caught it inline, so the error pipeline runs: it sets a 502 status and returns the error detail to the caller.
+The `rest` call fails and nothing caught it inline, so the error pipeline sets a 502 status and returns the error detail to the caller.
 
 <Callout type="info">
-Only root flows may declare `error:`. Sub-flows nested inside composites cannot — wrap the risky blocks in a `handle-errors` block instead.
+Only root flows may declare `error:`. Sub-flows nested inside composites cannot; wrap the risky blocks in a `handle-errors` block instead.
 </Callout>
 
 ## Scoped recovery: `handle-errors`
 
-`handle-errors` is a composite with two slots: a `process` chain and an `error` chain. If any block in `process` fails, `error` runs instead with `vars.error` set. When the error chain succeeds, the flow *continues normally* after the block — the failure never reaches the flow level.
+`handle-errors` is a composite with two slots, a `process` chain and an `error` chain. If any block in `process` fails, `error` runs with `vars.error` set, and when it succeeds the flow *continues normally* after the block.
 
 ```yaml title="error-handling.yaml (excerpt)"
 - type: handle-errors
@@ -84,11 +84,11 @@ Only root flows may declare `error:`. Sub-flows nested inside composites cannot 
         value: '{"status": "degraded", "reason": vars.error.message}'
 ```
 
-Here the charge call fails but the flow degrades gracefully and completes with HTTP 200. `handle-errors` blocks nest — inside composites and inside each other — and each sets its own `vars.error` when its section fails.
+Here the charge call fails but the flow completes with HTTP 200. `handle-errors` blocks nest, inside composites and each other, and each sets its own `vars.error` when its section fails.
 
 ## Validation rejections
 
-A `validate` block is not an error path: it asserts CEL rules and, when one fails, *rejects* the message — the flow stops and a response is returned, but no error pipeline runs. The failing rules' messages land in `vars.validationErrors`, the default response uses HTTP 422 (override with `rejectStatus`), and an `onReject` sub-flow can shape the response body itself.
+A `validate` block is not an error path. When a CEL rule fails it *rejects* the message: the flow stops and a response is returned, but no error pipeline runs. The failing rules' messages land in `vars.validationErrors`, the response is HTTP 422 by default (override with `rejectStatus`), and an `onReject` sub-flow can shape the body.
 
 ## HTTP behavior
 
@@ -96,18 +96,16 @@ For flows fronted by an `http` source, the outcome maps to a status:
 
 | Outcome | Status |
 | --- | --- |
-| Completed | 200, or `vars.httpStatus` when set (100–599) |
+| Completed | 200, or `vars.httpStatus` when set (100 to 599) |
 | Dropped | 204 No Content |
 | Failed (uncaught error) | 500 with `{"error": ...}` |
 | Timed out | 504 Gateway Timeout |
 
-A recovered flow is a *completed* flow — set `vars.httpStatus` in the recovery pipeline when the caller should still see an error code, as in the 502 example above.
+A recovered flow is a *completed* flow. Set `vars.httpStatus` in the recovery pipeline when the caller should still see an error code, as in the 502 example above.
 
 ## Retries
 
-Transient upstream failures are better retried than recovered. Two mechanisms ship with the runtime:
-
-**Rate-limit retries** live on the `http-client` connector: when an upstream returns 429 Too Many Requests, the `rest` block re-attempts automatically, honoring the `Retry-After` header and otherwise backing off exponentially.
+Two retry mechanisms ship with the runtime. Rate-limit retries live on the `http-client` connector: when an upstream returns 429 Too Many Requests, the `rest` block re-attempts automatically, honoring the `Retry-After` header and otherwise backing off exponentially.
 
 ```yaml
 connectors:
@@ -120,4 +118,4 @@ connectors:
         maxBackoff: 30s     # cap on each wait (default 30s)
 ```
 
-**LLM self-healing** is the `ai-retry` composite: it runs a protected `process` chain and, on failure, lets a model inspect `vars.error` and the message, revise it, and re-run the chain up to `maxAttempts` before falling through to its `error` chain. See [ai-retry](/ai/ai-retry).
+LLM self-healing is the `ai-retry` composite: it runs a protected `process` chain and, on failure, lets a model inspect `vars.error` and the message, revise it, and re-run the chain up to `maxAttempts` before falling through to its `error` chain. See [ai-retry](/ai/ai-retry).

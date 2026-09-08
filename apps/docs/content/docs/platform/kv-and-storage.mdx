@@ -5,17 +5,19 @@ description: "The deployment-scoped key/value store and the platform database."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-On the platform, the runtime's object store is served by the orchestrator: a deployment-scoped, versioned key/value store backed by Postgres. It is what makes state survive pod restarts and stay consistent across a deployment's replicas — everything built on the runtime object store ([`object-read`/`object-write`](/concepts/state-and-data), agent memory, runtime-written secrets) rides on it in clustered runs.
+On the platform, the runtime's object store is served by the orchestrator: a deployment-scoped, versioned key/value store backed by Postgres. It is what makes state survive pod restarts and stay consistent across a deployment's replicas. Everything built on the runtime object store ([`object-read`/`object-write`](/concepts/state-and-data), agent memory, runtime-written secrets) rides on it in clustered runs.
 
 ## The model
 
-Every entry is keyed by `(deploymentId, namespace, key)` and carries a monotonically increasing **version**:
+Every entry is keyed by `(deploymentId, namespace, key)` and carries a monotonically increasing **version**.
 
-- **Deployment-scoped.** A deployment's replicas share one store; different deployments — even of the same integration — never see each other's data. The scope key is `OCTO_DEPLOYMENT_ID`, injected into every pod.
-- **Namespaced.** System state is isolated from user data (`system` vs `user` namespaces), and secret namespaces are separate again (below). Pick a namespace and you also pick a [durability tier](#durability-tiers).
-- **Versioned.** Writes are compare-and-swap: a write carries the version it expects (0 to create) and fails with a conflict when the entry changed underneath it, so concurrent replicas never silently overwrite each other. See [Clustering](/runtime/clustering) for how flows use this.
+The store is deployment-scoped: a deployment's replicas share one store, and different deployments, even of the same integration, never see each other's data. The scope key is `OCTO_DEPLOYMENT_ID`, injected into every pod.
 
-Values are opaque bytes, capped at 1 MiB per entry.
+Namespaces isolate system state from user data (`system` vs `user`), and secret namespaces are separate again (below). Picking a namespace also picks a [durability tier](#durability-tiers).
+
+Writes are compare-and-swap: a write carries the version it expects (0 to create) and fails with a conflict when the entry changed underneath it, so concurrent replicas never silently overwrite each other. See [Clustering](/runtime/clustering).
+
+Values are opaque bytes, capped at 1 MiB per entry. Keys may contain `/`.
 
 ## How the runtime talks to it
 
@@ -25,51 +27,65 @@ The runtime's k8s services module (selected by `RUNTIME_SERVICES_MODULE=k8s`) im
 GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}
 ```
 
-The version travels in the `X-Object-Version` header both ways: reads return the current version, writes send the expected version and get the new one back; a mismatch is a `409` the runtime surfaces as its version-conflict error. In standalone runs the same object-store interface is served locally — flow YAML doesn't change between the two.
+The version travels in the `X-Object-Version` header both ways: reads return the current version, writes send the expected version and get the new one back. A mismatch is a `409` the runtime surfaces as its version-conflict error. In standalone runs the same object-store interface is served locally, so flow YAML doesn't change between the two.
 
 ## Durability tiers
 
-Not everything you store wants the same treatment. An aggregator's in-flight group state must survive a restart or you lose messages; a memoized response body with a 60-second TTL should not cost you a database round-trip and a row. So you choose a tier — **persistent** or **volatile** — by choosing a namespace, and the suffix on its name says which you get:
+An aggregator's in-flight group state must survive a restart, while a memoized response body with a 60-second TTL need not cost a database round-trip. You choose a tier, **persistent** or **volatile**, by choosing a namespace, and the `_volatile` suffix on its name says which you get:
+
+![A deployment writing to two backends: volatile namespaces to Redis under octo:kv keys scoped by deployment, and persistent namespaces to Postgres in a user space and a system space, each holding plain values and encrypted ones](/diagrams/kv-tiers.png)
+
+The suffix is the only thing that routes. A key is never rewritten and never
+carries the namespace: the two travel separately and meet only in the Redis key
+layout, `octo:kv:<deployment>:<namespace>:<key>`, where they stay separate
+segments. The deployment comes first so one deployment's keys can be swept
+together, and the key comes last so it may contain a colon while a namespace may
+not, which is refused rather than escaped: namespace `a:b` with key `k` and
+namespace `a` with key `b:k` would otherwise be the same Redis key, and two
+callers who believed they were in separate keyspaces would share one, versions
+included.
 
 | | persistent (`user`, `system`) | volatile (`user_volatile`, `system_volatile`) |
 | --- | --- | --- |
 | Platform | Postgres `kv_store`, via the orchestrator | Redis |
 | Standalone | serialized to `$OCTO_STORAGE_DIR` | process memory |
 
-Volatile makes **no durability promise at all**. Your value may vanish on a restart, and on the platform it may be evicted while the process is still running — the bundled Redis runs with `maxmemory-policy allkeys-lru` and no on-disk persistence. Use it for state whose loss costs you a recompute; never use it for state whose loss costs you correctness.
+Volatile makes **no durability promise at all**. Your value may vanish on a restart, and on the platform it may be evicted while the process is still running, because the bundled Redis runs with `maxmemory-policy allkeys-lru` and no on-disk persistence. Use it for state whose loss costs you a recompute, never for state whose loss costs you correctness.
 
 Both tiers are versioned and compare-and-swap in exactly the same way, so you move code between them without changing it.
 
 <Callout type="info">
-When the platform has no Redis configured (`redis.enabled: false` and no `externalRedis`), volatile namespaces fall back to Postgres. Nothing breaks; you simply pay persistent-tier cost for volatile data. Write against the guarantee rather than the backend — the guarantee is what will not change.
+When the platform has no Redis configured (`redis.enabled: false` and no `externalRedis`), volatile namespaces fall back to Postgres. Nothing breaks; you simply pay persistent-tier cost for volatile data. Write against the guarantee rather than the backend, since the guarantee is what will not change.
 </Callout>
 
 ### How a pod reaches each tier
 
-Integration pods reach Redis **directly**, exactly as they reach NATS: the orchestrator injects `REDIS_URL` alongside `NATS_URL` at deploy time, and the runtime dials it itself. The volatile tier has no database and no encryption key, so routing it through the orchestrator would buy nothing and cost a round trip on the tier whose whole point is being cheap.
+Integration pods reach Redis **directly**, exactly as they reach NATS: the orchestrator injects `REDIS_URL` alongside `NATS_URL` at deploy time, and the runtime dials it itself. Redis must therefore be reachable from the integration pods, not only from the orchestrator. With the bundled Redis it is: same namespace, no credentials. With a managed one behind `externalRedis.existingSecret`, the orchestrator binds the pods' `REDIS_URL` to the same Secret by reference, so the password never enters a Deployment manifest.
 
-That means Redis must be reachable from the integration pods, not only from the orchestrator. With the bundled Redis it is — same namespace, no credentials. With a managed one behind `externalRedis.existingSecret`, the orchestrator binds the pods' `REDIS_URL` to the same Secret by reference, so the password never enters a Deployment manifest.
-
-The persistent tier still goes through the orchestrator, because that is where the database and the encryption key are. Which is also why secrets are never volatile: a secret always takes the orchestrator path and is always encrypted at rest.
+The persistent tier still goes through the orchestrator, because that is where the database and the encryption key are. That is also why secrets are never volatile: a secret always takes the orchestrator path and is always encrypted at rest.
 
 ### Watching the tiers
 
-The **Storage health** tab beside the object browser reports what a reachability check cannot: Redis memory against its ceiling, the hit rate, how many keys have been evicted, and on the database side how much of the [observability service's](/platform/observability-api-reference#storage-report) connection pool is in use and how large `kv_store` has grown. Eviction counts are the answer to "my volatile object is not there" — it is the tier working as designed, not a fault.
+The **Storage health** tab beside the object browser reports what a reachability check cannot: Redis memory against its ceiling, the hit rate, how many keys have been evicted, and on the database side how much of the [observability service's](/platform/observability-api-reference#storage-report) connection pool is in use and how large `kv_store` has grown. Eviction counts are the answer to "my volatile object is not there": the tier working as designed, not a fault.
 
 ### Standalone persistence
 
 Run `octo run` and it serializes your persistent namespaces into `--storage-dir` (default `./octo-store`, or `$OCTO_STORAGE_DIR`), one file per namespace, so your objects survive `Ctrl-C` the way a deployment's survive a rollout. Writes are coalesced and flushed shortly after they happen, and a graceful stop flushes synchronously; a `kill -9` can lose the last fraction of a second. Set the directory to an empty value to keep the whole store in memory and leave nothing behind.
 
-Two kinds of namespace never reach that directory:
-
-- **Volatile namespaces**, because that is what volatile means.
-- **Secret namespaces**, because a standalone runtime has no encryption key. On the platform the orchestrator encrypts your secrets at rest; writing an OAuth refresh token into your working directory in cleartext to buy restart-survival would be the wrong trade, so standalone secrets keep the memory-only lifetime they have always had. Expect a restart to re-authenticate.
+Two kinds of namespace never reach that directory. Volatile namespaces do not, because that is what volatile means. Secret namespaces do not either, because a standalone runtime has no encryption key and writing an OAuth refresh token into your working directory in cleartext would be the wrong trade. Standalone secrets keep a memory-only lifetime, so expect a restart to re-authenticate.
 
 ## Secret namespaces
 
-Namespaces ending in `_secrets` (e.g. `user_secrets`) are **encrypted at rest**: the orchestrator encrypts values with AES-GCM before they reach Postgres and decrypts on read, using the key configured as `KV_ENCRYPTION_KEY` (the Helm chart's `kv.encryptionKey`, or `kv.existingSecret` naming a Secret that holds it — a base64-encoded 32-byte AES-256 key either way). This is what backs the runtime secret store in clustered runs — a flow that writes a secret writes to a secret namespace of this same table.
+Namespaces ending in `_secrets` (e.g. `user_secrets`) are **encrypted at rest**: the orchestrator encrypts values with AES-GCM before they reach Postgres and decrypts on read, using the key configured as `KV_ENCRYPTION_KEY` (the Helm chart's `kv.encryptionKey`, or `kv.existingSecret` naming a Secret that holds it). The key is base64-encoded and must decode to 16, 24 or 32 bytes; use 32 for AES-256. This is what backs the runtime secret store in clustered runs, so a flow that writes a secret writes to a secret namespace of this same table.
 
 Plain namespaces are stored as-is, so ordinary KV traffic pays no encryption cost. When no key is configured, secret-namespace operations are rejected (a 503) while plain KV keeps working.
+
+A namespace that is both is refused with a 400. `user_secrets_volatile` asks the
+store to hold a credential somewhere that keeps it in the clear and may evict it,
+which is the one combination that must never exist. The check strips one suffix
+and re-tests rather than reading the last one, because composing them hides one
+behind the other: `user_secrets_volatile` does not end in `_secrets`, and
+`user_volatile_secrets` does not end in `_volatile`.
 
 ## The object browser
 
@@ -81,18 +97,17 @@ GET  /deployments/{id}/objects
 GET/PUT/DELETE /deployments/{id}/objects/{key}
 ```
 
-Secret namespaces are filtered out of the browser — their values are never listed or displayed.
+Secret namespaces are filtered out of the browser; their values are never listed or displayed.
 
 ![The object browser showing a deployment's key/value store](/screenshots/platform-object-browser.png)
 
 ## Persistence guarantees
 
-- **Persistent-tier storage is Postgres** (the `kv_store` table), so entries survive pod restarts, rollouts, and scale changes — the store's lifetime is the deployment's, not a pod's.
-- **Writes are transactional and serialized per key** (a row lock plus the CAS check), so a successful write is durable and its version unique. Losers of a concurrent race get a clean conflict.
-- **Cleanup on undeploy is best-effort.** Entries have no foreign key to the deployment; undeploying deletes them after the workload is gone, and a cleanup failure leaves harmless orphans rather than failing the undeploy. Data does not survive undeploy by contract — redeploying an integration creates a *new* deployment id and therefore an empty store.
-- **Durability follows your Postgres setup.** The store is exactly as durable as the platform database; see [Deploying with Helm](/deploy/helm) for storage configuration.
-- **The volatile tier guarantees you nothing**, by design. Redis runs with no on-disk persistence and an LRU eviction policy, so expect a volatile value to disappear while the process that wrote it is still running. See [Durability tiers](#durability-tiers).
-- **Undeploy sweeps both tiers.** A failure in either is logged and the other is still attempted, so an unreachable store leaves you harmless orphans rather than skipping the cleanup that would have worked.
+- Persistent-tier storage is Postgres (the `kv_store` table), so entries survive pod restarts, rollouts, and scale changes. The store's lifetime is the deployment's, not a pod's.
+- Writes are transactional and serialized per key (a row lock plus the CAS check), so a successful write is durable and its version unique. Losers of a concurrent race get a clean conflict.
+- Cleanup on undeploy is best-effort and sweeps both tiers. Entries have no foreign key to the deployment; undeploying deletes them after the workload is gone, and a failure in either tier is logged while the other is still attempted, leaving harmless orphans rather than failing the undeploy. Data does not survive undeploy by contract: redeploying an integration creates a *new* deployment id and therefore an empty store.
+- Durability follows your Postgres setup. The store is exactly as durable as the platform database; see [Deploying with Helm](/deploy/helm) for storage configuration.
+- The volatile tier guarantees you nothing, by design. See [Durability tiers](#durability-tiers).
 
 <Callout type="warn">
 The KV store is for coordination state and modest objects (1 MiB cap per value), not bulk data. Point flows at a real database or object storage for large payloads.

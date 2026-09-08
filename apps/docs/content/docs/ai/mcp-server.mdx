@@ -9,19 +9,19 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 The `mcp-router` block turns a flow into a stateless [Model Context
 Protocol](https://modelcontextprotocol.io) server. Put it behind an `http`
 source and every POST to the route is one MCP JSON-RPC request; the block's
-output body is the JSON-RPC response. Each tool you declare is a flow branch —
-the same process chains you write everywhere else in Octo — so an MCP tool call
-runs a flow and returns its result.
+output body is the JSON-RPC response. Each tool you declare is an ordinary flow
+branch, so an MCP tool call runs a flow and returns its result.
 
 ![An MCP client listing the tools exposed by an Octo mcp-router server](/screenshots/mcp-client-tools.png)
 
-The router is a protocol adapter: it calls no LLM. The intelligence lives in
+The router is a protocol adapter and calls no LLM. The intelligence lives in
 the MCP client (Claude Code, Claude Desktop, or any other MCP client) that
 connects to it.
 
 ## A complete server
 
-This is `samples/mcp-router` from the repo: one tool, one resource, one prompt.
+This is `samples/mcp-router` from the repo: one tool, a fixed resource, a
+resource template, and one prompt.
 
 ```yaml title="config.yaml"
 service:
@@ -38,6 +38,8 @@ resources:
       as: guide
     - resource: greet.md
       as: greet
+    - resource: city.md
+      as: city
 
 connectors:
   - name: api
@@ -59,11 +61,29 @@ flows:
         tools:
           - name: forecast
             description: Return a short weather forecast for a city.
+            # Display name for people; `name` stays the identifier clients call by.
+            title: Weather forecast
+            # Hints, so a client knows how much ceremony to put in front of a call.
+            # They are advisory: the runtime does not enforce them.
+            annotations:
+              readOnlyHint: true
+              openWorldHint: true
             inputSchema: |
               {
                 "type": "object",
                 "required": ["city"],
                 "properties": { "city": { "type": "string" } }
+              }
+            # Declaring the shape of the answer makes the router return it as
+            # structuredContent as well as text, so a client can use it as data.
+            outputSchema: |
+              {
+                "type": "object",
+                "required": ["city", "summary"],
+                "properties": {
+                  "city": { "type": "string" },
+                  "summary": { "type": "string" }
+                }
               }
             process:
               # A real tool would call a weather API; here we echo a fixed
@@ -77,6 +97,14 @@ flows:
             description: Operator guide for the weather tools.
             mimeType: text/markdown
             resource: guide
+          # A family of documents rather than one. Clients discover it on
+          # resources/templates/list, fill in {city}, then read the concrete uri;
+          # what the placeholder took reaches the template as body.city.
+          - uriTemplate: octo://city/{city}
+            name: city-briefing
+            description: A briefing for any city.
+            mimeType: text/markdown
+            resource: city
         prompts:
           - name: assist
             description: Prime an assistant to help a user in a given city.
@@ -87,7 +115,7 @@ flows:
             resource: greet
 ```
 
-The two template files are plain text with `{{ }}` expressions:
+The template files are plain text with `{{ }}` expressions:
 
 ```markdown title="greet.md"
 You are helping a user in {{ body.city }}. Offer to fetch the forecast with the
@@ -95,7 +123,7 @@ You are helping a user in {{ body.city }}. Offer to fetch the forecast with the
 ```
 
 ```markdown title="guide.md"
-# Weather tools — operator guide
+# Weather tools: operator guide
 
 This MCP server exposes a small set of weather tools.
 
@@ -112,7 +140,7 @@ bin/octo run --config samples/mcp-router
 
 ## The block, field by field
 
-The `mcp-router` is a composite block — `tools`, `resources`, `prompts`, and
+The `mcp-router` is a composite block: `tools`, `resources`, `prompts`, and
 `serverName` sit at the block top level, not under `settings`. At least one
 tool, resource, or prompt is required.
 
@@ -123,28 +151,21 @@ the block's `name`, then to `octo-mcp`.
 
 ### `tools[]`
 
-Each entry is one MCP tool, declared exactly like an [`ai-agent`
-tool](/ai/agent-skills-and-tools):
-
-- **`name`** — the tool name clients call. Unique within the block.
-- **`description`** — what the tool does. Clients hand this to the model, so
-  write it for an LLM: say what the tool returns and when to use it.
-- **`inputSchema`** — a JSON Schema string describing the arguments.
-- **`process`** — the flow branch that runs on `tools/call`. The call's
-  `arguments` object becomes the branch's message **`body`** (so a schema
-  property `city` is `body.city`), and the branch's final body is returned to
-  the client as the tool's text result.
-
-A branch failure — or an unknown tool name — comes back as an `isError` tool
-result, an application-level error the model can see and recover from, not a
-protocol error.
+Each entry is one MCP tool, declared exactly like an
+[`ai-agent` tool](/ai/agent-skills-and-tools). `name` is the tool name clients
+call, unique within the block. `description` is handed to the model, so say
+what the tool returns and when to use it. `inputSchema` is a JSON Schema string
+for the arguments. `process` is the flow branch that runs on `tools/call`: the
+call's `arguments` object becomes the branch's message **`body`** (a schema
+property `city` is `body.city`), and the branch's final body is returned as the
+tool's text result. A branch failure, or an unknown tool name, comes back as an
+`isError` tool result the model can see and recover from, not a protocol error.
 
 ### Tool metadata
 
-Beyond `name`, `description` and `inputSchema`, a tool may declare three pieces
-of MCP metadata. All three are `mcp-router` only — an `ai-agent` **rejects**
-them when the flow is built, because an LLM tool call has no protocol carrying
-them and accepting one would be configuration that silently does nothing.
+A tool may also declare three pieces of MCP metadata. All three are
+`mcp-router` only; an `ai-agent` **rejects** them when the flow is built,
+because an LLM tool call has no protocol carrying them.
 
 ```yaml
 tools:
@@ -158,42 +179,31 @@ tools:
       { "type": "object", "properties": { "summary": { "type": "string" } } }
 ```
 
-- **`title`** — a display name for people, where `name` stays the identifier
-  clients call by. Shown in consent prompts and tool pickers.
-- **`annotations`** — `readOnlyHint`, `destructiveHint`, `idempotentHint` and
-  `openWorldHint`, so a client can decide how much ceremony to put in front of a
-  call. A hint you leave out is not advertised at all: the protocol's defaults
-  differ per hint, so writing them all would assert things you did not claim.
-  They are advisory — the runtime does not check a tool branch against them, and
-  the protocol tells clients to treat them as untrusted.
-- **`outputSchema`** — the shape of what the branch returns. Declaring it makes
-  `tools/call` send the result as `structuredContent` as well as text, so a
-  client can consume it as data. The text block stays either way, because the
-  spec requires the serialized JSON to remain there for clients that do not read
-  `structuredContent`. A branch whose result is not a JSON object simply gets no
-  `structuredContent` — the call still succeeds.
+| Field | Meaning |
+| --- | --- |
+| `title` | A display name for people, where `name` stays the identifier clients call by. Shown in consent prompts and tool pickers. |
+| `annotations` | `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`, so a client can decide how much ceremony to put in front of a call. A hint you leave out is not advertised at all, since the protocol's defaults differ per hint. They are advisory: the runtime does not check a tool branch against them, and the protocol tells clients to treat them as untrusted. |
+| `outputSchema` | The shape of what the branch returns. Declaring it makes `tools/call` send the result as `structuredContent` as well as text. The text block stays either way, because the spec requires the serialized JSON there for clients that do not read `structuredContent`. A branch whose result is not a JSON object gets no `structuredContent`; the call still succeeds. |
 
 ### `resources[]`
 
 Documents the server advertises and serves on `resources/read`. Each entry
-declares **either** a `uri` or a `uriTemplate`, never both:
+declares **either** a `uri` or a `uriTemplate`, never both.
 
-- **`uri`** — the stable identifier clients read by, e.g. `octo://guide`. One
-  fixed document, listed on `resources/list`. Unique within the block.
-- **`uriTemplate`** — a family of documents rather than one, listed on
-  `resources/templates/list` instead. See below.
-- **`name`** — a human-readable name. Required.
-- **`description`** — optional.
-- **`mimeType`** — defaults to `text/plain`.
-- **`resource`** — the alias of a [template resource](/concepts/resources)
-  declared under `resources.templates`. The template is rendered on each read.
+| Field | Meaning |
+| --- | --- |
+| `uri` | The stable identifier clients read by, e.g. `octo://guide`. One fixed document, listed on `resources/list`. Unique within the block. |
+| `uriTemplate` | A family of documents rather than one, listed on `resources/templates/list` instead. See below. |
+| `name` | A human-readable name. Required. |
+| `description` | Optional. |
+| `mimeType` | Defaults to `text/plain`. |
+| `resource` | The alias of a [template resource](/concepts/resources) declared under `resources.templates`. The template is rendered on each read. |
 
 #### Resource templates
 
 A `uriTemplate` is an [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570)
-level-1 template: literal text with `{name}` placeholders. It says "any document
-of this shape", so one declaration stands in for every city, contact or ticket a
-client might ask about.
+level-1 template: literal text with `{name}` placeholders. One declaration
+stands in for every city, contact or ticket a client might ask about.
 
 ```yaml
 resources:
@@ -205,20 +215,19 @@ resources:
 ```
 
 A client discovers it on `resources/templates/list`, fills in the placeholders,
-and reads the concrete uri. The router matches that uri back against the
-template and hands what each placeholder took to the rendered template **as the
-body** — so `{city}` is `{{ body.city }}`, the same bargain a prompt's arguments
-strike. The template also sees the request's variables, so a router behind a
-`jwt-validate` can render per-caller content with no extra wiring.
+and reads the concrete uri. The router matches that uri against the template
+and hands what each placeholder took to the rendered template **as the body**,
+so `{city}` is `{{ body.city }}`. The template also sees the request's
+variables, so a router behind a `jwt-validate` can render per-caller content.
 
 ```bash
 curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":1,"method":"resources/templates/list"}'
 curl -s localhost:8080/mcp -d '{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"octo://city/Paris"}}'
 ```
 
-Matching rules worth knowing:
+Matching rules:
 
-- Only simple expansion is supported — no operators (`+ # . / ; ? &`), no
+- Only simple expansion is supported: no operators (`+ # . / ; ? &`), no
   explode, no prefix lengths.
 - A placeholder matches up to the next literal rather than greedily, so
   `octo://city/{city}/weather` takes one segment instead of swallowing the rest.
@@ -233,24 +242,23 @@ Matching rules worth knowing:
 
 ### `prompts[]`
 
-Parameterized prompt templates served on `prompts/get`:
-
-- **`name`**, **`description`** — advertised on `prompts/list`.
-- **`arguments[]`** — each with `name`, `description`, and `required`.
-- **`resource`** — the template resource alias to render. The client's
-  arguments are exposed to the template as the body, so an argument `city`
-  renders as `{{ body.city }}`. The request's variables are available too, so a
-  prompt can read what a `jwt-validate` in front of the router left behind. The
-  rendered text is returned as a single `user` message.
+Parameterized prompt templates served on `prompts/get`. `name` and
+`description` are advertised on `prompts/list`; `arguments[]` each carry
+`name`, `description`, and `required`; `resource` is the template resource
+alias to render. The client's arguments are exposed to the template as the
+body, so an argument `city` renders as `{{ body.city }}`. The request's
+variables are available too, so a prompt can read what a `jwt-validate` in
+front of the router left behind. The rendered text is returned as a single
+`user` message.
 
 ## The protocol surface
 
-The router is stateless: no sessions, no SSE — one JSON-RPC request per HTTP
+The router is stateless: no sessions, no SSE, one JSON-RPC request per HTTP
 POST, one response. It handles:
 
 | Method | Behavior |
 | --- | --- |
-| `initialize` | Reports `serverInfo` (the runtime's own release version) and negotiates the protocol version. Advertises only the capabilities the block actually declares — a router with tools but no prompts does not claim `prompts`. |
+| `initialize` | Reports `serverInfo` (the runtime's own release version) and negotiates the protocol version. Advertises only the capabilities the block declares: a router with tools but no prompts does not claim `prompts`. |
 | `ping` | Returns an empty result. |
 | `tools/list` | The declared tools with their JSON Schemas. |
 | `tools/call` | Routes to the matching tool branch. |
@@ -266,26 +274,18 @@ returns a standard `-32601` method-not-found error.
 
 ### Protocol version negotiation
 
-The router speaks `2024-11-05`, `2025-03-26` and `2025-06-18` — one
-implementation serves all three, because it covers the subset of the protocol
-that has not changed across them.
-
-Ask for one of those and you get it back. Ask for anything else and you get
-`2025-06-18`, the latest the router supports, rather than your own version
-echoed: echoing back a version the server has never heard of is a false
-agreement, and worse than a mismatch a client can detect and act on. Send no
-version at all and you get `2024-11-05` — a client that omits the field has not
-said what it can read, so the router does not guess upward.
+The router speaks `2024-11-05`, `2025-03-26` and `2025-06-18`, since it covers
+the subset of the protocol that has not changed across them. Ask for one of
+those and you get it back. Ask for anything else and you get `2025-06-18`, the
+latest the router supports, rather than your own version echoed. Send no version
+at all and you get `2024-11-05`.
 
 ### Capabilities are advertised honestly
 
-`initialize` reports only what the block declares. A router with `tools` and no
-`prompts` does not advertise `prompts`, so a client never calls `prompts/list`
-on a server that has none.
-
-Neither `subscribe` nor `listChanged` is ever claimed. The router is stateless —
-one POST is one request and one response — so there is no channel to notify a
-client over, and the default for both is `false`.
+`initialize` reports only what the block declares: a router with `tools` and no
+`prompts` does not advertise `prompts`. Neither `subscribe` nor `listChanged`
+is ever claimed, since a stateless router has no channel to notify a client
+over, and the default for both is `false`.
 
 ## Test it with curl
 
@@ -323,8 +323,8 @@ The server speaks HTTP, so point any MCP client at the route URL.
 claude mcp add --transport http weather-tools http://localhost:8080/mcp
 ```
 
-Then ask Claude Code to fetch a forecast — it discovers the `forecast` tool
-via `tools/list` and calls it.
+Then ask Claude Code to fetch a forecast; it discovers the `forecast` tool via
+`tools/list` and calls it.
 
 </Tab>
 <Tab value="Claude Desktop / .mcp.json">
@@ -345,7 +345,7 @@ via `tools/list` and calls it.
 
 <Callout type="info">
   Octo is an MCP **server**, not an MCP client. Flows and `ai-agent` blocks do
-  not consume external MCP servers — an agent's tools are flow branches inside
+  not consume external MCP servers; an agent's tools are flow branches inside
   the integration (see [Agent Skills and Tools](/ai/agent-skills-and-tools)).
   The `mcp-router` is how you hand those same flow-backed capabilities to
   clients outside Octo.
@@ -356,4 +356,4 @@ via `tools/list` and calls it.
 The server above is wide open: anyone who can reach the port can call the
 tools. For anything beyond localhost, put a `jwt-validate` block in front of
 the router and serve OAuth protected-resource metadata so MCP clients can
-authenticate — see [Secure an MCP Server with OAuth](/ai/mcp-auth).
+authenticate; see [Secure an MCP Server with OAuth](/ai/mcp-auth).

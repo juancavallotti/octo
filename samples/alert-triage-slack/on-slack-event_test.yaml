@@ -1,0 +1,226 @@
+# The Slack side of the loop: every request is authenticated, the handshake is
+# answered, and only a person's reply inside a known incident thread reaches the
+# agent. A reply while the agent is waiting on an approval is delivered as the
+# answer to that approval rather than as a new turn.
+#
+# Sources do not run under invoke, so each case seeds what the http source would
+# have produced: the declared headers and vars.rawBody, and the parsed payload as
+# data. Slack's signature is HMAC over "v0:<timestamp>:<body>" and the block
+# rejects any timestamp more than five minutes old, so an accepted case cannot
+# carry a real signature: those cases mock `verify` (see slack-bot_test.yaml for
+# the long version of why) and everything after it is the real flow.
+flow: on-slack-event
+
+inputs:
+  a reply in a thread:
+    data:
+      type: event_callback
+      team_id: T1
+      event_id: Ev1
+      event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "go look at the traces again", ts: "1700000010.000200", thread_ts: "1700000000.000100" }
+
+mocks:
+  # The agent flow is its own suite.
+  on-slack-event.challenge-or-event[else].triage:
+    default:
+      body: "looked again."
+
+cases:
+  - name: an unsigned request is rejected and nothing downstream runs
+    input:
+      data:
+        type: event_callback
+        event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "hi", thread_ts: "1700000000.000100" }
+      vars:
+        rawBody: '{"type":"event_callback","event":{"type":"message","user":"U1","channel":"C0TESTCHANNEL","text":"hi","thread_ts":"1700000000.000100"}}'
+    expect:
+      error: invalid request signature
+    spies:
+      on-slack-event.challenge-or-event[else].thread-replies: { count: 0 }
+      on-slack-event.challenge-or-event[else].triage: { count: 0 }
+
+  - name: the URL-verification handshake is echoed
+    input:
+      data: { type: url_verification, challenge: abc123 }
+    mocks:
+      on-slack-event.verify:
+        default:
+          body: { type: url_verification, challenge: abc123 }
+          vars: { slackChallenge: true }
+    expect:
+      body: { challenge: abc123 }
+    spies:
+      on-slack-event.challenge-or-event[else].triage: { count: 0 }
+
+  - name: a top-level message is not a reply and is dropped
+    input:
+      data:
+        type: event_callback
+        event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "hello?", ts: "1700000010.000200" }
+    mocks:
+      on-slack-event.verify:
+        default:
+          body:
+            type: event_callback
+            event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "hello?", ts: "1700000010.000200" }
+    expect:
+      dropped: true
+    spies:
+      on-slack-event.challenge-or-event[else].triage: { count: 0 }
+
+  - name: a reply in a thread nobody opened is ignored
+    input: a reply in a thread
+    mocks:
+      on-slack-event.verify:
+        default:
+          body:
+            type: event_callback
+            team_id: T1
+            event_id: Ev1
+            event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "go look at the traces again", ts: "1700000010.000200", thread_ts: "1700000000.000100" }
+    spies:
+      # The store is empty under invoke, so the lookup misses for real.
+      on-slack-event.challenge-or-event[else].known-threads-only[onReject].skip-unknown-thread: { count: 1 }
+      on-slack-event.challenge-or-event[else].triage: { count: 0 }
+
+  - name: a reply in an incident thread is another turn of that incident
+    input: a reply in a thread
+    mocks:
+      on-slack-event.verify:
+        default:
+          body:
+            type: event_callback
+            team_id: T1
+            event_id: Ev1
+            event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "go look at the traces again", ts: "1700000010.000200", thread_ts: "1700000000.000100" }
+      # The real block passes the body through and reports through variables, so the
+      # mock hands back the normalized event slack-event produced plus the mapping.
+      on-slack-event.challenge-or-event[else].find-incident:
+        default:
+          body:
+            type: message
+            user: U1
+            channel: C0TESTCHANNEL
+            text: "go look at the traces again"
+            ts: "1700000010.000200"
+            threadTs: "1700000000.000100"
+            botId: null
+            teamId: T1
+            eventId: Ev1
+            raw: { type: message, user: U1, channel: C0TESTCHANNEL, text: "go look at the traces again", ts: "1700000010.000200", thread_ts: "1700000000.000100" }
+          vars:
+            knownThread: true
+            incident: { incidentId: i_1, watchName: checkout errors, reportTo: ["ada@example.com"] }
+    spies:
+      on-slack-event.challenge-or-event[else].triage:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.incidentId == "i_1"'
+                - 'vars.watchName == "checkout errors"'
+                - 'vars.reportTo == ["ada@example.com"]'
+                - 'vars.threadTs == "1700000000.000100"'
+                - 'vars.turn.contains("go look at the traces again")'
+                # No approval pending, so this is a message and not an answer.
+                - '!has(vars.authorizeId)'
+      on-slack-event.challenge-or-event[else].answer-or-followup[then].forget-pending: { count: 0 }
+
+  - name: a reply while an approval is pending answers it
+    input:
+      data:
+        type: event_callback
+        event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "Approve, go ahead", ts: "1700000020.000300", thread_ts: "1700000000.000100" }
+    mocks:
+      on-slack-event.verify:
+        default:
+          body:
+            type: event_callback
+            event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "Approve, go ahead", ts: "1700000020.000300", thread_ts: "1700000000.000100" }
+      on-slack-event.challenge-or-event[else].find-incident:
+        default:
+          body:
+            type: message
+            user: U1
+            channel: C0TESTCHANNEL
+            text: "Approve, go ahead"
+            ts: "1700000020.000300"
+            threadTs: "1700000000.000100"
+            botId: null
+            raw: { type: message, user: U1, channel: C0TESTCHANNEL, text: "Approve, go ahead", ts: "1700000020.000300", thread_ts: "1700000000.000100" }
+          vars:
+            knownThread: true
+            incident: { incidentId: i_1, watchName: checkout errors, reportTo: ["ada@example.com"] }
+      on-slack-event.challenge-or-event[else].pending-authorization:
+        default:
+          body:
+            type: message
+            user: U1
+            channel: C0TESTCHANNEL
+            text: "Approve, go ahead"
+            ts: "1700000020.000300"
+            threadTs: "1700000000.000100"
+            botId: null
+            raw: { type: message, user: U1, channel: C0TESTCHANNEL, text: "Approve, go ahead", ts: "1700000020.000300", thread_ts: "1700000000.000100" }
+          vars:
+            hasPending: true
+            pending: { authorizationId: auth_1 }
+    spies:
+      on-slack-event.challenge-or-event[else].answer-or-followup[then].forget-pending: { count: 1 }
+      on-slack-event.challenge-or-event[else].triage:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.authorizeId == "auth_1"'
+                - 'vars.authorizeAllow == true'
+
+  # Anything that is not a plain approve is a denial. The agent is told, and the
+  # change does not happen.
+  - name: a reply that does not approve denies
+    input:
+      data:
+        type: event_callback
+        event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "no, that would take checkout down", ts: "1700000020.000300", thread_ts: "1700000000.000100" }
+    mocks:
+      on-slack-event.verify:
+        default:
+          body:
+            type: event_callback
+            event: { type: message, user: U1, channel: C0TESTCHANNEL, text: "no, that would take checkout down", ts: "1700000020.000300", thread_ts: "1700000000.000100" }
+      on-slack-event.challenge-or-event[else].find-incident:
+        default:
+          body:
+            type: message
+            user: U1
+            channel: C0TESTCHANNEL
+            text: "no, that would take checkout down"
+            ts: "1700000020.000300"
+            threadTs: "1700000000.000100"
+            botId: null
+            raw: {}
+          vars:
+            knownThread: true
+            incident: { incidentId: i_1, watchName: checkout errors, reportTo: ["ada@example.com"] }
+      on-slack-event.challenge-or-event[else].pending-authorization:
+        default:
+          body:
+            type: message
+            user: U1
+            channel: C0TESTCHANNEL
+            text: "no, that would take checkout down"
+            ts: "1700000020.000300"
+            threadTs: "1700000000.000100"
+            botId: null
+            raw: {}
+          vars:
+            hasPending: true
+            pending: { authorizationId: auth_1 }
+    spies:
+      on-slack-event.challenge-or-event[else].triage:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'vars.authorizeId == "auth_1"'
+                - 'vars.authorizeAllow == false'

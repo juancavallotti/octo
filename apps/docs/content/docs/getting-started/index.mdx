@@ -1,45 +1,50 @@
 ---
 title: "Getting Started"
-description: "The three ways to run Octo and where to begin."
+description: "The four ways to run Octo and where to begin."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Download, FlaskConical, Globe, Ship, SquarePen, Workflow } from 'lucide-react';
+import { Cloud, Download, FlaskConical, Globe, Ship, SquarePen, Workflow } from 'lucide-react';
 
-There are three ways to use Octo, and they all execute the same flow YAML. Pick
-the one that matches how you want to work today — nothing you build is locked to
-any of them.
+Four ways to use Octo, all executing the same flow YAML.
 
-## The three ways to run Octo
+## The four ways to run Octo
 
-**The `octo` CLI.** The runtime is a single Go binary. Point it at a config file
-and it starts your connectors and flows; add `--watch` for hot reload while you
-edit, or use `octo invoke` to call a single flow with JSON in and JSON out. This
-is the best fit for local development, testing, and CI.
+The `octo` CLI is a single Go binary. Point it at a config file and it starts
+your connectors and flows; add `--watch` for hot reload, or use `octo invoke` to
+call one flow with JSON in and JSON out. Best for local development, testing,
+and CI.
 
-**The standalone visual editor.** A published Docker image bundles the editor
-and the `octo` runtime. You mount a directory of flow YAML, design flows on a
-visual canvas in the browser, and run them with one click — no build, no
-database, no setup beyond `docker run`.
+The standalone visual editor is a Docker image bundling the editor and the
+`octo` runtime. Mount a directory of flow YAML, design flows on a canvas in the
+browser, and run them with one click. No setup beyond `docker run`.
 
-**The full platform on Kubernetes.** A control plane (orchestrator plus
-Postgres) and a multi-user editor that store integration definitions and deploy
-each one as its own Kubernetes workload, with environment binding, secrets,
-scaling, versioned deployments, and centralized logs. This is how you operate
-Octo in production as a team.
+The full platform on Kubernetes is a control plane (orchestrator plus Postgres)
+and a multi-user editor. It stores integration definitions and deploys each as
+its own Kubernetes workload, with environment binding, secrets, scaling,
+versioned deployments, and centralized logs. This is how a team runs Octo in
+production.
 
-| | CLI | Standalone editor | Platform |
-| --- | --- | --- | --- |
-| Setup | Build one binary | One `docker run` | Kubernetes cluster |
-| Best for | Development, CI | Visual authoring, trying Octo | Team operations, production |
-| Users | You | You | Multi-user |
-| Flows live in | Files on disk | Files on disk | Postgres, deployed to pods |
+Your own platform is the fourth way, and it is the same runtime with its
+capabilities pointed somewhere else. The object store, secrets, queues, topics,
+leases and leader election sit behind one HTTP contract, so a build of the
+runtime tagged `api` delegates all of them to a server you implement against
+whatever you already run: Firestore and Pub/Sub behind a Cloud Run service, a
+sidecar on loopback, a central service in your own cluster. Reach for it when
+you want Octo on serverless infrastructure, or when the data has to stay in
+systems you control. See [The platform API](/extending/platform-api).
+
+| | CLI | Standalone editor | Platform | Your own platform |
+| --- | --- | --- | --- | --- |
+| Setup | Build one binary | One `docker run` | Kubernetes cluster | The `octo-api` image plus a server you implement |
+| Best for | Development, CI | Visual authoring, trying Octo | Team operations, production | Serverless, or infrastructure you own |
+| Users | You | You | Multi-user | You |
+| Flows live in | Files on disk | Files on disk | Postgres, deployed to pods | Files baked into your image |
 
 ## Where to begin
 
-If you are new to Octo, install the CLI and run your first flow — it is the
-fastest way to understand the model. If you would rather not install anything,
-start with the editor quickstart instead.
+New to Octo? Install the CLI and run your first flow. If you would rather not
+install anything, start with the editor quickstart.
 
 <Cards>
   <Card icon={<Download />} href="/getting-started/installation" title="Installation">
@@ -48,9 +53,8 @@ start with the editor quickstart instead.
   <Card icon={<Workflow />} href="/getting-started/first-flow" title="Your First Flow">
     Run a hello-world flow and invoke a flow directly from the CLI.
   </Card>
-  <Card icon={<FlaskConical />} href="/testing/first-test" title="Your First Test">
-    Take a flow that calls an API you cannot reach, and get a green test suite for
-    it in about ten minutes.
+  <Card icon={<FlaskConical />} href="/getting-started/unit-testing" title="Unit-Testing a Flow">
+    Put that flow under test with dolphin, and make testing part of the edit loop.
   </Card>
   <Card icon={<SquarePen />} href="/getting-started/editor-quickstart" title="Editor Quickstart">
     Design and run flows in the browser with zero setup.
@@ -60,5 +64,8 @@ start with the editor quickstart instead.
   </Card>
   <Card icon={<Ship />} href="/deploy" title="Deploy the Platform">
     Stand up the full multi-user platform on Kubernetes.
+  </Card>
+  <Card icon={<Cloud />} href="/extending/platform-api" title="The Platform API">
+    Run Octo on your own platform by implementing one HTTP contract.
   </Card>
 </Cards>

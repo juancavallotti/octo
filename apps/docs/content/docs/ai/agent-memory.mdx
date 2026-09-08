@@ -7,8 +7,10 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 An `ai-agent` is stateless by default: each invocation starts a fresh
 conversation. Set `memoryThreadId` and the agent loads the thread's prior
-transcript before its run and saves the accumulated transcript after, so a
-conversation persists across invocations.
+transcript before its run and saves it after, so the conversation persists
+across invocations. This page covers what the block declares and how the
+runtime keeps it; the platform's viewer for recorded memory is
+[Platform: Agent Memory](/platform/agent-memory).
 
 ![A deployment's object store holding both memory layers: per-thread agent-memory keys and a durable slack:user-facts key](/screenshots/platform-object-browser.png)
 
@@ -54,7 +56,7 @@ flows:
                   value: body.note
 ```
 
-Invoke it twice on the same thread and the second turn remembers the first:
+Invoke it twice on the same thread and the second turn remembers the first.
 
 ```bash
 octo invoke --config samples/ai-agent-memory.yaml --flow chat \
@@ -65,12 +67,11 @@ octo invoke --config samples/ai-agent-memory.yaml --flow chat \
 
 ### Choosing a thread id
 
-`memoryThreadId` is a CEL expression over the message, so the thread
-granularity is yours: per user (`body.userId`), per channel, or per
-conversation. The production Slack agent computes it upstream with a
-transform — `"slack:dm:<channel>"` for direct messages,
-`"slack:<channel>:<threadTs>"` for channel threads — so every Slack thread
-gets its own memory.
+`memoryThreadId` is a CEL expression over the message, so the granularity is
+yours: per user (`body.userId`), per channel, or per conversation. The
+production Slack agent computes it upstream with a transform,
+`"slack:dm:<channel>"` for direct messages and `"slack:<channel>:<threadTs>"`
+for channel threads.
 
 Transcripts are stored in the runtime KV store under a dedicated
 `agent-memory/` prefix in the user namespace, so they never collide with
@@ -78,16 +79,12 @@ Transcripts are stored in the runtime KV store under a dedicated
 
 ### A thread id is the whole identity
 
-The thread is what a transcript is keyed by, and nothing else is. Two `ai-agent`
-blocks that resolve the same id therefore share one conversation: each loads what
-the other wrote, answers with it in context, and saves over it.
-
-That is easiest to write by accident with a **nested agent** — an `ai-agent`
-standing in another agent's tool slot. A tool branch runs on the agent's own
-message, so the nested one sees the caller's variables, and `vars.threadId` is the
-obvious expression in both blocks.
-
-The runtime mints a scope for every tool branch, which is the answer:
+A transcript is keyed by its thread id alone, so two `ai-agent` blocks that
+resolve the same id share one conversation and save over each other. The easy
+way to do that by accident is a **nested agent** in another agent's tool slot:
+the tool branch runs on the caller's message, so `vars.threadId` is the obvious
+expression in both blocks. Use the scope the runtime mints for every tool branch
+instead:
 
 ```yaml
 # A conversation of its own, kept out of the store that is backed up.
@@ -95,27 +92,19 @@ memoryThreadId: vars.toolScope
 memoryVolatile: true
 ```
 
-`vars.toolScope` is stable for as long as the caller's conversation and distinct
-per tool, so a specialist called three times in one conversation is the same
-specialist each time, and two specialists never share. Nothing in the calling
-agent configures it: the runtime knows which call it is making and what
-conversation it is in, so it composes the two — see
-[what a tool branch is told](/reference/blocks/ai#what-a-tool-branch-is-told).
-
-Or leave `memoryThreadId` out. A specialist handed a complete brief that answers
-once has nothing to remember, and a stateless agent claims nothing — which is what
-Dr. Octo's two specialists do.
+`vars.toolScope` is stable for the caller's conversation and distinct per tool,
+so a specialist called three times is the same specialist each time and two
+specialists never share (see
+[what a tool branch is told](/reference/blocks/ai#what-a-tool-branch-is-told)).
+Or leave `memoryThreadId` out: a specialist that answers once from a complete
+brief has nothing to remember, as Dr. Octo's two specialists do.
 
 <Callout type="info">
-`toolScope` is **derived** — from the conversation, the calling block and the tool
-— so it cannot be lost the way a stored id can. The cost of deriving it partly
-from where the block sits is that it moves when the block does: rename the agent,
-or move it into another branch, and its tools start again somewhere new. That is
-the right trade for scaffolding and the wrong one for history, which is why the
-recipe pairs it with `memoryVolatile` and why nothing durable is keyed this way.
-
-If you want one id shared by *several* tools in a conversation — which derivation
-cannot express, since it is distinct per tool — mint one and memoize it:
+`toolScope` is **derived** from the conversation, the calling block and the
+tool, so it moves when the block does: rename the agent or move it into another
+branch and its tools start again somewhere new. That suits scaffolding, not
+history, which is why the recipe pairs it with `memoryVolatile`. One id shared
+by *several* tools in a conversation has to be minted and memoized:
 
 ```yaml
 - type: set-variable                 # cache-scope caches the body, so stash the args
@@ -133,86 +122,64 @@ cannot express, since it is distinct per tool — mint one and memoize it:
   settings: { value: vars.args }     # hand the tool its arguments back
 ```
 
-That id is stored rather than derived, so treat eviction as part of the design: a
-TTL, an `invalidate-cache` on the same key, or a wiped store mints a new one and
+That id is stored, so eviction is part of the design: a TTL, an
+`invalidate-cache` on the same key, or a wiped store mints a new one and
 whatever was keyed on it starts fresh.
 </Callout>
 
 ### Volatile memory
 
-`memoryVolatile: true` puts an agent's transcripts in the volatile KV tier — Redis
-in a cluster, process memory standalone — instead of the persistent one.
+`memoryVolatile: true` puts an agent's transcripts in the volatile KV tier
+(Redis in a cluster, process memory standalone) instead of the persistent one.
+Use it for a conversation whose loss costs nothing, such as a specialist's
+working transcript: the tier is bounded and evicts under LRU, so scaffolding
+does not accumulate in the store the platform backs up. Never use it for a
+conversation somebody will ask to see again; the tier may drop a value on a
+restart. `clear-agent-memory` clears both tiers.
 
-Use it for a conversation whose loss costs nothing. A specialist's working
-transcript is scaffolding, and one row per tool per conversation would otherwise
-accumulate in the store the platform backs up and reports on; the volatile tier is
-bounded and evicts under LRU, so scaffolding cleans up after itself.
-
-Never use it for a conversation somebody will ask to see again: the tier makes no
-durability promise and may drop a value on a restart. `clear-agent-memory` clears
-both tiers, so a "forget this" reaches either.
-
-The runtime does not invent a namespace for you here. It could key a transcript by
-the block's address as well as the thread — and then renaming that block, or moving
-it into an `if`, would silently lose every conversation it had, which is a worse
-failure than the one it prevents. What it does instead is **say so**: when a run
-claims a conversation another live run in the same process is already working, it
-logs a warning naming both blocks, the thread, and what to do about it.
+The runtime does not key a transcript by the block's address, since renaming
+the block or moving it into an `if` would then silently lose its conversations.
+When a run claims a conversation another live run in the same process is
+already working, it logs a warning naming both blocks and the thread.
 
 <Callout type="warn">
-A transcript also lives in the **deployment's** KV scope, so undeploying an
-integration erases the conversations it held — a reinstall starts everyone from
-nothing. A roll-out keeps them: it is the same deployment. See
+A transcript lives in the **deployment's** KV scope, so undeploying an
+integration erases the conversations it held and a reinstall starts everyone
+from nothing. A roll-out keeps them: it is the same deployment. See
 [#362](https://github.com/juancavallotti/octo/issues/362).
 </Callout>
 
 ### Token budget and compaction
 
-`contextMaxTokens` (default `200000`) caps the agent's **whole prompt** —
-system instructions, tool schemas and conversation together — not the stored
-transcript alone. The figure comes from the provider: every turn reports how
-many tokens it actually read, so the budget is measured rather than guessed,
-and it is directly comparable to the model's context window.
+`contextMaxTokens` (default `200000`) caps the agent's **whole prompt**: system
+instructions, tool schemas and conversation together, not the stored transcript
+alone. The figure is what the provider reports it read each turn, so it is
+directly comparable to the model's context window. The runtime has no
+tokenizer; a chars/4 estimate, fitted against the provider's numbers as the run
+goes, only apportions the measured total across messages when deciding where to
+cut. A provider that reports no usage falls back to the estimate alone.
 
-The runtime still has no tokenizer, and it does not need one. The measured
-total says exactly how big the prompt is; a chars/4 estimate is used only to
-apportion that total across messages when deciding where to cut, and its
-ratio is fitted against the provider's own numbers as the run goes. A
-provider that reports no usage falls back to the estimate alone.
+The budget applies **with or without memory**, since an agent can talk itself
+past the model's window in a single run. When the prompt would exceed the
+budget, the transcript is compacted with the `memoryCompaction` strategy, before
+the turn that would have overflowed and again before saving:
 
-The budget applies **with or without memory**: an agent can talk itself past
-the model's window inside a single run, over enough tool calls. When the
-prompt would exceed the budget, the transcript is compacted with the
-`memoryCompaction` strategy — before the turn that would have overflowed, and
-again before saving:
-
-- **`prune`** (default) — drop the oldest turns until the transcript fits.
-  Cheap and deterministic; old context is simply gone.
-- **`summarize`** — keep the most recent turns that fit half the budget and
-  ask the same LLM connector to fold the older turns into a single summary
-  message, preserving facts and decisions. Falls back to pruning if the
-  summary cannot be produced.
+| Strategy | Behaviour |
+| --- | --- |
+| `prune` (default) | Drops the oldest turns until the transcript fits. Cheap and deterministic; old context is gone. |
+| `summarize` | Keeps the most recent turns that fit half the budget and asks the same LLM connector to fold the older turns into a single summary message, preserving facts and decisions. Falls back to pruning if the summary cannot be produced. |
 
 ### Watching it happen
 
-Compaction is bracketed by `compaction_start` and `compaction_end` events, the
-way a model turn is. Both carry `strategy` and the context gauge
+Compaction is bracketed by `compaction_start` and `compaction_end` events,
+since `summarize` can take seconds. Both carry `strategy` and the context gauge
 (`contextTokens`, `contextMaxTokens`); the end event adds `after` and
-`dropped`. It is bracketed rather than reported once because the `summarize`
-strategy makes a model call, so compaction can take seconds — a progress UI
-with only an after-the-fact event would show a stall it cannot explain.
-
-The gauge also rides on every `turn_end`, so a UI can show the context filling
-rather than only the moment it overflowed. There the reading is exact: the
-prompt the provider reported reading, plus the reply it produced.
-
-Compaction also writes an **`agent.compaction` trace record**, carrying the
-same figures. It has its own kind because it is not a model turn: pruning calls
-no model and costs nothing, so it would otherwise leave no trace at all — and
-when an agent has forgotten something, when it forgot is the first thing anyone
-needs. Summarizing *does* call a model, and that call is recorded separately as
-an `llm.turn` marked `purpose: memory-compaction`, so the cost lands where cost
-is read and the compaction record stays about the decision.
+`dropped`. The gauge also rides on every `turn_end`, where the reading is
+exact: the prompt the provider reported reading plus the reply it produced.
+Compaction also writes an **`agent.compaction` trace record** with the same
+figures, so even a prune that calls no model records when the agent forgot
+something. A summary's model call is recorded separately as an `llm.turn`
+marked `purpose: memory-compaction`.
 
 <Callout type="info">
 Saving memory is best-effort: a failed save is logged and does not fail the
@@ -221,16 +188,16 @@ refused turn still stays in the conversation.
 </Callout>
 
 <Callout type="warn">
-A budget too small to hold even one exchange cannot be satisfied — compaction
-will not discard the conversation to meet it. It keeps the most recent
-exchange, logs that the result does not fit, and leaves the fix to you.
+A budget too small to hold even one exchange cannot be satisfied. Compaction
+keeps the most recent exchange, logs that the result does not fit, and leaves
+the fix to you.
 </Callout>
 
 ### Clearing a thread
 
-The `clear-agent-memory` leaf block wipes a thread's stored transcript. It
-is idempotent — clearing a missing thread is not an error — and passes the
-message through unchanged:
+The `clear-agent-memory` leaf block wipes a thread's stored transcript. It is
+idempotent (clearing a missing thread is not an error) and passes the message
+through unchanged:
 
 ```yaml
   - name: forget
@@ -246,13 +213,10 @@ message through unchanged:
 
 ## First-class memory: `agentId`
 
-Everything above is one object: the transcript the model replays, compacted to
-fit a budget. That object is doing two jobs badly. It is the agent's working
-context, so it has to shrink — and it is the only record of the conversation, so
-shrinking it destroys what a person would want to read back.
-
-Give the block an `agentId` and the runtime stores three separate things
-instead:
+Everything above is one object, the transcript the model replays, compacted to
+fit a budget: both the working context, which has to shrink, and the only record
+of the conversation, which shrinking destroys. Give the block an `agentId` and
+the runtime stores three separate things instead:
 
 ```yaml
       - type: ai-agent
@@ -267,69 +231,57 @@ instead:
         tools: [...]
 ```
 
+![The ai-agent block with an agentId, writing to three separate stores: working context keyed by thread id, the transcript keyed by thread id whose entries each carry an embedding, and user facts keyed by user id](/diagrams/agent-memory-tiers.png)
+
+Three stores, two keys. The working context and the transcript are keyed by the
+thread; the facts are keyed by the person. `agentId` is the namespace all three
+sit in, which is why it is the setting that opts into any of this. A transcript
+entry carries an embedding where a provider is configured, so searching memory
+ranks by similarity and falls back to text matching where it is not.
+
 | | What it is | Compacted? |
 | --- | --- | --- |
-| **Working memory** | The transcript the model re-reads, checkpointed during the run so an interrupted agent resumes where it was | Yes — `contextMaxTokens` and `memoryCompaction` govern it |
+| **Working memory** | The transcript the model re-reads, checkpointed during the run so an interrupted agent resumes where it was | Yes; `contextMaxTokens` and `memoryCompaction` govern it |
 | **Conversation history** | The turn-level record a *person* reads, and the platform lists and replays. It keeps the agent's opening turn **verbatim** | **Never** |
-| **User memory** | Curated facts the agent chose to keep about someone, carried into later conversations | n/a — the agent writes and deletes these deliberately |
+| **User memory** | Curated facts the agent chose to keep about someone, carried into later conversations | n/a; the agent writes and deletes these deliberately |
 
 <Callout type="warn">
-`agentId` is stated by you and never derived from the block's position. An
-address is a position in a file, so a name derived from it would make renaming
-the block — or moving it into another branch — silently destroy every
-conversation stored under it. For the same reason it is opt-in: an agent
-without one behaves exactly as it did before, and `history: record` or
-`userMemory: true` without one is a build error rather than a setting quietly
-ignored.
+`agentId` is stated by you, never derived from the block's position, so renaming
+or moving the block cannot destroy the conversations stored under it. It is
+opt-in: `history: record` or `userMemory: true` without one is a build error
+rather than a setting quietly ignored.
 </Callout>
 
-Two blocks declaring the same `agentId` share one memory. That is what replicas
-of one logical agent want, and what two different agents almost never do.
+Two blocks declaring the same `agentId` share one memory, which is what
+replicas of one logical agent want and two different agents almost never do.
 
 ### The record is kept as it was sent
 
-History records the agent's opening turn verbatim — the text the model was handed,
-whatever the `input` expression made of it.
-
-That is deliberate, and it is worth being explicit about because a conversational
-agent's input usually carries more than was said: the page somebody is on, the
-routes it may send them to, a catalogue the model needs. All of it is recorded.
-
-Memory stores what was sent and returns it as sent. There is no way to anticipate
-what a later reader wants out of a transcript — an audit, a replay, a
-reconstruction of what the model actually saw — and trimming at write time serves
-one reader by destroying the record for every other. A surface that composed
-context into a prompt is the surface that knows how to render it back down, and
-it is the one that should.
+History records the agent's opening turn verbatim: the text the model was
+handed, whatever the `input` expression made of it, including any context a
+conversational agent's input carries beyond what was said. Trimming at write
+time would serve one reader (an audit, a replay) by destroying the record for
+every other, so the surface that composed the context is the one that renders
+it back down.
 
 ### Naming a conversation
 
-The runtime records a conversation and will not name one: what an exchange was
-*about* is a judgement, and a judgement is a model call. Add a
-[`nameThread`](/reference/blocks/ai#naming-a-conversation) slot and that call goes
-there — it runs once, on the exchange that opens a conversation, is handed the
-question and the answer, and whatever it returns becomes the title.
-
-The engine does the writing, which is the point of it being a slot rather than a
-flow you call yourself: it is already holding the conversation's reference, and
-the store knows how to record a title on whichever tier it is. Standalone writes
-it into the thread's `thread.json`; the platform records it on the row.
-
-Returning an empty title names nothing, which is the right answer for a greeting
-that was never going anywhere. Without the slot a conversation still gets a title
-— the opening question, truncated — so a list always has something to show.
+Naming a conversation is a model call, so the runtime leaves it to a
+[`nameThread`](/reference/blocks/ai#naming-a-conversation) slot. It runs once,
+on the exchange that opens a conversation, is handed the question and the
+answer, and whatever it returns becomes the title; an empty title names
+nothing. The engine writes it, standalone into the thread's `thread.json` and
+the platform onto the row. Without the slot the title is the opening question,
+truncated.
 
 ### What user memory gives the model
 
 With `userMemory: true` the agent gets `remember`, `forget` and `search_memory`.
-What it has already remembered is placed in **every request**, so it does not
-have to call a tool to find out what it knows — an agent that has to remember to
-remember mostly does not. The preamble is bounded and is never written into the
-transcript, so correcting a memory between runs replaces it rather than leaving
-stale copies behind in working memory.
-
-This is the built-in replacement for the hand-rolled fact store described in the
-next section. If you are starting now, use `userMemory`.
+What it has already remembered is placed in **every request**, so it never has
+to call a tool to find out what it knows. The preamble is bounded and never
+written into the transcript, so correcting a memory between runs replaces it
+rather than leaving stale copies. This replaces the hand-rolled fact store in
+the last section; if you are starting now, use `userMemory`.
 
 ### Where it is stored
 
@@ -340,52 +292,40 @@ Storage is the deployment's business, not the flow's:
 | **Standalone** | `$OCTO_STORAGE_DIR/agent-memory/{agent}/threads/{thread}/working.json` | `.../turns.jsonl` | `.../users/{user}.json` | Keyword |
 | **Platform** | Orchestrator database | Orchestrator database | Orchestrator database | Semantic when the embedding server is deployed, keyword otherwise |
 
-On standalone the directory *is* the index — listing an agent's conversations
-is a directory read, with no second file to keep in step. An `octo invoke` with
-no `OCTO_STORAGE_DIR` keeps the same structure in process and leaves nothing
-behind.
+On standalone the directory *is* the index. An `octo invoke` with no
+`OCTO_STORAGE_DIR` keeps the same structure in process and leaves nothing
+behind. Every write carries a version, and a write against a version something
+else has moved past is refused, so two replicas of one agent retry instead of
+overwriting each other; appending turns is the exception, with sequence numbers
+from the store.
 
-Every write carries a version, and a write against a version something else has
-moved past is refused rather than silently winning — so two replicas of one agent
-retry against what the other wrote instead of overwriting it. Appending turns is
-the deliberate exception: appends commute, so the sequence numbers come from the
-store and there is no version to conflict over.
+On the platform a conversation is attributed to the person it was with, taken
+from `userId` on the first write that names one and never reassigned. An agent
+that records history without a `userId` records it belonging to nobody, and
+nothing that lists by person will find it. The platform's tables and viewer are
+described in [Platform: Agent Memory](/platform/agent-memory#where-it-is-stored).
 
-On the platform a conversation is also attributed to the person it was with,
-taken from `userId` on the first write that names one and never reassigned by a
-later write that does not. That attribution is what lets a chat panel list one
-person's conversations — an agent that records history without a `userId` records
-it belonging to nobody, and nothing that lists by person will find it.
-
-Clearing a conversation reaches all of it. Give [clear-agent-memory](/reference/blocks/ai#clear-agent-memory)
-the same `agentId` and it removes the working memory, the recorded turns and the
-thread itself — a clear that reached only one of them would report success over
-a readable copy.
+Give [clear-agent-memory](/reference/blocks/ai#clear-agent-memory) the same
+`agentId` and it removes the working memory, the recorded turns and the thread
+itself.
 
 ## The second layer: durable facts
 
 <Callout>
-This section predates `userMemory` above, which does the same job as a built-in —
-and did it worse, which is why it is a built-in now. The three tools below cost a
-round trip the model had to remember to make, and kept every fact in one KV object
-capped at 200 items because `core.KV` cannot list. It is kept here because the
-pattern is still a good worked example of flow-backed tools, and because
-deployments running it should be able to read how it works.
-
-**Dr. Octo used to be the reference implementation of this.** He is not any more:
-he sets `userMemory: true` and the three flows are gone.
+This section predates `userMemory`, which does the same job as a built-in. The
+tools below cost a round trip the model had to remember to make, and kept every
+fact in one KV object capped at 200 items because `core.KV` cannot list. The
+pattern stays as a worked example of flow-backed tools and for deployments still
+running it. **Dr. Octo used to be the reference implementation of this.** He now
+sets `userMemory: true` and the three flows are gone.
 </Callout>
 
-Conversation memory is a transcript with a budget — it fades as it is
-compacted, and it is scoped to one thread. For facts that should survive
-across conversations ("prefers Celsius", "leads the billing team"), the
-production Slack agent adds a second layer the agent manages itself: two
-tools backed by the object store, plus a skill teaching the model when to
-use them.
-
-The tools are sourceless flows invoked via `flow-ref`. `remember_user_fact`
-appends one bullet to a per-user document; `retrieve_user_facts` reads it
-back:
+For facts that should survive across conversations ("prefers Celsius", "leads
+the billing team"), the production Slack agent adds a layer the agent manages
+itself: two tools backed by the object store, plus a skill teaching the model
+when to use them. The tools are sourceless flows invoked via `flow-ref`.
+`remember_user_fact` appends one bullet to a per-user document;
+`retrieve_user_facts` reads it back:
 
 ```yaml
   - name: remember-user-fact
@@ -408,8 +348,8 @@ back:
           value: '{"stored": true, "fact": body.fact}'
 ```
 
-A `user_memory` skill tells the agent the policy — recall near the start of
-a turn, store only stable, self-contained facts, never announce it:
+A `user_memory` skill tells the agent the policy: recall near the start of a
+turn, store only stable, self-contained facts, never announce it.
 
 > Store: when the user shares a stable preference, personal fact, working
 > style, recurring context, or anything that would help future replies, call
@@ -417,9 +357,8 @@ a turn, store only stable, self-contained facts, never announce it:
 > self-contained ("Prefers Celsius", "Works in the Berlin office") rather
 > than a snippet of the chat.
 
-The two layers complement each other: the built-in transcript gives the
-agent short-term conversational context for free, while the fact store gives
-it long-term, cross-conversation knowledge under explicit rules you author.
-See the [Slack agent capstone](/ai/slack-agent) for the full walkthrough,
-and [Skills and Tools](/ai/agent-skills-and-tools) for how skills and
-flow-backed tools work.
+The transcript gives short-term context for free; the fact store gives
+cross-conversation knowledge under rules you author. See the
+[Slack agent capstone](/ai/slack-agent) for the full walkthrough and
+[Skills and Tools](/ai/agent-skills-and-tools) for how skills and flow-backed
+tools work.

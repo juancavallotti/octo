@@ -9,16 +9,16 @@ import { Anchor, Cloud, Container, Laptop, ListChecks, Package, Server, Tag } fr
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-Octo's platform runs on Kubernetes: the editor UI, the orchestrator, the log
-aggregator, Postgres, and NATS, with integrations deployed as pods at runtime.
-There are three ways to get that stack running, from a laptop to a public
-deployment.
+Octo's platform runs on Kubernetes: the editor UI, the orchestrator, the
+observability service, Postgres, and NATS, with integrations deployed as pods at
+runtime. There are three ways to get that stack running, from a laptop to a
+public deployment.
 
 <Callout type="info">
   **You do not need a cluster.** To try Octo, run the standalone editor from a
-  single public image — see [Running from Docker](/editor/docker). To *ship* a
+  single public image: see [Running from Docker](/editor/docker). To *ship* a
   single integration, bake its YAML into an image built on the public runtime
-  and deploy it to Cloud Run or any container platform — see
+  and deploy it to Cloud Run or any container platform, as in
   [Self-hosted integrations](/deploy/self-hosted). The rest of this section is
   about deploying the full platform.
 </Callout>
@@ -30,12 +30,23 @@ editor, deployment history, and log aggregation behind them. A single
 integration needs none of that: it is YAML plus resources, and the public
 runtime image runs a directory of exactly that.
 
+That image runs standalone, so its queues, KV store and leader election are
+in-process and last as long as the container. When you want them to survive a
+scale to zero, or to live in systems you already run, the `octo-api` build
+delegates every one of them to an HTTP server you implement.
+
 <Cards>
   <Card
     icon={<Container />}
     href="/deploy/self-hosted"
     title="Self-Hosted Integrations"
     description="Bake flows and resources into an image on the public runtime, and run it on Cloud Run or any container platform."
+  />
+  <Card
+    icon={<Cloud />}
+    href="/extending/platform-api"
+    title="The Platform API"
+    description="Give the runtime a platform of your own: object store, secrets, queues, leases and leader election behind one HTTP contract."
   />
 </Cards>
 
@@ -49,24 +60,23 @@ profile it uses and who runs the install.
 | **Best for** | Development and evaluation | Any existing Kubernetes cluster | A public, TLS-terminated deployment you do not want to assemble |
 | **What you get** | The full stack on `localhost`, with an optional hot-reload dev loop | The full stack, configured through chart values | Single-VM k3s with Traefik, Let's Encrypt TLS, per-integration subdomains, and Cloud Build releases |
 | **Images come from** | Built locally and imported into the cluster | Public Docker Hub by default, or your own registry | Artifact Registry, pinned by digest by Cloud Build |
-| **Ingress / TLS** | None — `localhost` port mappings | Whatever the cluster provides; five TLS modes | Traefik + cert-manager, wired by Terraform |
+| **Ingress / TLS** | None (`localhost` port mappings) | Whatever the cluster provides; five TLS modes | Traefik + cert-manager, wired by Terraform |
 | **Prerequisites** | `docker`, `k3d`, `devspace`, `task` | `helm` and a cluster | `gcloud`, `terraform`, `helm`, `docker`, `task`, a Cloud DNS zone |
 | **Bring it up** | `task cluster:deploy` | `helm install oci://…` | `task infra:apply`, then `task deploy TAG=…` |
 
 <Callout type="info">
-  **No cluster, but you want a managed one?** The middle column assumes you already
-  have a Kubernetes cluster. If you do not, the repo also ships Terraform roots that
-  create one — GKE Standard, GKE Autopilot or EKS — install its prerequisites, wire
-  DNS and TLS, and deploy the chart in a single apply. See
+  **No cluster, but you want a managed one?** The middle column assumes you
+  already have a Kubernetes cluster. If you do not, the repo also ships Terraform
+  roots that create one (GKE Standard, GKE Autopilot or EKS), install its
+  prerequisites, wire DNS and TLS, and deploy the chart in a single apply. See
   [GKE](/deploy/gke#provision-a-cluster-with-terraform) and
   [EKS](/deploy/eks#provision-a-cluster-with-terraform).
 
-  They are a good way to see the whole thing working end to end, and a good thing to
-  read. They are not production infrastructure: their defaults are cheap and
-  disposable on purpose, and each root deploys the application as well as the
-  cluster. For a deployment you intend to keep, run the chart from your own values
-  file against infrastructure you control — that is the interface these roots are
-  demonstrating, and it does not require them.
+  They are a good way to see the whole thing working end to end, but they are not
+  production infrastructure: their defaults are cheap and disposable on purpose,
+  and each root deploys the application as well as the cluster. For a deployment
+  you intend to keep, run the chart from your own values file against
+  infrastructure you control, which is the interface these roots demonstrate.
 </Callout>
 
 The chart is published on every release, so the middle column needs no checkout:
@@ -75,19 +85,19 @@ The chart is published on every release, so the middle column needs no checkout:
   --version ${OCTO_VERSION} -n octo --create-namespace \\
   --set ingress.host=octo.example.com`} />
 
-It ships a values profile per target — k3d, kind, GKE Autopilot, GKE Standard
-and EKS — so the differences between clusters (ingress class, TLS source,
-storage class, resource requests, security context) are configuration rather
-than forks. That one-liner is not the install you want to keep, though: it puts
-credentials in Helm values, where the release history keeps them. Follow
+It ships a values profile per target (k3d, kind, GKE Autopilot, GKE Standard and
+EKS), so the differences between clusters (ingress class, TLS source, storage
+class, resource requests, security context) are configuration rather than forks.
+That one-liner is not an install to keep, though: it puts credentials in Helm
+values, where the release history keeps them. Follow
 [Install on Kubernetes](/deploy/install-kubernetes) for the whole path, read
 [Helm Chart](/deploy/helm) for the reference, and see [GKE](/deploy/gke) or
 [EKS](/deploy/eks) for the managed-cluster specifics.
 
-All paths deploy the same components: the platform (editor UI), the
-orchestrator, the observability service, Postgres, NATS, and a schema job that applies
+All paths deploy the same components: the platform (editor UI), the orchestrator,
+the observability service, Postgres, NATS, and a schema job that applies
 `sql/schema.sql`. The orchestrator then creates per-integration workloads at
-runtime when you deploy an integration from the editor — see
+runtime when you deploy an integration from the editor. See
 [Architecture](/platform/architecture) and
 [Deployments](/platform/deployments) for how the pieces fit together.
 
@@ -102,7 +112,7 @@ runtime when you deploy an integration from the editor — see
     icon={<ListChecks />}
     href="/deploy/install-kubernetes"
     title="Install on Kubernetes"
-    description="The whole install, in order, on a cluster you already have — hostname, TLS, SSO, and no credential in a values file."
+    description="The whole install, in order, on a cluster you already have: hostname, TLS, SSO, and no credential in a values file."
   />
   <Card
     icon={<Anchor />}

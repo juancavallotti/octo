@@ -18,8 +18,8 @@ Then open [http://localhost:3000](http://localhost:3000).
 ## The volume mount
 
 The mount is the flow store. Inside the container the image sets
-`OCTO_FS_DIR=/work`, so the editor reads and writes flow YAML — and the flow's
-resources, like `.env.dev` and templates — as plain files under `/work`.
+`OCTO_FS_DIR=/work`, so the editor reads and writes flow YAML, and the flow's
+resources like `.env.dev` and templates, as plain files under `/work`.
 Mounting a host directory there (`-v "$PWD:/work"`) makes that directory the
 store: your flows stay on your disk when the container stops, ready for
 `octo run`, a git commit, or another editor session.
@@ -45,7 +45,7 @@ working defaults for all four:
 | `OCTO_RUN_DIR`     | Where rendered run configs and staged resources are written            | `/app/.octo-run`         |
 
 Outside Docker, `OCTO_FS_DIR` defaults to `./flows`, `OCTO_RUN_DIR` to the OS
-temp directory, and both binary paths are unset — with no `octo` configured, the
+temp directory, and both binary paths are unset. With no `octo` configured, the
 Run button and console do not appear; with no `dolphin`, the
 [Testing tab](/testing/in-the-editor) still lets you write suites but its **Run
 tests** button is disabled and says why.
@@ -54,7 +54,7 @@ tests** button is disabled and says why.
 Three environment variables name a binary and they are **not** interchangeable.
 `OCTO_BIN_PATH` is the `octo` the *app* spawns for a run. `DOLPHIN_BIN_PATH` is
 the `dolphin` the app spawns for a test run. `OCTO_PATH` is the `octo` that
-*dolphin* drives, one process per case — the app sets it to `OCTO_BIN_PATH` for
+*dolphin* drives, one process per case. The app sets it to `OCTO_BIN_PATH` for
 every test run, so the tests can never be run against a different runtime than
 the one the editor uses.
 </Callout>
@@ -75,18 +75,18 @@ docker run -p 3000:3000 -v "$PWD:/work" \
 
 Any flow that declares `ANTHROPIC_API_KEY` in its `env:` block now resolves it
 at run time. For values you would rather keep next to the flows than in the
-`docker run` command, use the editor's Dev .env tab instead — see
+`docker run` command, use the editor's Dev .env tab instead. See
 [Running flows](/editor/running-flows#the-dev-env-tab).
 
 ## Image tags and architectures
 
 The image is published to public Docker Hub as
 [`juancavallotti/octo`](https://hub.docker.com/r/juancavallotti/octo) on every
-release, as a multi-arch build for `linux/amd64` and `linux/arm64` — it runs
+release, as a multi-arch build for `linux/amd64` and `linux/arm64`, so it runs
 natively on both x86 and Apple Silicon / ARM hosts.
 
-- `juancavallotti/octo:latest` — the most recent release.
-- `juancavallotti/octo:<version>` — a specific release, e.g. `0.2.0`.
+- `juancavallotti/octo:latest` is the most recent release.
+- `juancavallotti/octo:<version>` is a specific release, e.g. `0.2.0`.
 
 Pin a version tag for reproducible setups. See
 [Docker images](/deploy/docker-images) for the other published images.
@@ -101,9 +101,9 @@ task dev
 ```
 
 This builds the `octo` runner and `dolphin` from the Go module, then starts the
-Next.js dev server with both wired up: `OCTO_BIN_PATH` points at `bin/octo`,
-`DOLPHIN_BIN_PATH` at `bin/dolphin`, `OCTO_RUN_DIR` at `.octo-run/`, and
-`OCTO_FS_DIR` at `.octo-flows/` in the repo root.
+Next.js dev server with both wired up to absolute paths in the repo root:
+`OCTO_BIN_PATH` at `bin/octo`, `DOLPHIN_BIN_PATH` at `bin/dolphin`,
+`OCTO_RUN_DIR` at `.octo-run`, and `OCTO_FS_DIR` at `.octo-flows`.
 
 Running the app directly (`pnpm --filter standalone dev`) uses the `./flows`
 default for the flow store and leaves Run disabled unless you set

@@ -6,30 +6,26 @@ description: "JWT validation, WWW-Authenticate challenges, and protected resourc
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-An [MCP server](/ai/mcp-server) built with `mcp-router` is just an HTTP route,
-so you secure it the way the MCP specification expects: as an **OAuth 2.0
-protected resource**. Two blocks and one extra flow give you the whole thing:
+An [MCP server](/ai/mcp-server) built with `mcp-router` is an HTTP route, so
+you secure it as the MCP specification expects: as an **OAuth 2.0 protected
+resource**. A `jwt-validate` block in front of the router verifies the bearer
+token and answers unauthenticated requests with a `401` plus a
+`WWW-Authenticate` challenge. A second flow serves the **protected resource
+metadata** document ([RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)), which
+tells MCP clients which authorization server to run their OAuth flow against.
 
-1. A `jwt-validate` block in front of the router verifies the bearer token and
-   answers unauthenticated requests with a `401` plus a `WWW-Authenticate`
-   challenge.
-2. A second flow serves the **protected resource metadata** document
-   ([RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)), which tells MCP
-   clients which authorization server to run their OAuth flow against.
-
-This page walks through a real production integration: `contacts-mcp`, an MCP
-server exposing a contacts database (five SQL tools and four prompts) behind
-OAuth, deployed at `contacts.example.com` with an OIDC issuer at
-`auth.example.com`.
+This page walks through `contacts-mcp`, an MCP server exposing a contacts
+database (five SQL tools and four prompts) behind OAuth, deployed at
+`contacts.example.com` with an OIDC issuer at `auth.example.com`.
 
 ![An MCP client completing the OAuth flow, then calling a secured contacts tool](/screenshots/mcp-client-oauth.png)
 
 ## The protected flow
 
-The MCP flow chains `jwt-validate` **before** `mcp-router`. `jwt-validate` is a
-filter: on a missing or invalid token it stops the flow with a `401` — the
-router never runs. On success it stores the verified claims in `vars.jwt` (and
-the subject in `vars.sub`) and lets the message through.
+The MCP flow chains `jwt-validate` **before** `mcp-router`. On a missing or
+invalid token it stops the flow with a `401` and the router never runs. On
+success it stores the verified claims in `vars.jwt` (and the subject in
+`vars.sub`) and lets the message through.
 
 ```yaml title="contacts-mcp (the mcp flow)"
 service:
@@ -98,34 +94,30 @@ flows:
           # ... four prompts, shown below
 ```
 
-Two source settings are load-bearing:
-
-- **`headers: [Authorization]`** — the HTTP source only copies listed request
-  headers into `vars`, and `jwt-validate` reads the bearer token from the
-  `Authorization` variable. Without this line, every request looks
-  unauthenticated.
-- **`responseHeaders: [WWW-Authenticate]`** — when `jwt-validate` rejects a
-  request it *sets* the challenge in `vars`; the source only *emits* response
-  headers it is told to. Without this line, clients get a bare `401` and never
-  learn how to authenticate.
+Two source settings are load-bearing. The HTTP source only copies listed
+request headers into `vars`, and `jwt-validate` reads the bearer token from the
+`Authorization` variable, so without `headers: [Authorization]` every request
+looks unauthenticated. A rejecting `jwt-validate` *sets* the challenge in
+`vars` and the source only *emits* response headers it is told to, so without
+`responseHeaders: [WWW-Authenticate]` clients get a bare `401` and never learn
+how to authenticate.
 
 ### What `jwt-validate` does
 
-- **`mode: discover`** resolves signing keys by OIDC discovery: it fetches
-  `<issuer>/.well-known/openid-configuration` and the JWKS it points at.
-  Alternatives are `mode: jwks` (a direct `jwksUrl`) and `mode: inline` (a PEM
-  key via `publicKey` or `publicKeyResource`). Keys are resolved lazily on the
-  first request, so a briefly unreachable provider does not fail startup.
-- **`issuer`** is the expected `iss` claim and the discovery URL. Set
-  **`audience`** too when your authorization server stamps a resource-specific
-  `aud` — it stops tokens minted for another API from being replayed here.
-- **`claimsVar: jwt`** stores the verified claims map in `vars.jwt` and the
-  subject in `vars.sub`. Everything after the block — including every
-  `mcp-router` tool branch — can read them for authorization decisions
-  (`vars.jwt.email`, `vars.sub`, roles, and so on).
-- **`resourceMetadataUrl`** adds a
-  `resource_metadata="…"` parameter to the challenge, which is what makes the
-  endpoint an MCP-compliant protected resource.
+`mode: discover` resolves signing keys by OIDC discovery: it fetches
+`<issuer>/.well-known/openid-configuration` and the JWKS it points at.
+Alternatives are `mode: jwks` (a direct `jwksUrl`) and `mode: inline` (a PEM key
+via `publicKey` or `publicKeyResource`). Keys are resolved lazily on the first
+request, so an unreachable provider does not fail startup.
+
+`issuer` is the expected `iss` claim and the discovery URL. Set `audience` too
+when your authorization server stamps a resource-specific `aud`, so tokens
+minted for another API cannot be replayed here. `claimsVar: jwt` stores the
+verified claims map in `vars.jwt` and the subject in `vars.sub`, readable by
+everything after the block, including every `mcp-router` tool branch
+(`vars.jwt.email`, `vars.sub`, roles). `resourceMetadataUrl` adds a
+`resource_metadata="…"` parameter to the challenge, which makes the endpoint an
+MCP-compliant protected resource.
 
 On rejection the block responds with status `401` (configurable via
 `rejectStatus`), a `{"error": "unauthorized"}` body, and a challenge like:
@@ -141,8 +133,8 @@ RFC 6750.
 ## The metadata flow
 
 MCP clients follow the `resource_metadata` URL from the challenge to learn
-where to get a token. A second, deliberately unprotected flow serves that
-document from a JSON template:
+where to get a token. A second, unprotected flow serves that document from a
+JSON template:
 
 ```yaml title="contacts-mcp (the metadata flow)"
   - name: protected-resource-metadata
@@ -168,23 +160,21 @@ document from a JSON template:
 }
 ```
 
-This is the RFC 9728 shape: `resource` is the identifier of the MCP server
-itself (its public `/mcp` URL), and `authorization_servers` names the OIDC
-issuer clients should register with and request tokens from. The path is
-scoped per the MCP spec — for a resource at `<origin>/mcp`, clients look under
-`/.well-known/oauth-protected-resource/mcp`.
+In the RFC 9728 shape, `resource` is the MCP server's own public `/mcp` URL and
+`authorization_servers` names the OIDC issuer clients register with and request
+tokens from. The path is scoped per the MCP spec: for a resource at
+`<origin>/mcp`, clients look under `/.well-known/oauth-protected-resource/mcp`.
 
 ## The handshake, end to end
 
-Here is what happens when you add `https://contacts.example.com/mcp` to an MCP
-client like Claude:
+When you add `https://contacts.example.com/mcp` to an MCP client like Claude:
 
 <Steps>
 <Step>
 
-**The client POSTs to `/mcp` with no token.** `jwt-validate` finds no bearer,
-stops the flow, and responds `401` with the `WWW-Authenticate` challenge
-carrying the `resource_metadata` URL.
+**The client POSTs to `/mcp` with no token.** `jwt-validate` stops the flow
+and responds `401` with the `WWW-Authenticate` challenge carrying the
+`resource_metadata` URL.
 
 </Step>
 <Step>
@@ -197,7 +187,7 @@ carrying the `resource_metadata` URL.
 <Step>
 
 **The client runs OAuth against the issuer.** It discovers the authorization
-server's own metadata, registers (dynamic client registration, when the issuer
+server's metadata, registers (dynamic client registration, when the issuer
 supports it), and walks the user through the authorization flow, requesting a
 token for the `resource` from the metadata document.
 
@@ -206,21 +196,21 @@ token for the `resource` from the metadata document.
 
 **The client retries with a bearer token.** `jwt-validate` verifies it against
 the issuer's keys, sets `vars.jwt` and `vars.sub`, and the message reaches the
-`mcp-router` — `initialize`, `tools/list`, and `tools/call` all work normally
-from here.
+`mcp-router`; `initialize`, `tools/list`, and `tools/call` work normally from
+here.
 
 </Step>
 </Steps>
 
 No token-handling code anywhere: the client, the authorization server, and two
-declarative blocks do all of it.
+declarative blocks do it all.
 
 ## The payload: SQL tools and prompts
 
-Behind the auth wall, `contacts-mcp` is an ordinary `mcp-router`. Its five
-tools are each a single [`sql` block](/guides/database-crud) against the
-`db` postgres connector. Here is `create_contact` in full — note the `has()`
-ternaries that turn optional MCP arguments into SQL `NULL`s:
+Behind the auth wall, `contacts-mcp` is an ordinary `mcp-router`. Each of its
+five tools is a single [`sql` block](/guides/database-crud) against the `db`
+postgres connector. Here is `create_contact`; the `has()` ternaries turn
+optional MCP arguments into SQL `NULL`s:
 
 ```yaml
 tools:
@@ -264,20 +254,17 @@ tools:
 
 The other four follow the same pattern:
 
-- **`get_contact`** — `select * from contacts where id = $1` with
-  `single: true`; returns the contact or null.
-- **`list_contacts`** — a paged `ilike` search across `first_name`,
-  `last_name`, `email`, and `company`, with `limit`/`offset` defaulting to
-  50/0 via `has()` ternaries.
-- **`update_contact`** — a partial update: `coalesce($n, column)` per field,
-  so omitted arguments keep their current values; `returning *`.
-- **`delete_contact`** — `exec: true`, returning `{ rowsAffected }`.
+| Tool | Query |
+| --- | --- |
+| `get_contact` | `select * from contacts where id = $1` with `single: true`; returns the contact or null. |
+| `list_contacts` | A paged `ilike` search across `first_name`, `last_name`, `email`, and `company`, with `limit`/`offset` defaulting to 50/0 via `has()` ternaries. |
+| `update_contact` | A partial update: `coalesce($n, column)` per field, so omitted arguments keep their current values; `returning *`. |
+| `delete_contact` | `exec: true`, returning `{ rowsAffected }`. |
 
-Four prompts round out the server — `add_contact`, `find_contact`,
-`update_contact_info`, and `directory_overview` — each a template resource
-that primes the client's model to use the tools. For example,
-`prompts/add_contact.md` takes a free-text `details` argument and instructs
-the model to extract the fields and call `create_contact`:
+Four prompts (`add_contact`, `find_contact`, `update_contact_info`, and
+`directory_overview`) are template resources that prime the client's model to
+use the tools. `prompts/add_contact.md` takes a free-text `details` argument
+and tells the model to extract the fields and call `create_contact`:
 
 ```markdown title="prompts/add_contact.md"
 I'd like to add a new contact to the contacts database.
@@ -288,7 +275,7 @@ Here are the details I have:
 
 Please pull out the person's first name, last name, email, phone, company, and
 any notes from that description, then call the `create_contact` tool to save
-them. First name is required — if you can't find one, ask me before saving.
+them. First name is required; if you can't find one, ask me before saving.
 When it's done, show me the created contact (including its new id) and confirm
 what you stored.
 ```
@@ -296,16 +283,12 @@ what you stored.
 <Callout type="warn">
   Deploying against Supabase? Use the **Session pooler** DSN for
   `SUPABASE_DSN`, not the direct `db.<ref>.supabase.co` host. The direct host
-  resolves to IPv6 only, and the runner has no IPv6 connectivity — the pooler
+  resolves to IPv6 only, and the runner has no IPv6 connectivity; the pooler
   DSN works over IPv4.
 </Callout>
 
 ## Where to go next
 
-- [Expose an MCP Server](/ai/mcp-server) — the `mcp-router` block reference
-  this page builds on.
-- `samples/jwt-validate.yaml` in the repo is a minimal, runnable version of
-  this pattern: one protected `/me` endpoint plus the metadata flow, ready to
-  point at any OIDC issuer.
-- [Validation and Auth](/guides/validation-and-auth) — request validation
-  patterns beyond JWTs.
+- [Expose an MCP Server](/ai/mcp-server): the `mcp-router` block reference this page builds on.
+- `samples/jwt-validate.yaml` in the repo is a minimal, runnable version of this pattern: one protected `/me` endpoint plus the metadata flow, ready to point at any OIDC issuer.
+- [Validation and Auth](/guides/validation-and-auth): request validation patterns beyond JWTs.

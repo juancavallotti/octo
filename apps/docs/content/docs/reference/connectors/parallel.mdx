@@ -11,21 +11,21 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `parallel` connector holds the API key and talks to [Parallel](https://parallel.ai), a web research API built for agents. It has two shapes, and the difference matters: **search** answers in the same request, while a **task run** is asynchronous — it returns a handle and delivers the answer later as a webhook.
+The `parallel` connector holds the API key and talks to [Parallel](https://parallel.ai), a web research API built for agents. It has two shapes: **search** answers in the same request, while a **task run** is asynchronous, returning a handle and delivering the answer later as a webhook.
 
 ## `parallel` connector
 
-**Provides a source:** no — it is a service connector. **Blocks that bind to it:** `parallel-search`, `parallel-extract`, `parallel-task-run`, `parallel-verify-request`. A task run's result arrives over an [http](/reference/connectors/http) source — Parallel posts JSON to a route you own — and `parallel-verify-request` authenticates it.
+It is a service connector and provides no source. The blocks that bind to it are `parallel-search`, `parallel-extract`, `parallel-task-run` and `parallel-verify-request`. A task run's result arrives over an [http](/reference/connectors/http) source, since Parallel posts JSON to a route you own, and `parallel-verify-request` authenticates it.
 
 ### Settings
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `apiKey` | string | Yes | — | Authenticates with the Parallel API; source it from `${PARALLEL_API_KEY}`. Never logged. |
-| `webhookSecret` | string | No | — | Verifies inbound webhooks. Take it from **Settings → Webhooks** on the Parallel platform, `whsec_` prefix included. |
+| `apiKey` | string | Yes | none | Authenticates with the Parallel API; source it from `${PARALLEL_API_KEY}`. Never logged. |
+| `webhookSecret` | string | No | none | Verifies inbound webhooks. Take it from **Settings → Webhooks** on the Parallel platform, `whsec_` prefix included. |
 | `timeout` | duration | No | `30s` | Bounds each Parallel API call. |
 
-An `apiBaseURL` setting also exists to override the API base (default `https://api.parallel.ai`), mainly for tests; it is not exposed in the editor.
+An `apiBaseURL` setting also overrides the API base (default `https://api.parallel.ai`), mainly for tests; it is not exposed in the editor.
 
 [`samples/parallel-research`](https://github.com/juancavallotti/octo/tree/main/samples/parallel-research) uses every block on this page, and [Async Research with Parallel](/guides/async-research) walks through it.
 
@@ -41,32 +41,32 @@ connectors:
       apiKey: ${PARALLEL_API_KEY}
 ```
 
-A `whsec_`-prefixed secret carries base64 key material rather than the key itself, so the connector decodes it at **startup**. A malformed one fails the service immediately, rather than becoming a signature that silently never matches.
+A `whsec_`-prefixed secret carries base64 key material rather than the key itself, so the connector decodes it at startup. A malformed one fails the service immediately, rather than becoming a signature that silently never matches.
 
 ### Error handling
 
-Parallel signals errors with an HTTP status ≥ 400 carrying a `detail` field. Every block has a `failOnError` setting (default `true`): when true, a Parallel error [fails the flow](/concepts/error-handling); when false, the message passes through unchanged.
+Parallel signals errors with an HTTP status ≥ 400 carrying a `detail` field. Every block has a `failOnError` setting (default `true`): when true a Parallel error [fails the flow](/concepts/error-handling), when false the message passes through unchanged.
 
 ### Where the result goes
 
-Every block follows the same convention as [pinecone](/reference/connectors/pinecone): the response becomes the **body**, because it is the payload the next block works on. Set `resultVar` to keep the incoming body and store the response in a variable instead.
+Every block follows the same convention as [pinecone](/reference/connectors/pinecone): the response becomes the body. Set `resultVar` to keep the incoming body and store the response in a variable instead.
 
 ## `parallel-search` block
 
-**Parallel Search** — search the web and return ranked pages with LLM-optimized excerpts.
+**Parallel Search** searches the web and returns ranked pages with LLM-optimized excerpts.
 
-Parallel's search is not a keyword API. An **objective** says, in natural language, what the caller is actually after; the **queries** are the searches to run toward it. Parallel ranks results against the objective, which is why both are required.
+This is not a keyword API. An objective says, in natural language, what the caller is after; the queries are the searches to run toward it. Parallel ranks results against the objective, which is why both are required.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `parallel` connector to use. |
-| `objective` | expression | Yes | — | CEL expression describing what the search is for. |
-| `searchQueries` | expression | Yes | — | CEL expression for the queries to run: one string, or a list. |
+| `connector` | string | Yes | none | Name of the `parallel` connector to use. |
+| `objective` | expression | Yes | none | CEL expression describing what the search is for. |
+| `searchQueries` | expression | Yes | none | CEL expression for the queries to run: one string, or a list. |
 | `mode` | enum | No | Parallel's `advanced` | `advanced` (best quality), `basic`, `fast`, or `turbo` (~250ms). |
 | `maxResults` | int | No | Parallel's `10` | Upper bound on the number of results (1–20). |
 | `maxCharsPerResult` | int | No | Parallel's default | Cap on the characters returned per result. |
-| `maxCharsTotal` | int | No | Parallel's default | Cap on the characters returned across every result together — the budget that matters when the results are headed for a model's context. |
-| `resultVar` | string | No | — | Store the response here and leave the body; when empty, the response becomes the body. |
+| `maxCharsTotal` | int | No | Parallel's default | Cap on the characters returned across every result together, the budget that matters when the results are headed for a model's context. |
+| `resultVar` | string | No | none | Store the response here and leave the body; when empty, the response becomes the body. |
 | `failOnError` | bool | No | `true` | Turn a Parallel API error into a flow error. |
 
 ```yaml
@@ -82,25 +82,25 @@ Parallel's search is not a keyword API. An **objective** says, in natural langua
     resultVar: hits
 ```
 
-`maxResults` and `maxCharsPerResult` are sent inside Parallel's `advanced_settings` object rather than at the top level of the request — the block does that nesting for you. It matters because the request schema forbids unknown top-level fields, so getting it wrong fails the whole call rather than being ignored.
+`maxResults` and `maxCharsPerResult` are sent inside Parallel's `advanced_settings` object rather than at the top level of the request, and the block does that nesting for you. The request schema forbids unknown top-level fields, so getting it wrong fails the whole call rather than being ignored.
 
-**Response shape** — `search_id`, `results` (each with `url`, `title`, `publish_date`, and `excerpts`), plus `warnings`, `usage`, and `session_id`.
+The response carries `search_id`, `results` (each with `url`, `title`, `publish_date`, and `excerpts`), plus `warnings`, `usage`, and `session_id`.
 
-A setting left unset is omitted from the request, so Parallel's own default applies rather than this connector pinning one.
+A setting left unset is omitted from the request, so Parallel's own default applies.
 
 ## `parallel-extract` block
 
-**Parallel Extract** — read the contents of specific web pages. Where search finds the pages, extract fetches what is on them.
+**Parallel Extract** reads the contents of specific web pages. Where search finds the pages, extract fetches what is on them.
 
-Give it the **urls** to read. An **objective** is optional: with one, Parallel returns excerpts scoped to it; without one, it returns the page. Set **fullContent** to ask for the whole page rather than the objective-scoped excerpts.
+Give it the urls to read. An objective is optional: with one, Parallel returns excerpts scoped to it; without one, it returns the page. Set `fullContent` to ask for the whole page instead.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `parallel` connector to use. |
-| `urls` | expression | Yes | — | CEL expression for the URLs to read: one string, or a list. |
-| `objective` | expression | No | — | CEL expression describing what to read the pages for. Scopes the excerpts Parallel returns. |
+| `connector` | string | Yes | none | Name of the `parallel` connector to use. |
+| `urls` | expression | Yes | none | CEL expression for the URLs to read: one string, or a list. |
+| `objective` | expression | No | none | CEL expression describing what to read the pages for. Scopes the excerpts Parallel returns. |
 | `fullContent` | bool | No | `false` | Return the whole page rather than objective-scoped excerpts. |
-| `resultVar` | string | No | — | Store the response here and leave the body; when empty, the response becomes the body. |
+| `resultVar` | string | No | none | Store the response here and leave the body; when empty, the response becomes the body. |
 | `failOnError` | bool | No | `true` | Turn a Parallel API error into a flow error. |
 
 ```yaml
@@ -113,27 +113,27 @@ Give it the **urls** to read. An **objective** is optional: with one, Parallel r
     resultVar: pages
 ```
 
-**Response shape** — `extract_id`, `results` (each with `url`, `title`, `publish_date`, `excerpts`, and `full_content` when `fullContent` was set), plus `errors`, `warnings`, `usage`, and `session_id`.
+The response carries `extract_id`, `results` (each with `url`, `title`, `publish_date`, `excerpts`, and `full_content` when `fullContent` was set), plus `errors`, `warnings`, `usage`, and `session_id`.
 
 ## `parallel-task-run` block
 
-**Parallel Task Run** — start one of Parallel's asynchronous research runs and return its handle.
+**Parallel Task Run** starts one of Parallel's asynchronous research runs and returns its handle.
 
-The block **does not wait**. A task run takes far longer than an HTTP request, so what comes back is a receipt — `{run_id, status, ...}` — and the answer arrives later on the webhook. That is also why this block is the one exception to the connector's "result becomes the body" rule: the handle goes in a variable, so the flow that asked still has its own body to respond with.
+The block does not wait. What comes back is a receipt, `{run_id, status, ...}`, and the answer arrives later on the webhook. This block is the one exception to the connector's "result becomes the body" rule: the handle goes in a variable, so the flow that asked still has its own body to respond with.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `parallel` connector to use. |
-| `processor` | string | Yes | — | Parallel processor to run the task on; it selects the depth/cost tier. |
-| `input` | expression | Yes | — | CEL expression for the task input: a string, or an object matching the input schema. |
-| `outputSchema` | expression | No | — | CEL expression for the output the task must produce: a JSON Schema object, or a plain-English description of the answer you want. |
-| `metadata` | expression | No | — | CEL expression for key/value metadata echoed back on the run and its webhook. |
-| `webhookURL` | string | No | — | URL Parallel posts the run's result to. |
+| `connector` | string | Yes | none | Name of the `parallel` connector to use. |
+| `processor` | string | Yes | none | Parallel processor to run the task on; it selects the depth/cost tier. |
+| `input` | expression | Yes | none | CEL expression for the task input: a string, or an object matching the input schema. |
+| `outputSchema` | expression | No | none | CEL expression for the output the task must produce: a JSON Schema object, or a plain-English description of the answer you want. |
+| `metadata` | expression | No | none | CEL expression for key/value metadata echoed back on the run and its webhook. |
+| `webhookURL` | string | No | none | URL Parallel posts the run's result to. |
 | `eventTypes` | string[] | No | `[task_run.status]` | Event types to deliver to the webhook. |
 | `resultVar` | string | No | `parallelRun` | Variable the run handle is stored in. |
 | `failOnError` | bool | No | `true` | Turn a Parallel API error into a flow error. |
 
-**Response shape** — `run_id`, `status` (`queued`, `running`, `action_required`, `completed`, `failed`, `cancelling`, or `cancelled`), `is_active`, `processor`, `created_at`, `modified_at`, `metadata`, `warnings`, and `error`.
+The response carries `run_id`, `status` (`queued`, `running`, `action_required`, `completed`, `failed`, `cancelling`, or `cancelled`), `is_active`, `processor`, `created_at`, `modified_at`, `metadata`, `warnings`, and `error`.
 
 ```yaml
 - type: parallel-task-run
@@ -146,7 +146,7 @@ The block **does not wait**. A task run takes far longer than an HTTP request, s
     webhookURL: ${PARALLEL_WEBHOOK_URL}
 ```
 
-`output_schema` is a tagged union in Parallel's API, so a JSON Schema object is sent wrapped as `{"type": "json", "json_schema": …}` — the block does that for you. A string is passed through untouched, which the API reads as a text schema:
+`output_schema` is a tagged union in Parallel's API, so the block wraps a JSON Schema object as `{"type": "json", "json_schema": …}`. A string is passed through untouched, which the API reads as a text schema:
 
 ```yaml
     outputSchema: '"a one-paragraph summary with a source URL"'
@@ -156,36 +156,31 @@ Point `webhookURL` at an [http](/reference/connectors/http) source in this same 
 
 ## Webhook verification
 
-A task run's answer arrives as a webhook, and a webhook is a request from the open internet. Parallel signs each one following the [Standard Webhooks](https://www.standardwebhooks.com) spec, and `parallel-verify-request` is what checks that signature before the flow acts on the payload.
+A task run's answer arrives as a webhook, a request from the open internet. Parallel signs each one following the [Standard Webhooks](https://www.standardwebhooks.com) spec, and `parallel-verify-request` checks that signature before the flow acts on the payload.
 
-The scheme, end to end:
-
-1. Parallel sends three headers — `webhook-id` (unique per event), `webhook-timestamp` (unix seconds), and `webhook-signature`.
+1. Parallel sends three headers: `webhook-id` (unique per event), `webhook-timestamp` (unix seconds), and `webhook-signature`.
 2. The signed string is `<webhook-id>.<webhook-timestamp>.<raw body>`, HMAC-SHA256 with your secret's decoded key material, base64-encoded.
-3. `webhook-signature` carries that as `v1,<base64>` — or as a **space-delimited list** of them while a secret is being rotated, in which case any entry matching is enough.
+3. `webhook-signature` carries that as `v1,<base64>`, or as a space-delimited list of them while a secret is being rotated, in which case any entry matching is enough.
 
-Two consequences worth stating, because they are what the scheme buys you:
-
-- The **id and the timestamp are inside the signature**, so a captured signature cannot be replayed under a different event id, and cannot be replayed at all outside a **5-minute** window.
-- The signature is over the **exact request bytes**, so a body re-serialized on the way no longer verifies. That is why the http source has to hand the block the raw bytes.
+The id and the timestamp are inside the signature, so a captured signature cannot be replayed under a different event id, and cannot be replayed at all outside a 5-minute window. The signature is over the exact request bytes, so a body re-serialized on the way no longer verifies, which is why the http source has to hand the block the raw bytes.
 
 <Callout type="warn">
-Unlike [notion](/reference/connectors/notion#webhook-verification-handshake), there is no bootstrap handshake here: Parallel issues the secret in its dashboard, so it exists before the first webhook does. A `parallel-verify-request` in a flow whose connector has no `webhookSecret` **fails to build** — a flow that cannot authenticate its callbacks should not start.
+Unlike [notion](/reference/connectors/notion#webhook-verification-handshake), there is no bootstrap handshake here: Parallel issues the secret in its dashboard, so it exists before the first webhook does. A `parallel-verify-request` in a flow whose connector has no `webhookSecret` fails to build.
 </Callout>
 
 ## `parallel-verify-request` block
 
-**Parallel Verify Request** — authenticate an inbound Parallel webhook delivered over the `http` connector, and abort the flow on a bad or stale signature.
+**Parallel Verify Request** authenticates an inbound Parallel webhook delivered over the `http` connector, and aborts the flow on a bad or stale signature.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `connector` | string | Yes | — | Name of the `parallel` connector to use. Its `webhookSecret` is required. |
+| `connector` | string | Yes | none | Name of the `parallel` connector to use. Its `webhookSecret` is required. |
 | `idHeader` | string | No | `webhook-id` | Variable holding the webhook's unique id. |
 | `timestampHeader` | string | No | `webhook-timestamp` | Variable holding the webhook's unix timestamp. |
 | `signatureHeader` | string | No | `webhook-signature` | Variable holding the webhook's signature. |
-| `rawBodyVar` | string | No | `rawBody` | Variable holding the exact request body; must match the http source's `rawBodyVar`. Optional when the http source uses raw-content mode (`rawBody: true`) — the block then reads the raw body directly and re-parses it into `body`. |
+| `rawBodyVar` | string | No | `rawBody` | Variable holding the exact request body; must match the http source's `rawBodyVar`. Optional when the http source uses raw-content mode (`rawBody: true`), where the block reads the raw body directly and re-parses it into `body`. |
 
-The http source must expose the exact request bytes, either with `rawBodyVar: rawBody` or with `rawBody: true`, and copy all **three** headers into variables:
+The http source must expose the exact request bytes, either with `rawBodyVar: rawBody` or with `rawBody: true`, and copy all three headers into variables:
 
 ```yaml
 source:
@@ -205,4 +200,4 @@ source:
     connector: research
 ```
 
-**Event payload** — `{timestamp, type, data}`, where `type` is `task_run.status` and `data` is the full task run object. Correlate it with the request that started the run through the `metadata` you passed to `parallel-task-run`, which comes back on the run.
+The event payload is `{timestamp, type, data}`, where `type` is `task_run.status` and `data` is the full task run object. Correlate it with the request that started the run through the `metadata` you passed to `parallel-task-run`, which comes back on the run.

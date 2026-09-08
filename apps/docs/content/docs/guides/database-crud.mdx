@@ -5,20 +5,20 @@ description: "Query SQLite or Postgres with parameterized SQL."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-In this guide you wire an HTTP API to a SQL database with the `database`
-connector and the `sql` block: create, read, and list orders with parameterized
-queries. It follows
+This guide wires an HTTP API to a SQL database with the `database` connector
+and the `sql` block: create, read, and list orders with parameterized queries.
+It follows
 [`samples/db-orders.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/db-orders.yaml),
-which defaults to SQLite against the committed `samples/orders.db` fixture, so
-it runs with zero setup.
+which defaults to SQLite against the committed `samples/orders.db` fixture and
+runs with zero setup.
 
 ![The flow in the visual editor](/screenshots/sample-db-orders.png)
 
 ## Declare the database
 
 The `database` connector owns the connection pool. The driver is `sqlite` or
-`postgres`; keeping both the driver and DSN in env vars means switching
-databases is a configuration change, not an edit.
+`postgres`; with driver and DSN in env vars, switching databases is a
+configuration change.
 
 ```yaml
 env:
@@ -53,22 +53,21 @@ The connector also accepts `maxIdleConns` and `connMaxLifetime` for pool tuning.
 
 <Callout type="info">
 The default SQLite DSN is relative to the working directory of
-`task run:sample` (which runs from `runtime/octo`, hence the `../../` prefix).
-If you run the binary from the repo root instead, override it:
+`task run:sample`, which runs from `runtime/octo` (hence the `../../` prefix).
+From the repo root, override it:
 `DB_DSN=file:samples/orders.db bin/octo run --config samples/db-orders.yaml`.
 </Callout>
 
 ## Create and list: route on the method
 
 `net/http` registers one pattern per path, so a single flow serves `/orders`
-and routes on `vars.method` with a `switch` — POST creates, GET lists.
+and routes on `vars.method` with a `switch`: POST creates, GET lists.
 
 The `sql` block takes a `query` with `?` placeholders and an `args` list of CEL
-expressions evaluated per message — values are always bound as parameters,
-never spliced into the SQL string. With `single: true` the body becomes the
-first row as a JSON object (or `null`); without it, the body is a JSON array of
-rows. `RETURNING *` on the INSERT hands back the stored row, including the
-generated id, in the same round trip.
+expressions evaluated per message; values are bound as parameters, never spliced
+into the SQL string. With `single: true` the body becomes the first row as a
+JSON object (or `null`); without it, a JSON array of rows. `RETURNING *` on the
+INSERT hands back the stored row, generated id included, in the same round trip.
 
 ```yaml
 flows:
@@ -113,14 +112,15 @@ flows:
                 value: '{"error": "method " + vars.method + " not supported"}'
 ```
 
-For statements where you don't want rows back at all (bulk UPDATE/DELETE, DDL),
-set `exec: true` and the block runs the statement without scanning a result set.
+For statements with no rows to return (bulk UPDATE/DELETE, DDL), set
+`exec: true`; the block skips the result set and the body becomes
+`{"rowsAffected": N}`.
 
 ## Read one: path parameter into args
 
-`GET /orders/{id}` is a distinct route (the `{id}` makes it a different
-pattern), so it lives in its own flow. The path parameter arrives as `vars.id`
-and feeds the query as a bound argument:
+`GET /orders/{id}` is a distinct pattern (because of `{id}`), so it lives in its
+own flow. The path parameter arrives as `vars.id` and feeds the query as a bound
+argument:
 
 ```yaml
   - name: orders-get
@@ -155,7 +155,7 @@ Read the seed row:
 curl -s localhost:8080/api/v1/orders/1
 ```
 
-Create an order — the response is the stored row, with its generated id:
+Create an order; the response is the stored row with its generated id:
 
 ```bash
 curl -s -X POST localhost:8080/api/v1/orders \
@@ -172,8 +172,8 @@ List everything:
 curl -s localhost:8080/api/v1/orders
 ```
 
-POSTs persist into the committed `samples/orders.db` fixture; reset it any time
-with `git checkout samples/orders.db`.
+POSTs persist into the committed `samples/orders.db` fixture; reset it with
+`git checkout samples/orders.db`.
 
 ## Switch to Postgres
 
@@ -184,7 +184,7 @@ DB_DRIVER=postgres
 DB_DSN=postgres://user:pw@localhost:5432/orders?sslmode=disable
 ```
 
-Bring one up quickly with Docker and create the schema yourself:
+Bring one up with Docker and create the schema yourself:
 
 ```bash
 docker run --rm -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=orders -p 5432:5432 postgres
@@ -194,11 +194,11 @@ docker run --rm -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=orders -p 5432:5432 postg
 CREATE TABLE orders (id SERIAL PRIMARY KEY, item TEXT NOT NULL, amount REAL NOT NULL);
 ```
 
-Postgres uses numbered placeholders, so swap the `?` placeholders in the
-queries for `$1`, `$2`, and so on.
+Postgres uses numbered placeholders, so swap `?` in the queries for `$1`, `$2`,
+and so on.
 
 ## Where to go next
 
-- [Build a REST API](/guides/rest-api) — the HTTP side of this sample in depth.
-- [Validation and Auth](/guides/validation-and-auth) — validate the POST body before it hits the database.
-- [Database connector reference](/reference/connectors/database) — every connector and `sql` block setting.
+- [Build a REST API](/guides/rest-api): the HTTP side of this sample in depth.
+- [Validation and Auth](/guides/validation-and-auth): validate the POST body before it hits the database.
+- [Database connector reference](/reference/connectors/database): every connector and `sql` block setting.

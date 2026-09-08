@@ -1,4 +1,4 @@
-# Weather tools — operator guide
+# Weather tools: operator guide
 
 This MCP server exposes a small set of weather tools.
 

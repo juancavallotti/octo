@@ -7,19 +7,18 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Every message expression in Octo is compiled in the same environment: the
 standard CEL library, [seven cel-go utility
-libraries](/reference/cel/libraries), six message variables, and a small set of
-custom functions the runtime registers. This page is the reference for the
-variables and Octo's own functions. (The same catalogue is served to AI tooling
-by the Octo MCP server's `getCelFunctions` tool.)
+libraries](/reference/cel/libraries), six message variables, and the custom
+functions below. The same catalogue is served to AI tooling by the Octo MCP
+server's `getCelFunctions` tool.
 
 ## Variables
 
-These are in scope for every message expression — block settings, conditions,
+These are in scope for every message expression: block settings, conditions,
 `foreach` items, validation rules, and so on.
 
 | Variable | Type | Description |
 | --- | --- | --- |
-| `body` | `dyn` | The decoded message body — JSON-native shapes (map, list, string, double, bool, null). In raw-content mode it is the `{contentType, rawData}` envelope. |
+| `body` | `dyn` | The decoded message body, in JSON-native shapes (map, list, string, double, bool, null). In raw-content mode it is the `{contentType, rawData}` envelope. |
 | `vars` | `map(string, dyn)` | The message's variables: values set by the source (path params, captured headers, query) and by blocks such as `set-variable`, `multi-transform`, and `enrich`. |
 | `eventID` | `string` | The message's unique event id. |
 | `correlationID` | `string` | The message's correlation id (empty unless the source or a block set one), for tracing a message across flows. |
@@ -31,6 +30,10 @@ bin/octo eval --expr '"hi " + body.name + " (" + eventID + ")"' --data '{"name":
 # {"ok":true,"result":"hi Ada (3c1658e009c837440266d967b87dc5e4)"}
 ```
 
+An [`ai-agent`](/reference/blocks/ai#ai-agent) tool's `authorize` expression
+sees these six plus `tool` (with `name` and `id`) and `input`, the call's
+decoded arguments.
+
 ### Source payload expressions
 
 A source's `payload` expression (for example on a `cron` source) runs before
@@ -38,7 +41,7 @@ any message exists, so it sees a smaller scope: only `now` (the trigger's fire
 time) and `settings` (the source's static settings map). The message variables
 above are not available there.
 
-Every function below — including `templateResource` — is available in a payload,
+Every function below, `templateResource` included, is available in a payload,
 resolved against that same scope.
 
 ```yaml
@@ -53,8 +56,8 @@ source:
 ## Functions
 
 Octo registers eighteen functions of its own. They are available in every message
-expression, in every source payload, and inside a template's `{{ }}` spans —
-the three environments expose the same set, as do the [extension
+expression, in every source payload, and inside a template's `{{ }}` spans. The
+three environments expose the same set, as do the [extension
 libraries](/reference/cel/libraries).
 
 ### toJson
@@ -64,7 +67,7 @@ toJson(dyn) -> string
 ```
 
 Marshals any value to a compact JSON string. Useful for embedding a structure
-into a string field — a log line, an LLM prompt, an outgoing text body.
+into a string field such as a log line, an LLM prompt, or an outgoing text body.
 
 ```bash
 bin/octo eval --expr 'toJson({"a": 1, "b": [true, null]})'
@@ -78,7 +81,7 @@ fromJson(string) -> dyn
 ```
 
 Parses a JSON string into a decoded value (map, list, double, string, bool, or
-null). The typical use is reverting a captured raw body — an HTTP source with
+null). The typical use is reverting a captured raw body: an HTTP source with
 `rawBody: true` delivers the exact request bytes as `body.rawData`, and
 `fromJson(body.rawData)` turns them back into a structured value.
 
@@ -103,8 +106,11 @@ output is deterministic. For `multipart/form-data`, see
 
 ```bash
 bin/octo eval --expr 'toFormData({"q": "hello world", "page": 2, "tags": ["a", "b"]})'
-# {"ok":true,"result":"page=2&q=hello+world&tags=a&tags=b"}
+# {"ok":true,"result":"page=2\u0026q=hello+world\u0026tags=a\u0026tags=b"}
 ```
+
+`\u0026` is how the JSON envelope escapes `&`; the encoded string itself holds
+a plain `&`.
 
 ### fromFormData
 
@@ -121,7 +127,7 @@ bin/octo eval --expr 'fromFormData("q=hello+world&page=2&tags=a&tags=b")'
 # {"ok":true,"result":{"page":"2","q":"hello world","tags":["a","b"]}}
 ```
 
-Note that parsed form values are always strings — compare with
+Parsed form values are always strings, so compare with
 `int(body.page) > 1` or `body.page == "2"`.
 
 ### fromMultipart
@@ -134,10 +140,9 @@ fromMultipart(string, string) -> dyn   # (rawData, contentType)
 Decodes a `multipart/form-data` payload into the **parts map**: part name to
 decoded part, with a repeated name collecting into a list.
 
-You rarely need this for an HTTP request — the http source decodes multipart
-automatically and puts the result on `body.parts`. Reach for it when a multipart
-payload arrives some other way: off a queue, out of a file, or in a `rest`
-response.
+The http source decodes multipart automatically onto `body.parts`, so reach for
+this when a multipart payload arrives some other way: off a queue, out of a
+file, or in a `rest` response.
 
 One decoded part looks like this:
 
@@ -153,10 +158,10 @@ One decoded part looks like this:
 }
 ```
 
-Each part carries its **own** `contentType`, which is what tells you an upload is
-a PNG rather than a CSV — it is independent of the request's outer content type.
-`name` and `filename` come from the part's `Content-Disposition`; `headers` holds
-whatever else the part declared.
+Each part carries its **own** `contentType`, independent of the request's outer
+content type, so an upload declares itself a PNG rather than a CSV. `name` and
+`filename` come from the part's `Content-Disposition`; `headers` holds whatever
+else the part declared.
 
 A part with a `filename` is always `base64`; a plain form field is always `text`.
 The rule follows the payload's *shape*, not its bytes, so an expression means the
@@ -189,7 +194,7 @@ Returns an empty parts map to build on. Pair it with `addPart`.
 <parts>.addPart(string, dyn) -> dyn
 ```
 
-Returns a **new** parts map with one part added — it never modifies the map it is
+Returns a **new** parts map with one part added. It never modifies the map it is
 called on, so an expression can branch without one path affecting the other.
 
 A scalar value is shorthand for a text field. An object gives full control, and
@@ -201,15 +206,15 @@ multipart()
   .addPart("report", {"data": vars.csv, "filename": "r.csv", "contentType": "text/csv"})
 ```
 
-Because a decoded part is already the shape `addPart` accepts, forwarding an
-upload keeps its filename and content type:
+A decoded part is already the shape `addPart` accepts, so forwarding an upload
+keeps its filename and content type:
 
 ```
 multipart().addPart("avatar", body.parts.avatar)
 ```
 
-And because each call returns a value, parts can be added conditionally — which
-is the thing a static configuration map cannot express:
+And because each call returns a value, parts can be added conditionally, which
+a static configuration map cannot express:
 
 ```
 (has(body.caption) ? multipart().addPart("caption", body.caption) : multipart())
@@ -231,14 +236,14 @@ toMultipart(dyn, string) -> string
 Renders a parts map as a `multipart/form-data` body. Part names are written in
 sorted order, so the output is deterministic.
 
-The `rest` block builds multipart bodies itself — set `bodyType: multipart` and
+The `rest` block builds multipart bodies itself: set `bodyType: multipart` and
 let it own the boundary. Use `toMultipart` when the body is going somewhere else,
 such as a file write or a queue publish.
 
-The second argument names the boundary. Without it the boundary is
-`octo-multipart`, which is fixed rather than random because `set-payload` takes
-its `contentType` as static configuration, so you have to be able to write the
-matching boundary yourself:
+The second argument names the boundary. Without it the boundary is the fixed
+`octo-multipart`, not a random one, because `set-payload` takes its
+`contentType` as static configuration and you have to write the matching
+boundary yourself:
 
 ```yaml
 - type: set-payload
@@ -259,8 +264,8 @@ bin/octo eval --data '{}' --expr 'toMultipart(multipart().addPart("a", "1"), "b"
 toYaml(dyn) -> string
 ```
 
-Renders any value as a YAML document. Use it to write a config file, or to hand
-a structure to a tool that reads YAML.
+Renders any value as a YAML document, for writing a config file or handing a
+structure to a tool that reads YAML.
 
 Strings that would read back as a different type are quoted for you, so what
 `toYaml` writes is what `fromYaml` returns. Under YAML 1.1 a bare `y`, `no` or
@@ -281,16 +286,16 @@ Parses a YAML document into a decoded value. The typical use is a YAML file read
 into the flow as raw content: `fromYaml(body.rawData)`.
 
 The result is normalized to the [JSON-native shapes](#behavior-notes) a message
-body may hold — YAML integers become numbers and YAML timestamps become RFC 3339
+body may hold: YAML integers become numbers and YAML timestamps become RFC 3339
 strings. A document YAML can express but JSON cannot, such as a non-string
 mapping key, is an evaluation error rather than a body with a foreign type in it.
 
 <Callout type="warn">
   A JSON number is a binary double, so an integer above 2^53 does not survive
-  exactly — `id: 9007199254740993` reads back as `9007199254740992`. This is the
-  body contract rather than anything YAML-specific (`fromJson` does the same), but
-  YAML config files carry large ids more often. Quote such a value in the source
-  document to keep it a string.
+  exactly, and `id: 9007199254740993` reads back as `9007199254740992`. This is
+  the body contract rather than anything YAML-specific (`fromJson` does the same),
+  but YAML config files carry large ids more often. Quote such a value in the
+  source document to keep it a string.
 </Callout>
 
 ```bash
@@ -306,13 +311,13 @@ toEnv(dyn) -> string
 
 Renders a flat object as `.env` file content. Keys are sorted, so the output is
 deterministic, and a value is quoted only when writing it bare would not read
-back the same — when it is empty, holds whitespace or a `#`, or contains a quote,
+back the same: when it is empty, holds whitespace or a `#`, or contains a quote,
 a backslash, or a line break.
 
-Values are scalars — a string, number or boolean, with null rendering empty. A
+Values are scalars (a string, number or boolean, with null rendering empty). A
 scalar may hold any *characters*, line breaks included: every one that carries
 structure is escaped, so one variable is always one physical line and a value can
-never introduce a second assignment. Feed it untrusted text safely.
+never introduce a second assignment. Untrusted text is safe to feed in.
 
 Two things are errors rather than silent corruption. An env file is flat, so a
 nested object or list value is refused, naming the key. And a name has no quoted
@@ -331,9 +336,9 @@ fromEnv(string) -> dyn
 ```
 
 Parses `.env` file content into an object. Blank lines and `#` comments are
-skipped, a leading `export ` is dropped, and quoted values are unquoted — the
-same rules the runtime uses for the `.env` files it loads at startup, because it
-is the same parser.
+skipped, a leading `export ` is dropped, and quoted values are unquoted. These
+are the same rules the runtime uses for the `.env` files it loads at startup,
+because it is the same parser.
 
 Every value is a string, since an env file carries no types. Compare with
 `body.PORT == "8080"` or convert with `int(body.PORT)`.
@@ -349,16 +354,16 @@ bin/octo eval --expr 'fromEnv("export A=1\n# note\nB=\"two words\"")'
 templateResource(string) -> string
 ```
 
-Renders a [template resource](/concepts/resources) — named by its resource id
-or the alias declared under `resources.templates[].as` — against the current
-message, returning the rendered text. The template sees every in-scope
+Renders a [template resource](/concepts/resources) against the current message,
+returning the rendered text. Name it by its resource id or by the alias declared
+under `resources.templates[].as`. The template sees every in-scope
 variable: `{{ body.* }}`, `{{ vars.* }}`, `{{ env.* }}`, and so on. A missing
 or unparsable template declared in the config fails at load time, not per
 message.
 
 A template is a shared resource, so its `{{ }}` spans may name any variable from
 any scope it can be rendered in. Rendering it from a source payload gives it that
-scope instead — `{{ settings.* }}` and `{{ now }}`. A span naming a variable the
+scope instead: `{{ settings.* }}` and `{{ now }}`. A span naming a variable the
 current scope does not supply (`{{ body.x }}` in a payload) reads as null rather
 than failing, so write templates against the scope you render them from.
 
@@ -402,8 +407,8 @@ bin/octo eval --expr 'hexEncode(hmacSha256("key", "hello"))'
 hmacSha1(dyn, dyn) -> bytes
 ```
 
-The same, with SHA-1. It is here for legacy schemes that still sign with it —
-Twilio, and GitHub's older `X-Hub-Signature` — and should not be chosen for
+The same, with SHA-1. It is here for legacy schemes that still sign with it
+(Twilio, and GitHub's older `X-Hub-Signature`) and should not be chosen for
 anything new.
 
 ### hexEncode
@@ -422,7 +427,7 @@ header. For the ones that use base64, `base64.encode` from the
 uuid() -> string
 ```
 
-A random version 4 UUID, for the places a message needs an identifier and nothing
+A random version 4 UUID, for when a message needs an identifier and nothing
 upstream supplied one: a correlation id on an outbound request, an idempotency
 key, a synthetic id for a record that arrived without one.
 
@@ -439,7 +444,7 @@ key, a synthetic id for a record that arrived without one.
 
 <Callout type="warn">
   `uuid()` is the second non-deterministic thing in the language, after `now`. An
-  expression containing it evaluates to something different every time — so a
+  expression containing it evaluates to something different every time, so a
   replayed trace does not reproduce, a `validate` rule written on it cannot be
   reasoned about, and a cache key built from it never hits. Use it where a fresh
   value is the point.
@@ -447,8 +452,8 @@ key, a synthetic id for a record that arrived without one.
 
 It is the wrong tool for naming a conversation: an [ai-agent](/reference/blocks/ai#ai-agent)'s
 `memoryThreadId` is evaluated once per run, so a minted thread loads a transcript
-nobody wrote and saves one nobody will read — which is what leaving the field out
-already does, without the writes. A tool branch that wants a scope of its own is
+nobody wrote and saves one nobody will read, which is what leaving the field out
+already does without the writes. A tool branch that wants a scope of its own is
 handed [`vars.toolScope`](/reference/blocks/ai#what-a-tool-branch-is-told).
 
 ### secureCompare
@@ -461,9 +466,9 @@ Compares two values without a content-dependent early return, and it is what
 makes the rest safe to offer.
 
 CEL's own `==` on strings stops at the first differing byte, and how long it took
-to stop is observable — which, over enough requests, is a way to learn the
-expected signature one byte at a time. `secureCompare` does not. It does not hide
-the lengths, which is fine: for a fixed-width digest they are equal anyway.
+to stop is observable, which over enough requests is a way to learn the expected
+signature one byte at a time. `secureCompare` does not. It does not hide the
+lengths, which is fine: for a fixed-width digest they are equal anyway.
 
 <Callout type="warn">
   Never compare a signature with `==`. Use `secureCompare` for anything an
@@ -472,7 +477,7 @@ the lengths, which is fine: for a fixed-width digest they are equal anyway.
 
 <Callout type="warn">
   `templateResource` needs a loaded config to resolve resources, so it cannot
-  be exercised with standalone `octo eval` — there, any id reports
+  be exercised with standalone `octo eval`, where any id reports
   `load template "...": resource: not found`. Every other function on this
   page works in `eval` exactly as in a flow.
 </Callout>
@@ -481,12 +486,12 @@ the lengths, which is fine: for a fixed-width digest they are equal anyway.
 
 Four of the functions exist for one job: authenticating an inbound webhook.
 
-Every provider worth verifying — GitHub, Slack, Stripe, Notion, Shopify —
-signs some arrangement of the request with a shared secret and puts the digest
-in a header. What differs between them is only *which bytes are signed*, *how
-the digest is rendered*, and *what prefixes it*. All three are things an
-expression can already say, so these are primitives rather than a block per
-provider: a scheme nobody has implemented yet is a `validate` rule away.
+Every provider worth verifying (GitHub, Slack, Stripe, Notion, Shopify) signs
+some arrangement of the request with a shared secret and puts the digest in a
+header. What differs between them is only *which bytes are signed*, *how the
+digest is rendered*, and *what prefixes it*, all three of which an expression
+can already say. So these are primitives rather than a block per provider, and a
+scheme nobody has implemented yet is a `validate` rule away.
 
 ```yaml
 - type: validate
@@ -501,20 +506,22 @@ provider: a scheme nobody has implemented yet is a `validate` rule away.
       message: invalid webhook signature
 ```
 
-Three things about that rule are load-bearing:
+Three things about that rule are load-bearing.
 
-- **`vars.rawBody` is the exact request bytes**, captured by the http source's
-  [`rawBodyVar`](/reference/connectors/http). A signature computed over the
-  parsed `body` would never match — re-serializing reorders keys and drops
-  whitespace.
-- **The prefix is compared as part of the signature**, not stripped from the
-  incoming one, so a request that omits it fails rather than passes.
-- **The `in` guard turns a missing header into a rejection, not a failure.**
-  Reading an absent variable is an evaluation error, which fails the flow and
-  answers `500` — the one status a webhook sender retries for hours. Guarded, it
-  is a plain `false`, and a `false` here is the `401` you wanted. (`has()` will
-  not do: it takes a field selection, and a header name with dashes can only be
-  reached as an index.)
+`vars.rawBody` is the exact request bytes, captured by the http source's
+[`rawBodyVar`](/reference/connectors/http). A signature computed over the parsed
+`body` would never match, because re-serializing reorders keys and drops
+whitespace.
+
+The prefix is compared as part of the signature, not stripped from the incoming
+one, so a request that omits it fails rather than passes.
+
+The `in` guard turns a missing header into a rejection rather than a failure.
+Reading an absent variable is an evaluation error, which fails the flow and
+answers `500`, the one status a webhook sender retries for hours. Guarded, it is
+a plain `false`, and a `false` here is the `401` you wanted. `has()` will not do:
+it takes a field selection, and a header name with dashes can only be reached as
+an index.
 
 See [samples/github-webhook.yaml](https://github.com/juancavallotti/octo/blob/main/samples/github-webhook.yaml)
 for the whole flow. Other providers differ only in the expression:
@@ -526,7 +533,7 @@ for the whole flow. Other providers differ only in the expression:
 | Stripe | `<timestamp> + "." + vars.rawBody` | `hexEncode(...)`, from the compound `t=…,v1=…` header |
 | Shopify | `vars.rawBody` | `base64.encode(...)` |
 
-Slack and Stripe also bound replay by timestamp, which `now` already expresses —
+Slack and Stripe also bound replay by timestamp, which `now` already expresses:
 compare it against the request's timestamp before checking the HMAC. Slack and
 Notion additionally have dedicated blocks
 ([`slack-verify-request`](/reference/connectors/slack),
@@ -536,14 +543,14 @@ you; reach for these functions when no block covers your provider.
 
 ## Behavior notes
 
-- **Results are JSON-native.** Whatever a CEL expression produces is bridged
-  to JSON shapes: maps become objects, all numbers become JSON numbers, bytes
-  render as base64, timestamps as RFC 3339 strings, durations as seconds. An
-  [optional](/reference/cel/libraries#absent-results) resolves to the value it
-  holds, or to `null` when it holds none.
-- **Compile-time failure.** Expressions compile when the flow is built, so a
-  typo fails the deployment (or the `run --watch` reload), never a live
-  message.
-- **Evaluation errors fail the message.** A missing key, a division by zero,
-  or a failed conversion becomes a block error, which the flow's
-  [error path](/reference/flow-file#error) can handle.
+Results are JSON-native. Whatever a CEL expression produces is bridged to JSON
+shapes: maps become objects, all numbers become JSON numbers, bytes render as
+base64, timestamps as RFC 3339 strings, durations as seconds. An
+[optional](/reference/cel/libraries#absent-results) resolves to the value it
+holds, or to `null` when it holds none.
+
+Expressions compile when the flow is built, so a typo fails the deployment (or
+the `run --watch` reload), never a live message. An evaluation error fails the
+message instead: a missing key, a division by zero, or a failed conversion
+becomes a block error, which the flow's
+[error path](/reference/flow-file#error) can handle.

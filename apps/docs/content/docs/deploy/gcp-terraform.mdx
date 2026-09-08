@@ -20,7 +20,7 @@ integration can get its own subdomain. Everything is codified in
    *.octo.example.com        ─┤ A records → static IP
                               │
                        ┌──────▼─────────────────────────────────────────┐
-                       │ GCE VM (Debian 12, e2-standard-2) — single-node │
+                       │ GCE VM (Debian 12, e2-standard-2), single-node  │
                        │ k3s                                             │
                        │                                                 │
                        │  Traefik :80/:443  ── cert-manager (Let's       │
@@ -39,13 +39,11 @@ integration can get its own subdomain. Everything is codified in
 
 Ownership is split three ways:
 
-- **The VM** only bootstraps the cluster: k3s, cert-manager, the
-  `letsencrypt-prod` ClusterIssuer, and an `octo-pull` helper. It holds no
-  app source.
-- **Terraform owns the Octo release** through the Helm provider — you apply
-  the `release` root to install or upgrade the chart.
-- **The orchestrator** creates per-integration Kubernetes resources at
-  runtime when you deploy an integration from the editor.
+The VM only bootstraps the cluster: k3s, cert-manager, the `letsencrypt-prod`
+ClusterIssuer, and an `octo-pull` helper. Terraform owns the Octo release through
+the Helm provider, so you apply the `release` root to install or upgrade the
+chart. The orchestrator creates per-integration Kubernetes resources at runtime
+when you deploy an integration from the editor.
 
 ## The two Terraform roots
 
@@ -57,16 +55,15 @@ Under `deploy/terraform/`:
 | `release/` | The Octo Helm release (image tag + chart version) | Every deploy or upgrade |
 
 Each root owns its own `terraform.tfvars` (gitignored; copy the committed
-`.example`). Terraform loads that filename automatically, so no `-var-file`
-is passed anywhere, and each root declares exactly the variables it uses.
-Per-deploy values (`image_tag`, `chart_version`) come from the command line.
-Both roots keep state in the same versioned GCS bucket, one prefix each, so
-Cloud Build and your laptop share it.
+`.example`). Terraform loads that filename automatically, so no `-var-file` is
+passed anywhere. Per-deploy values (`image_tag`, `chart_version`) come from the
+command line. Both roots keep state in the same versioned GCS bucket, one prefix
+each, so Cloud Build and your laptop share it.
 
 <Callout type="warn">
   The release state holds generated secrets (the Postgres password and, with
   SSO, the OIDC client secret and Auth.js session secret), and the fetched
-  kubeconfig holds cluster-admin credentials. Both are gitignored — keep the
+  kubeconfig holds cluster-admin credentials. Both are gitignored, so keep the
   state bucket locked down.
 </Callout>
 
@@ -128,7 +125,7 @@ terraform -chdir=deploy/terraform/infra output   # image_base, static_ip, url, k
 ### (Optional) Enable Cloud Build automation
 
 Connect the GitHub repo once in the console (Cloud Build → Triggers →
-Connect repository — installs the GitHub App; Terraform cannot do this), then
+Connect repository, which installs the GitHub App; Terraform cannot do this), then
 set `enable_cloudbuild = true` in `infra/terraform.tfvars` and re-run `task infra:apply`.
 
 </Step>
@@ -136,7 +133,7 @@ set `enable_cloudbuild = true` in `infra/terraform.tfvars` and re-run `task infr
 
 <Callout type="warn">
   SSH (22) and the k3s API (6443) default to open. In production, set
-  `ssh_source_ranges` and `kube_api_source_ranges` to your IP — but include
+  `ssh_source_ranges` and `kube_api_source_ranges` to your IP, but include
   the IAP range `35.235.240.0/20` so the Cloud Build deploy step can still
   reach the VM. The release apply needs 6443 reachable from wherever
   Terraform runs.
@@ -148,34 +145,33 @@ Set in each root's `terraform.tfvars` (values needed by both must agree):
 
 | Variable | Default | Notes |
 |---|---|---|
-| `project_id` | – | Required. |
+| `project_id` | (none) | Required. |
 | `domain` | `octo.juancavallotti.com` | Editor host; integrations live under `*.{domain}`. |
-| `dns_managed_zone` | – | Required; the Cloud DNS zone name. |
+| `dns_managed_zone` | (none) | Required; the Cloud DNS zone name. |
 | `machine_type` | `e2-standard-2` | 8 GB RAM; `e2-medium` (4 GB) is tight. |
 | `ssh_source_ranges` | `["0.0.0.0/0"]` | Restrict in production (keep the IAP range). |
 | `kube_api_source_ranges` | `null` (= SSH ranges) | Who can reach 6443. |
-| `acme_email` | – | Let's Encrypt account email. |
+| `acme_email` | (none) | Let's Encrypt account email. |
 | `enable_cloudbuild` | `false` | Create the trigger (GitHub App must be connected first). |
 | `cloudbuild_auto_deploy` | `true` | Also roll the cluster on a version tag (`_DEPLOY=true`). |
-| `oidc_enabled` + `oidc_client_id` / `oidc_client_secret` / `oidc_issuer` | `false` / … | Gate the editor behind OIDC SSO; consumed by the `release` root. |
+| `oidc_enabled` + `oidc_client_id` / `oidc_client_secret` / `oidc_issuer` | `false`, then unset | Gate the editor behind OIDC SSO; consumed by the `release` root. |
 
 The `release` root additionally takes `image_tag` (default `latest`) and
-`chart_version` (required, must match the published `helm/Chart.yaml`) — both
+`chart_version` (required, must match the published `helm/Chart.yaml`), both
 supplied on the command line by `task deploy` or Cloud Build.
 
 ### Where the credentials live
 
-There is no Secret Manager in this setup, and that is a deliberate, stated trade
-rather than an omission. The `release` root **generates** the Postgres password,
-the Auth.js session secret, the KV encryption key and the dev-run HMAC key, and
-holds them in its own state — the versioned, encrypted GCS bucket from
-`backend.hcl`. The OIDC client secret and the embedding provider key are supplied
-by you and persisted next to that state, so a Cloud Build deploy (which has no
-`terraform.tfvars`) can read them back.
+There is no Secret Manager in this setup. The `release` root **generates** the
+Postgres password, the Auth.js session secret, the KV encryption key and the
+dev-run HMAC key, and holds them in its own state: the versioned, encrypted GCS
+bucket from `backend.hcl`. The OIDC client secret and the embedding provider key
+are supplied by you and persisted next to that state, so a Cloud Build deploy
+(which has no `terraform.tfvars`) can read them back.
 
-What the root does **not** do is hand any of them to Helm. `modules/octo-secrets`
-installs each one into the cluster as a Kubernetes Secret before the chart is
-applied, and `modules/helm-release` passes only the Secret's name and key:
+None of them are handed to Helm. `modules/octo-secrets` installs each one into
+the cluster as a Kubernetes Secret before the chart is applied, and
+`modules/helm-release` passes only the Secret's name and key:
 
 | Secret | Chart value it satisfies |
 |---|---|
@@ -188,7 +184,7 @@ applied, and `modules/helm-release` passes only the Secret's name and key:
 <Callout type="warn">
   Helm keeps every value it is given in the release history. `set_sensitive` marks
   a value secret to Terraform's plan output and does nothing about the release
-  Secret Helm writes it into — which is retained per revision, in the cluster, and
+  Secret Helm writes it into, which is retained per revision, in the cluster, and
   outlives the rotation that was supposed to end it. A reference is the only form
   that does not leave a copy behind.
 </Callout>
@@ -203,11 +199,10 @@ applied, and `modules/helm-release` passes only the Secret's name and key:
     'module.secrets.kubernetes_namespace_v1.octo[0]' octo
   ```
 
-  The credentials themselves do not change — they come from the same state — so
-  the apply replaces chart values with references and rolls the Deployments once.
-  Revisions written before the change still hold what they were given; if that
-  matters, `helm history` and a truncated `--history-max` are the way to retire
-  them.
+  The credentials come from the same state, so the apply replaces chart values
+  with references and rolls the Deployments once. Revisions written before the
+  change still hold what they were given; `helm history` and a truncated
+  `--history-max` retire them.
 </Callout>
 
 ## Publish images and the charts
@@ -215,13 +210,13 @@ applied, and `modules/helm-release` passes only the Secret's name and key:
 The node and the Helm provider pull from Artifact Registry, so images and charts
 must be published before a deploy.
 
-- **Automated (recommended):** push a version tag — release-please publishes
-  `vX.Y.Z`, and the Cloud Build trigger runs `cloudbuild.yaml`, building all
-  five images and both charts. The images are pushed twice, under the git tag
-  and `latest`; the charts are pushed only under their own version, because an
-  OCI chart's tag *is* its version. See
-  [Releases and upgrades](/deploy/releases-and-upgrades).
-- **Manual:** with `IMAGE_BASE` from `terraform output image_base`:
+Automated (recommended): push a version tag. release-please publishes `vX.Y.Z`,
+and the Cloud Build trigger runs `cloudbuild.yaml`, building all eleven images
+and both charts. The images are pushed twice, under the git tag and `latest`; the
+charts are pushed only under their own version, because an OCI chart's tag *is*
+its version. See [Releases and upgrades](/deploy/releases-and-upgrades).
+
+Manual, with `IMAGE_BASE` from `terraform output image_base`:
 
 ```bash
 gcloud auth configure-docker us-west1-docker.pkg.dev
@@ -248,7 +243,7 @@ derives `chart_version` from `helm/Chart.yaml`, and applies the `release`
 root. Each apply:
 
 1. Runs `octo-pull` on the node over SSH (with a fresh registry token) to
-   pull the target image tag into containerd — so the chart's pods
+   pull the target image tag into containerd, so the chart's pods
    (`imagePullPolicy: IfNotPresent`), including the per-integration runtime
    image, find it locally.
 2. Installs or upgrades the chart through the Helm provider, passing the
@@ -264,14 +259,14 @@ issuance takes a minute after the DNS A record resolves.
 Cloud Build reads back the digest of every image it pushed and renders
 `dist/values.images.yaml` pinning them, then passes it to the `release` root as
 `image_values_file`. The release then runs exactly what that build produced,
-rather than whatever the tag resolves to at apply time — and `image_tag` is not
+rather than whatever the tag resolves to at apply time, and `image_tag` is not
 passed to the chart at all when digests are supplied, so there is only ever one
 source of truth for what is running. The file is archived to
 `gs://octo-tfstate-PROJECT/release/values.images-TAG.yaml` beside the release.
 
 A manual `task deploy TAG=…` leaves `image_values_file` empty and identifies
-images by tag, which is fine because it also pre-pulls that tag onto the node.
-To pin a manual deploy too, render the file yourself:
+images by tag, which works because it also pre-pulls that tag onto the node. To
+pin a manual deploy, render the file yourself:
 
 ```bash
 task helm:values:images IMAGE_BASE=$IMAGE_BASE TAG=v0.1.1
@@ -281,14 +276,13 @@ terraform -chdir=deploy/terraform/release apply \
 
 ### Database durability
 
-The VM's Postgres volume is provisioned by k3s's `local-path` provisioner,
-whose per-claim directory is named after the claim's UID. Re-bootstrapping the
-VM reinstalls k3s and therefore mints a new UID, bringing the database back
-empty with the old data stranded on disk. Set `postgres_host_path` (e.g.
-`/var/lib/octo-data`) to pin it to a fixed path instead.
+The VM's Postgres volume is provisioned by k3s's `local-path` provisioner, whose
+per-claim directory is named after the claim's UID. Re-bootstrapping the VM mints
+a new UID, bringing the database back empty with the old data stranded on disk.
+Set `postgres_host_path` (e.g. `/var/lib/octo-data`) to pin it to a fixed path.
 
 On a release that already holds data this is a **data move, not a config
-change** — copy the directory across with the StatefulSet scaled to zero first,
+change**: copy the directory across with the StatefulSet scaled to zero first,
 or the database comes up empty. See `docs/deployment.md` for the procedure.
 Either way the data sits on the boot disk and does not survive the VM being
 destroyed; an attached data disk mounted at the pinned path does.
@@ -296,13 +290,13 @@ destroyed; an attached data disk mounted at the pinned path does.
 ## Integration endpoints
 
 When you deploy an integration from the editor, the orchestrator creates its
-workload in `octo-dev`. Internally, other flows reach it at
+workload in `octo-dev`, reachable internally at
 `http://octo-int-{slug}.octo-dev:8080`. Toggling **Expose externally** adds a
 Traefik Ingress at `https://{subdomain}.{domain}`, with TLS issued per host by
-cert-manager via HTTP-01 (the wildcard DNS record resolves every subdomain to
-the VM). External endpoints require `BASE_DOMAIN` on the orchestrator — the
-`release` root sets it to your domain. See
-[Deployments](/platform/deployments) for the full endpoint model.
+cert-manager via HTTP-01 (the wildcard DNS record resolves every subdomain to the
+VM). External endpoints require `BASE_DOMAIN` on the orchestrator, which the
+`release` root sets to your domain. See [Deployments](/platform/deployments) for
+the full endpoint model.
 
 ## Operations
 
@@ -318,12 +312,11 @@ sudo k3s kubectl logs -n octo-dev deploy/octo-platform
 sudo k3s kubectl logs -n octo-dev deploy/octo-orchestrator
 ```
 
-- **Postgres data** lives on the boot disk (k3s `local-path`); it survives
-  reboots but is destroyed with the VM. The password is held in the release
-  Terraform state.
-- **Re-pull a tag manually on the node:** `sudo octo-pull v0.1.2` — useful
-  when pods show `ImagePullBackOff` because the node's registry token
-  (valid ~1h after boot) has expired.
-- **Re-bootstrap the VM:** `sudo rm /opt/octo/.provisioned && sudo reboot`.
-- **Release apply can't reach the cluster:** ensure 6443 is open to your IP
-  and refresh the kubeconfig with `task deploy:kubeconfig DOMAIN=…`.
+Postgres data lives on the boot disk (k3s `local-path`), so it survives reboots
+but is destroyed with the VM; the password is held in the release Terraform state.
+To re-pull a tag manually on the node, `sudo octo-pull v0.1.2`, which is useful
+when pods show `ImagePullBackOff` because the node's registry token (valid ~1h
+after boot) has expired. To re-bootstrap the VM,
+`sudo rm /opt/octo/.provisioned && sudo reboot`. If the release apply cannot
+reach the cluster, ensure 6443 is open to your IP and refresh the kubeconfig with
+`task deploy:kubeconfig DOMAIN=…`.

@@ -10,7 +10,7 @@ import { MessageSquare, Radio } from 'lucide-react';
 
 This guide builds a Slack bot that receives events over HTTP, verifies each
 request's signature, answers Slack's URL-verification handshake, and replies to
-@-mentions by name. It follows
+@-mentions by name, following
 [`samples/slack-bot.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/slack-bot.yaml).
 
 ## Set up the Slack app
@@ -23,14 +23,14 @@ Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps). Under
 **bot token** (`xoxb-...`).
 </Step>
 <Step>
-Under **Basic Information**, copy the **signing secret** — Slack signs every
+Under **Basic Information**, copy the **signing secret**. Slack signs every
 request with it, and the flow verifies that signature.
 </Step>
 <Step>
 Under **Event Subscriptions**, subscribe the bot to the `app_mention` event and
 point the **Request URL** at this service's `/slack/events` route. While
 developing, expose your local port with a tunnel such as ngrok. Slack sends a
-one-time verification challenge to the URL when you save it — the flow below
+one-time verification challenge to the URL when you save it; the flow below
 answers it automatically.
 </Step>
 <Step>
@@ -47,7 +47,7 @@ octo run --config samples/slack-bot.yaml
 ## The connectors
 
 The config declares the HTTP server that receives events and a `slack` connector
-holding the credentials every Slack block uses:
+holding the credentials:
 
 ```yaml title="samples/slack-bot.yaml (excerpt)"
 connectors:
@@ -65,9 +65,8 @@ connectors:
 
 ## Capture the raw request
 
-Slack computes its signature over the **exact request bytes**, so the source
-must keep them: `rawBodyVar` copies the raw body into a variable, and `headers`
-captures Slack's two signature headers.
+Slack signs the **exact request bytes**, so `rawBodyVar` copies the raw body
+into a variable and `headers` captures Slack's two signature headers.
 
 ```yaml title="samples/slack-bot.yaml (excerpt)"
 source:
@@ -81,8 +80,8 @@ source:
 
 ## Verify, then handle
 
-The first block authenticates the request; the rest of the flow branches between
-Slack's one-time handshake and real events:
+The first block authenticates the request; the rest branches between Slack's
+one-time handshake and real events:
 
 ```yaml title="samples/slack-bot.yaml (excerpt)"
 process:
@@ -127,32 +126,27 @@ process:
             text: '"thanks " + vars.slackUser.real_name + ", you said: " + body.text'
 ```
 
-Walking through the pieces:
+`slack-verify-request` recomputes the HMAC signature over `vars.rawBody` with
+the connector's signing secret and aborts the flow on a mismatch or a stale
+timestamp. When the request is Slack's `url_verification` handshake, it sets
+`vars.slackChallenge` so the flow can branch; the challenge branch replies with
+`{"challenge": body.challenge}`, which is what Slack expects to confirm your
+Request URL.
 
-- **`slack-verify-request`** recomputes the HMAC signature over
-  `vars.rawBody` using the connector's signing secret and aborts the flow on a
-  mismatch or a stale timestamp — unauthenticated requests never reach your
-  logic. When the request is Slack's `url_verification` handshake, it sets
-  `vars.slackChallenge` so the flow can branch.
-- **The challenge branch** replies with `{"challenge": body.challenge}`; the
-  flow's final body is the HTTP response, which is exactly what Slack expects to
-  confirm your Request URL.
-- **`slack-event`** filters the event stream: `eventTypes` keeps only
-  `app_mention`, and the CEL `filter` drops messages sent by bots
-  (`body.botId == null`) so the bot never answers itself. It also flattens the
-  event into a friendly body — `body.user`, `body.channel`, `body.text`,
-  `body.ts`, `body.threadTs` — with the untouched original under `body.raw`.
-- **`slack-lookup-user`** calls `users.info` for the mentioning user and stores
-  the user object in `vars.slackUser` (look up `by: email` instead when you have
-  an email address).
-- **`slack-send-message`** posts to `target` — a channel ID, and the channel the
-  mention came from is `body.channel`. It stores the sent message's timestamp in
-  `vars.slackTs`.
+`slack-event` filters the event stream: `eventTypes` keeps only `app_mention`,
+and the CEL `filter` drops messages sent by bots (`body.botId == null`) so the
+bot never answers itself. It also flattens the event into `body.user`,
+`body.channel`, `body.text`, `body.ts` and `body.threadTs`, with the untouched
+original under `body.raw`.
+
+`slack-lookup-user` calls `users.info` for the mentioning user and stores the
+user object in `vars.slackUser` (`by: email`, the default, looks up by email
+address). `slack-send-message` posts to `target`, a channel ID such as
+`body.channel`, and stores the sent message's timestamp in `vars.slackTs`.
 
 ### Reply in a thread
 
-To answer in a thread instead of the channel, pass the triggering message's
-timestamp as `threadTs`:
+To answer in a thread, pass the triggering message's timestamp as `threadTs`:
 
 ```yaml
 - type: slack-send-message
@@ -163,8 +157,8 @@ timestamp as `threadTs`:
     text: '"on it!"'
 ```
 
-Replying to a message that is already in a thread? Use its `body.threadTs` so
-the reply lands in the same thread rather than starting a new one.
+For a message that is already in a thread, use its `body.threadTs` so the reply
+lands in the same thread rather than starting a new one.
 
 ## Try it
 
@@ -175,16 +169,15 @@ Mention the bot in a channel it has been invited to:
 The bot replies in-channel: `thanks Ada Lovelace, you said: <@U123ABC> hello there`.
 
 <Callout type="warn">
-  Slack expects a 2xx within **3 seconds**, or it retries the event. Keep this
-  flow fast — acknowledge first and offload slow work (LLM calls, database
-  writes) with `queue-dispatch`. See [Events and Queues](/guides/events-and-queues).
+  Slack expects a 2xx within **3 seconds**, or it retries the event. Acknowledge
+  first and offload slow work (LLM calls, database writes) with
+  `queue-dispatch`. See [Events and Queues](/guides/events-and-queues).
 </Callout>
 
 ## Where to go next
 
-This bot echoes; the capstone thinks. The [Slack AI Agent](/ai/slack-agent)
-guide keeps this exact receive-verify-filter skeleton and swaps the echo for an
-AI agent with memory and tools.
+The [Slack AI Agent](/ai/slack-agent) guide keeps this receive-verify-filter
+skeleton and swaps the echo for an AI agent with memory and tools.
 
 <Cards>
   <Card icon={<MessageSquare />} title="Slack AI Agent" href="/ai/slack-agent" description="The full AI-agent version of this bot." />

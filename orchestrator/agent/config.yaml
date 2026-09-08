@@ -2139,15 +2139,31 @@ flows:
       type: events
       settings:
         subject: ${ALERT_SUBJECT}
-        # Only the kinds that mean something is wrong.
-        #
-        # A watch announces four things: it opened, it is still going, it
-        # recovered, and it was closed without recovering. The last two are good
-        # news with nothing to triage — but they arrive on the same subject, and
-        # without this every recovery would start a sixty-turn investigation into
-        # an app that had just got better and email a report about it.
-        filter: 'body.kind == "open" || body.kind == "repeat"' 
     process:
+      # Only the kinds that mean something is wrong.
+      #
+      # A watch announces four things: it opened, it is still going, it
+      # recovered, and it was closed without recovering. The last two are good
+      # news with nothing to triage, but they arrive on the same subject, and
+      # without this gate every recovery would start a sixty-turn investigation
+      # into an app that had just got better and email a report about it. The
+      # events source has no filter of its own, so the gate is the first block:
+      # a failed rule stops the flow here, after the log line, and nothing below
+      # runs.
+      - type: validate
+        name: only-bad-news
+        settings:
+          rules:
+            - expr: 'body.kind == "open" || body.kind == "repeat"'
+              message: a recovery or a close carries nothing to triage
+          onReject:
+            process:
+              - type: log
+                name: skip-good-news
+                settings:
+                  message: >-
+                    "alert " + (has(body.watchName) ? string(body.watchName) : "?") +
+                    " is " + string(body.kind) + ": nothing to triage"
       # Everything the run needs out of the alert, taken while the alert is still
       # the body: after the agent block the body is its answer and the payload
       # that started all this is gone, so anything the reporting below wants has

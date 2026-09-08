@@ -8,36 +8,34 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Braces, FileCode, FolderOpen, Globe } from 'lucide-react';
 
 Octo is JSON-first: every message body is decoded JSON, and an HTTP flow answers
-with `application/json` unless you say otherwise. **Raw content** is the opt-out —
-it lets a flow carry and serve a typed, non-JSON payload such as HTML, XML, CSV,
-Markdown, or a urlencoded form.
+with `application/json` unless you say otherwise. **Raw content** is the opt-out
+that lets a flow carry and serve a typed, non-JSON payload such as HTML, XML,
+CSV, Markdown, or a urlencoded form.
 
 ## The raw-content model
 
 A message is in one of two modes. By default it is JSON: `body` holds decoded
-JSON (numbers are floats, objects are maps, arrays are lists). When a block puts
-the message into **raw-content mode**, `body` instead takes the fixed shape:
+JSON (numbers are floats, objects are maps, arrays are lists). In
+**raw-content mode**, `body` instead takes the fixed shape:
 
 ```json
 { "contentType": "text/html; charset=utf-8", "rawData": "<h1>Hi</h1>" }
 ```
 
 `rawData` is the payload as a **UTF-8 string** and `contentType` is the MIME type
-to serve it with. A raw-aware sink — today, the HTTP source's response writer —
+to serve it with. A raw-aware sink (today, the HTTP source's response writer)
 writes `rawData` verbatim with that `Content-Type` instead of JSON-encoding the
 body.
 
 A `multipart/form-data` payload carries a third key, `parts`, holding its decoded
-parts by name. It is added *alongside* `contentType` and `rawData`, which stay
-exactly what was received, so nothing that reads a raw body notices it is there.
-See [Multipart bodies](/reference/connectors/http#multipart-bodies).
+parts by name *alongside* `contentType` and `rawData`, which stay exactly what
+was received. See [Multipart bodies](/reference/connectors/http#multipart-bodies).
 
 <Callout type="warn">
-  Raw mode is a **flag on the message**, not a shape you can fake. Producing a
-  plain object with `contentType` and `rawData` keys through an ordinary
-  `set-payload` (without `rawBody: true`) leaves the message in JSON mode, so the
-  HTTP source serves it as `application/json` — the literal object, not your HTML.
-  Always use one of the producers below to enter raw mode.
+  Raw mode is a **flag on the message**, not a shape you can fake. A plain object
+  with `contentType` and `rawData` keys from an ordinary `set-payload` (without
+  `rawBody: true`) stays in JSON mode and is served as `application/json`. Use
+  one of the producers below.
 </Callout>
 
 ## Producing raw content
@@ -69,8 +67,7 @@ can embed `{{ CEL }}` placeholders:
 ### Inline, from a string
 
 Best for a few lines of HTML or a small typed blob. `value` must produce a
-**string**, so a literal is single-quoted YAML wrapping a double-quoted CEL
-string:
+**string**: single-quoted YAML wrapping a double-quoted CEL string.
 
 ```yaml
 - type: set-payload
@@ -85,10 +82,10 @@ Both set the response `Content-Type` from `contentType`; pair either with
 
 ## Accepting raw requests
 
-Raw content works inbound too. Set `rawBody: true` on the **HTTP source** and the
-request body enters the flow as `{contentType, rawData}` — using the request's
-own `Content-Type` — instead of being parsed as JSON. This lets forms, XML, or
-signed webhook payloads through unchanged:
+Set `rawBody: true` on the **HTTP source** and the request body enters the flow
+as `{contentType, rawData}`, using the request's own `Content-Type`, instead of
+being parsed as JSON. Forms, XML, and signed webhook payloads pass through
+unchanged:
 
 ```yaml
 source:
@@ -103,51 +100,48 @@ process:
       value: 'fromFormData(body.rawData)'   # parse the raw string into JSON
 ```
 
-A `multipart/form-data` request is the one case that needs no setting: it is
-decoded whatever `rawBody` says, and its parts are reachable at `body.parts`
-while `rawData` keeps every byte. So verifying a signature over the raw body and
-reading an uploaded file are not a choice —
-see [Multipart bodies](/reference/connectors/http#multipart-bodies).
+A `multipart/form-data` request needs no setting: it is decoded whatever
+`rawBody` says, its parts are reachable at `body.parts`, and `rawData` keeps
+every byte. See [Multipart bodies](/reference/connectors/http#multipart-bodies).
 
-To keep parsing JSON but also capture the exact bytes (for example to verify an
-HMAC signature over the raw request), use `rawBodyVar` instead of `rawBody` — it
-stores the untouched request string in a variable while `body` stays JSON. This
-is how [`slack-verify-request`](/reference/connectors/slack) and
+To keep parsing JSON but also capture the exact bytes (for an HMAC signature,
+say), use `rawBodyVar` instead of `rawBody`: it stores the untouched request
+string in a variable while `body` stays JSON. This is how
+[`slack-verify-request`](/reference/connectors/slack) and
 [`notion-verify-request`](/reference/connectors/notion) check signatures.
 
 <Callout type="info">
-  `rawData` is a UTF-8 string, not arbitrary bytes. Raw content is for text
-  payloads — HTML, XML, CSV, Markdown, JSON-as-text, form encodings. It survives
-  cloning and cross-node hops intact because it is a string, so it works the same
-  in a `fork` branch or across a queue.
-
-  This is exactly why a multipart file part is base64: the message is
-  JSON-encoded on a queue hop or into a trace, which would replace invalid UTF-8
-  with `U+FFFD`. The same rule is why the [file connector](/reference/connectors/file)
-  has `encoding: base64`.
+  `rawData` is a UTF-8 string, not arbitrary bytes, so raw content is for text
+  payloads: HTML, XML, CSV, Markdown, JSON-as-text, form encodings. As a string
+  it survives cloning and cross-node hops, so it works the same in a `fork`
+  branch or across a queue. A multipart file part is base64 because JSON-encoding
+  the message on a queue hop or into a trace would replace invalid UTF-8 with
+  `U+FFFD`; the [file connector](/reference/connectors/file) has
+  `encoding: base64` for the same reason.
 </Callout>
 
 ## Streaming
 
-**Octo does not stream, and streaming is not on the roadmap.** Every message is
-fully materialized: the HTTP source reads the entire request body into memory
-(capped by `maxBodyBytes`, default 1 MiB, returning `413` when exceeded) before
-the flow starts, and it writes the complete response in one shot after the flow
-finishes. There is no chunked transfer, no Server-Sent Events, and no token-by-
-token passthrough from LLM blocks — an `ai-agent` or `ai-mapping` block returns
-its **complete** result, which the flow then serves whole.
+**Messages do not stream.** The HTTP source reads the entire request body into
+memory (capped by `maxBodyBytes`, default 1 MiB, returning `413` when exceeded)
+before the flow starts, and an ordinary route writes the complete response after
+the flow finishes. There is no chunked transfer of a message body, and an
+`ai-mapping` block returns its **complete** result. Orchestration needs the whole
+payload: CEL expressions read across the entire body, `validate` checks it as a
+unit, `multi-transform` and `enrich` reshape it, `ai-mapping` validates against
+a schema, routers branch on its contents, and `cache-scope` keys on the finished
+result. Raw content covers *what* you serve and *with which type*, always as a
+complete payload.
 
-This is deliberate. Octo is an orchestration runtime, and orchestration needs the
-whole payload available at once: CEL expressions read across the entire body,
-`validate` checks it as a unit, `multi-transform` and `enrich` reshape it,
-`ai-mapping` validates against a schema, routers branch on its contents, and
-`cache-scope` keys on the finished result. None of that is possible over a
-half-arrived stream. Materializing the data is what makes the rest of the
-platform work, so raw content covers *what* you serve and *with which type* — but
-always as a complete payload, never a stream.
+Streaming to the caller is a separate feature beside the message. Setting
+`sse.enabled` on an http source keeps the connection open as a
+[server-sent event stream](/reference/connectors/http#server-sent-events), and
+`sse-event` blocks push frames to it from anywhere in the run. An `ai-agent`
+with `stream: true` feeds the model's output to its events path as it is
+produced. The flow's own message is still finished as one unit.
 
-If you need to move a very large object, keep it out of the message: write it to
-the [object store](/concepts/runtime-services) or external storage and pass a
+To move a very large object, keep it out of the message: write it to the
+[object store](/concepts/runtime-services) or external storage and pass a
 reference through the flow.
 
 ## Where to go next

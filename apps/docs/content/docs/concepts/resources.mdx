@@ -5,7 +5,7 @@ description: "Env files and template resources attached to an integration."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Resources are files an integration imports alongside its config: `.env`-convention files that feed the environment, and template files that flows render. Declaring them under `resources:` loads them when the config loads, so a missing or malformed file fails at deployment — not when a message first needs it.
+Resources are files an integration imports alongside its config: `.env`-convention files that feed the environment, and template files that flows render. Declared under `resources:`, they load when the config loads, so a missing or malformed file fails at deployment.
 
 ## Declaring resources
 
@@ -26,7 +26,7 @@ Resource paths resolve relative to the config directory.
 
 ### Env resources
 
-`resources.env` lists `.env`-convention files (`KEY=VALUE` lines, `#` comments) combined into the runtime environment in order — a later file overlays an earlier one, and all of them overlay the built-in `./.env` chain. A declared env resource that is missing is skipped silently; a required variable it was supposed to supply still fails the load. See [Environment and Configuration](/concepts/environment-and-config) for the full precedence.
+`resources.env` lists `.env`-convention files (`KEY=VALUE` lines, `#` comments) combined into the runtime environment in order: a later file overlays an earlier one, and all overlay the built-in `./.env` chain. A missing env resource is skipped silently; a required variable it was supposed to supply still fails the load. See [Environment and Configuration](/concepts/environment-and-config) for the full precedence.
 
 ```text title=".env.dev"
 GREETING=Hello from .env.dev
@@ -34,22 +34,20 @@ GREETING=Hello from .env.dev
 
 ### Template resources
 
-`resources.templates` declares the template files the config renders. Each entry names the file (`resource`) and optionally a short alias (`as`); without an alias the template is referenced by its path. Every declared template is parsed at load time.
-
-Template files are plain text with embedded `{{ CEL }}` expressions, evaluated against the current message — `body`, `vars`, `env`, and `now` are all available:
+`resources.templates` declares the template files the config renders, each named by file (`resource`) and optionally by a short alias (`as`); without an alias the template is referenced by its path. Every declared template is parsed at load time. Templates are plain text with embedded `{{ CEL }}` expressions evaluated against the current message, with `body`, `vars`, `env`, and `now` available:
 
 ```text title="templates/welcome.tmpl"
 {{ env.GREETING }}, {{ body.name }}!
 ```
 
-A span is ordinary CEL in the same environment as any other expression, so every [custom function](/reference/cel/octo-extensions#functions) works inside one — including `templateResource`, which lets a template pull in another:
+A span is ordinary CEL, so every [custom function](/reference/cel/octo-extensions#functions) works inside one, including `templateResource`, which lets a template pull in another:
 
 ```text title="templates/page.tmpl"
 {{ templateResource("header") }}
 <p>{{ toJson(body) }}</p>
 ```
 
-Nesting is capped at 8 levels, so a template that renders itself fails with a clear error rather than recursing without end.
+Nesting is capped at 8 levels, so a template that renders itself fails with a clear error.
 
 ## Rendering a template
 
@@ -69,7 +67,7 @@ flows:
           target: rendered     # write to vars.rendered; empty replaces the body
 ```
 
-For non-JSON output — an HTML page, XML, CSV — set `rawBody: true` and a `contentType`, and the rendered text becomes a raw-content body `{contentType, rawData}` that raw-aware connectors serve verbatim. The HTTP source then responds with the text and its Content-Type instead of JSON:
+For non-JSON output (HTML, XML, CSV) set `rawBody: true` and a `contentType`. The rendered text becomes a raw-content body `{contentType, rawData}`, which the HTTP source serves with that Content-Type instead of JSON:
 
 ```yaml title="raw-content-demo/config.yaml (excerpt)"
 resources:
@@ -98,7 +96,7 @@ flows:
 
 ### The `templateResource()` CEL function
 
-Inside any expression, `templateResource("alias")` renders the template with the current message as context and returns the text — handy when the rendered string is one piece of a larger value:
+Inside any expression, `templateResource("alias")` renders the template against the current message and returns the text, for when the rendered string is one piece of a larger value:
 
 ```yaml
 - type: set-payload
@@ -110,8 +108,8 @@ Inside any expression, `templateResource("alias")` renders the template with the
       }
 ```
 
-Both paths render the same template the same way; pick the block when the rendered text *is* the output, and the function when you are composing it into something else.
+Pick the block when the rendered text *is* the output, and the function when composing it into something else.
 
 ## Where templates show up next
 
-Templates back more than page rendering: an `ai-agent`'s skills, an `mcp-router`'s resources and prompts are all declared template resources. On the platform, resources are managed per integration — see [Resources and Secrets](/platform/resources-and-secrets).
+An `ai-agent`'s skills and an `mcp-router`'s resources and prompts are also declared template resources. On the platform, resources are managed per integration; see [Resources and Secrets](/platform/resources-and-secrets).

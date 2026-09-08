@@ -10,7 +10,7 @@ import { Anchor, Cloud, Server } from 'lucide-react';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-This is the whole install, in order, on a cluster you already have — no cloud
+This is the whole install, in order, on a cluster you already have, with no cloud
 provider assumed and no Terraform involved. It ends with a working editor on your
 own hostname, TLS, and every credential held in a Kubernetes Secret rather than in
 a values file.
@@ -23,14 +23,14 @@ the path through it.
 You need:
 
 - **A Kubernetes cluster**, 1.26 or newer, and `kubectl` pointing at it.
-- **Helm 3.8 or newer** — earlier versions cannot pull an OCI chart.
+- **Helm 3.8 or newer**; earlier versions cannot pull an OCI chart.
 - **An ingress controller** and a hostname you can point at it. Any controller
   works; the chart writes an ordinary `Ingress`.
 - **A default StorageClass**, for the Postgres volume. `kubectl get storageclass`
   should show one marked `(default)`.
 - Roughly **4 GB of allocatable memory** free across the cluster for the bundled
-  stack — the editor, orchestrator, aggregator, Postgres, NATS and Redis — plus
-  whatever your integrations need.
+  stack (the editor, orchestrator, observability service, Postgres, NATS and
+  Redis), plus whatever your integrations need.
 
 Optional, and worth deciding now rather than later:
 
@@ -41,7 +41,7 @@ Optional, and worth deciding now rather than later:
 
 <Callout type="info">
   Trying Octo rather than deploying it? The standalone editor runs from a single
-  image with no cluster at all — see [Running from Docker](/editor/docker) — and
+  image with no cluster at all (see [Running from Docker](/editor/docker)), and
   [Local Cluster (k3d)](/deploy/local-k3d) brings the full platform up on a laptop
   in one command.
 </Callout>
@@ -55,15 +55,13 @@ Optional, and worth deciding now rather than later:
 ### Choose a namespace and create it
 
 The credentials have to exist before the chart that reads them, and a Secret is
-only readable by workloads in its own namespace. So the namespace comes first,
-and Helm is not the thing that creates it:
+only readable by workloads in its own namespace, so the namespace comes first:
 
 ```bash
 kubectl create namespace octo
 ```
 
-Everything below assumes `octo`. Use whatever name you like; it is not referenced
-by anything outside the release.
+Everything below assumes `octo`. Use whatever name you like.
 
 </Step>
 
@@ -71,16 +69,16 @@ by anything outside the release.
 
 ### Mint the credentials
 
-Three secrets, generated once, on your machine. Nothing about them comes from Octo
-— they are random bytes with specific shapes. (The auth and embeddings Secrets
-come later, in the steps that turn those features on.)
+Three secrets, generated once, on your machine. Nothing about them comes from
+Octo: they are random bytes with specific shapes. (The auth and embeddings
+Secrets come later, in the steps that turn those features on.)
 
 ```bash
 # Postgres password for the bundled database
 kubectl -n octo create secret generic octo-db-password \
   --from-literal=postgres-password="$(openssl rand -hex 24)"
 
-# AES-256 key encrypting KV secret namespaces at rest — base64 of 32 raw bytes
+# AES-256 key encrypting KV secret namespaces at rest: base64 of 32 raw bytes
 kubectl -n octo create secret generic octo-kv-key \
   --from-literal=kv-encryption-key="$(openssl rand -base64 32)"
 
@@ -91,12 +89,12 @@ kubectl -n octo create secret generic octo-devrun-key \
 
 <Callout type="info">
   **The names matter.** They must not be the ones the chart uses for Secrets of
-  its own — `{release}-postgres`, `{release}-auth`, `{release}-kv`,
+  its own: `{release}-postgres`, `{release}-auth`, `{release}-kv`,
   `{release}-devruns`, `{release}-embeddings`. `{release}-postgres` collides on
-  install: the chart creates it regardless of where the password comes from,
-  because it also carries the username and database name. The others collide on
-  migration, deleting the Secret you just pointed the release at. The names used
-  here are clear of all five.
+  install, since the chart creates it whatever the password's source (it also
+  carries the username and database name). The others collide on migration,
+  deleting the Secret you just pointed the release at. The names used here are
+  clear of all five.
 </Callout>
 
 <Callout type="warn">
@@ -104,13 +102,11 @@ kubectl -n octo create secret generic octo-devrun-key \
   rotate either one.**
 
   A new `kv-encryption-key` makes every value already written to a secret KV
-  namespace permanently unreadable — there is no recovery, because the old key was
-  the only thing that could read them. A new `dev-run-hash-secret` re-labels every
-  exposed dev run, so a webhook registered with Stripe or GitHub against the old
-  hostname silently stops being delivered, with no error anywhere.
-
-  The Postgres password is the ordinary kind and can be rotated; the other two are
-  not. Put them somewhere durable now, while there is nothing to lose.
+  namespace permanently unreadable. A new `dev-run-hash-secret` re-labels every
+  exposed dev run, so a webhook registered against the old hostname silently
+  stops being delivered, with no error anywhere. The Postgres password is the
+  ordinary kind and can be rotated; the other two cannot. Put them somewhere
+  durable now, while there is nothing to lose.
 </Callout>
 
 </Step>
@@ -119,7 +115,7 @@ kubectl -n octo create secret generic octo-devrun-key \
 
 ### Write a values file
 
-One file, and it holds no credentials — only the names of the Secrets you just
+One file, and it holds no credentials: only the names of the Secrets you just
 created.
 
 ```yaml title="octo-values.yaml"
@@ -127,7 +123,7 @@ ingress:
   # The hostname you will point at your ingress controller.
   host: octo.example.com
   # The controller that should claim this Ingress. Omit it only if your cluster
-  # marks one IngressClass default — `kubectl get ingressclass` says.
+  # marks one IngressClass default (`kubectl get ingressclass` says).
   className: nginx
   tls:
     # cert-manager issues a certificate per host over HTTP-01. See step 5 for
@@ -151,19 +147,16 @@ orchestrator:
     existingSecretKey: dev-run-hash-secret
 ```
 
-That is a complete install. Everything else — NATS, Redis, the observability service, the
-retention sweep, the schema job — is on by default and needs nothing said about it.
+That is a complete install. NATS, Redis, the observability service, the retention
+sweep and the schema job are on by default and need nothing said about them.
 
 <Callout type="warn">
-  **Why the references, rather than the values themselves?** Helm keeps every value
-  it is given in the release history. A password written into this file lands in
-  the release Secret in the cluster and stays there for every retained revision —
-  readable by anyone who can read Secrets in the namespace, long after you rotated
-  it. `--set` and `--set-file` are the same value by another route.
-
-  A reference is a name, not a credential. The chart never sees the value at all;
-  the pod reads it from your Secret at start-up. This costs one extra `kubectl
-  create secret` and is the difference between a demo install and one you can keep.
+  **References, rather than the values themselves.** Helm keeps every value it is
+  given in the release history, so a password written into this file lands in the
+  release Secret in the cluster and stays there for every retained revision.
+  `--set` and `--set-file` are the same value by another route. A reference is a
+  name: the chart never sees the value, and the pod reads it from your Secret at
+  start-up.
 </Callout>
 
 </Step>
@@ -181,7 +174,7 @@ No `--create-namespace`: you made it in step 1, and Helm creating it would mean
 the Secrets had nowhere to go.
 
 The chart pulls its images from Docker Hub by default, at the version of the chart
-itself — `image.tag` falls back to `appVersion`, so a chart installs the images of
+itself: `image.tag` falls back to `appVersion`, so a chart installs the images of
 its own release rather than drifting onto `latest`. To pull from your own registry,
 add `image.registry` and, for a private one, `defaults.imagePullSecrets`.
 
@@ -192,7 +185,7 @@ kubectl -n octo get pods -w
 ```
 
 Six pods reach `Running`, plus a schema `Job` that runs once and completes. If
-Postgres stays `Pending`, its volume has nowhere to come from — check
+Postgres stays `Pending`, its volume has nowhere to come from; check
 `kubectl get storageclass` and `kubectl -n octo describe pvc`.
 
 </Step>
@@ -219,8 +212,8 @@ rather than of Octo:
 | `acm` | Terminates at an ALB against a certificate by ARN | EKS with the AWS Load Balancer Controller |
 | `none` | No TLS on the Ingress; something upstream terminates it | A load balancer or mesh that does |
 
-With `cert-manager`, DNS must resolve **before** the certificate can be issued —
-the HTTP-01 challenge is a request to your own hostname. The first minute after
+With `cert-manager`, DNS must resolve **before** the certificate can be issued,
+since the HTTP-01 challenge is a request to your own hostname. The first minute after
 DNS lands may serve the controller's default certificate; watch the real one
 arrive with:
 
@@ -236,13 +229,10 @@ kubectl -n octo get certificate
 
 Visit `https://octo.example.com` in a browser.
 
-The editor is **open to anyone who can reach it** at this point. That is
-deliberate for a local or private-network install and wrong for a public one —
-step 7 is how you close it.
-
-If the host resolves to nothing, the usual cause is that no controller claimed the
-Ingress. `kubectl -n octo describe ingress` shows which class it asked for;
-`kubectl get ingressclass` shows what the cluster has.
+The editor is **open to anyone who can reach it** at this point; step 7 is how
+you close it. If the host resolves to nothing, the usual cause is that no
+controller claimed the Ingress. `kubectl -n octo describe ingress` shows which
+class it asked for; `kubectl get ingressclass` shows what the cluster has.
 
 </Step>
 
@@ -250,16 +240,15 @@ Ingress. `kubectl -n octo describe ingress` shows which class it asked for;
 
 ### Turn on single sign-on
 
-Octo ships no identity provider and privileges none: any provider that speaks the
-authorization-code flow works. Register a client with yours, with this redirect
-URI:
+Any provider that speaks the authorization-code flow works. Register a client
+with yours, with this redirect URI:
 
 ```
 https://octo.example.com/api/auth/callback/oidc
 ```
 
-Then create the auth Secret — both credentials in one Secret, because the chart
-reads them from one reference:
+Then create the auth Secret, holding both credentials, because the chart reads
+them from one reference:
 
 ```bash
 kubectl -n octo create secret generic octo-auth-creds \
@@ -283,9 +272,8 @@ auth:
 ```
 
 <Callout type="info">
-  `auth-secret` signs session cookies. Rotating it signs everyone out and nothing
-  worse — unlike the two keys in step 2, it is recoverable. Keep it anyway; a
-  surprise mass sign-out is its own kind of incident.
+  `auth-secret` signs session cookies. Unlike the two keys in step 2 it is
+  recoverable: rotating it signs everyone out and nothing worse.
 </Callout>
 
 Upgrade to apply it:
@@ -295,7 +283,7 @@ Upgrade to apply it:
 
 <Callout type="warn">
   MCP clients need a provider that supports Dynamic Client Registration. Without
-  it, users authenticate to `/mcp` with an Octo API key instead — see
+  it, users authenticate to `/mcp` with an Octo API key instead. See
   [MCP authentication](/ai/mcp-auth).
 </Callout>
 
@@ -305,7 +293,7 @@ Upgrade to apply it:
 
 ### Publish your integrations
 
-Each integration you deploy from the editor can get its own public hostname, under
+Each integration you deploy from the editor can get its own public hostname under
 a domain you nominate. Add:
 
 ```yaml title="octo-values.yaml"
@@ -313,7 +301,7 @@ orchestrator:
   # Integrations are published at {slug}.apps.example.com.
   baseDomain: apps.example.com
   # The controller that claims the Ingress the orchestrator creates per
-  # deployment. Usually the same one as ingress.className — and it is also what
+  # deployment. Usually the same one as ingress.className, and it is also what
   # the branded 502/503 page is selected from, so name it even where the cluster
   # has a default IngressClass.
   ingressClass: nginx
@@ -329,13 +317,12 @@ Then point `*.apps.example.com` at the same ingress address.
 
 **Prefer the wildcard over per-host certificates**, especially with dev runs on.
 A per-host certificate puts every hostname you deploy into public Certificate
-Transparency logs, which is a running index of your deployment names; one wildcard
-publishes the domain and nothing under it. The wildcard needs a DNS-01
-`ClusterIssuer` — HTTP-01 cannot issue a wildcard — which means giving cert-manager
-credentials for the zone.
+Transparency logs; one wildcard publishes the domain and nothing under it. The
+wildcard needs a DNS-01 `ClusterIssuer`, because HTTP-01 cannot issue a wildcard,
+which means giving cert-manager credentials for the zone.
 
-Leaving `baseDomain` unset is a supported way to run: integrations still deploy and
-still work, reachable in-cluster, with no external address.
+Leaving `baseDomain` unset is supported: integrations still deploy and work,
+reachable in-cluster, with no external address.
 
 </Step>
 
@@ -344,8 +331,7 @@ still work, reachable in-cluster, with no external address.
 ### Turn on semantic memory search (optional)
 
 With an embedding server, searching agent memory ranks by meaning; without one it
-ranks by matching text. Both are supported — this is a capability, not a
-degradation.
+ranks by matching text. Both are supported.
 
 ```bash
 kubectl -n octo create secret generic octo-embeddings-key \
@@ -362,8 +348,7 @@ embeddings:
   existingSecretKey: apiKey
 ```
 
-The key is held in this one pod, which is the whole reason the component exists:
-the alternative is a provider key in every integration's pod.
+The key is held in this one pod, rather than in every integration's pod.
 
 <Callout type="warn">
   `dimensions` must match the `vector(N)` columns in the schema, which are indexed
@@ -384,23 +369,22 @@ the alternative is a provider key in every integration's pod.
 | Platform | The editor UI, at `ingress.host` | Proxies the orchestrator and logs APIs through its BFF |
 | Orchestrator | Deploys integrations through the Kubernetes API | Never exposed directly; reached through the editor |
 | Observability service | Consumes logs and traces into Postgres; serves pod stats from Redis | Serves `/platform/logs`, `/platform/traces` and `/platform/metrics` |
-| Postgres | The bundled database, on a PVC | `Retain` policy — `helm uninstall` does not delete it |
+| Postgres | The bundled database, on a PVC | `Retain` policy, so `helm uninstall` does not delete it |
 | NATS | Pub-sub between components | |
 | Redis | Shared state across replicas | Required; the observability service will not start without one |
 | Schema Job | Applies `sql/schema.sql` | Re-runs idempotently on every upgrade |
 | Retention CronJob | Deletes logs and traces past their policy | Nightly |
 
-Verify the whole thing end-to-end by building a flow in the editor and deploying
-it — [Your first flow](/getting-started/first-flow) is the shortest path.
+Verify end-to-end by building a flow in the editor and deploying it.
+[Your first flow](/getting-started/first-flow) is the shortest path.
 
 ## Production shape
 
 The install above is already the right shape. What separates it from a
-long-running deployment is mostly what you point it at:
+long-running deployment is mostly what you point it at.
 
-**A managed database.** The bundled Postgres is a real database on a real volume,
-not a toy, but it is one replica with no backups you did not arrange. Point the
-chart at RDS, Cloud SQL or your own cluster instead:
+**A managed database.** The bundled Postgres is one replica with no backups you
+did not arrange. Point the chart at RDS, Cloud SQL or your own cluster instead:
 
 ```yaml title="octo-values.yaml"
 postgres:
@@ -418,7 +402,7 @@ The schema Job then runs against that host. `postgres.enabled: false` skips the
 StatefulSet, its Service and its Secret entirely.
 
 **A managed Redis.** Same idea. A Redis with a password must arrive as a Secret,
-not a URL in a values file — the URL contains the credential:
+not a URL in a values file, because the URL contains the credential:
 
 ```bash
 kubectl -n octo create secret generic octo-redis \
@@ -433,9 +417,8 @@ externalRedis:
   existingSecretKey: redis-url
 ```
 
-**Resources and replicas.** The chart's defaults are unopinionated so a stock
-install works anywhere. Set them once, for every workload, in `defaults`, and
-override per component where one needs more:
+**Resources and replicas.** The chart's defaults are unopinionated. Set them
+once, for every workload, in `defaults`, and override per component:
 
 ```yaml title="octo-values.yaml"
 defaults:
@@ -446,14 +429,14 @@ postgres:
   resources:
     requests: { cpu: 250m, memory: 1Gi }
 platform:
-  replicaCount: 2
+  replicas: 2
 orchestrator:
-  replicaCount: 2
+  replicas: 2
 ```
 
 **A restricted security context**, if your cluster enforces Pod Security
 Standards. `defaults.podSecurityContext` and `defaults.securityContext` apply to
-every workload at once — the GKE and EKS profiles set the restricted baseline and
+every workload at once. The GKE and EKS profiles set the restricted baseline and
 are worth reading as examples.
 
 ## Upgrading
@@ -461,18 +444,18 @@ are worth reading as examples.
 <DynamicCodeBlock lang="bash" code={`helm upgrade octo oci://ghcr.io/juancavallotti/charts/octo \\
   --version ${OCTO_VERSION} --namespace octo --values octo-values.yaml`} />
 
-Keep passing `--values`: `--reuse-values` and a values file do not compose the way
-you would expect, and the file is the record of what this release is.
+Keep passing `--values`: `--reuse-values` and a values file do not compose, and
+the file is the record of what this release is.
 
 A chart-version bump moves the images with it, so the Deployments roll, the schema
 Job re-runs idempotently, and Postgres and its volume are untouched. Integrations
-already deployed keep running on the runtime image they were deployed with —
+already deployed keep running on the runtime image they were deployed with, so
 redeploy them from the editor to pick up a newer one. See
 [Releases and Upgrades](/deploy/releases-and-upgrades).
 
 ## Rotating a credential
 
-Because every credential is a Secret you own, rotation does not involve Helm:
+Every credential is a Secret you own, so rotation does not involve Helm:
 
 ```bash
 kubectl -n octo create secret generic octo-db-password \
@@ -481,10 +464,10 @@ kubectl -n octo create secret generic octo-db-password \
 kubectl -n octo rollout restart deploy,statefulset
 ```
 
-Two exceptions, and they are the ones from step 2: **never rotate
-`kv-encryption-key` or `dev-run-hash-secret`.** Changing the first destroys every
-value in a secret KV namespace; changing the second breaks every webhook
-registered against a dev-run hostname.
+Two exceptions, from step 2: **never rotate `kv-encryption-key` or
+`dev-run-hash-secret`.** Changing the first destroys every value in a secret KV
+namespace; changing the second breaks every webhook registered against a dev-run
+hostname.
 
 ## Uninstalling
 
@@ -492,11 +475,10 @@ registered against a dev-run hostname.
 helm uninstall octo --namespace octo
 ```
 
-The database survives on purpose. The StatefulSet sets
+The database survives on purpose: the StatefulSet sets
 `persistentVolumeClaimRetentionPolicy: Retain`, so the claim outlives the release
 and the next install adopts it. Deleting the namespace deletes the claim, the
-volume and your Secrets along with it — that is the irreversible step, and it is
-yours to take deliberately:
+volume and your Secrets. That is the irreversible step:
 
 ```bash
 kubectl delete namespace octo
@@ -506,13 +488,13 @@ kubectl delete namespace octo
 
 | Symptom | Where to look |
 |---|---|
-| Pods `Pending` | `kubectl -n octo describe pod` — usually no StorageClass, or not enough allocatable memory |
+| Pods `Pending` | `kubectl -n octo describe pod`; usually no StorageClass, or not enough allocatable memory |
 | Hostname resolves to nothing | `kubectl -n octo describe ingress`, then `kubectl get ingressclass`. An Ingress no controller claims is not an error anywhere |
 | Certificate never appears | `kubectl -n octo describe certificate`. HTTP-01 needs DNS resolving first; a wildcard needs DNS-01 |
 | Editor loads, sign-in fails at the provider | The redirect URI must match `{auth.url}/api/auth/callback/oidc` exactly, scheme included. Set `auth.url` explicitly if the chart cannot know your scheme |
 | Writes to a secret KV namespace rejected | No `kv.existingSecret` (or `kv.encryptionKey`). Plain KV keeps working, which is why this is quiet |
 | Editor's Run says dev runs unavailable | `orchestrator.devRuns` needs its Secret; the chart refuses to render without one, so this means the feature was turned off |
-| A deployed integration's hostname 404s | `orchestrator.baseDomain` and the wildcard DNS record — and the catch-all page only renders for a controller the chart can identify |
+| A deployed integration's hostname 404s | `orchestrator.baseDomain` and the wildcard DNS record; the catch-all page only renders for a controller the chart can identify |
 
 ## Next
 

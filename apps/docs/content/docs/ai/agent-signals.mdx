@@ -6,16 +6,14 @@ description: "Adding to an agent run in flight, and stopping one."
 import { Callout } from 'fumadocs-ui/components/callout';
 
 An `ai-agent` run is otherwise a closed loop: a request goes in, an answer
-comes out, and nothing in between can change its mind or end it early. That
-is right for a transformation and wrong for a conversation, where a person
-changes what they wanted — or stops wanting it — while the agent is still
-working.
+comes out, and nothing in between can change its mind or end it early. In a
+conversation a person changes what they wanted, or stops wanting it, while the
+agent is still working.
 
-A run claims its conversation — the `memoryThreadId` it already has — for as
-long as it is in flight. There is no second identifier to configure: the
-thread is what must not have two runs at once, since two would also overwrite
-each other's memory. The same block then handles all three cases, with no
-branching in the flow.
+A run claims its conversation, the `memoryThreadId` it already has, for as long
+as it is in flight. There is no second identifier to configure, since two runs
+on one thread would also overwrite each other's memory. The same block handles
+every case, with no branching in the flow.
 
 ## One block, three outcomes
 
@@ -37,43 +35,27 @@ branching in the flow.
 | **A stop** | `stopWhen` holds, so the run in flight is ended and this flow stops with an empty body. |
 | **An answer** | `authorizeId` resolves to an id, so the request is a person's decision about a [tool call the run is holding](/ai/tool-authorization). It is delivered and this flow stops with an empty body. |
 
-There is no separate block and no message in flight. The lookup and the
-handover happen under one lock, so "somebody took this" is a fact rather than
-a hopeful timeout.
-
-The injected text is the agent's own `input` expression, evaluated against
-the new message — the same expression that states a run's opening turn. A
-follow-up is just the next thing the person said.
+The lookup and the handover happen under one lock, so "somebody took this" is a
+fact rather than a timeout. The injected text is the agent's own `input`
+expression evaluated against the new message.
 
 ## Where a handed-over message lands
 
 It arrives as an ordinary **user turn**, at the top of the run's next
-iteration. That is the only safe seam: every provider requires a tool turn to
-follow immediately after the assistant turn that requested it, so nothing can
-be slipped between them.
-
-If it arrives while the agent is producing what would have been its final
-answer, the run **takes another turn** rather than dropping it — it was
-accepted, and the invocation that handed it over stopped its own flow on the
-strength of that. Which is also what makes a follow-up typed mid-answer
-behave the way it does in any chat.
+iteration, because every provider requires a tool turn to follow immediately
+after the assistant turn that requested it. If it arrives while the agent is
+producing its final answer, the run **takes another turn** rather than dropping
+it, since the invocation that handed it over already stopped its own flow.
 
 ## Stopping a run
 
-`stopWhen` is a boolean CEL condition over the message — a header, a body
-field, whatever the caller can send. Nothing about it is special to the
-runtime; the expression is what gives it meaning.
-
-When it holds, the run in flight is ended: the model call is **cancelled**
-rather than paid for in full, the agent saves its memory, and both flows stop.
-
-Memory is still saved on the way out, and always by **pruning** rather than
-summarizing, whatever the agent configured: summarizing costs a real model
-call, and buying one to tidy up work somebody just cancelled is the wrong
-instinct.
-
-A stop that finds nothing running is a **no-op that answers**, so a client can
-send one blind without knowing whether the run is still going.
+`stopWhen` is a boolean CEL condition over the message: a header, a body field,
+whatever the caller can send. When it holds, the model call in flight is
+**cancelled** rather than paid for in full, the agent saves its memory, and
+both flows stop. Memory is saved by **pruning** rather than summarizing,
+whatever the agent configured, since summarizing costs a model call. A stop
+that finds nothing running is a **no-op that answers**, so a client can send
+one blind.
 
 ## When the caller hangs up
 
@@ -86,34 +68,28 @@ flight instead of waiting for it.
 How quickly a disconnect is noticed depends on `stream`. With `stream: true`
 the events path fires per token, so a closed connection is caught within a
 token. Without it, nothing is emitted between `turn_start` and `turn_end`, so
-the disconnect is only noticed at the next turn boundary — and that turn is
-paid for. Stream any agent whose caller can walk away.
+the disconnect is only noticed at the next turn boundary, and that turn is paid
+for. Stream any agent whose caller can walk away.
 </Callout>
 
 ## Choosing a thread id
 
-`memoryThreadId` is a CEL expression, so its granularity is yours — and it now
-decides two things at once: what the agent remembers, and what a later message
-can join. Those are the same question. A thread per user gives that user's
-conversation a memory and a run; a thread per channel gives the channel one,
-shared by everyone in it.
-
-A JWT subject arrives as an ordinary message variable, so
+`memoryThreadId` decides two things at once: what the agent remembers, and
+what a later message can join. A thread per user gives that user's conversation
+a memory and a run; a thread per channel gives the channel one, shared by
+everyone in it. A JWT subject arrives as an ordinary message variable, so
 `vars.sub + ":" + body.threadId` says "this person, in this conversation".
 
-The id is scoped to **this block**. Two agents whose expressions happen to
-agree — `body.threadId` is the easy way for that to happen — do not hand each
-other messages, so one flow's follow-up can never be answered by another
-flow's agent. It also means a run can only be joined or stopped through the
-block that started it: give a stop route the same agent block (as the sample
-does, with a header) rather than a second one.
-
-An agent with no `memoryThreadId` is stateless, claims nothing, and cannot be
-joined or stopped — there is no conversation for a later message to be part of.
+The id is scoped to **this block**. Two agents whose expressions happen to agree
+(`body.threadId`, say) do not hand each other messages, and a run can only be
+joined or stopped through the block that started it, so give a stop route the
+same agent block (as the sample does, with a header) rather than a second one.
+An agent with no `memoryThreadId` claims nothing and cannot be joined or
+stopped.
 
 <Callout type="warn">
 **Whatever the thread id is derived from is exactly who can reach the
-conversation** — read it, steer it, or stop it. Build it from an identity the
+conversation**: read it, steer it, or stop it. Build it from an identity the
 caller cannot choose: `vars.sub`, the verified subject of a token a
 [`jwt-validate`](/reference/connectors/http) block checked, rather than a field
 of the request body.
@@ -121,55 +97,42 @@ of the request body.
 
 ## Across replicas
 
-A conversation is claimed for the whole deployment, not just for the process
-holding it. A message that lands on another replica does not start a second run:
-the claim tells it who owns the conversation, and the message is delivered
-there.
+A conversation is claimed for the whole deployment. A message that lands on
+another replica does not start a second run: the claim says who owns the
+conversation, and the message is delivered there.
 
-Two runtime services do the work, and neither is new. The claim is a
-[lease](/runtime/clustering#owning-one-thing-at-a-time-leases) — exclusive, expiring, and refused immediately rather
-than waited on, so a caller learns at once that somebody else owns the
-conversation. The delivery is an internal queue, whose reply is what makes
-"somebody took this" a fact rather than a hopeful timeout. On Kubernetes that is
-a coordination Lease and core NATS; there is nothing to enable and no persistence
-to configure.
+The claim is a [lease](/runtime/clustering#owning-one-thing-at-a-time-leases):
+exclusive, expiring, and refused immediately rather than waited on. The
+delivery is an internal queue, whose reply is what makes "somebody took this" a
+fact. On Kubernetes that is a coordination Lease and core NATS; there is nothing
+to enable and no persistence to configure.
 
 <Callout>
-The stop is what this is for. Before it, a stop landing on the wrong replica
-stopped nothing **and reported success** — the only failure here that is
-indistinguishable from the thing working.
+Before the claim, a stop landing on the wrong replica stopped nothing **and
+reported success**.
 </Callout>
 
-Three consequences worth knowing:
-
-- **A run that loses its claim stops.** If a replica cannot renew its lease,
-  another replica now owns the conversation and will save it; carrying on would
-  be two runs writing one transcript, where the later save wins entirely.
-- **A run may hold its conversation for fifteen minutes.** A wedged tool branch
-  would otherwise keep the conversation claimed for the whole deployment. At the
-  limit the run is stopped exactly as `stopWhen` stops it, so the transcript is
-  pruned and saved and the next message picks up cleanly. An agent with no
-  `memoryThreadId` claims nothing and is not timed.
-- **Delivery is at most once.** A message published between a replica's death
-  and its lease expiring is lost — bounded by the lease, and the same window in
-  which the run itself was already gone.
+Three consequences follow. A run that loses its claim stops: another replica now
+owns the conversation and will save it. A run may hold its conversation for
+**fifteen minutes** at most, so a wedged tool branch cannot keep it claimed; at
+the limit the run is stopped exactly as `stopWhen` stops it, the transcript is
+pruned and saved, and the next message picks up cleanly (an agent with no
+`memoryThreadId` is not timed). Delivery is **at most once**: a message
+published between a replica's death and its lease expiring is lost.
 
 ## Known limits
 
-**A client that reconnects cannot rejoin its run.** The claim decides who owns a
-conversation; it does not move a stream. A browser that reconnects to another
-replica is told the conversation is owned and receives nothing, because the
-run's events are going to the replica it left. **Session affinity** on the
-ingress, keyed on the same thread `memoryThreadId` is, is the answer — and it
-costs no code.
+**A client that reconnects cannot rejoin its run.** The claim does not move a
+stream: a browser that reconnects to another replica is told the conversation is
+owned and receives nothing, because the run's events go to the replica it left.
+**Session affinity** on the ingress, keyed on the same thread `memoryThreadId`
+is, is the answer.
 
-**A message accepted at the iteration cap is not answered.** It is reported
-instead: an `unanswered` signal event carrying its text, so a progress UI can
-say what went unanswered rather than leaving the person to notice their question
-never came back. Raise `maxIterations` if it happens often.
+**A message accepted at the iteration cap is not answered.** It is reported as
+an `unanswered` signal event carrying its text. Raise `maxIterations` if it
+happens often.
 
-For the design work behind all of this — what the claim fixes, what it does not,
-and what each primitive costs — see
+For the design work behind this, see
 [`docs/distributed-agent-runs.md`](https://github.com/juancavallotti/octo/blob/main/docs/distributed-agent-runs.md).
 
 ## Watching it happen
@@ -192,6 +155,6 @@ is the whole pattern, runnable, in two terminals.
 
 ## Next steps
 
-- [Tool authorization](/ai/tool-authorization) — the third thing a request can be: a person allowing a call.
-- [Agent Memory](/ai/agent-memory) — what a stopped run keeps.
-- [AI Blocks reference](/reference/blocks/ai#ai-agent) — full field tables.
+- [Tool authorization](/ai/tool-authorization): the third thing a request can be, a person allowing a call.
+- [Agent Memory](/ai/agent-memory): what a stopped run keeps.
+- [AI Blocks reference](/reference/blocks/ai#ai-agent): full field tables.

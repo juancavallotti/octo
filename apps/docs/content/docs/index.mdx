@@ -8,40 +8,30 @@ import { BookOpen, Cpu, FlaskConical, LayoutDashboard, Library, Rocket, Ship, Sp
 
 Octo is an integration platform built around a small, concurrent Go runtime that
 executes flows defined in YAML. Connectors turn the outside world into messages,
-sources feed those messages into flows, and each flow runs its messages through
-an ordered chain of blocks. Around the runtime sit a visual editor for designing
-flows and a Kubernetes-native platform for deploying and operating them.
+sources feed them into flows, and each flow runs its messages through an ordered
+chain of blocks. Around the runtime sit a visual editor and a Kubernetes-native
+platform for deploying and operating flows.
 
 ## Why Octo exists
 
-AI moved the ceiling on what one person can build. Ideas that were once too
-ambitious for a personal project are suddenly within reach — and integration,
-the unglamorous work of making systems talk to each other, is exactly the kind
-of thing that used to be too big to take on alone.
-
-So Octo asks a question: what would an integration platform look like if it were
-born today? AI-native from the first commit instead of retrofitted. Cloud-native
-by default instead of ported. Open in spirit, not just in license.
-
-That means free in every sense. Free to run — no fee, no seat count, no license
-key, no call with sales. Free to learn from — the whole platform is on GitHub,
-and it is meant to be read. And free from the pressure that slowly bends a
-product away from its users: there are no paid cores, no enterprise tier, and no
-capability held back to give a commercial story something to sell. What is here
-is the whole thing.
+AI moved the ceiling on what one person can build, and integration used to be
+too big to take on alone. Octo is an integration platform designed as if it were
+born today: AI-native from the first commit, cloud-native by default, and open
+in spirit as well as in license. It is free to run (no fee, no seat count, no
+license key) and free to learn from (the whole platform is on GitHub), with no
+paid cores or enterprise tier.
 
 **Free as in freedom.**
 
 ## What that means in practice
 
-Integration logic in Octo is declarative: you describe connectors, flows, and
-processors in a readable YAML file, and the runtime carries it. The same file
-runs unchanged from the `octo` CLI on your laptop, in the Docker-based visual
-editor, and as a Kubernetes workload on the platform — development, testing, and
-production share one definition. AI is a first-class building block: LLM
-connectors, agents, AI-assisted mapping, and an MCP server for authoring flows
-with an assistant are part of the runtime, not bolted on. Octo is open source
-under the AGPL-3.0 license.
+You describe connectors, flows, and processors in a YAML file, and the same
+file runs unchanged from the `octo` CLI on your laptop, in the Docker-based
+visual editor, as a Kubernetes workload on the platform, and on infrastructure
+of your own once you implement [the platform API](/extending/platform-api). LLM connectors,
+agents, AI-assisted mapping, and an MCP server for authoring flows with an
+assistant are part of the runtime. Octo is open source under the AGPL-3.0
+license.
 
 ## A flow in 30 seconds
 
@@ -72,19 +62,18 @@ flows:
 
 The `source` binds the flow to the `ticker` connector: a six-field cron schedule
 fires at seconds 0 and 30 of every minute, and the `payload` CEL expression sets
-each message's body. The `process` chain has a single `log` block whose
-`message` is also a CEL expression, so it can read the message body. Run it with
-`octo run --config hello.yaml`.
+each message's body. The `process` chain has one `log` block whose `message` is
+also CEL, so it can read the body. Run it with `octo run --config hello.yaml`.
 
 ## Explore the docs
 
 <Cards>
   <Card icon={<Rocket />} href="/getting-started" title="Getting Started">
-    Install the CLI, run your first flow, and pick between the CLI, the editor,
-    and the platform.
+    Install the CLI, run your first flow, and pick between the four ways to
+    run Octo.
   </Card>
   <Card icon={<Workflow />} href="/concepts/flows" title="Core Concepts">
-    Flows, connectors, blocks, expressions, state, and error handling — the
+    Flows, connectors, blocks, expressions, state, and error handling: the
     runtime model.
   </Card>
   <Card icon={<BookOpen />} href="/guides" title="Guides">
@@ -116,5 +105,5 @@ each message's body. The `process` chain has a single `log` block whose
   </Card>
 </Cards>
 
-Octo is licensed under the AGPL-3.0 — see [Licensing](/licensing) for what that
+Octo is licensed under the AGPL-3.0. See [Licensing](/licensing) for what that
 means in practice.

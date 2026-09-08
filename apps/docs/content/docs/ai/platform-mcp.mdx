@@ -6,12 +6,10 @@ description: "Build and operate integrations with coding agents through the plat
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-The previous pages showed your integrations *serving* MCP. The platform also
-*is* an MCP server: it exposes the whole authoring lifecycle — read the
-runtime schema, draft and validate YAML, save integrations, run flows, read
-logs — as MCP tools. Connect a coding agent like Claude Code to it and the
-agent can build, test, and debug integrations against your live platform, in
-a conversation.
+The platform is itself an MCP server: it exposes the whole authoring lifecycle
+(read the runtime schema, draft and validate YAML, save integrations, run
+flows, read logs) as MCP tools. Connect a coding agent like Claude Code and it
+can build, test, and debug integrations against your live platform.
 
 ## How to connect
 
@@ -22,26 +20,22 @@ SSE is not supported). The endpoint is an OAuth 2.1 protected resource:
 claude mcp add --transport http octo https://<your-platform-host>/mcp
 ```
 
-The first request without a token gets a `401` whose `WWW-Authenticate`
-header points at `/.well-known/oauth-protected-resource/mcp` (RFC 9728); the
-client discovers the authorization server there, walks you through sign-in,
-and retries with a bearer access token. This is exactly the handshake
-described in [Secure an MCP Server with OAuth](/ai/mcp-auth) — the platform
-follows its own advice. An `octo_…` API key sent as the bearer is also
-accepted.
+The first request without a token gets a `401` whose `WWW-Authenticate` header
+points at `/.well-known/oauth-protected-resource/mcp` (RFC 9728); the client
+discovers the authorization server there, signs you in, and retries with a
+bearer access token, the handshake described in
+[Secure an MCP Server with OAuth](/ai/mcp-auth). An `octo_…` API key sent as
+the bearer is also accepted.
 
-One-shot calls — `invoke_flow`, `evaluate_cel`, `run_tests` — are isolated per MCP
-session, so concurrent clients never step on each other's debugging. A long-running
-[dev run](/platform/dev-runs) is deliberately *not*: it belongs to you and one
-integration, so a second session running the same integration attaches to the run
-that is already up rather than starting a rival one.
+One-shot calls (`invoke_flow`, `evaluate_cel`, `run_tests`) are isolated per
+MCP session, so concurrent clients never step on each other. A long-running
+[dev run](/platform/dev-runs) belongs to you and one integration, so a second
+session running the same integration attaches to the run already up.
 
 <Callout type="info">
-  The **standalone app** exposes the same MCP handler at its local `/mcp`
-  route, unauthenticated — it is local-only, like the rest of the standalone
-  editor. Point a client at `http://localhost:<port>/mcp` on the standalone
-  origin and every tool below works the same way, backed by the local disk
-  store.
+  The **standalone app** exposes the same MCP handler, unauthenticated, at
+  `http://localhost:<port>/mcp`. Every tool below works the same way there,
+  backed by the local disk store.
 </Callout>
 
 ## What the server exposes
@@ -51,7 +45,7 @@ that is already up rather than starting a rival one.
 | Tool | What it does |
 | --- | --- |
 | `list_integrations` | Every saved integration as `{ id, name }`. |
-| `open_integration` | One integration by id: `{ id, name, definition }` — the runtime YAML. |
+| `open_integration` | One integration by id: `{ id, name, definition }`, the runtime YAML. |
 | `list_flows` | The flows in an integration as `{ name, source }` (`source` is the trigger type, or `null` for a sourceless flow). |
 | `validate_definition` | Validate draft YAML against the runtime schema **without saving**; returns descriptive errors. |
 | `create_integration` | Create an integration from a name and a YAML definition. |
@@ -59,13 +53,11 @@ that is already up rather than starting a rival one.
 
 ### Flow tools
 
-An integration is one YAML file holding many flows. These edit **one** of them, leaving
-every other byte of the file — the other flows, the connectors, the comments — exactly as
-it was. Reach for them whenever you are changing a single flow: `update_integration` would
-have you reproduce the whole file from memory, and silently lose whatever you got wrong.
-
-Each mutating tool validates the spliced result before saving, so an edit that would leave
-the integration unloadable is refused rather than persisted.
+An integration is one YAML file holding many flows. These edit **one** of them
+and leave every other byte of the file as it was, where `update_integration`
+would have you reproduce the whole file from memory. Each mutating tool
+validates the spliced result before saving, so an edit that would leave the
+integration unloadable is refused.
 
 | Tool | What it does |
 | --- | --- |
@@ -74,58 +66,47 @@ the integration unloadable is refused rather than persisted.
 | `update_flow` | Replace a flow in place. Giving the replacement a different `name` renames it where it sits. |
 | `delete_flow` | Remove a flow by name. |
 
-In each, `definition` is the YAML of **that flow alone** — a mapping starting with `name:`
-— not the whole file and not a `flows:` list.
+In each, `definition` is the YAML of **that flow alone**, a mapping starting
+with `name:`, not the whole file and not a `flows:` list.
 
 ### Run and debug tools
 
 | Tool | What it does |
 | --- | --- |
 | `can_start_integration` | Pre-flight: is a runner available, does the definition validate? |
-| `run_integration` | Start (or restart) the integration as a dev run — a pod of its own; returns its stable public test URL for networked integrations. Runs the **saved** definition, and refuses ad-hoc `env` (put values in the integration's `.env.dev` resource). |
-| `invoke_flow` | Run **one named flow once** — from a saved id or an inline definition — with optional JSON `data`, `vars` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`, where `output` is the flow's result message (`{event_id, variables, body}`) as JSON text. Takes `breakAt`, `spies` and `mocks` — see below. |
+| `run_integration` | Start (or restart) the integration as a dev run, a pod of its own; returns its stable public test URL for networked integrations. Runs the **saved** definition, and refuses ad-hoc `env` (put values in the integration's `.env.dev` resource). |
+| `invoke_flow` | Run **one named flow once**, from a saved id or an inline definition, with optional JSON `data`, `vars` and `env`, without starting sources. Returns `{ ok, timedOut, dropped, output, logs }`, where `output` is the flow's result message (`{event_id, variables, body}`) as JSON text. Takes `breakAt`, `spies` and `mocks`; see below. |
 | `evaluate_cel` | Evaluate a single CEL expression against sample `body`/`vars`/`env` without running a flow. |
 | `get_run_logs` | The run's output for an integration `id`, as plain text. |
 | `stop_integration` | Stop the run for an integration `id`. |
 
 <Callout type="info">
   The three run-control tools take the integration `id` because a run belongs to
-  `(you, that integration)` rather than to your MCP session. Two consequences worth
-  knowing: a run you start is the **same run** the editor attaches to when you open that
-  integration — so an agent can debug what a human is looking at — and it runs what is
-  **saved**, so an agent that edits a flow must save it (`update_flow` does) before the
-  running app reflects the change. The one-shot tools (`invoke_flow`, `evaluate_cel`,
-  `run_tests`) are unaffected: they run the definition in the request. See
-  [Dev runs](/platform/dev-runs).
+  `(you, that integration)` rather than to your MCP session. A run you start is
+  the **same run** the editor attaches to, so an agent can debug what a human is
+  looking at. It runs what is **saved**, so an agent must save an edited flow
+  (`update_flow` does) before the running app reflects it. The one-shot tools
+  (`invoke_flow`, `evaluate_cel`, `run_tests`) run the definition in the
+  request. See [Dev runs](/platform/dev-runs).
 </Callout>
 
 #### Debugging a flow with `invoke_flow`
 
-Three features compose on one run, each addressing a block by the same path grammar —
-`<flow>.<block>`, descending into a composite with a bracketed branch: `orders.charge`,
-`orders.checkHeader[else].api-call`, `orders[error].notify`.
+Three features compose on one run, each addressing a block by the same path
+grammar: `<flow>.<block>`, descending into a composite with a bracketed branch
+(`orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`).
 
-- **`breakAt`** — run until this block, then stop. The result carries
-  `breakpoint: { reached, block, message, error }`. `reached: false` means the flow took
-  another branch: a normal outcome, not an error.
-- **`spies`** — record every message crossing these blocks, **without changing what the flow
-  does**. The result carries `spies: [{ address, records }]`, where each record shows what
-  the block received and what it produced — including the two outcomes that are not a
-  message: it dropped, or it failed. `seq` orders records across *all* spies, so a
-  multi-spy trace reads as one timeline.
-- **`mocks`** — stand in for these blocks so the real one **never runs**. This is how a flow
-  whose blocks call a payment API or an LLM gets exercised without one.
+| Feature | Behaviour |
+| --- | --- |
+| `breakAt` | Run until this block, then stop. The result carries `breakpoint: { reached, block, message, error }`. `reached: false` means the flow took another branch: a normal outcome, not an error. |
+| `spies` | Record every message crossing these blocks **without changing what the flow does**. The result carries `spies: [{ address, records }]`, where each record shows what the block received and what it produced, including the two outcomes that are not a message: it dropped, or it failed. `seq` orders records across *all* spies, so a multi-spy trace reads as one timeline. |
+| `mocks` | Stand in for these blocks so the real one **never runs**. This is how a flow whose blocks call a payment API or an LLM gets exercised without one. |
 
-Two rules the runtime enforces, and both are easy to get wrong:
-
-**A mock replaces its target, so an unmatched message *fails* the block.** It does not fall
-through to the real block, because there is no real block left — keeping one wired would
-let a "mocked" HTTP call still reach the network, which is the failure mocking exists to
-prevent. Give a `default`, or a trailing case with `when: "true"`, unless you mean an
-unmatched message to be an error.
-
-**Each case does exactly one thing** — `body`, `error`, or `drop` — because a block either
-returns a message, fails, or filters it out. `vars` only goes alongside a `body`.
+Two rules the runtime enforces. **A mock replaces its target, so an unmatched
+message *fails* the block** rather than falling through to the real one; give a
+`default`, or a trailing case with `when: "true"`, unless you mean an unmatched
+message to be an error. **Each case does exactly one thing** (`body`, `error`,
+or `drop`); `vars` only goes alongside a `body`.
 
 ```json
 {
@@ -142,27 +123,26 @@ returns a message, fails, or filters it out. `vars` only goes alongside a `body`
 }
 ```
 
-You cannot `breakAt` or spy a block **inside** a mocked block: the mock deleted that
-subtree, so nothing there can ever run, and the request is rejected rather than silently
-reporting nothing.
+You cannot `breakAt` or spy a block **inside** a mocked block: the mock deleted
+that subtree, and the request is rejected rather than silently reporting
+nothing.
 
 ### Documentation tools
 
 | Tool | What it does |
 | --- | --- |
-| `getSchema` | No argument: a compact index of every block and connector type. With `elementName` (e.g. `"log"`, `"http"`): that element's full spec, including its fields — and, for a composite, the `addressBranches` a breakpoint/spy/mock address needs to descend into it (`handle-errors[process].<block>`). |
+| `getSchema` | No argument: a compact index of every block and connector type. With `elementName` (e.g. `"log"`, `"http"`): that element's full spec, including its fields and, for a composite, the `addressBranches` a breakpoint/spy/mock address needs to descend into it (`handle-errors[process].<block>`). |
 | `getExamples` | No argument: an index of worked example integrations. With a slug: that example's full runtime YAML. |
-| `getCelFunctions` | The CEL variables and functions in scope for message expressions — Octo's own plus the [extension libraries](/reference/cel/libraries); pass a `functionName` for one entry, or a `library` (strings, lists, encoders, math, comprehensions, sets, regex, optional) for one family. |
+| `getCelFunctions` | The CEL variables and functions in scope for message expressions, Octo's own plus the [extension libraries](/reference/cel/libraries); pass a `functionName` for one entry, or a `library` (strings, lists, encoders, math, comprehensions, sets, regex, optional) for one family. |
 
-These exist as tools (not only resources) because some MCP clients surface
-only tools; they let an agent fetch exactly one block spec or one example
-instead of wading through the whole schema.
+These exist as tools (not only resources) because some MCP clients surface only
+tools.
 
 ### Resource tools
 
 | Tool | What it does |
 | --- | --- |
-| `list_env_keys` | Every env var an integration expects, as `{ name, default, required, source }` — declared vars plus keys found in `env` resource files. |
+| `list_env_keys` | Every env var an integration expects, as `{ name, default, required, source }`: declared vars plus keys found in `env` resource files. |
 | `list_resources` | An integration's stored resources as `{ id, kind, name }` (`kind` is `env` or `template`). |
 | `open_resource` | Read one resource's content. |
 | `create_resource` | Create an `env` file or a `template` on an integration. |
@@ -171,15 +151,14 @@ instead of wading through the whole schema.
 
 ### Editor tools
 
-The editor's own bookkeeping — the test inputs, mocks and spies the canvas shows.
-Writing them here is how an agent that has just debugged a flow leaves the setup
-behind instead of describing it in prose: the user opens the canvas and finds the
-mocks already placed and the ▶ menu ready to run.
+The editor's own bookkeeping: the test inputs, mocks and spies the canvas shows.
+An agent that has just debugged a flow can leave the setup behind, so the user
+opens the canvas and finds the mocks placed and the ▶ menu ready to run.
 
-These are **not** tests. Nothing here is an assertion, and nothing here is read by
-`dolphin test`, by CI, or by a deployed runtime — that is what the [test
-suite](#tests) tools below are for. An agent asked to "add tests" that reaches for
-`set_mock` has configured the editor rather than written a test.
+These are **not** tests. Nothing here is an assertion or is read by
+`dolphin test`, by CI, or by a deployed runtime; that is what the
+[test suite](#tests) tools below are for. An agent asked to "add tests" that
+reaches for `set_mock` has configured the editor rather than written a test.
 
 | Tool | What it does |
 | --- | --- |
@@ -189,69 +168,59 @@ suite](#tests) tools below are for. An agent asked to "add tests" that reaches f
 | `set_mock` / `delete_mock` | Stand in for a block on every run the editor makes. |
 | `set_spy` / `delete_spy` | Record what crosses a block. |
 
-**Compose no address by hand.** A block only has one when its name is unique among
-its siblings and free of `.`, `[` and `]`; `list_block_addresses` lists exactly the
-ones that exist. An address naming nothing is refused rather than written, because a
-mock keyed by one looks placed in the file and on the canvas and silently never
-fires. The fix is to give the block a distinct name with `update_flow` — which these
-tools will not do for you, since a metadata write that edited the definition would be
-a surprise.
-
-Renaming a flow with `update_flow` moves its bookkeeping with it, addresses included.
+**Compose no address by hand.** A block only has one when its name is unique
+among its siblings and free of `.`, `[` and `]`; `list_block_addresses` lists
+exactly the ones that exist. An address naming nothing is refused, because a
+mock keyed by one looks placed and silently never fires; give the block a
+distinct name with `update_flow`, which these tools will not do for you.
+Renaming a flow with `update_flow` moves its bookkeeping with it, addresses
+included.
 
 ### Tests
 
-A [dolphin test suite](/testing/writing-cases) is a different kind of file from the
-bookkeeping above: it is committed, CI runs it, and `dolphin test` in a terminal
-gives the same verdict. This is what turns a debugging session into something that
-outlives it.
+A [dolphin test suite](/testing/writing-cases) is committed, CI runs it, and
+`dolphin test` in a terminal gives the same verdict.
 
 | Tool | What it does |
 | --- | --- |
 | `list_test_suites` | The suites stored for an integration, with their case names. |
-| `get_test_suite` | One flow's suite as YAML, exactly as stored — comments and all. |
+| `get_test_suite` | One flow's suite as YAML, exactly as stored, comments and all. |
 | `set_test_suite` | Write a whole suite byte for byte. The flow under test is the file's own `flow:` key. |
-| `set_test_case` | Add or replace one case, structurally. Rewrites the file, so **comments are lost** — use `set_test_suite` when they matter. |
+| `set_test_case` | Add or replace one case, structurally. Rewrites the file, so **comments are lost**; use `set_test_suite` when they matter. |
 | `delete_test_case` | Remove one case by name. |
 | `run_tests` | Run the suites and report what happened. |
 
-[Testing with an agent](/testing/with-an-agent) walks a whole session through these —
-finding the addresses, writing the suite, running it, and reading the report.
+[Testing with an agent](/testing/with-an-agent) walks a whole session through
+these.
 
-**`run_tests`'s `ok` means a report came back, not that the tests passed.** dolphin
-exits non-zero for a failing case, which is an ordinary outcome of running tests; the
-verdict is in `totals`. A **failed** case is a flow that did not do what the case
-says; an **errored** case is one dolphin could not run, so the *test* is wrong. A case
-that did not pass also reports the message the flow actually produced, which is the
-other half of the comparison.
-
-Anything that would stop dolphin loading the file is refused before it is written.
-dolphin decodes with unknown keys **rejected**, so a misspelled `spys:` takes the
-whole file down rather than going quietly — which is deliberate, since a typo that was
-ignored would look exactly like a test that passes.
+**`run_tests`'s `ok` means a report came back, not that the tests passed.** The
+verdict is in `totals`. A **failed** case is a flow that did not do what the
+case says; an **errored** case is one dolphin could not run, so the *test* is
+wrong. A case that did not pass also reports the message the flow produced.
+Anything that would stop dolphin loading the file is refused before it is
+written; dolphin **rejects** unknown keys, so a misspelled `spys:` takes the
+whole file down rather than going quietly.
 
 <Callout type="warn">
 **Values in a suite, JSON text in the meta file.** A test suite holds bodies and
-variables as values, and so do the suite tools. The editor's bookkeeping stores them
-as JSON *text*, because the editor edits them in a box — but its tools still take and
-return values and convert for you. Neither side ever wants a string of JSON.
+variables as values, and so do the suite tools. The editor's bookkeeping stores
+them as JSON *text*, but its tools still take and return values and convert for
+you. Neither side ever wants a string of JSON.
 </Callout>
 
 ### MCP resources and prompts
 
-For clients that consume them, the same catalogues are also published as
-resources — `octo://runtime/schema` (the capability catalogue, generated from
-the actual runner binary, so it reflects exactly what your deployment
-supports), `octo://examples` (the example index), and
-`octo://examples/<slug>` (each example's YAML). Two prompts,
-`create-integration` and `write-effective-integrations`, give a connected
-agent step-by-step authoring guidance and design best practices.
+The same catalogues are also published as resources: `octo://runtime/schema`
+(the capability catalogue, generated from the runner binary, so it reflects
+exactly what your deployment supports), `octo://examples` (the example index),
+and `octo://examples/<slug>` (each example's YAML). Two prompts,
+`create-integration` and `write-effective-integrations`, give a connected agent
+step-by-step authoring guidance and design best practices.
 
 ## The authoring loop
 
-Here is what a session with a coding agent actually looks like — ask Claude
-Code to "build me an integration that posts a daily summary to Slack" and
-watch it run this loop:
+Ask Claude Code to "build me an integration that posts a daily summary to
+Slack" and it runs this loop:
 
 <Steps>
 <Step>
@@ -264,60 +233,51 @@ watch it run this loop:
 
 **Learn the vocabulary.** It calls `getSchema` for the index of block and
 connector types, `getSchema("slack-send-message")` (and friends) for exact
-fields, and `getExamples` to find and adapt a worked example — instead of
-guessing YAML syntax from training data.
+fields, and `getExamples` to adapt a worked example instead of guessing YAML
+syntax.
 
 </Step>
 <Step>
 
-**Draft and validate.** It writes a definition and calls
-`validate_definition` until the errors are gone — no save, no side effects.
+**Draft and validate.** It writes a definition and calls `validate_definition`
+until the errors are gone: no save, no side effects.
 
 </Step>
 <Step>
 
-**Save.** `create_integration` (or `update_integration` on iteration)
-persists the definition. `list_env_keys` reveals which env vars still need
-values; the agent asks you for secrets and stores them with
-`create_resource` as an `env` file — a dev run reads its environment from
-there, not from the request.
+**Save.** `create_integration` (or `update_integration` on iteration) persists
+the definition. `list_env_keys` reveals which env vars still need values; the
+agent asks you for secrets and stores them with `create_resource` as an `env`
+file, which is where a dev run reads its environment.
 
 </Step>
 <Step>
 
-**Test one flow fast.** `invoke_flow` runs a single flow with sample data —
-no sources started — and returns the output and logs in one call. This is
-the tight inner loop: tweak, invoke, read, repeat. `evaluate_cel` checks a
-gnarly expression in isolation.
+**Test one flow fast.** `invoke_flow` runs a single flow with sample data, no
+sources started, and returns the output and logs in one call: tweak, invoke,
+read, repeat. `evaluate_cel` checks a gnarly expression in isolation.
 
 </Step>
 <Step>
 
 **Run for real.** `run_integration` boots the integration as a dev run and
-returns its test URL when it serves HTTP. The agent exercises the
-endpoints, reads `get_run_logs` for the runtime's own load errors and log
-output, fixes, **saves**, and re-runs. `stop_integration` tears it down.
-Saving matters here in a way it does not in the inner loop: the run reads
-the stored definition, so an unsaved fix is not what is running.
+returns its test URL when it serves HTTP. The agent exercises the endpoints,
+reads `get_run_logs` for the runtime's load errors and log output, fixes,
+**saves** (the run reads the stored definition), and re-runs.
+`stop_integration` tears it down.
 
 </Step>
 </Steps>
 
-Validation is best-effort by design: a clean `validate_definition` is not a
-guarantee the runtime loads the definition, and the pre-flight can flag YAML
-the runtime accepts. The runtime is the final judge — which is why the loop
-ends at `get_run_logs`, not at the validator.
+Validation is best-effort: a clean `validate_definition` does not guarantee the
+runtime loads the definition, and the pre-flight can flag YAML the runtime
+accepts. The runtime is the final judge, which is why the loop ends at
+`get_run_logs`.
 
 ## Related pages
 
-- [Expose an MCP Server](/ai/mcp-server) — make your *own* integrations MCP
-  servers with `mcp-router`.
-- [Secure an MCP Server with OAuth](/ai/mcp-auth) — the same RFC 9728
-  handshake the platform endpoint uses, applied to your integrations.
-- [Capstone: A Production Slack Agent](/ai/slack-agent) — the kind of
-  integration a connected coding agent can build and debug through these
-  tools.
-- [Testing a flow](/testing/writing-cases) — the suite format `set_test_case` and
-  `run_tests` write and run.
-- [Testing flows in the editor](/testing/in-the-editor) — the same suites, in the
-  Testing tab a user opens afterwards.
+- [Expose an MCP Server](/ai/mcp-server): make your *own* integrations MCP servers with `mcp-router`.
+- [Secure an MCP Server with OAuth](/ai/mcp-auth): the same RFC 9728 handshake the platform endpoint uses, applied to your integrations.
+- [Capstone: A Production Slack Agent](/ai/slack-agent): the kind of integration a connected coding agent can build and debug through these tools.
+- [Testing a flow](/testing/writing-cases): the suite format `set_test_case` and `run_tests` write and run.
+- [Testing flows in the editor](/testing/in-the-editor): the same suites, in the Testing tab a user opens afterwards.

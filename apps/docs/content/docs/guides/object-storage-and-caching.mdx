@@ -7,17 +7,16 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Cog, Database, Wand } from 'lucide-react';
 
-Flows are stateless by default: each message flows through and is gone. This
-guide adds state — `object-read`/`object-write` for values that persist between
-runs, and `cache-scope` to memoize expensive work such as an LLM call.
+Flows are stateless by default. This guide adds state: `object-read`/`object-write`
+for values that persist between runs, and `cache-scope` to memoize expensive work
+such as an LLM call.
 
 ## Read and write objects
 
 `object-write` persists a value under a key; `object-read` loads it back into a
 variable.
 [`samples/object-store.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/object-store.yaml)
-reads a key before and after writing it, so a single run shows both a miss and a
-hit:
+reads a key before and after writing it, showing a miss and a hit:
 
 ```yaml title="samples/object-store.yaml (excerpt)"
 process:
@@ -57,24 +56,19 @@ octo invoke --config samples/object-store.yaml --flow profile \
 #    then "after write: A-1 exists=true plan=pro"      (hit)
 ```
 
-The settings that make `object-read` pleasant to use:
-
-- **`key`** is a CEL expression on both blocks — build per-entity keys like
-  `'"profile:" + body.id'`.
-- **`as`** names the variable the value lands in (`vars.profile`), leaving the
-  body untouched.
-- **`default`** supplies a fallback expression on a miss, so the flow never has
-  to branch on a null.
-- **`existsVar`** writes a boolean telling a genuine hit from a served default —
-  branch on it only when the difference matters.
+`key` is a CEL expression on both blocks, so per-entity keys like
+`'"profile:" + body.id'` work. `as` names the variable the value lands in
+(`vars.profile`), leaving the body untouched. `default` supplies a fallback
+expression on a miss, and `existsVar` writes a boolean that tells a genuine hit
+from a served default.
 
 ## Memoize with cache-scope
 
 `cache-scope` wraps a sub-flow and memoizes the **body** it produces under a CEL
-key with a TTL. On a hit, the wrapped blocks never run.
+key with a TTL; on a hit, the wrapped blocks never run.
 [`samples/runtime-services.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/runtime-services.yaml)
-generates a "report" every 5 seconds, but the expensive part only executes once
-per minute:
+generates a "report" every 5 seconds, but the expensive part runs once per
+minute:
 
 ```yaml title="samples/runtime-services.yaml (excerpt)"
 - type: cache-scope
@@ -93,9 +87,9 @@ per minute:
           value: '{"report": "generated", "event": eventID}'
 ```
 
-Note the shape: `key`, `ttl`, and `body` sit directly on the block, and `body`
-holds a nested `process` list. Evict an entry with `invalidate-cache` and the
-same key expression:
+`key`, `ttl`, and `body` sit directly on the block, and `body` holds a nested
+`process` list. Evict an entry with `invalidate-cache` and the same key
+expression:
 
 ```yaml title="samples/runtime-services.yaml (excerpt)"
 - name: reset
@@ -115,20 +109,16 @@ octo invoke --config samples/runtime-services.yaml --flow reset
 
 <Callout type="warn">
   Only the message **body** is cached. Variables the wrapped flow sets are not
-  restored on a hit — keep anything a later block needs inside the body.
+  restored on a hit, so keep anything a later block needs inside the body.
 </Callout>
 
-A few rules the runtime applies:
-
-- `ttl` is a Go duration (`30s`, `5m`, `1h`). Omit it for the default of 60
-  seconds; `"0"` means the entry never expires (until invalidated).
-- The evaluated key is hashed, so long or exotic keys are fine.
-- Storing is best-effort: if another worker cached first, your result is still
-  correct — just served fresh this once.
+`ttl` is a Go duration (`30s`, `5m`, `1h`). Omit it for the default of 60
+seconds; `"0"` means the entry never expires (until invalidated). The evaluated
+key is hashed, so long or exotic keys are fine. Storing is best-effort: if
+another worker cached first, your result is still correct, just uncached.
 
 ## Caching an LLM call
 
-Caching earns its keep when the wrapped work is slow and metered.
 [`samples/ai-quote-cache.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/ai-quote-cache.yaml)
 puts an `ai-mapping` call to Gemini behind a cache scope on an HTTP endpoint:
 
@@ -167,30 +157,25 @@ curl -s localhost:8080/quote   # first call: MISS, ~seconds (model call)
 curl -s localhost:8080/quote   # within 5m: HIT, sub-millisecond, same quote
 ```
 
-The pattern generalizes: put the paid call inside the scope, key it by whatever
-makes responses reusable (a constant, `vars.query.topic`, a user ID), and do
-per-request derivation *after* the scope so it runs on hits too — the sample
-appends a `multi-transform` for exactly that. For a full application of this
-pattern, see [An AI Web App End to End](/guides/ai-web-app).
+Put the paid call inside the scope, key it by whatever makes responses reusable
+(a constant, `vars.query.topic`, a user ID), and do per-request derivation after
+the scope so it runs on hits too, as the sample's `multi-transform` does. See
+[An AI Web App End to End](/guides/ai-web-app) for a full application.
 
 ## Where state lives
 
-Both the object store and the cache ride on the runtime's KV service, so the
-same YAML runs everywhere:
-
-- **Standalone**: `octo run` serializes objects to `--storage-dir` (default
-  `./octo-store`), so they survive a restart; `octo invoke` keeps them in memory
-  so a probe is reproducible.
-- **Platform**: the store is durable and scoped to your deployment, shared by
-  all replicas. Cache hits and object reads work across the whole cluster. See
-  [KV and Storage](/platform/kv-and-storage) for scoping, quotas, and
-  inspection.
+Both ride on the runtime's KV service, so the same YAML runs everywhere.
+Standalone, `octo run` serializes objects to `--storage-dir` (default
+`./octo-store`), so they survive a restart, while `octo invoke` keeps them in
+memory so a probe is reproducible. On the platform the store is durable, scoped
+to your deployment and shared by all replicas. See
+[KV and Storage](/platform/kv-and-storage) for scoping, quotas, and inspection.
 
 Either way a namespace picks a
 [durability tier](/platform/kv-and-storage#durability-tiers). Cache entries are
-always volatile — losing one costs a recompute, which is the whole bargain — while
-objects default to persistent and take a `volatile` setting when you want the
-cheaper tier for a value you can afford to lose.
+always volatile (losing one costs a recompute), while objects default to
+persistent and take a `volatile` setting when you want the cheaper tier for a
+value you can afford to lose.
 
 ## Where to go next
 

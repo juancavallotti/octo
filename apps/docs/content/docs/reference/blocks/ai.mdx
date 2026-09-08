@@ -13,41 +13,41 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Reference for the AI block family. For narrative guides see the [AI section](/ai) — [agents](/ai/agents), [routing](/ai/ai-router), [mapping](/ai/ai-mapping), [retry](/ai/ai-retry), [memory](/ai/agent-memory), and [MCP servers](/ai/mcp-server).
+Reference for the AI block family. For narrative guides see the [AI section](/ai): [agents](/ai/agents), [routing](/ai/ai-router), [mapping](/ai/ai-mapping), [retry](/ai/ai-retry), [memory](/ai/agent-memory), and [MCP servers](/ai/mcp-server).
 
-`ai-agent`, `ai-router`, `ai-retry`, and `mcp-router` are **composites**: their keys sit at the top level of the block, not under `settings:`. `ai-mapping`, `ai-embed`, and `clear-agent-memory` are leaf blocks configured under `settings:`. The `connector` field on each LLM-driven block names a connector you configured — the instance name, like `claude` or `embeddings`, not the type — and it must be an [LLM provider connector](/reference/connectors/llm): one of type `llm-anthropic`, `llm-openai`, `llm-gemini`, or `llm-openrouter`. Any of the four works, **except for `ai-embed`, which needs one of type `llm-openai`, `llm-gemini` or `llm-openrouter`** — Anthropic has no embeddings API.
+`ai-agent`, `ai-router`, `ai-retry`, and `mcp-router` are **composites**: their keys sit at the top level of the block, not under `settings:`. `ai-mapping`, `ai-embed`, and `clear-agent-memory` are leaf blocks configured under `settings:`. The `connector` field on each LLM-driven block names a connector you configured (the instance name, like `claude` or `embeddings`, not the type). It must be an [LLM provider connector](/reference/connectors/llm) of type `llm-anthropic`, `llm-openai`, `llm-gemini`, or `llm-openrouter`. Any of the four works, **except for `ai-embed`, which needs `llm-openai`, `llm-gemini` or `llm-openrouter`**, because Anthropic has no embeddings API.
 
 ## ai-agent
 
-Lets an LLM accomplish a task by calling flow branches as tools, one or more times, in a loop. Each tool is wired to the model as a callable function: the model's arguments become the branch's message body and the branch's output body is returned as the tool result. Tool branches share the message, so variables they set accumulate across the loop.
+Lets an LLM accomplish a task by calling flow branches as tools in a loop. Each tool is wired to the model as a callable function: the model's arguments become the branch's message body and the branch's output body is returned as the tool result. Tool branches share the message, so variables they set accumulate across the loop.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `connector` | string | Yes | — | Name of the LLM connector that drives the agent loop. |
-| `prompt` | string | Yes | — | Task instruction; the model calls tools as needed, then stops. |
-| `guardrail` | string | No | — | Describes when the model should fall back to the `default` path. |
-| `input` | `expression` (string) | No | — | The agent's opening user turn. Empty hands the model the whole input body as a JSON document to work from. |
+| `connector` | string | Yes | none | Name of the LLM connector that drives the agent loop. |
+| `prompt` | string | Yes | none | Task instruction; the model calls tools as needed, then stops. |
+| `guardrail` | string | No | none | Describes when the model should fall back to the `default` path. |
+| `input` | `expression` (string) | No | none | The agent's opening user turn. Empty hands the model the whole input body as a JSON document to work from. |
 | `answer` | enum `json` \| `text` | No | `json` | The shape the model is told to reply in. `json` suits an agent whose answer is the next block's body; `text` leaves the format to your `prompt`. |
 | `maxIterations` | int | No | `8` | Cap on tool-calling turns (one model call each) before falling back to the guardrail. |
-| `memoryThreadId` | `expression` (string) | No | — | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. It is also what a run is claimed on while it is in flight, so a later message on the same thread [joins it](/ai/agent-signals) rather than starting a rival — two runs on one thread would overwrite each other's memory. Claims are scoped to this block, so two agents whose expressions agree do not collide. |
-| `stopWhen` | `expression` (bool) | No | — | Ends the run already working on this message's conversation instead of starting one. Requires `memoryThreadId`, which is what names the conversation. A stop that finds nothing running is a no-op, so a client can send one blind. |
-| `authorizeId` | `expression` (string) | No | — | Which [tool authorization](/ai/tool-authorization) an incoming message answers — the id the `tool_authorization` event carried. A non-empty result makes the invocation an answer rather than a message: it is handed to the run working on this conversation and the flow stops. Requires `memoryThreadId`, and is required by any tool that declares `authorize`. |
-| `authorizeAllow` | `expression` (bool) | No | — | What that answer says. Read only on an invocation `authorizeId` already identified as one, so anything but a plain yes — an expression that fails to evaluate included — denies the call. Requires `authorizeId`. |
+| `memoryThreadId` | `expression` (string) | No | none | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. It is also what a run is claimed on while it is in flight, so a later message on the same thread [joins it](/ai/agent-signals) rather than starting a rival that would overwrite its memory. Claims are scoped to this block, so two agents whose expressions agree do not collide. |
+| `stopWhen` | `expression` (bool) | No | none | Ends the run already working on this message's conversation instead of starting one. Requires `memoryThreadId`, which is what names the conversation. A stop that finds nothing running is a no-op, so a client can send one blind. |
+| `authorizeId` | `expression` (string) | No | none | Which [tool authorization](/ai/tool-authorization) an incoming message answers: the id the `tool_authorization` event carried. A non-empty result makes the invocation an answer rather than a message, handed to the run working on this conversation, and the flow stops. Requires `memoryThreadId`, and is required by any tool that declares `authorize`. |
+| `authorizeAllow` | `expression` (bool) | No | none | What that answer says. Read only on an invocation `authorizeId` already identified as one, so anything but a plain yes (including an expression that fails to evaluate) denies the call. Requires `authorizeId`. |
 | `authorizeTimeout` | duration | No | `5m` | How long a gated call waits for a person before it is denied on their behalf. A run parked on a call nobody will answer is billed for the wait, so there is always a limit. |
-| `contextMaxTokens` | int | No | `200000` | Token budget for the whole prompt — system, tools and conversation — measured from what the provider reports it read. The transcript is compacted when the prompt would exceed it, before the turn and again before saving. Applies with or without memory. |
+| `contextMaxTokens` | int | No | `200000` | Token budget for the whole prompt (system, tools and conversation), measured from what the provider reports it read. The transcript is compacted when the prompt would exceed it, before the turn and again before saving. Applies with or without memory. |
 | `memoryCompaction` | enum `prune` \| `summarize` | No | `prune` | How memory over budget shrinks: `prune` drops the oldest turns; `summarize` folds them into a running summary (an extra model call). |
-| `memoryVolatile` | `bool` | No | `false` | Keep transcripts in the volatile KV tier (Redis in a cluster, process memory standalone) rather than the persistent one. For a conversation whose loss costs nothing — a specialist in another agent's tool slot working a [minted scope](#what-a-tool-branch-is-told) — never for one somebody will ask to see again. |
-| `agentId` | string | No | — | Stable name for this logical agent. Setting it opts the block into **first-class memory**: durable conversation history the platform can list and replay, working memory checkpointed during the run, and — with `userMemory` — curated facts about a person. Without it the agent keeps the older per-thread transcript only. It is stated and never derived; see [why](#why-agentid-is-not-derived). Requires `memoryThreadId`. |
-| `userId` | `expression` (string) | No | — | Who the agent is talking to. Scopes user memory and labels stored conversations, so the platform can list one person's threads. |
+| `memoryVolatile` | `bool` | No | `false` | Keep transcripts in the volatile KV tier (Redis in a cluster, process memory standalone) rather than the persistent one. For a conversation whose loss costs nothing, such as a specialist in another agent's tool slot working a [minted scope](#what-a-tool-branch-is-told). Never for one somebody will ask to see again. |
+| `agentId` | string | No | none | Stable name for this logical agent. Setting it opts the block into **first-class memory**: durable conversation history the platform can list and replay, working memory checkpointed during the run, and (with `userMemory`) curated facts about a person. Without it the agent keeps the older per-thread transcript only. It is stated and never derived; see [why](#why-agentid-is-not-derived). Requires `memoryThreadId`. |
+| `userId` | `expression` (string) | No | none | Who the agent is talking to. Scopes user memory and labels stored conversations, so the platform can list one person's threads. |
 | `history` | enum `record` \| `off` | No | `record` with `agentId` | Whether completed turns are appended to durable conversation history. Unlike working memory this record is **never compacted**, so it stays readable after the agent has summarized its own context away. Requires `agentId`; defaults to `off` when the block declares no `agentId`, and when `memoryVolatile` is set. |
 | `userMemory` | `bool` | No | `false` | Give the agent `remember`, `forget` and `search_memory` tools so it can keep curated facts about a person and carry them into later conversations. Requires `agentId` and `userId`. |
-| `tools` | list | Yes | — | Tool branches (below). At least one required. |
-| `skills` | list | No | — | Loadable instruction resources (below). |
-| `nameThread` | flow | No | — | Names a conversation, once, on the exchange that opened it (below). Requires `agentId`. |
-| `events` | flow | No | — | Observer path, run once per agent event with the event as the body (below). |
-| `emit` | string list | No | — | Which event types reach `events`. Empty emits every type the block can produce. |
+| `tools` | list | Yes | none | Tool branches (below). At least one required. |
+| `skills` | list | No | none | Loadable instruction resources (below). |
+| `nameThread` | flow | No | none | Names a conversation, once, on the exchange that opened it (below). Requires `agentId`. |
+| `events` | flow | No | none | Observer path, run once per agent event with the event as the body (below). |
+| `emit` | string list | No | none | Which event types reach `events`. Empty emits every type the block can produce. |
 | `stream` | bool | No | `false` | Drive the provider's streaming API so model output reaches `events` as it is produced. Requires `events` and a provider that streams. |
-| `default` | flow | No | — | Guardrail path, run when the model refuses or hits `maxIterations`. |
+| `default` | flow | No | none | Guardrail path, run when the model refuses or hits `maxIterations`. |
 
 Each `tools` entry:
 
@@ -69,17 +69,16 @@ Each `skills` entry (see [Agent skills and tools](/ai/agent-skills-and-tools)):
 
 ### Agent events
 
-An agent normally says nothing until its whole loop finishes. The `events` path is
-run once per event, with the event as the message body, so a caller can watch the
-run as it happens. Its result is **discarded** — it reports on the run without
-taking part in it — and it runs on its own message, so the agent's own variables
-and body are untouched. The agent's variables are copied onto it, which is what
-lets an [sse-event](/reference/connectors/http#server-sent-events) in the path
-reach the caller with no configuration at all.
+An agent says nothing until its loop finishes unless an `events` path is set. That
+path is run once per event, with the event as the message body. Its result is
+**discarded** and it runs on its own message, so the agent's variables and body
+are untouched. The agent's variables are copied onto it, which lets an
+[sse-event](/reference/connectors/http#server-sent-events) in the path reach the
+caller with no configuration.
 
 | `type` | When | Fields beyond `type` and `iteration` |
 |---|---|---|
-| `turn_start` | Before each model call | — |
+| `turn_start` | Before each model call | none |
 | `text` | A fragment of the answer | `text`, `index` |
 | `thinking` | A fragment of the model's reasoning | `text`, `index` |
 | `tool_input` | A fragment of a tool call's arguments | `text`, `index`, `tool`, `toolCallId` |
@@ -95,15 +94,15 @@ reach the caller with no configuration at all.
 | `done` | The agent finished with an answer | `text` |
 | `error` | A model call failed | `error` |
 
-`contextTokens` and `contextMaxTokens` are the context gauge: how full the prompt is, and how full it is allowed to get. They ride on every `turn_end`, so a progress UI can show the context filling rather than only the moment it overflowed. On `turn_end` the reading is exact — the prompt the provider reported reading, plus the reply it produced — and it is omitted entirely for a turn the provider reported no usage for.
+`contextTokens` and `contextMaxTokens` are the context gauge: how full the prompt is, and how full it is allowed to get. They ride on every `turn_end`, so a progress UI can show the context filling. The reading is exact (the prompt the provider reported reading, plus the reply it produced) and is omitted for a turn the provider reported no usage for.
 
 `text`, `thinking`, `tool_input` and `custom` arrive **only with `stream: true`**;
 the rest are the agent's own and need no streaming. Not every provider produces
-every kind — see [LLM providers](/ai/llm-providers).
+every kind; see [LLM providers](/ai/llm-providers).
 
-Two ways to choose what you want, and they do different jobs. `emit` decides what
-is **built at all**, so a type left out costs nothing; a `filter` inside the path
-decides on the event's contents. On a token stream the first matters:
+Two settings choose what you get. `emit` decides what is **built at all**, so a
+type left out costs nothing; a `filter` inside the path decides on the event's
+contents. On a token stream the first matters:
 
 ```yaml
 - type: ai-agent
@@ -122,14 +121,14 @@ decides on the event's contents. On a token stream the first matters:
   tools: [...]
 ```
 
-A `stop` from the events path (the usual cause is `sse-event` with
-`ifClosed: stop`, after the caller hung up) ends the run: the agent abandons the
-turn mid-stream rather than paying a provider for output nobody will read.
+A `stop` from the events path (usually `sse-event` with `ifClosed: stop`, after
+the caller hung up) ends the run: the agent abandons the turn mid-stream rather
+than paying a provider for output nobody will read.
 
 Behavior notes:
 
-- The final assistant text becomes the message body — parsed as JSON when possible, stored as text otherwise; an empty answer leaves the last tool's body standing.
-- **Set `answer: text` for an agent a person reads.** The default adds *"respond with the final result as JSON only (no prose, no markdown code fences)"* ahead of your `prompt` — right when the answer feeds the next block, and a direct contradiction when your prompt asks for Markdown. A model handed both instructions picks one, and which one is the provider's choice rather than yours. The reply is parsed the same way either way.
+- The final assistant text becomes the message body, parsed as JSON when possible and stored as text otherwise; an empty answer leaves the last tool's body standing.
+- **Set `answer: text` for an agent a person reads.** The default adds "respond with the final result as JSON only (no prose, no markdown code fences)" ahead of your `prompt`, which contradicts a prompt asking for Markdown. A model handed both instructions picks one, and which one is the provider's choice rather than yours. The reply is parsed the same way either way.
 - The events path cannot fail the run: an error inside it is logged and the agent carries on. Only a stop travels back.
 - A tool-branch error or dropped message becomes an error result fed back to the model rather than aborting the agent.
 - On refusal or `maxIterations`, the `default` flow runs; **with no `default` configured, the block errors** so the failure reaches a recovery path.
@@ -138,21 +137,17 @@ Behavior notes:
 
 ### Working memory and conversation history are not the same thing
 
-Two records, with opposite jobs:
+**Working memory** is what the model re-reads. It is bounded by `contextMaxTokens` and compacted (pruned or summarized) whenever the next turn would not fit, and checkpointed during the run so an interrupted agent resumes where it was.
 
-**Working memory** is what the model re-reads. It is bounded by `contextMaxTokens` and compacted — pruned or summarized — whenever the next turn would not fit, and it is checkpointed during the run so an interrupted agent resumes where it was rather than where it started.
-
-**Conversation history** is what a *person* re-reads. It is append-only, never compacted, and it is what the platform lists and replays. Recording it needs an `agentId`, because a durable record has to be stored somewhere that a later edit to the flow cannot move.
-
-Keeping one record and calling it both is what made "the agent summarized its context" and "the conversation is gone" the same event.
+**Conversation history** is what a person re-reads. It is append-only, never compacted, and it is what the platform lists and replays. Recording it needs an `agentId`, because a durable record has to be stored somewhere a later edit to the flow cannot move.
 
 ### Why `agentId` is not derived
 
-It would be convenient for the runtime to name an agent after its position in the flow, and that was tried. It is wrong: an address is a position in a file, so renaming the block or moving it into another branch — edits that change nothing about the conversation — would silently destroy every conversation stored under it.
-
-So `agentId` is stated by you, and opting in is explicit both ways: an agent without one keeps exactly the behaviour it had before first-class memory existed, and `history: record` or `userMemory: true` without an `agentId` is a build error rather than a setting quietly ignored.
-
-Two blocks declaring the same `agentId` share one memory. That is what replicas of one logical agent want, and what two different agents almost never do.
+An address is a position in a file, so naming an agent after it would mean that
+renaming the block, or moving it into another branch, silently destroyed every
+conversation stored under it. So `agentId` is stated by you, and `history: record`
+or `userMemory: true` without an `agentId` is a build error. Two blocks declaring
+the same `agentId` share one memory.
 
 ### User memory
 
@@ -164,24 +159,21 @@ With `userMemory: true` the model is handed three tools:
 | `forget` | Drop one memory by name. |
 | `search_memory` | Look through earlier conversations and stored memories for something no longer in context. |
 
-There is deliberately **no `recall` tool**. What the agent already knows about someone is context it needs *before* it can tell whether it needs it, and an agent that has to remember to remember mostly does not. So stored memories are placed in the request every turn, and never in the transcript — a preamble folded into the conversation would be persisted with it, and a memory corrected between runs would then sit in working memory beside stale copies of itself.
+There is deliberately **no `recall` tool**. Stored memories are placed in the request every turn, and never in the transcript, where a memory corrected between runs would sit beside stale copies of itself.
 
-What is placed there is **bounded**, and does not grow without limit: the most recent memories up to a fixed count and byte budget, with a single oversized one clipped rather than allowed to carry the request past it. The agent is told how many were left out, and reaches them with `search_memory`. The preamble is also charged against `contextMaxTokens` — it is reserved out of the budget before the conversation is fitted to what remains, so it cannot quietly push a run past the model's window.
+What is placed there is **bounded**: the most recent memories up to a fixed count and byte budget, with a single oversized one clipped. The agent is told how many were left out and reaches them with `search_memory`. The preamble is charged against `contextMaxTokens`, reserved out of the budget before the conversation is fitted to what remains.
 
 ### The opening turn
 
 By default the agent's first user message hands the model the whole input body as
-a JSON document — `Accomplish the task for this input message body:` followed by
-the body. That is what an agent transforming a payload wants, and it is why the
+a JSON document: `Accomplish the task for this input message body:` followed by
+the body. That is what an agent transforming a payload wants, and why the
 `enrich-lead` example below can ask for a JSON answer and get one.
 
-A conversational agent wants the opposite. Handed a body, a model that answers
-without reasoning first tends to reply **in the shape it was given**: an agent
-whose input body is `{"message": "hello"}` answers `{"message": "hello"}` rather
-than saying hello. Nothing downstream can undo that — with `stream: true` the
-reply has already reached the caller a token at a time.
-
-So set `input` to say which part of the message is the question:
+A conversational agent wants the opposite. Handed a body, a model tends to reply
+**in the shape it was given**: an agent whose input body is `{"message": "hello"}`
+answers `{"message": "hello"}` rather than saying hello. Set `input` to say which
+part of the message is the question:
 
 ```yaml
 - type: ai-agent
@@ -197,7 +189,7 @@ So set `input` to say which part of the message is the question:
 
 The expression is evaluated against the message like any other, so `toJson(...)`
 can fold structured context in. Leave `input` unset and the body-document framing
-applies unchanged.
+applies.
 
 ```yaml
 - type: ai-agent
@@ -229,15 +221,15 @@ applies unchanged.
 
 ## ai-router
 
-Asks an LLM to pick exactly one of its named, described routes for each message. The model is given read-only inspection tools (`get_body`, `list_variables`, `get_variable`) plus a `select_route` decision tool; it may inspect for up to 5 turns before the guardrail is taken.
+Asks an LLM to pick exactly one of its named, described routes for each message. The model gets read-only inspection tools (`get_body`, `list_variables`, `get_variable`) plus a `select_route` decision tool, and may inspect for up to 5 turns before the guardrail is taken.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `connector` | string | Yes | — | Name of the LLM connector that picks the route. |
-| `prompt` | string | Yes | — | Routing instruction. |
-| `guardrail` | string | No | — | Describes when to fall back to the `default` path (low confidence, ambiguity). |
-| `routes` | list | Yes | — | Named branches; each entry is `{name, description, process}` (all required). Names must be unique. |
-| `default` | flow | No | — | Guardrail path, run when the model is not confident or never decides. Omitted: the message passes through unchanged (mirroring `switch`). |
+| `connector` | string | Yes | none | Name of the LLM connector that picks the route. |
+| `prompt` | string | Yes | none | Routing instruction. |
+| `guardrail` | string | No | none | Describes when to fall back to the `default` path (low confidence, ambiguity). |
+| `routes` | list | Yes | none | Named branches; each entry is `{name, description, process}` (all required). Names must be unique. |
+| `default` | flow | No | none | Guardrail path, run when the model is not confident or never decides. Omitted: the message passes through unchanged (mirroring `switch`). |
 
 ```yaml
 - type: ai-router
@@ -271,14 +263,14 @@ Leaf block: reshapes the message body to a target shape described by a prompt, o
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `connector` | string | Yes | — | Name of the LLM connector to use. |
-| `prompt` | string | Yes | — | Instruction describing how to reshape the body. |
-| `inputExample` | JSON | No | — | Example input payload that guides recognition. Written as an inline JSON string (block scalar) or a native YAML map. |
-| `outputExample` | JSON | No | — | Example output payload that shapes the result. Same formats. |
-| `outputSchema` | JSON | No | — | JSON Schema the result is validated against; also recorded on the message as its body schema. |
+| `connector` | string | Yes | none | Name of the LLM connector to use. |
+| `prompt` | string | Yes | none | Instruction describing how to reshape the body. |
+| `inputExample` | JSON | No | none | Example input payload that guides recognition. Written as an inline JSON string (block scalar) or a native YAML map. |
+| `outputExample` | JSON | No | none | Example output payload that shapes the result. Same formats. |
+| `outputSchema` | JSON | No | none | JSON Schema the result is validated against; also recorded on the message as its body schema. |
 | `maxTokens` | int | No | `0` (connector default) | Response token cap for this call. |
 
-**Errors:** the block errors when the model's response is not valid JSON or fails `outputSchema` validation, so it composes with [ai-retry](#ai-retry), [handle-errors](/reference/blocks/control-flow#handle-errors), or the flow-level error path for self-healing. A malformed schema or example fails at startup.
+**Errors:** the block errors when the model's response is not valid JSON or fails `outputSchema` validation, so it composes with [ai-retry](#ai-retry), [handle-errors](/reference/blocks/control-flow#handle-errors), or the flow-level error path. A malformed schema or example fails at startup.
 
 ```yaml
 - type: ai-mapping
@@ -296,13 +288,13 @@ Leaf block: reshapes the message body to a target shape described by a prompt, o
 
 ## ai-embed
 
-Leaf block: turns text into one or more embedding vectors and stores them in a variable. Unlike `ai-mapping`, it never touches the message body — the vector is auxiliary, alongside whatever the body already holds.
+Leaf block: turns text into one or more embedding vectors and stores them in a variable. Unlike `ai-mapping` it never touches the message body; the vector is auxiliary, alongside whatever the body already holds.
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `connector` | string | Yes | — | Name of the LLM connector to embed with. Its provider must serve embeddings (type `llm-openai`, `llm-gemini` or `llm-openrouter`); naming an `llm-anthropic` connector fails at startup. |
-| `text` | `expression` (string or list of strings) | Yes | — | Text to embed. A string embeds singly; a list embeds as one batch call. The shape decides the result shape (below). |
-| `model` | string | Yes | — | Provider-specific embedding model id (e.g. `text-embedding-3-small`, `gemini-embedding-001`). |
+| `connector` | string | Yes | none | Name of the LLM connector to embed with. Its provider must serve embeddings (type `llm-openai`, `llm-gemini` or `llm-openrouter`); naming an `llm-anthropic` connector fails at startup. |
+| `text` | `expression` (string or list of strings) | Yes | none | Text to embed. A string embeds singly; a list embeds as one batch call. The shape decides the result shape (below). |
+| `model` | string | Yes | none | Provider-specific embedding model id (e.g. `text-embedding-3-small`, `gemini-embedding-001`). |
 | `dimensions` | int | No | model default | Requests a shortened output embedding, on models that support it (OpenAI `text-embedding-3-*`, newer Gemini embedding models). |
 | `resultVar` | string | No | `embedding` | Variable the result is stored in. |
 
@@ -333,17 +325,17 @@ Batch form, embedding several chunks in one call:
 
 ## ai-retry
 
-Protects a process chain with an LLM-driven retry loop. When the chain fails, the model inspects the error (`vars.error`) and the current message, revises the body and/or variables, and the chain re-runs — up to `maxAttempts` revisions. When attempts are exhausted, the `error` chain runs (with `vars.error` set); with no error chain, the last error propagates.
+Protects a process chain with an LLM-driven retry loop. When the chain fails, the model inspects the error (`vars.error`) and the current message, revises the body and variables, and the chain re-runs, up to `maxAttempts` revisions. When attempts are exhausted, the `error` chain runs (with `vars.error` set); with no error chain, the last error propagates.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `connector` | string | Yes | — | Name of the LLM connector that revises the message between attempts. |
-| `prompt` | string | Yes | — | Instruction for repairing the message from `vars.error` before a retry. |
+| `connector` | string | Yes | none | Name of the LLM connector that revises the message between attempts. |
+| `prompt` | string | Yes | none | Instruction for repairing the message from `vars.error` before a retry. |
 | `maxAttempts` | int | No | `3` | How many times to revise and re-run the process chain. |
-| `process` | block list | Yes | — | The protected chain, re-run after each revision. |
-| `error` | block list | No | — | Runs when attempts are exhausted; reads `vars.error`. |
+| `process` | block list | Yes | none | The protected chain, re-run after each revision. |
+| `error` | block list | No | none | Runs when attempts are exhausted; reads `vars.error`. |
 
-`vars.error` has the shape `{message, flow, block}` as with [handle-errors](/reference/blocks/control-flow#handle-errors). If the model cannot produce a revision, the loop ends early and falls through to the error chain (or the error propagates).
+`vars.error` has the shape `{message, flow, block}` as with [handle-errors](/reference/blocks/control-flow#handle-errors). If the model cannot produce a revision, the loop ends early and falls through to the error chain, or the error propagates.
 
 ```yaml
 - type: ai-retry
@@ -370,26 +362,26 @@ Protects a process chain with an LLM-driven retry loop. When the chain fails, th
 
 ### What a tool branch is told
 
-A tool's branch runs on the agent's own message, so it sees the variables the run carries. Three of them describe the call it is inside:
+A tool's branch runs on the agent's own message, so it sees the variables the run carries. Three describe the call it is inside:
 
 | Variable | What it is |
 |---|---|
 | `vars.toolScope` | A scope minted for this branch: stable for as long as the conversation the call belongs to (or the run, when the agent is stateless), and distinct per tool. Two calls to one tool in one conversation get the same scope; two tools never do. |
 | `vars.toolName` | The tool being run. |
-| `vars.toolCallId` | The provider's id for this one call — unique per call, and the same id the trace and the panel's tool chip carry. |
+| `vars.toolCallId` | The provider's id for this one call: unique per call, and the same id the trace and the panel's tool chip carry. |
 
-Nothing here is about what a branch *contains*. An `object-write` keying its state, a [rest](/reference/blocks/integration#rest) call wanting an idempotency key, a `cli-run` naming a scratch file, and a nested `ai-agent` all read the same three variables and decide for themselves.
+Nothing here is about what a branch contains. An `object-write` keying its state, a [rest](/reference/connectors/http#rest-block) call wanting an idempotency key, a `cli-run` naming a scratch file, and a nested `ai-agent` all read the same three variables and decide for themselves.
 
-That last one is why `toolScope` is composed rather than left to the author: an `ai-agent` in another agent's tool slot needs a conversation of its own, and the only identity otherwise available to it is the caller's — which is how two agents end up sharing one transcript. `memoryThreadId: vars.toolScope` with `memoryVolatile: true` gives a specialist a conversation that survives from one delegation to the next and costs nothing when it is lost, and neither block carries configuration for the case.
+The nested case is why `toolScope` is minted for the branch: an `ai-agent` in another agent's tool slot needs a conversation of its own, and the only other identity available to it is the caller's, which is how two agents end up sharing one transcript. `memoryThreadId: vars.toolScope` with `memoryVolatile: true` gives a specialist a conversation that survives from one delegation to the next and costs nothing when it is lost.
 
 ## clear-agent-memory
 
-Leaf block: erases an [ai-agent](#ai-agent) conversation thread's stored memory by its thread id. The clear is idempotent — a missing thread is not an error — and the message passes through unchanged.
+Leaf block: erases an [ai-agent](#ai-agent) conversation thread's stored memory by its thread id. The clear is idempotent (a missing thread is not an error) and the message passes through unchanged.
 
 | Setting | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `threadId` | `expression` (string) | Yes | — | Evaluated to the thread id whose memory is cleared; matches the agent's `memoryThreadId` value. Both KV tiers are cleared, so a thread written by an agent with `memoryVolatile` is reached without saying so here. |
-| `agentId` | string | No | — | The agent whose conversation is erased, matching its `agentId`. Required to reach a conversation in first-class memory, which is keyed by agent as well as thread — its working memory, its recorded turns and its thread row all go. Omit it for an agent that declares no `agentId`. |
+| `threadId` | `expression` (string) | Yes | none | Evaluated to the thread id whose memory is cleared; matches the agent's `memoryThreadId` value. Both KV tiers are cleared, so a thread written by an agent with `memoryVolatile` is reached without saying so here. |
+| `agentId` | string | No | none | The agent whose conversation is erased, matching its `agentId`. Required to reach a conversation in first-class memory, which is keyed by agent as well as thread; its working memory, its recorded turns and its thread row all go. Omit it for an agent that declares no `agentId`. |
 
 ```yaml
 - name: forget
@@ -405,40 +397,40 @@ Leaf block: erases an [ai-agent](#ai-agent) conversation thread's stored memory 
 
 ## mcp-router
 
-Turns a flow into a stateless [MCP](/ai/mcp-server) server. It sits behind an HTTP source: each request body is one MCP JSON-RPC request and the router's output body is the JSON-RPC response, which the source returns. It advertises tool flows as MCP tools, template resources as MCP resources and prompts, and routes `tools/call` to the matching flow. It calls no LLM — it is a protocol adapter.
+Turns a flow into a stateless [MCP](/ai/mcp-server) server. It sits behind an HTTP source: each request body is one MCP JSON-RPC request and the router's output body is the JSON-RPC response, which the source returns. It advertises tool flows as MCP tools, template resources as MCP resources and prompts, and routes `tools/call` to the matching flow. It calls no LLM; it is a protocol adapter.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `serverName` | string | No | block name, then `octo-mcp` | Name reported in the MCP `initialize` response. |
-| `tools` | list | No* | — | Flows exposed as MCP tools; same entry shape as [ai-agent tools](#ai-agent) (`name`, `description`, `inputSchema`, `process`). |
-| `resources` | list | No* | — | Template resources advertised as MCP resources and served on `resources/read` (below). |
-| `prompts` | list | No* | — | Template resources advertised as MCP prompts and rendered on `prompts/get` (below). *At least one of `tools`, `resources`, or `prompts` is required. |
+| `tools` | list | No* | none | Flows exposed as MCP tools; same entry shape as [ai-agent tools](#ai-agent) (`name`, `description`, `inputSchema`, `process`). |
+| `resources` | list | No* | none | Template resources advertised as MCP resources and served on `resources/read` (below). |
+| `prompts` | list | No* | none | Template resources advertised as MCP prompts and rendered on `prompts/get` (below). *At least one of `tools`, `resources`, or `prompts` is required. |
 
 Each `resources` entry:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `uri` | string | Yes | — | Stable id clients read by; unique. |
-| `name` | string | Yes | — | Advertised resource name. |
-| `description` | string | No | — | Advertised description. |
+| `uri` | string | Yes | none | Stable id clients read by; unique. |
+| `name` | string | Yes | none | Advertised resource name. |
+| `description` | string | No | none | Advertised description. |
 | `mimeType` | string | No | `text/plain` | Advertised MIME type. |
-| `resource` | string | Yes | — | Template resource whose rendered content is returned. |
+| `resource` | string | Yes | none | Template resource whose rendered content is returned. |
 
 Each `prompts` entry:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `name` | string | Yes | — | Id clients get the prompt by; unique. |
-| `description` | string | No | — | Advertised description. |
-| `arguments` | list | No | — | Advertised argument metadata: `{name, description, required}` per entry. |
-| `resource` | string | Yes | — | Template resource rendered as the prompt message; the supplied arguments are exposed to the template as the body (`body.<arg>`). |
+| `name` | string | Yes | none | Id clients get the prompt by; unique. |
+| `description` | string | No | none | Advertised description. |
+| `arguments` | list | No | none | Advertised argument metadata: `{name, description, required}` per entry. |
+| `resource` | string | Yes | none | Template resource rendered as the prompt message; the supplied arguments are exposed to the template as the body (`body.<arg>`). |
 
 Behavior notes:
 
 - Handled methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`. Anything else returns a JSON-RPC method-not-found error.
 - A request with no `id` is a notification: acknowledged with an empty `202` body, not answered.
 - An unknown tool or a tool-flow failure is reported as an `isError` **tool result** (an application error the client sees), not a protocol error; protocol errors (bad params, unknown resource/prompt) use JSON-RPC error responses.
-- To require OAuth on the endpoint, put [jwt-validate](/reference/blocks/integration#jwt-validate) in front — see [MCP auth](/ai/mcp-auth).
+- To require OAuth on the endpoint, put [jwt-validate](/reference/blocks/integration#jwt-validate) in front; see [MCP auth](/ai/mcp-auth).
 
 ```yaml
 - type: mcp-router
@@ -472,7 +464,7 @@ Behavior notes:
 
 ## Naming a conversation
 
-The runtime records a conversation but will not name one: what an exchange was *about* is a judgement, and a judgement is a model call. `nameThread` is where that call goes.
+The runtime records a conversation but will not name one: naming is a judgement, and a judgement is a model call. `nameThread` is where that call goes.
 
 ```yaml
 - type: ai-agent
@@ -496,9 +488,9 @@ The runtime records a conversation but will not name one: what an exchange was *
   tools: [...]
 ```
 
-[`ai-mapping`](/ai/ai-mapping) hands the model the **whole body** and replaces it with the JSON that comes back, so there is no input expression here and no plain-text mode — declaring an `outputSchema` is how you get a shape you can rely on. A chain built on a block that answers with a string works equally well; both shapes are read.
+[`ai-mapping`](/ai/ai-mapping) hands the model the **whole body** and replaces it with the JSON that comes back, so declaring an `outputSchema` is how you get a shape you can rely on. A chain built on a block that answers with a string works equally well.
 
-It runs **once per conversation**, on the exchange that opens it, and only for an agent with an `agentId` — without one there is no durable conversation to name, so declaring the slot is a build error rather than a model call whose answer is discarded.
+It runs **once per conversation**, on the exchange that opens it, and only for an agent with an `agentId`. Without one there is no durable conversation to name, so declaring the slot is a build error.
 
 The body it receives:
 
@@ -506,14 +498,14 @@ The body it receives:
 | --- | --- |
 | `question` | What was asked, before the agent replaced the body with its answer |
 | `answer` | What the agent answered, rendered as prose even when it decoded as JSON. Empty when the run ended without one |
-| `threadKey`, `agentId`, `userId` | Which conversation this is. Context for the prompt — the chain does no writing |
+| `threadKey`, `agentId`, `userId` | Which conversation this is. Context for the prompt; the chain does no writing |
 
-Two shapes are read back, and which one you get is decided by the block you reached for: the **string** a transform or a `set-payload` leaves in the body, or the `{"title": "..."}` map an `ai-mapping` produces. An empty title, in either shape, names nothing — the right answer for a greeting that was never going anywhere.
+Two shapes are read back: the **string** a transform or a `set-payload` leaves in the body, or the `{"title": "..."}` map an `ai-mapping` produces. An empty title, in either shape, names nothing.
 
-A chain that *fails* is different from one that answered emptily, and is treated differently: the failure is logged and the title falls back to the opening question truncated to 80 characters. An empty answer has said something; a failure has not.
+A chain that fails is treated differently from one that answered emptily: the failure is logged and the title falls back to the opening question truncated to 80 characters.
 
 <Callout>
-**The engine does the writing, and that is the point of the slot.** It is already holding the conversation's reference, and the memory store knows how to record a title on whichever tier it is: standalone writes it into the thread's `thread.json`, the platform calls the orchestrator. A chain that had to write the title itself would need the key handed out, would have to rebuild a route from it, and would be addressing a store it is running inside.
+**The engine does the writing.** It already holds the conversation's reference, and the memory store records the title on whichever tier it is: standalone writes it into the thread's `thread.json`, the platform calls the orchestrator.
 </Callout>
 
-An agent with no `nameThread` still gets a title: the opening question, truncated. That is not a judgement about anything — it is there so a list has something to show.
+An agent with no `nameThread` still gets a title: the opening question, truncated, so a list has something to show.

@@ -5,7 +5,7 @@ description: "Connectors, the blocks and sources they carry, and the editor sche
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A connector owns a resource — a server, a connection pool, a client — and everything a flow reaches it through. Adding one is how you teach Octo to talk to something new.
+A connector owns a resource (a server, a connection pool, a client) and everything a flow reaches it through. Adding one is how you teach Octo to talk to something new.
 
 `runtime/connectors/logger` is the smallest complete example, and the one this page follows.
 
@@ -63,10 +63,10 @@ func (c *Connector) Stop(context.Context) error {
 }
 ```
 
-Settings are a typed struct decoded from the YAML, not a map. Give every field a default so the connector can be declared bare — `- { name: audit, type: logger }` is a valid declaration because every setting on `logger` has one.
+Settings are a typed struct decoded from the YAML, not a map. Give every field a default so the connector can be declared bare: `- { name: audit, type: logger }` is a valid declaration because every setting on `logger` has one.
 
 <Callout type="info">
-Some connectors are resolved **implicitly** by source type and are never declared in YAML at all — `queue` and `cron` work this way. If your connector has no settings worth configuring, do not make users declare it; let sources resolve it on demand.
+Some connectors are resolved **implicitly** by source type and are never declared in YAML at all. `queue` and `cron` work this way. If your connector has no settings worth configuring, do not make users declare it; let sources resolve it on demand.
 </Callout>
 
 ## Blocks
@@ -87,11 +87,11 @@ func init() {
 }
 ```
 
-Blocks live in the connector's package, so importing the connector registers its blocks too. A block binds to a named connector instance by looking it up — which is what lets the `log` block write through a specific `logger` connector's output.
+Blocks live in the connector's package, so importing the connector registers its blocks too. A block binds to a named connector instance by looking it up, which is what lets the `log` block write through a specific `logger` connector's output.
 
 ### Blocks with sub-flows
 
-A block may run nested chains the flow author writes inline — the way `if` runs its `then`, or an `ai-agent` runs a tool. Nothing about that is reserved for the runtime's own packages: the sub-flows are fields of the block's settings struct, and the block builds them through the seam every factory is handed.
+A block may run nested chains the flow author writes inline, the way `if` runs its `then` or an `ai-agent` runs a tool. Nothing about that is reserved for the runtime's own packages. The sub-flows are fields of the block's settings struct, and the block builds them through the seam every factory is handed.
 
 ```go
 type gateSettings struct {
@@ -120,12 +120,7 @@ func newGate(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor, er
 }
 ```
 
-The rules that keep it honest:
-
-- **The branch name is the field's json name.** `flows.Branch("then", …)` addresses the chain as `<block>[then]`, and the debug address resolver reads that same name off your schema — so `--break-at gate.check[then].charge` works with nothing else told.
-- **A list of chains uses `flows.Member(name, index, …)`**, addressed by each member's own name or its index, and a `type=flow-list` / `case-list` / `route-list` / `tool-list` field in the schema.
-- **`flows.Root()`** says whether the block sits in a flow's own chain. A block that continues the flow itself (see [Continuations](/runtime/processing-pipeline#continuations)) needs a root chain and should refuse to build elsewhere.
-- **`deps.Scheduler`** is the flow's worker pool, for a block that scatters work the way `fork` does.
+Four rules keep it honest. The branch name must be the field's json name: `flows.Branch("then", …)` addresses the chain as `<block>[then]`, and the debug address resolver reads that same name off your schema, so `--break-at gate.check[then].charge` works with nothing else told. A list of chains uses `flows.Member(name, index, …)`, addressed by each member's own name or its index, and a `type=flow-list` / `case-list` / `route-list` / `tool-list` field in the schema. `flows.Root()` says whether the block sits in a flow's own chain; a block that continues the flow itself (one implementing `core.ContinuationAware`) needs a root chain and should refuse to build elsewhere. `deps.Scheduler` is the flow's worker pool, for a block that scatters work the way `fork` does.
 
 In the flow file the slots are written as top-level keys beside `type`, or under `settings`; the runtime folds the two together, so both spellings decode the same way.
 
@@ -141,7 +136,7 @@ func (c *Connector) NewSource(
 }
 ```
 
-The runtime owns the channel: `Start` must not send after `Stop` returns, and `Start` must not block — acquire what you need and do the work on your own goroutine.
+The runtime owns the channel: `Start` must not send after `Stop` returns, and `Start` must not block. Acquire what you need and do the work on your own goroutine.
 
 Declare the sources in the connector's meta so the editor knows they exist:
 
@@ -178,10 +173,10 @@ type logSettings struct {
 2. Document every type you registered. Add `apps/docs/content/docs/reference/connectors/<name>.mdx` with an `octo_types` frontmatter list naming your connector, its blocks and its sources.
 3. Run `task docs:check`.
 
-Step 2 is not optional and not a convention — `scripts/check-docs-drift.mjs` compares `octo schema` against the frontmatter and fails CI on any type that is registered but undocumented, or documented but not registered.
+Step 2 is not optional. `scripts/check-docs-drift.mjs` compares `octo schema` against the frontmatter and fails CI on any type that is registered but undocumented, or documented but not registered.
 
 ## See also
 
-- [Runtime services](/extending/runtime-services) — for capability that is not referenced from YAML.
-- [Connectors and blocks](/concepts/connectors-and-blocks) — the same model from a flow author's side.
-- [Processing pipeline](/runtime/processing-pipeline) — where a block sits in a message's life.
+- [Runtime services](/extending/runtime-services), for capability that is not referenced from YAML.
+- [Connectors and blocks](/concepts/connectors-and-blocks), the same model from a flow author's side.
+- [Processing pipeline](/runtime/processing-pipeline), where a block sits in a message's life.

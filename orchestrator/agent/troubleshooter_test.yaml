@@ -50,6 +50,15 @@ inputs:
       matched: 1
       total: 1
 
+  a recovery:
+    data:
+      kind: resolve
+      watchId: w_1
+      watchName: checkout errors
+      incidentId: i_1
+      severity: critical
+      reportTo: ["ada@example.com"]
+
 cases:
   - name: the findings are mailed to the address the alert carried
     input: an alert
@@ -196,3 +205,25 @@ cases:
               that:
                 - 'body.to == ["ada@example.com"]'
                 - 'body.subject.contains("checkout errors")'
+
+  # Good news arrives on the same subject as bad. A recovery or a close is not
+  # an investigation: the agent never starts, no history is written, and nobody
+  # is emailed about an app that just got better.
+  - name: a recovery starts no investigation
+    input: a recovery
+    mocks:
+      troubleshooter.send-final-report:
+        default:
+          body: { id: "msg_1" }
+      troubleshooter.troubleshoot:
+        default:
+          body: { answer: "should never be asked" }
+    spies:
+      troubleshooter.only-bad-news[onReject].skip-good-news:
+        count: 1
+      troubleshooter.troubleshoot:
+        count: 0
+      troubleshooter.append-history:
+        count: 0
+      troubleshooter.send-final-report:
+        count: 0

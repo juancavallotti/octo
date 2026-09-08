@@ -7,214 +7,126 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Ask **Dr. Octo** about this installation and he answers: he reads and explains your integrations, writes and fixes flow definitions, and investigates deployments that will not start. Install him from **Admin → Platform agent** at `/platform/admin/agent`.
 
-Understand one thing first and the rest of this page follows from it: **Dr. Octo is an ordinary integration.** He is not a service, a sidecar, or a bundled image — he is a `config.yaml` with an [`ai-agent`](/reference/blocks/ai) block in it, installed as a real integration and deployed through the same path you deploy anything.
-
-So treat him as one:
-
-- Look for his logs, traces, scaling and [version history](/platform/snapshots) exactly where you look for any deployment's. None of it was written for the agent, and all of it works on him.
-- **Open him in the editor and change him.** Follow the link on the status card, then edit the prompt, add a tool, remove one, rewrite a skill.
+**Dr. Octo is an ordinary integration.** He is not a service, a sidecar, or a bundled image. He is a `config.yaml` with an [`ai-agent`](/reference/blocks/ai) block in it, installed as a real integration and deployed like anything else. His logs, traces, scaling and [version history](/platform/snapshots) are where every deployment's are, and the link on the status card opens him in the editor, where you can change the prompt, add or remove a tool, or rewrite a skill.
 
 ## Before you install
 
-Installing needs three things. Check them here, or just open the page — it tells you which one is missing instead of failing:
+Installing needs three things. The page tells you which one is missing instead of failing:
 
 | Requirement | Why | If it is missing |
 | --- | --- | --- |
 | Cluster access | He is deployed like any integration | **Install** is disabled; this orchestrator cannot deploy anything |
-| `kv.encryptionKey` | His provider key is read back out of storage to bind onto the deployment | **Install** is disabled — see [Admin settings](/platform/admin-settings) |
+| `kv.encryptionKey` | His provider key is read back out of storage to bind onto the deployment | **Install** is disabled, see [Admin settings](/platform/admin-settings) |
 | A stored LLM key | There is no model for him to reason with | **Install** is disabled, with a link to the LLM provider section on the same page |
-
-Expect the status page never to fail for a reason you could act on: no cluster, no encryption key and no provider key each arrive as an explanation on the page rather than an error.
 
 ## Install him
 
-Press **Install**. That creates the integration, writes his skills as [resources](/platform/resources-and-secrets), publishes a version tag derived from the bundle this orchestrator ships, writes the provider key as a cluster secret, and deploys him with one replica and **no external route**.
+Press **Install**. That creates the integration, writes his skills as [resources](/platform/resources-and-secrets), publishes a version tag derived from the bundle this orchestrator ships, writes the provider key as a cluster secret, and deploys him with one replica and **no external route**. If the integration exists but nothing is running, the same button reads **Deploy**.
 
-He is deployed with both [platform access grants](/platform/deployments#platform-access) — he asks for them the way any integration does, rather than through a private path. The observability grant is what puts `OBSERVABILITY_URL` in his pod and lets him read stored logs and traces; without it he still installs and works, and simply says he was not granted that access when asked about history.
+He is deployed with both [platform access grants](/platform/deployments#platform-access), requested the way any integration requests them. The observability grant puts `OBSERVABILITY_URL` in his pod and lets him read stored logs and traces. Without it he still installs and works, and says he was not granted that access when asked about history.
 
 <Callout>
-Granting him observability hands a chat-panel user nothing they could not already read. [Traces](/platform/traces) and [Logs](/platform/logs) are readable by any signed-in user, while the chat panel additionally requires the write roles — so anyone who can ask him is already entitled to open those views directly, and to far more besides. Untick the grant and roll out if you want him without it anyway; the reason to weigh is prompt injection, below, not the reader's own entitlement.
+Granting him observability hands a chat-panel user nothing they could not already read: [Traces](/platform/traces) and [Logs](/platform/logs) are readable by any signed-in user, while the chat panel additionally requires the write roles. Untick the grant and roll out if you want him without it anyway; the reason to weigh is prompt injection, below.
 </Callout>
 
-Press it twice if you are unsure — it is idempotent. An existing integration is reused and an existing tag is not recreated, so you never get a second agent, and retrying after a failed deploy picks up where it stopped.
-
-Note that he is deployed **internal-only**. Nothing outside the cluster reaches him directly; the platform proxies to the in-cluster address shown on the status card.
+Installing is idempotent. An existing integration is reused and an existing tag is not recreated, so you never get a second agent, and retrying after a failed deploy picks up where it stopped. He is deployed **internal-only**: the platform proxies to the in-cluster address shown on the status card.
 
 <Callout type="warn">
-Dr. Octo has full read **and write** access to the orchestrator API, deploying included. The chat panel is therefore gated by `AUTH_WRITE_ROLES`, the same roles every other cluster-wide write requires — and **that variable defaults to empty, which means any signed-in user**. Set it before you install him on a shared installation. To narrow what he may do regardless of who asks, see [Restrict what he can do](#restrict-what-he-can-do).
+Dr. Octo has full read **and write** access to the orchestrator API, deploying included. The chat panel is therefore gated by `AUTH_WRITE_ROLES`, the same roles every other cluster-wide write requires, and **that variable defaults to empty, which means any signed-in user**. Set it before you install him on a shared installation. To narrow what he may do regardless of who asks, see [Restrict what he can do](#restrict-what-he-can-do).
 </Callout>
 
 ## Talk to him
 
-Once he is running, look for the round button in the bottom-right corner of any signed-in page. It appears only when he is deployed **and you hold the write roles** — he can write, so the drawer requires what any other write requires. If you do not see it, check both.
+Once he is running, a round button appears in the bottom-right corner of any signed-in page, but only when he is deployed **and you hold the write roles**. It opens a full-height drawer over the right-hand side of the page.
 
-It opens as a full-height drawer down the right-hand side, over the page rather than pushing it — so when he takes you somewhere you can watch the page behind it change.
+Type a question and the answer streams back a word at a time. The drawer shows:
 
-Type a question and the answer streams back a word at a time. Expect five things in the drawer that a plain chat box does not have:
+- Markdown, so a flow definition arrives in a code block you can copy and a comparison as a table.
+- His working, in order: what he thought, what he called, what he made of the result, then his reply. Reasoning collapses to a one-line summary once anything follows it; click the line to read it again.
+- A running commentary above the message box: thinking, running a named tool, reading what came back, shortening the conversation.
+- A context gauge in the header once a conversation is more than half way through his budget. He is about to start forgetting the beginning.
+- Navigation. When the answer is a page, he takes you there and says why. The drawer refuses any destination outside the platform, whatever his definition has been changed to say.
+- A question before he reads the web. The `web_search` chip opens with the objective and the queries he chose, the `web_extract` chip with the URLs, and both wait for **Allow** or **Deny**. He holds the call while you decide, and is told after three minutes if nobody answered. See [why those two](#why-the-web-search-asks).
 
-- **Markdown.** He answers in it, so a flow definition arrives in a code block you can copy, and a comparison arrives as a table.
-- **His working, in order.** What he thought, what he called, what he thought about the answer, and then his reply — laid out in the sequence it happened. A run that looks something up and then changes its mind is legible as exactly that. Reasoning follows itself while it is the latest thing he has done, and collapses to a one-line summary the moment anything comes after it; click that line to read it again.
-- **A running commentary.** Above the message box, a line saying what he is doing right now: thinking, running a named tool, reading what came back, shortening the conversation. It stays put while you scroll.
-- **A context gauge.** Once a conversation is more than half way through his budget, the header shows how full it is. It is the warning that he is about to start forgetting the beginning.
-- **Navigation.** When the answer to your question is a page, he takes you there and says why. He can only reach pages inside the platform — the drawer refuses any other destination, whatever his definition has been changed to say.
-- **A question before he searches the web.** The `web_search` chip opens with the objective and the queries he chose and waits for **Allow** or **Deny**. He is holding the call while you decide; answer it, or leave it and he is told after three minutes that nobody did. See [why that one](#why-the-web-search-asks).
+Scrolling up stops the view following the answer; a **Latest** button appears while it is off, and returning to the bottom turns it back on.
 
-Scrolling up stops the view following the answer, so you can re-read something while he is still writing; a **Latest** button appears while it is off, and returning to the bottom turns it back on.
+Press **Stop** to end a run in progress, or close the panel. Closing aborts the request and the runtime stops the run when the connection goes. **Stop** is stronger: it sends a stop for the *conversation*, so it ends the run wherever it is running, including on a replica this browser never spoke to.
 
-Press **Stop** to end a run in progress, or close the panel. Closing aborts the request, which ends the run — the runtime sees the connection go and stops rather than leaving a model generating for nobody. **Stop** does something slightly different and stronger: it sends a stop for the *conversation*, so it ends the run wherever it is running, including on a replica this browser never spoke to.
+You can also type while he is working. A message sent mid-answer is handed to the run already in flight rather than starting a second one, and the answer goes to the stream you already have open. It shows as unread until he picks it up, which can be a whole model call later; then it moves into the conversation at that point, marked **Read, and taken into account**, with the reasoning and tool calls it caused underneath it. If the run ends first, or he runs out of steps before reaching it, the panel says so and tells you to ask again. A message from a second tab, or from a window that cannot tell a run is already going, still reaches that run; the panel says where the answer went.
 
-You can also type while he is working. A message sent mid-answer is handed to the run already in flight rather than starting a second one, so he takes it into account on his next turn instead of answering you twice on two streams.
-
-Such a message is sent as the question alone — the run it joins already knows what page you are on and where it may take you, so a follow-up does not repeat any of it. It is shown as unread until he picks it up. Nothing comes back on the request that carries it — the answer is going to the stream you already have open — so a bubble that looked sent would look identical whether he folded it in or dropped it. It waits, and when the run says it read it — which can be a whole model call later — it moves into the conversation at that point and is marked **Read, and taken into account**. Whatever he does about it, the reasoning and the tool calls, then appears underneath it rather than being added to the answer it interrupted. If the run ends first, or he runs out of steps before reaching it, it says so and tells you to ask again: that is the one case where something you sent goes nowhere, and it is not allowed to be silent.
-
-A message sent from somewhere else — a second tab, or this window before you reloaded it — appears the same way: it is written into the conversation where he read it, so a reply that changes direction has something visible to change direction about.
-
-Sending from a window that cannot tell a run is already going is a different matter. It still reaches that run, because the runtime knows even when the browser does not, but the answer goes to whoever is reading it rather than to you. The panel says so where the reply would have been, rather than leaving a blank turn.
-
-Press **New conversation** to start fresh — that drops the thread, and with it what he remembers of it. The conversation itself is kept, and you can come back to it: past conversations are listed by name in the panel.
-
-He knows which page you are on, so ask about "this integration" or "this deployment" and expect him to know what you mean.
+Press **New conversation** to start fresh. That drops the thread and what he remembers of it, but the conversation is kept and listed by name in the panel. He knows which page you are on, so "this integration" or "this deployment" means what you think it means.
 
 <Callout>
-Conversations are scoped to you. The panel sends a thread id, but he keys his memory on the signed-in user *and* that thread, and the identity comes from your session on the server rather than from the browser — so a thread id belonging to someone else names a conversation that does not exist.
+Conversations are scoped to you. The panel sends a thread id, but he keys his memory on the signed-in user *and* that thread, and the identity comes from your server session rather than from the browser. A thread id belonging to someone else names a conversation that does not exist.
 </Callout>
 
 ### Coming back to one
 
-Every exchange is recorded as it happened, under a name he writes for the conversation on its first message. The history button in the drawer's header lists them; opening one replays it and continues the thread, so the next thing you say lands in the same conversation.
+Every exchange is recorded as it happened, under a name he writes for the conversation on its first message. The history button in the drawer's header lists them; opening one replays it and continues the thread. What comes back is what was **said**, your messages and his answers; the reasoning and tool calls belonged to the run and went with it.
 
-What comes back is what was **said** — your messages and his answers. The reasoning and the tool calls belonged to the run and went with it.
+That record is **not** his memory. Memory is compacted (a long conversation has its early turns replaced by a summary), so it is the working set rather than the conversation you had. Both are readable side by side on [the memory page](/platform/agent-memory).
 
-That record is deliberately **not** his memory. Memory is compacted — a long conversation has its early turns replaced by a summary of them, which is what keeps the model's context affordable — so it is the working set rather than the conversation you had. Both are readable, side by side, on [the memory page](/platform/agent-memory); only one of them is what you actually said, and it is this one.
+The runtime writes the record as the run completes. Naming it is a small model call in a [`nameThread`](/reference/blocks/ai#naming-a-conversation) slot, made once on the first exchange. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
 
-The record is the **runtime's**, written by the engine as the run completes rather than assembled by the flow. Naming it is the one part the runtime will not decide — what an exchange was about is a judgement — so that is a small model call in a [`nameThread`](/reference/blocks/ai#naming-a-conversation) slot, made once, on the first exchange, and the engine writes what comes back. Both the list and the transcripts are keyed on the signed-in user, exactly as memory is.
-
-Two limits worth knowing:
-
-- **A message you send mid-answer is not in the replay.** It reaches the run — that is what steering is — and he takes it into account, but the record is written once per completed run and holds the question that started it. The answer reflects your follow-up; the transcript does not show you making it.
-- **Naming can fail, and the record does not.** A provider having a bad minute leaves the conversation named after its first question instead. A worse name, not a worse record. A conversation he decides is not worth naming — a greeting, a test message — is left unnamed on purpose, and listed by its first question.
+Two limits. A message you send mid-answer is not in the replay: he takes it into account, but the record is written once per completed run and holds the question that started it. And naming can fail while the record does not: a provider having a bad minute, or a conversation he decides is not worth naming (a greeting, a test message), leaves it listed by its first question.
 
 ## Update him
 
-His definition ships inside the orchestrator binary, so upgrading the platform can bring a newer one. When it does, the page reports **Update available**. Press **Roll out update** to publish the new bundle as a version and roll his deployment onto it.
-
-Nothing happens silently: a newer bundle waits for you, and installing never happens twice.
+His definition ships inside the orchestrator binary, so upgrading the platform can bring a newer one. When it does, the page reports **Update available**. Press **Roll out update** to publish the new bundle as a version and roll his deployment onto it. A newer bundle waits for you, and installing never happens twice.
 
 ## Put him back the way he shipped
 
-There is one button on a deployed agent, and it always does the same thing — republish the definition this orchestrator ships and replace his pods with it. Only its name changes, to say which of the three reasons you are pressing it for:
+There is one button on a deployed agent, and it always does the same thing: republish the definition this orchestrator ships and replace his pods with it. Only its name changes:
 
 | It reads | When |
 | --- | --- |
 | **Roll out update** | A newer bundle ships with this orchestrator |
 | **Redeploy** | The deployment is in a failed state |
-| **Reinstall from stock** | Neither — he is current and running |
+| **Reinstall from stock** | Neither: he is current and running |
 
-Reach for the last one after editing him into a state you would rather undo, or when he is running something you no longer trust. Before, there was no way back: the button only appeared when the shipped digest had moved or the deployment had failed, so an agent that was current, running and wrong had nothing to press.
+Reach for the last one after editing him into a state you would rather undo, or when he is running something you no longer trust.
 
 <Callout type="warn">
-**This replaces changes you made to the agent** — but it does not destroy them. The live definition is frozen as its own version first, tagged `agent-edited-…`, and only then overwritten. Watch for the **Edited** badge; the confirmation names what is about to happen.
+**This replaces changes you made to the agent**, but it does not destroy them. The live definition is frozen as its own version first, tagged `agent-edited-…`, and only then overwritten. Watch for the **Edited** badge; the confirmation names what is about to happen.
 </Callout>
 
-So an edit you want back is under [Versions](/platform/snapshots) with that tag: read it, copy from it, or deploy it again. The tag is derived from the definition's content, so reinstalling twice from the same edited state reuses one version rather than piling up near-identical ones — and an unedited reinstall freezes nothing at all.
+An edit you want back is under [Versions](/platform/snapshots) with that tag: read it, copy from it, or deploy it again. The tag is derived from the definition's content, so reinstalling twice from the same edited state reuses one version, and an unedited reinstall freezes nothing.
 
 ## Trace him
 
-**He installs with tracing already on**, so his runs are under [Traces](/platform/traces) from the first one — every model call, every tool call, every block.
-
-That is the opposite of the default for anything you build, and for the same reasons. [Tracing is off by default](/platform/deployments#tracing) because it costs throughput, and a chat agent answering a handful of questions has none to lose. What he does have is the ability to deploy, and a diet of text other people wrote — so "what did he actually do, and was he told to" is worth being able to answer about every run rather than only the ones after somebody thought to switch it on.
-
-Turn it off with the toggle if you would rather. That is a decision, and it sticks: a redeploy or a roll-out afterwards leaves it off rather than quietly restoring the default.
-
-Expect his pods to be replaced either way: the runtime reads the tracing setting when it starts, so it cannot be changed in place. Nothing else about the deployment changes — same version, same environment.
+**He installs with tracing already on**, so his runs are under [Traces](/platform/traces) from the first one: every model call, tool call and block. [Tracing is off by default](/platform/deployments#tracing) for what you build because it costs throughput; a chat agent has none to lose, and he can deploy, so "what did he do, and was he told to" should be answerable about every run. Turn it off with the toggle if you would rather; the choice sticks across redeploys and roll-outs. Either way his pods are replaced, because the runtime reads the tracing setting when it starts.
 
 ## Give him more turns
 
-One answer is a loop: he calls a tool, reads what came back, and decides what to do
-next. Each pass through that loop is a **turn**, and there is a limit on how many one
-answer may take. Reaching it ends the run without an answer, and the panel says he
-ran out of steps.
+One answer is a loop: he calls a tool, reads what came back, and decides what to do next. Each pass is a **turn**, and there is a limit on how many one answer may take. Reaching it ends the run without an answer, and the panel says he ran out of steps.
 
-He ships with a limit of **60**, which is enough for the work he is usually asked to
-do — read the traces for a failing deployment, work out why, write a fix, prove it
-with a test suite. Raise it under **Admin → Platform agent** if the tasks you give
-him are longer than that, or lower it to cap what a stuck run can spend before the
-guardrail catches it. Anything from **1 to 200** is accepted. Leave the field empty
-to use the limit his definition ships with; clearing it is how you get back to that
-after setting a number.
+He ships with a limit of **60**, enough to read the traces for a failing deployment, work out why, write a fix and prove it with a test suite. Raise it under **Admin → Platform agent** if your tasks are longer, or lower it to cap what a stuck run can spend. Anything from **1 to 200** is accepted. Leave the field empty to use the limit his definition ships with; clearing it is how you get back to that after setting a number.
 
-It is a ceiling and not a budget: an answer that takes four turns takes four. What a
-higher limit costs is the tail — a genuinely stuck run burns the whole allowance
-before it stops.
-
-Applying it replaces his pods, the same as tracing and for the same reason: the
-runtime reads the limit when it starts.
+It is a ceiling and not a budget: an answer that takes four turns takes four. Saving it replaces his pods, the same as tracing and for the same reason.
 
 ## Remove him
 
-Press **Remove** to undeploy him. The integration is **kept**, so any changes you made survive and installing again reuses them — this is the reversible half.
+Press **Remove** to undeploy him. The integration is **kept**, so any changes you made survive and installing again reuses them. This is the reversible half.
 
-To delete the integration as well, call the API with `?purge=1`. That also removes his skill resources and the cluster secret holding the provider key. It is the irreversible half, which is why it is deliberately not a button.
+To delete the integration as well, call the API with `?purge=1`. That also removes his skill resources and the cluster secret holding the provider key. It is the irreversible half, which is why it is not a button.
 
 ## His workspace
 
-Dr. Octo can try a fix rather than describe one. He runs on the
-[agentic runner](/deploy/docker-images#octo-agenticrunner) — a heavier image than
-the one your integrations get, carrying a shell, `curl`, `jq`, the standalone
-`octo` CLI, `dolphin`, and a scratch directory at `/workspace`.
+Dr. Octo can try a fix rather than describe one. He runs on the [agentic runner](/deploy/docker-images#octo-agenticrunner), a heavier image than the one your integrations get, carrying a shell, `curl`, `jq`, the standalone `octo` CLI, `dolphin`, and a scratch directory at `/workspace`. That gives him a loop: write a definition and a `_test.yaml` suite beside it, run the suite, read the failures, fix, run again, and invoke a single flow to see what it returns.
 
-That gives him a loop instead of an opinion: write a definition and a
-`_test.yaml` suite beside it, run the suite, read the failures, fix, run it
-again — and invoke a single flow when he wants to see what it actually returns.
-Ask him to write a flow and he can hand you one he has watched pass.
+The workspace is scratch: an `emptyDir` that dies with his pod, capped at 100Mi. Anything worth keeping he saves back through the API as a real integration, and he will tell you so. A flow he invokes runs standalone, with in-process queues, in-memory KV, no cluster resources and no connectors reaching anything he was not given; it proves the shape and logic of a definition, never what your deployment would see, and he is told to say which of the two he has shown you. Each command is killed after two minutes, so there is no `octo run` and nothing long-lived.
 
-Three things to expect from it:
-
-- **The workspace is scratch.** It is an `emptyDir` that dies with his pod, capped at
-  100Mi. Anything worth keeping he saves back through the API as a real
-  integration; nothing in there survives a restart, and he will tell you so.
-- **A flow he invokes runs standalone.** In-process queues, in-memory KV, no
-  cluster resources, no connectors reaching anything he was not given. It proves
-  the shape of a definition and the logic in it — never what your deployment
-  would see. He is told to say which of the two he has shown you.
-- **Commands are bounded.** Each one is killed after two minutes, so there is no
-  `octo run` and nothing long-lived. He invokes once, or runs a suite.
-
-He is deployed on that runner automatically. On an installation whose chart does
-not configure it, **Install** is blocked with the reason shown rather than
-producing a pod that crash-loops — he does not merely prefer the image, his
-definition does not load without it.
+He is deployed on that runner automatically. On an installation whose chart does not configure it, **Install** is blocked with the reason shown, because his definition does not load without it.
 
 ## Why the web search asks
 
-The only tool he holds that asks you first is `web_search`, and it asks because
-of what it brings back rather than what it changes.
+`web_search` and `web_extract` ask you first because of what they bring back: a search result or a fetched page is text somebody else wrote and can carry instructions addressed to him. Everything else he can reach is either a `GET` or an orchestrator call whose effect is on this installation's own data, and stays free, because a panel that asked about every read would be a panel whose questions nobody reads. The objective and the queries (or the URLs) ride in the question, so you are allowing that call rather than the tool in general. If you do not answer, the call is denied when his clock runs out, and he answers from what he knows and says he could not check the web.
 
-Everything else he can reach is either a `GET` or an orchestrator call whose
-effect is on this installation's own data. A search is the one door text somebody
-else wrote comes through — a page can say anything, including instructions
-addressed to him — and from there the path to a delegation and a write exists.
-The prompt telling him to ignore instructions he reads in a page is not a
-boundary; a person deciding is.
-
-So the objective and the queries ride in the question, and what you are allowing
-is that search rather than the tool in general. Nothing happens if you do not
-answer: the call is denied when his own clock runs out, he is told plainly it was
-refused, and he answers from what he already knows and says he could not check
-the web.
-
-Everything else stays free, deliberately. A panel that asked about every read
-would be a panel whose questions nobody reads.
-
-It is an ordinary [`ai-agent` setting](/ai/tool-authorization) — `authorize` on
-the tool — so you can gate another tool of his the same way, or take this one
-off, by editing his definition and rolling out. [Human in the
-Loop](/guides/human-in-the-loop) walks through building the same thing into an
-agent of your own.
+It is an ordinary [`ai-agent` setting](/ai/tool-authorization), `authorize` on the tool, so you can gate another tool of his the same way, or take this one off, by editing his definition and rolling out. [Human in the Loop](/guides/human-in-the-loop) walks through building the same thing into an agent of your own.
 
 ## Restrict what he can do
 
-Because he is an integration you can edit, set the limit on what he may do in his own definition rather than with a flag on the orchestrator. Open him in the editor, find the `octo_api` tool — a [`rest-dynamic`](/reference/connectors/http) block, inside the `platform_operator` specialist, and the only unrestricted one in the file — and add either setting:
+Set the limit on what he may do in his own definition rather than with a flag on the orchestrator. Open him in the editor, find the `octo_api` tool (a [`rest-dynamic`](/reference/connectors/http) block inside the `platform_operator` specialist, and the only unrestricted one in the file) and add either setting:
 
 ```yaml
 - type: rest-dynamic
@@ -227,26 +139,22 @@ Because he is an integration you can edit, set the limit on what he may do in hi
     pathPrefix: /integrations
 ```
 
-Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him to one part of the API. Save and roll out, and the restriction is live.
+Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him to one part of the API. Save and roll out. The connector's `baseURL` is a boundary he cannot cross whatever the block says: a dynamic path resolves against it and cannot redirect the call elsewhere.
 
-You do not need to defend the host: the connector's `baseURL` is a boundary he cannot cross whatever the block says, because a dynamic path resolves against it and no rendered path can redirect the call elsewhere.
+His `observability_api` tool is a second, independent boundary on a different connector with a different `baseURL`, so narrowing one does nothing to the other. It ships with `allowMethods: [GET]`, and that line matters: the observability API also serves `PUT /settings/retention` and `POST /retention/run`, so without it he could change the retention policy or run a sweep. The `alerts_api` tool on the same connector allows GET, POST, PUT and DELETE but is bounded by `pathPrefix` to `/alerts`, so he can create and edit watches and nothing else on that service.
 
-His `observability_api` tool is a second, independent boundary — a different connector with a different `baseURL` — so narrowing one does nothing to the other. It already ships with `allowMethods: [GET]`, and that line is doing real work: the observability API also serves `PUT /settings/retention` and `POST /retention/run`, so without it he could change the retention policy or run a sweep. To take the tool's address away, untick the observability grant and roll out; he will say so when asked. That withholds the address rather than the reach — the observability API [performs no authentication](/platform/deployments#platform-access), and `http_fetch` reaches any address his pod can — so if stored logs and traces must be out of his reach entirely, delete `http_fetch` as well.
+To take the observability address away, untick the observability grant and roll out; he will say so when asked. That withholds the address rather than the reach: the observability API [performs no authentication](/platform/deployments#platform-access), and `http_fetch` reaches any address his pod can, so if stored logs and traces must be out of his reach entirely, delete `http_fetch` as well.
 
 ### The command tools are a different kind of thing
 
-Everything above narrows an *address*. The [workspace](#his-workspace) tools do not have one, and it is worth being exact about what that means.
+Everything above narrows an *address*. The [workspace](#his-workspace) tools do not have one. **Deleting a tool is the control that works.** `http_fetch`, `run_command`, `invoke_flow` and the rest are blocks in a definition you can edit, exactly like `octo_api`. Remove the block, save, roll out, and the capability is gone.
 
-**Deleting a tool is the control that works.** `http_fetch`, `run_command`, `invoke_flow` and the rest are blocks in a definition you can edit, exactly like `octo_api`. Remove the block, save, roll out, and the capability is gone. That is the honest lever, and it is the one to reach for.
+The `allow` list on those blocks is a guardrail, not a boundary. It names the five programs he may run, but `octo` is on that list and `octo invoke` runs whatever definition it is pointed at, including one written into his workspace a moment earlier. So the boundary is the pod: its own environment, which for him means his provider key, and the runtime ServiceAccount, with no cluster credentials beyond leases. That blast radius is why the agentic runner is a per-deployment choice.
 
-**The `allow` list on those blocks is a guardrail, not a boundary.** It names the five programs he may run, which keeps the ordinary path predictable and his traces readable. It does not contain him: `octo` is on that list, and `octo invoke` runs whatever definition it is pointed at — including one written into his workspace a moment earlier. Anything reachable from that pod is reachable from that tool.
-
-**So the boundary is the pod.** What it holds is its own environment, which for him means his provider key, and it carries only the runtime ServiceAccount — no cluster credentials beyond leases. That is the blast radius, and it is why the agentic runner is a per-deployment choice rather than something every integration gets.
-
-**`http_fetch` is the genuinely new reach.** Before it, his outbound access was two `baseURL`s and his model provider. Now it is anything his pod can route to — other integrations' internal Services, and on a cloud node the instance metadata endpoint. He is restricted to `http` and `https`, which is what stops `file://` reading his own pod, but nothing in his definition restricts *hosts*. If that matters on your cluster, a NetworkPolicy on his deployment is the control; his definition is not.
+`http_fetch` is the new reach. Before it, his outbound access was two `baseURL`s and his model provider; now it is anything his pod can route to, including other integrations' internal Services and, on a cloud node, the instance metadata endpoint. He is restricted to `http` and `https`, which stops `file://` reading his own pod, but nothing in his definition restricts *hosts*. If that matters on your cluster, a NetworkPolicy on his deployment is the control.
 
 <Callout>
-Bear in mind that he reads integration definitions, resource contents, pod logs and — with the observability grant — stored log messages and captured request bodies from every deployment. All of that is text other people wrote, which makes prompt injection a real consideration: a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, delete the command tools if the loop above is not worth that reach on your installation, untick the observability grant if you would rather he did not read that surface at all, and leave tracing on — it is on by default precisely so that "was he told to do that" is answerable after the fact rather than only from the run you happened to be watching.
+He reads integration definitions, resource contents, pod logs and, with the observability grant, stored log messages and captured request bodies from every deployment. All of that is text other people wrote, so a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, delete the command tools if the loop above is not worth that reach, untick the observability grant if you would rather he did not read that surface, and leave tracing on so that "was he told to do that" is answerable after the fact.
 </Callout>
 
 ## What he is made of
@@ -256,92 +164,66 @@ Read this before you change him. The whole file is in the editor.
 | Piece | What it does |
 | --- | --- |
 | `chat` flow | An HTTP source on `/chat` with [server-sent events](/reference/connectors/http) enabled, so answers stream a token at a time |
-| `ai-agent` block | The coordinator: streaming, `agentId: dr-octo`, memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction, and `userMemory` on. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots — see [the two specialists](#the-two-specialists) |
-| `nameThread` slot | On the coordinator, and all that is left of the recording pipeline: on the opening exchange only, asks `llm-fast` for a name for the conversation. The engine writes it — see [Naming a conversation](/reference/blocks/ai#naming-a-conversation). The record itself is the runtime's |
-| `octo_read` | Reads the orchestrator's [API](/platform/api-reference) — `allowMethods: [GET]`, so the coordinator can answer a question but not change anything |
+| `ai-agent` block | The coordinator: streaming, `agentId: dr-octo`, memory keyed to the signed-in user and the conversation, a 500k-token window and summarising compaction, and `userMemory` on. `stopWhen` reads the `X-Agent-Stop` header, which is how the panel's Stop reaches a run [it is not connected to](/ai/agent-signals). Two more `ai-agent` blocks sit in its tool slots, see [the two specialists](#the-two-specialists) |
+| `nameThread` slot | On the coordinator: on the opening exchange only, asks `llm-fast` for a name for the conversation. The engine writes it, see [Naming a conversation](/reference/blocks/ai#naming-a-conversation). The record itself is the runtime's |
+| `octo_read` | Reads the orchestrator's [API](/platform/api-reference) with `allowMethods: [GET]`, so the coordinator can answer a question but not change anything |
 | `integration_builder` | The first specialist (see [below](#the-two-specialists)): writes a definition and proves it |
 | `platform_operator` | The second specialist: everything that changes the installation, and everything about what already happened |
 | `send_email_report` | Sends an HTML report through the platform's own [email settings](/platform/admin-settings); the sender identity is the installation's, never the model's |
-| `web_search` | Searches the open web through a [`parallel`](/reference/connectors/parallel) connector, when the installation has [a key](/platform/admin-settings#web-search). Without one it answers that it is not configured and says not to call again, which costs one turn rather than a retry loop. The one tool that [asks you first](#why-the-web-search-asks) |
+| `web_search`, `web_extract` | Search the open web, and read named pages, through a [`parallel`](/reference/connectors/parallel) connector, when the installation has [a key](/platform/admin-settings#web-search). Without one they answer that search is not configured and say not to call again, which costs one turn rather than a retry loop. The two tools that [ask you first](#why-the-web-search-asks) |
 | `navigate_to` | Moves your browser to a page, when the answer to a question is a page |
 | `check_expression` | Evaluates one [CEL](/reference/cel) expression, so he can prove one rather than assert it |
 | `remember`, `forget`, `search_memory` | Built into the runtime rather than written here. What he has already remembered about you is placed in every request, so there is no tool to call to recall it |
-| Skills | Seven documents on flow files, blocks, connectors, expressions, testing, the platform and email reports, loaded on demand rather than sitting in every prompt |
+| Skills | Nine documents loaded on demand rather than sitting in every prompt. The coordinator holds seven (flow files, blocks, connectors, expressions, testing, the platform and email reports); the operator adds `alerts`, and the troubleshooter adds `troubleshooting` |
 
 ### The two specialists
 
-The coordinator keeps the cheap things — a read-only API call, a CEL check, a web search, navigation, the built-in memory tools, and the mail tool — and delegates the work to two `ai-agent` blocks standing in its tool slots — a subagent here is just that: a tool whose process chain happens to be another agent, with its own prompt, its own tools and its own loop. It writes a brief, the specialist works, and one report comes back as the tool result.
+The coordinator keeps the cheap things (a read-only API call, a CEL check, a web search, navigation, the built-in memory tools, and the mail tool) and delegates the work to two `ai-agent` blocks standing in its tool slots, each with its own prompt, tools and loop. The coordinator writes a brief, the specialist works, and one report comes back as the tool result.
 
 | Specialist | Holds | For |
 | --- | --- | --- |
 | `integration_builder` | `read_workspace_file`, `write_workspace_file`, `list_workspace`, `invoke_flow`, `run_flow_tests`, `builder_check_expression`, `run_command`, `builder_octo_read` | Writing and **proving** a definition: draft into the [workspace](#his-workspace), run the [dolphin](/testing) suite, read the report, fix, run again. Its API tool is GET-only, so nothing it produces is saved |
-| `platform_operator` | `list_api_operations`, `read_api_docs`, `octo_api`, `list_observability_operations`, `read_observability_docs`, `observability_api`, `http_fetch`, `refresh_platform_ui` | Changing and inspecting the installation: saving a definition, version tags, deploys, rollouts, scaling, secrets — and every question about stored logs and traces. Its prompt carries a map of the API's routes, so it does not rediscover them from the OpenAPI on every call |
+| `platform_operator` | `list_api_operations`, `read_api_docs`, `octo_api`, `list_observability_operations`, `read_observability_docs`, `observability_api`, `alerts_api`, `http_fetch`, `refresh_platform_ui` | Changing and inspecting the installation: saving a definition, version tags, deploys, rollouts, scaling, secrets, and every question about stored logs and traces. With `alerts_api` and the `alerts` skill it also creates, previews and edits [alert watches](/platform/alerting) when you ask in chat. Its prompt carries a map of the API's routes, so it does not rediscover them from the OpenAPI on every call |
 
-Each specialist keeps its own conversation while yours is going on:
-`memoryThreadId: vars.toolScope` with `memoryVolatile: true`, which is the
-[scope the runtime mints](/reference/blocks/ai#what-a-tool-branch-is-told) for a
-tool branch. So a second delegation in the same chat reaches the same builder,
-with the definition it drafted a moment ago still in front of it — and none of it
-touches the conversation you are having, or the store that is backed up. It is
-scaffolding, and it evicts.
+Each specialist keeps its own conversation while yours is going on: `memoryThreadId: vars.toolScope` with `memoryVolatile: true`, the [scope the runtime mints](/reference/blocks/ai#what-a-tool-branch-is-told) for a tool branch. A second delegation in the same chat reaches the same builder with its earlier draft still in front of it, and none of it touches your conversation or the store that is backed up.
 
-Three things the split buys, none of which a single twenty-tool agent could have:
-
-- **A prompt each.** "How to write a definition and prove it" and "how this installation is deployed and diagnosed" want different instructions, and a single prompt carrying both is mostly irrelevant on any given turn.
-- **A working context each.** A builder's loop fills a transcript with YAML drafts and test reports; an operator's fills with API responses. Kept apart, neither pays to re-read the other, and the conversation you are having stays short — what comes back to it is one report, not forty tool results.
-- **A boundary.** There is exactly one unrestricted `octo_api` in the file and it is inside the operator, so a write to the platform is always a deliberate delegation.
-
-What it costs: a delegation is a whole model run, and the panel is quiet while it works — which is why the SSE route's `maxDuration` is 30 minutes, and why the coordinator is told to answer from `octo_read` when that is the whole answer. The specialists cannot see your conversation — only their own work on it — so a thin brief comes back as a specialist guessing confidently. Both facts are in the coordinator's prompt because both are how this arrangement fails.
-
-Each specialist emits its `tool_call` and `tool_result` events to the same stream the coordinator's go to, so the panel shows what it is doing rather than one chip sitting open for two minutes.
+The split keeps each specialist's working context apart (YAML drafts and test reports in one, API responses in the other) and your conversation receives one report rather than forty tool results. It is also a boundary: the one unrestricted `octo_api` in the file is inside the operator, so a write to the platform is always a deliberate delegation. The cost is that a delegation is a whole model run, which is why the SSE route's `maxDuration` is 30 minutes and why the coordinator is told to answer from `octo_read` when that is the whole answer. The specialists cannot see your conversation, so a thin brief comes back as a specialist guessing confidently. Each specialist emits its `tool_call` and `tool_result` events to the same stream as the coordinator's, so the panel shows what it is doing.
 
 ### He also triages alerts
 
-A fourth flow, `troubleshooter`, is the same agent woken by an [alert](/platform/alerting) instead of by a question. Nobody is watching a panel, so it does not stream, and its answer is not the deliverable — the two emails are.
+A fourth flow, `troubleshooter`, is the same agent woken by an [alert](/platform/alerting) instead of by a question. Nobody is watching a panel, so it does not stream, and the two emails are the deliverable.
 
-An alert reaches it because a watch's `topic` action publishes onto this deployment's own subject and the flow subscribes to it with an ordinary `events` source. The subject name has to match at both ends; `ALERT_SUBJECT` is that agreement, and `alerts` is the default. Whoever should hear about it rides on the action as `reportTo`, so the agent forwards findings to an address it was given rather than picking one.
+An alert reaches it because a watch's `topic` action publishes onto this deployment's own subject and the flow subscribes with an ordinary `events` source. The subject name has to match at both ends; `ALERT_SUBJECT` is that agreement, and `alerts` is the default. Whoever should hear about it rides on the action as `reportTo`. The flow's first block is a `validate` gate named `only-bad-news`: only notifications with kind `open` or `repeat` start a run, while `resolve` and `close` are logged and dropped, because the events source has no filter of its own.
 
-It works in three acts:
+It works in three acts. First it triages and reports: it reads the deployment's logs, compares the numbers against the baseline the alert carried, checks what was deployed and when, looks things up in these docs, and emails what it has *before* attempting anything. Second, if it can name the cause and the installation permits it, it tries a fix: scaling first, because it is reversible, and a definition change last, only through the builder so there is a test between the edit and the deploy. Third, it reports again with what was found, what was done and what is left.
 
-1. **Triage, and report.** It reads the logs for the deployment, compares the numbers against the baseline the alert carried, checks what was deployed and when, and looks things up in these docs. Then it emails what it has — *before* attempting anything, because someone woken by an alert wants to know while the work is still going on.
-2. **Try to fix it**, if it can name the cause and if the installation permits it. Scaling first, because it is reversible and changes nothing about what the app does; a definition change last, and only through the builder so there is a test between the edit and the deploy.
-3. **Report again**, with what was found, what was done and what is left.
-
-It remembers what it has seen. Every alert reaches him with the watch’s own history beneath it — what this same watch has done before, and what he concluded each time — recorded by the flow into the persistent store, keyed by watch, and surviving restarts and redeploys. That record is the difference between a blip and a fault, and it is the thing that decides whether to act at all: once is transient and gets a report, four times in two hours is a fault and is what the third act is for. An entry saying a previous attempt did not hold is also how it avoids trying the same fix twice and walking a deployment up to forty replicas.
-
-Recorded by the flow rather than by a tool the agent has to remember to call. Whether something is recurring is a fact about what already happened, and a fact that only gets written down when a model thinks to write it down is not one you can lean on at four in the morning — which is exactly when this judgement gets made.
+It remembers what it has seen. The flow (not the agent) writes each episode into the persistent store under `alert-history:<watchId>`, capped at 50 episodes, and hands that history to the agent with every alert. That record separates a blip from a fault: once is transient and gets a report, four times in two hours is what the third act is for, and an entry saying a previous attempt did not hold stops it trying the same fix twice.
 
 <Callout type="warn">
-The third act is **off** by default, and it is a checkbox on **Admin → Agent**: *Allow Dr. Octo to troubleshoot applications*. On means a model acting on your installation with nobody watching, started by an alert that fired at four in the morning — a decision to make deliberately, not one that should arrive as a side effect of deploying the agent. Off, he still triages, still reads everything and still reports; it only stops him carrying out what he recommends.
+The third act is **off** by default, behind a checkbox on **Admin → Agent**: *Allow Dr. Octo to troubleshoot applications*. On means a model acting on your installation with nobody watching, started by an alert that fired at four in the morning. Off, he still triages, reads everything and reports; it only stops him carrying out what he recommends.
 
-Flipping it rolls the agent's pods, for the same reason the tracing toggle does: the runtime reads the setting at startup. Underneath it is the `AGENT_TROUBLESHOOT_FIX` binding, set the same way the model and the search key are.
+Saving it rolls the agent's pods, like the tracing toggle, because the runtime reads the setting at startup. Underneath it is the `AGENT_TROUBLESHOOT_FIX` binding, set the same way the model and the search key are.
 </Callout>
 
-The second report is sent by the flow rather than by the agent. The first is a judgement call — the agent decides when triage is done. The second is an obligation, and an obligation discharged only when a model remembers it is not one: a run that used up its turns or gave up would otherwise end in silence, which is the worst outcome here because the alert has already been marked as handled.
+The second report is sent by the flow rather than by the agent, so a run that used up its turns or gave up cannot end in silence after the alert has been marked as handled. It carries an appendix of what happened, assembled from the agent's own event stream: one line per turn, tool call and result, without the token-level events. The same lines are logged as they happen, so a run in progress is visible in the [Logs](/platform/traces) view.
 
-That report carries an appendix of what actually happened, assembled from the agent's own event stream: one line per turn, per tool call and per result, filtered to exclude the token-level events an SSE panel would render. The same lines are logged as they happen, so a run in progress is visible in the [Logs](/platform/traces) view rather than only afterwards.
+Two things to know before turning the third act on. Enabling tracing is a rollout: the pods restart, discarding the in-flight state, and it backfills nothing, so the skill tells him to reach for the logs first and to say in the report when he did this. And the alert body is evidence, not instruction: a watch name is text a person wrote, arriving in a prompt belonging to an agent that can reach the operator. The skill says so plainly, and the same goes for a log line or a page of these docs.
 
-Two things are worth knowing before you turn the third act on. **Enabling tracing is a rollout** — the pods restart, which interrupts what is still being served and discards the in-flight state you were trying to observe, and it backfills nothing. The skill tells it to reach for the logs first and to say in the report when it did this. And the **alert body is evidence, not instruction**: a watch name is text a person wrote, arriving in a prompt belonging to an agent that can reach the operator. The skill says so plainly, and the same goes for a log line or a page of these docs.
+[The self-healing loop](/platform/self-healing-loop) maps the parts he sits between, and [Agentic self-healing](/guides/agentic-self-healing) walks through creating the watch, pointing it at him, and putting a person in the loop over Slack.
 
 ### What he remembers
 
-He uses the runtime's [agent memory](/ai/agent-memory) — `agentId: dr-octo`, with `userMemory` on — so none of this is written in his definition any more. Three things are stored, and they are not the same thing:
+He uses the runtime's [agent memory](/ai/agent-memory) with `agentId: dr-octo` and `userMemory` on, so none of this is written in his definition. Three things are stored:
 
 | | What it is |
 | --- | --- |
 | **Working memory** | The transcript he re-reads. Compacted as it grows: `memoryCompaction: summarize` folds the early turns into a summary of them |
 | **Conversation history** | What you can come back to. **Never compacted**, so it is what was actually said rather than the shortened version he still carries |
-| **Facts** | What outlives a conversation — how you like flows written, which integration is yours, what to call you |
+| **Facts** | What outlives a conversation: how you like flows written, which integration is yours, what to call you |
 
-All three live in the orchestrator's own tables, keyed on the **integration**. That is what makes them survive a redeploy — and a reinstall, which used to destroy every conversation on the installation because the store was scoped to the deployment.
+All three live in the orchestrator's own tables, keyed on the **integration**, so they survive a redeploy and a reinstall.
 
-Expect three things of it:
-
-- **Facts are yours.** They are keyed on the user the platform authenticated, which he can neither see nor set — `userId` is resolved by the flow from an identity the chat route writes server-side. Another person's conversation cannot reach them however he is asked.
-- **He does not have to look them up.** What he has already remembered is placed in every request, so there is no recall tool to call and no turn where he forgets to. Past a bound the rest stay reachable through `search_memory`.
-- **Correcting a fact replaces it.** Remembering under a name that already exists overwrites it, so telling him something has changed works the way saying it does.
-
-Tell him to forget something and he will, but treat that as housekeeping rather than a privacy control: what he already said in a conversation is in that conversation, and a fact he was told not to keep may still be in the transcript. Erasing the conversation from [the memory viewer](/platform/admin-settings#agent-memory) removes both, and so does purging the agent.
+Facts are yours: they are keyed on the user the platform authenticated, which he can neither see nor set, because `userId` is resolved by the flow from an identity the chat route writes server-side. What he has remembered is placed in every request; past a bound the rest stay reachable through `search_memory`. Remembering under a name that already exists overwrites it. Tell him to forget something and he will, but a fact he was told not to keep may still be in the transcript; erasing the conversation from [the memory viewer](/platform/agent-memory) removes both, and so does purging the agent.
 
 ## Run him yourself
 
@@ -357,10 +239,9 @@ export ORCHESTRATOR_URL=http://localhost:8090
 export OBSERVABILITY_URL=http://localhost:8091
 
 # Required. His workspace and the five programs he drives default to the agentic
-# runner's paths, which do not exist here. These are not optional the way
-# OBSERVABILITY_URL is: a cli-run allow list is resolved when the flow is BUILT, so an
-# entry pointing at a file that is not there fails the whole config on load
-# rather than the first call that would have used it.
+# runner's paths, which do not exist here. A cli-run allow list is resolved when
+# the flow is BUILT, so an entry pointing at a missing file fails the whole config
+# on load rather than the first call that would have used it.
 export AGENT_WORKSPACE=$(mktemp -d)
 export AGENT_OCTO_BIN=$PWD/bin/octo
 export AGENT_DOLPHIN_BIN=$PWD/bin/dolphin
@@ -371,14 +252,11 @@ export AGENT_JQ_BIN=$(command -v jq)
 bin/octo run --config orchestrator/agent
 ```
 
-That build-time resolution is also why his definition names every program through
-a variable rather than writing the path in the `allow` list. Change one to a
-literal and he stops loading anywhere but the cluster — including in the
-[dolphin suite](/testing) that ships beside him.
+That build-time resolution is why his definition names every program through a variable rather than writing the path in the `allow` list. Change one to a literal and he stops loading anywhere but the cluster, including in the [dolphin suite](/testing) that ships beside him.
 
 ```bash
 curl -N -X POST localhost:8080/chat \
   -d '{"threadId":"t1","message":"list my integrations"}'
 ```
 
-Work this way when you are iterating on his prompt or a tool — it is far faster than rolling out to see the result.
+Work this way when you are iterating on his prompt or a tool; it is far faster than rolling out to see the result.
