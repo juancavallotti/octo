@@ -1,9 +1,10 @@
 import { app, dialog, shell } from "electron";
-import { mkdirSync } from "node:fs";
-import path from "node:path";
+import { registerIpc } from "./ipc";
 import { logPath, recent } from "./log";
+import { buildMenu } from "./menu";
 import { choosePort, pinnedPort } from "./port";
 import { current, onServerCrash, start, stop } from "./server";
+import { initialVault, rememberVault } from "./vault";
 import { confineTo, createWindow, mainWindow, splashHint } from "./window";
 
 /**
@@ -15,16 +16,12 @@ import { confineTo, createWindow, mainWindow, splashHint } from "./window";
  * is reimplemented here, which is why the app is this small.
  */
 
-/**
- * The folder the app opens until it can remember one (that is the next commit).
- * Created rather than merely defaulted, because an OCTO_FS_DIR that does not exist
- * gives the editor an empty flow list and no way to say why.
- */
-function defaultVault(): string {
-  const vault = path.join(app.getPath("documents"), "Octo");
-  mkdirSync(vault, { recursive: true });
-  return vault;
-}
+// Before anything reads a path. Electron keys userData and logs on the app name,
+// which it takes from package.json "name" — that is "desktop", the workspace
+// package, and it would put the user's state in ~/Library/Application Support/desktop.
+// productName is what a packaged build uses; setName makes an unpackaged run agree,
+// so dev and packaged read the same state file instead of two different ones.
+app.setName("Octo");
 
 /** Report a failed start with the server's own last words, which usually say why. */
 async function reportStartFailure(err: unknown): Promise<void> {
@@ -42,12 +39,16 @@ async function reportStartFailure(err: unknown): Promise<void> {
 
 async function boot(): Promise<void> {
   createWindow();
-  const vault = defaultVault();
+  const vault = initialVault();
 
   try {
     await splashHint(vault);
     const port = pinnedPort() ?? (await choosePort());
     const server = await start(vault, port);
+    rememberVault(vault);
+    // Rebuilt after the server is up, because two of its items (the MCP URL, the
+    // reveal-folder item) are only meaningful once there is a server and a folder.
+    buildMenu();
 
     const win = mainWindow();
     if (!win) return;
@@ -91,7 +92,13 @@ if (!app.requestSingleInstanceLock()) {
       });
   });
 
-  void app.whenReady().then(boot);
+  void app.whenReady().then(() => {
+    registerIpc();
+    // A menu before the server is up, so the window is never menu-less; rebuilt
+    // once it is (and after every vault change, from vault.ts).
+    buildMenu();
+    return boot();
+  });
 
   app.on("activate", () => {
     // Dock click with no window: macOS convention is to make one. The server

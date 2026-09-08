@@ -1,5 +1,6 @@
 {
   "name": "desktop",
+  "productName": "Octo",
   "version": "0.1.0",
   "private": true,
   "description": "Octo Desktop \u2014 the standalone editor as a native app with a working folder",
