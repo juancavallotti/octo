@@ -5,10 +5,10 @@ description: "Validate input with CEL rules and protect endpoints with JWT."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-In this guide you guard flows with two filter blocks: `validate` rejects
-messages that fail CEL rules, and `jwt-validate` rejects requests without a
-valid bearer token. Both follow the same pattern — on failure they stop the
-flow and answer for it, so the rest of the chain never runs. They follow
+Guard flows with two filter blocks: `validate` rejects messages that fail CEL
+rules, and `jwt-validate` rejects requests without a valid bearer token. On
+failure both stop the flow and answer for it, so the rest of the chain never
+runs. They follow
 [`samples/validate.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/validate.yaml)
 and
 [`samples/jwt-validate.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/jwt-validate.yaml).
@@ -63,7 +63,7 @@ bin/octo invoke --config samples/validate.yaml --flow order \
 ### Shape the rejection yourself
 
 The failing rules' messages are also exposed as `vars.validationErrors`, and an
-optional `onReject` sub-flow replaces the built-in response — set your own body
+optional `onReject` sub-flow replaces the built-in response with your own body
 and `httpStatus`:
 
 ```yaml
@@ -82,11 +82,10 @@ The `jwt-validate` block verifies a bearer JWT on an HTTP request. If the token
 is missing or invalid it stops the flow with a 401; on success it injects the
 verified claims into vars so downstream blocks can authorize on them.
 
-Two source settings make it work end to end: the block reads the token from a
-header variable, so the route must copy `Authorization` into vars
-(`headers: [Authorization]`); and the rejection sets a `WWW-Authenticate`
-challenge in vars, which is only emitted if the route lists it in
-`responseHeaders`.
+Two source settings make it work end to end. The block reads the token from a
+header variable, so the route must copy `Authorization` into vars with
+`headers: [Authorization]`. The rejection sets a `WWW-Authenticate` challenge in
+vars, which is only emitted if the route lists it in `responseHeaders`.
 
 ```yaml
 flows:
@@ -120,9 +119,8 @@ With `mode: discover` (the default) the block resolves signing keys by OIDC
 discovery from the issuer (`<issuer>/.well-known/openid-configuration`). Use
 `mode: jwks` with a `jwksUrl` to fetch a JWKS directly, or `mode: inline` with
 a `publicKey` (or `publicKeyResource`) when no network is available. When set,
-`audience` is checked against the token's `aud` claim. Keys are resolved
-lazily on the first request, so a briefly unreachable provider does not fail
-startup.
+`audience` is checked against the token's `aud` claim. Keys resolve lazily on the
+first request, so a briefly unreachable provider does not fail startup.
 
 On success, the verified claims land in the variable named by `claimsVar`
 (default `jwt`) and the subject in `vars.sub`. On failure, the built-in 401 can
@@ -131,7 +129,7 @@ the challenge header.
 
 ## Advertise how to authenticate (RFC 9728)
 
-For clients that discover auth dynamically — MCP clients in particular — the
+For clients that discover auth dynamically (MCP clients in particular) the
 sample also serves a Protected Resource Metadata document naming the
 authorization server. The `resourceMetadataUrl` setting above adds a
 `resource_metadata` pointer to the `WWW-Authenticate` challenge, and a second,
@@ -155,7 +153,7 @@ unprotected flow serves the document itself:
 ```
 
 A rejected client reads the challenge, fetches the metadata, learns which
-authorization server to use, obtains a token, and retries.
+authorization server to use, gets a token, and retries.
 
 <Callout type="info">
 This is exactly the flow the MCP authorization spec requires of a protected
@@ -184,7 +182,7 @@ curl -H "Authorization: Bearer <token>" localhost:8080/me
 
 ## Where to go next
 
-- [MCP Auth](/ai/mcp-auth) — protect an MCP server with this same block.
-- [Build a REST API](/guides/rest-api) — the HTTP source settings used here.
-- [Control-flow blocks reference](/reference/blocks/control-flow) — validate and the other filters.
-- [Expressions](/concepts/expressions) — the CEL rules can use anything on the message.
+- [MCP Auth](/ai/mcp-auth): protect an MCP server with this same block.
+- [Build a REST API](/guides/rest-api): the HTTP source settings used here.
+- [Control-flow blocks reference](/reference/blocks/control-flow): validate and the other filters.
+- [Expressions](/concepts/expressions): the CEL rules can use anything on the message.

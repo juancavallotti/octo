@@ -5,31 +5,28 @@ description: "Authenticate a signed webhook from any provider with HMAC in CEL."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A webhook endpoint is a public URL that acts on whatever it is sent. The only
-thing separating a real delivery from a forged one is the signature the provider
-puts in a header — so verifying it is not a hardening step, it is the endpoint's
-authentication.
+A webhook endpoint is a public URL that acts on whatever it is sent. The
+signature the provider puts in a header is the only thing separating a real
+delivery from a forged one, so verifying it is the endpoint's authentication.
 
 Octo has dedicated blocks for [Slack](/reference/connectors/slack) and
-[Notion](/reference/connectors/notion). This guide is for everyone else: GitHub,
-Stripe, Shopify, Twilio, and whatever you are integrating that has none. It uses
-four CEL functions and no provider-specific code, so a scheme nobody has
-implemented yet is a `validate` rule away.
-
-The worked example is
+[Notion](/reference/connectors/notion). This guide covers everyone else: GitHub,
+Stripe, Shopify, Twilio, and anything with no block of its own. It uses four CEL
+functions and no provider-specific code, so a scheme nobody has implemented yet
+is a `validate` rule away. The worked example is
 [`samples/github-webhook.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/github-webhook.yaml).
 
 <Callout type="warn">
   An unguessable URL is not authentication. A secret in a path lands in proxy
-  logs, in browser history, and in every redirect it passes through — and it
+  logs, in browser history, and in every redirect it passes through, and it
   cannot be rotated without reconfiguring the sender.
 </Callout>
 
 ## What every scheme has in common
 
-Providers differ in only three ways: **which bytes are signed**, **how the digest
-is rendered**, and **what prefixes it**. All three are things an expression can
-say, which is why this needs no block:
+Providers differ in only three ways: which bytes are signed, how the digest is
+rendered, and what prefixes it. All three are things an expression can say, which
+is why this needs no block:
 
 | Provider | Signed payload | Header value |
 | --- | --- | --- |
@@ -40,8 +37,7 @@ say, which is why this needs no block:
 
 ## Capture the exact bytes
 
-This is the step that catches people out. A signature covers the bytes the
-provider sent, so the flow has to keep them:
+A signature covers the bytes the provider sent, so the flow has to keep them:
 
 ```yaml
 source:
@@ -58,7 +54,7 @@ source:
 ```
 
 Without `rawBodyVar`, the parsed body is all that survives, and re-serializing it
-reorders keys and drops whitespace — so the HMAC would never match no matter how
+reorders keys and drops whitespace, so the HMAC would never match no matter how
 correct it was.
 
 ## Verify before anything else runs
@@ -76,21 +72,21 @@ correct it was.
       message: invalid webhook signature
 ```
 
-Three details in that rule are load-bearing:
+Three details in that rule are load-bearing.
 
-**`secureCompare`, never `==`.** CEL's `==` on strings stops at the first
-differing byte, and how long it took to stop is observable. Over enough requests
-that is a way to learn the expected signature one byte at a time.
-[`secureCompare`](/reference/cel/octo-extensions#securecompare) does not leak it.
+Use [`secureCompare`](/reference/cel/octo-extensions#securecompare), never `==`.
+CEL's `==` on strings stops at the first differing byte, and how long it took to
+stop is observable, so over enough requests an attacker learns the expected
+signature one byte at a time.
 
-**The prefix is compared, not stripped.** Building the expected value as
-`"sha256=" + …` means a request that omits the prefix fails. Stripping it off the
+The prefix is compared rather than stripped. Building the expected value as
+`"sha256=" + …` means a request that omits the prefix fails; stripping it off the
 incoming value instead would accept a bare digest.
 
-**The `in` guard makes a missing header a rejection, not a failure.** Reading an
-absent variable is an evaluation error, which fails the flow and answers `500` —
-the one status a webhook sender will retry for hours. Guarded, it is a plain
-`false`, and a `false` here is the `401` you wanted.
+The `in` guard turns a missing header into a rejection. Reading an absent variable
+is an evaluation error, which fails the flow and answers `500`, the one status a
+webhook sender will retry for hours. Guarded, it is a plain `false`, which is the
+`401` you wanted.
 
 <Callout>
   `has()` will not do the guarding: it takes a field selection, and a header name
@@ -99,8 +95,8 @@ the one status a webhook sender will retry for hours. Guarded, it is a plain
 
 ## Authentication is not authorization
 
-Once the signature checks out you know the message really came from the provider.
-You still do not know it is one you should act on:
+A verified signature says the message came from the provider, not that it is one
+you should act on:
 
 ```yaml
 - type: validate
@@ -111,14 +107,14 @@ You still do not know it is one you should act on:
       message: webhook repository is not juancavallotti/octo
 ```
 
-Keep them as separate blocks with separate statuses. A `401` says "I do not
-believe you sent this"; a `403` says "I believe you, and I am still not doing it."
+Keep them as separate blocks with separate statuses: `401` for a sender you
+cannot verify, `403` for a verified sender whose request you will not act on.
 
 ## Timestamps and replay
 
 Slack and Stripe sign a timestamp along with the body, so a captured request can
-be bounded rather than replayed forever. `now` is already in scope, so the check
-is an ordinary rule alongside the signature:
+be bounded rather than replayed forever. `now` is in scope, so the check is an
+ordinary rule alongside the signature:
 
 ```yaml
 - expr: >
@@ -129,8 +125,8 @@ is an ordinary rule alongside the signature:
 ```
 
 Bound it in **both** directions. A one-sided `now - ts < 5m` passes for any
-timestamp in the future, so a captured request re-sent with a far-future
-timestamp sails through the check that was supposed to stop exactly that.
+future timestamp, so a captured request re-sent with a far-future timestamp would
+sail through.
 
 ## Other providers
 
@@ -146,9 +142,9 @@ Slack, with the timestamped payload and a `v0=` prefix:
         "v0:" + vars["X-Slack-Request-Timestamp"] + ":" + vars.rawBody)))
 ```
 
-Shopify, which renders the digest as base64 — already available from the
-[encoder library](/reference/cel/libraries), which is why `hmacSha256` returns
-bytes and rendering is a separate step:
+Shopify, which renders the digest as base64 from the
+[encoder library](/reference/cel/libraries). `hmacSha256` returns bytes and
+rendering is a separate step, so the same call serves both schemes:
 
 ```yaml
 - expr: >
@@ -163,21 +159,20 @@ with the [strings library](/reference/cel/libraries) before comparing.
 
 ## Test it
 
-GitHub's scheme signs the body alone, with no timestamp — which means a signature
-committed next to its payload never goes stale, so a test suite can exercise the
-**accept** path rather than only proving that nothing unverifiable got through.
-`samples/github-webhook_test.yaml` does exactly that, with vectors produced by:
+GitHub's scheme signs the body alone, with no timestamp, so a signature committed
+next to its payload never goes stale and a test suite can exercise the **accept**
+path. `samples/github-webhook_test.yaml` does that, with vectors produced by:
 
 ```bash
 SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -r | cut -d' ' -f1)"
 ```
 
-The `cut` is not decoration: `openssl dgst -r` prints the digest followed by
-` *stdin`, and a signature carrying that suffix never verifies.
+The `cut` matters: `openssl dgst -r` prints the digest followed by ` *stdin`, and
+a signature carrying that suffix never verifies.
 
-Then run it end to end. Send it as JSON — with a bare `-d`, curl sets
+Then run it end to end. Send it as JSON: with a bare `-d`, curl sets
 `application/x-www-form-urlencoded` and the flow has no `body.repository` to
-read:
+read.
 
 ```bash
 curl -i localhost:8080/github/hook \

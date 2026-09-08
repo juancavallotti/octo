@@ -7,16 +7,14 @@ import { Callout } from 'fumadocs-ui/components/callout';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Puzzle, Radio, Server } from 'lucide-react';
 
-Octo ships two in-runtime messaging primitives: **events** broadcast a message to
-every subscriber, and **queues** deliver each message to exactly one competing
-consumer. This guide builds one flow of each kind and explains when to reach for
-which.
+**Events** broadcast a message to every subscriber; **queues** deliver each
+message to exactly one competing consumer. This guide builds one flow of each.
 
 ## Broadcast with events
 
 `publish-event` broadcasts the current message to a subject, and every flow with
-an `events` source on that subject receives its own copy — fan-out, not
-load balancing.
+an `events` source on that subject receives its own copy: fan-out, not load
+balancing.
 [`samples/events.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/events.yaml)
 wires one publisher to two subscribers:
 
@@ -25,7 +23,7 @@ flows:
   # Publisher: fire on a schedule and broadcast a notification.
   - name: emitter
     source:
-      type: cron                 # implicit connector — no instance needed
+      type: cron                 # implicit connector, no instance needed
       settings:
         schedule: "@every 3s"
         payload: '{"tick": string(now)}'
@@ -39,7 +37,7 @@ flows:
   # Subscriber A: receives every notification broadcast to the subject.
   - name: subscriber-a
     source:
-      type: events               # implicit connector — no instance needed
+      type: events               # implicit connector, no instance needed
       settings:
         subject: notifications
     process:
@@ -59,23 +57,18 @@ octo run --config samples/events.yaml
 #   "subscriber B saw tick ..."
 ```
 
-Two details worth noting:
+The `subject` in `publish-event` is a CEL expression: quote a constant
+(`'"notifications"'`) or compute it per message (`'"orders." + vars.region'`).
+Neither side declares a connector instance, because `events` has no global
+settings and the runtime resolves an implicit one on demand.
 
-- The `subject` in `publish-event` is a CEL expression — quote a constant
-  (`'"notifications"'`) or compute it per message
-  (`'"orders." + vars.region'`).
-- Neither side declares a connector instance: `events` has no global settings,
-  so the runtime resolves an implicit one on demand.
-
-Broadcast is the right shape when subscribers are independent reactions to the
-same fact: one event updates a cache, another sends a notification, a third
-records metrics. Adding a subscriber never affects the ones already there.
+Broadcast fits independent reactions to the same fact (update a cache, send a
+notification, record metrics); adding a subscriber never affects the others.
 
 ## Load-balance with queues
 
-Queues invert the delivery guarantee: subscribers on a subject become
-**competing consumers**, and each message is handled by exactly one of them —
-cluster-wide.
+With queues, subscribers on a subject become **competing consumers**, and each
+message is handled by exactly one of them, cluster-wide.
 [`samples/queue-loadbalance.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/queue-loadbalance.yaml)
 uses this as the cross-replica analogue of `flow-ref`: an HTTP flow hands work to
 worker flows through queue subjects instead of calling them in-process.
@@ -103,7 +96,7 @@ Each worker is an ordinary flow fronted by a `queue` source:
 ```yaml title="samples/queue-loadbalance.yaml (excerpt)"
 - name: order-enricher
   source:
-    type: queue                    # implicit connector — no instance needed
+    type: queue                    # implicit connector, no instance needed
     settings:
       subject: enrich-work
       listeners: 8                 # concurrent handlers on this replica
@@ -130,16 +123,14 @@ curl -s -X POST localhost:8080/api/v1/orders/42 \
   -d '{"item":"widget","amount":1500}'
 ```
 
-The semantics mirror `flow-ref`:
-
-- **Default dispatch** publishes and moves on — the queue-side `oneWay`. The
-  `order-auditor` worker runs purely for its side effect.
-- **`awaitReply: true`** opts into request/reply: whichever consumer is free
-  handles the message, and its final body and variables are folded back into
-  the dispatching flow before the next block runs.
-- **`listeners`** on the `queue` source sets how many messages one replica
-  handles concurrently; run more replicas of the whole service and the queue
-  spreads messages across all of them.
+The semantics mirror `flow-ref`. The default dispatch publishes and moves on,
+the queue-side counterpart of `oneWay`; the `order-auditor` worker runs purely
+for its side effect. `awaitReply: true` opts into request/reply: whichever
+consumer is free handles the message, and its final body and variables are
+folded back into the dispatching flow before the next block runs. An optional
+`timeout` (e.g. `30s`) bounds that wait. `listeners` on the `queue` source sets
+how many messages one replica handles concurrently; run more replicas of the
+whole service and the queue spreads messages across all of them.
 
 <Callout type="warn">
   Queue delivery is exactly-once-per-message across the cluster, but there is no
@@ -153,22 +144,20 @@ The semantics mirror `flow-ref`:
 | --- | --- | --- |
 | Delivery | Every subscriber gets every message | Exactly one consumer per message |
 | Shape | Fan-out, reactions to a fact | Work distribution, load balancing |
-| Reply | None — one-way by nature | Optional with `awaitReply` |
+| Reply | None, one-way by nature | Optional with `awaitReply` |
 | Scaling replicas | Every replica's subscribers all fire | Replicas share the load |
 | Blocks | `publish-event` + `events` source | `queue-dispatch` + `queue` source |
 
-A useful rule of thumb: if losing a second subscriber would change the meaning
-of your system, you wanted a queue; if adding a fifth subscriber should be free,
-you wanted events.
+If losing a second subscriber would change the meaning of your system, you
+want a queue; if adding a fifth subscriber should be free, you want events.
 
 ## What backs them
 
-Neither primitive requires infrastructure of yours. In the standalone module
-(`octo run` on your machine) both are in-process. Deployed on the platform, the
-same YAML is NATS-backed: events become a plain pub/sub subscription that reaches
-every replica, and queues become NATS queue subscriptions with competing
-consumers cluster-wide. See [Clustering](/runtime/clustering) for how the
-services module swap works.
+In the standalone module (`octo run` on your machine) both are in-process. On
+the platform the same YAML is NATS-backed: events become a plain pub/sub
+subscription that reaches every replica, and queues become NATS queue
+subscriptions with competing consumers cluster-wide. See
+[Clustering](/runtime/clustering).
 
 ## Where to go next
 

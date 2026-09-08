@@ -9,7 +9,7 @@ import { Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Glo
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
 Each one walks through a working flow YAML, explains the pieces as it builds
-them up, and gives you the exact commands to run and test it — most samples need
+them up, and gives you the exact commands to run and test it. Most samples need
 zero setup beyond the `octo` binary.
 
 ## HTTP & APIs
@@ -35,6 +35,9 @@ zero setup beyond the `octo` binary.
   <Card icon={<Shuffle />} href="/guides/transforming-data" title="Transforming Data">
     Reshape payloads with multi-transform, enrich scopes, and CEL.
   </Card>
+  <Card icon={<Waypoints />} href="/guides/splitting-and-aggregating" title="Splitting and Aggregating">
+    Process a collection element by element, then re-join the results.
+  </Card>
   <Card icon={<ShieldCheck />} href="/guides/validation-and-auth" title="Validation and Auth">
     Validate input with CEL rules and protect endpoints with JWT.
   </Card>
@@ -42,7 +45,7 @@ zero setup beyond the `octo` binary.
     Authenticate a signed webhook from any provider with HMAC in CEL.
   </Card>
   <Card icon={<Bug />} href="/guides/debugging-flows" title="Debugging a Flow">
-    Stop at any block and inspect the message — or learn the block was never reached.
+    Stop at any block and inspect the message, or learn the block was never reached.
   </Card>
   <Card icon={<FlaskConical />} href="/testing" title="Testing Flows">
     Write a flow's tests beside it, mock what calls the world, and run them in CI.
@@ -110,6 +113,9 @@ zero setup beyond the `octo` binary.
   </Card>
   <Card icon={<UserCheck />} href="/guides/human-in-the-loop" title="Human in the Loop">
     Make an agent ask a person before it runs a tool, and handle nobody answering.
+  </Card>
+  <Card icon={<Radar />} href="/guides/agentic-self-healing" title="Agentic Self-Healing">
+    Turn a platform alert into an agent that triages it and fixes it with permission.
   </Card>
   <Card icon={<Sparkles />} href="/ai" title="The AI section">
     The full AI documentation: agents, memory, skills, routing, and MCP.

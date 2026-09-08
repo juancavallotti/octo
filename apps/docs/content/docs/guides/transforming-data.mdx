@@ -5,10 +5,10 @@ description: "Reshape payloads with multi-transform, enrich scopes, and CEL."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-In this guide you reshape message data four ways: chain ordered edits with
-`multi-transform`, compute in isolation with `enrich`, branch and iterate with
-`if`, `foreach`, and `switch`, and do the whole job in one expression with the
-CEL extension libraries. It follows
+Reshape message data four ways: chain ordered edits with `multi-transform`,
+compute in isolation with `enrich`, branch and iterate with `if`, `foreach` and
+`switch`, or do the whole job in one expression with the CEL extension
+libraries. It follows
 [`samples/multi-transform.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/multi-transform.yaml),
 [`samples/enrich.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/enrich.yaml),
 [`samples/builtins-demo.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/builtins-demo.yaml),
@@ -22,9 +22,8 @@ message payload), `vars` (the variables), plus `eventID` and `correlationID`.
 
 `multi-transform` applies an ordered list of CEL edits in one block. Each step
 either replaces the body (`setBody`) or sets a variable (`setVar` + `value`),
-and the edits are **additive**: a later step reads what an earlier one
-produced. A whole chain of `set-payload` / `set-variable` blocks collapses into
-one.
+and the edits are **additive**: a later step reads what an earlier one produced,
+so a whole chain of `set-payload` / `set-variable` blocks collapses into one.
 
 ```yaml
 flows:
@@ -48,26 +47,26 @@ flows:
           message: '"order " + body.orderId + " subtotal=" + string(body.subtotal) + " total=" + string(body.total)'
 ```
 
-The flow has no source, so you call it directly with `octo invoke`:
+The flow has no source, so call it directly with `octo invoke`:
 
 ```bash
 bin/octo invoke --config samples/multi-transform.yaml --flow order \
   --data '{"orderId":"A-1","qty":3,"price":10.0}'
 ```
 
-It logs `order A-1 subtotal=30 total=33` — step 3 read the variable step 2 set
+It logs `order A-1 subtotal=30 total=33`: step 3 read the variable step 2 set
 from the body step 1 built.
 
 ## Compute in isolation with enrich
 
 `enrich` runs a body sub-flow on an **isolated scope** of the message, then
-merges back only what you name: `setBody` rewrites the original body from the
-scope's result, `setVars` pulls named values out. Everything else the scope did
-— scratch variables, intermediate bodies — stays inside.
+merges back only what you name. `setBody` rewrites the original body from the
+scope's result and `setVars` pulls named values out. Everything else the scope
+did (scratch variables, intermediate bodies) stays inside.
 
-Here the scope freely replaces its body with a summary and sets a scratch
-variable, but only the computed total escapes; `setBody` is omitted, so the
-original order body survives untouched:
+Here the scope replaces its body with a summary and sets a scratch variable, but
+only the computed total escapes. `setBody` is omitted, so the original order body
+survives untouched:
 
 ```yaml
 flows:
@@ -88,7 +87,7 @@ flows:
             - type: set-payload
               name: summary
               settings:
-                # The scope rebinds its own body; it stays isolated.
+                # The scope rewrites the body on its clone; it stays isolated.
                 value: '{"total": body.qty * body.price, "note": "scope-only body"}'
       - type: log
         name: emit
@@ -103,9 +102,9 @@ bin/octo invoke --config samples/enrich.yaml --flow order \
 ```
 
 It logs `order A-1 total=30` and returns the order body untouched, with `total`
-among the printed message's `variables` — where `enrich` put it. Use `enrich`
-when a lookup or computation needs elbow room without polluting the message —
-`multi-transform` when you want the edits to land directly.
+among the printed message's `variables`. Use `enrich` when a computation needs
+room without polluting the message, and `multi-transform` when the edits should
+land directly.
 
 ## Branch and iterate
 
@@ -173,11 +172,10 @@ tours them in one flow:
           name: threshold
 ```
 
-- **`if`** takes one `condition` and a `then` / `else` sub-flow.
-- **`foreach`** evaluates `items` to a list and runs its `body` once per
-  element, binding each to the variable named by `as` (here `vars.order`).
-- **`switch`** evaluates its `when` cases in order and runs the first match, or
-  `default`.
+`if` takes one `condition` and a `then` / `else` sub-flow. `foreach` evaluates
+`items` to a list and runs its `body` once per element, binding each to the
+variable named by `as` (here `vars.order`; the default name is `item`). `switch`
+evaluates its `when` cases in order and runs the first match, or `default`.
 
 Run it and watch each tick classify the two orders:
 
@@ -188,9 +186,9 @@ bin/octo run --config samples/builtins-demo.yaml
 ## Skip the loop with the extension libraries
 
 Before adding a `foreach`, check whether one expression does it. Octo enables
-cel-go's utility libraries in every expression field, and most reshaping —
-cleaning strings, sorting, de-duplicating, indexing a list by a key, pulling a
-value out of free text — is a one-liner with them.
+cel-go's utility libraries in every expression field, so cleaning strings,
+sorting, de-duplicating, indexing a list by a key and pulling a value out of free
+text are one-liners.
 [`samples/cel-extensions.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/cel-extensions.yaml)
 normalizes a messy inbound order with no loop at all:
 
@@ -218,29 +216,27 @@ bin/octo invoke --config samples/cel-extensions.yaml --flow normalize \
 # -> logs "order 1042 (eu-west): 2 lines, top line 59.97, roles admin, billing"
 ```
 
-The prices are in integer cents on purpose: a JSON number is a binary double,
-so a decimal price cannot be held exactly and rounding it back into shape
-loses a cent on some values. See the
-[warning under Math](/reference/cel/libraries#math).
+Prices are in integer cents because a JSON number is a binary double: a decimal
+price cannot be held exactly, and rounding it back into shape loses a cent on
+some values. See the [warning under Math](/reference/cel/libraries#math).
 
-See [Extension Libraries](/reference/cel/libraries) for the full vocabulary —
-strings, lists, encoders, math, two-variable comprehensions, sets, and regex —
-and for what is deliberately left out (there is no `sum`, so totalling a list
-still wants the `foreach` above).
+[Extension Libraries](/reference/cel/libraries) has the full vocabulary (strings,
+lists, encoders, math, two-variable comprehensions, sets, and regex) and what is
+deliberately left out: there is no `sum`, so totalling a list still wants the
+`foreach` above.
 
 ## Convert between text formats
 
-When a payload arrives as text — a YAML config, a `.env` file, a form body —
+When a payload arrives as text (a YAML config, a `.env` file, a form body),
 parse it with one expression instead of reaching for a block. Each format has a
 parser and a renderer: `fromJson`/`toJson`, `fromFormData`/`toFormData`,
 `fromYaml`/`toYaml`, and `fromEnv`/`toEnv`. Put the call in `set-payload` when the
-result becomes the body, or in `set-variable` when you want to keep the body and
-hold the rendered text for a later block.
+result becomes the body, or in `set-variable` to keep the body and hold the
+rendered text for a later block.
 
-Parse on the way in, work with an ordinary body, and render on the way out — as
+Parse on the way in, work with an ordinary body, and render on the way out.
 [`samples/text-formats.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/text-formats.yaml)
-does, reading a YAML service config and emitting its deployment settings as
-`.env` content:
+reads a YAML service config and emits its deployment settings as `.env` content:
 
 ```yaml
 - type: set-payload
@@ -260,11 +256,11 @@ bin/octo invoke --config samples/text-formats.yaml --flow render-config \
   --data '{"yaml": "name: billing\nreplicas: 3\nenv:\n  DB_HOST: db.internal\n  DEBUG: false\n"}'
 ```
 
-Expect two things when you write against the parsed body. Treat a YAML integer as
-a number — `fromYaml` normalizes to the JSON-native shapes a body may hold, so a
-YAML timestamp arrives as its RFC 3339 string too. And compare `fromEnv` values
-as strings, with `body.PORT == "8080"`, or convert them with `int(body.PORT)`,
-since an env file carries no types. See
+Expect two things when you write against the parsed body. `fromYaml` normalizes
+to the JSON-native shapes a body may hold, so a YAML integer arrives as a number
+and a YAML timestamp as its RFC 3339 string. An env file carries no types, so
+compare `fromEnv` values as strings with `body.PORT == "8080"`, or convert them
+with `int(body.PORT)`. See
 [Octo Extensions](/reference/cel/octo-extensions) for the full set.
 
 ## CEL patterns worth stealing
@@ -285,8 +281,8 @@ value: 'body.items.sortBy(i, i.amount).reverse().slice(0, 3).map(i, i.name)'
 
 ## Where to go next
 
-- [Expressions](/concepts/expressions) — how CEL is wired through Octo.
-- [CEL reference](/reference/cel) — the language, macros, and Octo's extensions.
-- [Extension Libraries](/reference/cel/libraries) — strings, lists, math, sets, regex.
-- [Data blocks reference](/reference/blocks/data) — set-payload, set-variable, multi-transform, enrich.
-- [Composing Flows](/guides/composing-flows) — factor transforms into reusable flows.
+- [Expressions](/concepts/expressions): how CEL is wired through Octo.
+- [CEL reference](/reference/cel): the language, macros, and Octo's extensions.
+- [Extension Libraries](/reference/cel/libraries): strings, lists, math, sets, regex.
+- [Data blocks reference](/reference/blocks/data): set-payload, set-variable, multi-transform, enrich.
+- [Composing Flows](/guides/composing-flows): factor transforms into reusable flows.
