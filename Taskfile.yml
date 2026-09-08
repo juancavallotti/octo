@@ -28,6 +28,9 @@ includes:
   standalone:
     taskfile: ./apps/standalone/Taskfile.yml
     dir: ./apps/standalone
+  desktop:
+    taskfile: ./apps/desktop/Taskfile.yml
+    dir: ./apps/desktop
   orchestrator:
     taskfile: ./orchestrator/Taskfile.yml
     dir: ./orchestrator
@@ -111,6 +114,9 @@ tasks:
       - task: runtime:test:embeddings
       - task: platform:test
       - task: standalone:test
+      # The desktop shell: main-process logic only (the editor it wraps is tested
+      # by standalone:test above, and is the same build either way).
+      - task: desktop:test
       - task: orchestrator:test
       - task: observability:test
       - task: sidecars:test
@@ -145,6 +151,9 @@ tasks:
       - task: runtime:lint
       - task: platform:lint
       - task: standalone:lint
+      # apps/desktop carries no eslint config — the repo lints only the two Next
+      # apps, which get one from eslint-config-next. tsc is the real check here.
+      - task: desktop:typecheck
       - task: orchestrator:lint
       - task: observability:lint
       - task: sidecars:lint

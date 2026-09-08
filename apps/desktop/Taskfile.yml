@@ -1,0 +1,47 @@
+version: '3'
+
+# Tasks for Octo Desktop — the standalone editor wrapped as a native app that
+# opens a working folder. Included from the root Taskfile under the `desktop:`
+# namespace (working dir apps/desktop/). Dependencies install at the workspace
+# root via pnpm (`pnpm install`).
+#
+# The shape to hold on to: this app builds NOTHING of the editor. It stages the
+# already-built Next standalone output and the already-built Go binaries, and adds
+# a window. Every task here is therefore either a copy or an Electron invocation.
+
+includes:
+  runtime:
+    taskfile: ../../runtime/Taskfile.yml
+    dir: ../../runtime
+  standalone:
+    taskfile: ../standalone/Taskfile.yml
+    dir: ../standalone
+
+tasks:
+  install:
+    desc: Install the workspace dependencies (pnpm, run from the repo root)
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - pnpm install
+
+  build:
+    desc: Bundle the Electron main and preload processes into dist/
+    cmds:
+      - pnpm run build
+
+  typecheck:
+    desc: Typecheck the desktop app
+    cmds:
+      - pnpm run typecheck
+
+  test:
+    desc: Run the desktop app's unit tests
+    cmds:
+      - pnpm run test
+
+  dev:
+    desc: Build and run Octo Desktop, rebuilding on change
+    deps:
+      - build
+    cmds:
+      - pnpm run dev

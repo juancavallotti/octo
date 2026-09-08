@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Octo</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body {
+    height: 100%; margin: 0;
+    display: flex; align-items: center; justify-content: center;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #fafaf9; color: #57534e;
+  }
+  @media (prefers-color-scheme: dark) { html, body { background: #1c1917; color: #a8a29e; } }
+  .wrap { text-align: center; }
+  .mark { font-size: 34px; line-height: 1; margin-bottom: 14px; }
+  .msg { font-size: 13px; }
+  .hint { font-size: 11px; opacity: .65; margin-top: 6px; min-height: 1.5em; }
+  /* The dots only appear once the wait stops feeling instant, so a fast start
+     shows a still frame rather than a flash of animation. */
+  .dots::after {
+    content: ""; animation: dots 1.2s steps(4, end) infinite; animation-delay: .6s;
+  }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+</style>
+<div class="wrap">
+  <div class="mark">🐙</div>
+  <div class="msg dots" id="msg">Starting Octo</div>
+  <div class="hint" id="hint"></div>
+</div>
+<script>
+  // Narrated from the main process with executeJavaScript — see splashHint() in
+  // src/main/window.ts. Defined here so the call site stays a one-liner, and so
+  // this page needs no preload script (it deliberately runs with no bridge).
+  window.octoSplashHint = (text) => {
+    document.getElementById("hint").textContent = text || "";
+  };
+</script>

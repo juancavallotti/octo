@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // Main and preload run in Electron's Node (24.x on Electron 44), not a
+    // browser and not a bundler's module graph — so this is the one workspace
+    // package that resolves modules the way Node does.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "*.mjs", "*.config.ts"],
+  "exclude": ["node_modules", "dist", "build"]
+}
