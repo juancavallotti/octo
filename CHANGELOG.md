@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.11.1](https://github.com/juancavallotti/octo/compare/v0.11.0...v0.11.1) (2026-09-08)
+
+
+### Features
+
+* **agent:** teach Dr. Octo to create platform alerts ([c4dc224](https://github.com/juancavallotti/octo/commit/c4dc22477c2f6117ef66c65243fa781dac8aeb8d))
+* **observability:** roll thinking tokens up into trace_summaries ([110f82c](https://github.com/juancavallotti/octo/commit/110f82c5fd2c22ece5adbfd3f72fd9f486faca1e)), closes [#262](https://github.com/juancavallotti/octo/issues/262)
+
+
+### Bug Fixes
+
+* **agent:** stop the troubleshooter on recovery notifications ([146fe8a](https://github.com/juancavallotti/octo/commit/146fe8a73283e32d76b7fc491f68abc1ecdaebc4))
+* observability fixes, and Dr. Octo can create alerts ([#443](https://github.com/juancavallotti/octo/issues/443), [#262](https://github.com/juancavallotti/octo/issues/262)) ([f141e6f](https://github.com/juancavallotti/octo/commit/f141e6f31d07ca27ec98a904ee08b5253bbb0e5f))
+* **runtime:** make ai-agent tool calls readable in the log viewer ([f3d62bd](https://github.com/juancavallotti/octo/commit/f3d62bdea9c78c4f7224493c52d4d90a86a89df2)), closes [#443](https://github.com/juancavallotti/octo/issues/443)
+* the review findings ([5c0557b](https://github.com/juancavallotti/octo/commit/5c0557b2797100fda659c5daffc70661ad3ea434))
+
+
+### Refactoring
+
+* **agent:** collapse block chains in the troubleshooter flow ([de7c765](https://github.com/juancavallotti/octo/commit/de7c765ffdf6cac35e0aabdf4cc60be13e67dbc2))
+
+
+### Documentation
+
+* count four ways to run Octo, not three ([470ea24](https://github.com/juancavallotti/octo/commit/470ea24b7843e882550b37aec4d54a33099a3042))
+* **diagrams:** keep the excalidraw sources, and render them here ([efc6b58](https://github.com/juancavallotti/octo/commit/efc6b5802614c887358261e6bb469a07cfdfab89))
+* draw agent memory and the KV tiers ([a3517f8](https://github.com/juancavallotti/octo/commit/a3517f85cb7ddacbf044a369ba5b21b386119a7d))
+* **getting-started:** unit-test a flow as part of the loop ([b6553e8](https://github.com/juancavallotti/octo/commit/b6553e8584ddf9a8062c2d0716846b14a87d62e3))
+* **guides:** agentic self-healing, from an alert to a person in Slack ([c317786](https://github.com/juancavallotti/octo/commit/c317786ad4bfd5a14b1550578bb4489e08b4551d))
+* **platform:** the self-healing loop, as one page ([3858bef](https://github.com/juancavallotti/octo/commit/3858bef99effc23da03787e52723af5d99018501))
+* show the monitoring views ([f57dfc7](https://github.com/juancavallotti/octo/commit/f57dfc7bca45680be983c62150cd6036654e55cd))
+* tidy ai ([8ceb061](https://github.com/juancavallotti/octo/commit/8ceb061fc6cf37d3c0798f31c7bac45c50c4b902))
+* tidy deploy ([ed83966](https://github.com/juancavallotti/octo/commit/ed83966159f51a554ed22ee5f31be19d91d9b82d))
+* tidy getting-started and concepts ([e1c649e](https://github.com/juancavallotti/octo/commit/e1c649e3628a7ea4630cd6dce7fd7437b1622f95))
+* tidy guides ([15101d4](https://github.com/juancavallotti/octo/commit/15101d48550386b1609507092291fd662bf37af5))
+* tidy platform and editor ([74894fc](https://github.com/juancavallotti/octo/commit/74894fc4c40e841df74c45ec5a8273e69360afa2))
+* tidy reference ([9a2d4c0](https://github.com/juancavallotti/octo/commit/9a2d4c06c79129abca76eab8404095de2438c970))
+* tidy runtime and extending ([b2db260](https://github.com/juancavallotti/octo/commit/b2db260f34b298355dd30bbdbe7fb09ee95b98c4))
+* tidy testing ([ebb5514](https://github.com/juancavallotti/octo/commit/ebb5514d4a91445b7dc34be7078f2c8a9806d9c9))
+* tidy the whole corpus, and start drawing it ([319927b](https://github.com/juancavallotti/octo/commit/319927b6f999b8bd2e93a15f3574b59216d9438f))
+
 ## [0.11.0](https://github.com/juancavallotti/octo/compare/v0.10.0...v0.11.0) (2026-09-07)
 
 
