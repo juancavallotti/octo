@@ -5,22 +5,25 @@ description: "Authoring, organizing, and managing integrations on the platform."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-On the platform, an integration is a named [flow definition](/reference/flow-file) stored in Postgres: a display name plus the raw runtime YAML. This page covers the integration record itself — its lifecycle, naming, attribution, and folder organization. Versioning is covered in [Snapshots](/platform/snapshots) and running in [Deployments](/platform/deployments).
+On the platform, an integration is a named [flow definition](/reference/flow-file) stored in Postgres: a display name plus the raw runtime YAML. This page covers the integration record itself: its lifecycle, naming, attribution, and folder organization. Versioning is covered in [Snapshots](/platform/snapshots) and running in [Deployments](/platform/deployments).
 
 ![The integrations list organized into folders](/screenshots/platform-integrations.png)
 
 ## The integration record
 
-Each integration row carries:
+Each integration row carries four things.
 
-- **`id`** — a UUID, the durable handle everything else (folders, snapshots, resources, deployments) references.
-- **`name`** — required, at most 200 characters, and **unique case-insensitively across the platform**. Renaming to a taken name is rejected with a conflict error. The name also seeds the deployment slug used for internal URLs and default subdomains.
-- **`definition`** — the raw integration YAML, exactly as the editor (or an MCP client) saved it. The orchestrator stores it as opaque text; the runtime validates the full document at load time.
-- **Attribution** — `createdBy`/`updatedBy` record which user authored and last edited the integration, resolved to email/name for display. They are optional: a write through a path with no known actor leaves them unset, and deleting a user leaves their integrations in place (attribution is nulled, never cascaded).
+`id` is a UUID, the durable handle everything else (folders, snapshots, resources, deployments) references.
+
+`name` is required, at most 200 characters, and **unique case-insensitively across the platform**. Renaming to a taken name is rejected with a conflict error. The name also seeds the deployment slug used for internal URLs and default subdomains.
+
+`definition` is the raw integration YAML, exactly as the editor (or an MCP client) saved it. The orchestrator stores it as opaque text; the runtime validates the full document at load time.
+
+Attribution is `createdBy`/`updatedBy`, recording which user authored and last edited the integration, resolved to email/name for display. Both are optional: a write through a path with no known actor leaves them unset, and deleting a user leaves their integrations in place (attribution is nulled, never cascaded).
 
 ## Lifecycle
 
-The working copy is fully mutable — create, edit, rename, delete — through the editor or the [MCP endpoint](/ai/platform-mcp). The underlying REST surface on the orchestrator:
+The working copy is fully mutable (create, edit, rename, delete) through the editor or the [MCP endpoint](/ai/platform-mcp). The underlying REST surface on the orchestrator:
 
 | Operation | Endpoint |
 | --- | --- |
@@ -40,7 +43,7 @@ Editing the working copy never changes what is running. Deployments ship an immu
 
 ## Bundles
 
-A **bundle** is an integration as one portable file: a zip carrying its definition and every [resource](/platform/resources-and-secrets) it owns. It is how an integration leaves the platform and comes back — a backup, a hand-off, or a move between installs — without exporting the definition and each resource one at a time.
+A **bundle** is an integration as one portable file: a zip carrying its definition and every [resource](/platform/resources-and-secrets) it owns. It is how an integration leaves the platform and comes back (a backup, a hand-off, or a move between installs) without exporting the definition and each resource one at a time.
 
 | Operation | Endpoint |
 | --- | --- |
@@ -53,9 +56,9 @@ Both uploads take the zip as the raw request body (`Content-Type: application/zi
 
 ### In the integrations manager
 
-The detail pane's **Download** menu offers the active version either way: the definition on its own, or the whole bundle. Switch versions with the picker beside it and the menu follows — a tag downloads its frozen contents, `Current` downloads the working copy.
+The detail pane's **Download** menu offers the active version either way: **Definition** for the YAML on its own, **Bundle** for the zip. Switch versions with the picker beside it and the menu follows. A tag downloads its frozen contents; `Current` downloads the working copy.
 
-**Import** in the top-right toolbar takes either shape: a `.yaml` definition or a `.zip` bundle, both creating a new integration. The upload button next to the Download menu replaces the selected integration's contents from a bundle instead (working copy only — a tag is immutable, so the button is hidden on one), confirming first because it deletes resources the bundle does not carry.
+**Import** in the top-right toolbar takes either shape, a `.yaml` definition or a `.zip` bundle, both creating a new integration. **Replace from bundle**, the upload button next to the Download menu, overwrites the selected integration's contents instead. It accepts a `.zip` only, appears only on the working copy (a tag is immutable), and confirms first because it deletes resources the bundle does not carry.
 
 Individual resources download from the Resources panel, frozen ones included.
 
@@ -70,7 +73,7 @@ templates/welcome.tmpl
 octo-bundle.json          # the manifest
 ```
 
-`octo-bundle.json` carries what the file layout cannot — the integration's display name, the tag an export was taken from, which entry is the definition, and each resource's `kind`:
+`octo-bundle.json` carries what the file layout cannot: the integration's display name, the tag an export was taken from, which entry is the definition, and each resource's `kind`.
 
 ```json
 {
@@ -84,25 +87,25 @@ octo-bundle.json          # the manifest
 }
 ```
 
-`octo-bundle.json` is reserved: a resource named exactly that cannot be exported (it would produce an archive whose manifest is a resource), and an archive carrying the same entry name twice is refused rather than read with one entry shadowing the other.
+`octo-bundle.json` is reserved: a resource named exactly that cannot be exported, and an archive carrying the same entry name twice is refused.
 
-A hand-made zip without a manifest still imports: the single `.yaml` at the archive root is taken as the definition, every other file becomes a resource, and its kind follows the filename convention (`.env*` is `env`, anything else is `template`). Zero or several root-level YAML files is ambiguous and is rejected rather than guessed at. Pass `?name=` on the import to name an integration the archive does not name.
+A hand-made zip without a manifest still imports. The single `.yaml` at the archive root is taken as the definition, every other file becomes a resource, and its kind follows the filename convention (`.env*` is `env`, anything else is `template`). Zero or several root-level YAML files is ambiguous and is rejected. Pass `?name=` on the import to name an integration the archive does not name.
 
 ### Import and replace
 
-**Import** (`POST`) always creates a new integration. It takes the name from the manifest, falling back to the `name` query parameter; a name already in use is suffixed (`Order Sync (2)`) rather than rejected, since importing a copy of something already here is the normal case. If a resource fails to store, the whole import is rolled back — a half-imported integration looks complete and is not.
+**Import** (`POST`) always creates a new integration. It takes the name from the manifest, falling back to the `name` query parameter; a name already in use is suffixed (`Order Sync (2)`) rather than rejected, since importing a copy of something already here is the normal case. If a resource fails to store, the whole import is rolled back, because a half-imported integration looks complete and is not.
 
-**Replace** (`PUT`) overwrites the addressed integration's definition and resource set while keeping its identity: its id, name, folder, version tags and deployments all stay. Resources are reconciled by name — shared names are updated in place, new ones added, and any the bundle no longer carries are deleted. The bundle's own name is ignored, because a replace is not a rename.
+**Replace** (`PUT`) overwrites the addressed integration's definition and resource set while keeping its identity: its id, name, folder, version tags and deployments all stay. Resources are reconciled by name: shared names are updated in place, new ones added, and any the bundle no longer carries are deleted. The bundle's own name is ignored, since a replace is not a rename.
 
 <Callout type="warn">
 Replacing is destructive to the working copy: resources the bundle does not carry are deleted. Existing version tags are untouched, so anything already deployed keeps running its frozen copy.
 </Callout>
 
-Entry names are validated on the way in and out — absolute paths, `..` segments and backslashes are refused — and both the upload and what it decompresses to are size-bounded.
+Entry names are validated on the way in and out (absolute paths, `..` segments and backslashes are refused), and both the upload and what it decompresses to are size-bounded.
 
 ## Folders
 
-Integrations are organized in a folder tree. Folders nest arbitrarily (each folder has an optional parent), and an integration lives in **at most one folder** — adding it to another folder moves it. Both folders among their siblings and integrations within a folder keep a manual order: new entries are appended, and reorder operations persist the position.
+Integrations are organized in a folder tree. Folders nest arbitrarily (each folder has an optional parent), and an integration lives in **at most one folder**, so adding it to another folder moves it. Both folders among their siblings and integrations within a folder keep a manual order: new entries are appended, and reorder operations persist the position.
 
 The folder API mirrors the integration API:
 
@@ -115,12 +118,12 @@ The folder API mirrors the integration API:
 | Remove an integration from its folder | `DELETE /folders/{id}/integrations/{integrationId}` |
 | Reorder integrations within a folder | `PUT /folders/{id}/integration-order` |
 
-Deleting a folder cascades to its subfolders; integrations themselves are not deleted — memberships are.
+Deleting a folder cascades to its subfolders. Integrations themselves are not deleted; memberships are.
 
 ## Authoring surfaces
 
 Three clients write to the same store:
 
-- **The visual editor** — the primary authoring surface, with validation, the RUN feature for testing, and deployment management.
-- **The MCP endpoint** (`/mcp`) — AI agents create and update integrations programmatically; a write publishes a live-reload event so an editor with that integration open refreshes. See [The Platform MCP Server](/ai/platform-mcp).
-- **The orchestrator API** — any authenticated automation the BFF fronts.
+- The visual editor, the primary authoring surface, with validation, the RUN feature for testing, and deployment management.
+- The MCP endpoint (`/mcp`), where AI agents create and update integrations programmatically. A write publishes a live-reload event so an editor with that integration open refreshes. See [The Platform MCP Server](/ai/platform-mcp).
+- The orchestrator API, for any authenticated automation the BFF fronts.

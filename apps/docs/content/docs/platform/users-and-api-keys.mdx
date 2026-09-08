@@ -5,23 +5,23 @@ description: "Authentication, user management, and API tokens."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The platform authenticates people with OIDC single sign-on and machines with per-user bearer tokens. This page covers how sessions work, how users are provisioned, what roles do, and how API keys are minted and verified.
+The platform authenticates people with OIDC single sign-on and machines with per-user bearer tokens. This page covers sessions, user provisioning, roles, and how API keys are minted and verified.
 
 ## Sign-in (OIDC SSO)
 
-Authentication lives entirely in the platform app, built on Auth.js (NextAuth):
+Authentication lives entirely in the platform app, built on Auth.js (NextAuth), with one OIDC provider using the authorization-code flow. Octo ships no identity provider and privileges none: bring any standards-compliant one, such as Auth0, Keycloak, Okta, Entra ID, Google, Authentik, or Dex. The issuer, client id, and client secret come from `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` (set by the Helm chart's `auth.oidc` values).
 
-- **One OIDC provider** using the authorization-code flow. Octo ships no identity provider and privileges none: bring any standards-compliant one — Auth0, Keycloak, Okta, Entra ID, Google, Authentik, Dex. The issuer, client id, and client secret come from `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` (set by the Helm chart's `auth.oidc` values).
-- **JWT sessions, no database adapter** — the session rides in a signed cookie (`AUTH_SECRET`), so the same config backs both route handlers and the edge request gate.
-- **Opt-in**: SSO is enforced only when `OIDC_ISSUER` and `AUTH_SECRET` are set. Local development without them runs open, with a synthetic local session.
+Sessions are JWTs with no database adapter. The session rides in a signed cookie (`AUTH_SECRET`), so the same config backs both route handlers and the edge request gate.
+
+SSO is opt-in: it is enforced only when both `OIDC_ISSUER` and `AUTH_SECRET` are set. Local development without them runs open, with a synthetic local session.
 
 ### Configuration
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `OIDC_ISSUER` | yes | – | Issuer URL; its `.well-known/openid-configuration` supplies every endpoint |
-| `OIDC_CLIENT_ID` | yes | – | Client id (not a secret — it travels in the redirect) |
-| `OIDC_CLIENT_SECRET` | yes | – | Client secret |
+| `OIDC_ISSUER` | yes | none | Issuer URL; its `.well-known/openid-configuration` supplies every endpoint |
+| `OIDC_CLIENT_ID` | yes | none | Client id (not a secret; it travels in the redirect) |
+| `OIDC_CLIENT_SECRET` | yes | none | Client secret |
 | `OIDC_PROVIDER_NAME` | no | `OIDC` | Name on the sign-in button: "Sign in with …" |
 | `OIDC_PROVIDER_LOGO` | no | the issuer's favicon | Mark on that button; renders without one if it 404s |
 | `OIDC_SCOPES` | no | `openid profile email` | Space-separated scopes requested at sign-in |
@@ -30,48 +30,46 @@ Authentication lives entirely in the platform app, built on Auth.js (NextAuth):
 | `OIDC_USERINFO_URL` | no | discovery | Endpoint override; also used by `/mcp` |
 | `OIDC_JWKS_URL` | no | discovery | Endpoint override; also used by `/mcp` |
 
-The endpoint overrides exist for providers whose discovery document is unreachable, incomplete, or wrong. Against a compliant provider, leave all four empty — discovery is the path that keeps working when the provider moves an endpoint.
+The endpoint overrides exist for providers whose discovery document is unreachable, incomplete, or wrong. Against a compliant provider, leave all four empty: discovery keeps working when the provider moves an endpoint.
 
 Register **`{AUTH_URL}/api/auth/callback/oidc`** as a redirect URI on the provider. The `oidc` in that path is the Auth.js provider id and is fixed, whatever you call the provider in `OIDC_PROVIDER_NAME`.
 
 ### What your provider must support
 
-Editor sign-in asks little: the authorization-code flow, a discovery document (or the four endpoint overrides), and that redirect URI. **The MCP endpoint asks for more**, and it is worth checking before you settle on a provider:
+Editor sign-in asks little: the authorization-code flow, a discovery document (or the four endpoint overrides), and that redirect URI. **The MCP endpoint asks for more**, so check before you settle on a provider.
 
 <Callout type="warn">
-  **MCP needs Dynamic Client Registration.** MCP clients (Claude Code, Codex, and the rest) read the platform's `/.well-known/oauth-protected-resource/mcp` document, follow it to your authorization server, and register themselves via [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591). Without DCR there is no "just connect": every user has to hand-register a client with your IdP and paste a client id and secret into their harness's MCP config. Several providers ship DCR disabled, or gate it behind a plan tier — check yours before committing.
+  **MCP needs Dynamic Client Registration.** MCP clients (Claude Code, Codex, and the rest) read the platform's `/.well-known/oauth-protected-resource/mcp` document, follow it to your authorization server, and register themselves via [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591). Without DCR there is no "just connect": every user has to hand-register a client with your IdP and paste a client id and secret into their harness's MCP config. Several providers ship DCR disabled, or gate it behind a plan tier, so check yours before committing.
 </Callout>
 
-Beyond DCR, `/mcp` requires the provider to:
+Beyond DCR, `/mcp` requires three things of the provider:
 
-- **Honour resource indicators ([RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707))** — the access token's `aud` must equal the MCP resource identifier (`{AUTH_URL}/mcp`, or `MCP_RESOURCE_URL`). A provider that ignores the `resource` parameter and mints tokens for its own default audience fails verification with a token that otherwise looks fine.
-- **Issue RS256-signed JWT access tokens** with a reachable JWKS. Opaque access tokens are not supported; there is no introspection path.
-- **Expose a userinfo endpoint** — email and name are read from it to provision the user row on first call.
+- Resource indicators ([RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)) must be honoured: the access token's `aud` must equal the MCP resource identifier (`{AUTH_URL}/mcp`, or `MCP_RESOURCE_URL`). A provider that ignores the `resource` parameter and mints tokens for its own default audience fails verification with a token that otherwise looks fine.
+- Access tokens must be RS256-signed JWTs with a reachable JWKS. Opaque access tokens are not supported; there is no introspection path.
+- A userinfo endpoint must be exposed. Email and name are read from it to provision the user row on first call.
 
 Where DCR is unavailable, [API keys](#api-keys) are the supported way to authenticate an MCP client. They need nothing from the identity provider.
 
-When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. Exactly one path bypasses it, because it authenticates itself: `/mcp` (bearer tokens, below). Nothing else needs an exemption — a running integration is a pod with a hostname of its own, so a webhook callback never reaches the platform app to be redirected in the first place.
+When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. `/mcp` is the one application endpoint that bypasses it, because it authenticates itself with bearer tokens (below); the welcome page, `/api/auth*` and two static images are exempt too. A running integration is a pod with a hostname of its own, so a webhook callback never reaches the platform app to be redirected in the first place.
 
 ## User provisioning
 
-There is no user management UI to administer — accounts are provisioned automatically. On first sign-in the platform calls the orchestrator's `POST /users/bootstrap` with the IdP's stable OIDC `sub`, email, and name; the orchestrator upserts a `users` row keyed by that subject and returns a durable user id. Subsequent sign-ins refresh email/name and the last-login stamp. That id is what integration attribution and API keys reference, so it survives IdP email changes; removing a user never cascade-deletes their integrations.
+There is no user management UI to administer, because accounts are provisioned automatically. On first sign-in the platform calls the orchestrator's `POST /users/bootstrap` with the IdP's stable OIDC `sub`, email, and name; the orchestrator upserts a `users` row keyed by that subject and returns a durable user id. Later sign-ins refresh email, name and the last-login stamp. That id is what integration attribution and API keys reference, so it survives IdP email changes, and removing a user never cascade-deletes their integrations.
 
 ## Roles
 
-Roles come from the identity provider, not the platform: a configurable id-token claim (`AUTH_ROLES_CLAIM`, default `roles`) is copied onto the session at sign-in. One check uses them today:
+Roles come from the identity provider, not the platform: a configurable id-token claim (`AUTH_ROLES_CLAIM`, default `roles`) is copied onto the session at sign-in. One check uses them today. `AUTH_WRITE_ROLES` (the chart's `auth.writeRoles`) is a comma-separated list of roles allowed to perform write and mutating operations, enforced by the platform app. Empty (the default) means any signed-in user can write. A signed-in user without a listed role gets a `403` on writes but can still read.
 
-- **`AUTH_WRITE_ROLES`** (the chart's `auth.writeRoles`) — a comma-separated list of roles allowed to perform write/mutating operations. Empty (the default) means any signed-in user can write. A signed-in user without a listed role gets a `403` on writes but can still read.
-
-There is no further role model — no admin tier, no per-integration permissions.
+There is no further role model: no admin tier, no per-integration permissions.
 
 ## API keys
 
-API keys are per-user bearer tokens for programmatic access — most notably the platform's [MCP endpoint](/ai/platform-mcp), and kept for future CLI use.
+API keys are per-user bearer tokens for programmatic access, most notably the platform's [MCP endpoint](/ai/platform-mcp), and kept for future CLI use.
 
-- **Format**: `octo_` followed by 32 bytes of random material, base64url-encoded.
-- **Shown once**: the plaintext is returned only by the create call. The orchestrator stores a SHA-256 hash — a database leak exposes no usable keys — plus the prefix and last four characters for display.
-- **Expiry**: every key has a TTL, capped at 365 days. Expiry is enforced on every verification.
-- **Revocation**: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops verifying immediately.
+- Format: `octo_` followed by 32 bytes of random material, base64url-encoded.
+- Shown once: the plaintext is returned only by the create call. The orchestrator stores a SHA-256 hash, so a database leak exposes no usable keys, plus the first four and last four characters for display.
+- Expiry: every key has a TTL, capped at 365 days, enforced on every verification.
+- Revocation: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops verifying immediately.
 
 Keys are managed from the platform's account area, backed by these orchestrator endpoints:
 
@@ -93,7 +91,7 @@ curl https://octo.example.com/mcp \
   -H "Authorization: Bearer octo_..."
 ```
 
-The receiving endpoint verifies the token through `POST /apikeys/verify`, which resolves it to its owning user (recording last-use) — so machine calls act as, and are attributable to, a real user.
+The receiving endpoint verifies the token through `POST /apikeys/verify`, which resolves it to its owning user and records last-use, so machine calls act as, and are attributable to, a real user.
 
 <Callout type="info">
 For MCP clients like Claude, API keys are the manual alternative: `/mcp` is primarily an OAuth 2.1 resource server that accepts access tokens minted by the identity provider, with `octo_` keys accepted alongside. See [MCP Authentication](/ai/mcp-auth).

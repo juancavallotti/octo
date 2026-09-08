@@ -5,7 +5,7 @@ description: "Deploying integrations as Kubernetes workloads: rollouts and rollb
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Deploying an integration runs a [version tag](/platform/snapshots) of it as its own Kubernetes workload: a Deployment of the generic `octo-runtime` image with the tag's frozen definition mounted in. One integration can be deployed many times — say, a staging and a production deployment on different tags — and each deployment has its own address, scale, and environment bindings.
+Deploying an integration runs a [version tag](/platform/snapshots) of it as its own Kubernetes workload: a Deployment of the generic `octo-runtime` image with the tag's frozen definition mounted in. One integration can be deployed many times (say, a staging and a production deployment on different tags), and each deployment has its own address, scale, and environment bindings.
 
 ![An integration's deployments view on the platform](/screenshots/platform-deployments.png)
 
@@ -13,22 +13,22 @@ Deploying an integration runs a [version tag](/platform/snapshots) of it as its 
 
 For each deployment the orchestrator creates resources named `octo-dep-{deploymentId}` in its namespace, labelled with the deployment and integration ids:
 
-- **A ConfigMap** holding the frozen definition as `integration.yaml`, mounted read-only at `/etc/octo/integrations` — the runtime image's default config directory.
-- **A Deployment** running `octo-runtime` at the requested replica count (minimum 1). The orchestrator injects the runtime-services environment (`RUNTIME_SERVICES_MODULE=k8s`, `OCTO_DEPLOYMENT_ID`, `ORCHESTRATOR_URL`, `NATS_URL`, the pod's name/namespace via the downward API, and the deployment's display name, tag, and snapshot id) plus your env bindings, and `OCTO_TRACING` when the deployment is [traced](#tracing).
-- **Services** — only for *networked* integrations (see below): a per-deployment ClusterIP Service, and a stable internal Service `octo-int-{slug}` other integrations address.
-- **An Ingress** — only when the deployment is exposed externally.
+- A ConfigMap holding the frozen definition as `integration.yaml`, mounted read-only at `/etc/octo/integrations`, the runtime image's default config directory.
+- A Deployment running `octo-runtime` at the requested replica count (minimum 1). The orchestrator injects the runtime-services environment (`RUNTIME_SERVICES_MODULE=k8s`, `OCTO_DEPLOYMENT_ID`, `ORCHESTRATOR_URL`, `NATS_URL`, the pod's name/namespace via the downward API, and the deployment's display name, tag, and snapshot id) plus your env bindings, and `OCTO_TRACING` when the deployment is [traced](#tracing).
+- Services, only for *networked* integrations (see below): a per-deployment ClusterIP Service, and a stable internal Service `octo-int-{slug}` other integrations address.
+- An Ingress, only when the deployment is exposed externally.
 
-A failed deploy is rolled back completely: partial cluster resources and the database row are removed, so nothing dangles.
+A failed deploy is rolled back completely: partial cluster resources and the database row are removed.
 
 ### Networked vs. bare workloads
 
-An integration that declares `HTTP_PORT` (with a numeric default) in its [`env` block](/concepts/environment-and-config) has an HTTP source listening on that port. Only those deployments are **networked**: they get Services, a unique slug, an internal URL, and the option of external exposure. The orchestrator supplies `HTTP_PORT` (and `HTTP_HOST=0.0.0.0`, when declared) into the pod, so the listener binds all interfaces — these two variables are managed and cannot be overridden by bindings.
+An integration that declares `HTTP_PORT` (with a numeric default) in its [`env` block](/concepts/environment-and-config) has an HTTP source listening on that port. Only those deployments are **networked**: they get Services, a unique slug, an internal URL, and the option of external exposure. The orchestrator supplies `HTTP_PORT` (and `HTTP_HOST=0.0.0.0`, when declared) into the pod, so the listener binds all interfaces; these two variables are managed and cannot be overridden by bindings.
 
-Anything else — a cron-driven job, a queue consumer — runs as a bare workload: pods only, no Service, no URL.
+Anything else (a cron-driven job, a queue consumer) runs as a bare workload: pods only, no Service, no URL.
 
 ### Internal address
 
-Every networked deployment gets a **slug**, unique across all deployments: pick one in the deploy dialog or leave it empty to have the orchestrator allocate one from the integration name (`orders`, `orders-001`, ...). The slug names the stable internal Service, so other integrations in the cluster reach the deployment at a constant, replica-balanced address reported as the deployment's `internalUrl`:
+Every networked deployment gets a **slug**, unique across all deployments: pick one in the deploy dialog or leave it empty to have the orchestrator allocate one from the integration name (`orders`, `orders-001`, ...). The slug names the stable internal Service, so other integrations reach the deployment at a constant, replica-balanced address reported as the deployment's `internalUrl`:
 
 ```
 http://octo-int-{slug}.{namespace}:{port}
@@ -36,25 +36,25 @@ http://octo-int-{slug}.{namespace}:{port}
 
 ### External exposure
 
-Toggling external exposure additionally creates an Ingress at `https://{subdomain}.{baseDomain}` — the subdomain defaults to the slug and must be unique across integrations. Which controller serves it is the chart's `orchestrator.ingressClass`; empty (the default) leaves it to whichever IngressClass the cluster marks default. TLS is whatever that domain is set up for: a per-host certificate issued by the configured ClusterIssuer over HTTP-01, a shared pre-issued wildcard when the chart's `wildcardTLS` is enabled, or none of the chart's doing when something upstream terminates. The public address is reported as `externalUrl`.
+Toggling external exposure additionally creates an Ingress at `https://{subdomain}.{baseDomain}`; the subdomain defaults to the slug and must be unique across integrations. Which controller serves it is the chart's `orchestrator.ingressClass`; empty (the default) leaves it to whichever IngressClass the cluster marks default. TLS is whatever that domain is set up for: a per-host certificate issued by the configured ClusterIssuer over HTTP-01, a shared pre-issued wildcard when the chart's `wildcardTLS` is enabled, or none of the chart's doing when something upstream terminates. The public address is reported as `externalUrl`.
 
 External endpoints require `BASE_DOMAIN` on the orchestrator (the Helm chart's `orchestrator.baseDomain`); without it an external deploy is rejected. See [Deploying with Helm](/deploy/helm).
 
 ## Environment bindings
 
-The deploy dialog lists every env var the tag's definition declares. Each can be bound to a **literal value** or a **cluster secret** by name (injected via `secretKeyRef`, so the value never touches the database). Keys already supplied by the tag's frozen `.env` resources count as provided. A deploy that leaves a *required* variable unbound — by neither a binding nor a frozen `.env` resource — is rejected up front instead of letting the pod crash-loop. Full details: [Resources and Secrets](/platform/resources-and-secrets).
+The deploy dialog lists every env var the tag's definition declares. Each can be bound to a **literal value** or a **cluster secret** by name (injected via `secretKeyRef`, so the value never touches the database). Keys already supplied by the tag's frozen `.env` resources count as provided. A deploy that leaves a *required* variable unbound by either is rejected up front instead of letting the pod crash-loop. Full details: [Resources and Secrets](/platform/resources-and-secrets).
 
 ## Tracing
 
-**Trace this deployment** in the deploy and rollout dialogs runs its pods with the runtime's [tracer](/runtime/tracing) on, recording the flows and blocks each message passes through and every model call made on its behalf — the model calls priced with what they cost — for the platform to store and query. See [Traces](/platform/traces).
+**Trace this deployment** in the deploy and rollout dialogs runs its pods with the runtime's [tracer](/runtime/tracing) on, recording the flows and blocks each message passes through and every model call made on its behalf, priced with what it cost, for the platform to store and query. See [Traces](/platform/traces).
 
 <Callout type="warn">
-**Tracing is a troubleshooting tool, not a production setting.** It significantly reduces throughput: every traced block is recorded on the flow's own goroutine, and capturing payloads marshals the message once per block. Turn it on for the deployment you are debugging, and turn it off again once you have your answer — it is not something to leave running on a deployment serving real traffic.
+**Tracing is a troubleshooting tool, not a production setting.** It significantly reduces throughput: every traced block is recorded on the flow's own goroutine, and capturing payloads marshals the message once per block. Turn it on for the deployment you are debugging, and turn it off again once you have your answer.
 </Callout>
 
-That cost is why it is a per-deployment setting rather than an integration-wide one, and why it is off by default: a staging deployment can be traced while the production deployment of the same integration is not. Deployments that have it on are marked **Traced** in the deployment lists, so one left on by accident is visible at a glance.
+It is a per-deployment setting, off by default, so a staging deployment can be traced while the production deployment of the same integration is not. Deployments that have it on are marked **Traced** in the deployment lists.
 
-Because the runtime resolves `OCTO_TRACING` when it parses its flags — before any config is loaded — the setting only reaches a pod that starts with it. Changing it on a live deployment therefore goes through a **rollout**, which replaces the pods. A rollout that does not mention tracing leaves the deployment's setting as it was, so a plain version bump never stops a trace you are in the middle of reading.
+The runtime resolves `OCTO_TRACING` when it parses its flags, before any config is loaded, so the setting only reaches a pod that starts with it. Changing it on a live deployment goes through a **rollout**, which replaces the pods. A rollout that does not mention tracing leaves the setting as it was, so a plain version bump never stops a trace you are reading.
 
 <Callout type="warn">
 Captured bodies and variables are stored as they arrived and are readable by anyone signed in to the platform. Avoid tracing a deployment whose messages carry credentials, or set `OCTO_TRACING_BODIES=false` as an env binding to record the sequence without payloads.
@@ -62,30 +62,28 @@ Captured bodies and variables are stored as they arrived and are readable by any
 
 ## Platform access
 
-Most integrations have no business reading the installation they run on. A few are written to — the [platform agent](/platform/agent) is the first, but anything that reports on your own deployments is another — so the deploy and rollout dialogs carry two grants under **Advanced**, both off by default.
+For integrations that read the installation they run on, such as the [platform agent](/platform/agent), the deploy and rollout dialogs carry two grants under **Advanced**, both off by default.
 
 | Grant | What it does |
 | --- | --- |
 | **Needs access to the orchestrator API** | Declares that this deployment's flows call the [orchestrator API](/platform/api-reference) |
-| **Needs access to the observability API** | Injects `OBSERVABILITY_URL`, the address of the [observability API](/platform/observability-api-reference) — stored logs, traces and pod stats |
+| **Needs access to the observability API** | Injects `OBSERVABILITY_URL`, the address of the [observability API](/platform/observability-api-reference): stored logs, traces and pod stats |
 
-The two are not symmetric today, and the difference is worth understanding.
+An integration that needs both, and a reason to grant them, is the alert-triage agent in [Agentic self-healing](/guides/agentic-self-healing).
 
-**The observability grant supplies the address.** `OBSERVABILITY_URL` is in no pod unless this box is ticked, and it is orchestrator-managed: a definition cannot declare it and a deploy cannot bind it, so the grant is the only way it reaches a pod. That keeps the deployment record honest about what was handed out.
+**The observability grant supplies the address.** `OBSERVABILITY_URL` is in no pod unless this box is ticked, and it is orchestrator-managed: a definition cannot declare it and a deploy cannot bind it.
 
 <Callout type="warn">
 Stored logs and traces span **every** deployment on the installation, not just the one being granted. An integration that can read them can read its neighbours' captured request bodies. Grant it only to integrations you would trust with the Traces view itself.
 </Callout>
 
 <Callout type="warn">
-**This is not a network boundary.** The [observability API](/platform/observability-api-reference) performs no authentication and is reachable from anywhere on the cluster network, so a flow author determined to query it can point a connector at the service's address directly and never tick this box. Withholding the grant does not stop that; it withholds the convenience and keeps the record accurate. Treat the grant as a declaration until the API gains authentication — the same footing as the orchestrator one below.
+**This is not a network boundary.** The [observability API](/platform/observability-api-reference) performs no authentication and is reachable from anywhere on the cluster network, so a flow author can point a connector at the service's address directly. Until the API gains authentication, treat the grant as a declaration, the same footing as the orchestrator one below.
 </Callout>
 
-**The orchestrator grant is a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod — the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election — so ticking the box opens nothing that was closed. What it records is intent.
+**The orchestrator grant is a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod, because the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election. Access control over the orchestrator API is expected to arrive as RBAC gating on this declaration, so declare it now for the integrations that genuinely call the API.
 
-That is deliberate rather than a placeholder. Access control over the orchestrator API is expected to arrive as RBAC, and when it does it will gate on exactly this declaration. Collecting it now means the enforcement point arrives with the declarations already in place, instead of having to reclassify every deployment that already exists. Declare it for the integrations that genuinely call the API, and a later release can restrict the API to them without breaking anything.
-
-Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them — so a plain version bump never quietly revokes access an integration depends on.
+Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them.
 
 ## Runners
 
@@ -93,84 +91,43 @@ A **runner** is which image a deployment's pods run. There are two, and the choi
 
 | Runner | Image | For |
 | --- | --- | --- |
-| `standard` (the default) | [`octo-runtime`](/deploy/docker-images#octo-runtime) — distroless, one static binary, no shell, nothing writable | Every integration that serves requests, consumes a queue, or runs on a schedule |
-| `agentic` | [`octo-agenticrunner`](/deploy/docker-images#octo-agenticrunner) — adds a shell, `curl`, `jq`, the standalone `octo` CLI, `dolphin`, and a writable `/workspace` | An integration built to *drive* the platform: one whose flows run local commands, invoke other flows, or execute a test suite |
+| `standard` (the default) | [`octo-runtime`](/deploy/docker-images#octo-runtime): distroless, one static binary, no shell, nothing writable | Every integration that serves requests, consumes a queue, or runs on a schedule |
+| `agentic` | [`octo-agenticrunner`](/deploy/docker-images#octo-agenticrunner): adds a shell, `curl`, `jq`, the standalone `octo` CLI, `dolphin`, and a writable `/workspace` | An integration built to *drive* the platform: one whose flows run local commands, invoke other flows, or execute a test suite |
 
-The distinction exists because the minimal image is not merely small for the second kind, it is empty of the programs those flows name. A [`cli-run`](/reference/blocks/integration) block in an image with no local programs cannot run anything, and a [`file`](/reference/connectors/file) connector needs somewhere writable to point at. The [platform agent](/platform/agent) is the first deployment to need it.
-
-The agentic runner also gets a `/workspace` volume — an `emptyDir` capped by the chart, so it is scratch that dies with the pod — and whatever CPU and memory limits the chart sets for it. Nothing else about the workload changes: same probes, same ConfigMap, same Services, same rollout.
+A [`cli-run`](/reference/blocks/integration) block in an image with no local programs cannot run anything, and a [`file`](/reference/connectors/file) connector needs somewhere writable to point at; the [platform agent](/platform/agent) is the first deployment to need both. The agentic runner gets a `/workspace` volume, an `emptyDir` capped by the chart that dies with the pod, and whatever CPU and memory limits the chart sets for it. Nothing else about the workload changes: same probes, same ConfigMap, same Services, same rollout.
 
 <Callout type="warn">
-**The agentic runner is privileged, not merely bigger.** A pod holding a shell and a runtime it can point at a definition it wrote a moment ago is a general execution environment, so the boundary it offers is the pod — not any allow list inside the flow. Everything that pod holds, including secrets bound to its environment, and everything it can reach on the network, is reachable by anything it runs. Grant it to integrations whose definitions you control.
+**The agentic runner is privileged, not merely bigger.** A pod holding a shell and a runtime it can point at a definition it wrote a moment ago is a general execution environment, so the boundary is the pod, not any allow list inside the flow. Everything that pod holds, including secrets bound to its environment, and everything it can reach on the network, is reachable by anything it runs. Grant it to integrations whose definitions you control.
 </Callout>
 
-An installation whose chart does not configure the agentic image does not have that runner, and a deploy asking for it is **refused** with the setting named. It is not quietly downgraded: the standard image would produce a healthy pod whose every command fails with *not found*, which reads as a broken flow rather than a missing chart value. Like the grants above, the runner is stored on the deployment and carried through a rollout that does not mention it.
+An installation whose chart does not configure the agentic image does not have that runner, and a deploy asking for it is **refused** with the setting named rather than quietly downgraded: the standard image would produce a healthy pod whose every command fails with *not found*. Like the grants above, the runner is stored on the deployment and carried through a rollout that does not mention it.
 
 ## Status
 
-Deployment status is computed live from the cluster through Kubernetes informers, so reads are cheap and updates are push-based:
+Deployment status is computed live from the cluster through Kubernetes informers, so reads are cheap and updates are push-based. `pending` means created, pods not ready yet; `running` means at least one replica is ready; `failed` means a pod is in a terminal or crash-looping state, and the response carries the reason (an image or secret problem, say) and per-pod detail.
 
-- **`pending`** — created, pods not ready yet.
-- **`running`** — at least one replica is ready.
-- **`failed`** — a pod is in a terminal or crash-looping state; the response carries the reason (e.g. an image or secret problem) and per-pod detail.
-
-Each status change is published to NATS and streamed to the browser as SSE (see [Event Bus](/platform/event-bus)), with a polling fallback when no broker is configured. Individual pod logs stream from `GET /deployments/{id}/pods/{pod}/logs` (with follow/tail); aggregated, searchable logs across deployments live in the logs view — see [Monitoring](/runtime/monitoring).
+Each status change is published to NATS and streamed to the browser as SSE (see [Event Bus](/platform/event-bus)), with a polling fallback when no broker is configured. Individual pod logs stream from `GET /deployments/{id}/pods/{pod}/logs` (with follow/tail); aggregated, searchable logs across deployments live in the logs view, see [Monitoring](/runtime/monitoring).
 
 ## When the cluster and the database disagree
 
-A deployment is two things: a row in `integration_deployments` and a set of
-Kubernetes objects named from that row's id. Almost everything keeps them in
-step, but two situations do not.
+A deployment is a row in `integration_deployments` and a set of Kubernetes objects named from that row's id. A cluster that went away and came back leaves rows describing workloads it has never had, and since status falls back to the *cached* value whenever the cluster read fails, those rows keep saying `running`. A deploy whose rollback failed leaves the opposite: a Deployment with no row.
 
-**A cluster that went away and came back** leaves rows describing workloads it
-has never had. Status is refreshed on read and falls back to the *cached* value
-whenever the cluster read fails — which is right for a transient blip and wrong
-forever — so those rows keep saying `running` and the deployments page keeps
-listing them.
-
-**A deploy whose rollback failed** leaves the opposite: a Deployment running with
-no row to describe it. Until now nothing in the platform could even see one,
-because nothing ever listed the workloads the orchestrator manages.
-
-A sweep runs **once at startup and every five minutes** after that, and repairs
-both:
+A sweep runs **once at startup and every five minutes** after that, and repairs both:
 
 | Found | Done |
 | --- | --- |
-| A row whose workload is gone | The row is **deleted**, along with the internal Service and the deployment's KV entries — the same cleanup Undeploy does. |
+| A row whose workload is gone | The row is **deleted**, along with the internal Service and the deployment's KV entries, the same cleanup Undeploy does. |
 | A workload with no row | The workload is **deleted**. |
 | A stored platform-agent id pointing at a deleted row | The id is forgotten, so the admin page offers Deploy rather than a roll-out of nothing. |
 | A `cluster_secrets` entry with no key in the cluster | The catalogue entry is **dropped**. |
 
-Three things it will not do. A key in the cluster's Secret with **no** catalogue
-entry is logged and **kept** — deleting key material because a database row is
-missing is not a trade worth making unattended, and a catalogue restored from an
-older backup is exactly when the key is the thing worth saving. A row touched in
-the last five minutes is left alone whatever the cluster says: a deploy writes its
-row before it calls the API server, so there is a window in which a perfectly
-healthy deployment has no workload yet. And no row is deleted on the strength of
-the listing alone — the sweep asks again for that one workload **by name** first,
-because the listing matches on labels and a label is metadata anyone with cluster
-access can edit, while the name is derived from the row's own id and cannot drift.
-
-The secret sweep also does nothing at all while the shared `octo-secrets` Secret
-does not exist. It is created by the first secret you store, so its absence is the
-ordinary state of an installation that has never stored one — and, briefly, what
-an externally managed Secret looks like while it is being recreated. Reading
-either as "every name is gone" would empty the catalogue in one pass, and since
-the sweep only ever removes names it would stay empty with the values still
-present.
+Three things it will not do. A key in the cluster's Secret with **no** catalogue entry is logged and **kept**, because a catalogue restored from an older backup is exactly when the key is worth saving. A row touched in the last five minutes is left alone, because a deploy writes its row before it calls the API server. And no row is deleted on the strength of the listing alone: the sweep asks again for that one workload **by name** first, because the listing matches on labels, which anyone with cluster access can edit. The secret sweep also does nothing while the shared `octo-secrets` Secret does not exist, since it is created by the first secret you store and is briefly absent while an externally managed Secret is recreated.
 
 <Callout type="warn">
-The sweep deletes rows, so it is arranged around never guessing. If the cluster
-cannot be listed — an error, or informer caches that have not loaded — it does
-**nothing at all**, because "I could not see the cluster" and "the cluster is
-empty" are the same empty answer and one of them is an instruction to delete
-every deployment you have. An orchestrator with no cluster access never sweeps.
+The sweep deletes rows, so it never guesses. If the cluster cannot be listed (an error, or informer caches that have not loaded) it does **nothing at all**, because "I could not see the cluster" and "the cluster is empty" are the same empty answer. An orchestrator with no cluster access never sweeps.
 </Callout>
 
-Deleting a row is not recoverable: its settings and env bindings go with it.
-Redeploy from the integration's version list, which still has the tag.
+Deleting a row is not recoverable: its settings and env bindings go with it. Redeploy from the integration's version list, which still has the tag.
 
 ## Day-2 operations
 
@@ -182,16 +139,16 @@ Redeploy from the integration's version list, which still has the tag.
 
 ### Rolling out a new version
 
-A rollout ships a different tag's frozen definition to a live deployment as a **rolling update**: the orchestrator rewrites the ConfigMap, stamps a config-hash annotation on the pod template so Kubernetes rolls the pods, and records the new tag. The deployment keeps its identity — id, slug, internal and external URLs, replica count — and its env bindings and tracing setting (pass a replacement binding set, or a tracing flag, to change either during the rollout). Because the same mechanism accepts an older tag, **rollback is a rollout to the previous tag**.
+A rollout ships a different tag's frozen definition to a live deployment as a **rolling update**: the orchestrator rewrites the ConfigMap, stamps a config-hash annotation on the pod template so Kubernetes rolls the pods, and records the new tag. The deployment keeps its identity (id, slug, internal and external URLs, replica count) and its env bindings and tracing setting; pass a replacement binding set, or a tracing flag, to change either during the rollout. Because the same mechanism accepts an older tag, **rollback is a rollout to the previous tag**.
 
-Two guards apply, mirroring deploy: the target tag's required env vars must still be provided, and a tag that changes whether the integration is networked (adds or removes `HTTP_PORT`) is rejected — that would change the Service/Ingress topology, which a rolling update cannot express. Undeploy and redeploy instead.
+Two guards apply, mirroring deploy: the target tag's required env vars must still be provided, and a tag that changes whether the integration is networked (adds or removes `HTTP_PORT`) is rejected, because that would change the Service/Ingress topology, which a rolling update cannot express. Undeploy and redeploy instead.
 
-The new tag, env bindings and tracing setting are recorded in one write once the pods have rolled. If that write fails, the rollout **reports the failure** even though the pods did roll: retry it. Do not read the failure as "nothing happened" — the pods are on the new version and the stored record is behind them until a retry succeeds. Retrying is safe, because a rollout is idempotent. The record has to be trusted, since an omitted env or tracing value on the *next* rollout is read from it.
+The new tag, env bindings and tracing setting are recorded in one write once the pods have rolled. If that write fails, the rollout **reports the failure** even though the pods did roll: they are on the new version and the stored record is behind them until a retry succeeds. Retrying is safe, because a rollout is idempotent, and an omitted env or tracing value on the *next* rollout is read from that record.
 
 <Callout type="info">
-Deploying "Current" from the editor first creates a tag of the working copy, then deploys that tag — so even ad-hoc deploys are pinned to an immutable version.
+Deploying "Current" from the editor first creates a tag of the working copy, then deploys that tag, so even ad-hoc deploys are pinned to an immutable version.
 </Callout>
 
 ### Undeploying
 
-Undeploy deletes the Ingress, Deployment, Services, and ConfigMap, then the deployment record. The deployment's entries in the [KV store](/platform/kv-and-storage) are cleaned up best-effort — a cleanup failure never blocks the undeploy, and orphaned rows are harmless.
+Undeploy deletes the Ingress, Deployment, Services, and ConfigMap, then the deployment record. The deployment's entries in the [KV store](/platform/kv-and-storage) are cleaned up best-effort; a cleanup failure never blocks the undeploy, and orphaned rows are harmless.

@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 The standalone editor is a local, single-user visual editor for Octo flows. It
 reads and writes plain `*.yaml` files in a directory on your disk, and runs them
-with the bundled `octo` binary — no database, no account, no orchestrator.
+with the bundled `octo` binary. No database, no account, no orchestrator.
 
 The fastest way to get it is the published Docker image:
 
@@ -29,17 +29,20 @@ bottom.
 
 ### Header
 
-- **Flow title** — editable inline. The name becomes the `*.yaml` filename on
-  the first save; renaming a saved flow renames the file on disk.
-- **Open / new menu** — lists every YAML file in your mounted directory and
-  opens one, or starts a blank flow. The store is flat: files live directly in
-  the directory, with no folders.
-- **View toggle** — switches the workspace between the visual **Canvas**, a
-  read-only **YAML** preview of the exact document that will be saved, a
-  **Resources** view for the flow's env files and templates, and **Testing**,
-  where a flow's [dolphin test suite](/testing/in-the-editor) is written and run.
-- **Save** and **Run** — Save writes the YAML to your directory; Run starts the
-  flow with the bundled runtime. See [Running flows](/editor/running-flows).
+The flow title is editable inline. The name becomes the `*.yaml` filename on the
+first save, and renaming a saved flow renames the file on disk.
+
+The open / new menu lists every YAML file in your mounted directory and opens one,
+or starts a blank flow. The store is flat: files live directly in the directory,
+with no folders.
+
+The view toggle switches the workspace between the visual **Canvas**, a read-only
+**YAML** preview of the exact document that will be saved, a **Resources** view for
+the flow's env files and templates, and **Testing**, where a flow's
+[dolphin test suite](/testing/in-the-editor) is written and run.
+
+**Save** writes the YAML to your directory; **Run** starts the flow with the bundled
+runtime. See [Running flows](/editor/running-flows).
 
 ### Palette
 
@@ -60,17 +63,17 @@ opens it in the settings panel.
 ### Settings panel
 
 The right panel edits the selected connection, source, or block. Its forms are
-also driven by the capability schema — each setting renders the right field for
+also driven by the capability schema: each setting renders the right field for
 its declared type, including CEL expression fields with completion and an
 inline expression tester.
 
 ### Console
 
-The bottom panel docks a tabbed console: **Logs** streams the output of a
-running flow live, **Problems** and **Output** report what a single-flow run
-made of it, **Tests** shows the last test run's verdict, and **Dev .env** edits
-local-only values for the flow's declared environment variables. It expands
-automatically when a run starts and can be resized or collapsed.
+The bottom panel docks a tabbed console. **Logs** streams the output of a running
+flow live, **Problems** and **Output** report what a single-flow run made of it,
+**Tests** shows the last test run's verdict, and **Dev .env** edits local-only
+values for the flow's declared environment variables. It expands automatically
+when a run starts and can be resized or collapsed.
 
 ![The editor's tabbed console: Logs and Dev .env, with a run's test URL in the header](/screenshots/editor-console.png)
 
@@ -79,11 +82,11 @@ automatically when a run starts and can be resized or collapsed.
 Use the standalone editor to try Octo and to develop flows locally: your flows
 are ordinary files you can run with the [CLI](/reference/cli), commit to git,
 and iterate on with hot reload. The Docker image also exposes an MCP server at
-`/mcp`, so an AI assistant can author and run flows against the same directory
-— see [MCP authoring](/ai/mcp-server).
+`/mcp`, so an AI assistant can author and run flows against the same directory.
+See [MCP authoring](/ai/mcp-server).
 
 When you need multiple users, deployments, secrets management, and persistence
-beyond local disk, move to the [platform](/platform) — it embeds the same
+beyond local disk, move to the [platform](/platform). It embeds the same
 editor, backed by the orchestrator instead of your filesystem, so flows built
 standalone carry over as-is.
 

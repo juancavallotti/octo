@@ -5,10 +5,10 @@ description: "Site-wide configuration: email delivery, and the models and deploy
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Most configuration in octo belongs to an integration or to a person. A few things belong to the **installation** — how it sends email, which model its agent reasons with. Those live in the admin section, reached from **Admin** in the account menu (the avatar, top right) at `/platform/admin`.
+A few settings belong to the **installation** rather than to an integration or a person: how it sends email, which model its agent reasons with. They live in the admin section, reached from **Admin** in the account menu (the avatar, top right) at `/platform/admin`.
 
 <Callout type="warn">
-Access is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`), and that variable **defaults to empty, meaning any signed-in user**. Set it before configuring email — an unset value lets anyone who can sign in overwrite the API key and send mail from your verified domain. Finer-grained admin roles are not implemented yet.
+Access is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`), and that variable **defaults to empty, meaning any signed-in user**. Set it before configuring email; an unset value lets anyone who can sign in overwrite the API key and send mail from your verified domain. Finer-grained admin roles are not implemented yet.
 </Callout>
 
 ## Prerequisite: an encryption key
@@ -20,12 +20,10 @@ kv:
   encryptionKey: "<base64 of 32 random bytes>"
 ```
 
-Until it is set, both admin pages show an amber banner, the API-key field is disabled, and an attempt to store a key is refused with a 503 naming the variable. **A key is never stored in the clear** — a refused save is the only other option.
-
-Everything else on those pages still saves without it, because carrying an already-stored key forward copies ciphertext and decrypts nothing.
+Until it is set, both admin pages show an amber banner, the API-key field is disabled, and an attempt to store a key is refused with a 503 naming the variable. **A key is never stored in the clear.** Everything else on those pages still saves without it, because carrying an already-stored key forward copies ciphertext and decrypts nothing.
 
 <Callout>
-Do not rotate `kv.encryptionKey` casually. It also protects existing KV secret values, and changing it orphans every one of them. The name is historical — the cipher now covers these settings too.
+Do not rotate `kv.encryptionKey` casually. It also protects existing KV secret values, and changing it orphans every one of them. The name is historical; the cipher now covers these settings too.
 </Callout>
 
 ## Email
@@ -39,13 +37,11 @@ Do not rotate `kv.encryptionKey` casually. It also protects existing KV secret v
 | Reply-to | Optional address for replies. |
 | API key | Write-only. Stored encrypted; the page only ever shows the last four characters. |
 
-The from address is deliberately rejected if it carries a display name (`Acme <a@b.co>`) — that belongs in the **From name** field, and accepting it in both places is how the two end up disagreeing.
+The from address is rejected if it carries a display name (`Acme <a@b.co>`); that belongs in the **From name** field.
 
 ### Send a test
 
-The **Send a test** panel uses whatever is in the form *right now*, including a key you have not saved yet. That is the intended order: paste a key, send yourself a test, then save. With no key typed it falls back to the stored one, so the button still works after a reload.
-
-Failures report what to do about them rather than a generic error — an invalid key says so, and an unverified domain comes back in Resend's own words, naming the domain.
+The **Send a test** panel uses whatever is in the form *right now*, including a key you have not saved yet, so you can paste a key, send yourself a test, then save. With no key typed it falls back to the stored one, so the button still works after a reload. Failures say what to do: an invalid key says so, and an unverified domain comes back in Resend's own words, naming the domain.
 
 ### Sending from your own code
 
@@ -57,45 +53,41 @@ curl -sS -X POST "$ORCHESTRATOR_URL/email/send" \
   -d '{"to":["you@example.com"],"subject":"hello","text":"body"}'
 ```
 
-The endpoint takes **no API key and no from-address**: both come from the stored settings, so email identity is defined in exactly one place. Supplying either is rejected as an unknown field rather than silently ignored. Either `text` or `html` (or both) is required, and a request may carry at most 50 recipients — this is a transactional sender for notifications the platform raises, not a bulk mailer.
-
-It returns `{"messageId": "..."}` on success, and `409` until email is configured.
+The endpoint takes **no API key and no from-address**: both come from the stored settings, and supplying either is rejected as an unknown field. Either `text` or `html` (or both) is required, and a request may carry at most 50 recipients; this is a transactional sender for notifications, not a bulk mailer. It returns `{"messageId": "..."}` on success, and `409` until email is configured.
 
 <Callout>
-Keep this internal. The orchestrator is ClusterIP in the chart and trusts its callers; there is deliberately no browser-facing route to it.
+Keep this internal. The orchestrator is ClusterIP in the chart and trusts its callers; there is no browser-facing route to it.
 </Callout>
 
 ## Platform agent
 
-`/platform/admin/agent` is one page for one task: the model the platform's **own agent** reasons with, and his deployment. These were two separate tabs, and nothing else on the installation reads the provider setting — so the split only hid the requirement between them. He will not install without an LLM provider, and now the page that refuses is the page holding the field.
+`/platform/admin/agent` is one page for one task: the model the platform's **own agent** reasons with, and his deployment. He will not install without an LLM provider, so the page that refuses is the page holding the field.
 
-Three sections, in the order they are needed: the **LLM provider** first, **Web search** second, the **Deployment** third. Embeddings are not here: they configure how agent memory is *searched* rather than how the agent reasons, they are not configured on this platform at all, and what is left to say about them is [reported where the searching happens](/platform/agent-memory).
+Three sections, in the order they are needed: the **LLM provider** first, **Web search** second, the **Deployment** third. Embeddings are not here: they configure how agent memory is *searched* rather than how the agent reasons, and what is left to say about them is [reported where the searching happens](/platform/agent-memory).
 
 ### LLM provider
 
-The model the agent reasons with, and the one thing he cannot run without: provider, model, and API key.
-
 | Field | Notes |
 | --- | --- |
-| Provider | `Anthropic`, `OpenAI`, `Google`, or `OpenRouter` — the four the runtime can talk to. |
+| Provider | `Anthropic`, `OpenAI`, `Google`, or `OpenRouter`, the four the runtime can talk to. |
 | Model | Free text, prefilled with that provider's default. Switching provider swaps the default in, but leaves a model you typed yourself alone. |
 | API key | Write-only, same handling as the email key. |
 
-Model is free text on purpose: model names turn over faster than releases of this app, and a fixed list would block you from pointing at something newer than the version you are running.
+Model is free text because model names turn over faster than releases of this app.
 
-**OpenRouter is the one to pick if you want to try several models.** It fronts hundreds of them behind a single key, so changing which model Dr. Octo reasons with is a change to the model field and nothing else. Its ids carry the vendor as a prefix — `anthropic/claude-sonnet-4.5`, `openai/gpt-5.4`, `google/gemini-3.5-flash` — and there is no bare model name. See the [connector reference](/reference/connectors/llm#llm-openrouter-connector) for what the runtime does with it.
+**OpenRouter is the one to pick if you want to try several models.** It fronts hundreds of them behind a single key, so changing which model Dr. Octo reasons with is a change to the model field and nothing else. Its ids carry the vendor as a prefix (`anthropic/claude-sonnet-4.5`, `openai/gpt-5.4`, `google/gemini-3.5-flash`), and there is no bare model name. See the [connector reference](/reference/connectors/llm#llm-openrouter-connector).
 
 <Callout type="warn">
-This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent — it is bound onto that deployment when the agent is installed.
+This setting does **not** affect your integrations. The `llm-anthropic`, `llm-openai`, `llm-gemini` and `llm-openrouter` connectors continue to use the key configured on each connector. This one belongs to the installation, and the only thing that reads it is the platform's own agent; it is bound onto that deployment when the agent is installed.
 </Callout>
 
 ### Web search
 
-One field: a [Parallel](https://parallel.ai) API key. With one, Dr. Octo holds a `web_search` tool that searches the open web and hands back ranked pages with the excerpts that bear on what he asked — a provider's error message, a version, what a release changed.
+One field: a [Parallel](https://parallel.ai) API key. With one, Dr. Octo holds a `web_search` tool that searches the open web and hands back ranked pages with the excerpts that bear on what he asked.
 
-**It is optional, and nothing is broken without it.** He installs, runs and answers exactly as before; the tool answers that web search is not configured, tells him not to call it again, and he says he could not check the web. That is a deliberate answer rather than a failed request: the key reaches his pod as an environment variable, and when there is none the value is a sentinel his tool compares against before calling anything.
+**It is optional.** Without it the tool answers that web search is not configured, tells him not to call it again, and he says he could not check the web. The key reaches his pod as an environment variable, and when there is none the value is a sentinel his tool compares against before calling anything.
 
-The key is handled like the other two — write-only, encrypted at rest, reported as its last four characters. It is worth knowing **when** it takes effect: it is bound onto his deployment as a cluster secret, and bindings are written on install and roll-out. Save a key while he is running and he picks it up on his next **Roll out**.
+The key is write-only, encrypted at rest, and reported as its last four characters. It is bound onto his deployment as a cluster secret, and bindings are written on install and roll-out, so a key saved while he is running is picked up on his next **Roll out**.
 
 <Callout type="warn">
 As with the LLM key, this belongs to the installation and not to your integrations. A flow of your own that searches the web configures its own [`parallel` connector](/reference/connectors/parallel) with its own key.
@@ -103,27 +95,21 @@ As with the LLM key, this belongs to the installation and not to your integratio
 
 ### Deployment
 
-The third section of the same page installs, updates, traces or removes him, and sets his **turn limit** — how many tool-calling turns one answer may take. The limit sits inside the deployment card with the buttons that roll the same pods, because that is what it is: a property of this deployment, not another site setting. See [The Platform Agent](/platform/agent) for what he does and how to change him.
+The third section installs, updates, traces or removes him, sets his **turn limit** (how many tool-calling turns one answer may take) and holds the checkbox that lets his troubleshooter act on alerts. The page has one **Save** at its foot: it writes the provider first, then the search key, then the two pod-level settings in a single call so his pods are replaced once. The button says so when a pod-level field is dirty. See [The Platform Agent](/platform/agent) for what he does and how to change him.
 
 ## Embeddings (optional)
 
-Whether searching [agent memory](/platform/agent-memory) ranks by **meaning** or by **words**. Leave it out and search works — it matches text, using Postgres full-text. Deploy the embedding server and the same search ranks by embedding similarity instead. Nothing else changes: the same query, the same results shape, and no flow or block has to be edited.
+Whether searching [agent memory](/platform/agent-memory) ranks by **meaning** or by **words**. Leave it out and search matches text, using Postgres full-text. Deploy the embedding server and the same search ranks by embedding similarity instead, with the same query and the same results shape.
 
 <Callout type="warn">
-**Embedding configuration is deploy-time, and there is no page for it.** There was one, briefly, and it was wrong twice over.
+**Embedding configuration is deploy-time, and there is no page for it.** The model cannot be changed once anything has been embedded: vectors carry no record of which model produced them, so a store holding two models' vectors cannot be ranked coherently. A control whose correct use is "never" does not belong behind a Save button, and nothing read the value until the orchestrator restarted anyway.
 
-The model cannot be changed once anything has been embedded: vectors carry no record of which model produced them, so a store holding two models' vectors cannot be ranked coherently, and keeping one embedding space at a time is what makes that simplification safe rather than a corruption waiting for someone to click Save. A control whose correct use is "never" does not belong behind a Save button, however loud the confirmation dialog.
-
-The second problem settled it: nothing read the value until the orchestrator restarted. Saving on a page and then wondering why nothing changed is worse than not offering the control at all.
-
-What survived is a **report**, and it lives on the [agent memory page](/platform/agent-memory) rather than here — it says whether search ranks by meaning, which model, and how much is still waiting for a vector. That belongs where somebody searches.
+What exists instead is a **report** on the [agent memory page](/platform/agent-memory): whether search ranks by meaning, which model, and how much is still waiting for a vector.
 </Callout>
 
 ### The embedding server
 
-Embeddings are produced by a small octo app the chart deploys — `embeddings/config.yaml`, an `ai-embed` block behind an HTTP route. It is a service rather than a library for one reason: it holds the provider API key, so that **no integration pod has to**.
-
-Every deployment pod is given its address as `EMBEDDINGS_URL`, which means any integration on the installation can embed text. That is deliberate. An embedding reads nothing, writes nothing and costs a fraction of a cent, so handing out the URL crosses no boundary — and it is what makes handing out the key unnecessary. (Contrast `OBSERVABILITY_URL`, which *is* a grant: stored telemetry is other integrations' data.)
+Embeddings are produced by a small octo app the chart deploys: `embeddings/config.yaml`, an `ai-embed` block behind an HTTP route. It is a service because it holds the provider API key, so that **no integration pod has to**. Every deployment pod is given its address as `EMBEDDINGS_URL`, so any integration can embed text; an embedding reads nothing, writes nothing and costs a fraction of a cent. (Contrast `OBSERVABILITY_URL`, which *is* a grant: stored telemetry is other integrations' data.)
 
 Turn it on in the Helm values:
 
@@ -136,25 +122,21 @@ embeddings:
   apiKey: "sk-..."            # or existingSecret
 ```
 
-`connectorType` has no Anthropic option and cannot be given one — Anthropic has no embeddings API, so the connector does not implement the capability and the flow is refused when it is **built**. That is a startup failure naming the problem rather than a surprise on the first embed.
+`connectorType` has no Anthropic option: Anthropic has no embeddings API, so the connector does not implement the capability and the flow is refused when it is **built**, as a startup failure naming the problem.
 
-`dimensions` must match the `vector(N)` columns in `sql/schema.sql`, which are indexed and therefore fixed at schema time. It is *requested* of the provider — most embeddings APIs take a desired-dimensions parameter — and a model that cannot produce that width fails the call and says so.
+`dimensions` must match the `vector(N)` columns in `sql/schema.sql`, which are indexed and therefore fixed at schema time. It is *requested* of the provider, and a model that cannot produce that width fails the call and says so.
 
-On a Terraform deploy the same settings are `embeddings_*` variables on the release root. The key is persisted to the state bucket as `release/embeddings.json`, the same mechanism the OIDC credentials use, so a Cloud Build deploy — which has no `terraform.tfvars` — reads it back instead of tearing the server down.
+On a Terraform deploy the same settings are `embeddings_*` variables on the release root. The key is persisted to the state bucket as `release/embeddings.json`, the same mechanism the OIDC credentials use, so a Cloud Build deploy (which has no `terraform.tfvars`) reads it back instead of tearing the server down.
 
-The embedding server appears on [Platform services](#platform-services) like any other dependency. "Not configured" there is the ordinary answer, not a gap.
+The embedding server appears on [Platform services](#platform-services) like any other dependency. "Not configured" there is the ordinary answer.
 
 ### The backfill
 
-Deploying the server does not make search semantic — it makes it *become* semantic. Everything written before it existed has no vector, so a background sweep in the orchestrator works through them, newest first: the most recent conversations are vectorized first, because those are the ones anyone is about to search.
-
-The [agent memory page](/platform/agent-memory) shows how much is left. While the sweep runs, a search may be answered by either index — the vector one when it has something to match, the text one when it does not — and you cannot tell from the results, deliberately.
-
-The sweep is paced on purpose (64 rows every 5 seconds). A large installation turning this on has a history of hundreds of thousands of items, and an unpaced backfill would send all of it to a paid API in one burst.
+Everything written before the server existed has no vector, so a background sweep in the orchestrator works through them, newest first. The [agent memory page](/platform/agent-memory) shows how much is left. While the sweep runs, a search may be answered by either index: the vector one when it has something to match, the text one when it does not. The sweep is paced at 64 rows every 5 seconds, so a history of hundreds of thousands of items is not sent to a paid API in one burst.
 
 ## How a save handles the API key
 
-Worth knowing, because it explains a behaviour that would otherwise look odd. Leaving the key field blank does **not** clear the stored key — it keeps it. The three cases:
+Leaving the key field blank does **not** clear the stored key. The three cases:
 
 | You do | Result |
 | --- | --- |
@@ -162,71 +144,56 @@ Worth knowing, because it explains a behaviour that would otherwise look odd. Le
 | Type a new key | It replaces the stored one |
 | Press **Remove** (and confirm) | The stored key is deleted |
 
-Both forms submit every field on every save, so any other design would mean editing a from-address destroyed the key beside it. Saves also take a row lock, so two people saving at once cannot silently discard each other's key rotation.
+Both forms submit every field on every save, so any other design would mean editing a from-address destroyed the key beside it. Saves take a row lock, so two people saving at once cannot silently discard each other's key rotation.
 
 <Callout type="warn">
-**Changing the LLM provider is the one exception.** A key authenticates against one provider, so saving a provider change with the key field blank **clears** the stored key rather than carrying it forward. Carrying it would leave the page reporting a configured key that cannot work, and hand an Anthropic key to an OpenAI connector — which fails on the agent's first model call, a long way from the page that caused it. Switch provider and key together.
+**Changing the LLM provider is the one exception.** A key authenticates against one provider, so saving a provider change with the key field blank **clears** the stored key rather than carrying it forward. Carrying it would hand an Anthropic key to an OpenAI connector, which fails on the agent's first model call, a long way from the page that caused it. Switch provider and key together.
 </Callout>
 
 ## Storage
 
-The email and LLM settings are rows in the `site_settings` table — `key = 'email'` and `'llm'`, each a jsonb document. Embeddings are not among them: nothing about them is stored, because nothing about them is a setting. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
+The email, LLM and web search settings are rows in the `site_settings` table (`key = 'email'`, `'llm'` and `'websearch'`), each a jsonb document. Embeddings are not among them, because nothing about them is a setting. Adding a setting costs a key, not a migration, which is how data retention below was added without one.
 
 What agents *remember* is not configuration and is not here: it has its own tables and its own section of the platform. See [Agent Memory](/platform/agent-memory).
 
 ## Data retention
 
-Set how long this installation keeps stored logs and traces at `/platform/admin/retention`. You get two windows rather than one, because the streams have very different weights: a ten-block flow emits a couple of dozen trace records — each able to carry a captured request body — where the same request produces a log line or two. Give traces the shorter window.
+Set how long this installation keeps stored logs, traces and alert history at `/platform/admin/retention`. A ten-block flow emits a couple of dozen trace records, each able to carry a captured request body, where the same request produces a log line or two, so give traces the shorter window.
 
 | Field | Enter |
 | --- | --- |
 | Keep logs for | A number of days, or **0 to keep them forever**. Maximum 3650. |
 | Keep traces for | The same, on its own axis. Pruning a trace takes all of its records with it. |
+| Keep alert history for | The same. Defaults to **14 days**, because a watch records an evaluation every time it runs, including the ones that found nothing. |
 
-**Both default to 0**, so an installation that never opens this page behaves exactly as it did before the feature existed — nothing is deleted until you say so. Each field says as much beneath it, because a bare `0` in a box labelled "days" reads as a value nobody set rather than as a decision.
+**Logs and traces default to 0**, so an installation that never opens this page deletes nothing until you say so. Each field says beneath it what its value means, so a bare `0` reads as a decision rather than a value nobody set.
 
 Saving deletes nothing. By default a [nightly job](/deploy/helm#data-retention) applies the policy at 03:00; set `retention.schedule` in the Helm values to change when it runs, or `retention.enabled=false` to remove it.
 
 ### Run now
 
-Press **Delete now** to apply the saved policy immediately instead of waiting for tonight. It asks first, naming the windows it is about to enforce, then reports what went: log events, trace records, and traces.
+Press **Delete now** to apply the saved policy immediately instead of waiting for tonight. It asks first, naming the windows it is about to enforce, then reports what went: log events, trace records, traces, and alert evaluations.
 
-Save before you run it — the button stays disabled while the form has unsaved edits. A sweep enforces what is *stored*, so running it against numbers you can see you have changed would delete to a policy the confirmation never described.
+Save before you run it; the button stays disabled while the form has unsaved edits, because a sweep enforces what is *stored*.
 
 <Callout type="warn">
-This is the one thing in the admin section that destroys data rather than configuring something, and there is no undo. It is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`) — the variable that **defaults to empty, meaning any signed-in user**. If you have not set it yet, set it before you set a retention window.
+This is the one thing in the admin section that destroys data rather than configuring something, and there is no undo. It is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`), the variable that **defaults to empty, meaning any signed-in user**. If you have not set it yet, set it before you set a retention window.
 </Callout>
 
-Two behaviours worth knowing, both explained in [Traces](/platform/traces#retention): a trace is deleted whole rather than by record, and stored model prices are never deleted, because a traced call's cost points into that history.
+Two behaviours are explained in [Traces](/platform/traces#retention): a trace is deleted whole rather than by record, and stored model prices are never deleted, because a traced call's cost points into that history.
 
 ## Platform services
 
-`/platform/admin/health` is the one page in this section that reports rather than
-configures. It asks the orchestrator whether it can currently reach the five
-things this installation may run on:
+`/platform/admin/health` reports rather than configures. It asks the orchestrator whether it can currently reach the five things this installation may run on:
 
 | Service | What stops working without it |
 | --- | --- |
 | Postgres | Everything. Integrations, deployments, stored logs and traces all live there. |
 | Redis | The fold that keeps streamed traces small. See [Redis](/deploy/helm#redis). |
-| NATS | Live updates — deployment status, and the telemetry runtimes ship to the observability service. |
+| NATS | Live updates: deployment status, and the telemetry runtimes ship to the observability service. |
 | Kubernetes | Deploying anything. Without it the platform is an editor and a database. |
 | Embeddings | Ranking a search of agent memory by meaning. Without it, search matches text. |
 
-Embeddings is the only one an installation may simply not have, and "Not configured" there is the ordinary answer rather than a gap to explain — the other four are how the platform runs. Only a server that was deployed and does not answer is a fault.
+Each check is **one round trip**: it proves a dependency answered and no more. Postgres answering says nothing about replication lag, and Redis answering says nothing about how full it is.
 
-Each check is **one round trip**, and the page says so. That is enough to prove a
-dependency answered and no more: Postgres answering says nothing about
-replication lag, and Redis answering says nothing about how full it is. A page
-that implied otherwise would be worse than this one, because it would be
-believed.
-
-Three results, not two. **Not configured** is neutral rather than a warning —
-running an orchestrator without cluster access is a supported way to run, and
-colouring it as a fault would send you looking for one that is not there.
-**Unreachable** shows the transport error verbatim, because that string is what
-you would otherwise go to the pod logs for.
-
-It checks on load and on **Check again**, and does not poll: the page is opened
-to answer a question, and a poll would keep probes running against a cluster that
-is already having a bad day.
+There are three results. **Not configured** is neutral rather than a warning, because running an orchestrator without cluster access, or without embeddings, is a supported way to run. **Unreachable** shows the transport error verbatim, the string you would otherwise go to the pod logs for. It checks on load and on **Check again**, and does not poll.
