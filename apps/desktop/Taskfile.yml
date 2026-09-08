@@ -39,6 +39,20 @@ tasks:
       - mkdir -p build/server/apps/standalone/.next
       - cp -R ../standalone/.next/static build/server/apps/standalone/.next/static
       - cp -R ../standalone/public build/server/apps/standalone/public
+      # Drop sharp. Next traces it from next-server.js whether or not anything can
+      # reach it, and with images.unoptimized set in the standalone app's
+      # next.config.ts nothing can. What is left otherwise is ~20MB of
+      # ARCHITECTURE-SPECIFIC native code (an .node plus libvips) built for
+      # whichever machine ran `next build` — which is not merely dead weight here
+      # but wrong: it would put an arm64 binary inside an x64 .app. Pruning it is
+      # what makes one `next build` packageable for both architectures.
+      - rm -rf build/server/node_modules/.pnpm/@img+* build/server/node_modules/.pnpm/sharp@*
+      - |
+        if find build/server -name "*.node" | grep -q .; then
+          echo "staged server still contains a native module:" >&2
+          find build/server -name "*.node" >&2
+          exit 1
+        fi
       - echo "✓ staged the editor server in apps/desktop/build/server"
 
   bins:
