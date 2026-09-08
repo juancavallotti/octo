@@ -41,6 +41,33 @@ tasks:
       - cp -R ../standalone/public build/server/apps/standalone/public
       - echo "✓ staged the editor server in apps/desktop/build/server"
 
+  bins:
+    desc: Cross-compile octo and dolphin into build/bin/<arch> for packaging
+    vars:
+      # electron-builder's ${arch} macro spells amd64 "x64", and extraResources
+      # copies from a directory named by it — so the output dirs use its spelling,
+      # not Go's. GOOS is darwin only for now: the app is packaged for macOS
+      # first, and adding a platform here means adding a target to
+      # electron-builder.yml in the same change.
+      PAIRS: 'arm64:arm64 amd64:x64'
+    cmds:
+      - |
+        set -e
+        # Stamped the same way every other build in this repo does, so a binary
+        # inside the .app reports the same build date as the one on the release
+        # page. Version is a const the release train sets; only the date is here.
+        LD="-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        for pair in {{.PAIRS}}; do
+          goarch="${pair%%:*}"; ebarch="${pair##*:}"
+          out="build/bin/$ebarch"
+          mkdir -p "$out"
+          for cmd in octo dolphin; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH="$goarch" go build -trimpath \
+              -ldflags "$LD" -o "$out/$cmd" {{.ROOT_DIR}}/runtime/$cmd
+          done
+          echo "✓ $out: octo, dolphin (darwin/$goarch)"
+        done
+
   build:
     desc: Bundle the Electron main and preload processes into dist/
     cmds:
