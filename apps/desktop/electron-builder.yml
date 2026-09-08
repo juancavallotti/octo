@@ -1,0 +1,66 @@
+appId: com.juancavallotti.octo
+productName: Octo
+copyright: © Juan Cavallotti
+
+directories:
+  output: dist/release
+  buildResources: build
+
+# Only the esbuild bundle. apps/desktop declares no runtime dependencies, so
+# there is no production dependency tree for electron-builder to resolve across
+# pnpm's symlink farm — which is the usual pnpm + electron-builder failure.
+files:
+  - dist/main/**
+  - dist/preload/**
+  - package.json
+
+asar: true
+
+# The Next standalone server is copied in by build/after-pack.cjs rather than
+# listed here: electron-builder excludes node_modules from extraResources and no
+# filter re-includes it, which produces an .app that packages and signs cleanly
+# and then cannot start its own server. It stays OUTSIDE the asar archive either
+# way — Next computes require() and readFile paths at runtime, and asar's fs shim
+# covers most of that, which is the wrong guarantee for the thing that renders the
+# entire UI.
+afterPack: build/after-pack.cjs
+
+extraResources:
+  # Per-architecture Go binaries. ${arch} is electron-builder's spelling — arm64
+  # or x64 — which is why task desktop:bins names its output directories that way
+  # rather than after GOARCH.
+  - from: build/bin/${arch}
+    to: bin
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    # electron-updater needs the zip; the dmg alone cannot deliver an update.
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # octo and dolphin are Mach-O executables sitting in Resources/bin, and the
+  # notary service will find them. Unsigned, they fail notarization — and the
+  # error names the binary, not this omission, which is why it is worth stating
+  # here rather than discovering later.
+  binaries:
+    - Contents/Resources/bin/octo
+    - Contents/Resources/bin/dolphin
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+publish:
+  provider: github
+  owner: juancavallotti
+  repo: octo

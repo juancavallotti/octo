@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    The hardened runtime forbids these by default, and this app needs all of them
+    because of what it is: an Electron shell that runs a Node server and spawns two
+    Go binaries.
+
+    JIT and unsigned executable memory: V8, in both the renderer and the Node child.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!--
+    The editor server is started by re-executing this app's own binary with
+    ELECTRON_RUN_AS_NODE=1, which is a DYLD-affecting environment variable.
+  -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <!-- Electron's framework loading. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!--
+    Inherited by the children we spawn (the Node server, octo, dolphin) so they run
+    under the same sandbox decisions rather than being refused.
+  -->
+  <key>com.apple.security.inherit</key>
+  <true/>
+</dict>
+</plist>

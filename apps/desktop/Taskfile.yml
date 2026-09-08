@@ -47,6 +47,11 @@ tasks:
       # but wrong: it would put an arm64 binary inside an x64 .app. Pruning it is
       # what makes one `next build` packageable for both architectures.
       - rm -rf build/server/node_modules/.pnpm/@img+* build/server/node_modules/.pnpm/sharp@*
+      # pnpm's layout reaches those packages through symlinks elsewhere in the
+      # tree, so removing the directories leaves the links dangling — and
+      # electron-builder stats every file it packages, so a dangling link fails
+      # the build with an ENOENT naming an unrelated path. Sweep them.
+      - find build/server -type l ! -exec test -e {} \; -delete
       - |
         if find build/server -name "*.node" | grep -q .; then
           echo "staged server still contains a native module:" >&2
@@ -96,6 +101,20 @@ tasks:
     desc: Run the desktop app's unit tests
     cmds:
       - pnpm run test
+
+  dist:
+    desc: Package Octo Desktop as a macOS .app + dmg (unsigned unless certs are present)
+    deps:
+      - runtime:build
+      - stage
+      - bins
+      - build
+    cmds:
+      # Unsigned is fine for a local build: electron-builder ad-hoc signs when no
+      # identity is configured, which is what lets the app launch at all on Apple
+      # Silicon. A Developer ID and notarization are what a *downloaded* build
+      # needs, and that is a separate change.
+      - pnpm exec electron-builder --mac --arm64
 
   dev:
     desc: Build and run Octo Desktop, rebuilding on change (RUN enabled)

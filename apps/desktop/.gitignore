@@ -1,3 +1,6 @@
 dist/
+# Generated: the staged Next server and the cross-compiled Go binaries. Both are
+# copies of things built elsewhere in the repo (task desktop:stage / desktop:bins),
+# so they are outputs, not source.
 build/server/
 build/bin/
