@@ -1,4 +1,5 @@
 import { app, dialog, shell } from "electron";
+import { publish, reapOrphan, retract } from "./endpoint";
 import { registerIpc } from "./ipc";
 import { logPath, recent } from "./log";
 import { buildMenu } from "./menu";
@@ -46,6 +47,7 @@ async function boot(): Promise<void> {
     const port = pinnedPort() ?? (await choosePort());
     const server = await start(vault, port);
     rememberVault(vault);
+    publish(server);
     // Rebuilt after the server is up, because two of its items (the MCP URL, the
     // reveal-folder item) are only meaningful once there is a server and a folder.
     buildMenu();
@@ -93,6 +95,10 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
+    // Before choosing a port: a previous instance that was force-quit may still
+    // be holding it, and walking past our own ghost would silently move the MCP
+    // URL out from under every agent configured against it.
+    reapOrphan();
     registerIpc();
     // A menu before the server is up, so the window is never menu-less; rebuilt
     // once it is (and after every vault change, from vault.ts).
@@ -120,6 +126,7 @@ if (!app.requestSingleInstanceLock()) {
     if (shuttingDown) return;
     event.preventDefault();
     shuttingDown = true;
+    retract(current()?.vault);
     void stop().finally(() => app.exit(0));
   });
 }

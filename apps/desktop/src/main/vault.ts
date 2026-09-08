@@ -1,6 +1,7 @@
 import { app, dialog } from "electron";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { publish, retract } from "./endpoint";
 import { buildMenu } from "./menu";
 import { choosePort, pinnedPort } from "./port";
 import { current, start, stop } from "./server";
@@ -115,11 +116,16 @@ async function restartOn(vaultPath: string): Promise<boolean> {
 
   await showSplash();
   await splashHint(vaultPath);
+  // The old folder's advertisement is stale the moment we stop serving it, and a
+  // stale endpoint file is worse than none: an agent would keep calling a URL
+  // that now answers for a different folder.
+  retract(previous?.vault);
   await stop();
 
   try {
     const server = await start(vaultPath, port);
     rememberVault(vaultPath);
+    publish(server);
     // The recents submenu and the folder-dependent items are built from state,
     // so they have to be rebuilt when the state changes.
     buildMenu();
