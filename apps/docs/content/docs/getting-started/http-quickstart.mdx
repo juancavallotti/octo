@@ -109,6 +109,56 @@ on `vars.method` while the body stays whatever the caller sent. See
   body, save, and the endpoint reloads without a restart.
 </Callout>
 
+## Put it under test
+
+Three `curl` calls proved the three branches once. A suite proves them on every
+edit, and it does not need the server: under test no source runs, so the case
+builds the message the HTTP source would have built. Save this beside the flow
+as `orders_test.yaml`:
+
+```yaml title="orders_test.yaml"
+flow: orders
+
+cases:
+  - name: a GET returns the order
+    input:
+      vars: { method: GET, id: "42" }
+    expect:
+      body: { orderId: "42", status: found }
+
+  - name: a POST accepts the item in the body
+    input:
+      vars: { method: POST, id: "42" }
+      data: { item: widget }
+    expect:
+      body: { orderId: "42", item: widget, status: accepted }
+
+  - name: any other method is refused
+    input:
+      vars: { method: DELETE, id: "42" }
+    expect:
+      body: { error: "method DELETE not supported" }
+```
+
+`input.vars` is doing the work the source normally does: `vars.method` is what
+the `switch` routes on, and `vars.id` is the `{id}` path segment. `input.data`
+is the request body, which only the POST case needs.
+
+```bash
+export OCTO_PATH=$PWD/bin/octo
+bin/dolphin test orders.yaml
+```
+
+```
+ok   orders_test.yaml  (orders)  141ms
+
+3 passed, 0 failed, 0 errored, 0 skipped  (141ms)
+```
+
+One case per branch, including the branch you hope never runs. See
+[Unit-Testing a Flow](/getting-started/unit-testing) for what else a case can
+assert.
+
 ## Next steps
 
 The full `samples/http-orders.yaml` adds environment variables for the host and

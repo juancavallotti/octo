@@ -123,6 +123,13 @@ schedule; only the requested flow runs. That makes `invoke` the cleanest way to
 test a flow. Sourceless flows are also the building block for flow composition
 with `flow-ref`.
 
+## Lock it in with a test
+
+Invoking a flow by hand tells you it works right now. A test tells you it still
+works after the next edit. The `greet` flow above already ships with one, and
+[Unit-Testing a Flow](/getting-started/unit-testing) runs it, breaks it on
+purpose, and shows what a suite can assert.
+
 ## Next steps
 
 Continue to the [HTTP Quickstart](/getting-started/http-quickstart) to build a

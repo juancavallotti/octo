@@ -1,0 +1,114 @@
+---
+title: "Unit-Testing a Flow"
+description: "Put a flow under test with dolphin, and make testing part of the edit loop."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Invoking a flow by hand tells you it works right now. A test tells you it still
+works after the next edit, and writing one is the other half of the edit loop:
+change the flow, run the suite, keep going. This page puts the flow from
+[Your First Flow](/getting-started/first-flow) under test.
+
+You need `bin/octo` and `bin/dolphin` from
+[Installation](/getting-started/installation#install-dolphin).
+
+## A suite is a YAML file beside the flow
+
+A suite is named after the flow file it tests, so `hello-invoke.yaml` is paired
+with `hello-invoke_test.yaml`. This one ships beside the sample:
+
+```yaml title="samples/hello-invoke_test.yaml"
+flow: greet
+
+cases:
+  - name: it greets the name in the body
+    input:
+      data: { name: Ada }
+    expect:
+      body: { greeting: "hello, Ada!" }
+```
+
+`flow` names the flow under test. Each case gives an `input` and says what it
+`expect`s: `input.data` is the body the flow is called with, and `expect.body`
+is what the resulting body has to contain.
+
+Run it by pointing at the flow file, not at the test file:
+
+```bash
+export OCTO_PATH=$PWD/bin/octo
+bin/dolphin test samples/hello-invoke.yaml
+```
+
+```
+ok   samples/hello-invoke_test.yaml  (greet)  32ms
+
+1 passed, 0 failed, 0 errored, 0 skipped  (32ms)
+```
+
+`dolphin` runs your tests by running the real `octo`, so `OCTO_PATH` tells it
+which binary to drive. It then finds the `_test.yaml` beside the flow on its
+own, the way Go pairs `orders.go` with `orders_test.go`, and `octo` skips those
+files when it loads a directory.
+
+<Callout type="info">
+  **Sources do not run under a test.** Nothing binds a port and no schedule
+  fires; only the named flow runs, on the message the case builds. So a flow
+  that reads `vars.method` sees it only because the case set it.
+</Callout>
+
+## Watch it fail
+
+A test you have never seen fail is a test you should not trust. Change the
+expected greeting to `hello, Grace!` and run it again:
+
+```
+FAIL samples/hello-invoke_test.yaml  (greet)  25ms
+  --- FAIL: it greets the name in the body (25ms)
+        expect.body:
+              want: {"greeting":"hello, Grace!"}
+              got:  {"greeting":"hello, Ada!"}
+        reproduce: bin/octo invoke --config samples/hello-invoke.yaml --flow greet …
+
+0 passed, 1 failed, 0 errored, 0 skipped  (25ms)
+```
+
+The failure names the field, both values, and a `reproduce` command that runs
+that one case again outside `dolphin`, with the same debug config the runner
+used. Put it back to `Ada` and the suite goes green again.
+
+## Assert on what happened inside
+
+`expect` looks at the message that came out. `spies` look at what the flow did
+on the way, which is how you catch a flow that returns the right answer for the
+wrong reason:
+
+```yaml title="samples/hello-invoke_test.yaml"
+cases:
+  - name: it greets the name in the body
+    input:
+      data: { name: Ada }
+    expect:
+      body: { greeting: "hello, Ada!" }
+    spies:
+      greet.build-greeting:
+        count: 1
+```
+
+`greet.build-greeting` is a block address: the flow, then the block's `name`.
+`count: 1` says that block was reached exactly once. A block nested in a
+composite is addressed through the slot it lives in, as in
+`orders.route-by-method[0].lookup-order`. See the
+[address grammar](/reference/cli#addressing-a-block).
+
+## Where this goes next
+
+Nothing above is mocked, because nothing in this flow calls the world. The
+moment a flow does, you stand in for the block that makes the call and let
+everything around it run for real. That is the one technique that turns an
+untestable flow into a testable one, and
+[Your First Test](/testing/first-test) walks it end to end in about ten minutes
+on a flow that charges a payment API.
+
+From there, [Testing](/testing) covers the suite format in full, running suites
+in CI, and writing them in the editor against a canvas instead of a file.
