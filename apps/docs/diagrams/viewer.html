@@ -1,0 +1,53 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>diagram export</title>
+<style>
+  html, body { margin: 0; background: #fff; }
+  /* The bundle ships these faces but declares them in CSS it does not publish
+     separately, so the canvas paints a serif fallback unless we declare them
+     here and wait for both to load before exporting. */
+  @font-face { font-family: "Virgil";   src: url("https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw-assets/Virgil.woff2") format("woff2"); font-display: block; }
+  @font-face { font-family: "Cascadia"; src: url("https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw-assets/Cascadia.woff2") format("woff2"); font-display: block; }
+</style></head>
+<body>
+<div id="out"></div>
+<script>
+  // Excalidraw loads its hand-drawn faces relative to this path. Without it the
+  // bundle looks for /excalidraw-assets on this origin, finds nothing, and every
+  // label falls back to a serif.
+  window.EXCALIDRAW_ASSET_PATH = "https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";
+</script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
+<script>
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const scene = await (await fetch(params.get("f"))).json();
+
+  // The published browser bundle stops at 0.17.6, which knows font ids 1 (Virgil),
+  // 2 (Helvetica) and 3 (Cascadia). Scenes drawn on today's excalidraw.com carry
+  // 5 to 8, and an id the bundle does not know paints as a serif. Mapping the
+  // hand-drawn ones onto Virgil and the monospace one onto Cascadia keeps the
+  // export looking like the editor. Only the export is rewritten; the source
+  // file on disk keeps whatever the editor wrote.
+  const FONTS = { 5: 1, 6: 1, 7: 1, 8: 3 };
+  for (const el of scene.elements) {
+    if (el.type === "text" && FONTS[el.fontFamily]) el.fontFamily = FONTS[el.fontFamily];
+  }
+  await Promise.all([
+    document.fonts.load('20px Virgil'),
+    document.fonts.load('20px Cascadia'),
+  ]);
+  await document.fonts.ready;
+  const canvas = await ExcalidrawLib.exportToCanvas({
+    elements: scene.elements,
+    appState: { ...scene.appState, exportBackground: true, viewBackgroundColor: "#ffffff", exportPadding: 24 },
+    files: scene.files || {},
+    getDimensions: (w, h) => ({ width: w * 2, height: h * 2, scale: 2 }),
+  });
+  canvas.id = "shot";
+  document.getElementById("out").appendChild(canvas);
+  document.title = "ready";
+})();
+</script>
+</body></html>

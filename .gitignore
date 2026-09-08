@@ -40,3 +40,4 @@ octo-store/
 
 # Local task environment (see .env.example). Credentials, never committed.
 .env
+__pycache__/
