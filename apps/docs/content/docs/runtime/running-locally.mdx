@@ -6,7 +6,7 @@ description: "octo run in depth: hot reload, concurrency tuning, and invocation.
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 
-The `octo` CLI runs a config of flows on your machine — the same engine the platform deploys to a cluster, backed by the standalone services module (in-process queues, in-memory KV, no external infrastructure). This page covers `octo run`, `octo invoke`, and `octo eval` in depth, plus the per-flow concurrency knobs.
+The `octo` CLI runs a config of flows on your machine, using the same engine the platform deploys to a cluster, backed by the standalone services module (in-process queues, in-memory KV, no external infrastructure). This page covers `octo run`, `octo invoke`, and `octo eval` in depth, plus the per-flow concurrency knobs.
 
 For installing the CLI, see [Installation](/getting-started/installation).
 
@@ -22,18 +22,18 @@ octo run --config my-flow.yaml --watch  # reload on change
 
 | Flag | Meaning |
 | --- | --- |
-| `--config <path>` | Path to the runtime config — a file or a directory (required). |
+| `--config <path>` | Path to the runtime config, a file or a directory (required). |
 | `--watch` | Reload the config whenever it changes. |
 
 Flags accept one or two dashes (`--config` or `-config`).
 
 When the config path is a directory, the runtime loads every `.yaml`/`.yml` file in it as one combined config. The config directory also becomes the **resource root**: declared [resources](/concepts/resources) (env files, templates) resolve relative to it.
 
-Once every connector and flow has started, the CLI prints a ready banner. Stop the runtime with `Ctrl-C` (SIGINT) or SIGTERM; shutdown is graceful and unwinds in strict reverse order — sources stop first, channels close, in-flight messages drain, then connectors release their resources.
+Once every connector and flow has started, the CLI prints a ready banner. Stop the runtime with `Ctrl-C` (SIGINT) or SIGTERM; shutdown is graceful and unwinds in strict reverse order: sources stop first, channels close, in-flight messages drain, then connectors release their resources.
 
 ### Run it from Docker
 
-The runtime also ships as a public image — `juancavallotti/octo-runtime` on
+The runtime also ships as a public image, `juancavallotti/octo-runtime` on
 Docker Hub, multi-arch (`linux/amd64` and `linux/arm64`), published on every
 release. It carries the `octo` binary and nothing else: no editor, no
 orchestrator, no cluster. Its default command is
@@ -47,22 +47,20 @@ docker run -p 8080:8080 -v "$PWD:/etc/octo/integrations" juancavallotti/octo-run
 
 The image runs the same standalone services module as a local binary
 (in-process queues, in-memory KV), so anything that runs under `octo run` on
-your machine runs here unchanged. A few practicalities:
+your machine runs here unchanged. A few practicalities.
 
-- **Ports** — nothing is published for you. Map whatever port your `http`
-  connector binds (8080 unless you set `port`/`HTTP_PORT`).
-- **Environment** — pass `env:` values with `-e`, or mount a `.env` file into
-  the config directory; both resolve exactly as they do locally. `LOG_LEVEL`
-  works the same way.
-- **Resources** — the mounted config directory is the resource root, so env
-  files and templates declared as [resources](/concepts/resources) resolve
-  relative to it.
-- **Read-only mounts are fine** — the runtime only reads its config. Use `:ro`
-  if you want to enforce that.
-- **It runs as `nonroot`** on a distroless base: no shell in the image, so
-  `docker exec` gets you nothing to run.
+No ports are published for you: map whatever port your `http` connector binds
+(8080 unless you set `port`/`HTTP_PORT`). Pass `env:` values with `-e`, or mount
+a `.env` file into the config directory; both resolve exactly as they do
+locally, and `LOG_LEVEL` works the same way. The mounted config directory is the
+resource root, so env files and templates declared as
+[resources](/concepts/resources) resolve relative to it.
 
-Override the command to use the other subcommands — for example, a one-shot
+Read-only mounts are fine, since the runtime only reads its config; use `:ro` to
+enforce that. The image runs as `nonroot` on a distroless base, with no shell, so
+`docker exec` gets you nothing to run.
+
+Override the command to use the other subcommands, for example a one-shot
 invoke against a mounted config:
 
 ```bash
@@ -89,15 +87,15 @@ LOG_LEVEL=debug octo run --config my-flow.yaml
 
 With `--watch`, the CLI watches the config path and rebuilds the runtime when it changes:
 
-- File changes are debounced (200 ms), so a burst of editor writes coalesces into one reload. Atomic-rename saves — editors that replace the file rather than writing in place — are detected too.
-- Watching a directory also notices **added and removed** config files.
-- The `.env` files consulted during load, and any declared env or template resources, feed the same reload channel — editing them restarts the runtime just like a config change.
-- A config that fails to load, build, or start is **not fatal**: the CLI logs the error and waits for the next change, so fixing the file recovers without restarting the process.
-- Runtime services (connections, leases) are built once and reused across reloads; each generation only borrows them, so they are not churned on every save.
+File changes are debounced (200 ms), so a burst of editor writes coalesces into one reload. Atomic-rename saves, where an editor replaces the file rather than writing in place, are detected too. Watching a directory also notices **added and removed** config files.
+
+The `.env` files consulted during load, and any declared env or template resources, feed the same reload channel, so editing them restarts the runtime just like a config change.
+
+A config that fails to load, build, or start is **not fatal**: the CLI logs the error and waits for the next change, so fixing the file recovers without restarting the process. Runtime services (connections, leases) are built once and reused across reloads, so they are not churned on every save.
 
 ## octo invoke
 
-`invoke` loads a config, calls one flow by name with a request body, prints the result message as JSON, and exits. Sources are **not** started — no HTTP server binds, no cron fires — so it is safe to invoke against a config whose sources would otherwise conflict with a running instance.
+`invoke` loads a config, calls one flow by name with a request body, prints the result message as JSON, and exits. Sources are **not** started (no HTTP server binds, no cron fires) so it is safe to invoke against a config whose sources would otherwise conflict with a running instance.
 
 ```bash
 octo invoke --config my-flow.yaml --flow enrich-order --data '{"id": 42}'
@@ -110,21 +108,21 @@ octo invoke --config my-flow.yaml --flow enrich-order --data '{"id": 42}'
 | `--data <json>` | JSON request body. | reads stdin when omitted |
 | `--timeout <dur>` | Max time to wait for the flow. | `30s` |
 
-When `--data` is omitted and stdin is piped (not an interactive terminal), the body is read from stdin — it must be valid JSON:
+When `--data` is omitted and stdin is piped (not an interactive terminal), the body is read from stdin, and it must be valid JSON:
 
 ```bash
 cat order.json | octo invoke --config my-flow.yaml --flow enrich-order
 ```
 
-The flow's final message prints to stdout as JSON — `{event_id, variables, body}`, the variables it built up along with the payload, so pipe it through `jq '.body'` when the body is all you want. A flow that drops the message prints nothing (the drop is logged); a flow that fails exits non-zero with the error.
+The flow's final message prints to stdout as JSON, `{event_id, variables, body}`, the variables it built up along with the payload, so pipe it through `jq '.body'` when the body is all you want. A flow that drops the message prints nothing (the drop is logged); a flow that fails exits non-zero with the error.
 
 <Callout type="info">
-Any flow is invokable by name, but flows declared **without** a `source:` are made for it: they get an implicit source and exist purely to be called — by `invoke`, or by other flows via `flow-ref`.
+Any flow is invokable by name, but flows declared **without** a `source:` are made for it: they get an implicit source and exist purely to be called, by `invoke` or by other flows via `flow-ref`.
 </Callout>
 
 ## octo eval
 
-`eval` compiles and evaluates one [CEL expression](/concepts/expressions) against an ad-hoc message — no config, no runtime services. Use it to test an expression before pasting it into a flow.
+`eval` compiles and evaluates one [CEL expression](/concepts/expressions) against an ad-hoc message, with no config and no runtime services. Use it to test an expression before pasting it into a flow.
 
 ```bash
 octo eval --expr 'body.total * 1.21' --data '{"total": 100}'
@@ -141,11 +139,11 @@ octo eval --expr '"hi " + vars.name' --vars '{"name": "Ada"}'
 | `--vars <json>` | JSON object bound to `vars`. |
 | `--env <json>` | JSON object bound to `env`. |
 
-The result is a JSON envelope: `{"ok": true, "result": ...}` on success, `{"ok": false, "result": null, "error": "..."}` on a compile or evaluation failure. Both cases exit 0 — a bad expression is a normal result, not a CLI failure — so scripts can parse the envelope instead of inspecting exit codes. `result` is always emitted, so a legitimate `false`/`0`/`null` result is not confused with its absence.
+The result is a JSON envelope: `{"ok": true, "result": ...}` on success, `{"ok": false, "result": null, "error": "..."}` on a compile or evaluation failure. Both cases exit 0, so scripts parse the envelope instead of inspecting exit codes. `result` is always emitted, so a legitimate `false`/`0`/`null` result is not confused with its absence.
 
 Because no config is loaded, `templateResource()` is unavailable in `eval`; expressions over `body`, `vars`, `env`, `eventID`, `correlationID`, and `now` all work.
 
-Two more subcommands round out the CLI: `octo schema` prints the editor capability schema as JSON (`--out <path>` writes it to a file), and `octo version` prints the version and build date. See the [CLI reference](/reference/cli).
+Two more subcommands round out the CLI. `octo schema` prints the editor capability schema as JSON (`--out <path>` writes it to a file), and `octo version` prints the version and build date. See the [CLI reference](/reference/cli).
 
 ## Concurrency tuning
 
@@ -154,18 +152,20 @@ A root flow declares three knobs, all optional:
 ```yaml
 flows:
   - name: ingest-orders
-    workers: 8      # per-flow worker pool size (default 8; set 1 for FIFO)
-    buffer: 128     # source -> worker channel depth (default 64)
+    workers: 8      # per-flow worker pool size (set 1 for FIFO)
+    buffer: 128     # source -> worker channel depth
     pool: 16        # shared pool for concurrent composites (default 8)
     source: { ... }
     process: [ ... ]
 ```
 
-- **`workers`** — the number of goroutines running this flow. All workers read the same channel the source emits on; each takes a message and runs it through the whole block chain. With the default of 8, messages may complete **out of order**; set `workers: 1` for strict FIFO processing within a flow.
-- **`buffer`** — the depth of the bounded channel between the source and the workers. This is the flow's backpressure valve: when workers fall behind, the channel fills and the source blocks. A larger buffer absorbs bursts; a smaller one propagates backpressure sooner.
-- **`pool`** — the size of the flow's shared worker pool, used by composites that parallelize (a `fork`'s branches run on it). The pool has a bounded task queue; if a flow's fan-out submits more work than it can accept (for example, deeply nested forks), the pool is exhausted and the runtime **panics** rather than risk a silent deadlock — size `pool` for your flow's fan-out.
+`workers` is the number of goroutines running this flow, defaulting to `max(8, GOMAXPROCS × 4)`. All workers read the same channel the source emits on; each takes a message and runs it through the whole block chain. Because a flow runs several workers, messages may complete **out of order**; set `workers: 1` for strict FIFO processing within a flow.
 
-Sub-flows nested inside composite blocks must not declare `workers`, `buffer`, or `pool` — they run within the parent's budget. See [The Processing Pipeline](/runtime/processing-pipeline) for how the two pools interact.
+`buffer` is the depth of the bounded channel between the source and the workers, defaulting to `max(64, workers)`. This is the flow's backpressure valve: when workers fall behind, the channel fills and the source blocks. A larger buffer absorbs bursts; a smaller one propagates backpressure sooner.
+
+`pool` is the size of the flow's shared worker pool (default 8), used by composites that parallelize, such as a `fork`'s branches. The pool has a bounded task queue; if a flow's fan-out submits more work than it can accept (for example, deeply nested forks), the pool is exhausted and the runtime **panics** rather than risk a silent deadlock. Size `pool` for your flow's fan-out.
+
+Sub-flows nested inside composite blocks must not declare `workers`, `buffer`, or `pool`, because they run within the parent's budget. See [The Processing Pipeline](/runtime/processing-pipeline) for how the two pools interact.
 
 ## A practical dev loop
 

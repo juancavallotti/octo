@@ -5,24 +5,24 @@ description: "The two extension points, and how to choose between them."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Everything above this section is about *using* Octo — writing flows in YAML. This section is about extending the runtime itself, in Go: adding a connector so flows can talk to something new, or adding a runtime service so the process itself can do something new.
+Everything above this section is about *using* Octo: writing flows in YAML. This section is about extending the runtime itself, in Go, with a connector so flows can talk to something new, or a runtime service so the process can do something new.
 
 ## Two extension points
 
-The runtime has exactly two, and that is deliberate. Someone asking "how do I add X?" should find two answers, not four.
+The runtime has exactly two.
 
 | | `connectors` | `services` |
 | --- | --- | --- |
 | Answers | What a flow can **do** | What the runtime **is** |
-| Referenced by | Name, in YAML | Nothing — it is not in the config |
+| Referenced by | Name, in YAML | Nothing; it is not in the config |
 | Examples | `http`, `cron`, `database`, `slack` | `standalone`, `k8s`, `api`, `observability` |
 | Lives in | `runtime/connectors/<name>` | `runtime/services/<name>` |
 | Guide | [Connectors](/extending/connectors) | [Runtime services](/extending/runtime-services) |
 
-Both use package-level registration (`init`) and binary wiring via blank imports in `runtime/octo/main.go`, but they are selected differently: service **providers** are module-selected by `RUNTIME_SERVICES_MODULE`, while **hosted** services run whenever they are compiled in and blank-imported. Nothing is discovered by scanning, and nothing is configured by file path.
+Both use package-level registration (`init`) and binary wiring via blank imports in `runtime/octo/main.go`. They differ in selection: service **providers** are module-selected by `RUNTIME_SERVICES_MODULE`, while **hosted** services run whenever they are compiled in and blank-imported. Nothing is discovered by scanning, and nothing is configured by file path.
 
 <Callout type="warn">
-New capability goes into one of these two, or — for a block that belongs to no connector — under `runtime/blocks`, registered through the same block seam a connector uses. Not into a third registry: a parallel seam is always locally reasonable and always leaves the next person one more place to look.
+New capability goes into one of these two, or, for a block that belongs to no connector, under `runtime/blocks`, registered through the same block seam a connector uses. Never into a third registry.
 </Callout>
 
 ## Choosing
@@ -40,18 +40,20 @@ Does a flow author reference it by name in YAML?
       any provider through a shared interface?          → runtime/blocks
 ```
 
-Two things that used to look like extension points are worth knowing about, because they are where a lot of "I need to extend Octo" questions actually land:
+Two things look like extension points but are not, and they are where many "I need to extend Octo" questions land.
 
-**The event seams.** `core.EventBus` (one event per message, per flow) and `core.BlockEvents` (one pair per block invocation) let you observe the runtime without registering anything into it. Subscribing is not extending: nothing you attach changes what a flow does, and there is no name to collide with. Reach for these first when the requirement is "know what happened" — see [Monitoring](/runtime/monitoring#block-events). The [observability service](/runtime/observability) is built entirely on them and registers no connector and no block.
+The **event seams**, `core.EventBus` (one event per message, per flow) and `core.BlockEvents` (one pair per block invocation), let you observe the runtime without registering anything into it. Nothing you attach changes what a flow does. Reach for these first when the requirement is "know what happened"; see [Monitoring](/runtime/monitoring#block-events). The [observability service](/runtime/observability) is built entirely on them and registers no connector and no block.
 
-**Blocks with sub-flows.** A block that runs nested chains — `fork`, `foreach`, `if`, `cache-scope`, the `ai-*` family — is an ordinary registered block. Its sub-flows are fields of its settings struct, and it builds them through `core.BlockDeps.SubFlows`, the seam the engine hands every block factory. A connector package can register one too; see [Blocks with sub-flows](/extending/connectors#blocks-with-sub-flows). The engine itself owns no block: it is the flow runner, and the only processors it builds directly are the debug wrappers the CLI injects.
+**Blocks with sub-flows** are ordinary registered blocks. `fork`, `foreach`, `if`, `cache-scope` and the `ai-*` family keep their sub-flows as fields of their settings struct and build them through `core.BlockDeps.SubFlows`, the seam the engine hands every block factory. A connector package can register one too; see [Blocks with sub-flows](/extending/connectors#blocks-with-sub-flows). The engine owns no block of its own, only the debug wrappers the CLI injects.
 
 ## Not extension points
 
-- **CLI subcommands.** `run`, `invoke`, `eval` and `schema` are a closed set. A hosted service extends the CLI by adding flags to `octo run`, which is the seam that exists.
-- **CEL functions.** They go through one seam, `expr.RegisterMessageExtension`, and all message expressions compile via `expr.CompileMessage`. Never compile at a call site.
+CLI subcommands are a closed set: `run`, `invoke`, `eval` and `schema`. A hosted service extends the CLI by adding flags to `octo run`, which is the seam that exists.
+
+CEL functions go through one seam, `expr.RegisterMessageExtension`, and all message expressions compile via `expr.CompileMessage`. Never compile at a call site.
 
 ## Before you start
 
-- Read [`docs/coding-standards.md`](https://github.com/juancavallotti/octo/blob/main/docs/coding-standards.md) and [`docs/extension-points.md`](https://github.com/juancavallotti/octo/blob/main/docs/extension-points.md) in the repository — the latter is the normative version of this page.
-- CI enforces one rule that surprises people: **every registered connector, block and source must be documented**. `scripts/check-docs-drift.mjs` compares `octo schema` against the `octo_types` frontmatter of the reference pages and fails on any drift.
+Read [`docs/coding-standards.md`](https://github.com/juancavallotti/octo/blob/main/docs/coding-standards.md) and [`docs/extension-points.md`](https://github.com/juancavallotti/octo/blob/main/docs/extension-points.md) in the repository. The latter is the normative version of this page.
+
+CI enforces one rule that surprises people: **every registered connector, block and source must be documented**. `scripts/check-docs-drift.mjs` compares `octo schema` against the `octo_types` frontmatter of the reference pages and fails on any drift.
