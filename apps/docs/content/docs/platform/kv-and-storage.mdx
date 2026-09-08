@@ -33,6 +33,18 @@ The version travels in the `X-Object-Version` header both ways: reads return the
 
 An aggregator's in-flight group state must survive a restart, while a memoized response body with a 60-second TTL need not cost a database round-trip. You choose a tier, **persistent** or **volatile**, by choosing a namespace, and the `_volatile` suffix on its name says which you get:
 
+![A deployment writing to two backends: volatile namespaces to Redis under octo:kv keys scoped by deployment, and persistent namespaces to Postgres in a user space and a system space, each holding plain values and encrypted ones](/diagrams/kv-tiers.png)
+
+The suffix is the only thing that routes. A key is never rewritten and never
+carries the namespace: the two travel separately and meet only in the Redis key
+layout, `octo:kv:<deployment>:<namespace>:<key>`, where they stay separate
+segments. The deployment comes first so one deployment's keys can be swept
+together, and the key comes last so it may contain a colon while a namespace may
+not, which is refused rather than escaped: namespace `a:b` with key `k` and
+namespace `a` with key `b:k` would otherwise be the same Redis key, and two
+callers who believed they were in separate keyspaces would share one, versions
+included.
+
 | | persistent (`user`, `system`) | volatile (`user_volatile`, `system_volatile`) |
 | --- | --- | --- |
 | Platform | Postgres `kv_store`, via the orchestrator | Redis |
@@ -67,6 +79,13 @@ Two kinds of namespace never reach that directory. Volatile namespaces do not, b
 Namespaces ending in `_secrets` (e.g. `user_secrets`) are **encrypted at rest**: the orchestrator encrypts values with AES-GCM before they reach Postgres and decrypts on read, using the key configured as `KV_ENCRYPTION_KEY` (the Helm chart's `kv.encryptionKey`, or `kv.existingSecret` naming a Secret that holds it). The key is base64-encoded and must decode to 16, 24 or 32 bytes; use 32 for AES-256. This is what backs the runtime secret store in clustered runs, so a flow that writes a secret writes to a secret namespace of this same table.
 
 Plain namespaces are stored as-is, so ordinary KV traffic pays no encryption cost. When no key is configured, secret-namespace operations are rejected (a 503) while plain KV keeps working.
+
+A namespace that is both is refused with a 400. `user_secrets_volatile` asks the
+store to hold a credential somewhere that keeps it in the clear and may evict it,
+which is the one combination that must never exist. The check strips one suffix
+and re-tests rather than reading the last one, because composing them hides one
+behind the other: `user_secrets_volatile` does not end in `_secrets`, and
+`user_volatile_secrets` does not end in `_volatile`.
 
 ## The object browser
 

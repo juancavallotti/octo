@@ -231,6 +231,14 @@ the runtime stores three separate things instead:
         tools: [...]
 ```
 
+![The ai-agent block with an agentId, writing to three separate stores: working context keyed by thread id, the transcript keyed by thread id whose entries each carry an embedding, and user facts keyed by user id](/diagrams/agent-memory-tiers.png)
+
+Three stores, two keys. The working context and the transcript are keyed by the
+thread; the facts are keyed by the person. `agentId` is the namespace all three
+sit in, which is why it is the setting that opts into any of this. A transcript
+entry carries an embedding where a provider is configured, so searching memory
+ranks by similarity and falls back to text matching where it is not.
+
 | | What it is | Compacted? |
 | --- | --- | --- |
 | **Working memory** | The transcript the model re-reads, checkpointed during the run so an interrupted agent resumes where it was | Yes; `contextMaxTokens` and `memoryCompaction` govern it |
