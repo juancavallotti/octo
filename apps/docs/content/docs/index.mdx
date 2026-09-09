@@ -4,7 +4,7 @@ description: "An AI-native, cloud-native integration platform you can run anywhe
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { BookOpen, Cpu, FlaskConical, LayoutDashboard, Library, Rocket, Ship, Sparkles, SquarePen, Workflow } from 'lucide-react';
+import { BookOpen, Cpu, FlaskConical, LaptopMinimal, LayoutDashboard, Library, Rocket, Ship, Sparkles, SquarePen, Workflow } from 'lucide-react';
 
 Octo is an integration platform built around a small, concurrent Go runtime that
 executes flows defined in YAML. Connectors turn the outside world into messages,
@@ -65,6 +65,20 @@ fires at seconds 0 and 30 of every minute, and the `payload` CEL expression sets
 each message's body. The `process` chain has one `log` block whose `message` is
 also CEL, so it can read the body. Run it with `octo run --config hello.yaml`.
 
+## Get Octo
+
+The desktop app is the shortest path: it bundles the runtime and the test runner,
+so you open a folder and start building — nothing else to install.
+
+<Cards>
+  <Card icon={<LaptopMinimal />} href="https://github.com/juancavallotti/octo/releases/latest/download/Octo_mac_arm64.dmg" title="Octo Desktop for macOS">
+    Apple Silicon. The visual editor as a native app, with the runtime inside.
+  </Card>
+  <Card icon={<Rocket />} href="/getting-started/installation" title="Every other way">
+    The Intel build, the CLI for macOS, Linux and Windows, Docker, and source.
+  </Card>
+</Cards>
+
 ## Explore the docs
 
 <Cards>
@@ -94,8 +108,8 @@ also CEL, so it can read the body. Run it with `octo run --config hello.yaml`.
     The processing pipeline, running locally, clustering, and monitoring.
   </Card>
   <Card icon={<SquarePen />} href="/editor" title="Standalone Editor">
-    The visual editor in Docker: design, save, and run flows against files on
-    disk.
+    The visual editor — as a macOS app or in Docker: design, save, and run flows
+    against files on disk.
   </Card>
   <Card icon={<LayoutDashboard />} href="/platform" title="Platform">
     The multi-user control plane: integrations, deployments, secrets, and logs.

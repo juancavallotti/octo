@@ -8,6 +8,8 @@ import {
   ViewModeToggle,
 } from "@octo/editor";
 import StandaloneFileMenu from "./StandaloneFileMenu";
+import ModeBadge from "./ModeBadge";
+import VaultChip from "./VaultChip";
 
 /* onSaved (URL sync) lives on EditorRoot — see StandaloneEditor — so all save
    triggers (button, ⌘S, Enter in the title) share it. */
@@ -32,9 +34,11 @@ export default function StandaloneHeader() {
         priority
       />
       <span className="font-semibold tracking-tight">Octo</span>
-      <span className="rounded bg-black/[0.06] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:bg-white/10">
-        standalone
-      </span>
+      <ModeBadge />
+      <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+      {/* Which folder is being served. Every deployment has one and none of them
+          used to say so. */}
+      <VaultChip />
       <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
       <IntegrationTitle />
       <StandaloneFileMenu />

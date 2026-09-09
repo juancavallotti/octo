@@ -1,3 +1,11 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# pnpm 10 does not run dependency install scripts unless they are named here.
+# Electron's postinstall is the one that downloads the actual Electron binary for
+# this platform, so apps/desktop cannot start without it. Deliberately the only
+# entry: electron-winstaller also wants a script, and it is only needed to build
+# Windows installers, which we do not yet do.
+onlyBuiltDependencies:
+  - electron

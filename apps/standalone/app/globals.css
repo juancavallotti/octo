@@ -29,3 +29,33 @@ body {
   background: var(--background);
   color: var(--foreground);
 }
+
+/*
+ * Desktop shell (Electron) only. The class is set by the shell's preload script
+ * before the page renders, so a browser — `task dev`, the Docker image — never
+ * matches any of this.
+ *
+ * The shell hides the macOS title bar and lets the page draw under it
+ * (titleBarStyle: "hiddenInset"), which buys a native-feeling single-bar layout
+ * and costs exactly one thing: the traffic lights now sit on top of the top-left
+ * of the header. So the header owes them room, and — since there is no title bar
+ * left to grab — it also has to be the window's drag handle.
+ */
+.octo-desktop header {
+  /* Clears the three lights plus the inset they sit in. */
+  padding-left: 84px;
+  -webkit-app-region: drag;
+}
+
+/* Everything interactive inside a drag region has to opt back out, or it becomes
+   a place to pick the window up rather than a control: a click never reaches it,
+   and a click-drag moves the window. */
+.octo-desktop header button,
+.octo-desktop header a,
+.octo-desktop header input,
+.octo-desktop header select,
+.octo-desktop header textarea,
+.octo-desktop header [role="button"],
+.octo-desktop header [contenteditable="true"] {
+  -webkit-app-region: no-drag;
+}

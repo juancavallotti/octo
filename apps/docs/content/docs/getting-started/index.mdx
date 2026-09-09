@@ -15,9 +15,11 @@ your connectors and flows; add `--watch` for hot reload, or use `octo invoke` to
 call one flow with JSON in and JSON out. Best for local development, testing,
 and CI.
 
-The standalone visual editor is a Docker image bundling the editor and the
-`octo` runtime. Mount a directory of flow YAML, design flows on a canvas in the
-browser, and run them with one click. No setup beyond `docker run`.
+The standalone visual editor bundles the editor and the `octo` runtime, and
+ships two ways: a native macOS app that opens a working folder, or a Docker
+image you mount a directory into. Either way you design flows on a canvas, run
+them with one click, and the flows stay plain YAML on disk. Same editor, same
+runtime — pick whichever you would rather install.
 
 The full platform on Kubernetes is a control plane (orchestrator plus Postgres)
 and a multi-user editor. It stores integration definitions and deploys each as
@@ -36,7 +38,7 @@ systems you control. See [The platform API](/extending/platform-api).
 
 | | CLI | Standalone editor | Platform | Your own platform |
 | --- | --- | --- | --- | --- |
-| Setup | Build one binary | One `docker run` | Kubernetes cluster | The `octo-api` image plus a server you implement |
+| Setup | Build one binary | Install the app, or one `docker run` | Kubernetes cluster | The `octo-api` image plus a server you implement |
 | Best for | Development, CI | Visual authoring, trying Octo | Team operations, production | Serverless, or infrastructure you own |
 | Users | You | You | Multi-user | You |
 | Flows live in | Files on disk | Files on disk | Postgres, deployed to pods | Files baked into your image |
@@ -48,7 +50,8 @@ install anything, start with the editor quickstart.
 
 <Cards>
   <Card icon={<Download />} href="/getting-started/installation" title="Installation">
-    Download the octo CLI, run it from Docker, or build it from source.
+    Install the desktop app, download the octo CLI, run it from Docker, or build
+    it from source.
   </Card>
   <Card icon={<Workflow />} href="/getting-started/first-flow" title="Your First Flow">
     Run a hello-world flow and invoke a flow directly from the CLI.

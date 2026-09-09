@@ -1,0 +1,137 @@
+version: '3'
+
+# Tasks for Octo Desktop — the standalone editor wrapped as a native app that
+# opens a working folder. Included from the root Taskfile under the `desktop:`
+# namespace (working dir apps/desktop/). Dependencies install at the workspace
+# root via pnpm (`pnpm install`).
+#
+# The shape to hold on to: this app builds NOTHING of the editor. It stages the
+# already-built Next standalone output and the already-built Go binaries, and adds
+# a window. Every task here is therefore either a copy or an Electron invocation.
+
+includes:
+  runtime:
+    taskfile: ../../runtime/Taskfile.yml
+    dir: ../../runtime
+  standalone:
+    taskfile: ../standalone/Taskfile.yml
+    dir: ../standalone
+
+tasks:
+  install:
+    desc: Install the workspace dependencies (pnpm, run from the repo root)
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - pnpm install
+
+  stage:
+    desc: Stage the built Next standalone server into build/server for the app to spawn
+    deps:
+      - standalone:build
+    cmds:
+      # Exactly the three copies apps/standalone/Dockerfile makes, and for the same
+      # reason: `output: "standalone"` emits a server that expects .next/static and
+      # public/ to be put back beside it, nested under the workspace path the app
+      # lives at. Get this wrong and the server boots and serves an unstyled page.
+      - rm -rf build/server
+      - mkdir -p build/server
+      - cp -R ../standalone/.next/standalone/. build/server/
+      - mkdir -p build/server/apps/standalone/.next
+      - cp -R ../standalone/.next/static build/server/apps/standalone/.next/static
+      - cp -R ../standalone/public build/server/apps/standalone/public
+      # Drop sharp. Next traces it from next-server.js whether or not anything can
+      # reach it, and with images.unoptimized set in the standalone app's
+      # next.config.ts nothing can. What is left otherwise is ~20MB of
+      # ARCHITECTURE-SPECIFIC native code (an .node plus libvips) built for
+      # whichever machine ran `next build` — which is not merely dead weight here
+      # but wrong: it would put an arm64 binary inside an x64 .app. Pruning it is
+      # what makes one `next build` packageable for both architectures.
+      - rm -rf build/server/node_modules/.pnpm/@img+* build/server/node_modules/.pnpm/sharp@*
+      # pnpm's layout reaches those packages through symlinks elsewhere in the
+      # tree, so removing the directories leaves the links dangling — and
+      # electron-builder stats every file it packages, so a dangling link fails
+      # the build with an ENOENT naming an unrelated path. Sweep them.
+      - find build/server -type l ! -exec test -e {} \; -delete
+      - |
+        if find build/server -name "*.node" | grep -q .; then
+          echo "staged server still contains a native module:" >&2
+          find build/server -name "*.node" >&2
+          exit 1
+        fi
+      - echo "✓ staged the editor server in apps/desktop/build/server"
+
+  bins:
+    desc: Cross-compile octo and dolphin into build/bin/<arch> for packaging
+    vars:
+      # electron-builder's ${arch} macro spells amd64 "x64", and extraResources
+      # copies from a directory named by it — so the output dirs use its spelling,
+      # not Go's. GOOS is darwin only for now: the app is packaged for macOS
+      # first, and adding a platform here means adding a target to
+      # electron-builder.yml in the same change.
+      PAIRS: 'arm64:arm64 amd64:x64'
+    cmds:
+      - |
+        set -e
+        # Stamped the same way every other build in this repo does, so a binary
+        # inside the .app reports the same build date as the one on the release
+        # page. Version is a const the release train sets; only the date is here.
+        LD="-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        for pair in {{.PAIRS}}; do
+          goarch="${pair%%:*}"; ebarch="${pair##*:}"
+          out="build/bin/$ebarch"
+          mkdir -p "$out"
+          for cmd in octo dolphin; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH="$goarch" go build -trimpath \
+              -ldflags "$LD" -o "$out/$cmd" {{.ROOT_DIR}}/runtime/$cmd
+          done
+          echo "✓ $out: octo, dolphin (darwin/$goarch)"
+        done
+
+  build:
+    desc: Bundle the Electron main and preload processes into dist/
+    cmds:
+      - pnpm run build
+
+  typecheck:
+    desc: Typecheck the desktop app
+    cmds:
+      - pnpm run typecheck
+
+  test:
+    desc: Run the desktop app's unit tests
+    cmds:
+      - pnpm run test
+
+  dist:
+    desc: Package Octo Desktop for THIS Mac as a .app + dmg (unsigned unless certs are present)
+    vars:
+      # electron-builder's spelling, from the host's. Hardcoding --arm64 meant an
+      # Intel Mac spent several minutes producing an app it could not launch,
+      # while desktop:bins had already built the right binaries for it.
+      HOST_ARCH:
+        sh: '[ "$(uname -m)" = "arm64" ] && echo arm64 || echo x64'
+    deps:
+      - runtime:build
+      - stage
+      - bins
+      - build
+    cmds:
+      # Ad-hoc signed, deliberately and explicitly. Left to itself electron-builder
+      # auto-discovers an identity from the keychain and will happily pick an
+      # EXPIRED one — it did, silently, until this flag was added. A local build
+      # only needs to launch on this machine, which ad-hoc signing is enough for;
+      # a Developer ID and notarization are what a *downloaded* build needs, and
+      # release.yml turns them on when the secrets exist.
+      - CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac --{{.HOST_ARCH}}
+
+  dev:
+    desc: Build and run Octo Desktop, rebuilding on change (RUN enabled)
+    deps:
+      # The binaries the app spawns, and the editor server it wraps. Dev resolves
+      # both from the repo (bin/ and build/server), so `task desktop:dev` on a
+      # fresh checkout is enough — nothing has to be installed first.
+      - runtime:build
+      - stage
+      - build
+    cmds:
+      - pnpm run dev

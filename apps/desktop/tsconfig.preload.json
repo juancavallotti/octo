@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The preload script runs in the renderer process: it touches `document`, and
+    // it is the only file in this app that should be able to.
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src/preload/**/*.ts"]
+}
