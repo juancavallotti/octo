@@ -113,11 +113,21 @@ jobs:
           version: '~> v2'
           args: check
 
-  # Both Next apps. `standalone` had no job at all until now, so nothing was
-  # failing on its lint, its tests or its build — the same gap the Go service
-  # modules had in the job above.
+  # Both Next apps, plus the desktop shell. `standalone` had no job at all until
+  # now, so nothing was failing on its lint, its tests or its build — the same gap
+  # the Go service modules had in the job above, and the same one `desktop` would
+  # have had if it were merely added to the root `task test` aggregator: this job
+  # enumerates what it runs, and what it enumerates is the whole guarantee.
   web:
     runs-on: ubuntu-latest
+    env:
+      # apps/desktop devDepends on electron, whose postinstall downloads a ~150MB
+      # platform binary. Nothing in CI launches the app — typecheck reads the
+      # package's .d.ts, the tests cover main-process logic that imports no
+      # electron, and the build externalizes it — so every job that installs the
+      # workspace can skip the download. Packaging in release.yml does not, and
+      # sets this to 0.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -132,6 +142,14 @@ jobs:
       - run: pnpm --filter standalone lint
       - run: pnpm --filter standalone test
       - run: pnpm --filter standalone build
+      # The desktop shell carries no eslint config (the repo lints only the two
+      # Next apps, which get one from eslint-config-next); for a bundled TS app
+      # tsc is the check that actually catches things. Two projects, because
+      # main and preload have different libs — preload touches the DOM, main
+      # must not.
+      - run: pnpm --filter desktop typecheck
+      - run: pnpm --filter desktop test
+      - run: pnpm --filter desktop build
 
   # The Helm chart targets clusters CI cannot spin up on demand — GKE Autopilot,
   # EKS — so rendering every environment profile and validating the output
@@ -194,6 +212,9 @@ jobs:
 
   docs:
     runs-on: ubuntu-latest
+    env:
+      # Nothing here needs the Electron binary; see the web job above.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

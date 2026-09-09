@@ -24,6 +24,11 @@
         "orchestrator/internal/version/version.go",
         "packages/mcp/src/handler.ts",
         "apps/docs/lib/version.ts",
+        {
+          "type": "json",
+          "path": "apps/desktop/package.json",
+          "jsonpath": "$.version"
+        },
         { "type": "generic", "path": "helm/Chart.yaml" },
         { "type": "generic", "path": "helm/charts/octo-common/Chart.yaml" },
         "README.md"

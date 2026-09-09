@@ -1,6 +1,6 @@
 ---
 title: "Installation"
-description: "Download the octo CLI, run it from Docker, or build it from source."
+description: "Install the desktop app, download the octo CLI, run it from Docker, or build it from source."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -9,10 +9,47 @@ import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
-Four ways to get Octo, in increasing order of effort: download a
+Five ways to get Octo, in increasing order of effort: install the
+[desktop app](#download-the-desktop-app), download a
 [prebuilt CLI](#download-the-cli), install it
 [with `go install`](#install-with-go), run it [from Docker](#run-from-docker),
 or [build from source](#build-from-source).
+
+## Download the desktop app
+
+Octo Desktop is the visual editor as a native macOS app: open a folder, edit the
+flows in it, run them, and point an AI assistant at the MCP endpoint it
+advertises. The `octo` runtime and the `dolphin` test runner are bundled inside,
+so there is nothing else to install.
+
+<Tabs items={['Apple Silicon', 'Intel']}>
+<Tab value="Apple Silicon">
+
+[Download Octo_mac_arm64.dmg](https://github.com/juancavallotti/octo/releases/latest/download/Octo_mac_arm64.dmg)
+
+</Tab>
+<Tab value="Intel">
+
+[Download Octo_mac_x64.dmg](https://github.com/juancavallotti/octo/releases/latest/download/Octo_mac_x64.dmg)
+
+</Tab>
+</Tabs>
+
+<Callout type="warn">
+The app is not yet notarized by Apple, so Gatekeeper refuses it on first launch
+with "Octo is damaged and can't be opened" or "cannot be opened because the
+developer cannot be verified". Right-click the app in Applications and choose
+**Open**, then confirm — macOS remembers the choice. Failing that, clear the
+quarantine attribute: `xattr -dr com.apple.quarantine /Applications/Octo.app`.
+</Callout>
+
+The app opens the folder you used last, and **File → Open Folder…** picks a new
+one. Everything in it is plain YAML on disk — the same files the CLI runs, so a
+flow you build here runs unchanged with `octo run`.
+
+Windows and Linux builds are not published yet; use the
+[Docker editor](#run-from-docker) there, which is the same editor served in a
+browser.
 
 ## Download the CLI
 

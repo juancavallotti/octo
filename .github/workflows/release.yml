@@ -471,6 +471,142 @@ jobs:
   # the archive names, and the checksums file. release-please has already created the
   # release and its notes by the time this runs, so goreleaser only uploads the
   # assets (release.mode: keep-existing).
+  # The macOS desktop app: the standalone editor packaged as an .app that opens a
+  # working folder. Runs after publish-cli because it CONSUMES that job's release
+  # archives rather than compiling its own octo and dolphin — two independent
+  # builds of the same source guarantee nothing about their bits, and a desktop
+  # app shipping a subtly different runner than the one on the release page is
+  # exactly the skew worth designing out. The same reasoning the PaaS runtime
+  # images already follow.
+  publish-desktop:
+    needs: [release-check, publish-cli]
+    if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+    # An arm64 macOS runner. It cross-packages the x64 app fine: nothing here is
+    # compiled on the runner — the Go binaries are downloaded and the Electron
+    # bundle is fetched per target architecture.
+    runs-on: macos-14
+    permissions:
+      # Assets are added to the release publish-cli created for this tag.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: apps/platform/.nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The same guarantee publish-cli makes for the version consts. electron-updater
+      # compares the packaged app's version against the release it finds, so a
+      # package.json that release-please never stamped means clients that either
+      # never update or update in a loop — and nothing else would notice.
+      - name: The desktop version must match the tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          want="${TAG#v}"
+          got="$(node -p "require('./apps/desktop/package.json').version")"
+          if [ "$got" != "$want" ]; then
+            echo "::error file=apps/desktop/package.json::says $got, but the tag says $want — is it listed in release-please-config.json extra-files?"
+            exit 1
+          fi
+          echo "apps/desktop/package.json: $got"
+
+      # The exact binaries this release publishes, unpacked into the per-arch
+      # layout electron-builder's ${arch} macro copies from — which spells amd64
+      # "x64". Deliberately not `task desktop:bins`, which compiles.
+      - name: Fetch the released octo and dolphin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          for pair in "arm64 arm64" "amd64 x64"; do
+            set -- $pair; goarch="$1"; ebarch="$2"
+            out="apps/desktop/build/bin/$ebarch"
+            mkdir -p "$out"
+            for bin in octo dolphin; do
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+                --pattern "${bin}_darwin_${goarch}.tar.gz" --output "/tmp/${bin}.tgz" --clobber
+              tar -xzf "/tmp/${bin}.tgz" -C "$out" "$bin"
+              chmod +x "$out/$bin"
+            done
+            file "$out/octo"
+          done
+
+      # Builds the standalone app and stages it, pruning the arch-specific sharp
+      # so one build serves both architectures. The task fails if any native
+      # module survives, which is what keeps that guarantee honest.
+      - name: Install Task
+        run: |
+          mkdir -p "$HOME/bin"
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$HOME/bin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - run: task desktop:stage
+
+      - run: pnpm --filter desktop build
+
+      # Signing and notarization are OPT-IN on the secrets being present, so this
+      # job is green on a fork and on a repo that has not set them up yet: without
+      # them electron-builder ad-hoc signs, which is enough for the app to launch
+      # locally but not enough to clear Gatekeeper on a download. With them the
+      # same command produces a signed, notarized, stapled build — nothing else
+      # changes. See the PR that introduced this for how to generate each secret.
+      - name: Package the app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Packaging needs the real Electron binary, unlike every other job.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 0
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          # Read through the environment, never interpolated into the script body:
+          # a ${{ secrets.* }} expansion inside `run` is substituted before bash
+          # sees it, which both mangles a multi-line PEM and makes the script's
+          # shape depend on the secret's contents.
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          args="--mac --arm64 --x64"
+          if [ -n "${CSC_LINK:-}" ]; then
+            echo "Developer ID certificate present: signing for distribution."
+            if [ -n "${APPLE_API_KEY_P8:-}" ]; then
+              # notarytool wants a file on disk, and a secret is a string.
+              mkdir -p "$RUNNER_TEMP/notary"
+              printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary/key.p8"
+              chmod 600 "$RUNNER_TEMP/notary/key.p8"
+              export APPLE_API_KEY="$RUNNER_TEMP/notary/key.p8"
+              args="$args --config.mac.notarize=true"
+              echo "App Store Connect key present: notarizing."
+            else
+              echo "::warning::signing without notarization — Gatekeeper will still warn on download."
+            fi
+          else
+            echo "::warning::no MAC_CSC_LINK secret; publishing an ad-hoc signed build that Gatekeeper will block on download."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          pnpm --filter desktop exec electron-builder $args --publish never
+
+      # Uploaded to the release publish-cli already created, alongside the CLI
+      # archives. Names are version-free (Octo_mac_arm64.dmg), matching the CLI
+      # archives, so the docs can link to a release asset without every release
+      # breaking the link.
+      - name: Attach the app to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd apps/desktop/dist/release
+          ls -la
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            Octo_mac_arm64.dmg Octo_mac_x64.dmg
+          echo "uploaded the macOS app to $TAG"
+
   publish-cli:
     needs: release-check
     if: ${{ inputs.tag != '' || startsWith(github.ref, 'refs/tags/v') }}

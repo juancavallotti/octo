@@ -16,6 +16,12 @@ files:
 
 asar: true
 
+# Version-free, like the CLI archives in .goreleaser.yaml and for the same reason:
+# the docs link to these by name, and electron-builder's default template embeds
+# the version, which would break every link on every release. Gives
+# Octo_mac_arm64.dmg / Octo_mac_x64.dmg.
+artifactName: ${productName}_${os}_${arch}.${ext}
+
 # The Next standalone server is copied in by build/after-pack.cjs rather than
 # listed here: electron-builder excludes node_modules from extraResources and no
 # filter re-includes it, which produces an .app that packages and signs cleanly
