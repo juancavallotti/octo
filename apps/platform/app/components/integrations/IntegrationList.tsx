@@ -9,7 +9,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Integration } from "@/app/model/orchestrator";
 import type { DragData } from "./model";
-import { iconForDefinition } from "./sourceIcon";
+import { iconForIntegration } from "./sourceIcon";
 
 /** The middle column: the selected bucket's integrations, selectable into the detail panel. */
 interface Props {
@@ -73,7 +73,7 @@ function IntegrationCard({
   // The icon element for this integration's source/connector type; parsing the
   // definition is memoized so it only reruns when the definition changes.
   const icon = useMemo(
-    () => createElement(iconForDefinition(i.definition), { size: 16 }),
+    () => createElement(iconForIntegration(i.icon, i.definition), { size: 16 }),
     [i.definition],
   );
   const {

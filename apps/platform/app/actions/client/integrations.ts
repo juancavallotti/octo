@@ -44,6 +44,22 @@ export function updateIntegration(
   });
 }
 
+/**
+ * Choose an integration's icon, or pass "" to go back to deriving one from the
+ * definition. Its own call because every other write sends a whole integration
+ * and would otherwise clear the choice.
+ */
+export function setIntegrationIcon(
+  id: string,
+  icon: string,
+  actorId?: string,
+): Promise<ActionResult<Integration>> {
+  return call<Integration>("PUT", `/integrations/${enc(id)}/icon`, {
+    icon,
+    actorId,
+  });
+}
+
 export function deleteIntegration(id: string): Promise<ActionResult<void>> {
   return call<void>("DELETE", `/integrations/${enc(id)}`);
 }

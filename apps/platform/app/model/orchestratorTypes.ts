@@ -12,6 +12,11 @@
 export interface Integration {
   id: string;
   name: string;
+  /**
+   * An intentionally chosen icon, by name from the editor's icon registry.
+   * Empty or absent means derive one from the definition.
+   */
+  icon?: string;
   /** The flow definition, as the runtime YAML the editor serializes. */
   definition: string;
   /** RFC3339 timestamp of the last update. */
