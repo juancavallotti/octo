@@ -21,13 +21,13 @@ VALUES (
 )
 ON CONFLICT (key) DO NOTHING;
 
--- integrations holds the authored definition of each integration. `definition` is the raw
--- integration content (TEXT); `last_updated` is stamped by the application on write. Folders
--- and deployments reference this table.
+-- integrations holds each integration's identity. Its content lives in
+-- integration_files, one row per file in the project folder — the definition the
+-- API hands back is those config files merged. `last_updated` is stamped by the
+-- application on write. Folders and deployments reference this table.
 CREATE TABLE IF NOT EXISTS integrations (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name         varchar NOT NULL,
-    definition   text NOT NULL DEFAULT '',
     last_updated timestamptz NOT NULL DEFAULT now()
 );
 
@@ -130,14 +130,15 @@ CREATE INDEX IF NOT EXISTS idx_integration_folder_members_folder
 ALTER TABLE integration_folder_members
     ADD COLUMN IF NOT EXISTS position int NOT NULL DEFAULT 0;
 
--- integration_snapshots freezes an integration's definition under a named tag.
--- Tags are immutable (no update path) and unique per integration; a deploy
--- references a snapshot so it ships a frozen definition rather than the live one.
+-- integration_snapshots freezes an integration under a named tag. Tags are
+-- immutable (no update path) and unique per integration; a deploy references a
+-- snapshot so it ships a frozen definition rather than the live one. The frozen
+-- content itself is in integration_file_snapshots — the tag row is now identity
+-- and nothing else.
 CREATE TABLE IF NOT EXISTS integration_snapshots (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     integration_id uuid NOT NULL REFERENCES integrations (id) ON DELETE CASCADE,
     tag            varchar NOT NULL,
-    definition     text NOT NULL,
     created_at     timestamptz NOT NULL DEFAULT now(),
     UNIQUE (integration_id, tag)
 );
@@ -145,44 +146,176 @@ CREATE TABLE IF NOT EXISTS integration_snapshots (
 CREATE INDEX IF NOT EXISTS idx_integration_snapshots_integration
     ON integration_snapshots (integration_id);
 
--- integration_resources holds the live, mutable env/template resources authored for an
--- integration (the cloud counterpart to the files the standalone runtime reads from the
--- config directory). `kind` mirrors the runtime's core.ResourceKind ('env' | 'template')
--- and `name` is the resource id the config references — a path that may contain '/' (a
--- future feature uploads zip bundles that keep their relative paths), so a name is never
--- placed in a URL path segment. `content` is the raw text. UNIQUE (integration_id, name)
--- makes a path a single resource per integration.
-CREATE TABLE IF NOT EXISTS integration_resources (
+-- integration_files holds everything an integration is made of: its flow files and
+-- the env/template resources beside them, one row per file in the project folder.
+-- It is integration_resources renamed and widened, which is why the rename below
+-- runs before the CREATE — the ids are addressed over HTTP
+-- (/integrations/{id}/resources/{resourceId}) and copying rows into a new table
+-- would have minted fresh ones and broken every reference already held.
+--
+-- `path` is the file's id within the project — a path that may contain '/' (a
+-- future feature uploads zip bundles that keep their relative paths), so it is
+-- never placed in a URL path segment. `role` is derived from that path by
+-- internal/projectfile and stored so selecting the flow files is an index hit
+-- rather than a scan-and-classify. `kind` mirrors the runtime's core.ResourceKind
+-- ('env' | 'template') and is meaningful only for role='resource' — the runtime
+-- asks for a frozen resource by kind and name, so it stays a stored value rather
+-- than something guessed from the filename.
+DO $$
+BEGIN
+    -- Rename before create, or the CREATE IF NOT EXISTS below would make an empty
+    -- table and this rename would then fail against an occupied name, leaving an
+    -- upgraded database and a fresh one with different data.
+    IF to_regclass('public.integration_resources') IS NOT NULL
+       AND to_regclass('public.integration_files') IS NULL THEN
+        ALTER TABLE integration_resources RENAME TO integration_files;
+        ALTER TABLE integration_files RENAME COLUMN name TO path;
+        ALTER TABLE integration_files ADD COLUMN role varchar NOT NULL DEFAULT 'resource';
+        ALTER TABLE integration_files ALTER COLUMN role DROP DEFAULT;
+        ALTER INDEX IF EXISTS idx_integration_resources_integration
+            RENAME TO idx_integration_files_integration;
+        -- The constraints keep their generated names through a table rename, so a
+        -- migrated database and a fresh one would disagree about what the primary
+        -- key is called. Rename them too: two databases that are meant to be
+        -- interchangeable should not differ by anything, including a name.
+        ALTER TABLE integration_files
+            RENAME CONSTRAINT integration_resources_pkey TO integration_files_pkey;
+        ALTER TABLE integration_files
+            RENAME CONSTRAINT integration_resources_integration_id_name_key
+            TO integration_files_integration_id_path_key;
+    END IF;
+
+    IF to_regclass('public.integration_resource_snapshots') IS NOT NULL
+       AND to_regclass('public.integration_file_snapshots') IS NULL THEN
+        ALTER TABLE integration_resource_snapshots RENAME TO integration_file_snapshots;
+        ALTER TABLE integration_file_snapshots RENAME COLUMN name TO path;
+        ALTER TABLE integration_file_snapshots ADD COLUMN role varchar NOT NULL DEFAULT 'resource';
+        ALTER TABLE integration_file_snapshots ALTER COLUMN role DROP DEFAULT;
+        ALTER INDEX IF EXISTS idx_integration_resource_snapshots_snapshot
+            RENAME TO idx_integration_file_snapshots_snapshot;
+        ALTER TABLE integration_file_snapshots
+            RENAME CONSTRAINT integration_resource_snapshots_pkey
+            TO integration_file_snapshots_pkey;
+        ALTER TABLE integration_file_snapshots
+            RENAME CONSTRAINT integration_resource_snapshots_snapshot_id_name_key
+            TO integration_file_snapshots_snapshot_id_path_key;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS integration_files (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     integration_id uuid NOT NULL REFERENCES integrations (id) ON DELETE CASCADE,
     kind           varchar NOT NULL,
-    name           varchar NOT NULL,
+    path           varchar NOT NULL,
     content        text NOT NULL DEFAULT '',
     created_at     timestamptz NOT NULL DEFAULT now(),
     last_updated   timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (integration_id, name)
+    role           varchar NOT NULL,
+    UNIQUE (integration_id, path)
 );
 
-CREATE INDEX IF NOT EXISTS idx_integration_resources_integration
-    ON integration_resources (integration_id);
+CREATE INDEX IF NOT EXISTS idx_integration_files_integration
+    ON integration_files (integration_id);
 
--- integration_resource_snapshots freezes an integration's resources when it is tagged,
--- so a deploy ships the resources that matched its frozen definition rather than the
--- live ones. Rows are copied from integration_resources inside the same transaction that
+-- Selecting an integration's config files is the hot read: every definition the
+-- API hands back is a merge of exactly these rows.
+CREATE INDEX IF NOT EXISTS idx_integration_files_integration_role
+    ON integration_files (integration_id, role);
+
+-- integration_file_snapshots freezes an integration's files when it is tagged, so a
+-- deploy ships the definition and resources that matched each other rather than the
+-- live ones. Rows are copied from integration_files inside the same transaction that
 -- creates the integration_snapshots row; the CASCADE off the snapshot drops the frozen
--- resources when the tag is deleted.
-CREATE TABLE IF NOT EXISTS integration_resource_snapshots (
+-- files when the tag is deleted.
+CREATE TABLE IF NOT EXISTS integration_file_snapshots (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     snapshot_id uuid NOT NULL REFERENCES integration_snapshots (id) ON DELETE CASCADE,
     kind        varchar NOT NULL,
-    name        varchar NOT NULL,
+    path        varchar NOT NULL,
     content     text NOT NULL DEFAULT '',
     created_at  timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (snapshot_id, name)
+    role        varchar NOT NULL,
+    UNIQUE (snapshot_id, path)
 );
 
-CREATE INDEX IF NOT EXISTS idx_integration_resource_snapshots_snapshot
-    ON integration_resource_snapshots (snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_integration_file_snapshots_snapshot
+    ON integration_file_snapshots (snapshot_id);
+
+-- Move each integration's definition out of its column and into a file row, so
+-- the definition stops being a single value and becomes what it always was on
+-- disk: a config file sitting beside the resources.
+--
+-- The resources are already in integration_files by this point, which is what
+-- makes a collision visible. An integration whose resources include a file
+-- literally named integration.yaml is unlikely, but ON CONFLICT DO NOTHING here
+-- would answer that unlikely case by silently dropping somebody's definition, so
+-- the name steps aside instead.
+DO $$
+DECLARE
+    row_it  RECORD;
+    target  text;
+    attempt int;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'integrations' AND column_name = 'definition'
+    ) THEN
+        FOR row_it IN SELECT id, definition FROM integrations WHERE definition <> '' LOOP
+            target := 'integration.yaml';
+            attempt := 0;
+            WHILE EXISTS (
+                SELECT 1 FROM integration_files
+                WHERE integration_id = row_it.id AND path = target
+            ) LOOP
+                attempt := attempt + 1;
+                IF attempt = 1 THEN
+                    target := 'octo-integration.yaml';
+                ELSE
+                    target := 'octo-integration-' || attempt || '.yaml';
+                END IF;
+            END LOOP;
+
+            INSERT INTO integration_files (integration_id, kind, path, content, role)
+            VALUES (row_it.id, '', target, row_it.definition, 'config');
+        END LOOP;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'integration_snapshots' AND column_name = 'definition'
+    ) THEN
+        FOR row_it IN SELECT id, definition FROM integration_snapshots WHERE definition <> '' LOOP
+            target := 'integration.yaml';
+            attempt := 0;
+            WHILE EXISTS (
+                SELECT 1 FROM integration_file_snapshots
+                WHERE snapshot_id = row_it.id AND path = target
+            ) LOOP
+                attempt := attempt + 1;
+                IF attempt = 1 THEN
+                    target := 'octo-integration.yaml';
+                ELSE
+                    target := 'octo-integration-' || attempt || '.yaml';
+                END IF;
+            END LOOP;
+
+            INSERT INTO integration_file_snapshots (snapshot_id, kind, path, content, role)
+            VALUES (row_it.id, '', target, row_it.definition, 'config');
+        END LOOP;
+    END IF;
+END $$;
+
+ALTER TABLE integrations DROP COLUMN IF EXISTS definition;
+ALTER TABLE integration_snapshots DROP COLUMN IF EXISTS definition;
+
+-- db_version 1: an integration's content lives in integration_files. The seed
+-- above only ever writes version 0 and leaves an existing value alone, so the
+-- bump needs its own statement.
+INSERT INTO site_settings (key, value)
+VALUES ('db_version', jsonb_build_object('version', 1, 'updated', CURRENT_DATE::text))
+ON CONFLICT (key) DO UPDATE
+SET value = jsonb_build_object('version', 1, 'updated', CURRENT_DATE::text)
+WHERE (site_settings.value->>'version')::int < 1;
 
 -- users records each authenticated principal. Identity comes from the OIDC
 -- provider; on first sign-in the platform bootstraps a row keyed by the stable

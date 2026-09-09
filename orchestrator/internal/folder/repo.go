@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // folderColumns is the canonical column list (and order) that scanFolder expects,
@@ -192,8 +193,18 @@ func (r *Repo) RemoveIntegration(ctx context.Context, folderID, integrationID st
 // ListIntegrations returns the integrations that belong to folderID, ordered by
 // name. An empty result is returned for an unknown or empty folder.
 func (r *Repo) ListIntegrations(ctx context.Context, folderID string) ([]integration.Integration, error) {
+	// The definition is a merge of the integration's config files rather than a
+	// column, so this listing derives it the same way the integration repo does.
+	// It is a second place that has to know, which is the cost of this query
+	// existing separately from that one.
 	rows, err := r.pool.Query(ctx,
-		`SELECT i.id, i.name, i.definition, i.last_updated
+		`SELECT i.id, i.name, i.last_updated,
+			(SELECT coalesce(array_agg(f.path ORDER BY f.path), '{}')
+			   FROM integration_files f
+			  WHERE f.integration_id = i.id AND f.role = 'config'),
+			(SELECT coalesce(array_agg(f.content ORDER BY f.path), '{}')
+			   FROM integration_files f
+			  WHERE f.integration_id = i.id AND f.role = 'config')
 		 FROM integrations i
 		 JOIN integration_folder_members m ON m.integration_id = i.id
 		 WHERE m.folder_id = $1
@@ -204,10 +215,23 @@ func (r *Repo) ListIntegrations(ctx context.Context, folderID string) ([]integra
 		return nil, fmt.Errorf("folder repo: list integrations: %w", err)
 	}
 	items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (integration.Integration, error) {
-		var it integration.Integration
-		if scanErr := row.Scan(&it.ID, &it.Name, &it.Definition, &it.LastUpdated); scanErr != nil {
+		var (
+			it       integration.Integration
+			paths    []string
+			contents []string
+		)
+		if scanErr := row.Scan(&it.ID, &it.Name, &it.LastUpdated, &paths, &contents); scanErr != nil {
 			return integration.Integration{}, scanErr
 		}
+		files := make([]projectfile.File, len(paths))
+		for i := range paths {
+			files[i] = projectfile.File{Path: paths[i], Content: contents[i]}
+		}
+		definition, mergeErr := projectfile.Merge(files)
+		if mergeErr != nil {
+			return integration.Integration{}, mergeErr
+		}
+		it.Definition = definition
 		return it, nil
 	})
 	if err != nil {

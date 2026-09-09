@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // maxNameLen bounds a resource name; the column is unconstrained varchar so the
@@ -132,7 +134,26 @@ func validate(kind, name string) (string, string, error) {
 	if err := validateName(name); err != nil {
 		return "", "", err
 	}
+	if err := validateRole(name); err != nil {
+		return "", "", err
+	}
 	return kind, name, nil
+}
+
+// validateRole refuses a resource whose path would make it something else.
+//
+// A file's role follows from its path, and a root-level .yaml is a flow file to
+// the runtime no matter what the API that wrote it called it. Storing one as a
+// resource would be a claim the runtime contradicts the moment it loads the
+// folder, so it is refused where the claim is made. Everything resources are
+// actually used for today — .env files, templates/, .octo/ — is nested or a
+// dotfile and lands nowhere near this.
+func validateRole(name string) error {
+	if role := projectfile.Classify(name); role != projectfile.RoleResource {
+		return fmt.Errorf("%w: %q would be a %s file, not a resource — nest it or rename it",
+			ErrInvalid, name, role)
+	}
+	return nil
 }
 
 // validateName enforces a non-empty, length-bounded, path-like name. Names may

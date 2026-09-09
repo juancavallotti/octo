@@ -25,14 +25,14 @@ func newMemRepo() *memRepo {
 	return &memRepo{snapshots: make(map[string]Snapshot), resources: make(map[string][]Resource)}
 }
 
-func (m *memRepo) Create(_ context.Context, integrationID, tag, definition string) (Snapshot, error) {
+func (m *memRepo) Create(_ context.Context, integrationID, tag string) (Snapshot, error) {
 	for _, s := range m.snapshots {
 		if s.IntegrationID == integrationID && s.Tag == tag {
 			return Snapshot{}, ErrTagExists
 		}
 	}
 	m.seq++
-	s := Snapshot{ID: idFromSeq(m.seq), IntegrationID: integrationID, Tag: tag, Definition: definition}
+	s := Snapshot{ID: idFromSeq(m.seq), IntegrationID: integrationID, Tag: tag}
 	m.snapshots[s.ID] = s
 	return s, nil
 }

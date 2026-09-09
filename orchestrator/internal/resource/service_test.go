@@ -169,3 +169,23 @@ func TestInvalidWriteDoesNotNotify(t *testing.T) {
 		t.Fatalf("notified %v after a rejected write, want nothing", notifier.got)
 	}
 }
+
+// A file's role follows from its path, so a resource cannot be given a path that
+// would make the runtime treat it as a flow file.
+func TestCreateRefusesAPathThatIsNotAResource(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	ctx := context.Background()
+
+	for _, name := range []string{"orders.yaml", "orders.yml", "orders_test.yaml"} {
+		if _, err := svc.Create(ctx, "int-1", KindTemplate, name, "x"); !errors.Is(err, ErrInvalid) {
+			t.Errorf("create %q = %v, want ErrInvalid", name, err)
+		}
+	}
+
+	// the shapes resources actually take are unaffected
+	for _, name := range []string{".env.dev", "templates/welcome.tmpl", ".octo/editor-meta.json", "nested/orders.yaml"} {
+		if _, err := svc.Create(ctx, "int-1", KindTemplate, name, "x"); err != nil {
+			t.Errorf("create %q = %v, want it accepted", name, err)
+		}
+	}
+}

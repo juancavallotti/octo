@@ -25,8 +25,8 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 }
 
 // TestCreateFreezesResources verifies that tagging an integration copies its
-// live resources into integration_resource_snapshots and that later edits to the
-// live resource do not affect the frozen copy.
+// files into integration_file_snapshots and that later edits to the live file do
+// not affect the frozen copy.
 func TestCreateFreezesResources(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
@@ -34,8 +34,7 @@ func TestCreateFreezesResources(t *testing.T) {
 
 	var intID string
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO integrations (name, definition) VALUES ($1, $2) RETURNING id`,
-		"freeze-test", "def",
+		`INSERT INTO integrations (name) VALUES ($1) RETURNING id`, "freeze-test",
 	).Scan(&intID); err != nil {
 		t.Fatalf("seed integration: %v", err)
 	}
@@ -44,13 +43,14 @@ func TestCreateFreezesResources(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM integrations WHERE id = $1`, intID) })
 
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO integration_resources (integration_id, kind, name, content) VALUES ($1, $2, $3, $4)`,
-		intID, "env", ".env.dev", "GREETING=hi",
+		`INSERT INTO integration_files (integration_id, kind, path, content, role)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		intID, "env", ".env.dev", "GREETING=hi", "resource",
 	); err != nil {
 		t.Fatalf("seed resource: %v", err)
 	}
 
-	snap, err := repo.Create(ctx, intID, "v1", "def")
+	snap, err := repo.Create(ctx, intID, "v1")
 	if err != nil {
 		t.Fatalf("create snapshot: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestCreateFreezesResources(t *testing.T) {
 	frozen := func() string {
 		var content string
 		if err := pool.QueryRow(ctx,
-			`SELECT content FROM integration_resource_snapshots WHERE snapshot_id = $1 AND name = $2`,
+			`SELECT content FROM integration_file_snapshots WHERE snapshot_id = $1 AND path = $2`,
 			snap.ID, ".env.dev",
 		).Scan(&content); err != nil {
 			t.Fatalf("read frozen resource: %v", err)
@@ -72,7 +72,7 @@ func TestCreateFreezesResources(t *testing.T) {
 
 	// Editing the live resource must not disturb the frozen copy.
 	if _, err := pool.Exec(ctx,
-		`UPDATE integration_resources SET content = $1 WHERE integration_id = $2 AND name = $3`,
+		`UPDATE integration_files SET content = $1 WHERE integration_id = $2 AND path = $3`,
 		"GREETING=changed", intID, ".env.dev",
 	); err != nil {
 		t.Fatalf("edit live resource: %v", err)

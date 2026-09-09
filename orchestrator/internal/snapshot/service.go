@@ -17,7 +17,7 @@ const maxTagLen = 64
 // consumer (and unexported) so service tests can substitute a fake; *Repo
 // satisfies it structurally.
 type repository interface {
-	Create(ctx context.Context, integrationID, tag, definition string) (Snapshot, error)
+	Create(ctx context.Context, integrationID, tag string) (Snapshot, error)
 	Get(ctx context.Context, id string) (Snapshot, error)
 	ListByIntegration(ctx context.Context, integrationID string) ([]Snapshot, error)
 	DeploymentsUsingSnapshot(ctx context.Context, integrationID, snapshotID string) ([]string, error)
@@ -52,14 +52,15 @@ func (s *Service) Create(ctx context.Context, integrationID, tag string) (Snapsh
 	if err := validateTag(tag); err != nil {
 		return Snapshot{}, err
 	}
-	it, err := s.integrations.Get(ctx, integrationID)
-	if err != nil {
+	// The integration is read only to reject an unknown one with the right error;
+	// the freeze copies its files directly, so nothing is carried through here.
+	if _, err := s.integrations.Get(ctx, integrationID); err != nil {
 		if errors.Is(err, integration.ErrNotFound) {
 			return Snapshot{}, ErrIntegrationNotFound
 		}
 		return Snapshot{}, err
 	}
-	return s.repo.Create(ctx, integrationID, tag, it.Definition)
+	return s.repo.Create(ctx, integrationID, tag)
 }
 
 // Get returns a snapshot by id.
