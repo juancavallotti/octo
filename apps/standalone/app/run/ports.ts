@@ -4,7 +4,7 @@ import YAML from "yaml";
  * Port allocation for namespaced editor runs. Two things a run needs a real,
  * unique port for:
  *
- * - **HTTP.** A networked integration (one that declares HTTP_PORT) needs a listen
+ * - **HTTP.** A networked integration (one that serves an HTTP source) needs a listen
  *   port this app can proxy to; with many concurrent users we hand each run one from
  *   a pool starting at 40000 and inject it as HTTP_PORT when spawning `octo` —
  *   mirroring how the orchestrator overrides the declared port in production.
@@ -105,49 +105,178 @@ export function releaseAdminPort(port: number): void {
   adminPool.used().delete(port);
 }
 
-/** envHTTPPort is the variable an integration declares to bind an HTTP listener;
- * declaring it (with a numeric default) is what makes a run networked/exposable. */
+/** The env vars an HTTP listener binds to. This host supplies both when it starts a
+ * run — the port from its pool, the loopback host only the same-process proxy needs —
+ * so what matters about a document is whether its listener will take them. */
 const envHTTPPort = "HTTP_PORT";
-
-interface envDecl {
-  env?: Array<{ name?: string; default?: unknown }>;
-}
+const envHTTPHost = "HTTP_HOST";
 
 /**
- * Parse a declared port default exactly as the orchestrator does. The Go side reads the
- * default as a string and runs `strconv.Atoi(strings.TrimSpace(...))`, which accepts an
- * optional sign then base-10 digits and nothing else. `parseInt` is too lax for this: it
- * would read "8080abc" as 8080 and this host would allocate a port and proxy to a run the
- * orchestrator treats as internal-only — the two would disagree on the same document.
- * Returns null when the value is not a clean integer.
+ * httpConnectorType is the runtime type of the connector that owns an HTTP listener —
+ * both a connector's declared `type` and the `type` of the sources it exposes, which
+ * is what lets a source name it where an instance name goes.
  */
-function parsePortDefault(raw: unknown): number | null {
-  // An unquoted YAML numeric default arrives as a JS number; on the Go side yaml decodes
-  // the same scalar to its text and Atoi reads it back, so accept an integer value here.
-  if (typeof raw === "number") return Number.isInteger(raw) ? raw : null;
-  const s = String(raw).trim();
-  if (!/^[+-]?[0-9]+$/.test(s)) return null;
-  const port = Number(s); // base-10, like Atoi; "08080" is 8080, not octal
-  return Number.isInteger(port) ? port : null;
+const httpConnectorType = "http";
+
+/** The bind-all address. A connector that pins it is pinning what would have been
+ * supplied anyway, so it stays reachable. */
+const bindAllHost = "0.0.0.0";
+
+/** The slice of a run document this file reads: what it declares as environment, what
+ * connectors it configures, and what its flows bind their sources to. The three lists
+ * are read as `unknown` because a parsed document is whatever was written, not what
+ * this shape says — see {@link sequence}. */
+interface runDecl {
+  env?: unknown;
+  connectors?: unknown;
+  flows?: unknown;
+}
+
+interface EnvDecl {
+  name?: string;
+}
+
+interface ConnectorDecl {
+  name?: string;
+  type?: string;
+  settings?: { host?: unknown; port?: unknown };
+}
+
+interface FlowDecl {
+  source?: { connector?: string; type?: string };
 }
 
 /**
- * isExposable reports whether the rendered run YAML declares HTTP_PORT with a
- * usable numeric default (1-65535) — the same rule the orchestrator applies in
- * production (see orchestrator resolveRuntimeEnv). A malformed document is treated
- * as internal-only; the runtime validates the full document at load time.
+ * isExposable reports whether a run serves HTTP on the port this host hands it — the
+ * same question the orchestrator's resolveRuntimeEnv answers in production, and it
+ * must stay the same question: the two disagreeing means the editor promises a test
+ * URL the platform will not publish, or the reverse.
+ *
+ * It is NOT "does the document declare HTTP_PORT". This host does not read the port so
+ * much as choose it: it allocates one from a pool, injects it, and proxies to what it
+ * injected. So the only thing that matters is whether the listener takes that value —
+ * see {@link wiresInjectedPort}, which is also where every way of failing to is
+ * written down. A declaration nothing reads is not an endpoint, and an HTTP source
+ * with no declaration at all is wired perfectly well.
+ *
+ * A malformed document is treated as internal-only; the runtime validates the full
+ * document at load time.
  */
 export function isExposable(yaml: string): boolean {
-  let decl: envDecl;
+  let decl: runDecl;
   try {
-    decl = (YAML.parse(yaml) ?? {}) as envDecl;
+    decl = (YAML.parse(yaml) ?? {}) as runDecl;
   } catch {
     return false;
   }
-  for (const e of decl.env ?? []) {
-    if (e?.name?.trim() !== envHTTPPort) continue;
-    const port = parsePortDefault(e.default);
-    return port !== null && port > 0 && port <= 65535;
+  // A cast is not a parse: `env:` written as a mapping types as an array here and is
+  // not one at runtime. Iterating it would throw out of isExposable and fail the run
+  // start outright, and skipping it quietly would call a document exposable that the
+  // orchestrator's unmarshal rejects. Neither is an answer, so a document that is not
+  // shaped like a run document is internal-only, same as one that does not parse.
+  const env = sequence<EnvDecl>(decl.env);
+  const connectors = sequence<ConnectorDecl>(decl.connectors);
+  const flows = sequence<FlowDecl>(decl.flows);
+  if (!env || !connectors || !flows) return false;
+
+  const declared = new Set(env.map((e) => e?.name?.trim() ?? ""));
+  return wiresInjectedPort(connectors, flows, declared);
+}
+
+/**
+ * sequence reads one of the document's lists: absent is an empty one, a list of
+ * mappings is itself, and anything else — a mapping, a scalar, a list with a scalar
+ * in it — is null, the shape the runtime's own decode would refuse.
+ */
+function sequence<T>(value: unknown): T[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return null;
+  return value.every((e) => typeof e === "object" && e !== null) ? (value as T[]) : null;
+}
+
+/**
+ * wiresInjectedPort reports whether the injected address reaches a listener that
+ * serves routes. Every way for that to fail — a connector pinning its own port, one
+ * reading a different variable, one whose `${HTTP_PORT}` is undeclared (a load error),
+ * a pinned non-loopback host, an ambiguous binding, two connectors racing for the same
+ * injected port, or simply no HTTP source at all — is a run this host would proxy into
+ * a void. The rules it mirrors are the runtime's own: settings beat the environment
+ * (resolvePort/resolveHost) and a source resolves its connector by explicit binding,
+ * then by a lone configured instance of the type, then by starting one on demand
+ * (connectorSet.resolveConnector).
+ */
+function wiresInjectedPort(
+  connectors: ConnectorDecl[],
+  flows: FlowDecl[],
+  declared: Set<string>,
+): boolean {
+  // The configured http instances, each saying whether its address is this host's to
+  // supply. A list rather than a map keyed by name, because a name is optional: two
+  // unnamed connectors are two listeners, and collapsing them into one entry would
+  // hide exactly the collision the count below is looking for.
+  const configured = connectors
+    .filter((c) => c?.type?.trim() === httpConnectorType)
+    .map((c) => ({
+      name: c.name?.trim() ?? "",
+      envBound:
+        takesEnvPort(c.settings?.port, declared) && takesEnvHost(c.settings?.host, declared),
+    }));
+  // Two of them racing for the injected port is not a wiring question but a run that
+  // dies on startup ("address already in use"), whichever one a source binds.
+  if (configured.filter((c) => c.envBound).length > 1) return false;
+
+  for (const f of flows) {
+    const src = f?.source;
+    if (!src) continue;
+    const bind = src.connector?.trim() ?? "";
+    if (bind !== "") {
+      // An explicit binding to a configured instance wins, whatever its type. An
+      // unnamed connector has no name to bind to, so it never matches here.
+      const match = configured.find((c) => c.name === bind);
+      if (match) return match.envBound;
+      // Not an instance name: it only resolves if it names the type itself.
+      if (bind !== httpConnectorType) continue;
+    } else if (src.type?.trim() !== httpConnectorType) {
+      continue;
+    }
+    if (configured.length === 0) return true; // started on demand, straight off the env
+    if (configured.length === 1) return configured[0].envBound;
+    return false; // ambiguous: the runtime will not start it
   }
   return false;
+}
+
+/**
+ * takesEnvPort reports whether a connector leaves its listen port to the environment:
+ * either it sets none (the runtime reads HTTP_PORT itself) or it substitutes
+ * HTTP_PORT, which resolves to the injected value because the OS environment outranks
+ * a declared default. A reference only resolves if the variable is declared — an
+ * undeclared one is a load error, not a listener.
+ */
+function takesEnvPort(raw: unknown, declared: Set<string>): boolean {
+  return takesEnvVar(raw, envHTTPPort, declared);
+}
+
+/**
+ * takesEnvHost reports whether a connector's bind address is one this host reaches:
+ * left to the environment (unset or `${HTTP_HOST}`), or pinned to bind-all, which
+ * covers the loopback this host proxies to.
+ */
+function takesEnvHost(raw: unknown, declared: Set<string>): boolean {
+  if (typeof raw === "string" && raw.trim() === bindAllHost) return true;
+  return takesEnvVar(raw, envHTTPHost, declared);
+}
+
+/**
+ * takesEnvVar is the shared shape of both questions: an absent setting leaves the
+ * runtime to read the variable itself, and an exact `${NAME}` reference to a declared
+ * variable resolves to what was injected. Anything else — a literal, another
+ * variable, an expression — pins the value beyond this host's reach.
+ */
+function takesEnvVar(raw: unknown, name: string, declared: Set<string>): boolean {
+  if (raw === undefined || raw === null) return true;
+  if (typeof raw !== "string") return false;
+  const s = raw.trim();
+  if (s === "") return true;
+  return s === `\${${name}}` && declared.has(name);
 }

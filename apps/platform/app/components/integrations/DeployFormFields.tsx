@@ -63,7 +63,8 @@ export default function DeployFormFields({
   onNewTag: (tag: string) => void;
   replicas: number;
   onReplicas: (n: number) => void;
-  /** The definition declares HTTP_PORT, so it gets an address. */
+  /** The definition serves HTTP at the address the platform injects, so it gets one.
+   * An HTTP source whose connector pins its own port or host does not qualify. */
   networked: boolean;
   expose: boolean;
   onExpose: (on: boolean) => void;

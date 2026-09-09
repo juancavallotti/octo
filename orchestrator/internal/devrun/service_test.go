@@ -15,11 +15,13 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 )
 
-// The definition of a networked integration: it declares HTTP_PORT with a usable
-// default, which is what makes it exposable.
-const networkedDefinition = "service:\n  name: orders\nenv:\n  - name: HTTP_PORT\n    default: \"9999\"\n"
+// The definition of a networked integration: a flow served by an HTTP source, whose
+// connector takes its address from the environment the dev run supplies. That — not
+// the HTTP_PORT declaration — is what makes it exposable.
+const networkedDefinition = "service:\n  name: orders\n" +
+	"flows:\n  - name: api\n    source:\n      type: http\n"
 
-// The definition of a cron-driven integration: no HTTP_PORT, so no public host.
+// The definition of a cron-driven integration: nothing serves HTTP, so no public host.
 const internalDefinition = "service:\n  name: nightly\n"
 
 // fakeCluster stands in for *kube.Client. It keeps the dev runs it was told to create
@@ -272,7 +274,7 @@ func TestEnsureCreates(t *testing.T) {
 		t.Errorf("testURL = %q, want https://%s", got.TestURL, wantHost)
 	}
 	if !cluster.lastSpec.Networked {
-		t.Error("spec.Networked = false for a definition declaring HTTP_PORT")
+		t.Error("spec.Networked = false for a definition serving an HTTP source")
 	}
 	if cluster.lastSpec.TokenHash != hashToken(cluster.lastSpec.DevRunToken) {
 		t.Error("spec.TokenHash is not the hash of spec.DevRunToken")
@@ -344,10 +346,10 @@ func TestEnsureNonNetworkedPublishesNothing(t *testing.T) {
 		t.Fatalf("Ensure: %v", err)
 	}
 	if got.Host != "" || got.TestURL != "" {
-		t.Errorf("host = %q, testURL = %q; want neither for a definition with no HTTP_PORT", got.Host, got.TestURL)
+		t.Errorf("host = %q, testURL = %q; want neither for a definition serving no HTTP", got.Host, got.TestURL)
 	}
 	if cluster.lastSpec.Networked {
-		t.Error("spec.Networked = true for a definition with no HTTP_PORT")
+		t.Error("spec.Networked = true for a definition serving no HTTP")
 	}
 }
 
@@ -521,7 +523,7 @@ func TestStopIsScopedToTheOwner(t *testing.T) {
 // never go live pointing at a runtime nobody has told to load the config yet.
 func TestReloadPublishesBeforeForwarding(t *testing.T) {
 	cluster := newFakeCluster()
-	// The run starts non-networked, then the definition gains an HTTP_PORT.
+	// The run starts non-networked, then the definition gains an HTTP source.
 	svc, sidecar := testService(t, cluster, map[string]string{"int-1": internalDefinition})
 	run, err := svc.Ensure(context.Background(), "u1", "int-1")
 	if err != nil {
@@ -553,7 +555,7 @@ func TestReloadPublishesBeforeForwarding(t *testing.T) {
 	}
 }
 
-// TestReloadWithdrawsWhenNoLongerNetworked is the reverse flip: an HTTP_PORT removed
+// TestReloadWithdrawsWhenNoLongerNetworked is the reverse flip: an HTTP source removed
 // from a definition should stop the public host answering, not leave it pointed at a
 // runtime that is not listening.
 func TestReloadWithdrawsWhenNoLongerNetworked(t *testing.T) {

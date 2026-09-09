@@ -114,7 +114,7 @@ export function registerRunTools(
           namespace: key.namespace,
           note: st.exposable
             ? undefined
-            : "Integration declares no HTTP_PORT, so it has no testable HTTP endpoint.",
+            : "Integration serves no HTTP source at the address the runner injects, so it has no testable HTTP endpoint. Either it has no `http` source, or its connector pins a port or host of its own.",
         });
       }),
   );

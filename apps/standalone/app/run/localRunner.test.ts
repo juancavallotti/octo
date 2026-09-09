@@ -19,6 +19,11 @@ import {
 /** Fixed namespace for the single-user test surface. */
 const NS = "testns00";
 
+// A networked run: a flow served by an HTTP source, whose connector takes the port
+// this host injects. That — not an HTTP_PORT declaration — is what earns a run its
+// port and its test URL.
+const networkedYaml = "service:\n  name: net\nflows:\n  - name: api\n    source:\n      type: http\n";
+
 /** Writes an executable shell script acting as a stand-in for the octo binary. */
 async function fakeBin(dir: string, name: string, body: string): Promise<string> {
   const path = join(dir, name);
@@ -99,7 +104,7 @@ describe("local runner", () => {
     );
 
     const yaml =
-      "service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: \"8080\"\n";
+      networkedYaml;
     const started = await start(NS, yaml);
     expect(started.exposable).toBe(true);
     expect(started.port).toBeGreaterThanOrEqual(40000);
@@ -197,7 +202,7 @@ describe("local runner", () => {
       releasePort(probe);
 
       const yaml =
-        "service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: \"8080\"\n";
+        networkedYaml;
       await expect(start(NS, yaml)).rejects.toThrow(/admin port/);
 
       const after = allocatePort();
@@ -221,7 +226,7 @@ describe("local runner", () => {
   it("serializes overlapping starts so a race orphans no run and leaks no port", async () => {
     process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "echo ready\nsleep 5");
     const yaml =
-      'service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: "8080"\n';
+      networkedYaml;
 
     // The lowest free port in each pool right now; a net-zero sequence leaves it be.
     const httpBefore = allocatePort();
@@ -376,7 +381,7 @@ describe("local runner", () => {
     it("reports a local run as pushing, with an app-relative address", async () => {
       process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "sleep 2");
       const yaml =
-        'service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: "8080"\n';
+        networkedYaml;
       const started = await localRunner.start(key, { yaml });
       expect(started.reloadsOnSave).toBe(false);
       expect(started.testUrl).toBe(`/editor/runs/${NS}/`);
@@ -399,7 +404,7 @@ describe("local runner", () => {
     );
 
     const yaml =
-      'service:\n  name: net\nenv:\n  - name: HTTP_PORT\n    default: "8080"\n';
+      networkedYaml;
     const started = await start(NS, yaml);
     await vi.waitFor(() => expect(texts()).toContain("ready"), { timeout: 4000 });
     const port = started.port;

@@ -68,47 +68,188 @@ describe("admin port allocator", () => {
   });
 });
 
+// A flow with an HTTP source, spelled the way most documents do: the connector's
+// address left to the environment.
+const httpSource = "flows:\n  - name: api\n    source:\n      connector: api\n      type: http\n";
+
 describe("isExposable", () => {
-  it("is true when HTTP_PORT is declared with a numeric default", () => {
-    const yaml = "env:\n  - name: HTTP_PORT\n    default: \"8080\"\n";
-    expect(isExposable(yaml)).toBe(true);
+  // The address is this host's to supply, so these are the shapes that take it.
+  describe("a listener that takes the injected address", () => {
+    it("is true for an HTTP source with no env block and no connector", () => {
+      expect(isExposable("flows:\n  - name: api\n    source:\n      type: http\n")).toBe(true);
+    });
+
+    it("is true when the source names the connector type in the binding", () => {
+      const yaml = "flows:\n  - name: api\n    source:\n      connector: http\n      type: http\n";
+      expect(isExposable(yaml)).toBe(true);
+    });
+
+    it("is true for a configured connector with no settings", () => {
+      expect(isExposable("connectors:\n  - name: api\n    type: http\n" + httpSource)).toBe(true);
+    });
+
+    it("is true when a lone configured connector binds an unnamed source", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n" +
+        "flows:\n  - name: f\n    source:\n      type: http\n";
+      expect(isExposable(yaml)).toBe(true);
+    });
+
+    it("is true when the connector substitutes the declared HTTP_PORT", () => {
+      const yaml =
+        'env:\n  - name: HTTP_PORT\n    default: "8080"\n' +
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      port: ${HTTP_PORT}\n" +
+        httpSource;
+      expect(isExposable(yaml)).toBe(true);
+    });
+
+    it("is true when host and port are both substituted", () => {
+      const yaml =
+        'env:\n  - name: HTTP_HOST\n    default: "0.0.0.0"\n  - name: HTTP_PORT\n    default: "8080"\n' +
+        "connectors:\n  - name: api\n    type: http\n    settings:\n" +
+        "      host: ${HTTP_HOST}\n      port: ${HTTP_PORT}\n" +
+        httpSource;
+      expect(isExposable(yaml)).toBe(true);
+    });
+
+    it("is true when the connector pins bind-all as its host", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      host: 0.0.0.0\n" + httpSource;
+      expect(isExposable(yaml)).toBe(true);
+    });
+
+    it("is true when settings other than the address are pinned", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n    settings:\n" +
+        "      basePath: /api/v1\n      requestTimeout: 5s\n" +
+        httpSource;
+      expect(isExposable(yaml)).toBe(true);
+    });
   });
 
-  it("accepts an unquoted numeric default", () => {
-    const yaml = "env:\n  - name: HTTP_PORT\n    default: 8080\n";
-    expect(isExposable(yaml)).toBe(true);
-  });
+  // Each of these is a run this host would proxy into a void.
+  describe("a listener the injected address does not reach", () => {
+    // Settings beat the environment in the runtime, so the child serves its own
+    // port and the proxy points at nothing.
+    it("is false when the connector pins its own port", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      port: 9000\n" + httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
 
-  it("is false without HTTP_PORT", () => {
-    const yaml = "env:\n  - name: API_KEY\n    default: x\n";
-    expect(isExposable(yaml)).toBe(false);
-  });
+    it("is false when the pinned port is a string", () => {
+      const yaml =
+        'connectors:\n  - name: api\n    type: http\n    settings:\n      port: "9000"\n' + httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
 
-  it("is false when HTTP_PORT has no usable numeric default", () => {
-    expect(isExposable("env:\n  - name: HTTP_PORT\n")).toBe(false);
-    expect(isExposable("env:\n  - name: HTTP_PORT\n    default: nope\n")).toBe(false);
-    expect(isExposable("env:\n  - name: HTTP_PORT\n    default: \"70000\"\n")).toBe(false);
-  });
+    // The declaration is not what makes a listener: nothing reads it here.
+    it("is false when a declared HTTP_PORT is pinned over", () => {
+      const yaml =
+        'env:\n  - name: HTTP_PORT\n    default: "8080"\n' +
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      port: 9000\n" +
+        httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
 
-  // The parse has to match the orchestrator's strict strconv.Atoi, not a lax parseInt:
-  // a value the orchestrator reads as internal-only must not make this host allocate a
-  // port and proxy to it. "8080abc", "80.5" and "0x1f90" all fail Atoi on the Go side.
-  it("rejects defaults the orchestrator's strict parse would reject", () => {
-    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "8080abc"\n')).toBe(false);
-    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "80.5"\n')).toBe(false);
-    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "0x1f90"\n')).toBe(false);
-    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: ""\n')).toBe(false);
-  });
+    it("is false when the port is OS-assigned", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      port: 0\n" + httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
 
-  // And it must still accept the forms Atoi accepts after trimming: a leading sign,
-  // leading zeros, and surrounding whitespace.
-  it("accepts the forms the orchestrator's strict parse accepts", () => {
-    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "+8080"\n')).toBe(true);
-    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "08080"\n')).toBe(true);
-    expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "  8080  "\n')).toBe(true);
-  });
+    it("is false when the port comes from another variable", () => {
+      const yaml =
+        'env:\n  - name: API_PORT\n    default: "9000"\n' +
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      port: ${API_PORT}\n" +
+        httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
 
-  it("treats a malformed document as internal-only", () => {
-    expect(isExposable(":\n  bad: [")).toBe(false);
+    // Referencing an undeclared variable is a load error, not a listener.
+    it("is false when ${HTTP_PORT} is never declared", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      port: ${HTTP_PORT}\n" +
+        httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
+
+    it("is false when the connector pins a host of its own", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n    settings:\n      host: 192.168.1.5\n" + httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
+
+    // Both would take the injected port and the second one's bind fails, taking
+    // the run down with it.
+    it("is false when two connectors are both left to the environment", () => {
+      const yaml = "connectors:\n  - name: api\n    type: http\n  - name: admin\n    type: http\n" + httpSource;
+      expect(isExposable(yaml)).toBe(false);
+    });
+
+    it("is true again when the second connector owns its port", () => {
+      const yaml =
+        "connectors:\n  - name: api\n    type: http\n" +
+        "  - name: admin\n    type: http\n    settings:\n      port: 9000\n" +
+        httpSource;
+      expect(isExposable(yaml)).toBe(true);
+    });
+
+    it("is false when the binding is ambiguous", () => {
+      const yaml =
+        "connectors:\n  - name: a\n    type: http\n" +
+        "  - name: b\n    type: http\n    settings:\n      port: 9000\n" +
+        "flows:\n  - name: f\n    source:\n      type: http\n";
+      expect(isExposable(yaml)).toBe(false);
+    });
+
+    // A listener with no routes answers 404; there is no endpoint to offer.
+    it("is false for a declared HTTP_PORT with no HTTP source", () => {
+      expect(isExposable('env:\n  - name: HTTP_PORT\n    default: "8080"\n')).toBe(false);
+      const withConnector =
+        'env:\n  - name: HTTP_PORT\n    default: "8080"\n' +
+        "connectors:\n  - name: api\n    type: http\n" +
+        "flows:\n  - name: f\n    source:\n      type: cron\n";
+      expect(isExposable(withConnector)).toBe(false);
+    });
+
+    it("is false for non-HTTP and sourceless flows", () => {
+      expect(isExposable("flows:\n  - name: f\n    source:\n      type: cron\n")).toBe(false);
+      expect(isExposable("flows:\n  - name: f\n    process:\n      - type: log\n")).toBe(false);
+    });
+
+    // A binding that names neither a configured instance nor the type does not
+    // resolve in the runtime either; it fails to start rather than listening.
+    it("is false for an unresolvable binding", () => {
+      const yaml = "flows:\n  - name: f\n    source:\n      connector: nope\n      type: http\n";
+      expect(isExposable(yaml)).toBe(false);
+    });
+
+    // Two listeners, neither of them named. They are still two, and they still take
+    // the same injected port.
+    it("is false for two unnamed connectors left to the environment", () => {
+      const yaml =
+        "connectors:\n  - type: http\n  - type: http\n" +
+        "flows:\n  - name: api\n    source:\n      type: http\n";
+      expect(isExposable(yaml)).toBe(false);
+    });
+
+    it("treats a malformed document as internal-only", () => {
+      expect(isExposable(":\n  bad: [")).toBe(false);
+    });
+
+    // A document that parses but writes a sequence as something else. Answering
+    // "internal-only" is the contract; throwing would fail the whole run start, and
+    // the orchestrator rejects the same document in its unmarshal.
+    it("treats a well-formed document with the wrong shapes as internal-only", () => {
+      // Each of these carries a source that WOULD be exposable, so what is under test
+      // is the shape and not the binding.
+      const src = "flows:\n  - name: api\n    source:\n      type: http\n";
+      expect(isExposable("env:\n  A: 1\n" + src)).toBe(false); // env written as a mapping
+      expect(isExposable("connectors:\n  api:\n    type: http\n" + src)).toBe(false);
+      expect(isExposable("env:\n  - HTTP_PORT\n" + src)).toBe(false); // a list of scalars
+      expect(isExposable("flows: nope\n")).toBe(false);
+      expect(isExposable("flows:\n  - 3\n")).toBe(false);
+    });
   });
 });
