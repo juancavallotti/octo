@@ -31,6 +31,10 @@ P12="$1"
 P8="${2:-}"
 
 [ -r "$P12" ] || die "cannot read $P12"
+# Checked here rather than where it is used, further down: uploading the
+# certificate and only then discovering a typo in the second argument leaves the
+# repository half-configured, which is how this script first behaved.
+[ -z "$P8" ] || [ -r "$P8" ] || die "cannot read $P8"
 command -v gh >/dev/null || die "the gh CLI is not installed"
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run: gh auth login"
 
@@ -82,7 +86,6 @@ if [ -z "$P8" ]; then
   exit 0
 fi
 
-[ -r "$P8" ] || die "cannot read $P8"
 printf '\nApp Store Connect Key ID (e.g. ABCD1234EF): '
 read -r KEY_ID
 printf 'App Store Connect Issuer ID (a UUID): '
@@ -93,6 +96,24 @@ case "$ISSUER" in
   [0-9a-fA-F]*-*-*-*-*) : ;;
   *) die "the Issuer ID should be a UUID; got: $ISSUER" ;;
 esac
+
+# Ask Apple whether these three actually authenticate, the same way the p12
+# password is checked above. `history` is read-only and cheap, and a revoked or
+# wrong-role key is otherwise indistinguishable from a working one until a
+# release has already built and is trying to staple.
+if [ "${SKIP_NOTARY_CHECK:-}" = "1" ]; then
+  printf '  skipping the credential check (SKIP_NOTARY_CHECK=1)\n'
+elif ! command -v xcrun >/dev/null || ! xcrun --find notarytool >/dev/null 2>&1; then
+  printf 'warning: notarytool not found; uploading without verifying the key.\n' >&2
+else
+  printf '  checking the key against App Store Connect... '
+  if OUT="$(xcrun notarytool history --key "$P8" --key-id "$KEY_ID" --issuer "$ISSUER" 2>&1)"; then
+    printf 'ok\n'
+  else
+    printf 'failed\n'
+    die "these credentials were refused:\n$OUT\n\nRe-run with SKIP_NOTARY_CHECK=1 if this is a network problem rather than a bad key."
+  fi
+fi
 
 gh secret set APPLE_API_KEY_P8 --repo "$REPO" < "$P8"
 printf '%s' "$KEY_ID" | gh secret set APPLE_API_KEY_ID --repo "$REPO"
