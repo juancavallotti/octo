@@ -58,19 +58,35 @@ fi
 # Confirm it is the right kind of certificate, and the right team. A .p12 holding
 # an "Apple Development" cert imports and signs happily, and then fails
 # notarization — which is a slow and confusing way to learn what went in.
-SUBJECT="$(openssl pkcs12 -in "$P12" -passin "pass:$P12_PASS" -nokeys -legacy 2>/dev/null \
-  || openssl pkcs12 -in "$P12" -passin "pass:$P12_PASS" -nokeys 2>/dev/null \
-  | true)"
-SUBJECT="$(printf '%s' "$SUBJECT" | openssl x509 -noout -subject 2>/dev/null || true)"
+# openssl 3 needs -legacy for the RC2 encryption older Keychain exports use, and
+# rejects it for newer ones, so both spellings have to be tried. The pipeline that
+# did this previously ended in `| true`, which swallowed the fallback's output as
+# well as its exit status: SUBJECT came out empty, the check below degraded to a
+# warning, and the script uploaded an unverified certificate while printing
+# something reassuring. Capture first, then decide.
+PEM=""
+for legacy in "-legacy" ""; do
+  # shellcheck disable=SC2086
+  if PEM="$(openssl pkcs12 -in "$P12" -passin "pass:$P12_PASS" -nokeys $legacy 2>/dev/null)" \
+    && [ -n "$PEM" ]; then
+    break
+  fi
+  PEM=""
+done
+[ -n "$PEM" ] || die "could not read any certificate out of $P12"
+
+SUBJECT="$(printf '%s\n' "$PEM" | openssl x509 -noout -subject 2>/dev/null || true)"
+[ -n "$SUBJECT" ] || die "could not read the certificate subject from $P12"
+
 case "$SUBJECT" in
   *"Developer ID Application"*) : ;;
-  "") printf 'warning: could not read the certificate subject; continuing.\n' >&2 ;;
   *) die "this is not a Developer ID Application certificate:\n  $SUBJECT" ;;
 esac
 case "$SUBJECT" in
-  ""|*"$TEAM_ID"*) : ;;
+  *"$TEAM_ID"*) : ;;
   *) die "certificate is not for team $TEAM_ID, which release.yml pins:\n  $SUBJECT" ;;
 esac
+printf '  certificate: %s\n' "${SUBJECT#subject=}"
 
 # -A keeps it on one line: CSC_LINK is read as a single base64 string, and the
 # wrapped output macOS `base64` produces by default does not survive that.

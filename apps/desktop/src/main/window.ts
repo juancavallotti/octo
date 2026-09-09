@@ -1,5 +1,6 @@
 import { BrowserWindow, app, shell } from "electron";
 import path from "node:path";
+import { sameOrigin } from "./origin";
 
 /**
  * The one window, and the rules about what may be shown in it.
@@ -9,9 +10,10 @@ import path from "node:path";
  *  - The renderer is sandboxed with context isolation on and node integration
  *    off. It is showing a local web app, and a local web app that can require()
  *    is a local web app that can do anything.
- *  - Navigation is pinned to the server's own origin. The editor links out to the
- *    docs, and without this a docs link would replace the editor with a chromeless
- *    browser that has no back button and no way home. External URLs go to the real
+ *  - Navigation is pinned to the server's own origin, compared by parsing rather
+ *    than by string prefix (see sameOrigin). The editor links out to the docs, and
+ *    without this a docs link would replace the editor with a chromeless browser
+ *    that has no back button and no way home. External URLs go to the real
  *    browser, which is where the user's session and extensions already are.
  */
 
@@ -68,7 +70,7 @@ export function confineTo(target: BrowserWindow, origin: string): void {
 
   target.webContents.on("will-navigate", (event, url) => {
     // file:// is the splash page, which the app itself loads during a restart.
-    if (url.startsWith(origin) || url.startsWith("file:")) return;
+    if (sameOrigin(url, origin) || url.startsWith("file:")) return;
     event.preventDefault();
     external(url);
   });

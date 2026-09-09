@@ -111,9 +111,13 @@ if (!app.requestSingleInstanceLock()) {
     // outlives the window (see window-all-closed), so this reattaches to the
     // running one rather than booting a second — start() would throw.
     if (mainWindow()) return;
-    const win = createWindow();
+    // Ask what state we are in BEFORE making a window: boot() makes its own, and
+    // createWindow() reassigns the module-level handle without closing the old
+    // one — so creating first left two windows up, the orphan stuck on the splash
+    // forever because mainWindow() only ever returned the newer.
     const server = current();
     if (!server) return void boot();
+    const win = createWindow();
     confineTo(win, server.url);
     void win.loadURL(server.url);
   });

@@ -103,7 +103,13 @@ tasks:
       - pnpm run test
 
   dist:
-    desc: Package Octo Desktop as a macOS .app + dmg (unsigned unless certs are present)
+    desc: Package Octo Desktop for THIS Mac as a .app + dmg (unsigned unless certs are present)
+    vars:
+      # electron-builder's spelling, from the host's. Hardcoding --arm64 meant an
+      # Intel Mac spent several minutes producing an app it could not launch,
+      # while desktop:bins had already built the right binaries for it.
+      HOST_ARCH:
+        sh: '[ "$(uname -m)" = "arm64" ] && echo arm64 || echo x64'
     deps:
       - runtime:build
       - stage
@@ -116,7 +122,7 @@ tasks:
       # only needs to launch on this machine, which ad-hoc signing is enough for;
       # a Developer ID and notarization are what a *downloaded* build needs, and
       # release.yml turns them on when the secrets exist.
-      - CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac --arm64
+      - CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac --{{.HOST_ARCH}}
 
   dev:
     desc: Build and run Octo Desktop, rebuilding on change (RUN enabled)

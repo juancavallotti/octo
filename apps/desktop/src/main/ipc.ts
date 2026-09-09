@@ -1,6 +1,7 @@
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import { copyMcpUrl, mcpUrl, revealVault } from "./menu";
+import { sameOrigin } from "./origin";
 import { current } from "./server";
 import { openVault, pickVault, recents, switchTo } from "./vault";
 
@@ -12,7 +13,10 @@ import { openVault, pickVault, recents, switchTo } from "./vault";
  * the filesystem — so a frame that is not that page has no business calling them.
  * In practice nothing else can be loaded (navigation is pinned in window.ts), and
  * that is exactly why the check is cheap to keep: it costs nothing and it stays
- * true if someone later relaxes the navigation rule.
+ * true if someone later relaxes the navigation rule. Both guards go through
+ * sameOrigin, so neither can drift into the prefix comparison they both started
+ * with — which a URL like http://127.0.0.1:8477@evil.example/ satisfies without
+ * being served by us at all.
  */
 
 /** Reject calls from any frame that is not the editor page we loaded. */
@@ -20,7 +24,7 @@ function fromEditor(event: IpcMainInvokeEvent): boolean {
   const origin = current()?.url;
   if (!origin) return false;
   const url = event.senderFrame?.url ?? "";
-  return url.startsWith(origin);
+  return sameOrigin(url, origin);
 }
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;

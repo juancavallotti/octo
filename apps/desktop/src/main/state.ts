@@ -55,11 +55,25 @@ export function read(dir: string): DesktopState {
           )
         : [],
       port: typeof state.port === "number" ? state.port : undefined,
-      window: state.window,
+      // Validated like everything else here rather than passed through: this file
+      // is user-editable and survives upgrades, so a `window` of the wrong shape
+      // reaches BrowserWindow as NaN or a string and throws at construction —
+      // which is a launch failure caused by a remembered convenience.
+      window: validWindow(state.window),
     };
   } catch {
     return { ...EMPTY };
   }
+}
+
+/** Remembered window geometry, or undefined if it is not a usable rectangle. */
+function validWindow(w: DesktopState["window"]): DesktopState["window"] {
+  if (!w || typeof w !== "object") return undefined;
+  const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+  if (!finite(w.width) || !finite(w.height) || w.width <= 0 || w.height <= 0) return undefined;
+  const optional = (n: unknown) => n === undefined || finite(n);
+  if (!optional(w.x) || !optional(w.y)) return undefined;
+  return w;
 }
 
 /** Write the state, atomically: full file to a temp name, then one rename. */

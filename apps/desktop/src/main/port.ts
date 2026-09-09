@@ -39,12 +39,15 @@ export function available(port: number, host = "127.0.0.1"): Promise<boolean> {
 
 /**
  * The port to serve on: `preferred` if it is free, else the first free port above
- * it within the fallback range, else 0 — meaning "let the OS choose".
+ * it within the fallback range. Throws when the whole range is taken.
  *
- * The 0 case is the honest last resort. It gives up URL stability, so the caller
- * has to re-read the real port from the server and re-advertise it; what it does
- * not do is refuse to start, which would be the wrong trade for a user whose only
- * problem is that something else on their machine holds a range of ports.
+ * It used to return 0 — "let the OS choose" — which read as the gracious option
+ * and was in fact broken: nothing ever asked the child which port it had actually
+ * bound, so the app built `http://127.0.0.1:0`, polled a port nobody listens on,
+ * and put the user through the full 30s readiness timeout before failing. An error
+ * naming the exhausted range is both honest and more useful; recovering properly
+ * would mean parsing the bound port back out of the child, which is a real feature
+ * and not a fallback.
  */
 export async function choosePort(
   preferred = PREFERRED_PORT,
@@ -53,7 +56,10 @@ export async function choosePort(
   for (let port = preferred; port < preferred + range; port++) {
     if (await available(port)) return port;
   }
-  return 0;
+  throw new Error(
+    `No free port between ${preferred} and ${preferred + range - 1}. ` +
+      "Close whatever is using them, or pin a different one with OCTO_DESKTOP_PORT.",
+  );
 }
 
 /**

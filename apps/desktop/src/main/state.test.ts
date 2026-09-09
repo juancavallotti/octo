@@ -59,6 +59,39 @@ describe("read", () => {
   });
 });
 
+describe("read: window geometry", () => {
+  const stored = (window: unknown) => {
+    const dir = scratch();
+    writeFileSync(stateFile(dir), JSON.stringify({ recents: [], window }));
+    return read(dir).window;
+  };
+
+  it("keeps a usable rectangle", () => {
+    expect(stored({ x: 10, y: 20, width: 1440, height: 900 })).toEqual({
+      x: 10, y: 20, width: 1440, height: 900,
+    });
+    // x/y are optional: a window that was never moved has a size and no position.
+    expect(stored({ width: 800, height: 600 })).toEqual({ width: 800, height: 600 });
+  });
+
+  it("drops anything BrowserWindow would choke on", () => {
+    // This file survives upgrades and can be hand-edited, so a bad value here
+    // would otherwise be a launch failure caused by a remembered convenience.
+    for (const bad of [
+      { width: "1440", height: 900 },
+      { width: 1440 },
+      { width: 0, height: 900 },
+      { width: -100, height: 900 },
+      { width: 1440, height: 900, x: "left" },
+      "not an object",
+      42,
+      null,
+    ]) {
+      expect(stored(bad), JSON.stringify(bad)).toBeUndefined();
+    }
+  });
+});
+
 describe("write", () => {
   it("leaves no temp file behind", () => {
     const dir = scratch();

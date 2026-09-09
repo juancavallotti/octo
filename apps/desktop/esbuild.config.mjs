@@ -61,12 +61,26 @@ if (!watch) {
 /** The running Electron, restarted on each successful rebuild. */
 let child = null;
 let restartTimer = null;
+/**
+ * Restarts are suppressed until the first pair of bundles is on disk. Both builds
+ * fire onEnd during the initial pass, and the debounce below is shorter than the
+ * gap between them — so without this, Electron could start against a half-written
+ * dist/ and exit, taking the watch with it.
+ */
+let armed = false;
 
-function restart() {
+async function restart() {
   if (child) {
     // Drop the exit listener first: this kill is a restart, not the user quitting.
-    child.removeAllListeners("exit");
-    child.kill();
+    const dying = child;
+    dying.removeAllListeners("exit");
+    const ended = new Promise((resolve) => dying.once("exit", resolve));
+    dying.kill();
+    child = null;
+    // Wait for it to actually go. The app releases port 8477 while shutting down,
+    // and a replacement that raced it would either walk to 8478 — moving the MCP
+    // URL mid-session — or, with OCTO_DESKTOP_PORT pinned, fail to bind at all.
+    await ended;
   }
   const electron = createRequire(import.meta.url)("electron");
   child = spawn(electron, ["."], { stdio: "inherit", env: process.env });
@@ -81,8 +95,9 @@ function restart() {
  * those would race a preload file that is mid-write.
  */
 function scheduleRestart() {
+  if (!armed) return;
   clearTimeout(restartTimer);
-  restartTimer = setTimeout(restart, 50);
+  restartTimer = setTimeout(() => void restart(), 50);
 }
 
 const notify = {
@@ -100,7 +115,11 @@ const notify = {
 const contexts = await Promise.all(
   builds.map((b) => esbuild.context({ ...b, plugins: [notify] })),
 );
-// Build both before watching, so the first Electron start never sees a half-written
-// dist/ — the onEnd hooks fire during these, and the debounce collapses them.
+// Build both, THEN start Electron once, and only then let rebuilds restart it.
+// The onEnd hooks fire during this pass while `armed` is still false, so nothing
+// launches against a dist/ that is missing the slower of the two bundles.
 await Promise.all(contexts.map((c) => c.rebuild()));
+copyStatic();
+await restart();
+armed = true;
 await Promise.all(contexts.map((c) => c.watch()));

@@ -86,7 +86,12 @@ async function confirmIfRunning(): Promise<boolean> {
 
   let running = 0;
   try {
-    const res = await fetch(`${server.url}/api/run/active`);
+    // Bounded, because the whole switch is serialised behind this call: a server
+    // that accepts the connection without answering would otherwise make the File
+    // menu do nothing at all, silently, and queue every later switch behind it.
+    const res = await fetch(`${server.url}/api/run/active`, {
+      signal: AbortSignal.timeout(2000),
+    });
     if (res.ok) running = ((await res.json()) as { running?: number }).running ?? 0;
   } catch {
     return true;

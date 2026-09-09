@@ -1,6 +1,8 @@
 import { app } from "electron";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { serverEntry } from "./paths";
 import type { RunningServer } from "./server";
 
 /**
@@ -82,6 +84,31 @@ export function retract(vault?: string): void {
 }
 
 /**
+ * Is this PID still the editor server we started, rather than whatever the OS has
+ * since given that number to?
+ *
+ * The distinction matters more than it looks. A recorded PID proves nothing on its
+ * own: signal 0 succeeding only says *a* process exists, and PIDs are reused freely
+ * on a machine that has been up for days. Acting on that alone means SIGKILLing a
+ * whole process group that could be the user's shell, editor, or anything else.
+ *
+ * So ask the OS what the process actually is, and only accept it if the command
+ * line is the server we would have launched.
+ */
+function isOurServer(pid: number): boolean {
+  try {
+    const cmd = execFileSync("ps", ["-o", "command=", "-p", String(pid)], {
+      encoding: "utf8",
+      timeout: 2000,
+    });
+    return cmd.includes(serverEntry());
+  } catch {
+    // No such process, or ps unavailable. Either way we have no grounds to kill.
+    return false;
+  }
+}
+
+/**
  * Kill a server left behind by a previous instance that did not shut down
  * cleanly (a crash, a force quit, a SIGKILL).
  *
@@ -89,9 +116,6 @@ export function retract(vault?: string): void {
  * ghost, walks to the next one, and silently changes the MCP URL out from under
  * every agent configured against it — which is precisely the failure the
  * deterministic port exists to prevent.
- *
- * The pid is checked before it is signalled, because a pid recorded hours ago may
- * by now belong to something else entirely.
  */
 export function reapOrphan(): void {
   let previous: Endpoint;
@@ -100,22 +124,18 @@ export function reapOrphan(): void {
   } catch {
     return; // Clean shutdown last time, or nothing has ever run.
   }
+
   const pid = previous.serverPid;
-  if (typeof pid !== "number" || pid <= 1) return;
-
-  try {
-    // Signal 0 tests for existence without delivering anything.
-    process.kill(pid, 0);
-  } catch {
-    rmSync(userDataFile(), { force: true });
-    return; // Already gone.
+  // Identity first, and only then the signal: killing a process group is not the
+  // sort of thing to do on the strength of a number written down hours ago.
+  if (typeof pid === "number" && pid > 1 && isOurServer(pid)) {
+    try {
+      // The group, as ever: the orphan may itself have spawned `octo` children.
+      process.kill(process.platform === "win32" ? pid : -pid, "SIGKILL");
+    } catch {
+      // Not ours to kill, or already gone. Either way, stop trying.
+    }
   }
 
-  try {
-    // The group, as ever: the orphan may itself have spawned `octo` children.
-    process.kill(process.platform === "win32" ? pid : -pid, "SIGKILL");
-  } catch {
-    // Not ours to kill, or already gone. Either way, stop trying.
-  }
   rmSync(userDataFile(), { force: true });
 }

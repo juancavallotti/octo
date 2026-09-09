@@ -21,6 +21,15 @@ import { binary, runDir, serverDir, serverEntry } from "./paths";
 /** How long to wait for the server to answer /api/health before giving up. */
 const READY_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 100;
+/**
+ * Ceiling on a single health probe.
+ *
+ * Without one, a server that accepts the connection and then never answers parks
+ * the poll loop inside the await forever: the 30s deadline is only re-checked
+ * between probes, so it never fires and the user sits on the splash screen with no
+ * error and no way forward.
+ */
+const PROBE_TIMEOUT_MS = 2000;
 
 /** Grace period before a stop escalates to SIGKILL — the runner's own STOP_GRACE_MS. */
 const STOP_GRACE_MS = 3000;
@@ -36,6 +45,15 @@ let child: ChildProcess | null = null;
 let running: RunningServer | null = null;
 /** Set while stop() is in flight, so the exit handler knows this death was ours. */
 let stopping = false;
+/**
+ * Whether the current child ever reached readiness.
+ *
+ * A child that dies before it is ready is start()'s failure to report, not a crash:
+ * without this, a server that exited during startup told the user twice — once via
+ * the crash dialog (which quits the app) and once via start()'s own error — and the
+ * quit made vault.ts's "fall back to the previous folder" recovery unreachable.
+ */
+let wasReady = false;
 /** Notified when the server dies on its own — a crash, not a stop. */
 let onCrash: (() => void) | null = null;
 
@@ -72,7 +90,9 @@ function childEnv(vault: string, port: number): NodeJS.ProcessEnv {
 async function healthy(url: string): Promise<boolean> {
   try {
     // The route sets no-store itself; nothing here should be cached anyway.
-    const res = await fetch(`${url}/api/health`);
+    const res = await fetch(`${url}/api/health`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
     return res.ok;
   } catch {
     return false;
@@ -108,6 +128,7 @@ export async function start(vault: string, port: number): Promise<RunningServer>
   openLog();
 
   const url = `http://127.0.0.1:${port}`;
+  wasReady = false;
   child = spawn(process.execPath, [serverEntry()], {
     cwd: serverDir(),
     env: childEnv(vault, port),
@@ -124,8 +145,17 @@ export async function start(vault: string, port: number): Promise<RunningServer>
     append(`\n[desktop] editor server exited (code=${code} signal=${signal})\n`);
     child = null;
     running = null;
-    if (!stopping) onCrash?.();
+    // Only a server that had been running can crash; one that never came up is
+    // start()'s to report.
+    const crashed = !stopping && wasReady;
+    wasReady = false;
+    if (crashed) onCrash?.();
   });
+
+  // Read before the await: the exit handler sets `child` to null, and TypeScript
+  // cannot see that assignment — so reading child.pid afterwards is a null
+  // dereference on any server that answers once and dies immediately.
+  const pid = child.pid ?? -1;
 
   try {
     await waitForReady(url);
@@ -134,7 +164,8 @@ export async function start(vault: string, port: number): Promise<RunningServer>
     throw err;
   }
 
-  running = { url, port, vault, pid: child.pid ?? -1 };
+  wasReady = true;
+  running = { url, port, vault, pid };
   return running;
 }
 
@@ -163,6 +194,7 @@ export async function stop(): Promise<void> {
   clearTimeout(force);
 
   stopping = false;
+  wasReady = false;
   child = null;
   running = null;
   closeLog();

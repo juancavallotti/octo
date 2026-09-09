@@ -57,10 +57,14 @@ describe("choosePort", () => {
     expect(await choosePort()).toBe(PREFERRED_PORT + 3);
   });
 
-  it("falls back to 0 — let the OS choose — rather than refusing to start", async () => {
+  it("refuses with a message naming the range when every port is taken", async () => {
     // A range of one, fully occupied: the exhausted case without binding 20 ports.
+    // It used to answer 0 here, which no caller could turn into a URL — the app
+    // polled http://127.0.0.1:0 for 30s and then reported a start failure.
     await hold(PREFERRED_PORT);
-    expect(await choosePort(PREFERRED_PORT, 1)).toBe(0);
+    await expect(choosePort(PREFERRED_PORT, 1)).rejects.toThrow(
+      /No free port between 8477 and 8477.*OCTO_DESKTOP_PORT/s,
+    );
   });
 });
 
