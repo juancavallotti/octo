@@ -225,8 +225,31 @@ describe("isExposable", () => {
       expect(isExposable(yaml)).toBe(false);
     });
 
+    // Two listeners, neither of them named. They are still two, and they still take
+    // the same injected port.
+    it("is false for two unnamed connectors left to the environment", () => {
+      const yaml =
+        "connectors:\n  - type: http\n  - type: http\n" +
+        "flows:\n  - name: api\n    source:\n      type: http\n";
+      expect(isExposable(yaml)).toBe(false);
+    });
+
     it("treats a malformed document as internal-only", () => {
       expect(isExposable(":\n  bad: [")).toBe(false);
+    });
+
+    // A document that parses but writes a sequence as something else. Answering
+    // "internal-only" is the contract; throwing would fail the whole run start, and
+    // the orchestrator rejects the same document in its unmarshal.
+    it("treats a well-formed document with the wrong shapes as internal-only", () => {
+      // Each of these carries a source that WOULD be exposable, so what is under test
+      // is the shape and not the binding.
+      const src = "flows:\n  - name: api\n    source:\n      type: http\n";
+      expect(isExposable("env:\n  A: 1\n" + src)).toBe(false); // env written as a mapping
+      expect(isExposable("connectors:\n  api:\n    type: http\n" + src)).toBe(false);
+      expect(isExposable("env:\n  - HTTP_PORT\n" + src)).toBe(false); // a list of scalars
+      expect(isExposable("flows: nope\n")).toBe(false);
+      expect(isExposable("flows:\n  - 3\n")).toBe(false);
     });
   });
 });

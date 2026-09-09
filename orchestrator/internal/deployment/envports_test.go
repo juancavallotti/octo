@@ -165,9 +165,39 @@ func TestResolveRuntimeEnv(t *testing.T) {
 			definition:    "flows:\n  - name: f\n    source:\n      connector: nope\n      type: http\n",
 			wantExposable: false,
 		},
+		// Two listeners, neither of them named. They are still two, and they still
+		// take the same injected port.
+		{
+			name:          "two unnamed connectors collide",
+			definition:    "connectors:\n  - type: http\n  - type: http\nflows:\n  - name: api\n    source:\n      type: http\n",
+			wantExposable: false,
+		},
 		{
 			name:          "malformed definition is internal",
 			definition:    "flows: [this is not valid",
+			wantExposable: false,
+		},
+		// Documents that parse but write a sequence as something else. The unmarshal
+		// rejects them, and the editors' own parse has to agree — each of these
+		// carries a source that would otherwise be exposable.
+		{
+			name:          "env written as a mapping is internal",
+			definition:    "env:\n  A: 1\nflows:\n  - name: api\n    source:\n      type: http\n",
+			wantExposable: false,
+		},
+		{
+			name:          "connectors written as a mapping is internal",
+			definition:    "connectors:\n  api:\n    type: http\nflows:\n  - name: api\n    source:\n      type: http\n",
+			wantExposable: false,
+		},
+		{
+			name:          "a list of scalars is internal",
+			definition:    "env:\n  - HTTP_PORT\nflows:\n  - name: api\n    source:\n      type: http\n",
+			wantExposable: false,
+		},
+		{
+			name:          "flows written as a scalar is internal",
+			definition:    "flows: nope\n",
 			wantExposable: false,
 		},
 	}

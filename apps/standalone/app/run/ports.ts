@@ -123,15 +123,27 @@ const httpConnectorType = "http";
 const bindAllHost = "0.0.0.0";
 
 /** The slice of a run document this file reads: what it declares as environment, what
- * connectors it configures, and what its flows bind their sources to. */
+ * connectors it configures, and what its flows bind their sources to. The three lists
+ * are read as `unknown` because a parsed document is whatever was written, not what
+ * this shape says — see {@link sequence}. */
 interface runDecl {
-  env?: Array<{ name?: string; default?: unknown }>;
-  connectors?: Array<{
-    name?: string;
-    type?: string;
-    settings?: { host?: unknown; port?: unknown };
-  }>;
-  flows?: Array<{ source?: { connector?: string; type?: string } }>;
+  env?: unknown;
+  connectors?: unknown;
+  flows?: unknown;
+}
+
+interface EnvDecl {
+  name?: string;
+}
+
+interface ConnectorDecl {
+  name?: string;
+  type?: string;
+  settings?: { host?: unknown; port?: unknown };
+}
+
+interface FlowDecl {
+  source?: { connector?: string; type?: string };
 }
 
 /**
@@ -157,8 +169,29 @@ export function isExposable(yaml: string): boolean {
   } catch {
     return false;
   }
-  const declared = new Set((decl.env ?? []).map((e) => e?.name?.trim() ?? ""));
-  return wiresInjectedPort(decl, declared);
+  // A cast is not a parse: `env:` written as a mapping types as an array here and is
+  // not one at runtime. Iterating it would throw out of isExposable and fail the run
+  // start outright, and skipping it quietly would call a document exposable that the
+  // orchestrator's unmarshal rejects. Neither is an answer, so a document that is not
+  // shaped like a run document is internal-only, same as one that does not parse.
+  const env = sequence<EnvDecl>(decl.env);
+  const connectors = sequence<ConnectorDecl>(decl.connectors);
+  const flows = sequence<FlowDecl>(decl.flows);
+  if (!env || !connectors || !flows) return false;
+
+  const declared = new Set(env.map((e) => e?.name?.trim() ?? ""));
+  return wiresInjectedPort(connectors, flows, declared);
+}
+
+/**
+ * sequence reads one of the document's lists: absent is an empty one, a list of
+ * mappings is itself, and anything else — a mapping, a scalar, a list with a scalar
+ * in it — is null, the shape the runtime's own decode would refuse.
+ */
+function sequence<T>(value: unknown): T[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return null;
+  return value.every((e) => typeof e === "object" && e !== null) ? (value as T[]) : null;
 }
 
 /**
@@ -172,37 +205,42 @@ export function isExposable(yaml: string): boolean {
  * then by a lone configured instance of the type, then by starting one on demand
  * (connectorSet.resolveConnector).
  */
-function wiresInjectedPort(decl: runDecl, declared: Set<string>): boolean {
-  // The configured http instances, by name, each saying whether its address is this
-  // host's to supply.
-  const envBound = new Map<string, boolean>();
-  for (const c of decl.connectors ?? []) {
-    if (c?.type?.trim() !== httpConnectorType) continue;
-    envBound.set(
-      c.name?.trim() ?? "",
-      takesEnvPort(c.settings?.port, declared) && takesEnvHost(c.settings?.host, declared),
-    );
-  }
-  const names = [...envBound.keys()];
+function wiresInjectedPort(
+  connectors: ConnectorDecl[],
+  flows: FlowDecl[],
+  declared: Set<string>,
+): boolean {
+  // The configured http instances, each saying whether its address is this host's to
+  // supply. A list rather than a map keyed by name, because a name is optional: two
+  // unnamed connectors are two listeners, and collapsing them into one entry would
+  // hide exactly the collision the count below is looking for.
+  const configured = connectors
+    .filter((c) => c?.type?.trim() === httpConnectorType)
+    .map((c) => ({
+      name: c.name?.trim() ?? "",
+      envBound:
+        takesEnvPort(c.settings?.port, declared) && takesEnvHost(c.settings?.host, declared),
+    }));
   // Two of them racing for the injected port is not a wiring question but a run that
   // dies on startup ("address already in use"), whichever one a source binds.
-  if (names.filter((n) => envBound.get(n)).length > 1) return false;
+  if (configured.filter((c) => c.envBound).length > 1) return false;
 
-  for (const f of decl.flows ?? []) {
+  for (const f of flows) {
     const src = f?.source;
     if (!src) continue;
     const bind = src.connector?.trim() ?? "";
     if (bind !== "") {
-      // An explicit binding to a configured instance wins, whatever its type.
-      const bound = envBound.get(bind);
-      if (bound !== undefined) return bound;
+      // An explicit binding to a configured instance wins, whatever its type. An
+      // unnamed connector has no name to bind to, so it never matches here.
+      const match = configured.find((c) => c.name === bind);
+      if (match) return match.envBound;
       // Not an instance name: it only resolves if it names the type itself.
       if (bind !== httpConnectorType) continue;
     } else if (src.type?.trim() !== httpConnectorType) {
       continue;
     }
-    if (names.length === 0) return true; // started on demand, straight off the env
-    if (names.length === 1) return envBound.get(names[0]) ?? false;
+    if (configured.length === 0) return true; // started on demand, straight off the env
+    if (configured.length === 1) return configured[0].envBound;
     return false; // ambiguous: the runtime will not start it
   }
   return false;
