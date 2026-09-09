@@ -53,6 +53,8 @@ interface Props {
    * editor can stay open on conflict rather than silently reverting.
    */
   onRename: (name: string) => Promise<boolean>;
+  /** Choose the integration's icon; "" hands it back to the derivation. */
+  onSelectIcon: (icon: string) => void;
 }
 
 export default function IntegrationDetail({
@@ -66,6 +68,7 @@ export default function IntegrationDetail({
   onDelete,
   onCopy,
   onRename,
+  onSelectIcon,
 }: Props) {
   // Inline rename of the title. The parent keys this component by integration id,
   // so selecting another integration remounts it and resets the draft cleanly.
@@ -153,6 +156,7 @@ export default function IntegrationDetail({
         replaceInput={replaceInput}
         onSelectTag={setSelectedTag}
         onRename={onRename}
+        onSelectIcon={onSelectIcon}
         onDownloadBundle={onDownloadBundle}
         onReplaceFromBundle={onReplaceFromBundle}
         onDeploy={() => setDeployOpen(true)}

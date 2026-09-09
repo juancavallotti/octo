@@ -103,6 +103,7 @@ export default function IntegrationsManager({
     replaceSelectedFromBundle,
     copySelected,
     renameSelected,
+    setSelectedIcon,
     removeSelected,
     applyDrag,
   } = useIntegrationTree({
@@ -197,6 +198,7 @@ export default function IntegrationsManager({
                 onDelete={removeSelected}
                 onCopy={copySelected}
                 onRename={renameSelected}
+                onSelectIcon={setSelectedIcon}
               />
             ) : (
               <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400">

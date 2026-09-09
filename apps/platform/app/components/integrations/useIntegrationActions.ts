@@ -9,6 +9,7 @@ import {
   exportSnapshotBundle,
   importBundle,
   replaceBundle,
+  setIntegrationIcon,
   updateIntegration,
   type Integration,
 } from "@/app/model/orchestrator";
@@ -164,6 +165,13 @@ export function useIntegrationActions({
     }
   };
 
+  // Choosing an icon goes through its own call, so a save of something unrelated
+  // cannot clear it. "" means go back to deriving one from the definition.
+  const setSelectedIcon = async (icon: string) => {
+    if (!selected) return;
+    run(() => setIntegrationIcon(selected.id, icon));
+  };
+
   const removeSelected = async () => {
     if (!selected) return;
     const ok = await confirm({
@@ -185,6 +193,7 @@ export function useIntegrationActions({
     replaceSelectedFromBundle,
     copySelected,
     renameSelected,
+    setSelectedIcon,
     removeSelected,
   };
 }

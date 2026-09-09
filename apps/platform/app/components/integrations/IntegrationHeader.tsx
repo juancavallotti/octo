@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Copy, Pencil, Rocket, Trash2, Upload } from "lucide-react";
 import type { Integration, Snapshot } from "@/app/model/orchestrator";
 import DownloadMenu from "./DownloadMenu";
+import IconPicker from "./IconPicker";
 import VersionMenu from "./VersionMenu";
 import { downloadDefinition } from "./files";
 
@@ -27,6 +28,7 @@ export default function IntegrationHeader({
   replaceInput,
   onSelectTag,
   onRename,
+  onSelectIcon,
   onDownloadBundle,
   onReplaceFromBundle,
   onDeploy,
@@ -48,6 +50,8 @@ export default function IntegrationHeader({
   onSelectTag: (tag: string | null) => void;
   /** Returns whether the rename was accepted; false keeps the field open. */
   onRename: (name: string) => Promise<boolean>;
+  /** Choose the integration's icon; "" hands it back to the derivation. */
+  onSelectIcon: (icon: string) => void;
   /** Download a version as a bundle archive: the active tag's frozen contents,
    * or the working copy when it is null. */
   onDownloadBundle: (snapshot: { id: string; tag: string } | null) => void;
@@ -82,6 +86,14 @@ export default function IntegrationHeader({
 
   return (
     <header className="flex items-center gap-2 px-4 py-3">
+      {/* The icon is the trigger, so choosing one costs the header no extra
+          chrome — the thing you want to change is the thing you click. */}
+      <IconPicker
+        icon={integration.icon ?? ""}
+        definition={integration.definition}
+        disabled={busy}
+        onSelect={onSelectIcon}
+      />
       {editingName ? (
         <input
           ref={nameInput}
