@@ -1,4 +1,12 @@
-appId: com.juancavallotti.octo
+# Reverse-DNS of octopaas.dev. Nothing has shipped yet, which is the only moment
+# this is free to change: the appId is baked into the code signature and is the
+# app's identity to macOS and to the updater, so changing it after a release makes
+# every existing install look like a different app.
+#
+# It needs no registration with Apple — an App ID is required for the App Store
+# and for capabilities that use provisioning profiles, neither of which applies to
+# a Developer ID build whose entitlements are all hardened-runtime exceptions.
+appId: dev.octopaas.octo
 productName: Octo
 copyright: © Juan Cavallotti
 
