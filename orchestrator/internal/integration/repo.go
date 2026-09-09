@@ -33,7 +33,7 @@ const configFiles = `
 // expects, kept in one place so every read stays in sync. It joins the creator
 // and last-editor users (aliases cu/uu) to resolve display email/name; the base
 // integration row is aliased i (real table or a CTE over a write).
-const selectColumns = `i.id, i.name, i.last_updated, i.created_by, i.updated_by,
+const selectColumns = `i.id, i.name, i.icon, i.last_updated, i.created_by, i.updated_by,
 	cu.email, cu.name, uu.email, uu.name,` + configFiles
 
 // userJoins resolves the created_by/updated_by user ids to display fields. It
@@ -43,7 +43,7 @@ const userJoins = `LEFT JOIN users cu ON cu.id = i.created_by
 
 // writeReturning is the RETURNING list for an insert/update, exposing the base
 // columns a following CTE join needs (aliased i in selectColumns).
-const writeReturning = "id, name, last_updated, created_by, updated_by"
+const writeReturning = "id, name, icon, last_updated, created_by, updated_by"
 
 // Repo persists integrations to Postgres.
 type Repo struct {
@@ -188,6 +188,33 @@ func (r *Repo) Update(ctx context.Context, id, name, definition, actorID string)
 	return it, nil
 }
 
+// SetIcon records an integration's chosen icon, or clears it back to derived
+// when icon is "". It is its own write rather than a field on Update because
+// every caller of Update passes a whole integration — the editor's save, a
+// bundle replace, the agent's republish — and none of them know about icons. A
+// field there would have them clear a user's choice each time they saved
+// something unrelated.
+func (r *Repo) SetIcon(ctx context.Context, id, icon, actorID string) (Integration, error) {
+	row := r.pool.QueryRow(ctx,
+		`WITH i AS (
+			UPDATE integrations
+			SET icon = $2, last_updated = now(), updated_by = NULLIF($3, '')::uuid
+			WHERE id = $1
+			RETURNING `+writeReturning+`
+		)
+		SELECT `+selectColumns+` FROM i `+userJoins,
+		id, icon, actorID,
+	)
+	it, err := scanIntegration(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Integration{}, ErrNotFound
+		}
+		return Integration{}, fmt.Errorf("integration repo: set icon: %w", err)
+	}
+	return it, nil
+}
+
 // Delete removes the integration. Returns ErrNotFound if no row was deleted.
 func (r *Repo) Delete(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM integrations WHERE id = $1`, id)
@@ -270,7 +297,7 @@ func scanIntegration(row pgx.Row) (Integration, error) {
 		contents []string
 	)
 	if err := row.Scan(
-		&it.ID, &it.Name, &it.LastUpdated,
+		&it.ID, &it.Name, &it.Icon, &it.LastUpdated,
 		&it.CreatedBy, &it.UpdatedBy,
 		&it.CreatedByEmail, &it.CreatedByName,
 		&it.UpdatedByEmail, &it.UpdatedByName,

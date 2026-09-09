@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS integrations (
 CREATE UNIQUE INDEX IF NOT EXISTS integrations_name_lower_uniq
     ON integrations (lower(name));
 
+-- An intentionally chosen icon for the integration, as a name from the editor's
+-- icon registry. Empty means "derive it from the definition", which is what the
+-- UI did for every integration before this column existed and still does for
+-- every integration that has not set one.
+ALTER TABLE integrations
+    ADD COLUMN IF NOT EXISTS icon varchar NOT NULL DEFAULT '';
+
 -- NOTE: integrations.created_by / updated_by are added after the users table is
 -- defined (they reference it) — see "Integration attribution" near the end.
 

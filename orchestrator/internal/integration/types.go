@@ -15,8 +15,12 @@ import "time"
 // without a known actor (e.g. via the MCP path, or local dev without SSO) has no
 // attribution, and a referenced user may since have been removed.
 type Integration struct {
-	ID          string
-	Name        string
+	ID   string
+	Name string
+	// Icon is an intentionally chosen icon name from the editor's registry, or ""
+	// to let the UI derive one from the definition. Stored, unlike Definition:
+	// the whole point is that it is a choice rather than something inferred.
+	Icon        string
 	Definition  string
 	LastUpdated time.Time
 
