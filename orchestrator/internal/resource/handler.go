@@ -35,14 +35,19 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /integrations/{id}/resources/{resourceId}", h.delete)
 }
 
-// resourceRequest is the create/update payload.
+// resourceRequest is the create/update payload. ActorID names the user making
+// the change, the same way the integration payload carries it; it is optional,
+// and an absent one leaves the file unattributed rather than failing.
 type resourceRequest struct {
 	Kind    string `json:"kind"`
 	Name    string `json:"name"`
 	Content string `json:"content"`
+	ActorID string `json:"actorId"`
 }
 
-// resourceResponse is the wire representation of a resource.
+// resourceResponse is the wire representation of a resource. The attribution
+// fields are omitted when absent, so a file written without a known actor looks
+// the way it did before this existed.
 type resourceResponse struct {
 	ID            string    `json:"id"`
 	IntegrationID string    `json:"integrationId"`
@@ -51,6 +56,13 @@ type resourceResponse struct {
 	Content       string    `json:"content"`
 	CreatedAt     time.Time `json:"createdAt"`
 	LastUpdated   time.Time `json:"lastUpdated"`
+
+	CreatedBy      *string `json:"createdBy,omitempty"`
+	UpdatedBy      *string `json:"updatedBy,omitempty"`
+	CreatedByEmail *string `json:"createdByEmail,omitempty"`
+	CreatedByName  *string `json:"createdByName,omitempty"`
+	UpdatedByEmail *string `json:"updatedByEmail,omitempty"`
+	UpdatedByName  *string `json:"updatedByName,omitempty"`
 }
 
 // toResponse maps the domain model to its wire form. The field layouts match,
@@ -85,7 +97,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	res, err := h.svc.Create(ctx, r.PathValue("id"), req.Kind, req.Name, req.Content)
+	res, err := h.svc.Create(ctx, r.PathValue("id"), req.Kind, req.Name, req.Content, req.ActorID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -164,7 +176,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	res, err := h.svc.Update(ctx, r.PathValue("id"), r.PathValue("resourceId"), req.Kind, req.Name, req.Content)
+	res, err := h.svc.Update(ctx, r.PathValue("id"), r.PathValue("resourceId"), req.Kind, req.Name, req.Content, req.ActorID)
 	if err != nil {
 		h.writeError(w, err)
 		return

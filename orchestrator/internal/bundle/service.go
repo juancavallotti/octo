@@ -42,8 +42,8 @@ type integrationService interface {
 // validated — and notifies dev runs — exactly like a hand upload.
 type resourceService interface {
 	ListByIntegration(ctx context.Context, integrationID string) ([]resource.Resource, error)
-	Create(ctx context.Context, integrationID, kind, name, content string) (resource.Resource, error)
-	Update(ctx context.Context, integrationID, id, kind, name, content string) (resource.Resource, error)
+	Create(ctx context.Context, integrationID, kind, name, content, actorID string) (resource.Resource, error)
+	Update(ctx context.Context, integrationID, id, kind, name, content, actorID string) (resource.Resource, error)
 	Delete(ctx context.Context, integrationID, id string) error
 }
 
@@ -137,7 +137,7 @@ func (s *Service) Import(ctx context.Context, data []byte, fallback, actorID str
 		return integration.Integration{}, err
 	}
 	for _, r := range b.Resources {
-		if _, err := s.resources.Create(ctx, created.ID, r.Kind, r.Name, r.Content); err != nil {
+		if _, err := s.resources.Create(ctx, created.ID, r.Kind, r.Name, r.Content, actorID); err != nil {
 			// A half-imported integration is worse than none: it looks like the bundle
 			// but silently misses a file the definition refers to. Roll the create back
 			// so the user retries a failed import rather than debugging a broken one.
@@ -186,7 +186,7 @@ func (s *Service) Replace(ctx context.Context, integrationID string, data []byte
 	if err != nil {
 		return integration.Integration{}, err
 	}
-	if err := s.reconcileResources(ctx, integrationID, b.Resources); err != nil {
+	if err := s.reconcileResources(ctx, integrationID, b.Resources, actorID); err != nil {
 		s.restore(ctx, integrationID, previous, actorID)
 		return integration.Integration{}, err
 	}
@@ -205,7 +205,7 @@ func (s *Service) restore(ctx context.Context, integrationID string, previous Bu
 		slog.Error("rolling back a failed bundle replace: definition",
 			"integrationId", integrationID, "error", err)
 	}
-	if err := s.reconcileResources(ctx, integrationID, previous.Resources); err != nil {
+	if err := s.reconcileResources(ctx, integrationID, previous.Resources, actorID); err != nil {
 		slog.Error("rolling back a failed bundle replace: resources",
 			"integrationId", integrationID, "error", err)
 	}
@@ -213,7 +213,7 @@ func (s *Service) restore(ctx context.Context, integrationID string, previous Bu
 
 // reconcileResources makes an integration's stored resources match the bundle's:
 // existing names are updated in place, new ones created, and the rest removed.
-func (s *Service) reconcileResources(ctx context.Context, integrationID string, files []File) error {
+func (s *Service) reconcileResources(ctx context.Context, integrationID string, files []File, actorID string) error {
 	existing, err := s.resources.ListByIntegration(ctx, integrationID)
 	if err != nil {
 		return err
@@ -227,12 +227,12 @@ func (s *Service) reconcileResources(ctx context.Context, integrationID string, 
 		current, ok := byName[f.Name]
 		if ok {
 			delete(byName, f.Name)
-			if _, err := s.resources.Update(ctx, integrationID, current.ID, f.Kind, f.Name, f.Content); err != nil {
+			if _, err := s.resources.Update(ctx, integrationID, current.ID, f.Kind, f.Name, f.Content, actorID); err != nil {
 				return fmt.Errorf("replacing resource %q: %w", f.Name, err)
 			}
 			continue
 		}
-		if _, err := s.resources.Create(ctx, integrationID, f.Kind, f.Name, f.Content); err != nil {
+		if _, err := s.resources.Create(ctx, integrationID, f.Kind, f.Name, f.Content, actorID); err != nil {
 			return fmt.Errorf("adding resource %q: %w", f.Name, err)
 		}
 	}

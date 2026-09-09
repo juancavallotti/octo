@@ -373,6 +373,29 @@ UPDATE integrations
  WHERE (created_by IS NULL OR updated_by IS NULL)
    AND (SELECT count(*) FROM users) = 1;
 
+-- File attribution: who created and who last changed each file. Same shape and
+-- same reasoning as the integration columns above, and here for the same reason —
+-- they reference users. A file is the unit people actually edit, so "who changed
+-- this" is a question about a file before it is a question about an integration.
+--
+-- Snapshots deliberately get none of this: a frozen file is attributed by its
+-- tag, and integration_file_snapshots already carries neither an owner nor a
+-- last_updated. Freezing records a moment, not an author.
+ALTER TABLE integration_files
+    ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES users (id) ON DELETE SET NULL;
+ALTER TABLE integration_files
+    ADD COLUMN IF NOT EXISTS updated_by uuid REFERENCES users (id) ON DELETE SET NULL;
+
+-- Files that predate this column belong to whoever owns their integration; that
+-- is the best answer available and a better one than null. Idempotent: only
+-- still-null rows are touched.
+UPDATE integration_files f
+   SET created_by = COALESCE(f.created_by, i.created_by),
+       updated_by = COALESCE(f.updated_by, i.updated_by)
+  FROM integrations i
+ WHERE i.id = f.integration_id
+   AND (f.created_by IS NULL OR f.updated_by IS NULL);
+
 -- logs stores log events shipped by deployed runtimes over the internal.logs NATS
 -- subject and persisted by the log-aggregator service. `deployment_id` attributes
 -- each event to the deployment that emitted it (no foreign key — logs are kept for

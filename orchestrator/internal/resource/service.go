@@ -19,10 +19,10 @@ const maxNameLen = 512
 // integration id so a resource is only ever addressed within its integration —
 // a mismatch reads as ErrNotFound.
 type repository interface {
-	Create(ctx context.Context, integrationID, kind, name, content string) (Resource, error)
+	Create(ctx context.Context, integrationID, kind, name, content, actorID string) (Resource, error)
 	Get(ctx context.Context, integrationID, id string) (Resource, error)
 	ListByIntegration(ctx context.Context, integrationID string) ([]Resource, error)
-	Update(ctx context.Context, integrationID, id, kind, name, content string) (Resource, error)
+	Update(ctx context.Context, integrationID, id, kind, name, content, actorID string) (Resource, error)
 	Delete(ctx context.Context, integrationID, id string) error
 }
 
@@ -74,13 +74,15 @@ func (s *Service) notifyChanged(ctx context.Context, integrationID string) {
 	}
 }
 
-// Create validates the resource and persists it under integrationID.
-func (s *Service) Create(ctx context.Context, integrationID, kind, name, content string) (Resource, error) {
+// Create validates the resource and persists it under integrationID. actorID is
+// the creating user's id, or "" when unknown; it seeds both created_by and
+// updated_by.
+func (s *Service) Create(ctx context.Context, integrationID, kind, name, content, actorID string) (Resource, error) {
 	kind, name, err := validate(kind, name)
 	if err != nil {
 		return Resource{}, err
 	}
-	created, err := s.repo.Create(ctx, integrationID, kind, name, content)
+	created, err := s.repo.Create(ctx, integrationID, kind, name, content, actorID)
 	if err != nil {
 		return Resource{}, err
 	}
@@ -98,13 +100,15 @@ func (s *Service) ListByIntegration(ctx context.Context, integrationID string) (
 	return s.repo.ListByIntegration(ctx, integrationID)
 }
 
-// Update validates and persists changes to an existing resource within integrationID.
-func (s *Service) Update(ctx context.Context, integrationID, id, kind, name, content string) (Resource, error) {
+// Update validates and persists changes to an existing resource within
+// integrationID. actorID is the editing user's id, or "" when unknown; it is
+// recorded as updated_by (created_by is left untouched).
+func (s *Service) Update(ctx context.Context, integrationID, id, kind, name, content, actorID string) (Resource, error) {
 	kind, name, err := validate(kind, name)
 	if err != nil {
 		return Resource{}, err
 	}
-	updated, err := s.repo.Update(ctx, integrationID, id, kind, name, content)
+	updated, err := s.repo.Update(ctx, integrationID, id, kind, name, content, actorID)
 	if err != nil {
 		return Resource{}, err
 	}

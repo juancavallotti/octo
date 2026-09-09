@@ -19,6 +19,13 @@ const (
 // Resource is a stored integration resource. IDs are UUIDs in canonical text
 // form; pgx's UUID codec scans them to and from Go strings. Name is the resource
 // id the config references and is path-like (it may contain '/').
+//
+// CreatedBy/UpdatedBy are the user ids that authored and last edited the file;
+// the *Email/*Name fields are those users resolved for display via a join on
+// reads. All are pointers because they are nullable — a row written without a
+// known actor (the MCP path, or local dev without SSO) has no attribution, and a
+// referenced user may since have been removed. Same shape, and the same reasons,
+// as the integration row.
 type Resource struct {
 	ID            string
 	IntegrationID string
@@ -27,4 +34,11 @@ type Resource struct {
 	Content       string
 	CreatedAt     time.Time
 	LastUpdated   time.Time
+
+	CreatedBy      *string
+	UpdatedBy      *string
+	CreatedByEmail *string
+	CreatedByName  *string
+	UpdatedByEmail *string
+	UpdatedByName  *string
 }

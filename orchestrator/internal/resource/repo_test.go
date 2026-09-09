@@ -50,7 +50,7 @@ func TestRepoResourceRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	integrationID := newIntegration(t, pool, "resource-round-trip")
 
-	created, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "TOKEN=abc")
+	created, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "TOKEN=abc", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestRepoResourceRoundTrip(t *testing.T) {
 		t.Errorf("get = %+v, want %+v", got, created)
 	}
 
-	updated, err := r.Update(ctx, integrationID, created.ID, KindEnv, ".env.dev", "TOKEN=xyz")
+	updated, err := r.Update(ctx, integrationID, created.ID, KindEnv, ".env.dev", "TOKEN=xyz", "")
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestRepoIgnoresConfigFiles(t *testing.T) {
 		t.Fatalf("insert config file: %v", err)
 	}
 
-	if _, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "TOKEN=abc"); err != nil {
+	if _, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "TOKEN=abc", ""); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
@@ -124,10 +124,60 @@ func TestRepoDuplicatePathIsANameClash(t *testing.T) {
 	ctx := context.Background()
 	integrationID := newIntegration(t, pool, "resource-duplicate-path")
 
-	if _, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "a"); err != nil {
+	if _, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "a", ""); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "b"); !errors.Is(err, ErrNameExists) {
+	if _, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "b", ""); !errors.Is(err, ErrNameExists) {
 		t.Errorf("second create = %v, want ErrNameExists", err)
+	}
+}
+
+// Attribution is the point of the columns, so it is worth proving it survives a
+// round trip — and that a write with no known actor stays unattributed instead
+// of failing, which is the MCP and local-dev path.
+func TestRepoRecordsAttribution(t *testing.T) {
+	pool := newTestPool(t)
+	r := NewRepo(pool)
+	ctx := context.Background()
+	integrationID := newIntegration(t, pool, "resource-attribution")
+
+	var userID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO users (subject, email, name) VALUES ($1, $2, $3) RETURNING id`,
+		"subject-attribution", "someone@example.com", "Someone",
+	).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID) })
+
+	created, err := r.Create(ctx, integrationID, KindEnv, ".env.dev", "A=1", userID)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.CreatedBy == nil || *created.CreatedBy != userID {
+		t.Fatalf("createdBy = %v, want %s", created.CreatedBy, userID)
+	}
+	if created.CreatedByEmail == nil || *created.CreatedByEmail != "someone@example.com" {
+		t.Errorf("createdByEmail = %v, want the joined address", created.CreatedByEmail)
+	}
+
+	unattributed, err := r.Create(ctx, integrationID, KindEnv, ".env.other", "B=2", "")
+	if err != nil {
+		t.Fatalf("create without an actor: %v", err)
+	}
+	if unattributed.CreatedBy != nil {
+		t.Errorf("createdBy = %v, want nil when no actor is known", unattributed.CreatedBy)
+	}
+
+	// Removing the user must not take their files with them.
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+	got, err := r.Get(ctx, integrationID, created.ID)
+	if err != nil {
+		t.Fatalf("get after the user was removed: %v", err)
+	}
+	if got.CreatedBy != nil {
+		t.Errorf("createdBy = %v, want it nulled by ON DELETE SET NULL", got.CreatedBy)
 	}
 }
