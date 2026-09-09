@@ -46,7 +46,8 @@ export interface BinariesLike {
 /** The state of the app a backend is running — the fields run-host's `RunState` exposes. */
 export interface RunStateLike {
   running: boolean;
-  /** Whether the current run declares HTTP_PORT, i.e. is networked/testable. */
+  /** Whether the current run serves HTTP, i.e. is networked/testable — it binds an
+   * HTTP source, whether or not it declares HTTP_PORT itself. */
   exposable: boolean;
   port: number | null;
   /**

@@ -100,7 +100,8 @@ export interface LogStreamOptions {
  */
 export interface RunState {
   running: boolean;
-  /** Whether the current run declares HTTP_PORT, i.e. is networked/testable. */
+  /** Whether the current run serves HTTP, i.e. is networked/testable — it binds an
+   * HTTP source, whether or not it declares HTTP_PORT itself. */
   exposable: boolean;
   /**
    * The listen port of a local networked run, null otherwise — including for every dev
