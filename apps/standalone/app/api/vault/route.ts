@@ -5,7 +5,7 @@ import { fsRoot } from "../fs/store";
 /**
  * GET /api/vault — which directory is this editor serving?
  *
- *   { "path": "/Users/me/flows", "name": "flows" }
+ *   { "name": "flows" }
  *
  * The store root is a server-side fact (OCTO_FS_DIR, resolved by `fsRoot()`), and
  * until now nothing told the browser what it was. Every deployment of the standalone
@@ -15,8 +15,14 @@ import { fsRoot } from "../fs/store";
  * here rather than in the desktop app's IPC bridge, where it would only serve one of
  * them.
  *
- * The absolute path is not a secret worth withholding: the standalone app is
- * single-user and local-only, and the person reading it is the person who chose it.
+ * The NAME only, never the absolute path. "Local-only" is not quite true of the
+ * Docker image: it binds 0.0.0.0 and publishes its port with no authentication, so
+ * on a shared network the path — which carries the user's account name and their
+ * directory layout — is readable by anyone who can reach the editor. The folder's
+ * name is all this is for, and all that any browser needs to display it.
+ *
+ * The desktop app shows the full path in a tooltip and gets it from its own IPC
+ * bridge (octo:vault:get), where the answer never leaves the machine.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +35,7 @@ export async function GET() {
   // so fall back to the root itself.
   const name = path.basename(root) || path.parse(root).root;
   return NextResponse.json(
-    { path: root, name },
+    { name },
     { headers: { "cache-control": "no-store" } },
   );
 }

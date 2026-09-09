@@ -18,14 +18,21 @@ afterEach(() => {
 });
 
 describe("GET /api/vault", () => {
+  it("never returns the absolute path", async () => {
+    // The Docker image binds 0.0.0.0 with no auth, so anything this returns is
+    // readable by anyone who can reach the editor — and the path carries the
+    // user's account name and directory layout.
+    process.env.OCTO_FS_DIR = "/Users/someone/private/flows";
+    const body = await (await GET()).json();
+    expect(JSON.stringify(body)).not.toContain("/Users/someone");
+    expect(Object.keys(body)).toEqual(["name"]);
+  });
+
   it("reports the configured root and its folder name", async () => {
     process.env.OCTO_FS_DIR = "/tmp/octo-vault-test/orders";
     const res = await GET();
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({
-      path: "/tmp/octo-vault-test/orders",
-      name: "orders",
-    });
+    await expect(res.json()).resolves.toEqual({ name: "orders" });
   });
 
   it("follows a changed root without a restart", async () => {
@@ -38,15 +45,12 @@ describe("GET /api/vault", () => {
   it("still names a filesystem root, which has no basename", async () => {
     // path.basename("/") is "", which would render as a nameless chip.
     process.env.OCTO_FS_DIR = "/";
-    await expect((await GET()).json()).resolves.toEqual({ path: "/", name: "/" });
+    await expect((await GET()).json()).resolves.toEqual({ name: "/" });
   });
 
   it("falls back to the store's default root when unset", async () => {
     delete process.env.OCTO_FS_DIR;
-    const body = (await (await GET()).json()) as { path: string; name: string };
-    // Whatever fsRoot() defaults to, the two fields must agree — the name is the
-    // basename of the path, not a separately-derived answer.
+    const body = (await (await GET()).json()) as { name: string };
     expect(body.name).toBe("flows");
-    expect(body.path.endsWith("/flows")).toBe(true);
   });
 });

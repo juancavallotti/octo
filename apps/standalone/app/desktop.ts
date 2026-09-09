@@ -15,6 +15,11 @@
  */
 
 export interface VaultRef {
+  /**
+   * Absolute path. Only the desktop shell knows this — `/api/vault` serves the
+   * name alone, because the Docker image is unauthenticated on 0.0.0.0 and a path
+   * carries the user's account name and directory layout. Empty in a browser.
+   */
   path: string;
   name: string;
 }

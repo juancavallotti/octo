@@ -15,6 +15,10 @@ import { desktopBridge, type VaultRef } from "../desktop";
  */
 export default function VaultChip() {
   const bridge = desktopBridge();
+  // `name` comes from the server, so every deployment can show it. `path` comes
+  // from the shell, because the route deliberately does not serve it: the Docker
+  // image is unauthenticated on 0.0.0.0, and an absolute path carries the user's
+  // account name and directory layout. In a browser the tooltip is simply absent.
   const [vault, setVault] = useState<VaultRef | null>(null);
   const [recents, setRecents] = useState<VaultRef[]>([]);
   const [copied, setCopied] = useState(false);
@@ -22,11 +26,20 @@ export default function VaultChip() {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/vault")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setVault)
-      .catch(() => {});
-  }, []);
+    let cancelled = false;
+    const load = async () => {
+      const named = await fetch("/api/vault")
+        .then((r) => (r.ok ? (r.json() as Promise<{ name: string }>) : null))
+        .catch(() => null);
+      if (!named || cancelled) return;
+      const full = bridge ? await bridge.vault().catch(() => null) : null;
+      if (!cancelled) setVault({ name: named.name, path: full?.path ?? "" });
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge]);
 
   // Refreshed on open rather than once, so a folder opened via the app menu
   // shows up without a reload.
@@ -65,7 +78,7 @@ export default function VaultChip() {
   if (!bridge) {
     return (
       <span
-        title={vault.path}
+        title={vault.path || undefined}
         className="flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400"
       >
         {label}
@@ -86,7 +99,7 @@ export default function VaultChip() {
     <div ref={ref} className="relative">
       <button
         type="button"
-        title={vault.path}
+        title={vault.path || undefined}
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm text-zinc-600 transition-colors hover:border-black/10 hover:text-zinc-900 dark:text-zinc-300 dark:hover:border-white/15 dark:hover:text-zinc-100"
       >
