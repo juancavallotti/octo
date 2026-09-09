@@ -86,10 +86,27 @@ if [ -z "$P8" ]; then
   exit 0
 fi
 
-printf '\nApp Store Connect Key ID (e.g. ABCD1234EF): '
-read -r KEY_ID
-printf 'App Store Connect Issuer ID (a UUID): '
-read -r ISSUER
+# Apple names the download AuthKey_<KEYID>.p8, so the Key ID is already in hand;
+# ask only when the filename has been changed.
+KEY_ID="$(basename "$P8" .p8)"
+KEY_ID="${KEY_ID#AuthKey_}"
+case "$KEY_ID" in
+  [A-Z0-9][A-Z0-9]*) printf '\nKey ID (from the filename): %s\n' "$KEY_ID" ;;
+  *)
+    printf '\nApp Store Connect Key ID (e.g. ABCD1234EF): '
+    read -r KEY_ID
+    ;;
+esac
+
+# The Issuer ID is shared by every key on the account and is nowhere in the file,
+# so it is the one value that always has to come from outside.
+ISSUER="${APPLE_ISSUER_ID:-}"
+if [ -n "$ISSUER" ]; then
+  printf 'Issuer ID (from APPLE_ISSUER_ID): %s\n' "$ISSUER"
+else
+  printf 'App Store Connect Issuer ID (a UUID): '
+  read -r ISSUER
+fi
 
 [ -n "$KEY_ID" ] || die "the Key ID is required"
 case "$ISSUER" in
