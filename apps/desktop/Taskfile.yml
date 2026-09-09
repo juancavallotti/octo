@@ -110,11 +110,13 @@ tasks:
       - bins
       - build
     cmds:
-      # Unsigned is fine for a local build: electron-builder ad-hoc signs when no
-      # identity is configured, which is what lets the app launch at all on Apple
-      # Silicon. A Developer ID and notarization are what a *downloaded* build
-      # needs, and that is a separate change.
-      - pnpm exec electron-builder --mac --arm64
+      # Ad-hoc signed, deliberately and explicitly. Left to itself electron-builder
+      # auto-discovers an identity from the keychain and will happily pick an
+      # EXPIRED one — it did, silently, until this flag was added. A local build
+      # only needs to launch on this machine, which ad-hoc signing is enough for;
+      # a Developer ID and notarization are what a *downloaded* build needs, and
+      # release.yml turns them on when the secrets exist.
+      - CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac --arm64
 
   dev:
     desc: Build and run Octo Desktop, rebuilding on change (RUN enabled)
