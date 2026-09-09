@@ -217,10 +217,11 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	}
 
 	// The runtime port (and the env the orchestrator supplies to bind it) come from
-	// the deployed definition's HTTP_PORT declaration. Only a definition that
-	// declares one has an HTTP source listening on a port — those are "networked"
-	// and get a Service, a unique internal slug/URL and the option of external
-	// exposure. Anything else (a timer, a scheduled job) runs as a bare workload.
+	// the deployed definition: its HTTP_PORT declaration, or the port the http
+	// connector backing its sources would bind. A definition with an HTTP source is
+	// "networked" and gets a Service, a unique internal slug/URL and the option of
+	// external exposure. Anything else (a timer, a scheduled job) runs as a bare
+	// workload.
 	port, runtimeEnv, networked := resolveRuntimeEnv(definition)
 
 	// Resolve the per-deployment env bindings into the two maps the kube spec needs:

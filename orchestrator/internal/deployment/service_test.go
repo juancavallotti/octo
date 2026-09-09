@@ -636,9 +636,13 @@ func TestUndeploySkipsInternalServiceWhenNoSlug(t *testing.T) {
 	}
 }
 
-// exposableDef declares HTTP_PORT, which is what makes an integration externally
-// exposable; tests that exercise external endpoints use it as the definition.
-const exposableDef = "env:\n  - name: HTTP_PORT\n    default: \"9090\"\n"
+// exposableDef serves an HTTP source on the port the orchestrator injects, which is
+// what makes an integration externally exposable; tests that exercise external
+// endpoints use it as the definition. The declared HTTP_PORT is what the injected
+// value defaults to, and the source is what makes anything read it.
+const exposableDef = "env:\n  - name: HTTP_PORT\n    default: \"9090\"\n" +
+	"connectors:\n  - name: api\n    type: http\n    settings:\n      port: ${HTTP_PORT}\n" +
+	"flows:\n  - name: api\n    source:\n      connector: api\n      type: http\n"
 
 func TestDeployExternalThreadsIngress(t *testing.T) {
 	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
