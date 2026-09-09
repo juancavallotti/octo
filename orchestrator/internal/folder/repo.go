@@ -197,6 +197,13 @@ func (r *Repo) ListIntegrations(ctx context.Context, folderID string) ([]integra
 	// column, so this listing derives it the same way the integration repo does.
 	// It is a second place that has to know, which is the cost of this query
 	// existing separately from that one.
+	//
+	// It is also derived for nobody: both callers read only the ids (folder
+	// membership and ordering, and findIntegrationFolderId's search). The
+	// definition stays in the response because it is part of the response, and
+	// dropping a field is a change to the API rather than to storage. Worth
+	// revisiting — findIntegrationFolderId runs one of these per folder on every
+	// editor load — but not in a commit meant to move bytes and nothing else.
 	rows, err := r.pool.Query(ctx,
 		`SELECT i.id, i.name, i.last_updated,
 			(SELECT coalesce(array_agg(f.path ORDER BY f.path), '{}')
