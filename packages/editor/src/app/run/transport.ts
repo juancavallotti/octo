@@ -159,8 +159,9 @@ export interface RunStatusSnapshot {
   /** dolphin's `version` line, or null when unknown/unavailable. */
   testVersion: string | null;
   /**
-   * Whether this run will ever have a {@link testUrl} — i.e. it binds an HTTP source and
-   * so is networked. Distinct from `testUrl !== null`: a backend can know a run is exposable
+   * Whether this run will ever have a {@link testUrl} — i.e. it serves HTTP at the address
+   * the backend injects, and so is networked. An HTTP source whose connector pins its own
+   * port or host is not reachable and does not count. Distinct from `testUrl !== null`: a backend can know a run is exposable
    * before it can hand out the URL, which is exactly what a dev-run pod does — its public
    * endpoint is withheld until the pod is ready, so a networked run reports `exposable:true`
    * with `testUrl:null` for the seconds its image is still pulling. The provider reads it to
