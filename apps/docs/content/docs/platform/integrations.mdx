@@ -23,8 +23,8 @@ Files are stored one row each, and what a file *is* follows from its path, exact
 
 | Path | Role |
 | --- | --- |
-| a root-level `*.yaml` / `*.yml` | a flow file, merged into the definition |
-| a root-level `*_test.yaml` | a [dolphin](/testing/dolphin) suite |
+| a root-level `*_test.yaml` / `*_test.yml` | a [dolphin](/testing/dolphin) suite |
+| any other root-level `*.yaml` / `*.yml` | a flow file, merged into the definition |
 | anything else — nested paths, dotfiles | a [resource](/platform/resources-and-secrets) |
 
 A whole-definition write to an integration that has more than one flow file is rejected, because there is no way to say which file it replaces. Today only a bundle import can produce one.

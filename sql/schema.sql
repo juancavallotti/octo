@@ -315,7 +315,9 @@ INSERT INTO site_settings (key, value)
 VALUES ('db_version', jsonb_build_object('version', 1, 'updated', CURRENT_DATE::text))
 ON CONFLICT (key) DO UPDATE
 SET value = jsonb_build_object('version', 1, 'updated', CURRENT_DATE::text)
-WHERE (site_settings.value->>'version')::int < 1;
+-- COALESCE because ->> yields NULL for a row that has no version key at all, and
+-- a NULL comparison would silently skip the bump and leave that row unrepaired.
+WHERE COALESCE((site_settings.value->>'version')::int, 0) < 1;
 
 -- users records each authenticated principal. Identity comes from the OIDC
 -- provider; on first sign-in the platform bootstraps a row keyed by the stable
