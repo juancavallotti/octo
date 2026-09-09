@@ -560,6 +560,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Packaging needs the real Electron binary, unlike every other job.
           ELECTRON_SKIP_BINARY_DOWNLOAD: 0
+          # Not a secret: an Apple Team ID is a public identifier, embedded in the
+          # code signature of every app the team has ever shipped. It is here
+          # because this account has certificates from three teams, so "sign with
+          # whatever is in the keychain" is ambiguous — and an app signed by the
+          # wrong team notarizes and then fails to update, which is a slow way to
+          # find out.
+          APPLE_TEAM_ID: WTWBLR82TY
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
