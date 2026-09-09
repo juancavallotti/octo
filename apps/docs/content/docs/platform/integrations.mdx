@@ -17,7 +17,7 @@ Each integration row carries four things.
 
 `name` is required, at most 200 characters, and **unique case-insensitively across the platform**. Renaming to a taken name is rejected with a conflict error. The name also seeds the deployment slug used for internal URLs and default subdomains.
 
-`definition` is the raw integration YAML, exactly as the editor (or an MCP client) saved it. It is not a stored field: it is the integration's flow files merged, on the same terms the runtime merges a directory — flow, connector and processor names must be unique across them, and `service:` may be declared in only one. An integration with a single flow file, which is how every integration starts, gets that file back byte for byte.
+`definition` is the integration's runtime YAML as the API reports it. It is not a stored field: it is the integration's flow files merged, on the same terms the runtime merges a directory — flow, connector and processor names must be unique across them, and `service:` may be declared in only one. An integration with a single flow file — which is how every integration starts, and what the editor's load-and-save round trip assumes — gets that file back byte for byte. Once an integration has several, reads still return the merge, but a whole-definition write is rejected as ambiguous (below).
 
 Files are stored one row each, and what a file *is* follows from its path, exactly as it does when `--config` points at a folder:
 
