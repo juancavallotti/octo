@@ -36,7 +36,7 @@ export interface Session {
    * runtime serves probes whether or not the integration has an HTTP source.
    */
   adminPort: number | null;
-  /** Whether the current run declares HTTP_PORT (set on start). */
+  /** Whether the current run serves HTTP and so got a port (set on start). */
   exposable: boolean;
   /** Absolute paths of resource files staged for the current run, removed on stop. */
   stagedResources: string[];

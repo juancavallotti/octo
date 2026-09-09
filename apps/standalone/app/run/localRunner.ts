@@ -103,10 +103,11 @@ async function startImpl(
   const exposable = isExposable(yaml);
   let adminPort: number;
   try {
-    // A networked integration (one that declares HTTP_PORT) gets a real port from
-    // the pool, injected as HTTP_PORT so the BFF can proxy to it. HTTP_HOST is the
-    // loopback because only the same-pod proxy needs to reach it. Internal-only runs
-    // (no HTTP_PORT) get no port and stay unexposed.
+    // A networked integration (one that serves an HTTP source) gets a real port from
+    // the pool, injected as HTTP_PORT so the BFF can proxy to it — which works whether
+    // the document declares HTTP_PORT or leaves the connector to read it. HTTP_HOST is
+    // the loopback because only the same-pod proxy needs to reach it. Internal-only
+    // runs get no port and stay unexposed.
     s.exposable = exposable;
     s.port = exposable ? allocatePort() : null;
 
