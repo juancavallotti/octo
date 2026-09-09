@@ -182,11 +182,12 @@ export function createResource(
   kind: string,
   name: string,
   content: string,
+  actorId?: string,
 ): Promise<ActionResult<Resource>> {
   return call<Resource>(
     "POST",
     `/integrations/${enc(integrationId)}/resources`,
-    { kind, name, content },
+    { kind, name, content, actorId },
   );
 }
 
@@ -206,11 +207,12 @@ export function updateResource(
   kind: string,
   name: string,
   content: string,
+  actorId?: string,
 ): Promise<ActionResult<Resource>> {
   return call<Resource>(
     "PUT",
     `/integrations/${enc(integrationId)}/resources/${enc(id)}`,
-    { kind, name, content },
+    { kind, name, content, actorId },
   );
 }
 
@@ -226,11 +228,12 @@ export async function upsertResourceByName(
   kind: string,
   name: string,
   content: string,
+  actorId?: string,
 ): Promise<ActionResult<Resource>> {
   const existing = await listResources(integrationId);
   if (!existing.ok) return existing;
   const match = existing.data.find((r) => r.name === name);
   return match
-    ? updateResource(integrationId, match.id, kind, name, content)
-    : createResource(integrationId, kind, name, content);
+    ? updateResource(integrationId, match.id, kind, name, content, actorId)
+    : createResource(integrationId, kind, name, content, actorId);
 }

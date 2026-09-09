@@ -25,8 +25,11 @@ export async function createResource(
   name: string,
   content: string,
 ): Promise<ActionResult<Resource>> {
-  return withWrite(() =>
-    client.createResource(integrationId, kind, name, content),
+  // Attribute the write to the acting user, the same way the integration
+  // actions do (undefined for the local no-SSO session, which has no id — the
+  // orchestrator then records no author).
+  return withWrite((session) =>
+    client.createResource(integrationId, kind, name, content, session.user.id),
   );
 }
 
@@ -44,8 +47,15 @@ export async function updateResource(
   name: string,
   content: string,
 ): Promise<ActionResult<Resource>> {
-  return withWrite(() =>
-    client.updateResource(integrationId, id, kind, name, content),
+  return withWrite((session) =>
+    client.updateResource(
+      integrationId,
+      id,
+      kind,
+      name,
+      content,
+      session.user.id,
+    ),
   );
 }
 
@@ -56,7 +66,13 @@ export async function upsertResource(
   name: string,
   content: string,
 ): Promise<ActionResult<Resource>> {
-  return withWrite(() =>
-    client.upsertResourceByName(integrationId, kind, name, content),
+  return withWrite((session) =>
+    client.upsertResourceByName(
+      integrationId,
+      kind,
+      name,
+      content,
+      session.user.id,
+    ),
   );
 }

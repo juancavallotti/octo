@@ -65,6 +65,16 @@ export interface Resource {
   /** RFC3339 timestamps. */
   createdAt: string;
   lastUpdated: string;
+  /**
+   * Who wrote the file and who last changed it, resolved for display. Absent
+   * when the write had no known actor — the MCP path, or local dev without SSO.
+   */
+  createdBy?: string;
+  updatedBy?: string;
+  createdByEmail?: string;
+  createdByName?: string;
+  updatedByEmail?: string;
+  updatedByName?: string;
 }
 
 /** An authenticated principal, provisioned from the OIDC identity on first sign-in. */
