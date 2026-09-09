@@ -130,6 +130,15 @@ export function resolveIcon(name: string): LucideIcon {
   return ICONS[name] ?? Box;
 }
 
+/**
+ * Every icon name resolveIcon knows, sorted, for a picker to offer. The registry
+ * itself stays private — callers should ask for a name and get a component back,
+ * not reach into the map.
+ */
+export function listIcons(): string[] {
+  return Object.keys(ICONS).sort();
+}
+
 export function listBlocks(): BlockSpec[] {
   return active.blocks;
 }
