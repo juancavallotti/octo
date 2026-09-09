@@ -11,7 +11,7 @@ On the platform, an integration is a named project stored in Postgres: a display
 
 ## The integration record
 
-Each integration row carries four things.
+Each integration row carries a handful of things.
 
 `id` is a UUID, the durable handle everything else (folders, snapshots, resources, deployments) references.
 
@@ -28,6 +28,10 @@ Files are stored one row each, and what a file *is* follows from its path, exact
 | anything else — nested paths, dotfiles | a [resource](/platform/resources-and-secrets) |
 
 A whole-definition write to an integration that has more than one flow file is rejected, because there is no way to say which file it replaces. Today only a bundle import can produce one.
+
+`icon` is an intentionally chosen icon, by name. It is empty by default, and empty means the list derives one from the definition's trigger types — a Slack connector shows Slack, a cron source shows a clock. Choose one from the icon button beside the integration's name; picking **Suggested** clears the choice and hands the icon back to the derivation, so an integration whose trigger changes later follows it again.
+
+It has its own endpoint, `PUT /integrations/{id}/icon`, rather than being a field on the integration payload: every other write sends a whole integration, and a field there would have an unrelated save clear the choice.
 
 Attribution is `createdBy`/`updatedBy`, recording which user authored and last edited the integration, resolved to email/name for display. Both are optional: a write through a path with no known actor leaves them unset, and deleting a user leaves their integrations in place (attribution is nulled, never cascaded). Every file carries the same pair, so "who changed this" can be answered per file and not only per integration.
 
