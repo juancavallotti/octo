@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -33,14 +34,21 @@ func NewService(repo repository) *Service {
 	return &Service{repo: repo}
 }
 
-// SignIn provisions or refreshes the user identified by subject and returns them
-// with their granted roles. It is what the token exchange calls once it has
-// verified an identity provider's token: subject and email are required (a
-// principal we cannot identify is rejected), name is best-effort.
+// SignIn refreshes the user identified by subject and returns them with their
+// granted roles. It is what the token exchange calls once it has verified an
+// identity provider's token: subject and email are required (a principal we
+// cannot identify is rejected), name is best-effort.
 //
-// The first user ever to sign in is made an admin here — see
-// Repo.EnsureFirstAdmin for why that is the only moment it can happen, and why
-// it cannot happen twice.
+// **Only the first user is provisioned here.** Everybody after them has to
+// already have an account, which an administrator creates — this platform is an
+// allowlist, and being able to authenticate at the identity provider is not by
+// itself permission to be here. That distinction is the point: the provider says
+// who somebody is, and this platform says who may come in, and an installation
+// whose provider admits an entire company should not admit an entire company.
+//
+// The exception is the first ever sign-in, because there is nobody to have
+// created that account. See Repo.EnsureFirstAdmin for why that moment is
+// identifiable and why it cannot happen twice.
 func (s *Service) SignIn(ctx context.Context, subject, email, name string) (User, error) {
 	subject = strings.TrimSpace(subject)
 	email = strings.TrimSpace(email)
@@ -49,6 +57,10 @@ func (s *Service) SignIn(ctx context.Context, subject, email, name string) (User
 	}
 	if email == "" {
 		return User{}, fmt.Errorf("%w: email is required", ErrInvalid)
+	}
+
+	if err := s.admissible(ctx, subject); err != nil {
+		return User{}, err
 	}
 
 	u, created, err := s.repo.Upsert(ctx, subject, email, strings.TrimSpace(name))
@@ -63,6 +75,36 @@ func (s *Service) SignIn(ctx context.Context, subject, email, name string) (User
 	// point of the read, and a grant made by EnsureFirstAdmin has to be in the
 	// token minted from this.
 	return s.repo.Get(ctx, u.ID)
+}
+
+// admissible reports whether somebody with no account yet may be given one.
+//
+// Only on an installation that has no administrator, which is the one situation
+// where nobody could have created it for them. In practice that means a database
+// that has just been stood up.
+//
+// Two people racing to be first on a fresh install can both be let in, because
+// this reads before the write rather than under the same lock. Only one of them
+// becomes the administrator — EnsureFirstAdmin settles that under an advisory
+// lock — and the other ends up with an account holding nothing, which the
+// administrator can see in the list and remove. Worth a sentence rather than a
+// second lock: it needs two people to sign in to a brand-new installation in the
+// same instant, and its outcome is one visible, deletable row.
+func (s *Service) admissible(ctx context.Context, subject string) error {
+	if _, err := s.repo.GetBySubject(ctx, subject); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+
+	admins, err := s.repo.CountWithRole(ctx, RoleAdmin)
+	if err != nil {
+		return err
+	}
+	if admins > 0 {
+		return ErrNotProvisioned
+	}
+	return nil
 }
 
 // Get returns the user by id, with roles.

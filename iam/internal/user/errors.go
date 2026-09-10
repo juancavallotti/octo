@@ -15,4 +15,10 @@ var (
 	// well-formed and the answer is "that person is already here", which is a
 	// different thing to tell somebody.
 	ErrConflict = errors.New("that subject already has an account")
+	// ErrNotProvisioned is returned when somebody the identity provider vouches
+	// for has no account here. Distinct from ErrNotFound, which is a caller naming
+	// a user that does not exist: this is a real person, correctly authenticated,
+	// who has simply not been let in — and the two want different words said to
+	// them.
+	ErrNotProvisioned = errors.New("this account has not been provisioned on this platform")
 )

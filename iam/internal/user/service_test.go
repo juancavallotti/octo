@@ -233,6 +233,11 @@ func TestSignInMakesTheFirstUserAnAdmin(t *testing.T) {
 		t.Errorf("first user roles = %v, want to include %q", first.Roles, RoleAdmin)
 	}
 
+	// Provisioned first: after the first user, this platform is an allowlist and
+	// signing in is not by itself a way to get an account.
+	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+		t.Fatalf("Create(second): %v", err)
+	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
 	if err != nil {
 		t.Fatalf("SignIn(second): %v", err)
@@ -379,6 +384,11 @@ func TestRevokeRefusesToRemoveTheLastAdmin(t *testing.T) {
 	}
 
 	// With a second admin in place the same revocation is allowed.
+	// Provisioned first: after the first user, this platform is an allowlist and
+	// signing in is not by itself a way to get an account.
+	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+		t.Fatalf("Create(second): %v", err)
+	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
 	if err != nil {
 		t.Fatalf("SignIn(second): %v", err)
@@ -592,5 +602,77 @@ func TestDeleteAllowsRemovingTheLastNonAdmin(t *testing.T) {
 	}
 	if err := svc.Delete(ctx, other.ID); err != nil {
 		t.Errorf("Delete() of a non-admin: %v", err)
+	}
+}
+
+// The allowlist. Being able to authenticate at the identity provider is not by
+// itself permission to be here — an installation whose provider admits a whole
+// company should not admit a whole company.
+func TestSignInRefusesSomebodyWithNoAccount(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	// The first sign-in is the exception: nobody could have created that account.
+	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
+		t.Fatalf("SignIn(first): %v", err)
+	}
+
+	_, err := svc.SignIn(ctx, "sub-2", "stranger@example.com", "Stranger")
+	if !errors.Is(err, ErrNotProvisioned) {
+		t.Errorf("SignIn() of an unprovisioned caller error = %v, want ErrNotProvisioned", err)
+	}
+}
+
+func TestSignInAdmitsSomebodyAnAdministratorCreated(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
+		t.Fatalf("SignIn(first): %v", err)
+	}
+	created, err := svc.Create(ctx, "sub-2", "invited@example.com", "Invited")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	u, err := svc.SignIn(ctx, "sub-2", "invited@example.com", "Invited Person")
+	if err != nil {
+		t.Fatalf("SignIn(provisioned): %v", err)
+	}
+	if u.ID != created.ID {
+		t.Errorf("sign-in produced user %q, want the created %q", u.ID, created.ID)
+	}
+	// The provider is authoritative for the profile, so a sign-in refreshes it.
+	if u.Name != "Invited Person" {
+		t.Errorf("name = %q, want the provider's", u.Name)
+	}
+}
+
+// The bootstrap exception is keyed on there being no administrator, not on the
+// table being empty: an installation whose only user has been stripped of admin
+// is still one nobody can administer.
+func TestSignInBootstrapsWhileNobodyIsAnAdministrator(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	first, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn(first): %v", err)
+	}
+	if !first.HasRole(RoleAdmin) {
+		t.Fatalf("the first user is not an admin: %v", first.Roles)
+	}
+
+	// Strip the grant behind the service's back, standing in for a database that
+	// has lost its administrators somehow.
+	repo.users[first.ID].Roles = nil
+
+	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
+	if err != nil {
+		t.Fatalf("SignIn(second) with no admin present: %v", err)
+	}
+	if !second.HasRole(RoleAdmin) {
+		t.Errorf("second user roles = %v, want the bootstrap to have made them an admin", second.Roles)
 	}
 }

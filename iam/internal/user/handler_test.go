@@ -116,6 +116,11 @@ func TestRolesSerializeAsAnEmptyArrayNotNull(t *testing.T) {
 	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
 		t.Fatalf("SignIn(first): %v", err)
 	}
+	// Provisioned first: after the first user, this platform is an allowlist and
+	// signing in is not by itself a way to get an account.
+	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+		t.Fatalf("Create(second): %v", err)
+	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
 	if err != nil {
 		t.Fatalf("SignIn(second): %v", err)
@@ -136,6 +141,11 @@ func TestGrantAndRevokeReturnTheUpdatedUser(t *testing.T) {
 	ctx := context.Background()
 	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
 		t.Fatalf("SignIn(first): %v", err)
+	}
+	// Provisioned first: after the first user, this platform is an allowlist and
+	// signing in is not by itself a way to get an account.
+	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
 	if err != nil {

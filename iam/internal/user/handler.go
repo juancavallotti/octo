@@ -310,6 +310,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "user not found")
+	case errors.Is(err, ErrNotProvisioned):
+		httpx.WriteError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ErrConflict):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
 	default:

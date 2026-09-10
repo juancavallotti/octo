@@ -155,6 +155,13 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrProviderUnreachable):
 		slog.Error("auth exchange could not reach the identity provider", "error", err)
 		httpx.WriteError(w, http.StatusServiceUnavailable, "the identity provider is unreachable")
+	case errors.Is(err, user.ErrNotProvisioned):
+		// 403 and not 401: they authenticated perfectly well. Re-authenticating
+		// would change nothing, and telling them to try again would be a lie. What
+		// has to happen is that somebody gives them an account.
+		slog.Info("a verified caller has no account on this platform", "error", err)
+		httpx.WriteError(w, http.StatusForbidden,
+			"this account has not been provisioned on this platform; ask an administrator to add you")
 	case errors.Is(err, user.ErrInvalid):
 		// The provider verified a token describing a principal we cannot store —
 		// no subject, or no email. The caller cannot fix it and neither can we, so

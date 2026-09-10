@@ -159,8 +159,12 @@ func TestASubsequentExchangeCarriesNewlyGrantedRoles(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
-	// The first user takes the admin role, so the second starts with none.
+	// The first user takes the admin role, so the second starts with none — and
+	// has to be let in first, since after that this platform is an allowlist.
 	h.post(t, "Bearer "+h.idp.idToken(t, tokenOptions{subject: "admin", email: "admin@example.com"}))
+	if _, err := h.users.Create(ctx, "provider|second", "second@example.com", ""); err != nil {
+		t.Fatalf("Create(second): %v", err)
+	}
 
 	rec := h.post(t, "Bearer "+h.idp.idToken(t, tokenOptions{
 		subject: "provider|second", email: "second@example.com",
@@ -364,7 +368,12 @@ func TestRefreshPicksUpARoleChange(t *testing.T) {
 	first := h.signIn(t, "provider|abc123", "first@example.com")
 
 	// The first user to sign in is made an admin, so this revokes something that
-	// is really there. A second admin first, or the last-admin rule refuses.
+	// is really there. A second admin first, or the last-admin rule refuses — and
+	// after the first user this platform is an allowlist, so they have to be
+	// provisioned before they can sign in at all.
+	if _, err := h.users.Create(context.Background(), "provider|second", "second@example.com", ""); err != nil {
+		t.Fatalf("Create(second): %v", err)
+	}
 	second := h.signIn(t, "provider|second", "second@example.com")
 	if err := h.users.Grant(context.Background(), second.User.ID, user.RoleAdmin, nil); err != nil {
 		t.Fatalf("Grant: %v", err)
