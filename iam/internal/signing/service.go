@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -72,6 +73,13 @@ type Service struct {
 // what a verifier matches against the discovery document it fetched, so an empty
 // one is a token that fails at the far end for a reason nothing here would report.
 func NewService(repo repository, cfg Config) (*Service, error) {
+	// A trailing slash is trimmed rather than accepted, because the issuer is used
+	// three ways that have to agree byte for byte: it is the `iss` claim, it is
+	// what the discovery document reports, and it is the base jwks_uri is built
+	// on. "https://iam.example/" would advertise a doubled slash in the URI and
+	// stamp the slash into every token, and a verifier comparing `iss` against its
+	// own configured issuer would reject them for a reason nothing names.
+	cfg.Issuer = strings.TrimRight(strings.TrimSpace(cfg.Issuer), "/")
 	if cfg.Issuer == "" {
 		return nil, fmt.Errorf("%w: an issuer is required", ErrInvalidConfig)
 	}

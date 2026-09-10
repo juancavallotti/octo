@@ -26,6 +26,23 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # A throwaway Postgres for the repository-layer tests that would otherwise
+    # skip. Only `iam` uses it today, and deliberately so — see the note beside
+    # its test step. pgvector's image rather than stock postgres because
+    # sql/schema.sql creates the vector extension, and applying the real schema
+    # is half of what makes these tests worth running.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: octo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -92,13 +109,26 @@ jobs:
       # rotates its signing key from whichever request first notices it is due — so in
       # each the bug worth catching is the one that passes without it.
       #
-      # NOTE: the repo-layer tests in `observability` and `iam` skip unless
-      # TEST_DATABASE_URL is set, and nothing sets it here — so the keyset-paging tests
-      # and every iam repository test do not run in CI. Tracked separately; do not read
-      # a green run as covering them.
+      # NOTE: the repo-layer tests in `orchestrator` and `observability` skip unless
+      # TEST_DATABASE_URL is set, and nothing sets it for them — so e.g. the
+      # keyset-paging tests do not run here. Tracked separately; do not read a green
+      # run as covering them.
       - run: task orchestrator:test -- -race
       - run: task observability:test -- -race
-      - run: task iam:test -- -race
+      # `iam` is the exception, and it is one on purpose rather than by favouritism:
+      # its two load-bearing invariants — that only the first user ever to sign in
+      # becomes an admin, and that racing replicas install one signing key rather
+      # than one each — are enforced by an upsert's `xmax` and by Postgres advisory
+      # locks. Neither exists in a fake, so a green run without a database would say
+      # nothing at all about the two things most worth knowing.
+      - name: Apply the schema to the throwaway Postgres
+        env:
+          PGPASSWORD: octo
+        run: psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -q -f sql/schema.sql
+      - name: Run the iam tests against a real database
+        env:
+          TEST_DATABASE_URL: postgres://postgres:octo@127.0.0.1:5432/postgres
+        run: task iam:test -- -race
       - run: task sidecars:tidy
       - run: task sidecars:fmt
       # tidy and fmt can repair sidecars/go.* and Go sources and still exit 0, so a

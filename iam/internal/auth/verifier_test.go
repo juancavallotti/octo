@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -114,7 +115,7 @@ func TestVerifyRetriesDiscoveryAfterAFailure(t *testing.T) {
 	if _, err := v.Verify(context.Background(), "irrelevant"); !errors.Is(err, ErrProviderUnreachable) {
 		t.Fatalf("Verify() error = %v, want ErrProviderUnreachable", err)
 	}
-	if v.verifier != nil {
+	if v.cached() != nil {
 		t.Fatal("a failed discovery was cached")
 	}
 
@@ -138,7 +139,48 @@ func TestVerifyDiscoversOnce(t *testing.T) {
 			t.Fatalf("Verify: %v", err)
 		}
 	}
-	if v.verifier == nil {
+	if v.cached() == nil {
 		t.Error("the resolved verifier was not retained")
+	}
+	if got := idp.discoveryCount(); got != 1 {
+		t.Errorf("the provider was asked for its configuration %d times, want 1", got)
+	}
+}
+
+// Discovery happens outside the mutex, so concurrent callers cannot queue behind
+// one another. Several may discover at once before the first result is stored —
+// that is the accepted cost — but once one has, every later caller must reuse it
+// rather than asking again.
+func TestConcurrentVerifiesSettleOnOneVerifier(t *testing.T) {
+	idp := newFakeIDP(t)
+	v := NewVerifier(idp.Issuer(), idp.clientID)
+	ctx := context.Background()
+
+	// Warm it, so the count below measures only what the concurrent callers add.
+	if _, err := v.Verify(ctx, idp.idToken(t, tokenOptions{subject: "s", email: "a@example.com"})); err != nil {
+		t.Fatalf("Verify(warm): %v", err)
+	}
+	warm := idp.discoveryCount()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for range 8 {
+		token := idp.idToken(t, tokenOptions{subject: "s", email: "a@example.com"})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := v.Verify(ctx, token); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent Verify: %v", err)
+	}
+
+	if got := idp.discoveryCount(); got != warm {
+		t.Errorf("a warm verifier discovered %d more times, want 0", got-warm)
 	}
 }

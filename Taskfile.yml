@@ -72,7 +72,7 @@ env:
 # the target of a deploy/purge/dev command.
 vars:
   KCTX: k3d-octo
-  # The eleven images the orchestrator and the chart expect to find already in the
+  # The twelve images the orchestrator and the chart expect to find already in the
   # node's containerd. Declared once because three tasks need the same list, and a
   # list that drifts between them is how a cluster ends up holding a subset of it.
   # Nothing pulls these: they exist only in the local docker daemon, so an image
