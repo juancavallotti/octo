@@ -1,5 +1,6 @@
 import { probeSchema } from "@octo/run-host";
 import type { Capabilities } from "@octo/editor";
+import { MCP_RESOURCE } from "@/app/mcp/oauth-config";
 import PlatformEditor from "@/app/components/PlatformEditor";
 import UserMenu from "@/app/components/UserMenu";
 
@@ -24,6 +25,7 @@ export default async function IntegrationEditorPage({
       integrationId={id}
       userMenu={<UserMenu />}
       capabilities={capabilities}
+      mcpUrl={MCP_RESOURCE || undefined}
     />
   );
 }

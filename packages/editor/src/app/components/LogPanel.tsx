@@ -4,8 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
-import { useConsole, type ConsoleTab } from "../run/console";
+import {
+  useConsole,
+  useConsoleCollapsed,
+  type ConsoleTab,
+} from "../run/console";
 import { useSuiteRun } from "../run/SuiteRunContext";
+import CelTester from "../cel/CelTester";
+import { useCelTester } from "../cel/CelTesterStore";
 import DevEnvPanel from "./DevEnvPanel";
 import ConsoleTabs from "./console/ConsoleTabs";
 import LogsTab from "./console/LogsTab";
@@ -25,6 +31,7 @@ const CLEAR_LABEL: Partial<Record<ConsoleTab, string>> = {
   logs: "Clear logs",
   results: "Clear output",
   tests: "Clear test results",
+  cel: "Clear evaluations",
 };
 
 /** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
@@ -47,7 +54,8 @@ function readStoredHeight(): number {
 const NO_LOGS: RunLogLine[] = [];
 
 /**
- * The docked bottom console: Problems, Logs, Results, and the Dev .env editor. It only
+ * The docked bottom console: Problems, Logs, Results, the CEL tester, and the Dev
+ * .env editor. It only
  * renders when a runner is available. Height is adjustable by dragging the top divider,
  * and the panel collapses to its header.
  *
@@ -55,10 +63,17 @@ const NO_LOGS: RunLogLine[] = [];
  * run needs to be able to open the panel on the tab that answers what the user just
  * asked — see FlowRunContext.
  */
-export default function LogPanel() {
+export default function LogPanel({
+  /** Host-owned controls, shown at the right of the header before Clear. */
+  actions,
+}: {
+  actions?: React.ReactNode;
+}) {
   const run = useRun();
   const flowRun = useFlowRun();
-  const { tab, setTab, override, setOverride, openTo } = useConsole();
+  const { tab, setTab, setOverride, openTo } = useConsole();
+  // Shared with the header's layout toggles, which flip the same panel.
+  const { collapsed } = useConsoleCollapsed();
   const [height, setHeight] = useState(readStoredHeight);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,14 +88,12 @@ export default function LogPanel() {
   const logs = run?.logs ?? NO_LOGS;
   const results = flowRun?.results ?? [];
   const suiteRun = useSuiteRun();
+  const cel = useCelTester();
   // The badge counts what went WRONG, so a green run is quiet and a bad one is not.
   const testFailures = suiteRun?.outcome
     ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
     : 0;
   const issues = run?.validation.issues ?? [];
-  // Collapsed by default, following the run state, until the user overrides it.
-  const collapsed = override ?? !running;
-
   // Pressing Run should surface the log stream. Snap on the false→true transition only,
   // so the user can switch away freely while a run continues.
   const prevRunning = useRef(running);
@@ -191,7 +204,10 @@ export default function LogPanel() {
                 navigator.clipboard.writeText(testUrl).then(() => {
                   setCopied(true);
                   if (copiedTimer.current) clearTimeout(copiedTimer.current);
-                  copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+                  copiedTimer.current = setTimeout(
+                    () => setCopied(false),
+                    1500,
+                  );
                 });
               }}
               aria-label="Copy test URL"
@@ -207,13 +223,26 @@ export default function LogPanel() {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {(tab === "logs" || tab === "results" || tab === "tests") && (
+          {/* The header collapses the panel when clicked, which is not what a host
+              means by handing us a control. Contained here rather than in each
+              action, because the trap belongs to this header, not to them. */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {actions}
+          </div>
+          {(tab === "logs" ||
+            tab === "results" ||
+            tab === "tests" ||
+            tab === "cel") && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 if (tab === "logs") clearLogs();
                 else if (tab === "tests") suiteRun?.clear();
+                else if (tab === "cel") cel.clear();
                 else flowRun?.clear();
               }}
               aria-label={CLEAR_LABEL[tab] ?? "Clear"}
@@ -245,9 +274,12 @@ export default function LogPanel() {
       {!collapsed && tab === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && <LogsTab logs={logs} running={running} />}
+      {!collapsed && tab === "logs" && (
+        <LogsTab logs={logs} running={running} />
+      )}
       {!collapsed && tab === "results" && <ResultsTab results={results} />}
       {!collapsed && tab === "tests" && <TestsTab />}
+      {!collapsed && tab === "cel" && <CelTester />}
       {!collapsed && tab === "env" && <DevEnvPanel />}
     </section>
   );

@@ -26,6 +26,8 @@ import {
   type TestSuiteStore,
 } from "../providers/TestSuiteProvider";
 import { CanvasZoomProvider } from "../canvas/ZoomContext";
+import { LayoutProvider } from "../state/layout";
+import { CelTesterProvider } from "../cel/CelTesterStore";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -41,14 +43,18 @@ import EditorBody from "./EditorBody";
  * app, or a read-only preview.
  *
  * The top bar is the app-owned `header` slot (it composes the controls — Save,
- * folders, RUN, account menu — that make sense for that host). `loader` is an
- * extra in-provider slot used by a preview route to inject its own sample loader.
+ * folders, RUN, account menu — that make sense for that host), and under it the
+ * document bar (inside the body, between the drawers) carries the open file's own
+ * controls plus the app-owned `files` switcher. `loader` is an extra in-provider slot used by a preview route to
+ * inject its own sample loader.
  */
 export default function EditorRoot({
   integrationId,
   reloadToken,
   loader,
   header,
+  files,
+  consoleActions,
   fs,
   run,
   devEnv,
@@ -69,6 +75,18 @@ export default function EditorRoot({
   loader?: React.ReactNode;
   /** App-owned top bar; composes editor controls (e.g. via PlatformEditor). */
   header?: React.ReactNode;
+  /**
+   * App-owned file switcher, shown at the right of the document bar. Hosts that
+   * browse their files elsewhere (the platform's integration list) pass nothing
+   * and that side of the bar stays empty.
+   */
+  files?: React.ReactNode;
+  /**
+   * App-owned controls for the console header (e.g. the MCP endpoint copy button).
+   * The editor cannot know a host's MCP URL — it is configured, proxied, or the
+   * shell's — so the host hands over the control, not the value.
+   */
+  consoleActions?: React.ReactNode;
   /** Load/save capability; omit for a read-only editor (no Save / loader). */
   fs?: FileSystemCapability | null;
   /** Run capability; omit to hide the RUN control and log panel. */
@@ -112,8 +130,8 @@ export default function EditorRoot({
 
         {/* Body: the canvas or YAML preview (per view mode) above the logs */}
         <div className="flex flex-1 min-h-0 flex-col">
-          <EditorBody />
-          <LogPanel />
+          <EditorBody files={files} />
+          <LogPanel actions={consoleActions} />
         </div>
       </div>
     </>
@@ -174,7 +192,15 @@ export default function EditorRoot({
             big to read at 100%. The drag overlay and the draggable nodes read it
             too, and both sit outside the canvas. */}
         <CanvasZoomProvider>
-          <ConsoleProvider>{tree}</ConsoleProvider>
+          {/* Above the console provider: the header's layout toggles read both, and
+              which panels are showing outlives any one run. */}
+          <LayoutProvider>
+            {/* The CEL tab's scratchpad outlives the tab, so it is mounted with the
+                console rather than inside it. */}
+            <ConsoleProvider>
+              <CelTesterProvider>{tree}</CelTesterProvider>
+            </ConsoleProvider>
+          </LayoutProvider>
         </CanvasZoomProvider>
       </EditorMetaProvider>
     </EditorStateProvider>

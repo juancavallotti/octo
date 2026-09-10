@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EditorRoot, setCapabilities, type Capabilities } from "@octo/editor";
+import {
+  CopyMcpUrlButton,
+  DocumentRename,
+  EditorRoot,
+  setCapabilities,
+  type Capabilities,
+} from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
@@ -11,6 +17,7 @@ import { bffEditorMetaStore } from "@/app/run/editorMetaStore";
 import { bffTestSuiteStore } from "@/app/run/testSuiteStore";
 import { makeResourceStore } from "@/app/run/resourceStore";
 import EditorHeader from "./EditorHeader";
+import IntegrationNameChip from "./IntegrationNameChip";
 
 /**
  * Platform wiring for the shared editor: supplies the orchestrator-backed
@@ -24,10 +31,17 @@ export default function PlatformEditor({
   integrationId,
   userMenu,
   capabilities,
+  mcpUrl,
 }: {
   integrationId?: string;
   userMenu?: React.ReactNode;
   capabilities?: Capabilities | null;
+  /**
+   * The deployment's MCP endpoint (MCP_RESOURCE), for the console's copy button.
+   * Configured rather than derived: this platform can sit behind a proxy on a
+   * different host than the one the browser dialled.
+   */
+  mcpUrl?: string;
 }) {
   // Inject the runtime schema (probed server-side from the octo binary) before
   // the editor's first render and before children read the palette. Synchronous
@@ -36,7 +50,7 @@ export default function PlatformEditor({
 
   const { available } = useOrchestrator();
   // The authoritative integration id: seeded from the route and updated on save
-  // (the first save mints it). TagButton reads it through getIntegrationId so it
+  // (the first save mints it). TagForm reads it through getIntegrationId so it
   // never tags against a stale id captured before the save resolved.
   const idRef = useRef<string | null>(integrationId ?? null);
   /**
@@ -72,6 +86,15 @@ export default function PlatformEditor({
           getIntegrationId={() => idRef.current}
         />
       }
+      files={
+        <DocumentRename
+          placeholder="untitled-integration"
+          label="Rename integration"
+        >
+          <IntegrationNameChip />
+        </DocumentRename>
+      }
+      consoleActions={mcpUrl ? <CopyMcpUrlButton url={mcpUrl} /> : undefined}
       fs={available ? orchestratorFileSystem : null}
       run={bffRunTransport}
       devEnv={available ? bffDevEnvStore : null}

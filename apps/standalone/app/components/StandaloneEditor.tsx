@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EditorRoot, setCapabilities, type Capabilities } from "@octo/editor";
+import {
+  DocumentRename,
+  EditorRoot,
+  setCapabilities,
+  type Capabilities,
+} from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { localRunTransport } from "@/app/run/localRunTransport";
 import { localDevEnvStore } from "@/app/run/devEnvStore";
@@ -9,6 +14,8 @@ import { localDiskResourceStore } from "@/app/run/resourceStore";
 import { localEditorMetaStore } from "@/app/run/editorMetaStore";
 import { localTestSuiteStore } from "@/app/run/testSuiteStore";
 import { localDiskFileSystem } from "@/app/providers/localDiskFileSystem";
+import McpCopyAction from "./McpCopyAction";
+import StandaloneFileMenu from "./StandaloneFileMenu";
 import StandaloneHeader from "./StandaloneHeader";
 
 /**
@@ -71,6 +78,12 @@ export default function StandaloneEditor({
       tests={localTestSuiteStore}
       testsToken={testsToken}
       header={<StandaloneHeader />}
+      files={
+        <DocumentRename placeholder="untitled-file" label="Rename file">
+          <StandaloneFileMenu />
+        </DocumentRename>
+      }
+      consoleActions={<McpCopyAction />}
       onSaved={(stored) => {
         // Reflect the open file in the URL so a reload reopens it; the header
         // reads the current id from editor state, so no remount is needed.

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import CelTesterModal from "./CelTesterModal";
+import CelTester from "./CelTester";
+import { CelTesterProvider } from "./CelTesterStore";
 import { RunProvider } from "../run/RunContext";
 import { emptyTotals } from "../run/transport";
 import type { RunTransport } from "../run/transport";
@@ -64,18 +65,20 @@ function stubTransport(overrides?: Partial<RunTransport>): RunTransport {
   };
 }
 
-function renderModal(transport: RunTransport) {
+function renderTester(transport: RunTransport) {
   return render(
     <RunProvider transport={transport}>
-      <CelTesterModal onClose={() => {}} />
+      <CelTesterProvider>
+        <CelTester />
+      </CelTesterProvider>
     </RunProvider>,
   );
 }
 
-describe("CelTesterModal", () => {
+describe("CelTester", () => {
   it("evaluates the expression and shows the result", async () => {
     const evalCel = vi.fn(async () => ({ ok: true, result: 3 }));
-    renderModal(stubTransport({ evalCel }));
+    renderTester(stubTransport({ evalCel }));
 
     const expr = screen.getByPlaceholderText("CEL expression");
     fireEvent.change(expr, { target: { value: "1 + 2", selectionStart: 5 } });
@@ -91,7 +94,7 @@ describe("CelTesterModal", () => {
   });
 
   it("surfaces a CEL evaluation error", async () => {
-    renderModal(
+    renderTester(
       stubTransport({
         evalCel: async () => ({
           ok: false,
@@ -112,7 +115,7 @@ describe("CelTesterModal", () => {
 
   it("rejects invalid body JSON before calling the runner", async () => {
     const evalCel = vi.fn(async () => ({ ok: true, result: null }));
-    renderModal(stubTransport({ evalCel }));
+    renderTester(stubTransport({ evalCel }));
 
     fireEvent.change(screen.getByPlaceholderText("CEL expression"), {
       target: { value: "body", selectionStart: 4 },

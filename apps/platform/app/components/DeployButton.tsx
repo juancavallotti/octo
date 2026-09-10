@@ -29,7 +29,7 @@ import RolloutModal, {
  *    version, set scale/address/env, then it tags and deploys.
  *
  * Renders nothing without a filesystem capability and is disabled on an empty
- * document, mirroring {@link TagButton}. The authoritative id is read from
+ * document, mirroring {@link TagForm}. The authoritative id is read from
  * `getIntegrationId` (a ref the host updates on save) after saving.
  */
 export default function DeployButton({

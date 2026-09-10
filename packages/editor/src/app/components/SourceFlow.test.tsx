@@ -52,7 +52,9 @@ describe("source flow", () => {
     await addFlowWithSource(/HTTP route/);
 
     // Close the panel, then click the node to reopen its settings.
-    await userEvent.click(screen.getByRole("button", { name: "Close settings" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Close settings" }),
+    );
     expect(screen.queryByLabelText(/Path/)).not.toBeInTheDocument();
 
     await userEvent.click(
@@ -68,7 +70,9 @@ describe("source flow", () => {
       screen.queryByRole("button", { name: "Add source" }),
     ).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Remove source" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove source" }),
+    );
     expect(
       screen.getByRole("button", { name: "Add source" }),
     ).toBeInTheDocument();

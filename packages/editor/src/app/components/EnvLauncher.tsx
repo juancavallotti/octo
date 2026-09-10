@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, Variable, X } from "lucide-react";
 import type { EnvVar } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
 
 /**
- * Floating launcher pinned to the top-left of the canvas, beside the connections
- * launcher. The button opens a popover that edits the document's declared
+ * The environment launcher in the document bar, beside the connections one. The
+ * button opens a popover that edits the document's declared
  * environment variables (the runtime's top-level `env:`). Variables are referenced
  * from settings as `${NAME}`; the runtime resolves them at startup, falling back to
  * each variable's default.
@@ -44,19 +45,19 @@ export default function EnvLauncher() {
         type="button"
         aria-label="Environment variables"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-full border border-black/10 bg-white/90 px-3 py-1.5 text-sm text-zinc-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-zinc-900 dark:border-white/15 dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+        className={BAR_BUTTON}
       >
-        <Variable size={16} />
+        <Variable size={15} />
         Environment
         {count > 0 && (
-          <span className="rounded-full bg-black/[0.06] px-1.5 text-xs tabular-nums dark:bg-white/10">
+          <span className={BAR_COUNT}>
             {count}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-2 w-80 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
+        <div className="absolute left-0 top-full z-40 mt-2 w-80 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
           <EnvEditor />
         </div>
       )}

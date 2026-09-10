@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import type { FlowDoc } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { useLayout } from "../state/layout";
 import SourceCard from "./SourceCard";
 import SourcePicker from "./SourcePicker";
 import FlowView from "./FlowView";
@@ -12,7 +13,8 @@ import FlowRunMenu from "./FlowRunMenu";
  * One flow drawn as the schematic in the brief: a dashed container labelled with
  * the flow name, a source node up top, a dashed divider, then the process nodes
  * connected by downward arrows with a drop target between each. Clicking the card
- * makes it the active flow (the click-to-add target).
+ * makes it the active flow (the click-to-add target); double-clicking it also
+ * reveals the settings panel when it is hidden.
  */
 export default function FlowCard({
   flow,
@@ -22,6 +24,9 @@ export default function FlowCard({
   active: boolean;
 }) {
   const { dispatch } = useEditorState();
+  // Same rule as the nodes inside it: a double-click means "I want to edit this",
+  // so it brings a hidden settings panel back (see NodeShell).
+  const layout = useLayout();
 
   return (
     <section
@@ -32,6 +37,7 @@ export default function FlowCard({
           data: { flowId: flow.id },
         })
       }
+      onDoubleClick={() => layout?.showSettings()}
       className={[
         "group rounded-3xl border-2 border-dashed p-5",
         "bg-white/60 backdrop-blur-md dark:bg-zinc-900/50",

@@ -148,6 +148,11 @@ dev:
       app.kubernetes.io/component: platform
     namespace: octo-dev
     # Hot-reload image (next dev). Build+import with `task cluster:images:dev`.
+    #
+    # The chart deploys the production image (helm/values-k3d.yaml), so until this
+    # swap happens the pod is a `next build` that cannot reload — `devspace dev` is
+    # what makes the local platform hot-reloadable, and detaching from it puts the
+    # production pod back.
     devImage: octo-platform-dev:dev
     command: ["pnpm", "run", "dev"]
     workingDir: /app/apps/platform

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ArrowLeft, Bot, Mail, Settings, Trash2 } from "lucide-react";
+import { Activity, ArrowLeft, Mail, Settings, Trash2 } from "lucide-react";
+import { DrOctoIcon } from "@octo/editor";
 
 /**
  * The admin section's own switcher, in the shared header's controls slot.
@@ -39,7 +40,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     key: "agent",
     href: "/platform/admin/agent",
     label: "Platform agent",
-    icon: Bot,
+    icon: DrOctoIcon,
   },
   {
     key: "retention",

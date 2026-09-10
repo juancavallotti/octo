@@ -79,6 +79,11 @@ vars:
     octo-runtime:dev octo-devsidecar:dev octo-statssidecar:dev octo-devruntime:dev
     octo-agenticrunner:dev octo-embeddings:dev octo-api:dev
 
+  # The three hot-reload images `devspace dev` swaps in. Named here for the same
+  # reason as the list above: two tasks build them and one checks for them.
+  DEV_IMAGES: >-
+    octo-platform-dev:dev octo-orchestrator-dev:dev octo-observability-dev:dev
+
   # Every image task below copies host-built binaries in rather than compiling
   # them, and this is the flag pair that says so. A NAMED build context, because
   # three of the images build with their own module dir as the context and could
@@ -346,6 +351,23 @@ tasks:
   cluster:images:
     desc: Build the platform/orchestrator/observability/schema/runtime/devsidecar/statssidecar/devruntime/agenticrunner/embeddings images and load them into the k3d 'octo' cluster
     cmds:
+      - task: cluster:images:build
+      # Load the images straight into the cluster's containerd (no registry needed).
+      - k3d image import {{.CLUSTER_IMAGES}} -c octo
+      # Then prove they landed, and are still there. A gap never surfaces here: it
+      # surfaces much later and in another component, as an integration pod stuck
+      # on "pull access denied" for an image that was never meant to be pulled.
+      # Two ways to open one — an import interrupted partway, or the kubelet
+      # reclaiming images it already holds (see verify). A second spent here names
+      # the missing image instead of leaving it to be found from the other end.
+      - task: cluster:images:verify
+
+  cluster:images:build:
+    desc: Build the cluster images locally, without loading them into the cluster
+    # Split out from cluster:images so cluster:images:ensure can build (cheap, and
+    # cached when nothing changed) without importing every image (not cheap: k3d
+    # ships one tarball of the whole set into the node).
+    cmds:
       # Compile every Go binary once, on the host, for the node's architecture —
       # then the eight builds below only copy them in. Left to the Dockerfiles,
       # this list runs the Go compiler ten times from a cold cache; see bins:linux.
@@ -385,15 +407,6 @@ tasks:
       # service pods call, or a sidecar's neighbour — because all three differ only
       # in what OCTO_PLATFORM_API_URL points at.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-api -t octo-api:dev -f runtime/Dockerfile .
-      # Load the images straight into the cluster's containerd (no registry needed).
-      - k3d image import {{.CLUSTER_IMAGES}} -c octo
-      # Then prove they landed, and are still there. A gap never surfaces here: it
-      # surfaces much later and in another component, as an integration pod stuck
-      # on "pull access denied" for an image that was never meant to be pulled.
-      # Two ways to open one — an import interrupted partway, or the kubelet
-      # reclaiming images it already holds (see verify). A second spent here names
-      # the missing image instead of leaving it to be found from the other end.
-      - task: cluster:images:verify
 
   cluster:images:verify:
     desc: Check that the k3d 'octo' cluster holds every image the orchestrator deploys
@@ -439,6 +452,60 @@ tasks:
         echo "  run: task cluster:images" >&2
         exit 1
 
+  cluster:images:ensure:
+    desc: Build+load the cluster images only when the cluster is missing one
+    # The dev loop's entry point, and the difference between a five-second start
+    # and a full rebuild of eleven images — including the platform's `next build`,
+    # for a pod `devspace dev` immediately replaces with the hot-reload one.
+    #
+    # `status:` is Task's own "already done?" hook, and the question is already
+    # answered by cluster:images:verify: it reads the node's containerd, which is
+    # the only place that can say whether the kubelet will find an image.
+    #
+    # Skipping is right, not merely fast: these images change when Go sources or a
+    # Dockerfile change, and none of that reaches a `devspace dev` session, which
+    # runs from synced source. When they do change, `task cluster:images` rebuilds
+    # them on purpose.
+    status:
+      - task cluster:images:verify >/dev/null 2>&1
+    cmds:
+      # Build them all — docker's cache makes the unchanged ones a few seconds —
+      # then import only the ones the node does not have. Importing the whole set
+      # to deliver one image is a minute of tarball for nothing, and it is the
+      # common case: one image is missing because one values file started asking
+      # for it.
+      - task: cluster:images:build
+      - |
+        node="$(k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" {print $1; exit}')"
+        have="$(docker exec "$node" crictl images 2>/dev/null | awk 'NR > 1 {print $1 ":" $2}')"
+        missing=
+        for img in {{.CLUSTER_IMAGES}}; do
+          printf '%s\n' "$have" | grep -qx "docker.io/library/$img" || missing="$missing $img"
+        done
+        if [ -z "$missing" ]; then
+          echo "✓ cluster already holds every image"
+          exit 0
+        fi
+        echo "▶ importing:$missing"
+        k3d image import $missing -c octo
+      - task: cluster:images:verify
+
+  cluster:images:dev:ensure:
+    desc: Build+load the dev (hot-reload) images only when the cluster is missing one
+    # Same bargain as above. These three are cheap to rebuild (docker caches the
+    # pnpm install and the Go base) but not free to re-import: `k3d image import`
+    # ships the whole tarball into the node every time it is asked.
+    status:
+      - |
+        node="$(k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" {print $1; exit}')"
+        [ -n "$node" ] || exit 1
+        have="$(docker exec "$node" crictl images 2>/dev/null | awk 'NR > 1 {print $1 ":" $2}')"
+        for img in {{.DEV_IMAGES}}; do
+          printf '%s\n' "$have" | grep -qx "docker.io/library/$img" || exit 1
+        done
+    cmds:
+      - task: cluster:images:dev
+
   cluster:images:kind:
     desc: Build the eight images and load them into a kind 'octo' cluster
     cmds:
@@ -466,7 +533,8 @@ tasks:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
     cmds:
       # Only the platform dev image carries binaries; the orchestrator and
-      # observability dev images run `go run` against synced source and compile nothing here.
+      # observability dev images run `go run` against synced source and compile
+      # nothing here.
       - task: bins:linux
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
       - docker build -t octo-orchestrator-dev:dev -f orchestrator/Dockerfile.dev ./orchestrator
@@ -480,16 +548,28 @@ tasks:
     # small app that changes when its config does, so a `task cluster:deploy`
     # rebuild is the whole of its dev loop.
     cmds:
-      # Ensure the cluster + Postgres + schema are up (idempotent), then load the
-      # dev images and hand off to `devspace dev`, which swaps the app pods for
-      # their dev images, syncs source for hot reload, and tails logs. Stays
-      # attached until Ctrl-C; `devspace reset pods -n octo-dev` restores prod pods.
+      # Ensure the cluster + Postgres + schema are up (idempotent), then hand off
+      # to `devspace dev`, which swaps the app pods for their dev images, syncs
+      # source for hot reload, and tails logs. Stays attached until Ctrl-C;
+      # `devspace reset pods -n octo-dev` restores prod pods.
+      #
+      # Neither image step rebuilds when the cluster already holds the images.
+      # This used to rebuild all fourteen on every start — a `next build` of the
+      # platform among them — to deploy pods that `devspace dev` then replaced,
+      # which is minutes of a hot laptop before the first keystroke. Rebuild on
+      # purpose with `task cluster:images` / `task cluster:images:dev`.
       - task: cluster:deploy
-      - task: cluster:images:dev
+        vars:
+          IMAGES: ensure
+      - task: cluster:images:dev:ensure
       - devspace dev --kube-context {{.KCTX}} --namespace octo-dev
 
   cluster:deploy:
     desc: Spin up the local k3d (k3s) cluster and deploy platform, Postgres, orchestrator
+    vars:
+      # "always" (default) rebuilds every image; "ensure" builds only what the
+      # cluster is missing. See the cmds below.
+      IMAGES: '{{.IMAGES | default "always"}}'
     # EMBEDDINGS_API_KEY is the one thing this task reads from your shell rather
     # than from a committed file, because it is a credential. Set it and the
     # embedding server comes up too, so searching agent memory ranks by meaning:
@@ -502,7 +582,20 @@ tasks:
       - task: cluster:preflight
       - |
         if k3d cluster list 2>/dev/null | grep -qw octo; then
-          echo "✓ k3d cluster 'octo' already exists"
+          # Existing is not the same as running: a stopped cluster still lists,
+          # and everything after this point then fails in a way that reads as
+          # something else — `k3d image import` cannot reach a node, kubectl
+          # cannot reach an API server, and the image check reports the images
+          # missing, which sends the whole run into a rebuild it does not need.
+          # STATUS, not just the row: k3d lists a stopped cluster's nodes too, and
+          # "the node exists" is exactly the mistake this check was added to stop
+          # making one level up.
+          if k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" && $4 == "running" {found = 1} END {exit !found}'; then
+            echo "✓ k3d cluster 'octo' already running"
+          else
+            echo "▶ k3d cluster 'octo' exists but is stopped — starting it..."
+            k3d cluster start octo
+          fi
         else
           echo "▶ creating k3d cluster 'octo' (Postgres data -> ./data)..."
           mkdir -p data
@@ -517,7 +610,11 @@ tasks:
         fi
       # Build + load images, then install the Helm chart via DevSpace
       # (deployments.octo in devspace.yaml -> ./helm with values-k3d.yaml).
-      - task: cluster:images
+      #
+      # IMAGES=ensure (what cluster:dev passes) builds them only when the cluster
+      # is missing one. The default rebuilds, because that is what somebody typing
+      # `task cluster:deploy` after changing a Dockerfile is asking for.
+      - task: 'cluster:images{{if eq .IMAGES "ensure"}}:ensure{{end}}'
       - devspace deploy --kube-context {{.KCTX}} --namespace octo-dev
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.
@@ -536,6 +633,12 @@ tasks:
       # missing namespace, so the task reported success while nothing restarted —
       # which is the same silence the missing deployment above produced.
       - |
+        # Nothing was rebuilt, so there is nothing to pick up — and in dev mode
+        # these pods are about to be replaced by their hot-reload twins anyway.
+        if [ "{{.IMAGES}}" = "ensure" ]; then
+          echo "· images unchanged, skipping rollout restart"
+          exit 0
+        fi
         for dep in octo-platform octo-orchestrator octo-observability octo-embeddings; do
           if ! kubectl --context {{.KCTX}} -n octo-dev get deployment "$dep" >/dev/null 2>&1; then
             echo "· $dep not deployed yet, skipping restart"
