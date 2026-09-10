@@ -13,17 +13,12 @@
  */
 
 import { type ActionResult } from "@octo/http";
+import { DR_OCTO_AGENT_ID } from "@/app/agent/identity";
 import { fetchAgentStatus } from "./agentUrl";
 import { deleteThread, listThreads, readThread, type MemoryTurn } from "./agentMemory";
 
-/**
- * The agent id Dr. Octo declares in his own definition.
- *
- * A constant rather than a lookup because it is part of his definition, not of an
- * install: every Dr. Octo is this agent. An install where someone has edited it is
- * supported, and is also not something the panel can guess at.
- */
-export const DR_OCTO_AGENT_ID = "dr-octo";
+// Re-exported for the callers that already name it here.
+export { DR_OCTO_AGENT_ID };
 
 /** Shown for a conversation the agent chose not to name. */
 const UNTITLED = "Untitled conversation";

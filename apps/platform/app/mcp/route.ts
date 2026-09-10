@@ -17,6 +17,7 @@ import {
   orchestratorSuiteStore,
 } from "./store-adapter";
 import { devRunMcpHost } from "./run-host";
+import { runWithToken } from "@/app/auth/callerToken";
 import { verifyMcpToken } from "./verify-token";
 import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 
@@ -123,7 +124,35 @@ const handler = createOctoMcpHandler(
  * correct behind the platform proxy; `resourceMetadataPath` is the path-scoped
  * document the metadata routes serve. `required: true` rejects anonymous calls.
  */
-const authed = withMcpAuth(handler, verifyMcpToken, {
+/**
+ * Everything a tool does runs as the person who asked, not as this endpoint.
+ *
+ * There is no session here to read a credential from — the caller arrived with a
+ * bearer, which the verifier traded with iam for a platform token — so it is put
+ * where the orchestrator client will find it, for the length of this request and
+ * no longer. Without it the tools reach the API with no identity at all, and once
+ * the API starts checking, that is the difference between doing what this person
+ * may do and doing nothing.
+ *
+ * It wraps the handler *inside* withMcpAuth rather than around it, because that
+ * is where the credential exists: withMcpAuth verifies the bearer and then hangs
+ * the result off the request before calling what it wraps. Outside, there would
+ * be nothing to read.
+ */
+function asCaller(next: typeof handler) {
+  return async (req: Request): Promise<Response> => {
+    const token = extraOf(req)?.octoToken;
+    if (typeof token !== "string" || token === "") return next(req);
+    return runWithToken(token, () => next(req));
+  };
+}
+
+/** The AuthInfo withMcpAuth attached to the request, read back the way it set it. */
+function extraOf(req: Request): Record<string, unknown> | undefined {
+  return (req as Request & { auth?: { extra?: Record<string, unknown> } }).auth?.extra;
+}
+
+const authed = withMcpAuth(asCaller(handler), verifyMcpToken, {
   required: true,
   resourceMetadataPath: RESOURCE_METADATA_PATH,
   resourceUrl: MCP_ORIGIN || undefined,

@@ -7,7 +7,7 @@ import {
   getSourceSpec,
   resolveIcon,
 } from "@octo/editor/runtime";
-import { DR_OCTO_AGENT_ID } from "@/app/actions/client/conversations";
+import { DR_OCTO_AGENT_ID } from "@/app/agent/identity";
 
 /**
  * Choose a scannable icon for an integration from its definition, so the list
