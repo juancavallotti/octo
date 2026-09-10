@@ -40,7 +40,7 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("signing.NewService: %v", err)
 	}
-	svc, err := NewService(NewVerifier(idp.Issuer(), idp.clientID), users, signer)
+	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestNewServiceRequiresEveryCollaborator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("signing.NewService: %v", err)
 	}
-	v := NewVerifier("https://idp.example", "octo")
+	v := NewVerifier("https://idp.example", []string{"octo"})
 
 	tests := []struct {
 		name  string

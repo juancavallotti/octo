@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -176,6 +177,12 @@ func newServer(database *db.DB) (http.Handler, error) {
 // on purpose: one install has one identity provider, and giving iam a second pair
 // of variables would be a way for the two halves to end up pointed at different
 // ones.
+//
+// IAM_ACCEPTED_AUDIENCES widens what the exchange will take beyond the editor's
+// own client id, because one install presents more than one face to the provider:
+// the `/mcp` resource identifier is the other one. It is named for the platform
+// rather than for MCP — this service has no business knowing what MCP is, only
+// which audiences are this install.
 func newAuthService(users *user.Service, signer *signing.Service) *auth.Service {
 	issuer, clientID := os.Getenv("OIDC_ISSUER"), os.Getenv("OIDC_CLIENT_ID")
 	if issuer == "" || clientID == "" {
@@ -186,7 +193,8 @@ func newAuthService(users *user.Service, signer *signing.Service) *auth.Service 
 			"oidcIssuer", issuer != "", "oidcClientId", clientID != "")
 		return nil
 	}
-	svc, err := auth.NewService(auth.NewVerifier(issuer, clientID), users, signer)
+	audiences := acceptedAudiences(clientID, os.Getenv("IAM_ACCEPTED_AUDIENCES"))
+	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer)
 	if err != nil {
 		// Unreachable given the guard above, and reported rather than ignored so it
 		// cannot become a silent nil if the constructor grows another requirement.
@@ -194,6 +202,20 @@ func newAuthService(users *user.Service, signer *signing.Service) *auth.Service 
 		return nil
 	}
 	return svc
+}
+
+// acceptedAudiences is the client id plus whatever else this install answers for,
+// comma-separated. The client id is always in the set and never has to be
+// repeated: forgetting it would break sign-in, which is the one thing the
+// exchange must never be one typo away from.
+func acceptedAudiences(clientID, extra string) []string {
+	audiences := []string{clientID}
+	for _, aud := range strings.Split(extra, ",") {
+		if aud = strings.TrimSpace(aud); aud != "" && aud != clientID {
+			audiences = append(audiences, aud)
+		}
+	}
+	return audiences
 }
 
 // healthz answers the liveness probe. It reports as soon as the process is

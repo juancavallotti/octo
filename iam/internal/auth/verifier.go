@@ -14,10 +14,13 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
 )
 
 // Identity is what an identity provider told us about the caller. It is
@@ -40,25 +43,35 @@ type Identity struct {
 // starts working when the provider does. Discovery is one request; go-oidc caches
 // the key set behind the verifier it returns.
 type Verifier struct {
-	issuer   string
-	clientID string
+	issuer    string
+	audiences []string
 
 	mu       sync.Mutex
+	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 }
 
-// NewVerifier returns a Verifier for the given issuer and client id. The client
-// id is the expected audience: a token minted for a different application at the
-// same provider is not a token for us.
-func NewVerifier(issuer, clientID string) *Verifier {
-	return &Verifier{issuer: issuer, clientID: clientID}
+// NewVerifier returns a Verifier for the given issuer and accepted audiences.
+//
+// Audiences is a set rather than one value because one install presents more than
+// one face to the same provider: the editor signs people in with a token minted
+// for its client id, and an MCP client arrives with an access token minted for the
+// `/mcp` resource identifier. Both are this platform, and both should be able to
+// trade their token for a platform one.
+//
+// The check itself is ours rather than go-oidc's, which accepts a single client
+// id. That is the reason it is spelled out below and tested in both directions:
+// widening an audience check by accident is how a token minted for somebody
+// else's application becomes a session here.
+func NewVerifier(issuer string, audiences []string) *Verifier {
+	return &Verifier{issuer: issuer, audiences: audiences}
 }
 
 // Verify checks rawToken and returns who it says the caller is. A token that
 // fails any check — signature, issuer, audience, expiry — is ErrUnauthenticated,
 // with the provider's reason wrapped for the log but not for the caller.
 func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error) {
-	verifier, err := v.resolve(ctx)
+	provider, verifier, err := v.resolve(ctx)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -66,6 +79,14 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error
 	token, err := verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return Identity{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+	}
+
+	if !v.audienceAccepted(token.Audience) {
+		// The audiences are not named in the message. Which applications this
+		// install accepts is not something an unauthenticated caller needs to learn
+		// from a failed attempt.
+		return Identity{}, fmt.Errorf(
+			"%w: the token was minted for a different application", ErrUnauthenticated)
 	}
 
 	// Only what we use. A provider's token carries a great deal more, and none of
@@ -78,21 +99,62 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error
 		return Identity{}, fmt.Errorf("%w: reading claims: %w", ErrUnauthenticated, err)
 	}
 
-	email := strings.TrimSpace(claims.Email)
+	email, name := strings.TrimSpace(claims.Email), strings.TrimSpace(claims.Name)
+	if email == "" {
+		// An OAuth access token carries `sub` and little else — an MCP client's
+		// bearer never has an email on it — so before refusing, ask the provider
+		// who this is. An id token that simply was not asked for the email scope
+		// lands here too, and the same call answers for it.
+		email, name = v.fromUserinfo(ctx, provider, rawToken, name)
+	}
 	if email == "" {
 		// Named specifically, because the fix is at the provider and not here: the
-		// email scope has to be requested and the claim has to be in the token
-		// rather than only at the userinfo endpoint.
+		// email scope has to be requested, and the claim has to reach either the
+		// token or the userinfo endpoint.
 		return Identity{}, fmt.Errorf(
-			"%w: the token carries no email claim; the provider must be configured to "+
-				"include one for the requested scopes", ErrUnauthenticated)
+			"%w: the token carries no email claim and the provider's userinfo did not "+
+				"supply one; the provider must be configured to include an email for the "+
+				"requested scopes", ErrUnauthenticated)
 	}
 
-	return Identity{
-		Subject: token.Subject,
-		Email:   email,
-		Name:    strings.TrimSpace(claims.Name),
-	}, nil
+	return Identity{Subject: token.Subject, Email: email, Name: name}, nil
+}
+
+// audienceAccepted reports whether any of the token's audiences is one this
+// install answers for. A token carries a list, and matching any entry is the rule
+// RFC 7519 lays down.
+func (v *Verifier) audienceAccepted(tokenAudiences []string) bool {
+	for _, aud := range tokenAudiences {
+		if slices.Contains(v.audiences, aud) {
+			return true
+		}
+	}
+	return false
+}
+
+// fromUserinfo asks the provider for the caller's profile, using the caller's own
+// token as the credential. It returns what it found, falling back to the name we
+// already had.
+//
+// Best-effort on purpose: a provider that publishes no userinfo endpoint, or one
+// that is briefly unreachable, should produce the "no email" refusal the caller
+// can act on rather than a different error about a lookup they did not ask for.
+func (v *Verifier) fromUserinfo(
+	ctx context.Context, provider *oidc.Provider, rawToken, name string,
+) (string, string) {
+	info, err := provider.UserInfo(ctx, oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: rawToken, TokenType: "Bearer"}))
+	if err != nil {
+		slog.DebugContext(ctx, "userinfo lookup failed while resolving an email", "error", err)
+		return "", name
+	}
+	var claims struct {
+		Name string `json:"name"`
+	}
+	if err := info.Claims(&claims); err == nil && strings.TrimSpace(claims.Name) != "" {
+		name = strings.TrimSpace(claims.Name)
+	}
+	return strings.TrimSpace(info.Email), name
 }
 
 // resolve returns the verifier, performing discovery on the first call that needs
@@ -107,16 +169,19 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error
 // The cost is that several first-time callers may each discover at once. That is
 // one GET apiece, it happens only until one of them succeeds, and it is the
 // cheaper of the two failure modes by a wide margin.
-func (v *Verifier) resolve(ctx context.Context) (*oidc.IDTokenVerifier, error) {
-	if cached := v.cached(); cached != nil {
-		return cached, nil
+func (v *Verifier) resolve(ctx context.Context) (*oidc.Provider, *oidc.IDTokenVerifier, error) {
+	if provider, verifier := v.cached(); verifier != nil {
+		return provider, verifier, nil
 	}
 
 	provider, err := oidc.NewProvider(ctx, v.issuer)
 	if err != nil {
-		return nil, fmt.Errorf("%w: discovering %s: %w", ErrProviderUnreachable, v.issuer, err)
+		return nil, nil, fmt.Errorf("%w: discovering %s: %w", ErrProviderUnreachable, v.issuer, err)
 	}
-	verifier := provider.Verifier(&oidc.Config{ClientID: v.clientID})
+	// SkipClientIDCheck because the audience is checked in Verify against the whole
+	// accepted set; go-oidc can only be told about one. Skipping it here does not
+	// skip it — it moves it.
+	verifier := provider.Verifier(&oidc.Config{SkipClientIDCheck: true})
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -124,15 +189,15 @@ func (v *Verifier) resolve(ctx context.Context) (*oidc.IDTokenVerifier, error) {
 	// equivalent verifiers, so which one is kept does not matter — only that every
 	// later caller sees the same one and none of them discovers again.
 	if v.verifier == nil {
-		v.verifier = verifier
+		v.provider, v.verifier = provider, verifier
 	}
-	return v.verifier, nil
+	return v.provider, v.verifier, nil
 }
 
-// cached returns the resolved verifier, or nil when discovery has not succeeded
-// yet.
-func (v *Verifier) cached() *oidc.IDTokenVerifier {
+// cached returns the resolved provider and verifier, or nils when discovery has
+// not succeeded yet.
+func (v *Verifier) cached() (*oidc.Provider, *oidc.IDTokenVerifier) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	return v.verifier
+	return v.provider, v.verifier
 }
