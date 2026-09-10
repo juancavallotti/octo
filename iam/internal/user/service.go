@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/juancavallotti/octo/iam/internal/role"
 )
 
 // repository is the persistence surface the service needs. Declared in the
@@ -16,9 +14,9 @@ type repository interface {
 	Get(ctx context.Context, id string) (User, error)
 	GetBySubject(ctx context.Context, subject string) (User, error)
 	List(ctx context.Context) ([]User, error)
-	Grant(ctx context.Context, userID string, granted role.Role, grantedBy *string) error
-	Revoke(ctx context.Context, userID string, revoked role.Role) error
-	CountWithRole(ctx context.Context, held role.Role) (int, error)
+	Grant(ctx context.Context, userID string, granted Role, grantedBy *string) error
+	Revoke(ctx context.Context, userID string, revoked Role) error
+	CountWithRole(ctx context.Context, held Role) (int, error)
 	EnsureFirstAdmin(ctx context.Context, userID string, created bool) (bool, error)
 }
 
@@ -88,7 +86,7 @@ func (s *Service) List(ctx context.Context) ([]User, error) {
 // Grant gives a user a role from the catalogue, attributed to grantedBy when the
 // grantor is known. A role outside the catalogue is refused here rather than
 // stored: the column is a varchar, so this check is what constrains it.
-func (s *Service) Grant(ctx context.Context, userID string, granted role.Role, grantedBy *string) error {
+func (s *Service) Grant(ctx context.Context, userID string, granted Role, grantedBy *string) error {
 	if err := validate(userID, granted); err != nil {
 		return err
 	}
@@ -103,30 +101,30 @@ func (s *Service) Grant(ctx context.Context, userID string, granted role.Role, g
 // check races with a concurrent revoke of a different admin in principle; two
 // people removing the last two admins at the same instant is not a scenario worth
 // a lock, and the recovery is a direct row insert either way.
-func (s *Service) Revoke(ctx context.Context, userID string, revoked role.Role) error {
+func (s *Service) Revoke(ctx context.Context, userID string, revoked Role) error {
 	if err := validate(userID, revoked); err != nil {
 		return err
 	}
-	if revoked == role.Admin {
-		admins, err := s.repo.CountWithRole(ctx, role.Admin)
+	if revoked == RoleAdmin {
+		admins, err := s.repo.CountWithRole(ctx, RoleAdmin)
 		if err != nil {
 			return err
 		}
 		if admins <= 1 {
 			return fmt.Errorf(
 				"%w: this is the last %s, and removing it would leave nobody who can grant it back",
-				ErrInvalid, role.Admin)
+				ErrInvalid, RoleAdmin)
 		}
 	}
 	return s.repo.Revoke(ctx, userID, revoked)
 }
 
 // validate rejects the two mistakes a grant or revoke can make in its arguments.
-func validate(userID string, r role.Role) error {
+func validate(userID string, r Role) error {
 	if strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("%w: user id is required", ErrInvalid)
 	}
-	if !role.Valid(r) {
+	if !ValidRole(r) {
 		return fmt.Errorf("%w: %q is not a role", ErrInvalid, string(r))
 	}
 	return nil

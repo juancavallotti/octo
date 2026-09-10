@@ -13,7 +13,6 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	josejwt "github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/juancavallotti/octo/iam/internal/role"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
@@ -108,7 +107,7 @@ func TestExchangeMintsATokenVerifiableFromTheJWKS(t *testing.T) {
 		private    struct {
 			Email string      `json:"email"`
 			Name  string      `json:"name"`
-			Roles []role.Role `json:"roles"`
+			Roles []user.Role `json:"roles"`
 		}
 	)
 	if err := parsed.Claims(keys[0].Key, &registered, &private); err != nil {
@@ -131,8 +130,8 @@ func TestExchangeMintsATokenVerifiableFromTheJWKS(t *testing.T) {
 		t.Errorf("profile claims = %+v, want the provider's", private)
 	}
 	// First user ever, so they are the admin.
-	if len(private.Roles) != 1 || private.Roles[0] != role.Admin {
-		t.Errorf("roles = %v, want [%s]", private.Roles, role.Admin)
+	if len(private.Roles) != 1 || private.Roles[0] != user.RoleAdmin {
+		t.Errorf("roles = %v, want [%s]", private.Roles, user.RoleAdmin)
 	}
 	if got.ExpiresAt.IsZero() {
 		t.Error("expiresAt was not reported; a client would have to decode the token")
@@ -162,7 +161,7 @@ func TestASubsequentExchangeCarriesNewlyGrantedRoles(t *testing.T) {
 		t.Fatalf("the second user starts with %v, want no roles", first.User.Roles)
 	}
 
-	if err := h.users.Grant(ctx, first.User.ID, role.Operator, nil); err != nil {
+	if err := h.users.Grant(ctx, first.User.ID, user.RoleOperator, nil); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
 
@@ -179,8 +178,8 @@ func TestASubsequentExchangeCarriesNewlyGrantedRoles(t *testing.T) {
 	if second.User.ID != first.User.ID {
 		t.Errorf("id changed between sign-ins: %q then %q", first.User.ID, second.User.ID)
 	}
-	if len(second.User.Roles) != 1 || second.User.Roles[0] != role.Operator {
-		t.Errorf("roles = %v, want [%s]", second.User.Roles, role.Operator)
+	if len(second.User.Roles) != 1 || second.User.Roles[0] != user.RoleOperator {
+		t.Errorf("roles = %v, want [%s]", second.User.Roles, user.RoleOperator)
 	}
 }
 

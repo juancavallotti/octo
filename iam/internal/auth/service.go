@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/juancavallotti/octo/iam/internal/role"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
@@ -50,7 +49,7 @@ func NewService(v verifier, u users, m minter) (*Service, error) {
 type platformClaims struct {
 	Email string      `json:"email"`
 	Name  string      `json:"name"`
-	Roles []role.Role `json:"roles"`
+	Roles []user.Role `json:"roles"`
 }
 
 // Result is a completed exchange: the minted token and the user it speaks for.
@@ -83,7 +82,7 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 	if roles == nil {
 		// A user who has been granted nothing gets an empty list and not a null, so
 		// a verifier never has to distinguish two encodings of the same fact.
-		roles = []role.Role{}
+		roles = []user.Role{}
 	}
 	token, err := s.minter.Mint(ctx, u.ID, platformClaims{
 		Email: u.Email,

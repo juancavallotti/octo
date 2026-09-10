@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/juancavallotti/octo/iam/internal/role"
 )
 
 // newTestServer wires the real Service and Handler over the in-memory repository,
@@ -49,14 +47,14 @@ func TestCatalogueListsEveryRoleWithADescription(t *testing.T) {
 	}
 
 	got := decode[[]struct {
-		Role        role.Role `json:"role"`
-		Description string    `json:"description"`
+		Role        Role   `json:"role"`
+		Description string `json:"description"`
 	}](t, rec)
-	if len(got) != len(role.All()) {
-		t.Fatalf("GET /roles returned %d roles, want %d", len(got), len(role.All()))
+	if len(got) != len(AllRoles()) {
+		t.Fatalf("GET /roles returned %d roles, want %d", len(got), len(AllRoles()))
 	}
 	for _, r := range got {
-		if !role.Valid(r.Role) {
+		if !ValidRole(r.Role) {
 			t.Errorf("catalogue offers %q, which is not grantable", r.Role)
 		}
 		if r.Description == "" {
@@ -125,16 +123,16 @@ func TestGrantAndRevokeReturnTheUpdatedUser(t *testing.T) {
 		t.Fatalf("SignIn(second): %v", err)
 	}
 
-	rec := do(t, mux, http.MethodPut, "/users/"+second.ID+"/roles/"+string(role.Operator))
+	rec := do(t, mux, http.MethodPut, "/users/"+second.ID+"/roles/"+string(RoleOperator))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT grant = %d (%s), want 200", rec.Code, rec.Body.String())
 	}
 	granted := decode[Response](t, rec)
-	if len(granted.Roles) != 1 || granted.Roles[0] != role.Operator {
-		t.Errorf("roles after grant = %v, want [%s]", granted.Roles, role.Operator)
+	if len(granted.Roles) != 1 || granted.Roles[0] != RoleOperator {
+		t.Errorf("roles after grant = %v, want [%s]", granted.Roles, RoleOperator)
 	}
 
-	rec = do(t, mux, http.MethodDelete, "/users/"+second.ID+"/roles/"+string(role.Operator))
+	rec = do(t, mux, http.MethodDelete, "/users/"+second.ID+"/roles/"+string(RoleOperator))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE revoke = %d (%s), want 200", rec.Code, rec.Body.String())
 	}
@@ -159,11 +157,11 @@ func TestHandlerStatusMapping(t *testing.T) {
 		want   int
 	}{
 		{"unknown user", http.MethodGet, "/users/deadbeef", http.StatusNotFound},
-		{"grant to unknown user", http.MethodPut, "/users/deadbeef/roles/" + string(role.Monitor),
+		{"grant to unknown user", http.MethodPut, "/users/deadbeef/roles/" + string(RoleMonitor),
 			http.StatusNotFound},
 		{"role outside the catalogue", http.MethodPut, "/users/" + u.ID + "/roles/platform:root",
 			http.StatusBadRequest},
-		{"revoking the last admin", http.MethodDelete, "/users/" + u.ID + "/roles/" + string(role.Admin),
+		{"revoking the last admin", http.MethodDelete, "/users/" + u.ID + "/roles/" + string(RoleAdmin),
 			http.StatusBadRequest},
 	}
 	for _, tt := range tests {

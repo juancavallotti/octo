@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/juancavallotti/octo/iam/internal/role"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
@@ -23,7 +22,7 @@ import (
 type memUsers struct {
 	byID      map[string]*user.User
 	bySubject map[string]string
-	roles     map[string][]role.Role
+	roles     map[string][]user.Role
 	next      int
 }
 
@@ -31,7 +30,7 @@ func newMemUsers() *memUsers {
 	return &memUsers{
 		byID:      map[string]*user.User{},
 		bySubject: map[string]string{},
-		roles:     map[string][]role.Role{},
+		roles:     map[string][]user.Role{},
 	}
 }
 
@@ -60,7 +59,7 @@ func (m *memUsers) Get(_ context.Context, id string) (user.User, error) {
 		return user.User{}, user.ErrNotFound
 	}
 	withRoles := *u
-	withRoles.Roles = append([]role.Role(nil), m.roles[id]...)
+	withRoles.Roles = append([]user.Role(nil), m.roles[id]...)
 	return withRoles, nil
 }
 
@@ -84,7 +83,7 @@ func (m *memUsers) List(ctx context.Context) ([]user.User, error) {
 	return out, nil
 }
 
-func (m *memUsers) Grant(_ context.Context, userID string, granted role.Role, _ *string) error {
+func (m *memUsers) Grant(_ context.Context, userID string, granted user.Role, _ *string) error {
 	if _, ok := m.byID[userID]; !ok {
 		return user.ErrNotFound
 	}
@@ -97,11 +96,11 @@ func (m *memUsers) Grant(_ context.Context, userID string, granted role.Role, _ 
 	return nil
 }
 
-func (m *memUsers) Revoke(_ context.Context, userID string, revoked role.Role) error {
+func (m *memUsers) Revoke(_ context.Context, userID string, revoked user.Role) error {
 	if _, ok := m.byID[userID]; !ok {
 		return user.ErrNotFound
 	}
-	kept := make([]role.Role, 0, len(m.roles[userID]))
+	kept := make([]user.Role, 0, len(m.roles[userID]))
 	for _, held := range m.roles[userID] {
 		if held != revoked {
 			kept = append(kept, held)
@@ -111,7 +110,7 @@ func (m *memUsers) Revoke(_ context.Context, userID string, revoked role.Role) e
 	return nil
 }
 
-func (m *memUsers) CountWithRole(_ context.Context, held role.Role) (int, error) {
+func (m *memUsers) CountWithRole(_ context.Context, held user.Role) (int, error) {
 	var n int
 	for _, granted := range m.roles {
 		for _, r := range granted {
@@ -127,14 +126,14 @@ func (m *memUsers) EnsureFirstAdmin(ctx context.Context, userID string, created 
 	if !created {
 		return false, nil
 	}
-	admins, err := m.CountWithRole(ctx, role.Admin)
+	admins, err := m.CountWithRole(ctx, user.RoleAdmin)
 	if err != nil || admins > 0 {
 		return false, err
 	}
 	if _, ok := m.byID[userID]; !ok {
 		return false, nil
 	}
-	m.roles[userID] = append(m.roles[userID], role.Admin)
+	m.roles[userID] = append(m.roles[userID], user.RoleAdmin)
 	return true, nil
 }
 

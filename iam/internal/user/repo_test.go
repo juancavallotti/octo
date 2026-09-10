@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/juancavallotti/octo/iam/internal/role"
 )
 
 // The only two database tests this package has, and both are here under the one
@@ -130,7 +128,7 @@ func TestEnsureFirstAdminIsRaceFree(t *testing.T) {
 	if grants != 1 {
 		t.Errorf("EnsureFirstAdmin granted %d times concurrently, want exactly 1", grants)
 	}
-	admins, err := repo.CountWithRole(ctx, role.Admin)
+	admins, err := repo.CountWithRole(ctx, RoleAdmin)
 	if err != nil {
 		t.Fatalf("CountWithRole: %v", err)
 	}

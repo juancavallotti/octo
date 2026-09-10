@@ -6,9 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/juancavallotti/octo/iam/internal/role"
 )
 
 const (
@@ -148,7 +147,7 @@ func (r *Repo) List(ctx context.Context) ([]User, error) {
 // A userID that names no user is ErrNotFound — surfaced from the foreign key
 // rather than pre-checked, so a user deleted between the check and the write
 // cannot produce a grant pointing at nothing.
-func (r *Repo) Grant(ctx context.Context, userID string, granted role.Role, grantedBy *string) error {
+func (r *Repo) Grant(ctx context.Context, userID string, granted Role, grantedBy *string) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO user_roles (user_id, role, granted_by)
 		 VALUES ($1, $2, $3)
@@ -166,7 +165,7 @@ func (r *Repo) Grant(ctx context.Context, userID string, granted role.Role, gran
 
 // Revoke removes the role r from userID. Revoking a role the user does not hold
 // is a no-op, for the same reason granting one twice is.
-func (r *Repo) Revoke(ctx context.Context, userID string, revoked role.Role) error {
+func (r *Repo) Revoke(ctx context.Context, userID string, revoked Role) error {
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM user_roles WHERE user_id = $1 AND role = $2`,
 		userID, string(revoked),
@@ -183,7 +182,7 @@ func (r *Repo) Revoke(ctx context.Context, userID string, revoked role.Role) err
 // CountWithRole returns how many users hold the given role. The admin count is
 // what stands between an install and having nobody who can grant anything, so it
 // is the check the revoke path makes before removing the last one.
-func (r *Repo) CountWithRole(ctx context.Context, held role.Role) (int, error) {
+func (r *Repo) CountWithRole(ctx context.Context, held Role) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM user_roles WHERE role = $1`, string(held),
@@ -248,7 +247,7 @@ func (r *Repo) EnsureFirstAdmin(ctx context.Context, userID string, created bool
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)
 		 ON CONFLICT (user_id, role) DO NOTHING`,
-		userID, string(role.Admin),
+		userID, string(RoleAdmin),
 	); err != nil {
 		return false, fmt.Errorf("user repo: ensure first admin: grant: %w", err)
 	}
@@ -273,7 +272,7 @@ func (r *Repo) firstAdminEligible(ctx context.Context, q querier, userID string)
 	err := q.QueryRow(ctx,
 		`SELECT NOT EXISTS (SELECT 1 FROM user_roles WHERE role = $2)
 		    AND EXISTS (SELECT 1 FROM users WHERE id = $1)`,
-		userID, string(role.Admin),
+		userID, string(RoleAdmin),
 	).Scan(&eligible)
 	if err != nil {
 		if isInvalidTextRepresentation(err) {
@@ -295,9 +294,32 @@ func scanUser(row pgx.Row) (User, error) {
 	); err != nil {
 		return User{}, err
 	}
-	u.Roles = make([]role.Role, 0, len(roles))
+	u.Roles = make([]Role, 0, len(roles))
 	for _, r := range roles {
-		u.Roles = append(u.Roles, role.Role(r))
+		u.Roles = append(u.Roles, Role(r))
 	}
 	return u, nil
+}
+
+// pgForeignKeyViolation is what Postgres reports when a grant names a user that
+// does not exist.
+const pgForeignKeyViolation = "23503"
+
+// isForeignKeyViolation reports whether err is Postgres refusing a row whose
+// reference points at nothing.
+func isForeignKeyViolation(err error) bool {
+	return hasSQLState(err, pgForeignKeyViolation)
+}
+
+// isInvalidTextRepresentation reports whether err is Postgres refusing to parse a
+// value as its column's type. Every caller here reaches it the same way — an id
+// from a URL path that is not a UUID — which is a request for something that does
+// not exist rather than a fault worth a 500.
+func isInvalidTextRepresentation(err error) bool {
+	return hasSQLState(err, pgInvalidTextRepresentation)
+}
+
+func hasSQLState(err error, code string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == code
 }

@@ -17,8 +17,6 @@ package user
 
 import (
 	"time"
-
-	"github.com/juancavallotti/octo/iam/internal/role"
 )
 
 // User is a platform principal. IDs are UUIDs in canonical text form; Subject is
@@ -33,11 +31,11 @@ type User struct {
 	// Roles is what this user has been granted. It is populated by the reads that
 	// join user_roles and is empty — not nil-versus-empty meaningful — for a user
 	// who has been granted nothing.
-	Roles []role.Role
+	Roles []Role
 }
 
 // HasRole reports whether u holds r.
-func (u User) HasRole(r role.Role) bool {
+func (u User) HasRole(r Role) bool {
 	for _, held := range u.Roles {
 		if held == r {
 			return true

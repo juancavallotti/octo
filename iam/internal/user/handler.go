@@ -8,7 +8,6 @@ import (
 	"time"
 
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
-	"github.com/juancavallotti/octo/iam/internal/role"
 )
 
 // requestTimeout bounds the database work behind a single request.
@@ -46,12 +45,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // Exported because the token exchange renders the same shape inside its own
 // response, and two structs describing one user is how they come to disagree.
 type Response struct {
-	ID          string      `json:"id"`
-	Email       string      `json:"email"`
-	Name        string      `json:"name"`
-	Roles       []role.Role `json:"roles"`
-	CreatedAt   time.Time   `json:"createdAt"`
-	LastLoginAt time.Time   `json:"lastLoginAt"`
+	ID          string    `json:"id"`
+	Email       string    `json:"email"`
+	Name        string    `json:"name"`
+	Roles       []Role    `json:"roles"`
+	CreatedAt   time.Time `json:"createdAt"`
+	LastLoginAt time.Time `json:"lastLoginAt"`
 }
 
 // ToResponse renders u for the wire.
@@ -60,7 +59,7 @@ func ToResponse(u User) Response {
 	if roles == nil {
 		// An absent list and an empty one mean the same thing here, and `null`
 		// makes a caller handle a case that never carries information.
-		roles = []role.Role{}
+		roles = []Role{}
 	}
 	return Response{
 		ID:          u.ID,
@@ -74,18 +73,18 @@ func ToResponse(u User) Response {
 
 // roleResponse is one entry of the catalogue.
 type roleResponse struct {
-	Role        role.Role `json:"role"`
-	Description string    `json:"description"`
+	Role        Role   `json:"role"`
+	Description string `json:"description"`
 }
 
 // catalogue lists the grantable roles. It is served from the code's own
 // catalogue rather than from the distinct values in user_roles, so a role nobody
 // holds yet is still offered.
 func (h *Handler) catalogue(w http.ResponseWriter, _ *http.Request) {
-	roles := role.All()
+	roles := AllRoles()
 	out := make([]roleResponse, 0, len(roles))
 	for _, r := range roles {
-		out = append(out, roleResponse{Role: r, Description: role.Describe(r)})
+		out = append(out, roleResponse{Role: r, Description: DescribeRole(r)})
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
@@ -132,7 +131,7 @@ func (h *Handler) grant(w http.ResponseWriter, r *http.Request) {
 	// grantedBy is nil until the wiring change puts an authenticated caller behind
 	// these routes; the column is nullable for exactly this reason, and recording
 	// a guess would be worse than recording nothing.
-	if err := h.svc.Grant(ctx, id, role.Role(r.PathValue("role")), nil); err != nil {
+	if err := h.svc.Grant(ctx, id, Role(r.PathValue("role")), nil); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -144,7 +143,7 @@ func (h *Handler) revoke(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	id := r.PathValue("id")
-	if err := h.svc.Revoke(ctx, id, role.Role(r.PathValue("role"))); err != nil {
+	if err := h.svc.Revoke(ctx, id, Role(r.PathValue("role"))); err != nil {
 		h.writeError(w, err)
 		return
 	}

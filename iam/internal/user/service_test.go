@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/juancavallotti/octo/iam/internal/role"
 )
 
 // memRepo is a hand-written in-memory repository for the service and handler
@@ -88,7 +86,7 @@ func (m *memRepo) List(_ context.Context) ([]User, error) {
 	return out, nil
 }
 
-func (m *memRepo) Grant(_ context.Context, userID string, granted role.Role, _ *string) error {
+func (m *memRepo) Grant(_ context.Context, userID string, granted Role, _ *string) error {
 	if err := m.fail(); err != nil {
 		return err
 	}
@@ -103,7 +101,7 @@ func (m *memRepo) Grant(_ context.Context, userID string, granted role.Role, _ *
 	return nil
 }
 
-func (m *memRepo) Revoke(_ context.Context, userID string, revoked role.Role) error {
+func (m *memRepo) Revoke(_ context.Context, userID string, revoked Role) error {
 	if err := m.fail(); err != nil {
 		return err
 	}
@@ -121,7 +119,7 @@ func (m *memRepo) Revoke(_ context.Context, userID string, revoked role.Role) er
 	return nil
 }
 
-func (m *memRepo) CountWithRole(_ context.Context, held role.Role) (int, error) {
+func (m *memRepo) CountWithRole(_ context.Context, held Role) (int, error) {
 	if err := m.fail(); err != nil {
 		return 0, err
 	}
@@ -142,7 +140,7 @@ func (m *memRepo) EnsureFirstAdmin(_ context.Context, userID string, created boo
 		return false, nil
 	}
 	for _, u := range m.users {
-		if u.HasRole(role.Admin) {
+		if u.HasRole(RoleAdmin) {
 			return false, nil
 		}
 	}
@@ -150,7 +148,7 @@ func (m *memRepo) EnsureFirstAdmin(_ context.Context, userID string, created boo
 	if !ok {
 		return false, nil
 	}
-	u.Roles = append(u.Roles, role.Admin)
+	u.Roles = append(u.Roles, RoleAdmin)
 	return true, nil
 }
 
@@ -169,8 +167,8 @@ func TestSignInMakesTheFirstUserAnAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn(first): %v", err)
 	}
-	if !first.HasRole(role.Admin) {
-		t.Errorf("first user roles = %v, want to include %q", first.Roles, role.Admin)
+	if !first.HasRole(RoleAdmin) {
+		t.Errorf("first user roles = %v, want to include %q", first.Roles, RoleAdmin)
 	}
 
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -195,7 +193,7 @@ func TestSignInDoesNotRegrantAdminOnALaterSignIn(t *testing.T) {
 	}
 	// Revoked directly through the repository: the service refuses to remove the
 	// last admin, which is a different rule and has its own test below.
-	if err := repo.Revoke(ctx, u.ID, role.Admin); err != nil {
+	if err := repo.Revoke(ctx, u.ID, RoleAdmin); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
 
@@ -203,7 +201,7 @@ func TestSignInDoesNotRegrantAdminOnALaterSignIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn(again): %v", err)
 	}
-	if again.HasRole(role.Admin) {
+	if again.HasRole(RoleAdmin) {
 		t.Errorf("roles = %v after signing in again, want the revocation to hold", again.Roles)
 	}
 }
@@ -260,7 +258,7 @@ func TestGrantRejectsARoleOutsideTheCatalogue(t *testing.T) {
 		t.Fatalf("SignIn: %v", err)
 	}
 
-	err = svc.Grant(ctx, u.ID, role.Role("platform:superuser"), nil)
+	err = svc.Grant(ctx, u.ID, Role("platform:superuser"), nil)
 	if !errors.Is(err, ErrInvalid) {
 		t.Errorf("Grant(unknown role) error = %v, want ErrInvalid", err)
 	}
@@ -275,7 +273,7 @@ func TestGrantIsIdempotent(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := svc.Grant(ctx, u.ID, role.Operator, nil); err != nil {
+		if err := svc.Grant(ctx, u.ID, RoleOperator, nil); err != nil {
 			t.Fatalf("Grant: %v", err)
 		}
 	}
@@ -286,18 +284,18 @@ func TestGrantIsIdempotent(t *testing.T) {
 	}
 	var operators int
 	for _, r := range got.Roles {
-		if r == role.Operator {
+		if r == RoleOperator {
 			operators++
 		}
 	}
 	if operators != 1 {
-		t.Errorf("granted %s %d times, want it held once", role.Operator, operators)
+		t.Errorf("granted %s %d times, want it held once", RoleOperator, operators)
 	}
 }
 
 func TestGrantAgainstAnUnknownUserIsNotFound(t *testing.T) {
 	svc, _ := newService()
-	err := svc.Grant(context.Background(), "nobody", role.Monitor, nil)
+	err := svc.Grant(context.Background(), "nobody", RoleMonitor, nil)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("Grant(unknown user) error = %v, want ErrNotFound", err)
 	}
@@ -313,7 +311,7 @@ func TestRevokeRefusesToRemoveTheLastAdmin(t *testing.T) {
 		t.Fatalf("SignIn: %v", err)
 	}
 
-	err = svc.Revoke(ctx, first.ID, role.Admin)
+	err = svc.Revoke(ctx, first.ID, RoleAdmin)
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Revoke(last admin) error = %v, want ErrInvalid", err)
 	}
@@ -323,10 +321,10 @@ func TestRevokeRefusesToRemoveTheLastAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn(second): %v", err)
 	}
-	if err := svc.Grant(ctx, second.ID, role.Admin, &first.ID); err != nil {
+	if err := svc.Grant(ctx, second.ID, RoleAdmin, &first.ID); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	if err := svc.Revoke(ctx, first.ID, role.Admin); err != nil {
+	if err := svc.Revoke(ctx, first.ID, RoleAdmin); err != nil {
 		t.Errorf("Revoke with two admins: %v", err)
 	}
 }
@@ -338,12 +336,12 @@ func TestRevokeANonAdminRoleIsNotGatedOnTheAdminCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
-	if err := svc.Grant(ctx, u.ID, role.Monitor, nil); err != nil {
+	if err := svc.Grant(ctx, u.ID, RoleMonitor, nil); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
 
 	// The only admin on the install, revoking something that is not admin.
-	if err := svc.Revoke(ctx, u.ID, role.Monitor); err != nil {
+	if err := svc.Revoke(ctx, u.ID, RoleMonitor); err != nil {
 		t.Errorf("Revoke(monitor): %v", err)
 	}
 }
@@ -355,7 +353,7 @@ func TestGetAndGrantRejectABlankUserID(t *testing.T) {
 	if _, err := svc.Get(ctx, "  "); !errors.Is(err, ErrInvalid) {
 		t.Errorf("Get(blank) error = %v, want ErrInvalid", err)
 	}
-	if err := svc.Grant(ctx, "", role.Monitor, nil); !errors.Is(err, ErrInvalid) {
+	if err := svc.Grant(ctx, "", RoleMonitor, nil); !errors.Is(err, ErrInvalid) {
 		t.Errorf("Grant(blank) error = %v, want ErrInvalid", err)
 	}
 	if _, err := svc.GetBySubject(ctx, ""); !errors.Is(err, ErrInvalid) {
@@ -375,7 +373,7 @@ func TestRevokeSurfacesACountFailure(t *testing.T) {
 
 	boom := errors.New("connection reset")
 	repo.failNext = boom
-	if err := svc.Revoke(ctx, u.ID, role.Admin); !errors.Is(err, boom) {
+	if err := svc.Revoke(ctx, u.ID, RoleAdmin); !errors.Is(err, boom) {
 		t.Errorf("Revoke() error = %v, want the repository's error", err)
 	}
 }
