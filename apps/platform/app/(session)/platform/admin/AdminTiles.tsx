@@ -1,6 +1,7 @@
 "use client";
 
-import { Activity, Bot, Mail, Trash2 } from "lucide-react";
+import { Activity, Mail, Trash2 } from "lucide-react";
+import { DrOctoIcon } from "@/app/components/DrOctoIcon";
 import { ShortcutTile } from "../DashboardTiles";
 
 /**
@@ -24,7 +25,7 @@ export const LIVE = [
   },
   {
     href: "/platform/admin/agent",
-    icon: Bot,
+    icon: DrOctoIcon,
     title: "Platform agent",
     subtitle:
       "The LLM and embedding providers Dr. Octo runs on, and his own deployment",

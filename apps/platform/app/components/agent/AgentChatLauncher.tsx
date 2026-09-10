@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { Bot } from "lucide-react";
+import { DrOctoIcon } from "../DrOctoIcon";
 import {
   clampWidth,
   DEFAULT_WIDTH,
@@ -158,7 +158,7 @@ export default function AgentChatLauncher({
             aria-label={busy ? "Dr. Octo is working…" : "Ask Dr. Octo"}
             className="relative flex h-11 w-11 items-center justify-center rounded-full bg-sky-600 text-white shadow-lg transition-colors hover:bg-sky-500"
           >
-            <Bot size={20} />
+            <DrOctoIcon size={22} />
           </button>
         </div>
       )}
