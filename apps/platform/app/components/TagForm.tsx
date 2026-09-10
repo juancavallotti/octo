@@ -32,8 +32,13 @@ export default function TagForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The id, read once. `getIntegrationId` is a fresh closure on every render of the
+  // component that owns it, so depending on it would re-run this — and a late reply
+  // would overwrite a tag the user had already typed. The form is mounted when the
+  // menu opens it, so "once" is the right amount.
+  const [id] = useState(getIntegrationId);
+
   useEffect(() => {
-    const id = getIntegrationId();
     if (!id) return;
     let cancelled = false;
     listSnapshots(id).then(
@@ -45,7 +50,7 @@ export default function TagForm({
     return () => {
       cancelled = true;
     };
-  }, [getIntegrationId]);
+  }, [id]);
 
   // No filesystem capability => no tagging (mirrors how Save hides).
   if (!save) return null;

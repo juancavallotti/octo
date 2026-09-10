@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
-import { useConsole, useConsoleCollapsed, type ConsoleTab } from "../run/console";
+import {
+  useConsole,
+  useConsoleCollapsed,
+  type ConsoleTab,
+} from "../run/console";
 import { useSuiteRun } from "../run/SuiteRunContext";
 import CelTester from "../cel/CelTester";
 import { useCelTester } from "../cel/CelTesterStore";
@@ -200,7 +204,10 @@ export default function LogPanel({
                 navigator.clipboard.writeText(testUrl).then(() => {
                   setCopied(true);
                   if (copiedTimer.current) clearTimeout(copiedTimer.current);
-                  copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+                  copiedTimer.current = setTimeout(
+                    () => setCopied(false),
+                    1500,
+                  );
                 });
               }}
               aria-label="Copy test URL"
@@ -216,7 +223,15 @@ export default function LogPanel({
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {actions}
+          {/* The header collapses the panel when clicked, which is not what a host
+              means by handing us a control. Contained here rather than in each
+              action, because the trap belongs to this header, not to them. */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {actions}
+          </div>
           {(tab === "logs" ||
             tab === "results" ||
             tab === "tests" ||
@@ -259,7 +274,9 @@ export default function LogPanel({
       {!collapsed && tab === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && <LogsTab logs={logs} running={running} />}
+      {!collapsed && tab === "logs" && (
+        <LogsTab logs={logs} running={running} />
+      )}
       {!collapsed && tab === "results" && <ResultsTab results={results} />}
       {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "cel" && <CelTester />}
