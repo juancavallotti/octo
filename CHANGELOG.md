@@ -1,5 +1,89 @@
 # Changelog
 
+## [0.11.2](https://github.com/juancavallotti/octo/compare/v0.11.1...v0.11.2) (2026-09-10)
+
+
+### Features
+
+* **desktop:** advertise the MCP endpoint, and reap our own ghosts ([e224823](https://github.com/juancavallotti/octo/commit/e2248235d0e7c04c465d4e0d6514b4b3c4133142))
+* **desktop:** cross-compile octo and dolphin for packaging ([9f76f60](https://github.com/juancavallotti/octo/commit/9f76f606f005597d6eaeb47e88f926506155f8c1))
+* **desktop:** Octo Desktop — the standalone editor as a macOS app ([269090c](https://github.com/juancavallotti/octo/commit/269090cdcd5dde2d735a53c2a018e7ab979f114e))
+* **desktop:** open a folder, remember recents, switch vaults ([71360e8](https://github.com/juancavallotti/octo/commit/71360e8fffe7ba1b86118f3ec125372b71dc3ba1))
+* **desktop:** package an unsigned macOS app ([4fa76e6](https://github.com/juancavallotti/octo/commit/4fa76e6466496a5adaa7ae82b76e26b23229ba9c))
+* **desktop:** spawn the standalone server and load the editor ([930ddec](https://github.com/juancavallotti/octo/commit/930ddec6523cbcaaf2a00d45d636576aaddee0a4))
+* **editor:** centre the view tabs on the header ([ae7a5b9](https://github.com/juancavallotti/octo/commit/ae7a5b9521dc42607a57a40cf65f709f48e85e0e))
+* **editor:** copy the MCP endpoint from the console header ([5730a25](https://github.com/juancavallotti/octo/commit/5730a252c79cdf9f78511ff82d8eb453bc79784c))
+* **editor:** double-click a component to bring the settings panel back ([4c80045](https://github.com/juancavallotti/octo/commit/4c80045994e9a2dd5a0701b9d4f21db17894f5a0))
+* **editor:** gather the document's controls into a bar ([84a4067](https://github.com/juancavallotti/octo/commit/84a4067eabbe5ad1fc77a42a085c13657be6535e))
+* **editor:** hide and show the panels from the header's corner ([59b995b](https://github.com/juancavallotti/octo/commit/59b995b0e2664159d1d22ceddf9a6fb88b80d6d0))
+* **editor:** list the available icon names ([88f2f35](https://github.com/juancavallotti/octo/commit/88f2f357292d6b86e92aa85b6baad6ea57e21769))
+* **editor:** move the CEL tester into the console ([c223bec](https://github.com/juancavallotti/octo/commit/c223becd8187e66d1e43087d2e79b0b4f5641fbb))
+* **editor:** one workspace picker, two meanings ([fb62119](https://github.com/juancavallotti/octo/commit/fb62119c7a487a817a70c759bd2fea6c7e232d30))
+* **editor:** put the workspace picker back on the left ([d7cf13a](https://github.com/juancavallotti/octo/commit/d7cf13aba0ca9b5c3d1e3a40d6e078a13b36b99c))
+* **editor:** reveal the settings panel for anything that has settings ([12f934a](https://github.com/juancavallotti/octo/commit/12f934ad7fe89517a86a146a8ce3160d3862eca6))
+* **orchestrator:** classify a project file by its path ([72a2103](https://github.com/juancavallotti/octo/commit/72a2103506ab016e97d9f63fb829c50a03384170))
+* **orchestrator:** merge an integration's config files into one definition ([2ca5ed5](https://github.com/juancavallotti/octo/commit/2ca5ed5542867539092f3425be6758c42d5bcdf3))
+* **orchestrator:** record who created and last changed each file ([b83ff1b](https://github.com/juancavallotti/octo/commit/b83ff1baab0ffdae701df1931d61a7aa21623cdb))
+* **orchestrator:** store an integration as a tree of files ([836520f](https://github.com/juancavallotti/octo/commit/836520f8ff20a415d8379fc81ee62bcce8e5e2e5))
+* **orchestrator:** store an integration's chosen icon ([73a937d](https://github.com/juancavallotti/octo/commit/73a937d567ace3de502fa1c91d26c805d9790946))
+* **platform:** attribute resource writes to the signed-in user ([d8d100b](https://github.com/juancavallotti/octo/commit/d8d100be7dfcba21e1dd4b67576012dc8a072c53))
+* **platform:** choose an integration's icon from a searchable picker ([c05bfee](https://github.com/juancavallotti/octo/commit/c05bfee767a219a10ffad6f81912d4c9a31047b1))
+* **platform:** Dr. Octo's icon is choosable, and his own integration wears it ([df8af69](https://github.com/juancavallotti/octo/commit/df8af6948a9e70a6147e41884bd850a390d37ea7))
+* **platform:** give Dr. Octo his own face ([0de34aa](https://github.com/juancavallotti/octo/commit/0de34aa43406b2f6ec648569668b0a9ae6f47d13))
+* **platform:** let an integration carry an intentional icon ([093e082](https://github.com/juancavallotti/octo/commit/093e082b88cd5c11e926da56feb81ab2b4cee063))
+* **platform:** prefer an integration's chosen icon over the derived one ([4e536ce](https://github.com/juancavallotti/octo/commit/4e536ce9607ac40cf002d5108514ca0a2f0b76e4))
+* **platform:** rename the integration in the document bar ([54b9ea8](https://github.com/juancavallotti/octo/commit/54b9ea8c5689d7ba4bfab896cd9c4c6d5995b4d8))
+* **platform:** say "Manage", and put the rare actions behind a ⋮ ([3837aa0](https://github.com/juancavallotti/octo/commit/3837aa02e2f310c350a878a72ad26aed4408026e))
+* **standalone:** health and vault routes ([0090b92](https://github.com/juancavallotti/octo/commit/0090b9234730ebdc9c30c31f979700bfc6a4267b))
+* **standalone:** move the folder chip to the desktop shell's corner ([0f8f04d](https://github.com/juancavallotti/octo/commit/0f8f04d96e8dcb2a64a5808a60904a535feab790))
+* **standalone:** rename the open file from the document bar ([a2c6ef5](https://github.com/juancavallotti/octo/commit/a2c6ef5879f1a2da84162c5580f3d29862700a0e))
+* **standalone:** report how many flows are running ([c48a8f1](https://github.com/juancavallotti/octo/commit/c48a8f1528fca5e856e19c2cfd744c92502388ae))
+* **standalone:** show which folder the editor is serving ([483647e](https://github.com/juancavallotti/octo/commit/483647e04ba99fd24eadb0817cfe065691878be1))
+
+
+### Bug Fixes
+
+* decide networked by the address the host injects, not by an HTTP_PORT declaration ([a42b230](https://github.com/juancavallotti/octo/commit/a42b23020df4f2ac032d5429ec2c268cba23b97e))
+* **desktop:** address the review findings ([1ee10d5](https://github.com/juancavallotti/octo/commit/1ee10d56c0d7c14eb31c7e4f0753371b647cc699))
+* **desktop:** don't sign local builds with whatever cert is lying around ([bf8731c](https://github.com/juancavallotti/octo/commit/bf8731ccb6c9cd14560f5c8c0abdcfd7e8ad933a))
+* **desktop:** leave room for the macOS traffic lights ([e233db0](https://github.com/juancavallotti/octo/commit/e233db0a9636badf541668ab581a08c20a29ad67))
+* **desktop:** validate both arguments before uploading either secret ([e948707](https://github.com/juancavallotti/octo/commit/e948707e07083bfec27308cebac351d899cc9609))
+* **dev:** run the dev image in the local cluster, not the production one ([ce02198](https://github.com/juancavallotti/octo/commit/ce02198e29e52b551a27f848aa69c796c0117602))
+* **dev:** start a stopped cluster, and import only the missing images ([33447c7](https://github.com/juancavallotti/octo/commit/33447c73172b54967e905f964ecbf17bfb04966c))
+* **editor:** three from review — stale tag, trapped clicks, silent copy failure ([1584936](https://github.com/juancavallotti/octo/commit/15849363caba6f2263de5c3fbe5dd8742945207a))
+* **orchestrator:** decide networked by the address we inject ([92cb0fe](https://github.com/juancavallotti/octo/commit/92cb0fe209e99a0c0b21c46fff5b5257d867f4c3))
+* **orchestrator:** repair a db_version row that has no version key ([2058c9d](https://github.com/juancavallotti/octo/commit/2058c9deafd17a771d0b282b14d06919edc88626))
+* **platform:** put the ⋮ next to Manage ([1ee04a9](https://github.com/juancavallotti/octo/commit/1ee04a9518aed44d107d898387be50f380e26804))
+* **platform:** redraw an integration's row when its icon changes ([3cc4729](https://github.com/juancavallotti/octo/commit/3cc4729feac047f0a1c6747a0a93dc85af9fb19a))
+* **platform:** refuse to start dev when something else holds :3000 ([f30c423](https://github.com/juancavallotti/octo/commit/f30c4233a2bcbf0d9740fbf577693f066a582c6a))
+* **standalone:** address the review findings ([44e4530](https://github.com/juancavallotti/octo/commit/44e453079308fcb4ff92e8c572d3e2b42b0b19be))
+* **standalone:** apply the same networked rule to local runs ([031d19c](https://github.com/juancavallotti/octo/commit/031d19cf576c494d1b8679aa2d46925bfaab1de8))
+* **standalone:** name a vault whose root has no basename ([4661fed](https://github.com/juancavallotti/octo/commit/4661fed63b1b7bb2ccc8e58c286667ccabef8f73))
+* **standalone:** stop serving the vault's absolute path ([0e12ede](https://github.com/juancavallotti/octo/commit/0e12edec47721b2e7bfa9dbd83807d229df21e03))
+* three from the PR review ([94f439e](https://github.com/juancavallotti/octo/commit/94f439e972421f4ac261f9611c631604ce30af79))
+
+
+### Performance
+
+* **dev:** stop rebuilding every image to start a dev session ([d9d97bb](https://github.com/juancavallotti/octo/commit/d9d97bbf39285bc97254d9526953d2eb274a7d79))
+* **standalone:** stop shipping sharp in the standalone output ([416de76](https://github.com/juancavallotti/octo/commit/416de76b84988218b71c2734f4948ff3d2a19b22))
+
+
+### Refactoring
+
+* **editor:** drop the settings panel's toolbar ([d6f5aa2](https://github.com/juancavallotti/octo/commit/d6f5aa272e686c0b0a27d035b7f71a1ad9587a65))
+
+
+### Documentation
+
+* describe networked the way the code now decides it ([61428e5](https://github.com/juancavallotti/octo/commit/61428e5a1b11ad104b94411f5e8f9f18ee3b62a8))
+* **desktop:** explain what the app is and where things live ([cb36eb3](https://github.com/juancavallotti/octo/commit/cb36eb3337ad2621c9a211bc64d535ff32affb70))
+* **orchestrator:** say who reads the folder listing's definition ([b4bcbcb](https://github.com/juancavallotti/octo/commit/b4bcbcbc5c6814d48d8c3af0a4ecac149fe90a65))
+* **platform:** describe an integration as a project of files ([e37d61f](https://github.com/juancavallotti/octo/commit/e37d61f9140dca93d4b529549137625a470523d8))
+* **platform:** document setting an integration's icon ([88d692d](https://github.com/juancavallotti/octo/commit/88d692dfc2dcae06b2369b5c24c71a51c6d22ffe))
+* **platform:** stop calling the definition the saved YAML ([818b8c0](https://github.com/juancavallotti/octo/commit/818b8c01e789ec09bf382740f29392d25c34cdba))
+* say what makes a run networked, not half of it ([454ded1](https://github.com/juancavallotti/octo/commit/454ded112bef72412fce7bc78818877a4df06771))
+
 ## [0.11.1](https://github.com/juancavallotti/octo/compare/v0.11.0...v0.11.1) (2026-09-08)
 
 
