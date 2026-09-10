@@ -52,11 +52,17 @@ Where DCR is unavailable, an MCP client cannot reach `/mcp` at all: it verifies 
 
 When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. `/mcp` is the one application endpoint that bypasses it, because it authenticates itself with bearer tokens (below); the welcome page, `/api/auth*` and two static images are exempt too. A running integration is a pod with a hostname of its own, so a webhook callback never reaches the platform app to be redirected in the first place.
 
-## User provisioning
+## Who may sign in
 
-There is no user management UI to administer, because accounts are provisioned automatically. On first sign-in the platform trades the identity provider's token with the iam service, which upserts a `users` row keyed by the stable OIDC `sub` and returns a durable user id. Later sign-ins refresh email, name and the last-login stamp. That id is what integration attribution and API keys reference, so it survives IdP email changes, and removing a user never cascade-deletes their integrations.
+**This platform is an allowlist.** Being able to authenticate at your identity provider is not by itself permission to be here: an account has to exist before its owner can sign in, and an administrator creates it. The provider says who somebody is; the platform says who may come in. An installation whose provider admits an entire company should not admit an entire company.
 
-The very first person to sign in on a fresh installation is granted `platform:admin`, so that somebody can administer it.
+The exception is the very first sign-in on a fresh installation, because there is nobody to have created that account. That person is granted `platform:admin` so that somebody can administer it. The rule is keyed on there being no administrator rather than on there being no users, which is the same thing on a new install and the more useful thing on one that has somehow lost its administrators.
+
+Accounts are managed under **Admin → People**. Adding somebody asks for three things, and the awkward one is the OIDC subject — the `sub` their provider will present. There is no way for the platform to discover it before they arrive, and deriving it from an email address would be a way for one person to be admitted as another, so you copy it from your provider's own console.
+
+A `users` row is keyed on that subject and carries a durable id. Sign-ins refresh email, name and the last-login stamp. The id is what integration attribution and API keys reference, so it survives IdP email changes; deleting a user takes their API keys and role grants with them but leaves what they authored, with the attribution cleared.
+
+An administrator cannot edit or remove their own row from this screen, and iam refuses to remove the last administrator however the request arrives.
 
 ## Roles
 

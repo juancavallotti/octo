@@ -62,7 +62,6 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 | folder | `POST/GET /folders`, `GET/PUT/DELETE /folders/{id}`, member routes | database |
 | snapshot | `POST/GET /integrations/{id}/snapshots`, `DELETE /snapshots/{id}`, frozen-resource reads | database |
 | resource | `POST/GET /integrations/{id}/resources`, `GET/PUT/DELETE .../resources/{resourceId}` | database |
-| user | `POST /users/bootstrap`, `GET /users/{id}` | database |
 | apikey | `POST/GET /users/{userId}/apikeys`, `DELETE .../apikeys/{id}`, `POST /apikeys/verify` | database |
 | kv | `GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}` + object browser routes | database |
 | deployment | `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
@@ -83,7 +82,11 @@ A small Go service (port `8093`) that owns identity and authorization for the pl
 
 It signs ES256 and generates, stores and rotates its own keys — there is no signing key for an operator to set. The private halves live in `iam_signing_keys` encrypted under `KV_ENCRYPTION_KEY`, the same key the orchestrator uses for the KV store.
 
-`POST /auth` is the exchange and `POST /auth/refresh` renews the result, re-reading roles from the database so a revocation lands within a token lifetime. ClusterIP only, and it publishes no OpenAPI: it is not a surface to expose or to hand to an agent as a tool.
+`POST /auth` is the exchange and `POST /auth/refresh` renews the result, re-reading roles from the database so a revocation lands within a token lifetime. It also owns the `users` table and the routes that administer it — those require a platform token carrying `platform:admin`, checked by iam itself and not only by the app in front of it.
+
+ClusterIP only, and it publishes no OpenAPI: it is not a surface to expose or to hand to an agent as a tool.
+
+The orchestrator's `{userId}` path segments are ids iam issued; it serves no `/users` collection of its own.
 
 ### Postgres
 
