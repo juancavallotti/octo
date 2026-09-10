@@ -603,7 +603,10 @@ tasks:
           # something else — `k3d image import` cannot reach a node, kubectl
           # cannot reach an API server, and the image check reports the images
           # missing, which sends the whole run into a rebuild it does not need.
-          if k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" {found = 1} END {exit !found}'; then
+          # STATUS, not just the row: k3d lists a stopped cluster's nodes too, and
+          # "the node exists" is exactly the mistake this check was added to stop
+          # making one level up.
+          if k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" && $4 == "running" {found = 1} END {exit !found}'; then
             echo "✓ k3d cluster 'octo' already running"
           else
             echo "▶ k3d cluster 'octo' exists but is stopped — starting it..."

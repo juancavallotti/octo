@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSave } from "@octo/editor";
 import { createSnapshot, listSnapshots } from "@/app/model/orchestrator";
 import { DEFAULT_TAG, suggestNextTag } from "@/app/model/tags";
@@ -29,6 +29,9 @@ export default function TagForm({
   // integration's highest existing tag (the default when it is unsaved or has
   // none). The user can still edit it before tagging.
   const [tag, setTag] = useState(DEFAULT_TAG);
+  // Once the user has typed, the suggestion has lost its claim on the field — a
+  // reply that arrives afterwards must not take back what they wrote.
+  const edited = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +46,9 @@ export default function TagForm({
     let cancelled = false;
     listSnapshots(id).then(
       (snaps) => {
-        if (!cancelled) setTag(suggestNextTag(snaps.map((s) => s.tag)));
+        if (!cancelled && !edited.current) {
+          setTag(suggestNextTag(snaps.map((s) => s.tag)));
+        }
       },
       () => {},
     );
@@ -88,7 +93,10 @@ export default function TagForm({
         value={tag}
         disabled={busy}
         placeholder="e.g. v1.0"
-        onChange={(e) => setTag(e.target.value)}
+        onChange={(e) => {
+          edited.current = true;
+          setTag(e.target.value);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") void submit();
         }}

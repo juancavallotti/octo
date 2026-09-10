@@ -25,6 +25,14 @@ tasks:
       # the *other* platform, read a production build, and conclude that dev mode has
       # no dev indicator and no hot reload. It does; you are not looking at it.
       - |
+        if ! command -v lsof >/dev/null 2>&1; then
+          # No way to ask. Say so and carry on rather than refusing to start a dev
+          # server over a missing diagnostic — but say it, because the confusing
+          # failure this guard exists for is still possible.
+          echo "· lsof not found — cannot check whether port 3000 is free." >&2
+          echo "  if the editor is not reloading, check what next dev bound to." >&2
+          exit 0
+        fi
         pid="$(lsof -tnP -iTCP:3000 -sTCP:LISTEN 2>/dev/null | head -1)"
         if [ -n "$pid" ]; then
           # The full command, not lsof's truncated NAME column: "com.docke" names
