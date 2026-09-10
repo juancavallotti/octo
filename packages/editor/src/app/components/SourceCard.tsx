@@ -5,6 +5,7 @@ import { Webhook, X } from "lucide-react";
 import type { SourceNode } from "../model/document";
 import { getSourceSpec, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { useLayout } from "../state/layout";
 import FlowNode from "./FlowNode";
 
 /**
@@ -32,6 +33,10 @@ export default function SourceCard({
         className: "text-zinc-600 dark:text-zinc-300",
       })
     : <Webhook size={20} className="text-zinc-600 dark:text-zinc-300" />;
+  // A double-click means "edit this", so it brings a hidden settings panel back —
+  // the same rule as a step node (see NodeShell).
+  const layout = useLayout();
+
   const label = spec?.label ?? source?.type ?? "Source";
   const sublabel = spec ? source?.connector : "callable by name";
 
@@ -44,6 +49,7 @@ export default function SourceCard({
         e.stopPropagation();
         dispatch({ type: EditorActionType.SELECT_SOURCE, data: { flowId } });
       }}
+      onDoubleClick={() => layout?.showSettings()}
       className="cursor-pointer"
     >
       <FlowNode

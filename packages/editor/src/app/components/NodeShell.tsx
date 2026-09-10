@@ -6,6 +6,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BlockNode } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { useLayout } from "../state/layout";
 import { useCanvasZoom } from "../canvas/ZoomContext";
 import FlowNode from "./FlowNode";
 import BlockRunButton from "./BlockRunButton";
@@ -59,6 +60,16 @@ export default function NodeShell({
       type: EditorActionType.SELECT_BLOCK,
       data: { blockId: block.id },
     });
+  };
+
+  // Selecting a component with the settings panel hidden points at a panel that is
+  // not there. A double-click says "I want to edit this", so it brings the panel
+  // back — the single click keeps meaning just "select", for someone who hid the
+  // panel to read the canvas.
+  const layout = useLayout();
+  const reveal = (e: MouseEvent) => {
+    select(e);
+    layout?.showSettings();
   };
 
   const grip = (
@@ -117,6 +128,7 @@ export default function NodeShell({
         ref={setNodeRef}
         style={style}
         onClick={select}
+        onDoubleClick={reveal}
         className={[
           "group relative flex cursor-pointer flex-col rounded-2xl border-2 bg-white px-3 pb-3 pt-2 shadow-sm dark:bg-zinc-900",
           ring,
@@ -146,6 +158,7 @@ export default function NodeShell({
       ref={setNodeRef}
       style={style}
       onClick={select}
+      onDoubleClick={reveal}
       className={[
         "flex cursor-pointer flex-col items-center",
         isDragging ? "opacity-50" : "",

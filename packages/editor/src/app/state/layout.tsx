@@ -35,6 +35,12 @@ interface Stored {
 interface LayoutValue extends Stored {
   toggleSidebar(): void;
   toggleSettings(): void;
+  /**
+   * Show the settings panel, whatever it was doing. Separate from the toggle
+   * because a caller that means "reveal this" (double-clicking a component) must
+   * not hide the panel when it is already open.
+   */
+  showSettings(): void;
 }
 
 const LayoutContext = createContext<LayoutValue | null>(null);
@@ -81,6 +87,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       ...layout,
       toggleSidebar: () => write({ ...layout, sidebar: !layout.sidebar }),
       toggleSettings: () => write({ ...layout, settings: !layout.settings }),
+      showSettings: () => {
+        if (!layout.settings) write({ ...layout, settings: true });
+      },
     }),
     [layout, write],
   );
