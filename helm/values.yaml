@@ -107,6 +107,47 @@ platform:
     nodePorts: {}
     externalTrafficPolicy: ""
 
+# The identity service. It owns platform users and the roles granted to them, and
+# exchanges an identity provider's sign-in token for an internal platform token
+# other services verify from the JWKS it publishes.
+#
+# Note what is NOT here: there is no signing key to configure, hold or rotate. The
+# keypair is generated on demand, stored in the database so every replica shares
+# it, and rotated by the service itself long before it expires. That is affordable
+# precisely because this service is internal — see the ClusterIP note on its
+# Service — and it is one fewer credential in a release's history.
+iam:
+  repository: octo-iam-paas
+  image: {}
+  # Safe above one: every replica signs with the same key, read from the database,
+  # and the rotation that installs a new one is taken under an advisory lock.
+  replicas: 1
+
+  # The `aud` claim on every minted token. Empty uses the service's default,
+  # "octo". One value for the whole platform on purpose: a per-service audience
+  # would describe a token that may call the orchestrator but not the
+  # observability service, which is what roles are for.
+  audience: ""
+
+  # How long a minted token is valid, as a Go duration. Empty uses the service's
+  # default of 1h — long enough that nothing re-authenticates constantly, short
+  # enough that a revoked role takes effect within a working session.
+  tokenTtl: ""
+
+  # How long a signing key signs before the service replaces it, as a Go duration.
+  # Empty uses the service's default of 720h (30 days). The retired key keeps being
+  # published until every token it signed has expired, so shortening this costs
+  # nothing but a slightly larger key set.
+  keyLifetime: ""
+
+  service:
+    # ClusterIP only, and the template says why: this service mints platform
+    # credentials, and nothing outside the cluster needs to reach it.
+    port: 8093
+    # Annotations on the Service — e.g. cloud.google.com/neg on GKE for
+    # container-native load balancing.
+    annotations: {}
+
 orchestrator:
   repository: octo-orchestrator-paas
   image: {}
@@ -554,6 +595,16 @@ agenticrunner:
 # namespaces (*_secrets) at rest; plain namespaces are stored as-is (no crypto cost).
 # Empty disables encryption: secret-namespace writes are rejected, plain KV still
 # works. Terraform generates and supplies it on the platform (held in release state).
+#
+# Despite the name, this key is now the ONE key this platform encrypts everything at
+# rest with — one thing to hold, one to rotate, one place to look when something will
+# not decrypt. Besides KV it protects the site-wide provider credentials in the
+# orchestrator, and the private half of every signing key in the iam service.
+#
+# That last one raises the stakes of leaving it empty. The orchestrator degrades —
+# it refuses secret writes and carries on — but iam cannot store a signing key at
+# all without this, so token signing stays off and POST /auth reports itself
+# unavailable. Set it on any install that is meant to authenticate anybody.
 kv:
   encryptionKey: ""
   # Name an existing Secret holding the key instead, and the chart creates none.

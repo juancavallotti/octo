@@ -7,6 +7,17 @@ The Go module (`github.com/juancavallotti/octo`) is rooted at the repo root; all
 app (see [apps/platform/README.md](apps/platform/README.md)). Run `pnpm install`
 at the repo root to install all workspace dependencies.
 
+Four more Go modules sit beside it, each self-contained (its own `go.mod`, built
+from its own directory, importing none of the others): **`orchestrator/`** is the
+control plane, **`observability/`** serves logs, traces and pod stats,
+**`iam/`** owns platform users and their roles and exchanges an identity
+provider's sign-in token for a platform JWT, and **`sidecars/`** holds the
+per-pod helpers. They share one Postgres and one schema (`sql/schema.sql`), and
+find each other by URL. Adding one means registering it in the root
+`Taskfile.yml`, `.github/workflows/validate.yml` and `release.yml`,
+`cloudbuild.yaml`, `devspace.yaml` and the chart — each of those enumerates its
+members rather than discovering them, and the enumeration is the guarantee.
+
 Required reading:
 
 - [docs/coding-standards.md](docs/coding-standards.md) — Go code
@@ -19,6 +30,7 @@ Required reading:
 ## Workflow rules (always apply)
 
 - Break every implementation plan down into a sequence of small, logical commits.
+  The **branch** is green, not every commit in it.
 - **Two gates: the plan is approved before the work starts, and `git push` /
   opening a pull request is approved.** In between, chain the agreed sequence. A
   commit that changes an architectural contract, or one you are not confident
@@ -26,6 +38,10 @@ Required reading:
   [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md) — which is
   the policy; this is a pointer to it, not a second copy.
 - Use Conventional Commit messages — release automation depends on them.
+- **Do not test what the supply chain already tests.** If a failing test could only
+  mean that Postgres, pgx, or the standard library is broken, it should not exist —
+  see the testing section of
+  [docs/coding-standards.md](docs/coding-standards.md).
 
 ## Documentation policy
 

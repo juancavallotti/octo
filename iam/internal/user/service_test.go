@@ -1,0 +1,379 @@
+package user
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+)
+
+// memRepo is a hand-written in-memory repository for the service and handler
+// tests. It keeps the same invariants the real one gets from Postgres — a grant
+// is unique per (user, role), a grant against an unknown user is ErrNotFound —
+// so a test that passes here is testing the service's rules and not a fake that
+// agrees with whatever it is told.
+type memRepo struct {
+	users     map[string]*User
+	bySubject map[string]string
+	nextID    int
+
+	// failNext, when set, is returned by the next call to any method. It is how
+	// the tests reach the paths that only a database fault can produce.
+	failNext error
+}
+
+func newMemRepo() *memRepo {
+	return &memRepo{users: map[string]*User{}, bySubject: map[string]string{}}
+}
+
+func (m *memRepo) fail() error {
+	err := m.failNext
+	m.failNext = nil
+	return err
+}
+
+func (m *memRepo) Upsert(_ context.Context, subject, email, name string) (User, bool, error) {
+	if err := m.fail(); err != nil {
+		return User{}, false, err
+	}
+	if id, ok := m.bySubject[subject]; ok {
+		u := m.users[id]
+		u.Email, u.Name = email, name
+		u.LastLoginAt = time.Now()
+		return *u, false, nil
+	}
+	m.nextID++
+	id := string(rune('a'+m.nextID-1)) + "0000000-0000-0000-0000-000000000000"
+	u := &User{
+		ID: id, Subject: subject, Email: email, Name: name,
+		CreatedAt: time.Now(), LastLoginAt: time.Now(),
+	}
+	m.users[id] = u
+	m.bySubject[subject] = id
+	return *u, true, nil
+}
+
+func (m *memRepo) Get(_ context.Context, id string) (User, error) {
+	if err := m.fail(); err != nil {
+		return User{}, err
+	}
+	u, ok := m.users[id]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	return *u, nil
+}
+
+func (m *memRepo) GetBySubject(_ context.Context, subject string) (User, error) {
+	if err := m.fail(); err != nil {
+		return User{}, err
+	}
+	id, ok := m.bySubject[subject]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	return *m.users[id], nil
+}
+
+func (m *memRepo) List(_ context.Context) ([]User, error) {
+	if err := m.fail(); err != nil {
+		return nil, err
+	}
+	out := make([]User, 0, len(m.users))
+	for _, u := range m.users {
+		out = append(out, *u)
+	}
+	return out, nil
+}
+
+func (m *memRepo) Grant(_ context.Context, userID string, granted Role, _ *string) error {
+	if err := m.fail(); err != nil {
+		return err
+	}
+	u, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if u.HasRole(granted) {
+		return nil
+	}
+	u.Roles = append(u.Roles, granted)
+	return nil
+}
+
+func (m *memRepo) Revoke(_ context.Context, userID string, revoked Role) error {
+	if err := m.fail(); err != nil {
+		return err
+	}
+	u, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	kept := u.Roles[:0]
+	for _, r := range u.Roles {
+		if r != revoked {
+			kept = append(kept, r)
+		}
+	}
+	u.Roles = kept
+	return nil
+}
+
+func (m *memRepo) CountWithRole(_ context.Context, held Role) (int, error) {
+	if err := m.fail(); err != nil {
+		return 0, err
+	}
+	var n int
+	for _, u := range m.users {
+		if u.HasRole(held) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *memRepo) EnsureFirstAdmin(_ context.Context, userID string, created bool) (bool, error) {
+	if err := m.fail(); err != nil {
+		return false, err
+	}
+	if !created {
+		return false, nil
+	}
+	for _, u := range m.users {
+		if u.HasRole(RoleAdmin) {
+			return false, nil
+		}
+	}
+	u, ok := m.users[userID]
+	if !ok {
+		return false, nil
+	}
+	u.Roles = append(u.Roles, RoleAdmin)
+	return true, nil
+}
+
+func newService() (*Service, *memRepo) {
+	repo := newMemRepo()
+	return NewService(repo), repo
+}
+
+// The install has to end up with someone who can grant roles, and the only moment
+// that can happen without a human is the very first sign-in.
+func TestSignInMakesTheFirstUserAnAdmin(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+
+	first, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn(first): %v", err)
+	}
+	if !first.HasRole(RoleAdmin) {
+		t.Errorf("first user roles = %v, want to include %q", first.Roles, RoleAdmin)
+	}
+
+	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
+	if err != nil {
+		t.Fatalf("SignIn(second): %v", err)
+	}
+	if len(second.Roles) != 0 {
+		t.Errorf("second user roles = %v, want none", second.Roles)
+	}
+}
+
+// Signing in again must not re-run the bootstrap, or an admin who was
+// deliberately demoted on a single-user install could restore themselves by
+// logging out and back in.
+func TestSignInDoesNotRegrantAdminOnALaterSignIn(t *testing.T) {
+	svc, repo := newService()
+	ctx := context.Background()
+
+	u, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	// Revoked directly through the repository: the service refuses to remove the
+	// last admin, which is a different rule and has its own test below.
+	if err := repo.Revoke(ctx, u.ID, RoleAdmin); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+
+	again, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn(again): %v", err)
+	}
+	if again.HasRole(RoleAdmin) {
+		t.Errorf("roles = %v after signing in again, want the revocation to hold", again.Roles)
+	}
+}
+
+func TestSignInRefreshesAnExistingUser(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+
+	first, err := svc.SignIn(ctx, "sub-1", "old@example.com", "Old Name")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	again, err := svc.SignIn(ctx, "sub-1", "new@example.com", "New Name")
+	if err != nil {
+		t.Fatalf("SignIn(again): %v", err)
+	}
+
+	if again.ID != first.ID {
+		t.Errorf("id = %q on the second sign-in, want the stable %q", again.ID, first.ID)
+	}
+	if again.Email != "new@example.com" || again.Name != "New Name" {
+		t.Errorf("got %q/%q, want the identity provider's current email and name",
+			again.Email, again.Name)
+	}
+}
+
+func TestSignInRejectsAnUnidentifiablePrincipal(t *testing.T) {
+	tests := []struct {
+		name    string
+		subject string
+		email   string
+	}{
+		{"no subject", "", "someone@example.com"},
+		{"blank subject", "   ", "someone@example.com"},
+		{"no email", "sub-1", ""},
+		{"blank email", "sub-1", "  "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newService()
+			_, err := svc.SignIn(context.Background(), tt.subject, tt.email, "Name")
+			if !errors.Is(err, ErrInvalid) {
+				t.Errorf("SignIn() error = %v, want ErrInvalid", err)
+			}
+		})
+	}
+}
+
+func TestGrantRejectsARoleOutsideTheCatalogue(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+	u, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+
+	err = svc.Grant(ctx, u.ID, Role("platform:superuser"), nil)
+	if !errors.Is(err, ErrInvalid) {
+		t.Errorf("Grant(unknown role) error = %v, want ErrInvalid", err)
+	}
+}
+
+func TestGrantIsIdempotent(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+	u, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+
+	for range 2 {
+		if err := svc.Grant(ctx, u.ID, RoleOperator, nil); err != nil {
+			t.Fatalf("Grant: %v", err)
+		}
+	}
+
+	got, err := svc.Get(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var operators int
+	for _, r := range got.Roles {
+		if r == RoleOperator {
+			operators++
+		}
+	}
+	if operators != 1 {
+		t.Errorf("granted %s %d times, want it held once", RoleOperator, operators)
+	}
+}
+
+func TestGrantAgainstAnUnknownUserIsNotFound(t *testing.T) {
+	svc, _ := newService()
+	err := svc.Grant(context.Background(), "nobody", RoleMonitor, nil)
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("Grant(unknown user) error = %v, want ErrNotFound", err)
+	}
+}
+
+// An install with no admin has nobody who can grant the role back, so this is
+// the one state the system cannot recover from on its own.
+func TestRevokeRefusesToRemoveTheLastAdmin(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+	first, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+
+	err = svc.Revoke(ctx, first.ID, RoleAdmin)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Revoke(last admin) error = %v, want ErrInvalid", err)
+	}
+
+	// With a second admin in place the same revocation is allowed.
+	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
+	if err != nil {
+		t.Fatalf("SignIn(second): %v", err)
+	}
+	if err := svc.Grant(ctx, second.ID, RoleAdmin, &first.ID); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if err := svc.Revoke(ctx, first.ID, RoleAdmin); err != nil {
+		t.Errorf("Revoke with two admins: %v", err)
+	}
+}
+
+func TestRevokeANonAdminRoleIsNotGatedOnTheAdminCount(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+	u, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if err := svc.Grant(ctx, u.ID, RoleMonitor, nil); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+
+	// The only admin on the install, revoking something that is not admin.
+	if err := svc.Revoke(ctx, u.ID, RoleMonitor); err != nil {
+		t.Errorf("Revoke(monitor): %v", err)
+	}
+}
+
+func TestGetAndGrantRejectABlankUserID(t *testing.T) {
+	svc, _ := newService()
+	ctx := context.Background()
+
+	if _, err := svc.Get(ctx, "  "); !errors.Is(err, ErrInvalid) {
+		t.Errorf("Get(blank) error = %v, want ErrInvalid", err)
+	}
+	if err := svc.Grant(ctx, "", RoleMonitor, nil); !errors.Is(err, ErrInvalid) {
+		t.Errorf("Grant(blank) error = %v, want ErrInvalid", err)
+	}
+	if _, err := svc.GetBySubject(ctx, ""); !errors.Is(err, ErrInvalid) {
+		t.Errorf("GetBySubject(blank) error = %v, want ErrInvalid", err)
+	}
+}
+
+// A fault reading the admin count must not be read as "there are none", which
+// would turn a transient database error into permission to remove the last one.
+func TestRevokeSurfacesACountFailure(t *testing.T) {
+	svc, repo := newService()
+	ctx := context.Background()
+	u, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+
+	boom := errors.New("connection reset")
+	repo.failNext = boom
+	if err := svc.Revoke(ctx, u.ID, RoleAdmin); !errors.Is(err, boom) {
+		t.Errorf("Revoke() error = %v, want the repository's error", err)
+	}
+}

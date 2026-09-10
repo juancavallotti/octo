@@ -85,6 +85,9 @@ orchestrator:
 observability:
   repository: octo-observability
 
+iam:
+  repository: octo-iam
+
 schema:
   repository: octo-schema
 

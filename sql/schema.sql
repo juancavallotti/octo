@@ -1187,3 +1187,64 @@ CREATE INDEX IF NOT EXISTS idx_alert_evaluations_notable
 CREATE INDEX IF NOT EXISTS idx_alert_evaluations_incident
     ON alert_evaluations (incident_id, evaluated_at DESC)
     WHERE incident_id IS NOT NULL;
+
+-- user_roles records what a principal is allowed to do. Roles used to be whatever
+-- the identity provider's id token claimed (AUTH_ROLES_CLAIM in the editor), which
+-- meant no role could be granted without editing the provider, and the platform's
+-- whole authorization vocabulary was one setting naming who may write. They are
+-- rows now, owned by the iam service.
+--
+-- `role` is a plain varchar and not an enum. The catalogue is expected to grow into
+-- a finer set than the four coarse platform:* roles it starts with, and a Postgres
+-- enum would make every addition a schema change applied by a Job. iam validates a
+-- role against its catalogue before writing, so the constraint lives where the
+-- catalogue does.
+--
+-- granted_by is the admin who granted it, and is nullable: the very first grant is
+-- made by the service itself, when the first user to ever sign in is made
+-- platform:admin because otherwise nobody could grant anything to anyone.
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id    uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    role       varchar NOT NULL,
+    granted_at timestamptz NOT NULL DEFAULT now(),
+    granted_by uuid REFERENCES users (id) ON DELETE SET NULL,
+    PRIMARY KEY (user_id, role)
+);
+
+-- "who holds this role" — the question an admin screen asks, and the one the
+-- primary key above cannot answer, since it leads with user_id.
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles (role);
+
+-- iam_signing_keys holds the keypairs the iam service signs platform tokens with
+-- and publishes as JWKS. It is a table and not a mounted Secret because the key
+-- has to be the same across replicas, survive restarts, and rotate without anyone
+-- being asked to do anything: this service is strictly internal, so an expiring,
+-- self-rotating key costs nothing and a chart value would be one more thing an
+-- operator can get wrong.
+--
+-- Two horizons, and they are not the same date. `retire_after` is when the key
+-- stops signing; `expires_at` is when it stops being published. The gap between
+-- them is at least one token lifetime, so a token minted a moment before rotation
+-- can still be verified for the whole of its life. Rows past expires_at are
+-- deleted by the next rotation, so nothing sweeps in the background.
+--
+-- The private key is stored as it is, not encrypted. Encrypting it would need a
+-- key to hold, which is precisely the operator-visible knob this design does
+-- without, and the protection would be thin: anyone who can read this table can
+-- write user_roles and make themselves an admin.
+CREATE TABLE IF NOT EXISTS iam_signing_keys (
+    kid          varchar PRIMARY KEY,
+    algorithm    varchar NOT NULL,
+    private_key  bytea NOT NULL,        -- PKCS#8 DER
+    public_key   bytea NOT NULL,        -- PKIX DER
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    retire_after timestamptz NOT NULL,
+    expires_at   timestamptz NOT NULL
+);
+
+-- The two reads this table gets: "which key signs now" (the newest that has not
+-- retired) and "which keys still verify" (everything unexpired, for the JWKS).
+CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_retire_after
+    ON iam_signing_keys (retire_after DESC);
+CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_expires_at
+    ON iam_signing_keys (expires_at);

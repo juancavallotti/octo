@@ -211,6 +211,24 @@ dev:
         onUpload:
           restartContainer: true
     logs: {}
+  iam:
+    labelSelector:
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: iam
+    namespace: octo-dev
+    devImage: octo-iam-dev:dev
+    command: ["go", "run", "."]
+    workingDir: /src
+    sync:
+      - path: ./iam:/src
+        excludePaths:
+          - .git/
+          - iam
+        # Restart the container after each upload so `go run` recompiles.
+        onUpload:
+          restartContainer: true
+    logs: {}
   # Postgres is not hot-reloaded; this entry only forwards its logs to the terminal.
   postgres:
     labelSelector:

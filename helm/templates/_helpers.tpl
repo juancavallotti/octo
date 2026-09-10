@@ -63,6 +63,10 @@
 {{- include "octo-common.componentName" (dict "root" . "component" "embeddings") }}
 {{- end }}
 
+{{- define "octo.iam.serviceName" -}}
+{{- include "octo-common.componentName" (dict "root" . "component" "iam") }}
+{{- end }}
+
 {{/*
   Secret and keys holding the editor's two authentication credentials: the OIDC
   client secret and the Auth.js session secret. The same choice every other
@@ -318,6 +322,16 @@ dev-run-hash-secret
 {{- end }}
 
 {{/*
+  The iam service's in-cluster base URL. It is both where callers reach it and the
+  issuer it stamps into every token it mints — those cannot be two values, because
+  a verifier resolves the issuer to fetch the keys. So one helper renders it, and
+  the service is told its own address rather than guessing at one.
+*/}}
+{{- define "octo.iam.url" -}}
+{{- printf "http://%s.%s:%d" (include "octo.iam.serviceName" .) .Release.Namespace (int .Values.iam.service.port) -}}
+{{- end }}
+
+{{/*
   The NATS monitoring HTTP base URL (port 8222), which the platform polls for
   queue stats (/varz, /connz). Same service as octo.nats.url, http scheme + the
   monitor port.
@@ -432,7 +446,7 @@ password
   out of this either: with externalDatabase.existingSecret the value is not
   knowable at template time, which is the whole point of an existing Secret.
 
-  So the password travels as PGPASSWORD instead. All three Go services connect
+  So the password travels as PGPASSWORD instead. All four Go services connect
   with pgx/v5, which honours the libpq environment variables as defaults for
   anything the connection string omits — and no escaping rules apply to an
   environment variable. PGPASSWORD is kept as the ONLY source, rather than a
