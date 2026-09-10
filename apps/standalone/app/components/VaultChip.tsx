@@ -5,20 +5,18 @@ import { Check, Copy, FolderOpen, FolderSearch } from "lucide-react";
 import { desktopBridge, type VaultRef } from "../desktop";
 
 /**
- * Which folder this editor is serving, and — in the desktop shell — how to
- * change it.
+ * Which folder the desktop shell is serving, and how to change it.
  *
- * The name is read from `/api/vault`, not from the shell, so it shows in every
- * deployment: `task dev` and the Docker image are also serving a directory the
- * user chose, and neither ever said which. Only the *menu* needs the shell,
- * because only the shell can open a native folder picker.
+ * Desktop only. Choosing a folder is a shell capability — only Electron can open
+ * a native picker or restart itself on another directory — and in a browser the
+ * chip was a dead label for something the user could not act on. `task dev` and
+ * the Docker image are configured by whoever started them, not from in here.
+ *
+ * It lives on the right of the header, with Save and the rest of the
+ * project-level controls, rather than inline with the flow's own title.
  */
 export default function VaultChip() {
   const bridge = desktopBridge();
-  // `name` comes from the server, so every deployment can show it. `path` comes
-  // from the shell, because the route deliberately does not serve it: the Docker
-  // image is unauthenticated on 0.0.0.0, and an absolute path carries the user's
-  // account name and directory layout. In a browser the tooltip is simply absent.
   const [vault, setVault] = useState<VaultRef | null>(null);
   const [recents, setRecents] = useState<VaultRef[]>([]);
   const [copied, setCopied] = useState(false);
@@ -26,16 +24,14 @@ export default function VaultChip() {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!bridge) return;
     let cancelled = false;
-    const load = async () => {
-      const named = await fetch("/api/vault")
-        .then((r) => (r.ok ? (r.json() as Promise<{ name: string }>) : null))
-        .catch(() => null);
-      if (!named || cancelled) return;
-      const full = bridge ? await bridge.vault().catch(() => null) : null;
-      if (!cancelled) setVault({ name: named.name, path: full?.path ?? "" });
-    };
-    void load();
+    bridge
+      .vault()
+      .then((v) => {
+        if (!cancelled) setVault(v);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -64,27 +60,9 @@ export default function VaultChip() {
     };
   }, [open]);
 
-  if (!vault) return null;
-
-  const label = (
-    <>
-      <FolderOpen size={14} className="shrink-0 text-zinc-400" />
-      <span className="max-w-[10rem] truncate">{vault.name}</span>
-    </>
-  );
-
-  // No shell: say which folder, and stop. There is nothing here a browser can do
-  // about it, and a button that opens an empty menu is worse than plain text.
-  if (!bridge) {
-    return (
-      <span
-        title={vault.path || undefined}
-        className="flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400"
-      >
-        {label}
-      </span>
-    );
-  }
+  // Nothing to show until the shell answers — which also keeps the first client
+  // render identical to the server's, so hydration has nothing to disagree about.
+  if (!bridge || !vault) return null;
 
   const copyUrl = async () => {
     await bridge.copyMcpUrl();
@@ -100,14 +78,18 @@ export default function VaultChip() {
       <button
         type="button"
         title={vault.path || undefined}
+        aria-label="Project folder"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm text-zinc-600 transition-colors hover:border-black/10 hover:text-zinc-900 dark:text-zinc-300 dark:hover:border-white/15 dark:hover:text-zinc-100"
       >
-        {label}
+        <FolderOpen size={14} className="shrink-0 text-zinc-400" />
+        <span className="max-w-[10rem] truncate">{vault.name}</span>
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
+        /* Anchored to the right edge: the chip now sits near the end of the bar,
+           so a left-anchored menu would hang off it. */
+        <div className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
           <button type="button" onClick={() => void bridge.pickVault()} className={`${item} border-b border-black/5 dark:border-white/5`}>
             <FolderSearch size={16} className="shrink-0 text-zinc-400" />
             <span className="flex-1">Open folder…</span>

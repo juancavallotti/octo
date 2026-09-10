@@ -17,8 +17,9 @@ import VaultChip from "./VaultChip";
 /**
  * The standalone editor's top bar: the Octo mark, an editable flow title (its
  * name becomes the `*.yaml` filename on the first save), an open/new file menu,
- * Save (local-disk filesystem), and the RUN control. No orchestrator, auth, or
- * folders.
+ * and — on the right, with the other project-level controls — the desktop folder
+ * chip, Save (local-disk filesystem) and the RUN control. No orchestrator, auth,
+ * or folders.
  */
 export default function StandaloneHeader() {
   return (
@@ -36,15 +37,14 @@ export default function StandaloneHeader() {
       <span className="font-semibold tracking-tight">Octo</span>
       <ModeBadge />
       <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
-      {/* Which folder is being served. Every deployment has one and none of them
-          used to say so. */}
-      <VaultChip />
-      <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
       <IntegrationTitle />
       <StandaloneFileMenu />
       <ViewModeToggle />
 
+      {/* Right of the bar is project-level: which folder we are working in, and
+          what to do with it. The left is the document being edited. */}
       <div className="ml-auto flex items-center gap-2">
+        <VaultChip />
         <SaveButton />
         <RunBar />
       </div>
