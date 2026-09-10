@@ -573,3 +573,35 @@ func TestVerifyWithAWindowStillAcceptsABrandNewToken(t *testing.T) {
 		t.Errorf("Verify() of a freshly minted token with an hour of grace: %v", err)
 	}
 }
+
+// The regression test for the bug the fake clock hid.
+//
+// Verify used to hand issuer and audience to jwt.Claims.ValidateWithLeeway with
+// no Expected.Time, and go-jose falls back to time.Now() when that is zero — the
+// real clock, not this service's. Every other test here moves svc.now forward,
+// which leaves the token unexpired by the real clock, so the validator passed it
+// through and the window check below did the work. In production the two clocks
+// are the same and the validator refused every expired token before the window
+// was ever consulted, which would have made the whole refresh grace dead code.
+//
+// So this one mints in the past instead of verifying in the future: the token is
+// genuinely expired by the wall clock, exactly as it would be in production.
+func TestVerifyForgivesAnExpiryAgainstTheRealClock(t *testing.T) {
+	svc, _ := newTestService(t, Config{TokenTTL: time.Hour, KeyLifetime: 24 * time.Hour})
+	ctx := context.Background()
+
+	// Minted two hours ago, so it expired an hour ago by any clock.
+	svc.now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	svc.now = time.Now
+	if _, err := svc.Verify(ctx, token.Value, 2*time.Hour); err != nil {
+		t.Errorf("Verify() of a genuinely expired token inside the window: %v", err)
+	}
+	if _, err := svc.Verify(ctx, token.Value, 0); !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify() with no window accepted an expired token: %v", err)
+	}
+}

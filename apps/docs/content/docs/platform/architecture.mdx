@@ -79,7 +79,7 @@ The orchestrator trusts the platform app as its authentication boundary: the act
 
 ### iam (`iam/`)
 
-A small Go service (port `8093`) that owns identity and authorization for the platform. It is the only component that talks to an identity provider: it verifies the token somebody arrives with, resolves them to a `users` row and its roles, and mints a token this platform signed. Everything downstream verifies that token against the keys iam publishes at `/.well-known/jwks.json`, so nothing else has to understand OIDC.
+A small Go service (port `8093`) that owns identity and authorization for the platform. It is the only component that talks to an identity provider: it verifies the token somebody arrives with, resolves them to a `users` row and its roles, and mints a token this platform signed. That token is verifiable against the keys iam publishes at `/.well-known/jwks.json`, so a service that checks it needs to understand nothing about OIDC. Today the platform app is the one that holds it — the orchestrator still trusts the platform as its boundary, as described above.
 
 It signs ES256 and generates, stores and rotates its own keys — there is no signing key for an operator to set. The private halves live in `iam_signing_keys` encrypted under `KV_ENCRYPTION_KEY`, the same key the orchestrator uses for the KV store.
 

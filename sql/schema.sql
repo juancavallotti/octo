@@ -1271,17 +1271,22 @@ CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_expires_at
 -- idempotent in the sense that it inserts nothing new, but the Job re-runs on
 -- every deploy, so it would re-grant admin to anybody an administrator had since
 -- demoted. The version check makes the whole thing happen exactly once.
+--
+-- The grant and the version bump are in one DO block, so they are one statement
+-- and therefore one transaction. Written as two, a Job that died between them
+-- would leave the grant applied and the version unbumped, and the next deploy
+-- would re-grant — which is the very thing the guard is here to prevent, arriving
+-- by a different road.
 DO $$
 BEGIN
     IF COALESCE((SELECT (value->>'version')::int FROM site_settings WHERE key = 'db_version'), 0) < 2 THEN
         INSERT INTO user_roles (user_id, role)
         SELECT id, 'platform:admin' FROM users
         ON CONFLICT (user_id, role) DO NOTHING;
+
+        INSERT INTO site_settings (key, value)
+        VALUES ('db_version', jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text))
+        ON CONFLICT (key) DO UPDATE
+        SET value = jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text);
     END IF;
 END $$;
-
-INSERT INTO site_settings (key, value)
-VALUES ('db_version', jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text))
-ON CONFLICT (key) DO UPDATE
-SET value = jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text)
-WHERE COALESCE((site_settings.value->>'version')::int, 0) < 2;

@@ -136,9 +136,17 @@ func (v *Verifier) audienceAccepted(tokenAudiences []string) bool {
 // token as the credential. It returns what it found, falling back to the name we
 // already had.
 //
-// Best-effort on purpose: a provider that publishes no userinfo endpoint, or one
-// that is briefly unreachable, should produce the "no email" refusal the caller
-// can act on rather than a different error about a lookup they did not ask for.
+// The credential is whatever was presented to us, which is right for the case
+// this exists to serve: an MCP client arrives with an OAuth access token, and an
+// access token is exactly what a userinfo endpoint wants. A sign-in arrives with
+// an id token instead, and a conforming provider may well refuse that — which is
+// acceptable, because an id token that carries no email at all is a provider
+// misconfiguration, and the refusal below names it. What this must never do is
+// turn either case into a different error about a lookup nobody asked for.
+//
+// Best-effort on purpose, for the same reason: a provider that publishes no
+// userinfo endpoint, or one that is briefly unreachable, should produce the "no
+// email" refusal the caller can act on.
 func (v *Verifier) fromUserinfo(
 	ctx context.Context, provider *oidc.Provider, rawToken, name string,
 ) (string, string) {

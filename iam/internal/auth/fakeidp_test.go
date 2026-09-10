@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -78,12 +79,20 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 		}}})
 	})
 
-	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, r *http.Request) {
 		idp.mu.Lock()
 		claims := idp.userinfo
 		idp.mu.Unlock()
 		if claims == nil {
 			http.Error(w, "no userinfo here", http.StatusNotFound)
+			return
+		}
+		// A real userinfo endpoint answers to a credential and not to anybody who
+		// asks. Checked here so the test proves the verifier actually presents the
+		// caller's token, rather than passing whether or not it sent one.
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, "a bearer token is required", http.StatusUnauthorized)
 			return
 		}
 		writeJSON(w, claims)

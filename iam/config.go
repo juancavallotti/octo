@@ -105,6 +105,12 @@ func newSigningService(
 // reason: the likely typos differ from the intent by a factor nobody would
 // notice from behaviour, so a malformed value stops startup naming the setting
 // rather than quietly meaning something else.
+//
+// It is also refused above signing.MaxRefreshGrace. Beyond that the keyset stops
+// publishing the key a token was signed with while the token is still inside its
+// window, so the promise would hold for most tokens and break for the ones minted
+// near a rotation — the worst shape a failure can have, since it looks like
+// nothing is wrong until somebody's session ends for no visible reason.
 func refreshGrace() (time.Duration, error) {
 	raw := os.Getenv("IAM_REFRESH_GRACE")
 	if raw == "" {
@@ -113,6 +119,12 @@ func refreshGrace() (time.Duration, error) {
 	parsed, err := time.ParseDuration(raw)
 	if err != nil || parsed <= 0 {
 		return 0, fmt.Errorf("parse IAM_REFRESH_GRACE: %q is not a positive duration", raw)
+	}
+	if parsed > signing.MaxRefreshGrace {
+		return 0, fmt.Errorf(
+			"IAM_REFRESH_GRACE is %s, which is longer than the %s a signing key outlives the "+
+				"tokens it signed; a token past that can no longer be verified at all",
+			parsed, signing.MaxRefreshGrace)
 	}
 	return parsed, nil
 }

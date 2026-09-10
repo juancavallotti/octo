@@ -190,21 +190,28 @@ func (s *Service) Verify(ctx context.Context, raw string, allowExpiredFor time.D
 		return jwt.Claims{}, err
 	}
 
-	// Issuer and audience only. The time checks are done below rather than here
-	// because the two horizons need different treatment, and go-jose validates
-	// them against a single instant: moving that instant back far enough to
-	// forgive an expiry also moves it behind a fresh token's not-before, which
-	// makes a token minted a second ago read as "not valid yet".
-	if err := claims.ValidateWithLeeway(jwt.Expected{
-		Issuer:      s.cfg.Issuer,
-		AnyAudience: jwt.Audience{s.cfg.Audience},
-	}, 0); err != nil {
-		return jwt.Claims{}, fmt.Errorf("%w: %w", ErrNotOurToken, err)
+	// Checked here rather than through jwt.Claims.ValidateWithLeeway, which cannot
+	// do this job. It validates both horizons against a single instant, so moving
+	// that instant back far enough to forgive an expiry also moves it behind a
+	// fresh token's not-before and makes a token minted a second ago read as "not
+	// valid yet" — and its `Expected.Time` falls back to time.Now() when left
+	// zero, which is the real clock rather than this service's, so it would refuse
+	// an expired token before the window below was ever consulted and the whole
+	// refresh grace would be dead code. Four explicit comparisons against s.now()
+	// and no such surprises.
+	if claims.Issuer != s.cfg.Issuer {
+		return jwt.Claims{}, fmt.Errorf("%w: another issuer", ErrNotOurToken)
+	}
+	if !claims.Audience.Contains(s.cfg.Audience) {
+		return jwt.Claims{}, fmt.Errorf("%w: another audience", ErrNotOurToken)
 	}
 
 	now := s.now()
 	if claims.NotBefore != nil && now.Add(clockSkew).Before(claims.NotBefore.Time()) {
 		return jwt.Claims{}, fmt.Errorf("%w: the token is not valid yet", ErrNotOurToken)
+	}
+	if claims.IssuedAt != nil && now.Add(clockSkew).Before(claims.IssuedAt.Time()) {
+		return jwt.Claims{}, fmt.Errorf("%w: the token was issued in the future", ErrNotOurToken)
 	}
 	if claims.Expiry == nil {
 		return jwt.Claims{}, fmt.Errorf("%w: the token has no expiry", ErrNotOurToken)
@@ -244,6 +251,17 @@ func (s *Service) claimsFromAnyKey(parsed *jwt.JSONWebToken, keys []Key, into *j
 // and a token rejected for being from the future is the least diagnosable
 // possible failure.
 const clockSkew = 30 * time.Second
+
+// MaxRefreshGrace is the longest a caller may ask Verify to forgive an expiry.
+//
+// It is gracePeriod because that is exactly the slack the keyset leaves. A key
+// stays published until retire_after + TokenTTL + gracePeriod, and a token minted
+// the moment before retirement expires at retire_after + TokenTTL — so an expired
+// token has gracePeriod left before the key that signed it stops being published
+// and it can no longer be verified at all. A window longer than that would be a
+// promise the keyset does not keep, failing only for the unlucky tokens near a
+// rotation.
+const MaxRefreshGrace = gracePeriod
 
 // JWKS returns the public half of every key that has not expired, as the document
 // served at /.well-known/jwks.json. Retired keys are in it on purpose: they no
