@@ -11,6 +11,26 @@
 */}}
 - name: IAM_ISSUER
   value: {{ include "octo.iam.url" . | quote }}
+{{- if include "octo.kv.enabled" . }}
+{{- /*
+  The same AES key the orchestrator encrypts KV secret namespaces and provider
+  credentials with, and the same one deliberately: this platform has one key for
+  everything it keeps encrypted in Postgres, so there is one thing to hold, one to
+  rotate, and one place to look when something will not decrypt.
+
+  Here it seals the private half of every signing key. Absent, this service cannot
+  store one at all and token signing stays off — unlike the orchestrator, which
+  degrades by rejecting secret writes and carrying on. There is no equivalent
+  half-measure for a keyset: writing private keys in the clear because a setting
+  was missing is not a degraded mode, it is the failure the encryption exists to
+  prevent.
+*/}}
+- name: KV_ENCRYPTION_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "octo.kv.secretName" . }}
+      key: {{ include "octo.kv.secretKey" . }}
+{{- end }}
 {{- with .Values.iam.audience }}
 - name: IAM_AUDIENCE
   value: {{ . | quote }}

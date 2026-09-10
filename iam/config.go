@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"time"
 
+	cryptox "github.com/juancavallotti/octo/iam/internal/crypto"
+	"github.com/juancavallotti/octo/iam/internal/db"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 )
 
@@ -52,4 +55,44 @@ func signingConfig() (signing.Config, error) {
 		*d.into = parsed
 	}
 	return cfg, nil
+}
+
+// newCipher builds the at-rest encryption cipher from a base64-encoded key. An
+// empty key returns a nil cipher, which leaves token signing disabled; a malformed
+// key or an invalid length stops startup.
+//
+// The variable is KV_ENCRYPTION_KEY, shared with the orchestrator, and the name is
+// the orchestrator's history rather than a description — it protects rather more
+// than KV there too. What matters is that both services read the SAME key, so this
+// platform has one thing to hold and one to rotate.
+func newCipher(b64 string) (*cryptox.Cipher, error) {
+	if b64 == "" {
+		return nil, nil //nolint:nilnil // no key means signing is off, not an error
+	}
+	key, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("decode KV_ENCRYPTION_KEY: %w", err)
+	}
+	return cryptox.NewCipher(key)
+}
+
+// newSigningService builds the keyset, or reports ErrInvalidConfig when this
+// install has not configured one — an absent issuer, or an absent encryption key.
+//
+// Both are reported the same way for the same reason: neither is a fault, both are
+// coherent ways to run, and in both cases what happens is that POST /auth reports
+// itself unavailable rather than the process refusing to start.
+func newSigningService(
+	database *db.DB, cipher *cryptox.Cipher, cfg signing.Config,
+) (*signing.Service, error) {
+	if cipher == nil {
+		return nil, fmt.Errorf(
+			"%w: KV_ENCRYPTION_KEY is not set, and signing keys are not stored unencrypted",
+			signing.ErrInvalidConfig)
+	}
+	repo, err := signing.NewRepo(database.Pool(), cipher)
+	if err != nil {
+		return nil, err
+	}
+	return signing.NewService(repo, cfg)
 }

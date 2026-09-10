@@ -595,6 +595,16 @@ agenticrunner:
 # namespaces (*_secrets) at rest; plain namespaces are stored as-is (no crypto cost).
 # Empty disables encryption: secret-namespace writes are rejected, plain KV still
 # works. Terraform generates and supplies it on the platform (held in release state).
+#
+# Despite the name, this key is now the ONE key this platform encrypts everything at
+# rest with — one thing to hold, one to rotate, one place to look when something will
+# not decrypt. Besides KV it protects the site-wide provider credentials in the
+# orchestrator, and the private half of every signing key in the iam service.
+#
+# That last one raises the stakes of leaving it empty. The orchestrator degrades —
+# it refuses secret writes and carries on — but iam cannot store a signing key at
+# all without this, so token signing stays off and POST /auth reports itself
+# unavailable. Set it on any install that is meant to authenticate anybody.
 kv:
   encryptionKey: ""
   # Name an existing Secret holding the key instead, and the chart creates none.

@@ -133,12 +133,19 @@ func newServer(database *db.DB) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	signingSvc, err := signing.NewService(signing.NewRepo(database.Pool()), signingCfg)
+	// The cipher that seals stored private keys. A malformed key stops startup; an
+	// absent one leaves signing off, which the ErrInvalidConfig branch below
+	// reports along with every other reason the keyset cannot be built.
+	cipher, err := newCipher(os.Getenv("KV_ENCRYPTION_KEY"))
+	if err != nil {
+		return nil, err
+	}
+	signingSvc, err := newSigningService(database, cipher, signingCfg)
 	if err != nil {
 		if !errors.Is(err, signing.ErrInvalidConfig) {
 			return nil, err
 		}
-		slog.Warn("token signing is disabled; set IAM_ISSUER to enable it", "reason", err)
+		slog.Warn("token signing is disabled", "reason", err)
 		// The exchange is registered anyway, with nothing behind it, so POST /auth
 		// answers 503 naming what is missing rather than 404.
 		auth.NewHandler(nil).Register(mux)

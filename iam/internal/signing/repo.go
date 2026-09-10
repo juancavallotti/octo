@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	cryptox "github.com/juancavallotti/octo/iam/internal/crypto"
 )
 
 const (
@@ -22,13 +24,25 @@ const (
 )
 
 // Repo persists the signing keyset to Postgres.
+//
+// The private half of every key is encrypted before it is written and decrypted on
+// the way back, so a copy of the database — a dump, a snapshot, a replica somebody
+// can read — does not by itself let anyone mint platform tokens. The cipher is
+// required rather than optional: a keyset that silently stored its private keys in
+// the clear because a setting was absent would be the one failure nothing here
+// could report afterwards.
 type Repo struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher *cryptox.Cipher
 }
 
-// NewRepo returns a Repo backed by the given pool.
-func NewRepo(pool *pgxpool.Pool) *Repo {
-	return &Repo{pool: pool}
+// NewRepo returns a Repo backed by the given pool, sealing private keys with
+// cipher. A nil cipher is refused: see the type comment.
+func NewRepo(pool *pgxpool.Pool, cipher *cryptox.Cipher) (*Repo, error) {
+	if cipher == nil {
+		return nil, fmt.Errorf("%w: a cipher is required to store signing keys", ErrInvalidConfig)
+	}
+	return &Repo{pool: pool, cipher: cipher}, nil
 }
 
 // Current returns the key that should sign now: the newest one that has not
@@ -39,7 +53,7 @@ func (r *Repo) Current(ctx context.Context, now time.Time) (Key, error) {
 		  WHERE retire_after > $1
 		  ORDER BY retire_after DESC
 		  LIMIT 1`, now)
-	k, err := scanKey(row)
+	k, err := r.scanKey(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Key{}, ErrNoKey
@@ -65,7 +79,7 @@ func (r *Repo) Verifiers(ctx context.Context, now time.Time) ([]Key, error) {
 
 	keys := make([]Key, 0)
 	for rows.Next() {
-		k, err := scanKey(rows)
+		k, err := r.scanKey(rows)
 		if err != nil {
 			return nil, fmt.Errorf("signing repo: verifiers: scan: %w", err)
 		}
@@ -100,7 +114,7 @@ func (r *Repo) Rotate(ctx context.Context, now time.Time, generate func() (Key, 
 	}
 
 	// Someone may have rotated between the caller's check and this lock.
-	existing, err := scanKey(tx.QueryRow(ctx,
+	existing, err := r.scanKey(tx.QueryRow(ctx,
 		`SELECT `+keyColumns+` FROM iam_signing_keys
 		  WHERE retire_after > $1
 		  ORDER BY retire_after DESC
@@ -116,11 +130,15 @@ func (r *Repo) Rotate(ctx context.Context, now time.Time, generate func() (Key, 
 	if err != nil {
 		return Key{}, err
 	}
+	sealed, err := r.cipher.Encrypt(fresh.Private)
+	if err != nil {
+		return Key{}, fmt.Errorf("signing repo: rotate: seal private key: %w", err)
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO iam_signing_keys
 		   (kid, algorithm, private_key, public_key, retire_after, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		fresh.KID, fresh.Algorithm, fresh.Private, fresh.Public,
+		fresh.KID, fresh.Algorithm, sealed, fresh.Public,
 		fresh.RetireAfter, fresh.ExpiresAt)
 	if err != nil {
 		return Key{}, fmt.Errorf("signing repo: rotate: insert: %w", err)
@@ -144,15 +162,28 @@ func (r *Repo) Rotate(ctx context.Context, now time.Time, generate func() (Key, 
 	return fresh, nil
 }
 
-// scanKey reads one row in keyColumns order.
-func scanKey(row pgx.Row) (Key, error) {
-	var k Key
+// scanKey reads one row in keyColumns order, opening the sealed private half.
+//
+// A key that will not decrypt is an error and not a skip. It means the stored
+// keyset was written under a different KV_ENCRYPTION_KEY, and the honest thing is
+// to say so: carrying on would quietly mint tokens under a new key while every
+// token already issued stayed unverifiable, which is a worse outage than refusing.
+func (r *Repo) scanKey(row pgx.Row) (Key, error) {
+	var (
+		k      Key
+		sealed []byte
+	)
 	err := row.Scan(
-		&k.KID, &k.Algorithm, &k.Private, &k.Public,
+		&k.KID, &k.Algorithm, &sealed, &k.Public,
 		&k.CreatedAt, &k.RetireAfter, &k.ExpiresAt,
 	)
 	if err != nil {
 		return Key{}, err
+	}
+	if k.Private, err = r.cipher.Decrypt(sealed); err != nil {
+		return Key{}, fmt.Errorf(
+			"signing repo: key %s will not decrypt, which means it was stored under a "+
+				"different KV_ENCRYPTION_KEY: %w", k.KID, err)
 	}
 	return k, nil
 }
