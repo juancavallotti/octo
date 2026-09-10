@@ -351,6 +351,23 @@ tasks:
   cluster:images:
     desc: Build the platform/orchestrator/observability/schema/runtime/devsidecar/statssidecar/devruntime/agenticrunner/embeddings images and load them into the k3d 'octo' cluster
     cmds:
+      - task: cluster:images:build
+      # Load the images straight into the cluster's containerd (no registry needed).
+      - k3d image import {{.CLUSTER_IMAGES}} -c octo
+      # Then prove they landed, and are still there. A gap never surfaces here: it
+      # surfaces much later and in another component, as an integration pod stuck
+      # on "pull access denied" for an image that was never meant to be pulled.
+      # Two ways to open one — an import interrupted partway, or the kubelet
+      # reclaiming images it already holds (see verify). A second spent here names
+      # the missing image instead of leaving it to be found from the other end.
+      - task: cluster:images:verify
+
+  cluster:images:build:
+    desc: Build the cluster images locally, without loading them into the cluster
+    # Split out from cluster:images so cluster:images:ensure can build (cheap, and
+    # cached when nothing changed) without importing every image (not cheap: k3d
+    # ships one tarball of the whole set into the node).
+    cmds:
       # Compile every Go binary once, on the host, for the node's architecture —
       # then the eight builds below only copy them in. Left to the Dockerfiles,
       # this list runs the Go compiler ten times from a cold cache; see bins:linux.
@@ -467,7 +484,26 @@ tasks:
     status:
       - task cluster:images:verify >/dev/null 2>&1
     cmds:
-      - task: cluster:images
+      # Build them all — docker's cache makes the unchanged ones a few seconds —
+      # then import only the ones the node does not have. Importing the whole set
+      # to deliver one image is a minute of tarball for nothing, and it is the
+      # common case: one image is missing because one values file started asking
+      # for it.
+      - task: cluster:images:build
+      - |
+        node="$(k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" {print $1; exit}')"
+        have="$(docker exec "$node" crictl images 2>/dev/null | awk 'NR > 1 {print $1 ":" $2}')"
+        missing=
+        for img in {{.CLUSTER_IMAGES}}; do
+          printf '%s\n' "$have" | grep -qx "docker.io/library/$img" || missing="$missing $img"
+        done
+        if [ -z "$missing" ]; then
+          echo "✓ cluster already holds every image"
+          exit 0
+        fi
+        echo "▶ importing:$missing"
+        k3d image import $missing -c octo
+      - task: cluster:images:verify
 
   cluster:images:dev:ensure:
     desc: Build+load the dev (hot-reload) images only when the cluster is missing one
@@ -562,7 +598,17 @@ tasks:
       - task: cluster:preflight
       - |
         if k3d cluster list 2>/dev/null | grep -qw octo; then
-          echo "✓ k3d cluster 'octo' already exists"
+          # Existing is not the same as running: a stopped cluster still lists,
+          # and everything after this point then fails in a way that reads as
+          # something else — `k3d image import` cannot reach a node, kubectl
+          # cannot reach an API server, and the image check reports the images
+          # missing, which sends the whole run into a rebuild it does not need.
+          if k3d node list 2>/dev/null | awk '$2 == "server" && $3 == "octo" {found = 1} END {exit !found}'; then
+            echo "✓ k3d cluster 'octo' already running"
+          else
+            echo "▶ k3d cluster 'octo' exists but is stopped — starting it..."
+            k3d cluster start octo
+          fi
         else
           echo "▶ creating k3d cluster 'octo' (Postgres data -> ./data)..."
           mkdir -p data
