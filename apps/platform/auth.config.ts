@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
-import { bootstrapUser } from "@/app/actions/_client";
+import { keepFresh, signInExchange, type OctoTokenFields } from "@/app/auth/octoToken";
 import {
   OIDC_AUTHORIZATION_URL,
   OIDC_CLIENT_ID,
@@ -21,33 +21,25 @@ import {
  *
  * The identity provider is whatever OIDC provider the operator configured (see
  * oidc.config.ts); Octo talks plain authorization-code OIDC and privileges none
- * of them. Roles are read from a configurable id-token claim (AUTH_ROLES_CLAIM,
- * default "roles") and surfaced on the session for the role-checker guard
- * (app/auth/guard.ts).
+ * of them.
+ *
+ * What the provider says about somebody is not what this platform authorizes on.
+ * At sign-in the provider's token is traded with iam for a platform token, and
+ * the roles on the session come off that — from rows in the platform's own
+ * database, not from a claim the provider chose to send. See
+ * app/auth/octoToken.ts for the token's life after that.
  */
 
 /** True when OIDC SSO is configured and should be enforced. */
 export const authEnabled = !!OIDC_ISSUER && !!process.env.AUTH_SECRET;
 
-const rolesClaim = process.env.AUTH_ROLES_CLAIM || "roles";
-
-/** Normalize a roles claim (array, or space/comma-separated string) to a string[]. */
-function rolesFrom(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((r): r is string => typeof r === "string");
-  }
-  if (typeof value === "string") return value.split(/[\s,]+/).filter(Boolean);
-  return [];
-}
-
-/** Narrow an unknown claim to a non-empty string, or undefined. */
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
 export const authConfig: NextAuthConfig = {
   trustHost: true,
-  session: { strategy: "jwt" },
+  // Eight hours rather than the thirty-day default. iam will renew an expired
+  // platform token for a short grace period, so an idle session is a credential
+  // that can be revived; the session's own lifetime is the only real bound on how
+  // long that stays true, and a working day is the honest size for it.
+  session: { strategy: "jwt", maxAge: 8 * 60 * 60 },
   pages: { signIn: "/" },
   providers: [
     {
@@ -71,36 +63,31 @@ export const authConfig: NextAuthConfig = {
     },
   ],
   callbacks: {
-    // On sign-in, copy the IdP's role claim into the JWT and bootstrap the user
-    // row so both ride along without a per-request lookup. `profile` is present
-    // only on sign-in, so the fetch fires once per session, not per request.
-    async jwt({ token, profile }) {
-      if (profile) {
-        const claims = profile as Record<string, unknown>;
-        token.roles = rolesFrom(claims[rolesClaim]);
-        // Key the user on the IdP's real OIDC subject (`profile.sub`), NOT
-        // Auth.js's `token.sub`. With the JWT session strategy Auth.js mints its
-        // own `token.sub` per sign-in, so preferring it created a fresh user row
-        // every login (and disagreed with the /mcp path, which keys on the access
-        // token's `sub`). `claims.sub` is the stable identifier both paths share.
-        const subject = asString(claims.sub) ?? token.sub;
-        const email = asString(claims.email) ?? token.email ?? undefined;
-        if (subject && email) {
-          // Best-effort: the client never throws (it returns an error result when
-          // the orchestrator is unreachable), so a bootstrap failure leaves userId
-          // unset rather than blocking sign-in. The API-key actions then surface a
-          // clean "user not provisioned" error.
-          const res = await bootstrapUser(subject, email, asString(claims.name) ?? "");
-          token.userId = res.ok ? res.data.id : undefined;
-        }
+    // The whole session lifecycle, in two calls out to the module that owns it.
+    // `account` — not `profile` — is where the provider's raw id token is, and it
+    // is present only on sign-in, so the exchange happens once per session and
+    // every later call only considers a renewal.
+    //
+    // Returning null ends the session: Auth.js clears the cookies. Both paths that
+    // do it here are deliberate refusals, not errors to be swallowed — a session
+    // that cannot get a platform token can call nothing.
+    async jwt({ token, account }) {
+      if (account?.id_token) {
+        const fields = await signInExchange(account.id_token);
+        if (!fields) return null;
+        return { ...token, ...fields };
       }
-      return token;
+      // Cast rather than augment: the JWT interface cannot be augmented from this
+      // app (see types/next-auth.d.ts), so the shape is named where it is read.
+      const fresh = await keepFresh(token as OctoTokenFields);
+      return fresh ? { ...token, ...fresh } : null;
     },
-    // Expose roles and the durable user id on the session for guards/UI/actions.
+    // Roles and the user id, and pointedly not the token. This object is
+    // serialized to the browser at /api/auth/session; see app/auth/octoToken.ts.
     session({ session, token }) {
-      session.user.roles = (token.roles as string[] | undefined) ?? [];
-      const userId = token.userId as string | undefined;
-      if (userId) session.user.id = userId;
+      const fields = token as OctoTokenFields;
+      session.user.roles = fields.roles ?? [];
+      if (fields.userId) session.user.id = fields.userId;
       return session;
     },
   },
