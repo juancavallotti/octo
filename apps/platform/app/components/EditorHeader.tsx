@@ -31,7 +31,7 @@ export default function EditorHeader({
   const available = useFileSystem() !== null;
 
   return (
-    <header className="flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
+    <header className="relative flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
       <AppLogo />
 
       {available && (
@@ -39,7 +39,14 @@ export default function EditorHeader({
           <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
           <IntegrationTitle />
           <FolderPicker />
-          <ViewModeToggle />
+
+          {/* Centred on the bar itself — see StandaloneHeader; both sides of it
+              change width with the integration's name and its controls. */}
+          <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
+            <div className="pointer-events-auto">
+              <ViewModeToggle />
+            </div>
+          </div>
         </>
       )}
 
