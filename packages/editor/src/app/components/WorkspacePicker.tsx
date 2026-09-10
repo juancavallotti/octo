@@ -5,7 +5,7 @@ import { Check, FolderOpen, Search } from "lucide-react";
 
 /**
  * "What am I working on, and what else could I be working on" — the chip at the
- * right of the header, and the menu it opens.
+ * left of the header, next to the mark, and the menu it opens.
  *
  * One component, two meanings. In the desktop shell the items are folders and
  * picking one switches the folder being served; in the platform they are
@@ -105,9 +105,9 @@ export default function WorkspacePicker({
       </button>
 
       {open && (
-        /* Anchored to the right edge: the chip sits near the end of the bar, so a
-           left-anchored menu would hang off it. */
-        <div className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
+        /* Left-anchored, under the chip: it sits at the left of the header, where
+           there is room for the menu to open below it. */
+        <div className="absolute left-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
           {action && (
             <button
               type="button"

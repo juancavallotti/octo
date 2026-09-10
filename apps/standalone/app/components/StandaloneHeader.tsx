@@ -1,7 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { LayoutToggles, RunBar, SaveButton, ViewModeToggle } from "@octo/editor";
+import {
+  LayoutToggles,
+  RunBar,
+  SaveButton,
+  ViewModeToggle,
+} from "@octo/editor";
 import ModeBadge from "./ModeBadge";
 import VaultChip from "./VaultChip";
 
@@ -9,10 +14,9 @@ import VaultChip from "./VaultChip";
    triggers (button, ⌘S, Enter in the rename field) share it. */
 
 /**
- * The standalone editor's top bar: the Octo mark, the view tabs centred on it,
- * and — on the right, with the other project-level controls — the desktop
- * folder chip, Save (local-disk filesystem) and the RUN control. No
- * orchestrator, auth, or folders.
+ * The standalone editor's top bar: the Octo mark and the desktop shell's folder
+ * chip, the view tabs centred on it, and — on the right — Save (local-disk
+ * filesystem) and the RUN control. No orchestrator, auth, or folders.
  *
  * The open file is named and renamed in the document bar below, next to the file
  * switcher, rather than by a title field up here.
@@ -32,6 +36,10 @@ export default function StandaloneHeader() {
       />
       <span className="font-semibold tracking-tight">Octo</span>
       <ModeBadge />
+      <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+      {/* Which folder is being served, next to the mark: it names the whole
+          window, the way a project does. */}
+      <VaultChip />
 
       {/* Centred on the bar itself, not on what is left over between the mark and
           the right-hand controls — the right side changes width with which
@@ -43,10 +51,7 @@ export default function StandaloneHeader() {
         </div>
       </div>
 
-      {/* Right of the bar is project-level: which folder we are working in, and
-          what to do with it. The left is the document being edited. */}
       <div className="ml-auto flex items-center gap-2">
-        <VaultChip />
         <SaveButton />
         <RunBar />
         {/* Last on the bar, VS Code's corner: these are about the window, not about

@@ -39,6 +39,9 @@ export default function EditorHeader({
       {available && (
         <>
           <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+          {/* Which integration is open, in the corner the desktop shell keeps its
+              folder in: it names the window, the title edits it. */}
+          <IntegrationPicker />
           <IntegrationTitle />
           <FolderPicker />
 
@@ -55,8 +58,6 @@ export default function EditorHeader({
       <div className="ml-auto flex items-center gap-2">
         {available && (
           <>
-            {/* Right of the bar is "which one am I on", as in the desktop shell. */}
-            <IntegrationPicker />
             <IntegrationsButton getIntegrationId={getIntegrationId} />
             <DuplicateButton getIntegrationId={getIntegrationId} />
             <TagButton getIntegrationId={getIntegrationId} />
