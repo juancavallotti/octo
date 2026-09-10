@@ -1,0 +1,11 @@
+{{- /*
+  ClusterIP, and it must stay that way. This service mints platform credentials
+  and its management routes carry no authentication of their own yet; the JWKS it
+  publishes is the only thing here that would be safe to expose, and nothing
+  outside the cluster needs it.
+*/}}
+{{- include "octo-common.service" (dict
+      "root" $
+      "component" "iam"
+      "type" "ClusterIP"
+      "ports" (list (dict "name" "http" "port" .Values.iam.service.port "targetPort" .Values.iam.service.port))) }}
