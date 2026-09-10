@@ -30,6 +30,12 @@
 # fronts the orchestrator at its in-cluster Service DNS.
 - name: ORCHESTRATOR_URL
   value: "http://{{ include "octo.orchestrator.serviceName" . }}:{{ .Values.orchestrator.service.port }}"
+# Where sign-in goes. iam trades the identity provider's token for a platform one
+# carrying the caller's octo user id and their roles, and renews it as the session
+# runs on. Unset, sign-in cannot complete — which is deliberate: a session with no
+# platform token would look signed in and be able to call nothing.
+- name: IAM_URL
+  value: {{ include "octo.iam.url" . | quote }}
 {{- if .Values.nats.enabled }}
 # In-cluster NATS broker. The BFF subscribes to deployment-status and
 # integration-write subjects and serves them to the browser as SSE
@@ -153,9 +159,13 @@
 - name: AUTH_WRITE_ROLES
   value: {{ . | quote }}
 {{- end }}
-{{- with .Values.auth.rolesClaim }}
-- name: AUTH_ROLES_CLAIM
-  value: {{ . | quote }}
-{{- end }}
+{{- /*
+  Stated rather than derived, so that the platform and iam cannot disagree about
+  it. The app would default to $AUTH_URL/mcp on its own, but iam has to accept the
+  same string as an audience, and two independent derivations of one value is
+  exactly the arrangement that drifts.
+*/}}
+- name: MCP_RESOURCE_URL
+  value: {{ include "octo.mcp.resource" . | quote }}
 {{- end }}
 {{- end }}

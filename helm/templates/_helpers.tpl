@@ -332,6 +332,26 @@ dev-run-hash-secret
 {{- end }}
 
 {{/*
+  The RFC 8707 resource identifier for this install's MCP server.
+
+  Two things have to agree on it byte for byte: the platform advertises it to MCP
+  clients and checks it against the `aud` of every token they present, and iam has
+  to accept that same audience or it would refuse to exchange any of them. So one
+  helper renders it and both are told, rather than each deriving it and hoping.
+
+  It is the public /mcp URL, which is the auth origin plus a path — the same
+  origin the OIDC callback is built against, for the same reason: it is where a
+  client actually reaches this install.
+*/}}
+{{- define "octo.mcp.resource" -}}
+{{- if .Values.auth.url -}}
+{{- printf "%s/mcp" (trimSuffix "/" .Values.auth.url) -}}
+{{- else -}}
+{{- printf "https://%s/mcp" (required "ingress.host is required when auth.oidc.enabled is true — it is the origin MCP clients reach this install at. Set auth.url instead to name the origin explicitly." .Values.ingress.host) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
   The NATS monitoring HTTP base URL (port 8222), which the platform polls for
   queue stats (/varz, /connz). Same service as octo.nats.url, http scheme + the
   monitor port.

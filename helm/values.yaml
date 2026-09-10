@@ -140,6 +140,12 @@ iam:
   # nothing but a slightly larger key set.
   keyLifetime: ""
 
+  # How long past its expiry a platform token can still be traded for a fresh one,
+  # as a Go duration. Empty uses the service's default of 10m, which is what lets
+  # somebody who stepped away from a tab come back to a working session instead of
+  # a sign-in page. Past it they sign in again.
+  refreshGrace: ""
+
   service:
     # ClusterIP only, and the template says why: this service mints platform
     # credentials, and nothing outside the cluster needs to reach it.
@@ -970,8 +976,6 @@ auth:
   # Optional: restrict write/mutating operations to these comma-separated roles.
   # Empty = any signed-in user.
   writeRoles: ""
-  # Optional: id-token claim carrying roles (Auth.js default is "roles").
-  rolesClaim: ""
 
 # How external traffic reaches the editor and the per-integration endpoints.
 #
