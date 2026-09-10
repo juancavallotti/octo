@@ -4,6 +4,7 @@ import { createElement, useEffect, useRef, useState } from "react";
 import { Cable, Plus, X } from "lucide-react";
 import { getConnectorSpec, listConnectors, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { useLayout } from "../state/layout";
 import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 /**
@@ -15,6 +16,10 @@ import { BAR_BUTTON, BAR_COUNT } from "./barButton";
  */
 export default function ConnectionsLauncher() {
   const { state, dispatch } = useEditorState();
+  // Picking a connection here opens it in the settings panel, so it reveals a
+  // hidden one: unlike a click on the canvas, there is no reading a connection
+  // without the panel — the menu row is the whole gesture.
+  const layout = useLayout();
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -82,6 +87,7 @@ export default function ConnectionsLauncher() {
                           type: EditorActionType.SELECT_CONNECTION,
                           data: { id: c.id },
                         });
+                        layout?.showSettings();
                         close();
                       }}
                       className={`flex w-full items-center gap-2.5 px-3 py-2 pr-8 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06] ${
@@ -135,6 +141,9 @@ export default function ConnectionsLauncher() {
                         type: EditorActionType.ADD_CONNECTION,
                         data: { type: spec.type },
                       });
+                      // A new connection is selected on creation, and its settings
+                      // are the point of creating it.
+                      layout?.showSettings();
                     }}
                     className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
                   >
