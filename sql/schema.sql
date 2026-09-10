@@ -1187,3 +1187,30 @@ CREATE INDEX IF NOT EXISTS idx_alert_evaluations_notable
 CREATE INDEX IF NOT EXISTS idx_alert_evaluations_incident
     ON alert_evaluations (incident_id, evaluated_at DESC)
     WHERE incident_id IS NOT NULL;
+
+-- user_roles records what a principal is allowed to do. Roles used to be whatever
+-- the identity provider's id token claimed (AUTH_ROLES_CLAIM in the editor), which
+-- meant no role could be granted without editing the provider, and the platform's
+-- whole authorization vocabulary was one setting naming who may write. They are
+-- rows now, owned by the iam service.
+--
+-- `role` is a plain varchar and not an enum. The catalogue is expected to grow into
+-- a finer set than the four coarse platform:* roles it starts with, and a Postgres
+-- enum would make every addition a schema change applied by a Job. iam validates a
+-- role against its catalogue before writing, so the constraint lives where the
+-- catalogue does.
+--
+-- granted_by is the admin who granted it, and is nullable: the very first grant is
+-- made by the service itself, when the first user to ever sign in is made
+-- platform:admin because otherwise nobody could grant anything to anyone.
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id    uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    role       varchar NOT NULL,
+    granted_at timestamptz NOT NULL DEFAULT now(),
+    granted_by uuid REFERENCES users (id) ON DELETE SET NULL,
+    PRIMARY KEY (user_id, role)
+);
+
+-- "who holds this role" — the question an admin screen asks, and the one the
+-- primary key above cannot answer, since it leads with user_id.
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles (role);
