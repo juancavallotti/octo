@@ -1,6 +1,7 @@
 {
   "pages": [
     "index",
+    "desktop",
     "docker",
     "running-flows",
     "debugging-flows",

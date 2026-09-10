@@ -35,13 +35,9 @@ so there is nothing else to install.
 </Tab>
 </Tabs>
 
-<Callout type="warn">
-The app is not yet notarized by Apple, so Gatekeeper refuses it on first launch
-with "Octo is damaged and can't be opened" or "cannot be opened because the
-developer cannot be verified". Right-click the app in Applications and choose
-**Open**, then confirm — macOS remembers the choice. Failing that, clear the
-quarantine attribute: `xattr -dr com.apple.quarantine /Applications/Octo.app`.
-</Callout>
+Open the `.dmg`, drag **Octo** to Applications, and launch it. Released builds
+are signed with a Developer ID certificate and notarized by Apple, so Gatekeeper
+lets them through on first launch.
 
 The app opens the folder you used last, and **File → Open Folder…** picks a new
 one. Everything in it is plain YAML on disk — the same files the CLI runs, so a
@@ -49,7 +45,7 @@ flow you build here runs unchanged with `octo run`.
 
 Windows and Linux builds are not published yet; use the
 [Docker editor](#run-from-docker) there, which is the same editor served in a
-browser.
+browser. See [Octo Desktop](/editor/desktop) for the full tour.
 
 ## Download the CLI
 

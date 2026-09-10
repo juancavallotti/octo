@@ -12,6 +12,26 @@ locally with `task docs:dev`.
 
 ## Install
 
+### Octo Desktop (macOS)
+
+The shortest path: the visual editor as a native app that opens a working
+folder, with the `octo` runtime and the `dolphin` test runner bundled inside.
+Flows are plain YAML on disk, so what you build here runs unchanged from the
+CLI.
+
+| Platform | Download |
+|---|---|
+| macOS (Apple Silicon) | [Octo_mac_arm64.dmg](https://github.com/juancavallotti/octo/releases/latest/download/Octo_mac_arm64.dmg) |
+| macOS (Intel) | [Octo_mac_x64.dmg](https://github.com/juancavallotti/octo/releases/latest/download/Octo_mac_x64.dmg) |
+
+These links always resolve to the newest release, which is why they carry no
+version — the app's artifact names are version-free for exactly that reason.
+Windows and Linux builds are not published yet; use the Docker editor below.
+See the [desktop app docs](https://juancavallotti.github.io/octo/editor/desktop)
+and [apps/desktop/README.md](apps/desktop/README.md).
+
+### The CLI
+
 Download a prebuilt CLI — no Go toolchain needed. Unpack it and put the binary on
 your PATH. `octo` is the runtime; `dolphin` is its companion test runner, which
 drives `octo` to unit-test an integration.
@@ -22,7 +42,7 @@ drives `octo` to unit-test an integration.
      per line, which is why the archive names carry no version. -->
 <!-- x-release-please-start-version -->
 
-### octo — the runtime
+#### octo — the runtime
 
 | Platform | Download |
 |---|---|
@@ -33,7 +53,7 @@ drives `octo` to unit-test an integration.
 | Windows (x86-64) | [octo_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.11.2/octo_windows_amd64.zip) |
 | Windows (arm64) | [octo_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.11.2/octo_windows_arm64.zip) |
 
-### dolphin — the test runner
+#### dolphin — the test runner
 
 | Platform | Download |
 |---|---|
@@ -70,6 +90,7 @@ Building from source is one command (`task runtime:build`); see the
 ## Layout
 
 - `runtime/`: the Go module's packages — the runtime engine (`core`, `types`, `connectors`, `services`) and the two CLIs: `octo` (`runtime/octo`) and `dolphin` (`runtime/dolphin`), the test runner that drives it. The module itself is rooted at the repo root so both are `go install`-able.
+- `apps/desktop/`: Octo Desktop — the standalone editor packaged as a native macOS app (Electron shell, runtime bundled). See [apps/desktop/README.md](apps/desktop/README.md).
 - `apps/standalone/`: the single-user Next.js visual editor (Docker image `juancavallotti/octo`). See [apps/standalone/README.md](apps/standalone/README.md).
 - `apps/platform/`: the orchestrator-backed multi-user Octo web app. See [apps/platform/README.md](apps/platform/README.md).
 - `apps/docs/`: the documentation site (Fumadocs). Content in `apps/docs/content/docs/`.
@@ -137,3 +158,8 @@ Docs site:
 Standalone editor (Next.js):
 
 - `task dev`
+
+Desktop app (Electron):
+
+- `task desktop:dev`
+- `task desktop:dist`

@@ -64,12 +64,20 @@ by esbuild, and the server and binaries arrive as resources. That is what keeps
 electron-builder from having to resolve production deps across pnpm's symlink
 farm.
 
+## Shipping
+
+Every release publishes `Octo_mac_arm64.dmg` and `Octo_mac_x64.dmg` to the GitHub
+release for the tag (`publish-desktop` in `.github/workflows/release.yml`), built
+from the octo and dolphin archives that same release published rather than from a
+second compile. The names carry no version so the README and the docs can link to
+`releases/latest/download/<name>` and never break.
+
+Signing and notarization are opt-in on the repository secrets being present, so a
+fork still gets a green job and an ad-hoc signed build — enough to launch on the
+machine that built it, not enough to clear Gatekeeper on a download.
+
 ## Not done yet
 
-- **Signing and notarization.** Builds are ad-hoc signed, which is enough to
-  launch locally but not enough for a build someone downloads. Needs a paid Apple
-  Developer account; `mac.binaries` in `electron-builder.yml` already lists the
-  two Go binaries, which the notary service would otherwise reject.
-- **Auto-update.** Hard-blocked on the above — macOS refuses to auto-update an
-  app that is not Developer ID signed.
+- **Auto-update.** electron-updater needs the zip target, which is packaged but
+  not yet attached to the release.
 - **Windows and Linux targets.**
