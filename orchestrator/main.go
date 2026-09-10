@@ -45,7 +45,6 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
-	"github.com/juancavallotti/octo/orchestrator/internal/user"
 	"github.com/juancavallotti/octo/orchestrator/internal/websearch"
 	"github.com/redis/go-redis/v9"
 	corev1 "k8s.io/api/core/v1"
@@ -646,13 +645,11 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"endpoints", "GET /integrations/{id}/bundle, GET /snapshots/{id}/bundle, "+
 				"POST /integrations/bundle, PUT /integrations/{id}/bundle")
 
-		// Users and their API keys need only the database (identity comes from the
-		// platform's OIDC layer, which bootstraps a user on first sign-in). Registered
-		// outside the kube gate so authentication works wherever the DB is reachable.
-		user.NewHandler(user.NewService(user.NewRepo(database.Pool()))).Register(mux)
-		slog.Info("user routes registered",
-			"endpoints", "POST /users/bootstrap, GET /users/{id}")
-
+		// API keys need only the database, so they are registered outside the kube
+		// gate. Users themselves are not here: they belong to the iam service, which
+		// owns the identity this platform authorizes on. The `{userId}` in these
+		// paths is an id iam issued, and the orchestrator serves no /users
+		// collection of its own.
 		apikey.NewHandler(apikey.NewService(apikey.NewRepo(database.Pool()))).Register(mux)
 		slog.Info("apikey routes registered",
 			"endpoints", "POST/GET /users/{userId}/apikeys, "+

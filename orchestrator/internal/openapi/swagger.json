@@ -1352,40 +1352,6 @@
                 },
                 "type": "object"
             },
-            "user.bootstrapRequest": {
-                "properties": {
-                    "email": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "subject": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "user.userResponse": {
-                "properties": {
-                    "createdAt": {
-                        "type": "string"
-                    },
-                    "email": {
-                        "type": "string"
-                    },
-                    "id": {
-                        "type": "string"
-                    },
-                    "lastLoginAt": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "websearch.settingsResponse": {
                 "properties": {
                     "configured": {
@@ -6788,98 +6754,6 @@
                 "summary": "Read one frozen resource",
                 "tags": [
                     "snapshots"
-                ]
-            }
-        },
-        "/users/bootstrap": {
-            "post": {
-                "description": "Called on sign-in. Creates the user on first sight and returns the same durable id\non every later call, so the platform has one identity to attribute writes to\nregardless of what the identity provider changes about the account.",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/user.bootstrapRequest",
-                                        "summary": "body",
-                                        "description": "Subject, email and display name"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Subject, email and display name",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/user.userResponse"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    }
-                },
-                "summary": "Resolve a signed-in identity to an octo user",
-                "tags": [
-                    "users"
-                ]
-            }
-        },
-        "/users/{id}": {
-            "get": {
-                "parameters": [
-                    {
-                        "description": "User id",
-                        "in": "path",
-                        "name": "id",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/user.userResponse"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "summary": "Get a user",
-                "tags": [
-                    "users"
                 ]
             }
         },
