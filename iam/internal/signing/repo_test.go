@@ -2,26 +2,35 @@ package signing
 
 import (
 	"context"
-	"errors"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	cryptox "github.com/juancavallotti/octo/iam/internal/crypto"
 )
 
-// newTestRepo opens a Repo against TEST_DATABASE_URL, skipping the test when it
-// is not set. The database must have sql/schema.sql applied; see the comment on
-// the `test` task in iam/Taskfile.yml.
+// The only database test this package has, and it is here under the one exception
+// in docs/coding-standards.md — see the comment on it.
 //
-// iam_signing_keys is emptied before and after each case, so this must point at a
-// throwaway database and never at one holding anything.
+// There are deliberately no CRUD tests. That a bytea column returns the bytes it
+// was given, that a WHERE clause compares timestamps, that a DELETE deletes: all
+// of that is Postgres's to guarantee and pgx's, not ours to re-assert on every
+// pull request. The rotation policy those queries serve — which key signs, which
+// keys stay published, when a new one is cut — is covered against the in-memory
+// keyset in service_test.go, which needs no database.
+//
+// It skips without TEST_DATABASE_URL, so CI stands up no database for it.
+//
+// iam_signing_keys is emptied before and after, so point it at a throwaway
+// database and never at one holding anything.
 func newTestRepo(t *testing.T) *Repo {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("set TEST_DATABASE_URL to run iam signing repo tests")
+		t.Skip("set TEST_DATABASE_URL to run the iam signing repo tests")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
@@ -31,7 +40,12 @@ func newTestRepo(t *testing.T) *Repo {
 
 	truncate(t, pool)
 	t.Cleanup(func() { truncate(t, pool) })
-	return NewRepo(pool)
+
+	repo, err := NewRepo(pool, testCipher(t))
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	return repo
 }
 
 func truncate(t *testing.T, pool *pgxpool.Pool) {
@@ -41,12 +55,21 @@ func truncate(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// generator returns a Rotate callback producing a key with the given horizons,
-// through the real generation path so the DER encodings are the real ones.
+// testCipher is a fixed AES-256 key. Fixed rather than random so a stored keyset
+// is readable across the cases in one run.
+func testCipher(t *testing.T) *cryptox.Cipher {
+	t.Helper()
+	c, err := cryptox.NewCipher([]byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("new cipher: %v", err)
+	}
+	return c
+}
+
+// generator returns a Rotate callback producing a key through the real generation
+// path, so what is stored is the real DER.
 func generator(t *testing.T, now time.Time, lifetime time.Duration) func() (Key, error) {
 	t.Helper()
-	// The token lifetime is derived from the key's rather than fixed, so a case
-	// can ask for a short-lived key without tripping the coherence check.
 	svc, err := NewService(&memRepo{}, Config{
 		Issuer: "http://iam.test", Audience: "octo",
 		TokenTTL: lifetime / 4, KeyLifetime: lifetime,
@@ -57,144 +80,14 @@ func generator(t *testing.T, now time.Time, lifetime time.Duration) func() (Key,
 	return func() (Key, error) { return svc.generate(now) }
 }
 
-func TestCurrentOnAnEmptySetIsErrNoKey(t *testing.T) {
-	repo := newTestRepo(t)
-
-	if _, err := repo.Current(context.Background(), time.Now()); !errors.Is(err, ErrNoKey) {
-		t.Errorf("Current() error = %v, want ErrNoKey", err)
-	}
-}
-
-// A round trip through bytea has to preserve the DER exactly, or the key comes
-// back unparseable and every token fails at signing time.
-func TestRotateStoresAKeyThatComesBackIntact(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-	now := time.Now()
-
-	fresh, err := repo.Rotate(ctx, now, generator(t, now, 24*time.Hour))
-	if err != nil {
-		t.Fatalf("Rotate: %v", err)
-	}
-
-	got, err := repo.Current(ctx, now)
-	if err != nil {
-		t.Fatalf("Current: %v", err)
-	}
-	if got.KID != fresh.KID {
-		t.Errorf("kid = %q, want %q", got.KID, fresh.KID)
-	}
-	if got.Algorithm != signingAlgorithm {
-		t.Errorf("algorithm = %q, want %q", got.Algorithm, signingAlgorithm)
-	}
-	if string(got.Private) != string(fresh.Private) {
-		t.Error("the private key did not survive the round trip")
-	}
-	if string(got.Public) != string(fresh.Public) {
-		t.Error("the public key did not survive the round trip")
-	}
-	// The horizons are stored to microsecond precision by Postgres, so they are
-	// compared at that resolution rather than for exact equality.
-	if !got.RetireAfter.Round(time.Microsecond).Equal(fresh.RetireAfter.Round(time.Microsecond)) {
-		t.Errorf("retire_after = %v, want %v", got.RetireAfter, fresh.RetireAfter)
-	}
-	if !got.ExpiresAt.Round(time.Microsecond).Equal(fresh.ExpiresAt.Round(time.Microsecond)) {
-		t.Errorf("expires_at = %v, want %v", got.ExpiresAt, fresh.ExpiresAt)
-	}
-}
-
-// Current must not hand back a retired key, and Verifiers must still publish it.
-func TestCurrentAndVerifiersUseTheirOwnHorizon(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-	now := time.Now()
-
-	fresh, err := repo.Rotate(ctx, now, generator(t, now, time.Hour))
-	if err != nil {
-		t.Fatalf("Rotate: %v", err)
-	}
-
-	// Past retire_after but well inside expires_at.
-	afterRetirement := fresh.RetireAfter.Add(time.Minute)
-	if _, err := repo.Current(ctx, afterRetirement); !errors.Is(err, ErrNoKey) {
-		t.Errorf("Current(after retirement) error = %v, want ErrNoKey", err)
-	}
-	verifiers, err := repo.Verifiers(ctx, afterRetirement)
-	if err != nil {
-		t.Fatalf("Verifiers: %v", err)
-	}
-	if len(verifiers) != 1 || verifiers[0].KID != fresh.KID {
-		t.Errorf("Verifiers(after retirement) = %d keys, want the retired one", len(verifiers))
-	}
-
-	// Past expires_at it goes.
-	verifiers, err = repo.Verifiers(ctx, fresh.ExpiresAt.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("Verifiers(after expiry): %v", err)
-	}
-	if len(verifiers) != 0 {
-		t.Errorf("Verifiers(after expiry) = %d keys, want none", len(verifiers))
-	}
-}
-
-func TestRotateSweepsExpiredKeys(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-
-	start := time.Now()
-	old, err := repo.Rotate(ctx, start, generator(t, start, time.Hour))
-	if err != nil {
-		t.Fatalf("Rotate(old): %v", err)
-	}
-
-	// Long after the first key expired, so the next rotation should drop it.
-	later := old.ExpiresAt.Add(time.Hour)
-	if _, err := repo.Rotate(ctx, later, generator(t, later, time.Hour)); err != nil {
-		t.Fatalf("Rotate(new): %v", err)
-	}
-
-	var remaining int
-	if err := repo.pool.QueryRow(ctx,
-		`SELECT count(*) FROM iam_signing_keys WHERE kid = $1`, old.KID,
-	).Scan(&remaining); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if remaining != 0 {
-		t.Errorf("the expired key is still stored")
-	}
-}
-
-// Rotate must not install a second key when one already signs, or two replicas
-// starting together would each mint their own and each publish a set the other
-// disagrees with.
-func TestRotateReusesAKeyThatAlreadySigns(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-	now := time.Now()
-
-	first, err := repo.Rotate(ctx, now, generator(t, now, 24*time.Hour))
-	if err != nil {
-		t.Fatalf("Rotate(first): %v", err)
-	}
-
-	generated := false
-	second, err := repo.Rotate(ctx, now, func() (Key, error) {
-		generated = true
-		return generator(t, now, 24*time.Hour)()
-	})
-	if err != nil {
-		t.Fatalf("Rotate(second): %v", err)
-	}
-	if generated {
-		t.Error("Rotate generated a key while a valid one already existed")
-	}
-	if second.KID != first.KID {
-		t.Errorf("Rotate returned %q, want the existing %q", second.KID, first.KID)
-	}
-}
-
-// The advisory lock is the only thing that makes concurrent rotation safe, so it
-// is asserted against a real database and with -race.
+// PINS: that pg_advisory_xact_lock actually serializes concurrent transactions.
+//
+// Every replica cuts a new key the moment it notices the current one has retired,
+// and they all notice at once. Without the lock genuinely holding, a rotation
+// installs one key per replica; each then signs with its own, and a token minted
+// by one pod fails verification against the set another pod publishes — an
+// intermittent auth failure with no bad input to reproduce it from. Nothing in Go
+// can check that the lock works; a fake models it as working.
 func TestRotateIsRaceFree(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -239,39 +132,4 @@ func TestRotateIsRaceFree(t *testing.T) {
 	if stored != 1 {
 		t.Errorf("%d keys were stored, want 1", stored)
 	}
-}
-
-// The whole design rests on the key being shared, so two independently
-// constructed services over the same database must sign with the same key.
-func TestTwoServicesOverOneDatabaseShareTheKey(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-
-	cfg := Config{Issuer: "http://iam.test", Audience: "octo"}
-	first, err := NewService(repo, cfg)
-	if err != nil {
-		t.Fatalf("NewService(first): %v", err)
-	}
-	second, err := NewService(NewRepo(repo.pool), cfg)
-	if err != nil {
-		t.Fatalf("NewService(second): %v", err)
-	}
-
-	a, err := first.Mint(ctx, "user-1", struct{}{})
-	if err != nil {
-		t.Fatalf("Mint(first): %v", err)
-	}
-	b, err := second.Mint(ctx, "user-1", struct{}{})
-	if err != nil {
-		t.Fatalf("Mint(second): %v", err)
-	}
-
-	if kidOf(t, a.Value) != kidOf(t, b.Value) {
-		t.Error("two replicas signed with different keys")
-	}
-
-	// And each one's token verifies against the other's published set, which is
-	// the property a caller actually depends on.
-	verifyAgainstJWKS(t, second, a.Value)
-	verifyAgainstJWKS(t, first, b.Value)
 }
