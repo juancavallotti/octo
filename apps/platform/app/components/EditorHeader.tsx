@@ -58,11 +58,12 @@ export default function EditorHeader({
         {available && (
           <>
             <IntegrationsButton getIntegrationId={getIntegrationId} />
+            {/* Duplicate and Tag: real, but rare. Behind the ⋮, and the ⋮ next to
+                Manage — they are all "things you do to this integration", while
+                Deploy, Save and RUN act on what is on screen. */}
+            <MoreMenu getIntegrationId={getIntegrationId} />
             <DeployButton getIntegrationId={getIntegrationId} />
             <SaveButton />
-            {/* Duplicate and Tag: real, but rare. They live behind the ⋮ rather
-                than beside the controls used every session. */}
-            <MoreMenu getIntegrationId={getIntegrationId} />
           </>
         )}
         <RunBar />
