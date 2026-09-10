@@ -7,7 +7,6 @@ import {
   SaveButton,
   ViewModeToggle,
 } from "@octo/editor";
-import StandaloneFileMenu from "./StandaloneFileMenu";
 import ModeBadge from "./ModeBadge";
 import VaultChip from "./VaultChip";
 
@@ -16,7 +15,7 @@ import VaultChip from "./VaultChip";
 
 /**
  * The standalone editor's top bar: the Octo mark, an editable flow title (its
- * name becomes the `*.yaml` filename on the first save), an open/new file menu,
+ * name becomes the `*.yaml` filename on the first save),
  * and — on the right, with the other project-level controls — the desktop folder
  * chip, Save (local-disk filesystem) and the RUN control. No orchestrator, auth,
  * or folders.
@@ -38,7 +37,6 @@ export default function StandaloneHeader() {
       <ModeBadge />
       <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
       <IntegrationTitle />
-      <StandaloneFileMenu />
       <ViewModeToggle />
 
       {/* Right of the bar is project-level: which folder we are working in, and

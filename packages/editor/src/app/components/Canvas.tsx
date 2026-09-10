@@ -2,18 +2,16 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import FlowBoard from "./FlowBoard";
-import ConnectionsLauncher from "./ConnectionsLauncher";
-import EnvLauncher from "./EnvLauncher";
-import ResourcesLauncher from "./ResourcesLauncher";
 import ZoomControls from "./ZoomControls";
 import { useCanvasZoom } from "../canvas/ZoomContext";
 import { contentPointAt, fitZoom, scrollToHold } from "../canvas/zoom";
 
 /**
  * Canvas is the main flow-editing area: a scrollable dot-grid surface that hosts
- * all the file's flows stacked vertically (FlowBoard). The connections launcher is
- * pinned to the top-left as an overlay outside the scroll area, so it stays put as
- * the flows scroll, and the zoom control sits opposite it at the bottom-right.
+ * all the file's flows stacked vertically (FlowBoard). The zoom control is pinned
+ * to the bottom-right as an overlay outside the scroll area, so it stays put as the
+ * flows scroll. The document-level launchers used to hang in the opposite corner;
+ * they live in DocumentBar now.
  *
  * Zoom is CSS `zoom` on a layer inside the scroller, not `transform: scale`. That
  * choice carries the whole feature: `zoom` affects layout, so the scrollable area
@@ -109,11 +107,6 @@ export default function Canvas() {
           <FlowBoard />
         </div>
       </main>
-      <div className="absolute left-4 top-4 z-30 flex items-start gap-2">
-        <ConnectionsLauncher />
-        <EnvLauncher />
-        <ResourcesLauncher />
-      </div>
       <ZoomControls onFit={fit} />
     </div>
   );
