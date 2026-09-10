@@ -31,6 +31,7 @@ func NewHandler(svc *Service) *Handler {
 // name the same thing.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /roles", h.catalogue)
+	mux.HandleFunc("POST /users/bootstrap", h.bootstrap)
 	mux.HandleFunc("GET /users", h.list)
 	mux.HandleFunc("GET /users/{id}", h.get)
 	mux.HandleFunc("PUT /users/{id}/roles/{role}", h.grant)
@@ -87,6 +88,43 @@ func (h *Handler) catalogue(w http.ResponseWriter, _ *http.Request) {
 		out = append(out, roleResponse{Role: r, Description: DescribeRole(r)})
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// bootstrapRequest is the identity a caller is asking us to provision.
+type bootstrapRequest struct {
+	Subject string `json:"subject"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+}
+
+// bootstrap provisions a user from an identity the caller asserts, rather than
+// one this service verified.
+//
+// It exists for the one caller that cannot present a token: a local `task dev`
+// run has no identity provider, so it bootstraps a sentinel user and works with
+// that. It is the same upsert the exchange performs, including the first-admin
+// grant, which is what makes a fresh local install usable.
+//
+// It is deliberately NOT the route a deployment signs people in through — that
+// is POST /auth, which verifies a token instead of believing a body. This one
+// takes somebody's word for who they are, and iam is reachable only inside the
+// cluster.
+func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
+	var req bootstrapRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	u, err := h.svc.SignIn(ctx, req.Subject, req.Email, req.Name)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, ToResponse(u))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
