@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth, authEnabled } from "@/auth";
+import { RolesProvider } from "@/app/auth/RolesContext";
+import { ALL_ROLES } from "@/app/auth/roles";
 import AgentChatLauncher from "@/app/components/agent/AgentChatLauncher";
 
 /**
@@ -23,6 +25,12 @@ export const dynamic = "force-dynamic";
  * owns it because the chat panel can be pinned — docked, the page has to shrink
  * into the space beside it. It renders the page alone when the agent is not
  * deployed.
+ *
+ * It is also where the caller's roles enter the client tree. This is the one
+ * place that already has the session, so handing them down from here costs
+ * nothing; the provider wraps the launcher rather than sitting inside it, so the
+ * launcher itself can be gated on a role later. What that context may and may not
+ * be used for is on RolesContext.
  */
 export default async function SessionLayout({
   children,
@@ -30,6 +38,10 @@ export default async function SessionLayout({
   children: React.ReactNode;
 }) {
   let userKey = "local";
+  // With SSO off there is nobody to ask, and the server-side guards pass
+  // everything — so the UI is given every role, or it would hide features that
+  // local dev can in fact use.
+  let roles: string[] = [...ALL_ROLES];
   if (authEnabled) {
     const session = await auth();
     if (!session?.user) redirect("/");
@@ -37,6 +49,11 @@ export default async function SessionLayout({
     // resumed by whoever signs in next on a shared machine. The identity the agent
     // actually trusts is read server-side by the chat route.
     userKey = session.user.id ?? session.user.email ?? "user";
+    roles = session.user.roles ?? [];
   }
-  return <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>;
+  return (
+    <RolesProvider roles={roles} enforced={authEnabled}>
+      <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>
+    </RolesProvider>
+  );
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth, authEnabled } from "@/auth";
+import { ALL_ROLES } from "./roles";
 
 /**
  * Role-checker for server actions and BFF route handlers. The middleware already
@@ -23,8 +24,12 @@ export const writeRoles = (process.env.AUTH_WRITE_ROLES ?? "")
 export class AuthError extends Error {} // → 401
 export class ForbiddenError extends Error {} // → 403
 
+// Every role, not none. `requireRole` short-circuits before looking at these when
+// SSO is off, so they change nothing server-side — but the same session feeds the
+// roles context, and an empty list there would hide the admin section from a local
+// `task dev` run that can in fact use it.
 const LOCAL_SESSION: Session = {
-  user: { roles: [] },
+  user: { roles: [...ALL_ROLES] },
   expires: "",
 } as Session;
 
