@@ -327,8 +327,8 @@ SET value = jsonb_build_object('version', 1, 'updated', CURRENT_DATE::text)
 WHERE COALESCE((site_settings.value->>'version')::int, 0) < 1;
 
 -- users records each authenticated principal. Identity comes from the OIDC
--- provider; on first sign-in the platform bootstraps a row keyed by the stable
--- `subject` (the OIDC `sub`) and keeps email/name in sync on subsequent logins.
+-- provider; on first sign-in iam upserts a row keyed by the stable `subject`
+-- (the OIDC `sub`) and keeps email/name in sync on subsequent logins.
 -- The generated `id` is the durable handle other tables (api_keys) reference, so
 -- it survives IdP email changes. The local-dev (no-SSO) session uses a sentinel
 -- subject so `task dev` still resolves to a real user row.
@@ -1251,3 +1251,37 @@ CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_retire_after
     ON iam_signing_keys (retire_after DESC);
 CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_expires_at
     ON iam_signing_keys (expires_at);
+
+-- db_version 2: everybody who already had an account becomes an administrator.
+--
+-- Before this, roles were whatever claim the identity provider put in the id
+-- token, and user_roles held at most the one row EnsureFirstAdmin wrote. Sign-in
+-- now reads roles from this table instead, so without a backfill every existing
+-- installation would come up with exactly one administrator and everybody else
+-- holding nothing.
+--
+-- Granting admin to all of them is the deliberately permissive choice: it leaves
+-- an upgraded installation working exactly as it did, and trimming it back is the
+-- operator's first job once the user administration screen exists. The
+-- alternative — guessing at who should keep what from a claim we are in the
+-- middle of abandoning — would lock people out on the strength of a guess.
+--
+-- Guarded on the version rather than written to be idempotent by repetition. The
+-- obvious spelling (INSERT … SELECT id FROM users … ON CONFLICT DO NOTHING) is
+-- idempotent in the sense that it inserts nothing new, but the Job re-runs on
+-- every deploy, so it would re-grant admin to anybody an administrator had since
+-- demoted. The version check makes the whole thing happen exactly once.
+DO $$
+BEGIN
+    IF COALESCE((SELECT (value->>'version')::int FROM site_settings WHERE key = 'db_version'), 0) < 2 THEN
+        INSERT INTO user_roles (user_id, role)
+        SELECT id, 'platform:admin' FROM users
+        ON CONFLICT (user_id, role) DO NOTHING;
+    END IF;
+END $$;
+
+INSERT INTO site_settings (key, value)
+VALUES ('db_version', jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text))
+ON CONFLICT (key) DO UPDATE
+SET value = jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text)
+WHERE COALESCE((site_settings.value->>'version')::int, 0) < 2;
