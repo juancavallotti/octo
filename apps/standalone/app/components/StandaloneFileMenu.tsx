@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, FilePlus, FolderOpen } from "lucide-react";
+import { Check, ChevronDown, FilePlus, FolderOpen, Pencil } from "lucide-react";
 import {
   BAR_BUTTON,
   useFileSystem,
   useEditorState,
+  useSave,
   EditorActionType,
   type StoredDocument,
 } from "@octo/editor";
@@ -23,13 +24,26 @@ import {
  *
  * It sits at the right of the document bar (EditorRoot's `files` slot), so it
  * wears the bar's own trigger look and its menu hangs off the right edge.
+ *
+ * The pencil renames the open file. The name being edited is the document's title
+ * — the standalone store derives the filename from its slug — so a rename here is
+ * an edit plus a save, and the store moves the file and hands back the new id. It
+ * lives beside the filename because that is the thing being renamed; the header
+ * used to carry a title field that renamed the file as a side effect of typing in
+ * it, which is a surprising way to move a file on someone's disk.
  */
 export default function StandaloneFileMenu() {
   const fs = useFileSystem();
   const { state, dispatch } = useEditorState();
+  const save = useSave();
   const router = useRouter();
   const current = state.integration.id;
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  // What the name was when the rename started, so Escape can put it back. Edits go
+  // straight into editor state (as the header field did), which is what keeps the
+  // save controller from reading a stale name when Enter asks it to write.
+  const before = useRef(state.integration.name);
   const [files, setFiles] = useState<StoredDocument[]>([]);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -67,8 +81,52 @@ export default function StandaloneFileMenu() {
     setOpen(false);
   };
 
+  const startRename = () => {
+    before.current = state.integration.name;
+    setOpen(false);
+    setRenaming(true);
+  };
+
+  const rename = (name: string) =>
+    dispatch({ type: EditorActionType.SET_INTEGRATION_TITLE, data: { name } });
+
+  // Committing is just a save: the name is already in editor state, and the store
+  // renames the file when the slug it derives no longer matches. Forced, because
+  // naming a flow that has not been drawn yet is still a request for a file — the
+  // save controller's "nothing worth persisting" rule is about the Save button, not
+  // about this.
+  const commitRename = () => {
+    setRenaming(false);
+    if (!state.integration.name.trim()) rename(before.current);
+    else void save?.save({ force: true });
+  };
+
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="flex items-center">
+      {/* Renaming replaces the switcher rather than sitting beside it: the field
+          holds the same name the switcher shows, and two of them at once reads as
+          two different files. */}
+      {renaming ? (
+        <input
+          type="text"
+          autoFocus
+          aria-label="File name"
+          value={state.integration.name}
+          placeholder="untitled-file"
+          onChange={(e) => rename(e.target.value)}
+          onBlur={commitRename}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              rename(before.current);
+              setRenaming(false);
+            }
+          }}
+          className="w-48 rounded-md border border-black/20 bg-transparent px-2 py-1 text-[13px] outline-none dark:border-white/25"
+        />
+      ) : (
+        <div className="relative">
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
@@ -119,6 +177,17 @@ export default function StandaloneFileMenu() {
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        aria-label="Rename file"
+        onClick={startRename}
+        className={`${BAR_BUTTON} px-1`}
+      >
+        <Pencil size={13} className="text-zinc-400" />
+      </button>
     </div>
   );
 }

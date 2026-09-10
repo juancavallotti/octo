@@ -32,8 +32,15 @@ import { toDefinitionYaml } from "../model/runConfig";
 const DEFAULT_NAME = "Untitled integration";
 
 export interface SaveController {
-  /** Persist the current document; a no-op while busy or when nothing changed. */
-  save: () => Promise<void>;
+  /**
+   * Persist the current document; a no-op while busy or when nothing changed.
+   *
+   * `force` overrides only the "nothing worth persisting yet" guard, for a caller
+   * that means the file itself: naming a brand-new flow is the user asking for a
+   * file on disk, and refusing because they have not drawn anything yet leaves the
+   * name they typed with nowhere to live.
+   */
+  save: (opts?: { force?: boolean }) => Promise<void>;
   busy: boolean;
   /** Nothing to save: an empty document, or no changes since the last save. */
   blocked: boolean;
@@ -87,8 +94,9 @@ export function SaveProvider({
     doc.env.length === 0;
   const blocked = empty || saved;
 
-  const save = useCallback(async () => {
-    if (!fs || busy || empty || saved) return;
+  const save = useCallback(async ({ force = false } = {}) => {
+    if (!fs || busy || saved) return;
+    if (empty && !force) return;
     setBusy(true);
     setError(null);
     const saveName = name.trim() || DEFAULT_NAME;

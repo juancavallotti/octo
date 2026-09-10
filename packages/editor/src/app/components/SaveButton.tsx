@@ -36,7 +36,9 @@ export default function SaveButton() {
       )}
       <button
         type="button"
-        onClick={save}
+        // Wrapped rather than passed: save() takes options now, and a click event
+        // is not one of them.
+        onClick={() => void save()}
         disabled={busy || blocked}
         title={title}
         className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
