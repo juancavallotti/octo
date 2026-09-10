@@ -132,6 +132,63 @@ impossible, and say so in a comment on the `init()` and on its allowlist entry.
 - Prefer table-driven tests.
 - Test behavior and edge cases, not implementation details.
 
+### Do not test what the supply chain already tests
+
+**If a test's failure could only ever mean that something we did not write is
+broken, we do not write that test.** Postgres has a test suite. So does pgx, so
+does `encoding/json`, so does `net/http`. Re-asserting their behavior from here
+adds nothing to what they already guarantee and bills us for it on every run.
+
+And it is billed twice: once to write, and then on every CI run forever. The suite
+is already the slowest thing between a push and a merge, so a test has to earn its
+place against that budget rather than against nothing.
+
+The clearest case, and the one this rule exists for, is the **repository layer**.
+Ask what a repository test actually establishes. That Postgres stores a row and
+gives it back? That pgx marshals a `timestamptz`? That a `SELECT … WHERE id = $1`
+selects by id? Those are assertions about Postgres and about a driver, made by us,
+run on every pull request, at our expense. They are desirable in the way that
+checking your compiler is desirable. So:
+
+- **Do not write CRUD repository tests as permanent suite members.**
+  Insert-and-read-back, update-and-observe, delete-and-confirm-gone: none of these
+  tell you anything you did not already know when you typed the SQL.
+- Business rules — what may be granted, what is refused, what an error maps to —
+  are tested against a hand-written in-memory fake, which is fast, deterministic,
+  and where the logic actually lives.
+
+The same reasoning applies well beyond storage: do not test that a JSON library
+round-trips, that an HTTP router routes, that a third-party client returns what its
+documentation says, or that a framework's lifecycle hooks fire.
+
+### A database is a development tool here, never a CI gate
+
+None of this means writing SQL blind. **Spin up a local Postgres in Docker and test
+against it as much as you need while building** — that is the right way to find out
+whether a query does what you meant, and it is encouraged.
+
+What must not happen is that arriving in CI:
+
+- **No workflow stands up a database.** Database-backed tests skip unless
+  `TEST_DATABASE_URL` is set, and nothing in `.github/workflows/` sets it. That is
+  deliberate and is not a gap to be helpfully closed.
+- The trust model is that **a query is validated once, in development, and then
+  trusted** — by whoever wrote it while writing it, and again when the repository
+  owner exercises the release by hand before it ships. Re-proving on every pull
+  request that the same unchanged `SELECT` still selects buys nothing and is paid
+  for in the wait between a push and a merge.
+
+So a database test is a keep-if-useful artefact, not an obligation. Keep the ones
+that would tell a future reader something they cannot get by reading the code —
+typically where correctness rests on a **specific non-obvious behavior of the
+database**, such as advisory locks actually serializing two writers or an upsert's
+`xmax` actually distinguishing an insert from an update. Those are claims we bet on
+and cannot check from our own source, and being wrong about one is silent. Delete
+the rest once they have done their job during development.
+
+Whatever is kept carries the skip, and says in its own comment what it pins and why
+it is worth running by hand.
+
 ## General Go style
 
 - Avoid unnecessary abstractions.

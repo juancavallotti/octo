@@ -34,10 +34,19 @@ Two cases still stop for approval mid-sequence, and only two:
 
 Whatever the pacing:
 
-- Each commit must build and pass its own tests, so the history stays bisectable.
-- Do **not** squash the sequence into one large commit "to save time" — the atomic
-  history is the point. Reviewing increment by increment is how the reviewer follows
-  how each step builds on the last.
+- **The branch is green, not each commit.** This used to require every commit to
+  build and pass its own tests, for bisectability. That was written when work
+  arrived one reviewed commit at a time; it does not survive how the work is
+  actually done now, which is a whole agreed sequence implemented in one pass and
+  reviewed as a branch. Holding each intermediate commit green means reordering
+  real work to suit it — a schema and its first reader in one commit because
+  neither compiles alone, a test written against an interface two commits later —
+  and that is the tail wagging the dog. Bisect the merges.
+- Commits are still one coherent step each, and are still not squashed. That is
+  about **reading** the change, which is where their value actually was: reviewing
+  increment by increment is how the reviewer follows how each step builds on the
+  last. A commit that does two unrelated things is still wrong; a commit that does
+  one thing and does not compile on its own is fine.
 
 ## Review quality
 

@@ -30,6 +30,7 @@ Required reading:
 ## Workflow rules (always apply)
 
 - Break every implementation plan down into a sequence of small, logical commits.
+  The **branch** is green, not every commit in it.
 - **Two gates: the plan is approved before the work starts, and `git push` /
   opening a pull request is approved.** In between, chain the agreed sequence. A
   commit that changes an architectural contract, or one you are not confident
@@ -37,6 +38,10 @@ Required reading:
   [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md) — which is
   the policy; this is a pointer to it, not a second copy.
 - Use Conventional Commit messages — release automation depends on them.
+- **Do not test what the supply chain already tests.** If a failing test could only
+  mean that Postgres, pgx, or the standard library is broken, it should not exist —
+  see the testing section of
+  [docs/coding-standards.md](docs/coding-standards.md).
 
 ## Documentation policy
 
