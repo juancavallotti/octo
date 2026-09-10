@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 A few settings belong to the **installation** rather than to an integration or a person: how it sends email, which model its agent reasons with. They live in the admin section, reached from **Admin** in the account menu (the avatar, top right) at `/platform/admin`.
 
 <Callout type="warn">
-Access is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`), and that variable **defaults to empty, meaning any signed-in user**. Set it before configuring email; an unset value lets anyone who can sign in overwrite the API key and send mail from your verified domain. Finer-grained admin roles are not implemented yet.
+Access requires `platform:admin`, and so does reading: these settings hold the installation's SMTP credentials and its LLM API keys, so who may look is the same question as who may change. Grant the role from [People](/platform/users-and-api-keys).
 </Callout>
 
 ## Prerequisite: an encryption key
@@ -177,7 +177,7 @@ Press **Delete now** to apply the saved policy immediately instead of waiting fo
 Save before you run it; the button stays disabled while the form has unsaved edits, because a sweep enforces what is *stored*.
 
 <Callout type="warn">
-This is the one thing in the admin section that destroys data rather than configuring something, and there is no undo. It is gated by the same write roles as every other cluster-wide write (`AUTH_WRITE_ROLES`), the variable that **defaults to empty, meaning any signed-in user**. If you have not set it yet, set it before you set a retention window.
+This is the one thing in the admin section that destroys data rather than configuring something, and there is no undo. Like everything else here it requires `platform:admin`.
 </Callout>
 
 Two behaviours are explained in [Traces](/platform/traces#retention): a trace is deleted whole rather than by record, and stored model prices are never deleted, because a traced call's cost points into that history.

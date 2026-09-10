@@ -161,4 +161,4 @@ There is none, on the same terms as the orchestrator. The service is `ClusterIP`
 Anything that can reach the service's address can read every stored log line and trace payload on the install, including whatever your flows logged. It can also **change the retention policy and delete that history**, with no confirmation and nothing to undo it, and create an alert watch that emails an address of its choosing. Keep it internal.
 </Callout>
 
-The browser never reaches any of this directly. The platform's server actions do, and they gate every call behind a session, with writes additionally behind `AUTH_WRITE_ROLES`. That variable [defaults to empty, meaning any signed-in user](/platform/admin-settings). Set it.
+The browser never reaches any of this directly. The platform's server actions do, and they gate every call behind a session, with writes additionally behind the [write roles](/platform/users-and-api-keys) — every role except `platform:monitor`, unless `AUTH_WRITE_ROLES` narrows it further.

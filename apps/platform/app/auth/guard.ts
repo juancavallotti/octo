@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth, authEnabled } from "@/auth";
-import { ALL_ROLES } from "./roles";
+import {
+  ALL_ROLES,
+  PLATFORM_ADMIN,
+  PLATFORM_DEVELOPER,
+  PLATFORM_OPERATOR,
+} from "./roles";
 
 /**
  * Role-checker for server actions and BFF route handlers. The middleware already
@@ -11,15 +16,33 @@ import { ALL_ROLES } from "./roles";
  * When SSO is disabled (local `task dev`) every check passes with a synthetic
  * local session, so the app keeps working without an identity provider.
  *
- * Required roles for write operations default to none (any authenticated user) and
- * can be locked down via AUTH_WRITE_ROLES (comma-separated) without code changes.
+ * Writes require one of the roles that describe somebody who builds or runs
+ * things here. AUTH_WRITE_ROLES narrows that further without a code change.
  */
 
-/** Roles permitted to perform write/mutating operations; empty = any signed-in user. */
-export const writeRoles = (process.env.AUTH_WRITE_ROLES ?? "")
-  .split(",")
-  .map((r) => r.trim())
-  .filter(Boolean);
+/**
+ * Roles permitted to perform write and mutating operations.
+ *
+ * Everything except `platform:monitor`, which is the role that exists to mean
+ * "looks, and nothing else". This used to default to an empty list, which meant
+ * any signed-in user could write — a default the documentation apologised for in
+ * three places. It is only safe to change now because roles are rows an
+ * administrator can grant, rather than a claim they would have had to go and
+ * edit at their identity provider.
+ *
+ * AUTH_WRITE_ROLES replaces the list outright, for an installation that wants to
+ * narrow it further. An empty value is treated as unset rather than as "nobody":
+ * a variable somebody cleared should not silently take writes away from everyone.
+ */
+export const writeRoles = ((): string[] => {
+  const configured = (process.env.AUTH_WRITE_ROLES ?? "")
+    .split(",")
+    .map((r) => r.trim())
+    .filter(Boolean);
+  return configured.length > 0
+    ? configured
+    : [PLATFORM_ADMIN, PLATFORM_OPERATOR, PLATFORM_DEVELOPER];
+})();
 
 export class AuthError extends Error {} // → 401
 export class ForbiddenError extends Error {} // → 403

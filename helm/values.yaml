@@ -974,7 +974,8 @@ auth:
   # provider rather than here.
   url: ""
   # Optional: restrict write/mutating operations to these comma-separated roles.
-  # Empty = any signed-in user.
+  # Empty uses every role except platform:monitor, which is the role that means
+  # "looks, and nothing else". Set it to narrow that further.
   writeRoles: ""
 
 # How external traffic reaches the editor and the per-integration endpoints.

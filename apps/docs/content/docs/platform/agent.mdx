@@ -32,7 +32,7 @@ Granting him observability hands a chat-panel user nothing they could not alread
 Installing is idempotent. An existing integration is reused and an existing tag is not recreated, so you never get a second agent, and retrying after a failed deploy picks up where it stopped. He is deployed **internal-only**: the platform proxies to the in-cluster address shown on the status card.
 
 <Callout type="warn">
-Dr. Octo has full read **and write** access to the orchestrator API, deploying included. The chat panel is therefore gated by `AUTH_WRITE_ROLES`, the same roles every other cluster-wide write requires, and **that variable defaults to empty, which means any signed-in user**. Set it before you install him on a shared installation. To narrow what he may do regardless of who asks, see [Restrict what he can do](#restrict-what-he-can-do).
+Dr. Octo has full read **and write** access to the orchestrator API, deploying included. The chat panel is therefore gated by the [write roles](/platform/users-and-api-keys) — every role except `platform:monitor`, unless `AUTH_WRITE_ROLES` narrows it further. To narrow what he may do regardless of who asks, see [Restrict what he can do](#restrict-what-he-can-do).
 </Callout>
 
 ## Talk to him
