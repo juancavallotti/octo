@@ -15,6 +15,29 @@ tasks:
   dev:
     desc: Run the Octo platform dev server (use root `task dev` to build the runner + enable RUN)
     cmds:
+      # Refuse to start when something else holds :3000, instead of letting Next
+      # quietly move to :3001.
+      #
+      # The local k3d cluster publishes the in-cluster platform on the same port
+      # (deploy/k3d/cluster.yaml), and so does the standalone app's dev server. When
+      # one of them has it, `next dev` picks the next free port while AUTH_URL — and
+      # the tab you already have open — still say :3000. You then sign in against
+      # the *other* platform, read a production build, and conclude that dev mode has
+      # no dev indicator and no hot reload. It does; you are not looking at it.
+      - |
+        pid="$(lsof -tnP -iTCP:3000 -sTCP:LISTEN 2>/dev/null | head -1)"
+        if [ -n "$pid" ]; then
+          # The full command, not lsof's truncated NAME column: "com.docke" names
+          # nothing, while the argv says whether this is the k3d proxy or a dev server.
+          holder="$(ps -o command= -p "$pid" 2>/dev/null | cut -c1-90)"
+          echo "✖ port 3000 is already taken (pid $pid): ${holder:-unknown}" >&2
+          echo "  the dev server would start on another port while AUTH_URL still points at" >&2
+          echo "  http://localhost:3000, so you would be signing in to whatever is there." >&2
+          echo "" >&2
+          echo "  if it is the local cluster:   k3d cluster stop octo" >&2
+          echo "  if it is the standalone app:  stop that dev server" >&2
+          exit 1
+        fi
       - pnpm run dev
 
   lint:
