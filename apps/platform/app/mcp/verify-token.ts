@@ -1,16 +1,14 @@
 /**
  * Bearer-token verification for the `/mcp` resource server.
  *
- * Two kinds of bearer token are accepted, chosen by prefix:
+ * One kind of bearer token is accepted: an **OAuth 2.1 access-token JWT**, which is
+ * what MCP clients (Claude, ChatGPT) obtain by self-registering against the
+ * operator's provider. It is verified against that provider's JWKS with
+ * `iss`/`aud`/`exp` checks, and the `aud` must equal this server's RFC 8707 resource
+ * identifier so a token minted for another resource can't be replayed here (MCP's
+ * anti-passthrough rule).
  *
- *  - **OAuth 2.1 access-token JWT** (the default for MCP clients like Claude and
- *    ChatGPT). Verified against the provider's JWKS with `iss`/`aud`/`exp` checks; the
- *    `aud` must equal this server's RFC 8707 resource identifier so a token minted
- *    for another resource can't be replayed here (MCP's anti-passthrough rule).
- *  - **`octo_…` API key** — the legacy per-user bearer, kept for a future CLI.
- *    Resolved through the orchestrator's verify endpoint, unchanged.
- *
- * Either way we resolve the caller to a durable octo user id and hang it off
+ * We resolve the caller to a durable octo user id and hang it off
  * {@link AuthInfo.extra} so tools can scope per-user work later; today it mirrors
  * the previous authentication-only boundary.
  *
@@ -26,7 +24,7 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import { bootstrapUser, verifyApiKey } from "@/app/actions/_client";
+import { bootstrapUser } from "@/app/actions/_client";
 import { OIDC_JWKS_URL, OIDC_USERINFO_URL, trimSlashes } from "@/oidc.config";
 import { MCP_ISSUER, MCP_RESOURCE } from "./oauth-config";
 
@@ -46,8 +44,6 @@ export interface McpTokenVerifierDeps {
   getKey: JWTVerifyGetKey;
   /** Fetch email/name for the bearer's subject from the authorization server. */
   fetchUserinfo: (token: string) => Promise<UserinfoClaims>;
-  /** Resolve an `octo_…` API key to its owner. */
-  verifyApiKey: typeof verifyApiKey;
   /** Provision (or refresh) the octo user row for an OIDC subject. */
   bootstrapUser: typeof bootstrapUser;
 }
@@ -94,18 +90,6 @@ export function createMcpTokenVerifier(
     bearer?: string,
   ): Promise<AuthInfo | undefined> {
     if (!bearer) return undefined;
-
-    // API key (kept for the future CLI): resolve via the orchestrator.
-    if (bearer.startsWith("octo_")) {
-      const res = await deps.verifyApiKey(bearer);
-      if (!res.ok) return undefined;
-      return {
-        token: bearer,
-        clientId: `apikey:${res.data.id}`,
-        scopes: [],
-        extra: { userId: res.data.userId },
-      };
-    }
 
     // OAuth 2.1 access-token JWT from the provider. Any failure (bad signature, wrong
     // issuer/audience, expiry) returns undefined; `withMcpAuth` then answers 401
@@ -203,6 +187,5 @@ export const verifyMcpToken: McpTokenVerifier = createMcpTokenVerifier({
   resource: MCP_RESOURCE,
   getKey: defaultGetKey,
   fetchUserinfo: defaultFetchUserinfo,
-  verifyApiKey,
   bootstrapUser,
 });

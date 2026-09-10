@@ -46,21 +46,16 @@ function makeVerifier(over: Partial<McpTokenVerifierDeps> = {}) {
     ok: true as const,
     data: { id: "octo-user-1", email: "", name: "", createdAt: "", lastLoginAt: "" },
   }));
-  const verifyApiKey = vi.fn(async () => ({
-    ok: true as const,
-    data: { id: "key-1", userId: "octo-user-9", name: "cli" },
-  }));
   const fetchUserinfo = vi.fn(async () => ({ email: "a@b.co", name: "Ada" }));
   const deps: McpTokenVerifierDeps = {
     issuer: ISSUER,
     resource: RESOURCE,
     getKey,
     fetchUserinfo,
-    verifyApiKey: verifyApiKey as unknown as McpTokenVerifierDeps["verifyApiKey"],
     bootstrapUser: bootstrapUser as unknown as McpTokenVerifierDeps["bootstrapUser"],
     ...over,
   };
-  return { verify: createMcpTokenVerifier(deps), bootstrapUser, verifyApiKey, fetchUserinfo };
+  return { verify: createMcpTokenVerifier(deps), bootstrapUser, fetchUserinfo };
 }
 
 const req = new Request("https://platform.example/mcp");
@@ -119,23 +114,6 @@ describe("verifyMcpToken — OAuth JWT", () => {
     const info = await verify(req, await mintToken());
     expect(info).toBeDefined();
     expect(info!.extra?.userId).toBeUndefined();
-  });
-});
-
-describe("verifyMcpToken — octo_ API key", () => {
-  it("resolves a valid API key via the orchestrator", async () => {
-    const { verify, verifyApiKey } = makeVerifier();
-    const info = await verify(req, "octo_abc123");
-    expect(verifyApiKey).toHaveBeenCalledWith("octo_abc123");
-    expect(info).toMatchObject({ clientId: "apikey:key-1", extra: { userId: "octo-user-9" } });
-  });
-
-  it("rejects an unknown/expired API key", async () => {
-    const verifyApiKey = vi.fn(async () => ({ ok: false as const, error: "revoked" }));
-    const { verify } = makeVerifier({
-      verifyApiKey: verifyApiKey as unknown as McpTokenVerifierDeps["verifyApiKey"],
-    });
-    expect(await verify(req, "octo_bad")).toBeUndefined();
   });
 });
 
