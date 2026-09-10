@@ -51,13 +51,13 @@ describe("requestJson", () => {
   it("unwraps the { error } envelope on failure", async () => {
     stubFetch({ ok: false, status: 409, body: { error: "deployed to prod" } });
     const res = await requestJson("DELETE", "http://x/thing");
-    expect(res).toEqual({ ok: false, error: "deployed to prod" });
+    expect(res).toEqual({ ok: false, error: "deployed to prod", status: 409 });
   });
 
   it("falls back to a status message when there is no error body", async () => {
     stubFetch({ ok: false, status: 500, body: {} });
     const res = await requestJson("GET", "http://x/thing");
-    expect(res).toEqual({ ok: false, error: "request failed (500)" });
+    expect(res).toEqual({ ok: false, error: "request failed (500)", status: 500 });
   });
 
   // res.json() can resolve to null — or a scalar, or an array — on a failure body. Reading
@@ -67,12 +67,14 @@ describe("requestJson", () => {
     await expect(requestJson("GET", "http://x/thing")).resolves.toEqual({
       ok: false,
       error: "request failed (502)",
+      status: 502,
     });
 
     stubFetch({ ok: false, status: 500, body: "plain text error" });
     await expect(requestJson("GET", "http://x/thing")).resolves.toEqual({
       ok: false,
       error: "request failed (500)",
+      status: 500,
     });
   });
 
@@ -142,7 +144,7 @@ describe("requestBytes", () => {
   it("unwraps the { error } envelope on failure", async () => {
     stubBytes({ ok: false, status: 404, errorBody: { error: "integration not found" } });
     const res = await requestBytes("GET", "http://x/bundle");
-    expect(res).toEqual({ ok: false, error: "integration not found" });
+    expect(res).toEqual({ ok: false, error: "integration not found", status: 404 });
   });
 
   it("turns a network error into an error result", async () => {
@@ -187,6 +189,39 @@ describe("sendBytes", () => {
   it("unwraps the { error } envelope on failure", async () => {
     stubFetch({ ok: false, status: 400, body: { error: "bundle invalid" } });
     const res = await sendBytes("POST", "http://x/bundle", new Uint8Array(), "application/zip");
-    expect(res).toEqual({ ok: false, error: "bundle invalid" });
+    expect(res).toEqual({ ok: false, error: "bundle invalid", status: 400 });
+  });
+});
+
+describe("request options", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("merges caller headers over the ones the request sets for itself", async () => {
+    const fetchFn = stubFetch({ body: {} });
+    await requestJson("POST", "http://x/thing", { a: 1 }, {
+      headers: { Authorization: "Bearer t" },
+    });
+    expect(fetchFn).toHaveBeenCalledWith("http://x/thing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer t" },
+      body: JSON.stringify({ a: 1 }),
+    });
+  });
+
+  it("carries headers on a request that has no body of its own", async () => {
+    const fetchFn = stubFetch({ status: 204 });
+    await requestJson("DELETE", "http://x/thing", undefined, {
+      headers: { Authorization: "Bearer t" },
+    });
+    expect(fetchFn).toHaveBeenCalledWith("http://x/thing", {
+      method: "DELETE",
+      headers: { Authorization: "Bearer t" },
+    });
+  });
+
+  it("leaves the request untouched when no options are given", async () => {
+    const fetchFn = stubFetch({ body: {} });
+    await requestJson("GET", "http://x/thing");
+    expect(fetchFn).toHaveBeenCalledWith("http://x/thing", { method: "GET" });
   });
 });
