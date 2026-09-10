@@ -1,6 +1,13 @@
 "use client";
 
-import { KeyRound, ScrollText, TriangleAlert, Braces, FlaskConical } from "lucide-react";
+import {
+  KeyRound,
+  ScrollText,
+  TriangleAlert,
+  Braces,
+  FlaskConical,
+  SquareFunction,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ConsoleTab } from "../../run/console";
 
@@ -22,6 +29,7 @@ const TABS: TabSpec[] = [
   { key: "problems", label: "Problems", icon: TriangleAlert },
   { key: "results", label: "Output", icon: Braces },
   { key: "tests", label: "Tests", icon: FlaskConical },
+  { key: "cel", label: "CEL", icon: SquareFunction },
   { key: "env", label: "Dev .env", icon: KeyRound },
 ];
 

@@ -27,6 +27,7 @@ import {
 } from "../providers/TestSuiteProvider";
 import { CanvasZoomProvider } from "../canvas/ZoomContext";
 import { LayoutProvider } from "../state/layout";
+import { CelTesterProvider } from "../cel/CelTesterStore";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -187,7 +188,11 @@ export default function EditorRoot({
           {/* Above the console provider: the header's layout toggles read both, and
               which panels are showing outlives any one run. */}
           <LayoutProvider>
-            <ConsoleProvider>{tree}</ConsoleProvider>
+            {/* The CEL tab's scratchpad outlives the tab, so it is mounted with the
+                console rather than inside it. */}
+            <ConsoleProvider>
+              <CelTesterProvider>{tree}</CelTesterProvider>
+            </ConsoleProvider>
           </LayoutProvider>
         </CanvasZoomProvider>
       </EditorMetaProvider>

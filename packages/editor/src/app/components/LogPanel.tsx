@@ -4,12 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
-import {
-  useConsole,
-  useConsoleCollapsed,
-  type ConsoleTab,
-} from "../run/console";
+import { useConsole, useConsoleCollapsed, type ConsoleTab } from "../run/console";
 import { useSuiteRun } from "../run/SuiteRunContext";
+import CelTester from "../cel/CelTester";
+import { useCelTester } from "../cel/CelTesterStore";
 import DevEnvPanel from "./DevEnvPanel";
 import ConsoleTabs from "./console/ConsoleTabs";
 import LogsTab from "./console/LogsTab";
@@ -29,6 +27,7 @@ const CLEAR_LABEL: Partial<Record<ConsoleTab, string>> = {
   logs: "Clear logs",
   results: "Clear output",
   tests: "Clear test results",
+  cel: "Clear evaluations",
 };
 
 /** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
@@ -51,7 +50,8 @@ function readStoredHeight(): number {
 const NO_LOGS: RunLogLine[] = [];
 
 /**
- * The docked bottom console: Problems, Logs, Results, and the Dev .env editor. It only
+ * The docked bottom console: Problems, Logs, Results, the CEL tester, and the Dev
+ * .env editor. It only
  * renders when a runner is available. Height is adjustable by dragging the top divider,
  * and the panel collapses to its header.
  *
@@ -79,6 +79,7 @@ export default function LogPanel() {
   const logs = run?.logs ?? NO_LOGS;
   const results = flowRun?.results ?? [];
   const suiteRun = useSuiteRun();
+  const cel = useCelTester();
   // The badge counts what went WRONG, so a green run is quiet and a bad one is not.
   const testFailures = suiteRun?.outcome
     ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
@@ -194,10 +195,7 @@ export default function LogPanel() {
                 navigator.clipboard.writeText(testUrl).then(() => {
                   setCopied(true);
                   if (copiedTimer.current) clearTimeout(copiedTimer.current);
-                  copiedTimer.current = setTimeout(
-                    () => setCopied(false),
-                    1500,
-                  );
+                  copiedTimer.current = setTimeout(() => setCopied(false), 1500);
                 });
               }}
               aria-label="Copy test URL"
@@ -213,13 +211,17 @@ export default function LogPanel() {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {(tab === "logs" || tab === "results" || tab === "tests") && (
+          {(tab === "logs" ||
+            tab === "results" ||
+            tab === "tests" ||
+            tab === "cel") && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 if (tab === "logs") clearLogs();
                 else if (tab === "tests") suiteRun?.clear();
+                else if (tab === "cel") cel.clear();
                 else flowRun?.clear();
               }}
               aria-label={CLEAR_LABEL[tab] ?? "Clear"}
@@ -251,11 +253,10 @@ export default function LogPanel() {
       {!collapsed && tab === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && (
-        <LogsTab logs={logs} running={running} />
-      )}
+      {!collapsed && tab === "logs" && <LogsTab logs={logs} running={running} />}
       {!collapsed && tab === "results" && <ResultsTab results={results} />}
       {!collapsed && tab === "tests" && <TestsTab />}
+      {!collapsed && tab === "cel" && <CelTester />}
       {!collapsed && tab === "env" && <DevEnvPanel />}
     </section>
   );

@@ -175,6 +175,13 @@ export function useCelCompletion({
         setMenu(null);
         return;
       }
+      // Cmd/Ctrl+Enter belongs to whoever is hosting the field (the CEL tab runs the
+      // expression with it), so it is never a completion accept — close the menu and
+      // let it through rather than swallowing the shortcut.
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        setMenu(null);
+        return;
+      }
       if (menu) {
         const NAV = ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"];
         if (NAV.includes(e.key)) {

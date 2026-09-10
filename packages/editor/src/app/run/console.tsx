@@ -24,7 +24,13 @@ import { useRun } from "./RunContext";
  * it sticks.
  */
 
-export type ConsoleTab = "problems" | "logs" | "results" | "tests" | "env";
+export type ConsoleTab =
+  | "problems"
+  | "logs"
+  | "results"
+  | "tests"
+  | "cel"
+  | "env";
 
 interface ConsoleValue {
   tab: ConsoleTab;
@@ -52,9 +58,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     [tab, override, openTo],
   );
 
-  return (
-    <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>
-  );
+  return <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>;
 }
 
 /**
@@ -64,8 +68,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
  */
 export function useConsole(): ConsoleValue {
   const value = useContext(ConsoleContext);
-  if (!value)
-    throw new Error("useConsole must be used within a ConsoleProvider");
+  if (!value) throw new Error("useConsole must be used within a ConsoleProvider");
   return value;
 }
 

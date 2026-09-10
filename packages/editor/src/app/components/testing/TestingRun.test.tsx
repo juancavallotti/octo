@@ -15,6 +15,7 @@ import {
 import { RunProvider } from "../../run/RunContext";
 import { ConsoleProvider } from "../../run/console";
 import { SuiteRunProvider } from "../../run/SuiteRunContext";
+import { CelTesterProvider } from "../../cel/CelTesterStore";
 import LogPanel from "../LogPanel";
 import {
   emptyTotals,
@@ -47,7 +48,13 @@ function stubTransport(
     start: async () => snapshot(testAvailable),
     stop: async () => {},
     sync: async () => {},
-    invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
+    invoke: async () => ({
+      ok: true,
+      dropped: false,
+      timedOut: false,
+      output: "",
+      logs: [],
+    }),
     evalCel: async () => ({ ok: true, result: true }),
     subscribeLogs: () => () => {},
     test: async (req) => {
@@ -105,7 +112,10 @@ function renderTab(
           },
         },
       });
-      dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "one" } });
+      dispatch({
+        type: EditorActionType.SET_INTEGRATION_ID,
+        data: { id: "one" },
+      });
     }, [dispatch]);
     return <>{children}</>;
   }
@@ -113,16 +123,19 @@ function renderTab(
     <EditorStateProvider>
       <Seed>
         <ConsoleProvider>
-          <RunProvider transport={transport}>
-            <SuiteRunProvider>
-              <TestSuiteProvider store={store}>
-                {/* The tab starts the run; the console shows what came back, exactly as
+          {/* The console's CEL tab reads its scratchpad from here. */}
+          <CelTesterProvider>
+            <RunProvider transport={transport}>
+              <SuiteRunProvider>
+                <TestSuiteProvider store={store}>
+                  {/* The tab starts the run; the console shows what came back, exactly as
                     the editor wires them. */}
-                <TestingView />
-                <LogPanel />
-              </TestSuiteProvider>
-            </SuiteRunProvider>
-          </RunProvider>
+                  <TestingView />
+                  <LogPanel />
+                </TestSuiteProvider>
+              </SuiteRunProvider>
+            </RunProvider>
+          </CelTesterProvider>
         </ConsoleProvider>
       </Seed>
     </EditorStateProvider>,
@@ -130,7 +143,10 @@ function renderTab(
 }
 
 /** Open the suite for `flow` and return the Run button. */
-async function openSuite(user: ReturnType<typeof userEvent.setup>, flow = "orders") {
+async function openSuite(
+  user: ReturnType<typeof userEvent.setup>,
+  flow = "orders",
+) {
   await user.click(await screen.findByRole("button", { name: flow }));
   return screen.getByRole("button", { name: /Run tests/ });
 }
@@ -139,7 +155,8 @@ async function openSuite(user: ReturnType<typeof userEvent.setup>, flow = "order
  * The open suite's toolbar. A tally is scoped to it because the console reports one per
  * suite too, so "1 passed" on its own no longer says whose.
  */
-const toolbar = () => screen.getByRole("button", { name: /Run tests/ }).parentElement!;
+const toolbar = () =>
+  screen.getByRole("button", { name: /Run tests/ }).parentElement!;
 
 describe("running a suite", () => {
   it("sends the open suite and the current document", async () => {
@@ -150,7 +167,9 @@ describe("running a suite", () => {
     await user.click(await openSuite(user));
 
     await waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0].suites).toEqual([{ name: "orders", content: suiteYaml }]);
+    expect(requests[0].suites).toEqual([
+      { name: "orders", content: suiteYaml },
+    ]);
     expect(requests[0].integrationId).toBe("one");
     // The config is rendered from the document in front of the user, not from what was
     // last saved — testing yesterday's copy would be worse than useless.
@@ -161,7 +180,13 @@ describe("running a suite", () => {
     const user = userEvent.setup();
     const { transport } = stubTransport(
       outcome({
-        totals: { ...emptyTotals(), cases: 2, passed: 1, failed: 1, elapsedMs: 30 },
+        totals: {
+          ...emptyTotals(),
+          cases: 2,
+          passed: 1,
+          failed: 1,
+          elapsedMs: 30,
+        },
         suites: [
           {
             name: "orders",
@@ -173,7 +198,10 @@ describe("running a suite", () => {
                 status: "failed",
                 elapsedMs: 18,
                 failures: [
-                  { summary: "expect.body", detail: 'want: {"a":1}\ngot:  {"a":2}' },
+                  {
+                    summary: "expect.body",
+                    detail: 'want: {"a":1}\ngot:  {"a":2}',
+                  },
                 ],
                 outcome: { result: { body: { a: 2 } } },
               },
@@ -229,7 +257,9 @@ describe("running a suite", () => {
   // whose tests failed, and it must not be reported as one.
   it("reports a run that could not be made", async () => {
     const user = userEvent.setup();
-    const { transport } = stubTransport(new Error("Test runner not available."));
+    const { transport } = stubTransport(
+      new Error("Test runner not available."),
+    );
     renderTab(transport, fakeStore([{ flow: "orders", content: suiteYaml }]));
 
     await user.click(await openSuite(user));
@@ -248,12 +278,16 @@ describe("running a suite", () => {
 
     await user.click(await openSuite(user));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("no report was written");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "no report was written",
+    );
   });
 
   it("says a timed-out run was stopped rather than showing a bare error", async () => {
     const user = userEvent.setup();
-    const { transport } = stubTransport(outcome({ ok: false, timedOut: true, suites: [] }));
+    const { transport } = stubTransport(
+      outcome({ ok: false, timedOut: true, suites: [] }),
+    );
     renderTab(transport, fakeStore([{ flow: "orders", content: suiteYaml }]));
 
     await user.click(await openSuite(user));
@@ -269,12 +303,17 @@ describe("when running is not possible", () => {
   // wrote a suite with no way to learn why they cannot run it.
   it("keeps Run visible and says why, with no dolphin binary", async () => {
     const user = userEvent.setup();
-    const { transport, requests } = stubTransport(outcome(), { testAvailable: false });
+    const { transport, requests } = stubTransport(outcome(), {
+      testAvailable: false,
+    });
     renderTab(transport, fakeStore([{ flow: "orders", content: suiteYaml }]));
 
     const button = await openSuite(user);
     await waitFor(() => expect(button).toBeDisabled());
-    expect(button).toHaveAttribute("title", expect.stringContaining("DOLPHIN_BIN_PATH"));
+    expect(button).toHaveAttribute(
+      "title",
+      expect.stringContaining("DOLPHIN_BIN_PATH"),
+    );
 
     await user.click(button);
     expect(requests).toHaveLength(0);
@@ -288,13 +327,19 @@ describe("when running is not possible", () => {
     renderTab(
       transport,
       fakeStore([
-        { flow: "orders", content: "flow: orders\ncases:\n  - name: a\n    spys: {}\n" },
+        {
+          flow: "orders",
+          content: "flow: orders\ncases:\n  - name: a\n    spys: {}\n",
+        },
       ]),
     );
 
     const button = await openSuite(user);
     expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", expect.stringContaining("will not load"));
+    expect(button).toHaveAttribute(
+      "title",
+      expect.stringContaining("will not load"),
+    );
 
     await user.click(button);
     expect(requests).toHaveLength(0);
@@ -303,7 +348,10 @@ describe("when running is not possible", () => {
   it("refuses to run a suite with no cases", async () => {
     const user = userEvent.setup();
     const { transport } = stubTransport(outcome());
-    renderTab(transport, fakeStore([{ flow: "orders", content: "flow: orders\ncases: []\n" }]));
+    renderTab(
+      transport,
+      fakeStore([{ flow: "orders", content: "flow: orders\ncases: []\n" }]),
+    );
 
     // `cases: []` is itself a problem dolphin reports, so the button is doubly blocked.
     expect(await openSuite(user)).toBeDisabled();
@@ -322,7 +370,10 @@ describe("the report and the suite it belongs to", () => {
       transport,
       fakeStore([
         { flow: "orders", content: suiteYaml },
-        { flow: "refunds", content: "flow: refunds\ncases:\n  - name: b\n    expect: {}\n" },
+        {
+          flow: "refunds",
+          content: "flow: refunds\ncases:\n  - name: b\n    expect: {}\n",
+        },
       ]),
       ["orders", "refunds"],
     );
@@ -355,7 +406,9 @@ describe("the report and the suite it belongs to", () => {
 
     const button = await openSuite(user);
     await user.click(button);
-    await waitFor(() => expect(screen.getByText("Running…")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Running…")).toBeInTheDocument(),
+    );
 
     await user.click(button);
     expect(requests).toHaveLength(1);
@@ -368,5 +421,7 @@ describe("the report and the suite it belongs to", () => {
 });
 
 vi.mock("react-simple-code-editor", () => ({
-  default: ({ value }: { value: string }) => <textarea value={value} readOnly />,
+  default: ({ value }: { value: string }) => (
+    <textarea value={value} readOnly />
+  ),
 }));
