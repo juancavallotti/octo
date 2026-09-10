@@ -23,7 +23,7 @@ import { authEnabled } from "@/auth";
 import { PLATFORM_ADMIN } from "@/app/auth/roles";
 import type { Session } from "next-auth";
 import type { ActionResult } from "@octo/http";
-import * as client from "./_client";
+import { bootstrapUser } from "./client/iam";
 
 /**
  * Authorize `roles`, returning the authenticated session on success or an error
@@ -91,17 +91,17 @@ const LOCAL_EMAIL = "local@localhost";
 const LOCAL_NAME = "Local Dev";
 
 /**
- * The caller's durable orchestrator user id. With SSO it is on the session, put there
- * when the user was bootstrapped at sign-in. In local dev there is no IdP, so a stable
- * sentinel user is bootstrapped on demand and its id used — which is why this can reach
- * the orchestrator at all.
+ * The caller's durable user id. With SSO it is on the session, put there when the
+ * exchange resolved them at sign-in. In local dev there is no identity provider, so a
+ * stable sentinel user is bootstrapped through iam on demand and its id used — which is
+ * why this can reach the orchestrator at all.
  *
  * Throws AuthError when no user can be resolved, which the gates below turn into an
  * error result so an action never throws across the boundary.
  */
 async function userIdOf(session: Session): Promise<string> {
   if (!authEnabled) {
-    const res = await client.bootstrapUser(LOCAL_SUBJECT, LOCAL_EMAIL, LOCAL_NAME);
+    const res = await bootstrapUser(LOCAL_SUBJECT, LOCAL_EMAIL, LOCAL_NAME);
     if (!res.ok) throw new AuthError(res.error);
     return res.data.id;
   }

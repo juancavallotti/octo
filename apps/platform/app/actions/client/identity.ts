@@ -1,12 +1,16 @@
 /**
- * Health, users and API keys: the calls that answer "is the orchestrator there,
- * and who is asking". Grouped apart from the resource CRUD because they are what
- * the app needs before any of it.
+ * Health and API keys: the calls that answer "is the orchestrator there, and what
+ * has this person issued themselves". Grouped apart from the resource CRUD
+ * because they are what the app needs before any of it.
+ *
+ * Users are not here. They belong to iam, which owns the identity this platform
+ * authorizes on — see app/actions/client/iam.ts. The API keys below stay,
+ * nested under `/users/{userId}` because that is where the orchestrator serves
+ * them; the id in that path is one iam issued.
  */
 
 import { baseUrl, call, enc } from "./http";
 import { requestOk } from "@octo/http";
-import type { User } from "@/app/model/orchestrator";
 import type { ApiKey, CreatedApiKey, VerifiedApiKey } from "@/app/model/apikeys";
 import type { ActionResult } from "@octo/http";
 
@@ -21,21 +25,6 @@ export function checkHealth(): Promise<boolean> {
   const base = baseUrl();
   if (!base) return Promise.resolve(false);
   return requestOk("GET", `${base}/healthz`);
-}
-
-// --- Users ----------------------------------------------------------------
-
-/**
- * Provision (or refresh) the user identified by the OIDC subject, returning the
- * row with its durable id. Called from the auth layer on sign-in; idempotent, so
- * later logins just sync email/name.
- */
-export function bootstrapUser(
-  subject: string,
-  email: string,
-  name: string,
-): Promise<ActionResult<User>> {
-  return call<User>("POST", "/users/bootstrap", { subject, email, name });
 }
 
 // --- API keys -------------------------------------------------------------
