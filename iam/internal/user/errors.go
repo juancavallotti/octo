@@ -21,4 +21,9 @@ var (
 	// who has simply not been let in — and the two want different words said to
 	// them.
 	ErrNotProvisioned = errors.New("this account has not been provisioned on this platform")
+	// ErrLastAdmin is returned when an operation would leave the platform with no
+	// administrator — revoking the last admin role, or deleting the last person
+	// holding it. Not merely inconvenient: with nobody able to administer it, the
+	// bootstrap hands the role to the next stranger who signs in.
+	ErrLastAdmin = errors.New("this is the last administrator")
 )

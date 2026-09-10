@@ -2,7 +2,6 @@ package user
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -11,7 +10,7 @@ import (
 // consumer (and unexported) so service tests can substitute a fake; *Repo
 // satisfies it structurally.
 type repository interface {
-	Upsert(ctx context.Context, subject, email, name string) (User, bool, error)
+	Admit(ctx context.Context, subject, email, name string) (User, bool, error)
 	Create(ctx context.Context, subject, email, name string) (User, error)
 	Update(ctx context.Context, id, email, name string) error
 	Delete(ctx context.Context, id string) error
@@ -21,7 +20,6 @@ type repository interface {
 	Grant(ctx context.Context, userID string, granted Role, grantedBy *string) error
 	Revoke(ctx context.Context, userID string, revoked Role) error
 	CountWithRole(ctx context.Context, held Role) (int, error)
-	EnsureFirstAdmin(ctx context.Context, userID string, created bool) (bool, error)
 }
 
 // Service holds user provisioning and role-granting logic.
@@ -59,52 +57,8 @@ func (s *Service) SignIn(ctx context.Context, subject, email, name string) (User
 		return User{}, fmt.Errorf("%w: email is required", ErrInvalid)
 	}
 
-	if err := s.admissible(ctx, subject); err != nil {
-		return User{}, err
-	}
-
-	u, created, err := s.repo.Upsert(ctx, subject, email, strings.TrimSpace(name))
-	if err != nil {
-		return User{}, err
-	}
-	if _, err := s.repo.EnsureFirstAdmin(ctx, u.ID, created); err != nil {
-		return User{}, err
-	}
-
-	// Read back rather than assembling from what we just wrote: the roles are the
-	// point of the read, and a grant made by EnsureFirstAdmin has to be in the
-	// token minted from this.
-	return s.repo.Get(ctx, u.ID)
-}
-
-// admissible reports whether somebody with no account yet may be given one.
-//
-// Only on an installation that has no administrator, which is the one situation
-// where nobody could have created it for them. In practice that means a database
-// that has just been stood up.
-//
-// Two people racing to be first on a fresh install can both be let in, because
-// this reads before the write rather than under the same lock. Only one of them
-// becomes the administrator — EnsureFirstAdmin settles that under an advisory
-// lock — and the other ends up with an account holding nothing, which the
-// administrator can see in the list and remove. Worth a sentence rather than a
-// second lock: it needs two people to sign in to a brand-new installation in the
-// same instant, and its outcome is one visible, deletable row.
-func (s *Service) admissible(ctx context.Context, subject string) error {
-	if _, err := s.repo.GetBySubject(ctx, subject); err == nil {
-		return nil
-	} else if !errors.Is(err, ErrNotFound) {
-		return err
-	}
-
-	admins, err := s.repo.CountWithRole(ctx, RoleAdmin)
-	if err != nil {
-		return err
-	}
-	if admins > 0 {
-		return ErrNotProvisioned
-	}
-	return nil
+	u, _, err := s.repo.Admit(ctx, subject, email, strings.TrimSpace(name))
+	return u, err
 }
 
 // Get returns the user by id, with roles.
@@ -150,17 +104,8 @@ func (s *Service) Revoke(ctx context.Context, userID string, revoked Role) error
 	if err := validate(userID, revoked); err != nil {
 		return err
 	}
-	if revoked == RoleAdmin {
-		admins, err := s.repo.CountWithRole(ctx, RoleAdmin)
-		if err != nil {
-			return err
-		}
-		if admins <= 1 {
-			return fmt.Errorf(
-				"%w: this is the last %s, and removing it would leave nobody who can grant it back",
-				ErrInvalid, RoleAdmin)
-		}
-	}
+	// The last-administrator rule is the repository's, because only it can check
+	// and write under one lock — see Repo.Revoke.
 	return s.repo.Revoke(ctx, userID, revoked)
 }
 
@@ -220,20 +165,6 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("%w: id is required", ErrInvalid)
 	}
-	u, err := s.repo.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if u.HasRole(RoleAdmin) {
-		admins, err := s.repo.CountWithRole(ctx, RoleAdmin)
-		if err != nil {
-			return err
-		}
-		if admins <= 1 {
-			return fmt.Errorf(
-				"%w: this is the last %s, and deleting them would leave nobody able to "+
-					"administer the platform", ErrInvalid, RoleAdmin)
-		}
-	}
+	// Same rule as Revoke and enforced in the same place, for the same reason.
 	return s.repo.Delete(ctx, id)
 }

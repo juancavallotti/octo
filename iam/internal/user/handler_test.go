@@ -190,8 +190,10 @@ func TestHandlerStatusMapping(t *testing.T) {
 			http.StatusNotFound},
 		{"role outside the catalogue", http.MethodPut, "/users/" + u.ID + "/roles/platform:root",
 			http.StatusBadRequest},
+		// A conflict rather than a bad request: the request is perfectly formed,
+		// and what refuses it is the state of the platform.
 		{"revoking the last admin", http.MethodDelete, "/users/" + u.ID + "/roles/" + string(RoleAdmin),
-			http.StatusBadRequest},
+			http.StatusConflict},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

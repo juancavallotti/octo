@@ -32,7 +32,7 @@ function user(over: Partial<{ id: string; email: string; name: string; roles: st
   };
 }
 
-function renderManager(currentUserId?: string) {
+function renderManager(currentUserId = "somebody-else") {
   return render(
     <RolesProvider roles={[PLATFORM_ADMIN]} enforced>
       <UsersManager currentUserId={currentUserId} />
@@ -141,6 +141,33 @@ describe("UsersManager", () => {
     await person.click(await screen.findByRole("button", { name: "Admin" }));
 
     expect(await screen.findByText(/last platform:admin/)).toBeTruthy();
+  });
+
+  // Each call answers with the whole user, so two in flight together can land out
+  // of order and the older reply would overwrite the newer state.
+  it("takes one role change at a time", async () => {
+    let settle: (u: unknown) => void = () => {};
+    grantRole.mockReturnValue(new Promise((r) => (settle = r)));
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: "Monitor" }));
+
+    expect(screen.getByRole("button", { name: "Admin" })).toHaveProperty("disabled", true);
+    settle(user({ roles: [PLATFORM_ADMIN, PLATFORM_MONITOR] }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Admin" })).toHaveProperty("disabled", false),
+    );
+  });
+
+  // A first load that fails must stop saying "Loading…", or the error sits
+  // underneath a spinner that will never resolve.
+  it("stops loading when the first request fails", async () => {
+    listUsers.mockRejectedValue(new Error("iam unreachable"));
+    renderManager();
+
+    expect(await screen.findByText("iam unreachable")).toBeTruthy();
+    expect(screen.queryByText("Loading…")).toBeNull();
   });
 
   it("says so when the list is empty", async () => {

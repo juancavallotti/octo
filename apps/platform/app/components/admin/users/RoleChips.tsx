@@ -14,14 +14,11 @@ export default function RoleChips({
   held,
   catalogue,
   disabled,
-  disabledReason,
   onToggle,
 }: {
   held: string[];
   catalogue: RoleOption[];
   disabled?: boolean;
-  /** Said on hover when the toggles are disabled. */
-  disabledReason?: string;
   onToggle: (role: string, grant: boolean) => void;
 }) {
   return (
@@ -34,7 +31,7 @@ export default function RoleChips({
             type="button"
             disabled={disabled}
             aria-pressed={on}
-            title={disabled ? disabledReason : description}
+            title={description}
             onClick={() => onToggle(role, !on)}
             className={
               "rounded-full border px-2 py-0.5 text-xs transition-colors disabled:opacity-50 " +

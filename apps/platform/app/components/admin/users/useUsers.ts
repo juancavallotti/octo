@@ -15,12 +15,14 @@ import {
  * a row shows every role with the ones it holds turned on, so a role nobody has
  * yet still has to be offered.
  *
- * `null` means not loaded, which is what tells the manager to say nothing rather
- * than to say "no users" while it is still asking.
+ * `loading` is tracked separately from `users` rather than inferred from it being
+ * null. Inferring it means a first load that fails stays "Loading…" forever,
+ * underneath the error explaining why it never will.
  */
 export interface UsersData {
-  users: PlatformUser[] | null;
+  users: PlatformUser[];
   roles: RoleOption[];
+  loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
   /** Replace one row in place, for a change that answered with the new user. */
@@ -28,22 +30,25 @@ export interface UsersData {
 }
 
 export function useUsers(): UsersData {
-  const [users, setUsers] = useState<PlatformUser[] | null>(null);
+  const [users, setUsers] = useState<PlatformUser[]>([]);
   const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // A promise chain rather than an async body, so nothing sets state in the
   // synchronous part of the effect below — the form the other managers use.
   const reload = useCallback(
     () =>
-      Promise.all([listUsers(), listRoles()]).then(
-        ([people, catalogue]) => {
-          setUsers(people);
-          setRoles(catalogue);
-          setError(null);
-        },
-        (e) => setError((e as Error).message),
-      ),
+      Promise.all([listUsers(), listRoles()])
+        .then(
+          ([people, catalogue]) => {
+            setUsers(people);
+            setRoles(catalogue);
+            setError(null);
+          },
+          (e) => setError((e as Error).message),
+        )
+        .finally(() => setLoading(false)),
     [],
   );
 
@@ -55,10 +60,8 @@ export function useUsers(): UsersData {
   // swapped rather than the list re-fetched — which keeps a filtered view from
   // jumping under somebody's hands mid-edit.
   const replace = useCallback((user: PlatformUser) => {
-    setUsers((current) =>
-      current ? current.map((u) => (u.id === user.id ? user : u)) : current,
-    );
+    setUsers((current) => current.map((u) => (u.id === user.id ? user : u)));
   }, []);
 
-  return { users, roles, error, reload, replace };
+  return { users, roles, loading, error, reload, replace };
 }

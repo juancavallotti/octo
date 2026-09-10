@@ -19,15 +19,14 @@ import { useUsers } from "./useUsers";
  * user list is tens of rows — it is a company, not a data set — so paging it
  * would be machinery in front of a list that fits on a screen.
  */
-export default function UsersManager({ currentUserId }: { currentUserId?: string }) {
-  const { users, roles, error, reload, replace } = useUsers();
+export default function UsersManager({ currentUserId }: { currentUserId: string }) {
+  const { users, roles, loading, error, reload, replace } = useUsers();
   const { isAdmin } = useRoles();
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
   const shown = useMemo(() => {
-    if (!users) return null;
     const needle = query.trim().toLowerCase();
     return users.filter((u) => {
       const matchesText =
@@ -77,11 +76,11 @@ export default function UsersManager({ currentUserId }: { currentUserId?: string
         <p className="text-sm text-red-600 dark:text-red-400">{actionError}</p>
       )}
 
-      {shown === null ? (
+      {loading ? (
         <p className="text-sm text-zinc-500">Loading…</p>
       ) : shown.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          {users?.length ? "Nobody matches that filter." : "Nobody yet."}
+          {users.length ? "Nobody matches that filter." : "Nobody yet."}
         </p>
       ) : (
         <table className="w-full text-left">

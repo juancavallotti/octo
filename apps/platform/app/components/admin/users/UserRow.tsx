@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { PLATFORM_ADMIN } from "@/app/auth/roles";
 import {
@@ -34,21 +35,31 @@ export default function UserRow({
   onChanged: (user: PlatformUser) => void;
   onRemoved: () => void;
   onError: (message: string) => void;
-  }) {
+}) {
+  // One change at a time. Each call answers with the whole user, so two in flight
+  // together can land out of order and the older reply would overwrite the newer
+  // state — the row would end up showing something nobody asked for.
+  const [busy, setBusy] = useState(false);
+
   const toggle = async (role: string, grant: boolean) => {
+    setBusy(true);
     try {
       onChanged(await (grant ? grantRole(user.id, role) : revokeRole(user.id, role)));
     } catch (e) {
       onError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
   const remove = async () => {
+    setBusy(true);
     try {
       await deleteUser(user.id);
       onRemoved();
     } catch (e) {
       onError((e as Error).message);
+      setBusy(false);
     }
   };
 
@@ -62,10 +73,16 @@ export default function UserRow({
         <RoleChips
           held={user.roles}
           catalogue={roles}
-          disabled={isSelf}
-          disabledReason="You cannot change your own roles."
+          disabled={isSelf || busy}
           onToggle={toggle}
         />
+        {isSelf && (
+          // Said in the row rather than in a title: a disabled control cannot take
+          // keyboard focus, and a tooltip is not reachable by touch at all.
+          <p className="mt-1 text-xs text-zinc-500">
+            You cannot change your own roles or remove yourself.
+          </p>
+        )}
       </td>
       <td className="py-2 pr-4 align-top text-xs text-zinc-500">
         {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : "never"}
@@ -74,8 +91,7 @@ export default function UserRow({
         <button
           type="button"
           onClick={remove}
-          disabled={isSelf}
-          title={isSelf ? "You cannot remove yourself." : `Remove ${user.email}`}
+          disabled={isSelf || busy}
           aria-label={`Remove ${user.email}`}
           className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-black/5 hover:text-red-600 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-500 dark:hover:bg-white/10"
         >

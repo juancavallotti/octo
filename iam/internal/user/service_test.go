@@ -40,7 +40,7 @@ func (m *memRepo) fail() error {
 	return err
 }
 
-func (m *memRepo) Upsert(_ context.Context, subject, email, name string) (User, bool, error) {
+func (m *memRepo) Admit(_ context.Context, subject, email, name string) (User, bool, error) {
 	if err := m.fail(); err != nil {
 		return User{}, false, err
 	}
@@ -48,17 +48,42 @@ func (m *memRepo) Upsert(_ context.Context, subject, email, name string) (User, 
 		u := m.users[id]
 		u.Email, u.Name = email, name
 		u.LastLoginAt = time.Now()
-		return *u, false, nil
+		return withRoleList(*u), false, nil
+	}
+	// The allowlist: somebody with no account is admitted only while there is no
+	// administrator to have created one for them.
+	if m.countWithRole(RoleAdmin) > 0 {
+		return User{}, false, ErrNotProvisioned
 	}
 	m.nextID++
 	id := string(rune('a'+m.nextID-1)) + "0000000-0000-0000-0000-000000000000"
 	u := &User{
 		ID: id, Subject: subject, Email: email, Name: name,
 		CreatedAt: time.Now(), LastLoginAt: time.Now(),
+		Roles: []Role{RoleAdmin},
 	}
 	m.users[id] = u
 	m.bySubject[subject] = id
-	return *u, true, nil
+	return withRoleList(*u), true, nil
+}
+
+// countWithRole is the shared counter behind CountWithRole and the last-
+// administrator rule.
+func (m *memRepo) countWithRole(held Role) int {
+	var n int
+	for _, u := range m.users {
+		if u.HasRole(held) {
+			n++
+		}
+	}
+	return n
+}
+
+// isLastAdmin mirrors the real repository's guard: refusing an operation that
+// would leave the platform with no administrator.
+func (m *memRepo) isLastAdmin(id string) bool {
+	u, ok := m.users[id]
+	return ok && u.HasRole(RoleAdmin) && m.countWithRole(RoleAdmin) <= 1
 }
 
 func (m *memRepo) Create(_ context.Context, subject, email, name string) (User, error) {
@@ -98,6 +123,9 @@ func (m *memRepo) Delete(_ context.Context, id string) error {
 	u, ok := m.users[id]
 	if !ok {
 		return ErrNotFound
+	}
+	if m.isLastAdmin(id) {
+		return ErrLastAdmin
 	}
 	delete(m.bySubject, u.Subject)
 	delete(m.users, id)
@@ -171,6 +199,9 @@ func (m *memRepo) Revoke(_ context.Context, userID string, revoked Role) error {
 	if !ok {
 		return ErrNotFound
 	}
+	if revoked == RoleAdmin && m.isLastAdmin(userID) {
+		return ErrLastAdmin
+	}
 	kept := u.Roles[:0]
 	for _, r := range u.Roles {
 		if r != revoked {
@@ -185,33 +216,7 @@ func (m *memRepo) CountWithRole(_ context.Context, held Role) (int, error) {
 	if err := m.fail(); err != nil {
 		return 0, err
 	}
-	var n int
-	for _, u := range m.users {
-		if u.HasRole(held) {
-			n++
-		}
-	}
-	return n, nil
-}
-
-func (m *memRepo) EnsureFirstAdmin(_ context.Context, userID string, created bool) (bool, error) {
-	if err := m.fail(); err != nil {
-		return false, err
-	}
-	if !created {
-		return false, nil
-	}
-	for _, u := range m.users {
-		if u.HasRole(RoleAdmin) {
-			return false, nil
-		}
-	}
-	u, ok := m.users[userID]
-	if !ok {
-		return false, nil
-	}
-	u.Roles = append(u.Roles, RoleAdmin)
-	return true, nil
+	return m.countWithRole(held), nil
 }
 
 func newService() (*Service, *memRepo) {
@@ -258,11 +263,11 @@ func TestSignInDoesNotRegrantAdminOnALaterSignIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
-	// Revoked directly through the repository: the service refuses to remove the
-	// last admin, which is a different rule and has its own test below.
-	if err := repo.Revoke(ctx, u.ID, RoleAdmin); err != nil {
-		t.Fatalf("Revoke: %v", err)
-	}
+	// Stripped behind the repository's back. Both Revoke and Delete now refuse to
+	// remove the last administrator, so this state is not reachable through any
+	// supported route — but it is reachable through the database, and what is
+	// under test is that a later sign-in does not undo it.
+	repo.users[u.ID].Roles = nil
 
 	again, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First")
 	if err != nil {
@@ -379,8 +384,8 @@ func TestRevokeRefusesToRemoveTheLastAdmin(t *testing.T) {
 	}
 
 	err = svc.Revoke(ctx, first.ID, RoleAdmin)
-	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("Revoke(last admin) error = %v, want ErrInvalid", err)
+	if !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("Revoke(last admin) error = %v, want ErrLastAdmin", err)
 	}
 
 	// With a second admin in place the same revocation is allowed.
@@ -566,8 +571,8 @@ func TestDeleteRefusesTheLastAdmin(t *testing.T) {
 		t.Fatalf("Grant: %v", err)
 	}
 
-	if err := svc.Delete(ctx, only.ID); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("Delete() of the last admin error = %v, want ErrInvalid", err)
+	if err := svc.Delete(ctx, only.ID); !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("Delete() of the last admin error = %v, want ErrLastAdmin", err)
 	}
 
 	// With a second administrator in place, the first may go.

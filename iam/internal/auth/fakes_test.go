@@ -34,11 +34,16 @@ func newMemUsers() *memUsers {
 	}
 }
 
-func (m *memUsers) Upsert(_ context.Context, subject, email, name string) (user.User, bool, error) {
+func (m *memUsers) Admit(ctx context.Context, subject, email, name string) (user.User, bool, error) {
 	if id, ok := m.bySubject[subject]; ok {
 		u := m.byID[id]
 		u.Email, u.Name, u.LastLoginAt = email, name, time.Now()
-		return *u, false, nil
+		return m.mustGet(ctx, id), false, nil
+	}
+	// The allowlist: a stranger is admitted only while there is no administrator
+	// to have created an account for them.
+	if n, _ := m.CountWithRole(ctx, user.RoleAdmin); n > 0 {
+		return user.User{}, false, user.ErrNotProvisioned
 	}
 	m.next++
 	// Shaped like a UUID, because the exchange puts it in a token's `sub` and a
@@ -50,7 +55,18 @@ func (m *memUsers) Upsert(_ context.Context, subject, email, name string) (user.
 	}
 	m.byID[id] = u
 	m.bySubject[subject] = id
-	return *u, true, nil
+	m.roles[id] = []user.Role{user.RoleAdmin}
+	return m.mustGet(ctx, id), true, nil
+}
+
+// mustGet reads a user back for a caller that has just written them, where a
+// miss would be this fake contradicting itself.
+func (m *memUsers) mustGet(ctx context.Context, id string) user.User {
+	u, err := m.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return u
 }
 
 func (m *memUsers) Create(_ context.Context, subject, email, name string) (user.User, error) {
@@ -77,10 +93,13 @@ func (m *memUsers) Update(_ context.Context, id, email, name string) error {
 	return nil
 }
 
-func (m *memUsers) Delete(_ context.Context, id string) error {
+func (m *memUsers) Delete(ctx context.Context, id string) error {
 	u, ok := m.byID[id]
 	if !ok {
 		return user.ErrNotFound
+	}
+	if m.isLastAdmin(ctx, id) {
+		return user.ErrLastAdmin
 	}
 	delete(m.bySubject, u.Subject)
 	delete(m.byID, id)
@@ -131,9 +150,12 @@ func (m *memUsers) Grant(_ context.Context, userID string, granted user.Role, _ 
 	return nil
 }
 
-func (m *memUsers) Revoke(_ context.Context, userID string, revoked user.Role) error {
+func (m *memUsers) Revoke(ctx context.Context, userID string, revoked user.Role) error {
 	if _, ok := m.byID[userID]; !ok {
 		return user.ErrNotFound
+	}
+	if revoked == user.RoleAdmin && m.isLastAdmin(ctx, userID) {
+		return user.ErrLastAdmin
 	}
 	kept := make([]user.Role, 0, len(m.roles[userID]))
 	for _, held := range m.roles[userID] {
@@ -157,19 +179,15 @@ func (m *memUsers) CountWithRole(_ context.Context, held user.Role) (int, error)
 	return n, nil
 }
 
-func (m *memUsers) EnsureFirstAdmin(ctx context.Context, userID string, created bool) (bool, error) {
-	if !created {
-		return false, nil
+// isLastAdmin mirrors the real repository's guard: an operation that would leave
+// the platform with no administrator is refused.
+func (m *memUsers) isLastAdmin(ctx context.Context, id string) bool {
+	u, err := m.Get(ctx, id)
+	if err != nil || !u.HasRole(user.RoleAdmin) {
+		return false
 	}
-	admins, err := m.CountWithRole(ctx, user.RoleAdmin)
-	if err != nil || admins > 0 {
-		return false, err
-	}
-	if _, ok := m.byID[userID]; !ok {
-		return false, nil
-	}
-	m.roles[userID] = append(m.roles[userID], user.RoleAdmin)
-	return true, nil
+	n, _ := m.CountWithRole(ctx, user.RoleAdmin)
+	return n <= 1
 }
 
 // memKeys satisfies the signing package's repository interface.
