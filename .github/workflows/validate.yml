@@ -70,28 +70,35 @@ jobs:
       - run: task orchestrator:fmt
       - run: task observability:tidy
       - run: task observability:fmt
+      - run: task iam:tidy
+      - run: task iam:fmt
       # The committed OpenAPI descriptions are generated from the handler annotations,
       # so they can go stale the moment a route or a request type changes. Regenerating
       # them here folds them into the same diff check below: an annotation edited
       # without regenerating, or a route added without annotating, fails exactly as
-      # unformatted Go does. Both services describe themselves, so both regenerate.
+      # unformatted Go does. Two of the three services describe themselves, so those two
+      # regenerate — `iam` publishes no description by design and has no such task.
       - run: task orchestrator:openapi
       - run: task observability:openapi
       # tidy, fmt and openapi repair go.*, Go sources and the spec and still exit 0,
       # so a PR that needed any of them would otherwise merge with the drift unmade.
-      - name: Verify orchestrator and observability are tidy, formatted and describe their API
-        run: git diff --exit-code -- orchestrator observability
+      - name: Verify orchestrator, observability and iam are tidy, formatted and describe their API
+        run: git diff --exit-code -- orchestrator observability iam
       - run: task orchestrator:lint
       - run: task observability:lint
-      # -race for both: the orchestrator serialises concurrent deployment writes
-      # and the observability service runs a worker pool behind a NATS subscription, so
-      # in both the bug worth catching is the one that passes without it.
+      - run: task iam:lint
+      # -race for all three: the orchestrator serialises concurrent deployment writes,
+      # the observability service runs a worker pool behind a NATS subscription, and iam
+      # rotates its signing key from whichever request first notices it is due — so in
+      # each the bug worth catching is the one that passes without it.
       #
-      # NOTE: the repo-layer tests in `observability` skip unless TEST_DATABASE_URL is set,
-      # and nothing sets it here — so the keyset-paging tests do not run in CI.
-      # Tracked separately; do not read a green run as covering them.
+      # NOTE: the repo-layer tests in `observability` and `iam` skip unless
+      # TEST_DATABASE_URL is set, and nothing sets it here — so the keyset-paging tests
+      # and every iam repository test do not run in CI. Tracked separately; do not read
+      # a green run as covering them.
       - run: task orchestrator:test -- -race
       - run: task observability:test -- -race
+      - run: task iam:test -- -race
       - run: task sidecars:tidy
       - run: task sidecars:fmt
       # tidy and fmt can repair sidecars/go.* and Go sources and still exit 0, so a

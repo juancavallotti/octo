@@ -37,6 +37,9 @@ includes:
   observability:
     taskfile: ./observability/Taskfile.yml
     dir: ./observability
+  iam:
+    taskfile: ./iam/Taskfile.yml
+    dir: ./iam
   sidecars:
     taskfile: ./sidecars/Taskfile.yml
     dir: ./sidecars
@@ -96,10 +99,11 @@ tasks:
       - task: runtime:fmt
       - task: orchestrator:fmt
       - task: observability:fmt
+      - task: iam:fmt
       - task: sidecars:fmt
 
   test:
-    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + observability + sidecars)
+    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + observability + iam + sidecars)
     cmds:
       - task: runtime:test
       # The sample flows, run through dolphin against a real octo. They are the runtime's
@@ -119,16 +123,18 @@ tasks:
       - task: desktop:test
       - task: orchestrator:test
       - task: observability:test
+      - task: iam:test
       - task: sidecars:test
 
   build:
-    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + observability + sidecars)
+    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + observability + iam + sidecars)
     cmds:
       - task: runtime:build
       - task: platform:build
       - task: standalone:build
       - task: orchestrator:build
       - task: observability:build
+      - task: iam:build
       - task: sidecars:build
 
   dev:
@@ -143,10 +149,11 @@ tasks:
       - task: runtime:tidy
       - task: orchestrator:tidy
       - task: observability:tidy
+      - task: iam:tidy
       - task: sidecars:tidy
 
   lint:
-    desc: Lint all modules (runtime + platform + standalone + orchestrator + observability + sidecars)
+    desc: Lint all modules (runtime + platform + standalone + orchestrator + observability + iam + sidecars)
     cmds:
       - task: runtime:lint
       - task: platform:lint
@@ -156,6 +163,7 @@ tasks:
       - task: desktop:typecheck
       - task: orchestrator:lint
       - task: observability:lint
+      - task: iam:lint
       - task: sidecars:lint
 
   run:
@@ -330,12 +338,14 @@ tasks:
         echo "▶ dolphin"
         go build -trimpath -ldflags "$ld" -o "$out/dolphin" ./runtime/dolphin
 
-        # The three self-contained service modules. No ldflags, matching what
+        # The four self-contained service modules. No ldflags, matching what
         # their own Dockerfiles and Taskfiles already build with.
         echo "▶ orchestrator"
         (cd orchestrator && go build -trimpath -o "$out/orchestrator" .)
         echo "▶ observability"
         (cd observability && go build -trimpath -o "$out/observability" .)
+        echo "▶ iam"
+        (cd iam && go build -trimpath -o "$out/iam" .)
         echo "▶ dev-sidecar"
         (cd sidecars && go build -trimpath -o "$out/dev-sidecar" ./dev)
         echo "▶ stats-sidecar"
