@@ -117,8 +117,8 @@ func newServer(database *db.DB) (http.Handler, error) {
 	userSvc := user.NewService(user.NewRepo(database.Pool()))
 	user.NewHandler(userSvc).Register(mux)
 	slog.Info("user routes registered",
-		"endpoints", "GET /roles, POST /users/bootstrap, GET /users, GET /users/{id}, "+
-			"PUT/DELETE /users/{id}/roles/{role}")
+		"endpoints", "GET /roles, POST /users/bootstrap, POST/GET /users, "+
+			"GET/PUT/DELETE /users/{id}, PUT/DELETE /users/{id}/roles/{role}")
 
 	// The signing keyset. It needs no configuration beyond the issuer it stamps:
 	// the keypair is generated on demand, stored, shared by every replica through

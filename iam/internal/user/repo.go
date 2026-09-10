@@ -39,6 +39,10 @@ const (
 	// caller's mistake rather than a fault, so it is translated to ErrNotFound
 	// instead of surfacing as a 500.
 	pgInvalidTextRepresentation = "22P02"
+
+	// pgUniqueViolation is what Postgres reports when a row would duplicate a
+	// unique key — creating a user whose subject already has an account, here.
+	pgUniqueViolation = "23505"
 )
 
 // Repo persists users and their role grants to Postgres.
@@ -88,6 +92,73 @@ func (r *Repo) Upsert(ctx context.Context, subject, email, name string) (User, b
 		return User{}, false, fmt.Errorf("user repo: upsert: %w", err)
 	}
 	return u, created, nil
+}
+
+// Create provisions a user an administrator named, rather than one who signed in.
+//
+// It is how somebody is let in before their first sign-in: this platform admits
+// only provisioned users (see Service.SignIn), so an account has to exist here
+// before the person it belongs to can get past the door. The subject is the one
+// the identity provider will present, which an administrator reads out of their
+// provider's own console — there is no way for us to discover it, and guessing
+// at it from an email address would let one person be admitted as another.
+//
+// A subject that already exists is ErrConflict rather than an update: the caller
+// asked to create somebody, and quietly rewriting an existing account's email
+// would be a different and much worse thing to do.
+func (r *Repo) Create(ctx context.Context, subject, email, name string) (User, error) {
+	row := r.pool.QueryRow(ctx,
+		`INSERT INTO users (subject, email, name)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, subject, email, name, created_at, last_login_at`,
+		subject, email, name,
+	)
+	var u User
+	if err := row.Scan(&u.ID, &u.Subject, &u.Email, &u.Name, &u.CreatedAt, &u.LastLoginAt); err != nil {
+		if hasSQLState(err, pgUniqueViolation) {
+			return User{}, ErrConflict
+		}
+		return User{}, fmt.Errorf("user repo: create: %w", err)
+	}
+	return u, nil
+}
+
+// Update rewrites the profile fields an administrator may correct. The subject is
+// not among them: it is what the row is keyed by and what the identity provider
+// will present, so changing it would silently point an account at a different
+// person.
+func (r *Repo) Update(ctx context.Context, id, email, name string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE users SET email = $2, name = $3 WHERE id = $1`, id, email, name)
+	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("user repo: update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Delete removes a user. Their role grants and API keys go with them (ON DELETE
+// CASCADE); what they authored does not, because those columns are ON DELETE SET
+// NULL — an integration outlives whoever created it, and losing the integration
+// along with the person who left would be a far worse outcome than losing the
+// attribution.
+func (r *Repo) Delete(ctx context.Context, id string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("user repo: delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Get returns the user by id with their granted roles, or ErrNotFound.

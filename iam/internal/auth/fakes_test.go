@@ -53,6 +53,41 @@ func (m *memUsers) Upsert(_ context.Context, subject, email, name string) (user.
 	return *u, true, nil
 }
 
+func (m *memUsers) Create(_ context.Context, subject, email, name string) (user.User, error) {
+	if _, taken := m.bySubject[subject]; taken {
+		return user.User{}, user.ErrConflict
+	}
+	m.next++
+	id := fmt.Sprintf("00000000-0000-0000-0000-%012d", m.next)
+	u := &user.User{
+		ID: id, Subject: subject, Email: email, Name: name,
+		CreatedAt: time.Now(), LastLoginAt: time.Now(),
+	}
+	m.byID[id] = u
+	m.bySubject[subject] = id
+	return *u, nil
+}
+
+func (m *memUsers) Update(_ context.Context, id, email, name string) error {
+	u, ok := m.byID[id]
+	if !ok {
+		return user.ErrNotFound
+	}
+	u.Email, u.Name = email, name
+	return nil
+}
+
+func (m *memUsers) Delete(_ context.Context, id string) error {
+	u, ok := m.byID[id]
+	if !ok {
+		return user.ErrNotFound
+	}
+	delete(m.bySubject, u.Subject)
+	delete(m.byID, id)
+	delete(m.roles, id)
+	return nil
+}
+
 func (m *memUsers) Get(_ context.Context, id string) (user.User, error) {
 	u, ok := m.byID[id]
 	if !ok {

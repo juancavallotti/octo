@@ -53,6 +53,49 @@ func (m *memRepo) Upsert(_ context.Context, subject, email, name string) (User, 
 	return *u, true, nil
 }
 
+func (m *memRepo) Create(_ context.Context, subject, email, name string) (User, error) {
+	if err := m.fail(); err != nil {
+		return User{}, err
+	}
+	if _, taken := m.bySubject[subject]; taken {
+		return User{}, ErrConflict
+	}
+	m.nextID++
+	id := string(rune('a'+m.nextID-1)) + "0000000-0000-0000-0000-000000000000"
+	u := &User{
+		ID: id, Subject: subject, Email: email, Name: name,
+		CreatedAt: time.Now(), LastLoginAt: time.Now(),
+	}
+	m.users[id] = u
+	m.bySubject[subject] = id
+	return *u, nil
+}
+
+func (m *memRepo) Update(_ context.Context, id, email, name string) error {
+	if err := m.fail(); err != nil {
+		return err
+	}
+	u, ok := m.users[id]
+	if !ok {
+		return ErrNotFound
+	}
+	u.Email, u.Name = email, name
+	return nil
+}
+
+func (m *memRepo) Delete(_ context.Context, id string) error {
+	if err := m.fail(); err != nil {
+		return err
+	}
+	u, ok := m.users[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.bySubject, u.Subject)
+	delete(m.users, id)
+	return nil
+}
+
 func (m *memRepo) Get(_ context.Context, id string) (User, error) {
 	if err := m.fail(); err != nil {
 		return User{}, err
@@ -61,7 +104,17 @@ func (m *memRepo) Get(_ context.Context, id string) (User, error) {
 	if !ok {
 		return User{}, ErrNotFound
 	}
-	return *u, nil
+	return withRoleList(*u), nil
+}
+
+// withRoleList gives a user an empty role list rather than a nil one, which is
+// what the real read does: its aggregate COALESCEs to '{}'. Worth mirroring,
+// because a caller that never sees nil here is entitled to stop checking for it.
+func withRoleList(u User) User {
+	if u.Roles == nil {
+		u.Roles = []Role{}
+	}
+	return u
 }
 
 func (m *memRepo) GetBySubject(_ context.Context, subject string) (User, error) {
@@ -72,7 +125,7 @@ func (m *memRepo) GetBySubject(_ context.Context, subject string) (User, error) 
 	if !ok {
 		return User{}, ErrNotFound
 	}
-	return *m.users[id], nil
+	return withRoleList(*m.users[id]), nil
 }
 
 func (m *memRepo) List(_ context.Context) ([]User, error) {
@@ -375,5 +428,160 @@ func TestRevokeSurfacesACountFailure(t *testing.T) {
 	repo.failNext = boom
 	if err := svc.Revoke(ctx, u.ID, RoleAdmin); !errors.Is(err, boom) {
 		t.Errorf("Revoke() error = %v, want the repository's error", err)
+	}
+}
+
+func TestCreateProvisionsAUserWhoHasNeverSignedIn(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	u, err := svc.Create(ctx, "provider|abc", "new@example.com", "New Person")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if u.Email != "new@example.com" || u.Name != "New Person" {
+		t.Errorf("Create() = %+v, want the profile it was given", u)
+	}
+	// Read back with roles, so a created user is shaped like a listed one.
+	if u.Roles == nil {
+		t.Error("a created user reports null roles rather than an empty list")
+	}
+}
+
+func TestCreateRefusesADuplicateSubject(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "provider|abc", "a@example.com", ""); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Quietly rewriting the existing account's email would be a different and much
+	// worse thing than refusing.
+	_, err := svc.Create(ctx, "provider|abc", "somebody-else@example.com", "")
+	if !errors.Is(err, ErrConflict) {
+		t.Errorf("Create() error = %v, want ErrConflict", err)
+	}
+}
+
+func TestCreateRequiresASubjectAndAnEmail(t *testing.T) {
+	svc := NewService(newMemRepo())
+
+	for _, tt := range []struct{ name, subject, email string }{
+		{"no subject", "", "a@example.com"},
+		{"no email", "provider|abc", ""},
+		{"blank subject", "   ", "a@example.com"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := svc.Create(context.Background(), tt.subject, tt.email, ""); !errors.Is(err, ErrInvalid) {
+				t.Errorf("Create() error = %v, want ErrInvalid", err)
+			}
+		})
+	}
+}
+
+func TestUpdateCorrectsTheProfile(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, "provider|abc", "old@example.com", "Old Name")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	u, err := svc.Update(ctx, created.ID, "new@example.com", "New Name")
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if u.Email != "new@example.com" || u.Name != "New Name" {
+		t.Errorf("Update() = %+v, want the new profile", u)
+	}
+	// The subject keys the row and is what the provider presents; an update must
+	// not be a way to point an account at somebody else.
+	if u.Subject != "provider|abc" {
+		t.Errorf("subject = %q, want it unchanged", u.Subject)
+	}
+}
+
+func TestUpdateAndDeleteReportAnUnknownUser(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	if _, err := svc.Update(ctx, "nobody", "a@example.com", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Update() error = %v, want ErrNotFound", err)
+	}
+	if err := svc.Delete(ctx, "nobody"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Delete() error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeleteRemovesAUser(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, "provider|abc", "a@example.com", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := svc.Get(ctx, created.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get() after Delete error = %v, want ErrNotFound", err)
+	}
+}
+
+// Without this rule an administrator could delete every account including their
+// own, and the next person to sign in would look like the first user of a fresh
+// install and be made an admin by the bootstrap — so "delete everyone" would
+// hand the platform to whoever knocks next.
+func TestDeleteRefusesTheLastAdmin(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	only, err := svc.Create(ctx, "provider|only", "only@example.com", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Grant(ctx, only.ID, RoleAdmin, nil); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+
+	if err := svc.Delete(ctx, only.ID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Delete() of the last admin error = %v, want ErrInvalid", err)
+	}
+
+	// With a second administrator in place, the first may go.
+	second, err := svc.Create(ctx, "provider|second", "second@example.com", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Grant(ctx, second.ID, RoleAdmin, nil); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if err := svc.Delete(ctx, only.ID); err != nil {
+		t.Errorf("Delete() with another admin present: %v", err)
+	}
+}
+
+// Somebody holding no admin role is not the last administrator, however few
+// users are left.
+func TestDeleteAllowsRemovingTheLastNonAdmin(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	admin, err := svc.Create(ctx, "provider|admin", "admin@example.com", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Grant(ctx, admin.ID, RoleAdmin, nil); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	other, err := svc.Create(ctx, "provider|other", "other@example.com", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Delete(ctx, other.ID); err != nil {
+		t.Errorf("Delete() of a non-admin: %v", err)
 	}
 }

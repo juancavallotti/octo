@@ -11,6 +11,9 @@ import (
 // satisfies it structurally.
 type repository interface {
 	Upsert(ctx context.Context, subject, email, name string) (User, bool, error)
+	Create(ctx context.Context, subject, email, name string) (User, error)
+	Update(ctx context.Context, id, email, name string) error
+	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (User, error)
 	GetBySubject(ctx context.Context, subject string) (User, error)
 	List(ctx context.Context) ([]User, error)
@@ -128,4 +131,67 @@ func validate(userID string, r Role) error {
 		return fmt.Errorf("%w: %q is not a role", ErrInvalid, string(r))
 	}
 	return nil
+}
+
+// Create provisions a user an administrator named. See Repo.Create for why the
+// OIDC subject has to be supplied rather than discovered.
+func (s *Service) Create(ctx context.Context, subject, email, name string) (User, error) {
+	subject, email = strings.TrimSpace(subject), strings.TrimSpace(email)
+	if subject == "" {
+		return User{}, fmt.Errorf("%w: subject is required", ErrInvalid)
+	}
+	if email == "" {
+		return User{}, fmt.Errorf("%w: email is required", ErrInvalid)
+	}
+	u, err := s.repo.Create(ctx, subject, email, strings.TrimSpace(name))
+	if err != nil {
+		return User{}, err
+	}
+	// Read back rather than returning what the insert gave us, so a created user
+	// and a listed one are the same shape — with roles, which a fresh one has none
+	// of but still reports as an empty list.
+	return s.repo.Get(ctx, u.ID)
+}
+
+// Update corrects a user's profile. Only email and name: see Repo.Update.
+func (s *Service) Update(ctx context.Context, id, email, name string) (User, error) {
+	if strings.TrimSpace(id) == "" {
+		return User{}, fmt.Errorf("%w: id is required", ErrInvalid)
+	}
+	if strings.TrimSpace(email) == "" {
+		return User{}, fmt.Errorf("%w: email is required", ErrInvalid)
+	}
+	if err := s.repo.Update(ctx, id, strings.TrimSpace(email), strings.TrimSpace(name)); err != nil {
+		return User{}, err
+	}
+	return s.repo.Get(ctx, id)
+}
+
+// Delete removes a user, refusing to remove the last administrator.
+//
+// The same rule Revoke enforces, and it matters more here. Without it an
+// administrator could delete every account including their own, and the next
+// person to sign in would be the first user of what looks like a fresh install
+// and be made an admin by the bootstrap — so "delete everyone" would be a way to
+// hand the platform to whoever knocks next.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("%w: id is required", ErrInvalid)
+	}
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u.HasRole(RoleAdmin) {
+		admins, err := s.repo.CountWithRole(ctx, RoleAdmin)
+		if err != nil {
+			return err
+		}
+		if admins <= 1 {
+			return fmt.Errorf(
+				"%w: this is the last %s, and deleting them would leave nobody able to "+
+					"administer the platform", ErrInvalid, RoleAdmin)
+		}
+	}
+	return s.repo.Delete(ctx, id)
 }

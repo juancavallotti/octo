@@ -32,8 +32,11 @@ func NewHandler(svc *Service) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /roles", h.catalogue)
 	mux.HandleFunc("POST /users/bootstrap", h.bootstrap)
+	mux.HandleFunc("POST /users", h.create)
 	mux.HandleFunc("GET /users", h.list)
 	mux.HandleFunc("GET /users/{id}", h.get)
+	mux.HandleFunc("PUT /users/{id}", h.update)
+	mux.HandleFunc("DELETE /users/{id}", h.delete)
 	mux.HandleFunc("PUT /users/{id}/roles/{role}", h.grant)
 	mux.HandleFunc("DELETE /users/{id}/roles/{role}", h.revoke)
 }
@@ -127,6 +130,70 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, ToResponse(u))
 }
 
+// createRequest is a user an administrator is adding.
+type createRequest struct {
+	Subject string `json:"subject"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+}
+
+// updateRequest is the profile an administrator is correcting. The subject is
+// absent on purpose — it keys the row and is what the identity provider will
+// present, so changing it would point the account at somebody else.
+type updateRequest struct {
+	Email string `json:"email"`
+	Name  string `json:"name"`
+}
+
+// create adds a user before they have ever signed in, which is how somebody is
+// let in at all: this platform admits only provisioned users.
+func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	var req createRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	u, err := h.svc.Create(ctx, req.Subject, req.Email, req.Name)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, ToResponse(u))
+}
+
+func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
+	var req updateRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	u, err := h.svc.Update(ctx, r.PathValue("id"), req.Email, req.Name)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, ToResponse(u))
+}
+
+func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	if err := h.svc.Delete(ctx, r.PathValue("id")); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -207,6 +274,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "user not found")
+	case errors.Is(err, ErrConflict):
+		httpx.WriteError(w, http.StatusConflict, err.Error())
 	default:
 		slog.Error("user handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
