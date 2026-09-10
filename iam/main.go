@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juancavallotti/octo/iam/internal/auth"
 	"github.com/juancavallotti/octo/iam/internal/db"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
 	"github.com/juancavallotti/octo/iam/internal/signing"
@@ -112,7 +113,8 @@ func newServer(database *db.DB) (http.Handler, error) {
 		return mux, nil
 	}
 
-	user.NewHandler(user.NewService(user.NewRepo(database.Pool()))).Register(mux)
+	userSvc := user.NewService(user.NewRepo(database.Pool()))
+	user.NewHandler(userSvc).Register(mux)
 	slog.Info("user routes registered",
 		"endpoints", "GET /roles, GET /users, GET /users/{id}, "+
 			"PUT/DELETE /users/{id}/roles/{role}")
@@ -137,6 +139,9 @@ func newServer(database *db.DB) (http.Handler, error) {
 			return nil, err
 		}
 		slog.Warn("token signing is disabled; set IAM_ISSUER to enable it", "reason", err)
+		// The exchange is registered anyway, with nothing behind it, so POST /auth
+		// answers 503 naming what is missing rather than 404.
+		auth.NewHandler(nil).Register(mux)
 		return mux, nil
 	}
 	signing.NewHandler(signingSvc).Register(mux)
@@ -145,7 +150,43 @@ func newServer(database *db.DB) (http.Handler, error) {
 		"tokenTtl", signingSvc.TokenTTL(),
 		"endpoints", "GET /.well-known/jwks.json, GET /.well-known/openid-configuration")
 
+	// The exchange itself, which needs the identity provider on top of everything
+	// above. A nil service is the "no provider configured" state; see the comment
+	// on auth.Handler for why the route is registered either way.
+	auth.NewHandler(newAuthService(userSvc, signingSvc)).Register(mux)
+	slog.Info("auth routes registered",
+		"oidcIssuer", os.Getenv("OIDC_ISSUER"),
+		"endpoints", "POST /auth")
+
 	return mux, nil
+}
+
+// newAuthService builds the token exchange, or a nil one when no identity
+// provider is configured — which is how `task dev` runs today, and is a supported
+// way to run rather than an error.
+//
+// The two settings share their names with the platform's own OIDC configuration
+// on purpose: one install has one identity provider, and giving iam a second pair
+// of variables would be a way for the two halves to end up pointed at different
+// ones.
+func newAuthService(users *user.Service, signer *signing.Service) *auth.Service {
+	issuer, clientID := os.Getenv("OIDC_ISSUER"), os.Getenv("OIDC_CLIENT_ID")
+	if issuer == "" || clientID == "" {
+		// Named individually, because the exchange needs both and either one
+		// missing disables it. A single "not configured" would leave the operator
+		// to guess which of the two values did not arrive.
+		slog.Warn("the token exchange is disabled; POST /auth will report it as unavailable",
+			"oidcIssuer", issuer != "", "oidcClientId", clientID != "")
+		return nil
+	}
+	svc, err := auth.NewService(auth.NewVerifier(issuer, clientID), users, signer)
+	if err != nil {
+		// Unreachable given the guard above, and reported rather than ignored so it
+		// cannot become a silent nil if the constructor grows another requirement.
+		slog.Error("the token exchange could not be built", "error", err)
+		return nil
+	}
+	return svc
 }
 
 // healthz answers the liveness probe. It reports as soon as the process is
