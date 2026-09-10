@@ -29,6 +29,7 @@ import (
 
 	"github.com/juancavallotti/octo/iam/internal/db"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
+	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
 const (
@@ -109,6 +110,11 @@ func newServer(database *db.DB) (http.Handler, error) {
 	if database == nil {
 		return mux, nil
 	}
+
+	user.NewHandler(user.NewService(user.NewRepo(database.Pool()))).Register(mux)
+	slog.Info("user routes registered",
+		"endpoints", "GET /roles, GET /users, GET /users/{id}, "+
+			"PUT/DELETE /users/{id}/roles/{role}")
 
 	return mux, nil
 }
