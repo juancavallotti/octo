@@ -29,6 +29,7 @@ import (
 
 	"github.com/juancavallotti/octo/iam/internal/db"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
+	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
@@ -115,6 +116,34 @@ func newServer(database *db.DB) (http.Handler, error) {
 	slog.Info("user routes registered",
 		"endpoints", "GET /roles, GET /users, GET /users/{id}, "+
 			"PUT/DELETE /users/{id}/roles/{role}")
+
+	// The signing keyset. It needs no configuration beyond the issuer it stamps:
+	// the keypair is generated on demand, stored, shared by every replica through
+	// the database, and rotated by whichever request first finds the current one
+	// retired. There is deliberately nothing here for an operator to hold.
+	//
+	// An unset IAM_ISSUER leaves the keyset unwired rather than stopping startup.
+	// The service still serves its liveness probe and the user and role routes,
+	// which is the shape the orchestrator already takes when a dependency it does
+	// not need for everything is missing — and it means a misconfigured install
+	// answers questions about itself rather than crash-looping.
+	signingCfg, err := signingConfig()
+	if err != nil {
+		return nil, err
+	}
+	signingSvc, err := signing.NewService(signing.NewRepo(database.Pool()), signingCfg)
+	if err != nil {
+		if !errors.Is(err, signing.ErrInvalidConfig) {
+			return nil, err
+		}
+		slog.Warn("token signing is disabled; set IAM_ISSUER to enable it", "reason", err)
+		return mux, nil
+	}
+	signing.NewHandler(signingSvc).Register(mux)
+	slog.Info("signing routes registered",
+		"issuer", signingSvc.Issuer(), "audience", signingSvc.Audience(),
+		"tokenTtl", signingSvc.TokenTTL(),
+		"endpoints", "GET /.well-known/jwks.json, GET /.well-known/openid-configuration")
 
 	return mux, nil
 }
