@@ -54,6 +54,7 @@ export default function EditorRoot({
   loader,
   header,
   files,
+  consoleActions,
   fs,
   run,
   devEnv,
@@ -80,6 +81,12 @@ export default function EditorRoot({
    * and that side of the bar stays empty.
    */
   files?: React.ReactNode;
+  /**
+   * App-owned controls for the console header (e.g. the MCP endpoint copy button).
+   * The editor cannot know a host's MCP URL — it is configured, proxied, or the
+   * shell's — so the host hands over the control, not the value.
+   */
+  consoleActions?: React.ReactNode;
   /** Load/save capability; omit for a read-only editor (no Save / loader). */
   fs?: FileSystemCapability | null;
   /** Run capability; omit to hide the RUN control and log panel. */
@@ -124,7 +131,7 @@ export default function EditorRoot({
         {/* Body: the canvas or YAML preview (per view mode) above the logs */}
         <div className="flex flex-1 min-h-0 flex-col">
           <EditorBody files={files} />
-          <LogPanel />
+          <LogPanel actions={consoleActions} />
         </div>
       </div>
     </>

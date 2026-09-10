@@ -59,7 +59,12 @@ const NO_LOGS: RunLogLine[] = [];
  * run needs to be able to open the panel on the tab that answers what the user just
  * asked — see FlowRunContext.
  */
-export default function LogPanel() {
+export default function LogPanel({
+  /** Host-owned controls, shown at the right of the header before Clear. */
+  actions,
+}: {
+  actions?: React.ReactNode;
+}) {
   const run = useRun();
   const flowRun = useFlowRun();
   const { tab, setTab, setOverride, openTo } = useConsole();
@@ -211,6 +216,7 @@ export default function LogPanel() {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
+          {actions}
           {(tab === "logs" ||
             tab === "results" ||
             tab === "tests" ||

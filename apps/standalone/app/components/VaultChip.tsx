@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, FolderOpen, FolderSearch } from "lucide-react";
+import { Check, FolderOpen, FolderSearch } from "lucide-react";
 import { desktopBridge, type VaultRef } from "../desktop";
 
 /**
@@ -19,7 +19,6 @@ export default function VaultChip() {
   const bridge = desktopBridge();
   const [vault, setVault] = useState<VaultRef | null>(null);
   const [recents, setRecents] = useState<VaultRef[]>([]);
-  const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -41,7 +40,10 @@ export default function VaultChip() {
   // shows up without a reload.
   useEffect(() => {
     if (!open || !bridge) return;
-    bridge.recents().then(setRecents).catch(() => {});
+    bridge
+      .recents()
+      .then(setRecents)
+      .catch(() => {});
   }, [open, bridge]);
 
   useEffect(() => {
@@ -64,12 +66,6 @@ export default function VaultChip() {
   // render identical to the server's, so hydration has nothing to disagree about.
   if (!bridge || !vault) return null;
 
-  const copyUrl = async () => {
-    await bridge.copyMcpUrl();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
   const item =
     "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]";
 
@@ -90,14 +86,20 @@ export default function VaultChip() {
         /* Anchored to the right edge: the chip now sits near the end of the bar,
            so a left-anchored menu would hang off it. */
         <div className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
-          <button type="button" onClick={() => void bridge.pickVault()} className={`${item} border-b border-black/5 dark:border-white/5`}>
+          <button
+            type="button"
+            onClick={() => void bridge.pickVault()}
+            className={`${item} border-b border-black/5 dark:border-white/5`}
+          >
             <FolderSearch size={16} className="shrink-0 text-zinc-400" />
             <span className="flex-1">Open folder…</span>
           </button>
 
           <ul className="max-h-64 overflow-y-auto py-1">
             <li>
-              <span className={`${item} cursor-default hover:bg-transparent dark:hover:bg-transparent`}>
+              <span
+                className={`${item} cursor-default hover:bg-transparent dark:hover:bg-transparent`}
+              >
                 <span className="flex-1 truncate">{vault.name}</span>
                 <Check size={15} className="shrink-0 text-sky-500" />
               </span>
@@ -115,13 +117,6 @@ export default function VaultChip() {
               </li>
             ))}
           </ul>
-
-          <button type="button" onClick={() => void copyUrl()} className={`${item} border-t border-black/5 dark:border-white/5`}>
-            <Copy size={16} className="shrink-0 text-zinc-400" />
-            {/* The MCP endpoint is the whole reason an agent can drive this
-                editor, and it is otherwise invisible from inside it. */}
-            <span className="flex-1">{copied ? "Copied" : "Copy MCP endpoint URL"}</span>
-          </button>
         </div>
       )}
     </div>

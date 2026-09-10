@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EditorRoot, setCapabilities, type Capabilities } from "@octo/editor";
+import {
+  CopyMcpUrlButton,
+  EditorRoot,
+  setCapabilities,
+  type Capabilities,
+} from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
@@ -24,10 +29,17 @@ export default function PlatformEditor({
   integrationId,
   userMenu,
   capabilities,
+  mcpUrl,
 }: {
   integrationId?: string;
   userMenu?: React.ReactNode;
   capabilities?: Capabilities | null;
+  /**
+   * The deployment's MCP endpoint (MCP_RESOURCE), for the console's copy button.
+   * Configured rather than derived: this platform can sit behind a proxy on a
+   * different host than the one the browser dialled.
+   */
+  mcpUrl?: string;
 }) {
   // Inject the runtime schema (probed server-side from the octo binary) before
   // the editor's first render and before children read the palette. Synchronous
@@ -72,6 +84,7 @@ export default function PlatformEditor({
           getIntegrationId={() => idRef.current}
         />
       }
+      consoleActions={mcpUrl ? <CopyMcpUrlButton url={mcpUrl} /> : undefined}
       fs={available ? orchestratorFileSystem : null}
       run={bffRunTransport}
       devEnv={available ? bffDevEnvStore : null}

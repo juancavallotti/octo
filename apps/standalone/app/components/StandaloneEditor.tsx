@@ -9,6 +9,7 @@ import { localDiskResourceStore } from "@/app/run/resourceStore";
 import { localEditorMetaStore } from "@/app/run/editorMetaStore";
 import { localTestSuiteStore } from "@/app/run/testSuiteStore";
 import { localDiskFileSystem } from "@/app/providers/localDiskFileSystem";
+import McpCopyAction from "./McpCopyAction";
 import StandaloneFileMenu from "./StandaloneFileMenu";
 import StandaloneHeader from "./StandaloneHeader";
 
@@ -73,6 +74,7 @@ export default function StandaloneEditor({
       testsToken={testsToken}
       header={<StandaloneHeader />}
       files={<StandaloneFileMenu />}
+      consoleActions={<McpCopyAction />}
       onSaved={(stored) => {
         // Reflect the open file in the URL so a reload reopens it; the header
         // reads the current id from editor state, so no remount is needed.
