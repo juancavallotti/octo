@@ -75,14 +75,14 @@ vars:
   # Nothing pulls these: they exist only in the local docker daemon, so an image
   # that misses the import is not a slow start but a hard ImagePullBackOff.
   CLUSTER_IMAGES: >-
-    octo-platform-dev:dev octo-orchestrator:dev octo-observability:dev octo-schema:dev
+    octo-platform:dev octo-orchestrator:dev octo-observability:dev octo-schema:dev
     octo-runtime:dev octo-devsidecar:dev octo-statssidecar:dev octo-devruntime:dev
     octo-agenticrunner:dev octo-embeddings:dev octo-api:dev
 
   # The three hot-reload images `devspace dev` swaps in. Named here for the same
   # reason as the list above: two tasks build them and one checks for them.
   DEV_IMAGES: >-
-    octo-orchestrator-dev:dev octo-observability-dev:dev
+    octo-platform-dev:dev octo-orchestrator-dev:dev octo-observability-dev:dev
 
   # Every image task below copies host-built binaries in rather than compiling
   # them, and this is the flag pair that says so. A NAMED build context, because
@@ -374,13 +374,7 @@ tasks:
       - task: bins:linux
       # Platform build context is the repo ROOT so its Dockerfile can reach both
       # runtime/ (to build octo) and the pnpm workspace (apps/platform).
-      #
-      # Dockerfile.dev, not Dockerfile: helm/values-k3d.yaml deploys the dev image
-      # locally, so the local cluster runs `next dev` and can hot-reload. Building
-      # the production image here spent two minutes on a `next build` for a server
-      # this cluster never serves. `task platform:build` still builds it, and CI
-      # builds the real one.
-      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-observability:dev -f observability/Dockerfile ./observability
       # No binary in this one — it is a psql client image plus schema.sql. It stays
@@ -413,15 +407,6 @@ tasks:
       # service pods call, or a sidecar's neighbour — because all three differ only
       # in what OCTO_PLATFORM_API_URL points at.
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt-api -t octo-api:dev -f runtime/Dockerfile .
-      # Load the images straight into the cluster's containerd (no registry needed).
-      - k3d image import {{.CLUSTER_IMAGES}} -c octo
-      # Then prove they landed, and are still there. A gap never surfaces here: it
-      # surfaces much later and in another component, as an integration pod stuck
-      # on "pull access denied" for an image that was never meant to be pulled.
-      # Two ways to open one — an import interrupted partway, or the kubelet
-      # reclaiming images it already holds (see verify). A second spent here names
-      # the missing image instead of leaving it to be found from the other end.
-      - task: cluster:images:verify
 
   cluster:images:verify:
     desc: Check that the k3d 'octo' cluster holds every image the orchestrator deploys
@@ -526,9 +511,7 @@ tasks:
     cmds:
       # Same builds as cluster:images, including the host-side compile.
       - task: bins:linux
-      # Dockerfile.dev for the platform, as in cluster:images — values-k3d.yaml
-      # deploys the dev image, and a kind cluster reads the same values file.
-      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform:dev -f apps/platform/Dockerfile .
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-orchestrator:dev -f orchestrator/Dockerfile ./orchestrator
       - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-observability:dev -f observability/Dockerfile ./observability
       - docker build -t octo-schema:dev -f sql/Dockerfile ./sql
@@ -549,13 +532,14 @@ tasks:
   cluster:images:dev:
     desc: Build + load the dev (hot-reload) images into the k3d 'octo' cluster
     cmds:
-      # The orchestrator and observability dev images run `go run` against synced
-      # source and compile nothing here, so there is no host build to do first.
-      # The platform's dev image is not here: it IS the local cluster's platform
-      # image now (see cluster:images and helm/values-k3d.yaml).
+      # Only the platform dev image carries binaries; the orchestrator and
+      # observability dev images run `go run` against synced source and compile
+      # nothing here.
+      - task: bins:linux
+      - docker build {{.PREBUILT_CTX}} --build-arg BIN_SOURCE=prebuilt -t octo-platform-dev:dev -f apps/platform/Dockerfile.dev .
       - docker build -t octo-orchestrator-dev:dev -f orchestrator/Dockerfile.dev ./orchestrator
       - docker build -t octo-observability-dev:dev -f observability/Dockerfile.dev ./observability
-      - k3d image import octo-orchestrator-dev:dev octo-observability-dev:dev -c octo
+      - k3d image import octo-platform-dev:dev octo-orchestrator-dev:dev octo-observability-dev:dev -c octo
 
   cluster:dev:
     desc: Bring up the cluster, then run DevSpace dev mode (hot reload + tailed logs)

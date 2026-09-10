@@ -18,19 +18,7 @@ image:
 # Local builds use the short names (Taskfile `cluster:images`), not the
 # published -paas repositories.
 platform:
-  # The dev image, not the production one: it runs `next dev` (see
-  # apps/platform/Dockerfile.dev), which is what a local cluster is for.
-  #
-  # The prod image is a `next build` — around two minutes of a laptop, every time
-  # the images are rebuilt — to produce a server that cannot hot-reload. DevSpace
-  # then replaced that pod with this very image anyway, so the build bought
-  # nothing but heat, and anyone who was not attached to `devspace dev` was
-  # quietly reading a production build and wondering why their edits did nothing.
-  #
-  # What this costs: a local cluster no longer exercises the production image. It
-  # is built and exercised by CI and by every real deployment, which is where a
-  # `next build` regression has to be caught anyway.
-  repository: octo-platform-dev
+  repository: octo-platform
   service:
     type: NodePort
     nodePorts:
