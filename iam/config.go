@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/juancavallotti/octo/iam/internal/auth"
 	cryptox "github.com/juancavallotti/octo/iam/internal/crypto"
 	"github.com/juancavallotti/octo/iam/internal/db"
 	"github.com/juancavallotti/octo/iam/internal/signing"
@@ -95,4 +96,23 @@ func newSigningService(
 		return nil, err
 	}
 	return signing.NewService(repo, cfg)
+}
+
+// refreshGrace reads how long past its expiry a platform token can still be
+// traded for a fresh one, falling back to the auth package's own default.
+//
+// Optional and parsed the same way the signing durations are, for the same
+// reason: the likely typos differ from the intent by a factor nobody would
+// notice from behaviour, so a malformed value stops startup naming the setting
+// rather than quietly meaning something else.
+func refreshGrace() (time.Duration, error) {
+	raw := os.Getenv("IAM_REFRESH_GRACE")
+	if raw == "" {
+		return auth.DefaultRefreshGrace, nil
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("parse IAM_REFRESH_GRACE: %q is not a positive duration", raw)
+	}
+	return parsed, nil
 }

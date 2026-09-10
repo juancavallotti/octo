@@ -158,6 +158,87 @@ func (s *Service) Mint(ctx context.Context, subject string, private any) (Token,
 	return Token{Value: value, ExpiresAt: expiry}, nil
 }
 
+// Verify checks a token this service minted and returns its registered claims.
+//
+// It exists for the refresh: the platform holds a token that is about to expire,
+// or has just expired, and wants a fresh one without sending the person back to
+// the identity provider. Verifying our own signature is how we know the caller
+// once held a real session, and the subject is how we find whose it was.
+//
+// allowExpiredFor is the window past `exp` in which a token is still good enough
+// to trade in. Zero means "must still be valid". It is a deliberate widening and
+// the reason it is a parameter rather than a constant: the only caller that may
+// pass a non-zero value is the refresh, and a reader of any other call site can
+// see at a glance that it does not.
+//
+// Everything except expiry is checked strictly. A token from another issuer, for
+// another audience, or signed by a key we never published is not ours, and no
+// window makes it ours.
+func (s *Service) Verify(ctx context.Context, raw string, allowExpiredFor time.Duration) (jwt.Claims, error) {
+	parsed, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
+	if err != nil {
+		return jwt.Claims{}, fmt.Errorf("%w: %w", ErrNotOurToken, err)
+	}
+
+	keys, err := s.repo.Verifiers(ctx, s.now())
+	if err != nil {
+		return jwt.Claims{}, err
+	}
+
+	var claims jwt.Claims
+	if err := s.claimsFromAnyKey(parsed, keys, &claims); err != nil {
+		return jwt.Claims{}, err
+	}
+
+	// Issuer and audience only. The time checks are done below rather than here
+	// because the two horizons need different treatment, and go-jose validates
+	// them against a single instant: moving that instant back far enough to
+	// forgive an expiry also moves it behind a fresh token's not-before, which
+	// makes a token minted a second ago read as "not valid yet".
+	if err := claims.ValidateWithLeeway(jwt.Expected{
+		Issuer:      s.cfg.Issuer,
+		AnyAudience: jwt.Audience{s.cfg.Audience},
+	}, 0); err != nil {
+		return jwt.Claims{}, fmt.Errorf("%w: %w", ErrNotOurToken, err)
+	}
+
+	now := s.now()
+	if claims.NotBefore != nil && now.Add(clockSkew).Before(claims.NotBefore.Time()) {
+		return jwt.Claims{}, fmt.Errorf("%w: the token is not valid yet", ErrNotOurToken)
+	}
+	if claims.Expiry == nil {
+		return jwt.Claims{}, fmt.Errorf("%w: the token has no expiry", ErrNotOurToken)
+	}
+	// The only horizon the window moves. A token that died inside it still reads
+	// as live here and nowhere else.
+	if deadline := claims.Expiry.Time().Add(allowExpiredFor + clockSkew); now.After(deadline) {
+		return jwt.Claims{}, fmt.Errorf("%w: the token expired at %s, beyond the %s that can be "+
+			"traded for a fresh one", ErrNotOurToken, claims.Expiry.Time().UTC(), allowExpiredFor)
+	}
+	return claims, nil
+}
+
+// claimsFromAnyKey extracts the claims using whichever published key verifies the
+// signature.
+//
+// Every unexpired key is tried rather than the one the `kid` header names,
+// because the header is the token's own claim about itself and this is the check
+// that decides whether to believe the token at all. Retired keys are in the set
+// on purpose: they stopped signing, but what they signed is still inside its
+// lifetime, which is exactly the token a refresh arrives holding.
+func (s *Service) claimsFromAnyKey(parsed *jwt.JSONWebToken, keys []Key, into *jwt.Claims) error {
+	for _, k := range keys {
+		pub, err := x509.ParsePKIXPublicKey(k.Public)
+		if err != nil {
+			return fmt.Errorf("signing: parse stored public key %s: %w", k.KID, err)
+		}
+		if err := parsed.Claims(pub, into); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: no published key verifies the signature", ErrNotOurToken)
+}
+
 // clockSkew is how far back a token's not-before is stamped, and the tolerance a
 // verifier should allow. Two machines in one cluster are not perfectly in step,
 // and a token rejected for being from the future is the least diagnosable

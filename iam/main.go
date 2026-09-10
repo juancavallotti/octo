@@ -164,7 +164,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 	auth.NewHandler(newAuthService(userSvc, signingSvc)).Register(mux)
 	slog.Info("auth routes registered",
 		"oidcIssuer", os.Getenv("OIDC_ISSUER"),
-		"endpoints", "POST /auth")
+		"endpoints", "POST /auth, POST /auth/refresh")
 
 	return mux, nil
 }
@@ -193,8 +193,15 @@ func newAuthService(users *user.Service, signer *signing.Service) *auth.Service 
 			"oidcIssuer", issuer != "", "oidcClientId", clientID != "")
 		return nil
 	}
+	grace, err := refreshGrace()
+	if err != nil {
+		// A malformed duration is a typo in the chart, and running with a default
+		// the operator did not ask for would hide it.
+		slog.Error("the token exchange could not be built", "error", err)
+		return nil
+	}
 	audiences := acceptedAudiences(clientID, os.Getenv("IAM_ACCEPTED_AUDIENCES"))
-	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer)
+	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer, grace)
 	if err != nil {
 		// Unreachable given the guard above, and reported rather than ignored so it
 		// cannot become a silent nil if the constructor grows another requirement.

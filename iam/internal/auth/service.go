@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
@@ -18,9 +20,11 @@ type (
 	}
 	users interface {
 		SignIn(ctx context.Context, subject, email, name string) (user.User, error)
+		Get(ctx context.Context, id string) (user.User, error)
 	}
 	minter interface {
 		Mint(ctx context.Context, subject string, private any) (signing.Token, error)
+		Verify(ctx context.Context, raw string, allowExpiredFor time.Duration) (jwt.Claims, error)
 	}
 )
 
@@ -29,17 +33,34 @@ type Service struct {
 	verifier verifier
 	users    users
 	minter   minter
+
+	// refreshGrace is how long after expiry a platform token can still be traded
+	// for a fresh one. See Refresh.
+	refreshGrace time.Duration
 }
+
+// DefaultRefreshGrace is how long past its expiry a platform token is still
+// accepted by Refresh.
+//
+// Ten minutes, and the number is a compromise between two annoyances. Too short
+// and somebody who stepped away from a tab is signed out for it; too long and an
+// expired token stays a credential well after the moment it was supposed to stop
+// being one. The real bound on the whole chain is the session lifetime the
+// platform sets on its cookie, not this.
+const DefaultRefreshGrace = 10 * time.Minute
 
 // NewService returns a Service. Any collaborator being absent is ErrNotConfigured
 // rather than a nil dereference later: the exchange needs all three, and an
 // install missing the identity provider is a supported way to run — it simply
 // cannot mint.
-func NewService(v verifier, u users, m minter) (*Service, error) {
+func NewService(v verifier, u users, m minter, refreshGrace time.Duration) (*Service, error) {
 	if v == nil || u == nil || m == nil {
 		return nil, ErrNotConfigured
 	}
-	return &Service{verifier: v, users: u, minter: m}, nil
+	if refreshGrace <= 0 {
+		refreshGrace = DefaultRefreshGrace
+	}
+	return &Service{verifier: v, users: u, minter: m, refreshGrace: refreshGrace}, nil
 }
 
 // platformClaims is what a platform token carries beyond the registered claims
@@ -78,6 +99,57 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 		return Result{}, fmt.Errorf("auth: resolve user: %w", err)
 	}
 
+	token, err := s.mint(ctx, u)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Token: token, User: u}, nil
+}
+
+// Refresh trades a platform token this service minted for a fresh one, without
+// going back to the identity provider.
+//
+// It exists because the two lifetimes do not match. A platform token lives an
+// hour; a person's session lives a working day. Sending them back to the provider
+// every hour would be absurd, and the alternative — storing a long-lived provider
+// credential in the session so we can re-exchange it — is a worse thing to hold
+// than the short-lived token we already have.
+//
+// A token that expired within the grace window is still accepted. That is the
+// case this is for: somebody left a tab open over lunch. Beyond the window there
+// is no recovery here and the platform sends them to sign in again.
+//
+// The roles are re-read from the database rather than copied across from the old
+// token, and that is the whole reason this is not simply a re-signing. It is what
+// makes a revoked role take effect within one token lifetime instead of at the
+// next sign-in. `last_login_at` is deliberately not touched: this is not a
+// sign-in, and treating it as one would make the column mean "was recently using
+// the platform" rather than what it says.
+func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) {
+	claims, err := s.minter.Verify(ctx, rawToken, s.refreshGrace)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+	}
+
+	// The subject of a platform token is the octo user id, which is what makes
+	// this a plain lookup rather than anything the provider has to answer for.
+	u, err := s.users.Get(ctx, claims.Subject)
+	if err != nil {
+		// A user who has been deleted since the token was minted lands here, and a
+		// refusal is the right answer: the token outlived the account.
+		return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+	}
+
+	token, err := s.mint(ctx, u)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Token: token, User: u}, nil
+}
+
+// mint stamps a platform token for u. Shared by the exchange and the refresh so
+// the two cannot drift into carrying different claims for the same person.
+func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) {
 	roles := u.Roles
 	if roles == nil {
 		// A user who has been granted nothing gets an empty list and not a null, so
@@ -90,8 +162,7 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 		Roles: roles,
 	})
 	if err != nil {
-		return Result{}, fmt.Errorf("auth: mint token: %w", err)
+		return signing.Token{}, fmt.Errorf("auth: mint token: %w", err)
 	}
-
-	return Result{Token: token, User: u}, nil
+	return token, nil
 }

@@ -428,3 +428,148 @@ func TestNewServiceNormalizesTheIssuer(t *testing.T) {
 		t.Error("NewService(\"///\") returned no error")
 	}
 }
+
+// --- Verify ----------------------------------------------------------------
+
+// The ordinary case a proactive re-mint takes: the token is still valid and no
+// window is needed.
+func TestVerifyAcceptsAValidToken(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	token, err := svc.Mint(ctx, "user-1", privateClaims{Email: "a@example.com"})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	claims, err := svc.Verify(ctx, token.Value, 0)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if claims.Subject != "user-1" {
+		t.Errorf("sub = %q, want user-1", claims.Subject)
+	}
+}
+
+// The window is what lets somebody who stepped away from a tab come back to a
+// working session instead of a sign-in page.
+func TestVerifyAcceptsATokenExpiredWithinTheWindow(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	// A minute past expiry, with ten minutes of grace.
+	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + time.Minute) }
+	if _, err := svc.Verify(ctx, token.Value, 10*time.Minute); err != nil {
+		t.Errorf("Verify() inside the window: %v", err)
+	}
+}
+
+// And past it there is nothing left to trade.
+func TestVerifyRejectsATokenExpiredBeyondTheWindow(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + 11*time.Minute) }
+	if _, err := svc.Verify(ctx, token.Value, 10*time.Minute); !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify() error = %v, want ErrNotOurToken", err)
+	}
+}
+
+// A window of zero must not quietly become a window of some: an expired token is
+// simply expired for every caller but the refresh.
+func TestVerifyWithNoWindowRejectsAnExpiredToken(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + time.Minute) }
+	if _, err := svc.Verify(ctx, token.Value, 0); !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify() error = %v, want ErrNotOurToken", err)
+	}
+}
+
+// The window widens expiry and nothing else. Everything that says "this is not
+// our token" still says it, however recently the token was minted.
+func TestVerifyRejectsTokensThatAreNotOurs(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	other, _ := newTestService(t, Config{Issuer: "http://elsewhere.test", Audience: "someone-else"})
+	ctx := context.Background()
+
+	foreign, err := other.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	// Minted by a service with its own keyset, so both the signature and the
+	// issuer are wrong — which is what a token from anywhere else looks like.
+	if _, err := svc.Verify(ctx, foreign.Value, time.Hour); !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify(another issuer's token) error = %v, want ErrNotOurToken", err)
+	}
+	for _, garbage := range []string{"", "not-a-token", "a.b.c"} {
+		if _, err := svc.Verify(ctx, garbage, time.Hour); !errors.Is(err, ErrNotOurToken) {
+			t.Errorf("Verify(%q) error = %v, want ErrNotOurToken", garbage, err)
+		}
+	}
+}
+
+// A token minted just before a rotation must stay refreshable through it: the
+// retired key is still published for exactly this reason.
+func TestVerifyAcceptsATokenSignedByARetiredKey(t *testing.T) {
+	svc, _ := newTestService(t, Config{TokenTTL: time.Hour, KeyLifetime: 2 * time.Hour})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	// Past the key's retirement, so a later mint rotates to a new one, but inside
+	// both the old key's publication window and the token's own refresh window.
+	svc.now = func() time.Time { return start.Add(2*time.Hour + time.Minute) }
+	if _, err := svc.Mint(ctx, "user-2", privateClaims{}); err != nil {
+		t.Fatalf("Mint after rotation: %v", err)
+	}
+
+	if _, err := svc.Verify(ctx, token.Value, 2*time.Hour); err != nil {
+		t.Errorf("Verify() of a token signed by the retired key: %v", err)
+	}
+}
+
+// A window forgives a late expiry and must not tighten anything else. Mint
+// stamps `nbf` a little in the past for clock skew, so validating both horizons
+// against one instant moved back by the window makes a token minted a second ago
+// read as "not valid yet" — which is how this broke the first time.
+func TestVerifyWithAWindowStillAcceptsABrandNewToken(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	if _, err := svc.Verify(ctx, token.Value, time.Hour); err != nil {
+		t.Errorf("Verify() of a freshly minted token with an hour of grace: %v", err)
+	}
+}

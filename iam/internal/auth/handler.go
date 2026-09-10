@@ -41,9 +41,10 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// Register attaches the exchange to mux.
+// Register attaches the exchange and the refresh to mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth", h.exchange)
+	mux.HandleFunc("POST /auth/refresh", h.refresh)
 }
 
 // response is what a successful exchange returns: the token, when it stops being
@@ -79,7 +80,39 @@ func (h *Handler) exchange(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	h.writeToken(w, result)
+}
 
+// refresh trades a platform token for a fresh one. Deliberately the same shape as
+// the exchange — a bearer, no body, the same reply — so a client has one thing to
+// call and one thing to parse, differing only in which token it presents.
+func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
+	if h.svc == nil {
+		httpx.WriteError(w, http.StatusServiceUnavailable,
+			"no identity provider is configured; set OIDC_ISSUER and OIDC_CLIENT_ID")
+		return
+	}
+
+	token := bearerToken(r)
+	if token == "" {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		httpx.WriteError(w, http.StatusUnauthorized, "a bearer token is required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	result, err := h.svc.Refresh(ctx, token)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeToken(w, result)
+}
+
+// writeToken is the reply both endpoints send.
+func (h *Handler) writeToken(w http.ResponseWriter, result Result) {
 	// Never cached, anywhere. It is a credential.
 	w.Header().Set("Cache-Control", "no-store")
 	httpx.WriteJSON(w, http.StatusOK, response{

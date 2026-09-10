@@ -29,7 +29,7 @@ type harness struct {
 	users   *user.Service
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, grace ...time.Duration) *harness {
 	t.Helper()
 	idp := newFakeIDP(t)
 
@@ -40,7 +40,11 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("signing.NewService: %v", err)
 	}
-	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer)
+	window := DefaultRefreshGrace
+	if len(grace) == 1 {
+		window = grace[0]
+	}
+	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer, window)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -48,6 +52,17 @@ func newHarness(t *testing.T) *harness {
 	mux := http.NewServeMux()
 	NewHandler(svc).Register(mux)
 	return &harness{mux: mux, idp: idp, signing: signer, users: users}
+}
+
+func (h *harness) postRefresh(t *testing.T, bearer string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+	if bearer != "" {
+		req.Header.Set("Authorization", bearer)
+	}
+	rec := httptest.NewRecorder()
+	h.mux.ServeHTTP(rec, req)
+	return rec
 }
 
 func (h *harness) post(t *testing.T, bearer string) *httptest.ResponseRecorder {
@@ -293,9 +308,122 @@ func TestNewServiceRequiresEveryCollaborator(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := NewService(tt.verif, tt.store, tt.mint); !errors.Is(err, ErrNotConfigured) {
+			if _, err := NewService(tt.verif, tt.store, tt.mint, 0); !errors.Is(err, ErrNotConfigured) {
 				t.Errorf("NewService() error = %v, want ErrNotConfigured", err)
 			}
 		})
+	}
+}
+
+// --- refresh ---------------------------------------------------------------
+
+// signIn exchanges a provider token and returns the platform token it minted,
+// which is what a refresh arrives holding.
+func (h *harness) signIn(t *testing.T, subject, email string) authResponse {
+	t.Helper()
+	rec := h.post(t, "Bearer "+h.idp.idToken(t, tokenOptions{subject: subject, email: email}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var got authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return got
+}
+
+func TestRefreshMintsAFreshTokenForTheSameUser(t *testing.T) {
+	h := newHarness(t)
+	first := h.signIn(t, "provider|abc123", "first@example.com")
+
+	rec := h.postRefresh(t, "Bearer "+first.Token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/refresh = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var second authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if second.User.ID != first.User.ID {
+		t.Errorf("refresh returned user %q, want %q", second.User.ID, first.User.ID)
+	}
+	if second.Token == "" {
+		t.Fatal("no token was returned")
+	}
+	if !second.ExpiresAt.After(first.ExpiresAt) && !second.ExpiresAt.Equal(first.ExpiresAt) {
+		t.Errorf("the refreshed token expires at %v, before the original's %v",
+			second.ExpiresAt, first.ExpiresAt)
+	}
+}
+
+// The whole reason a refresh re-reads the database rather than re-signing what it
+// was given: a role taken away must take effect within one token lifetime, not at
+// the next sign-in.
+func TestRefreshPicksUpARoleChange(t *testing.T) {
+	h := newHarness(t)
+	first := h.signIn(t, "provider|abc123", "first@example.com")
+
+	// The first user to sign in is made an admin, so this revokes something that
+	// is really there. A second admin first, or the last-admin rule refuses.
+	second := h.signIn(t, "provider|second", "second@example.com")
+	if err := h.users.Grant(context.Background(), second.User.ID, user.RoleAdmin, nil); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if err := h.users.Revoke(context.Background(), first.User.ID, user.RoleAdmin); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+
+	rec := h.postRefresh(t, "Bearer "+first.Token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/refresh = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var refreshed authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, role := range refreshed.User.Roles {
+		if role == user.RoleAdmin {
+			t.Fatal("the refreshed token still carries the revoked role")
+		}
+	}
+}
+
+// The window widens expiry and nothing else. A provider's own token, or anything
+// else this service did not mint, is not a refresh credential.
+func TestRefreshRejectsATokenItDidNotMint(t *testing.T) {
+	h := newHarness(t)
+	h.signIn(t, "provider|abc123", "first@example.com") // so a keyset exists
+
+	providerToken := h.idp.idToken(t, tokenOptions{subject: "s", email: "a@example.com"})
+	if rec := h.postRefresh(t, "Bearer "+providerToken); rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /auth/refresh with a provider token = %d, want 401", rec.Code)
+	}
+	for _, bearer := range []string{"Bearer not-a-token", "Bearer a.b.c"} {
+		if rec := h.postRefresh(t, bearer); rec.Code != http.StatusUnauthorized {
+			t.Errorf("POST /auth/refresh with %q = %d, want 401", bearer, rec.Code)
+		}
+	}
+}
+
+func TestRefreshRequiresABearerToken(t *testing.T) {
+	h := newHarness(t)
+	rec := h.postRefresh(t, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("POST /auth/refresh = %d, want 401", rec.Code)
+	}
+	if rec.Header().Get("WWW-Authenticate") == "" {
+		t.Error("no challenge was sent with the 401")
+	}
+}
+
+// It hands out a credential, so the same no-store rule the exchange follows
+// applies here.
+func TestRefreshResponseIsNotCacheable(t *testing.T) {
+	h := newHarness(t)
+	got := h.signIn(t, "provider|abc123", "first@example.com")
+
+	rec := h.postRefresh(t, "Bearer "+got.Token)
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
 	}
 }
