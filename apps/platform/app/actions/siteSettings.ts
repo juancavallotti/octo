@@ -5,11 +5,20 @@
  * action authorizes and delegates to the orchestrator client lib; the model
  * unwraps the ActionResult.
  *
+ * Administrators only, and the reads matter as much as the writes here: these
+ * settings hold the installation's SMTP credentials and its LLM API keys, so who
+ * may look is the same question as who may change.
+ *
+ * The embedding status is the exception, and deliberately not gated. It is a
+ * health fact with nothing configurable behind it — the provider, model and key
+ * are chart values on that server — and the memory search page shows it to
+ * whoever is looking at their own memories.
+ *
  * The test send is a write, not a read: it spends an external resource and can
  * carry an API key out of the browser.
  */
 
-import { withRead, withWrite } from "./_auth";
+import { withAdmin, withRead } from "./_auth";
 import * as client from "./_client";
 import type { ActionResult } from "./_client";
 import type {
@@ -25,41 +34,41 @@ import type {
 } from "./client/settings";
 
 export async function getEmailSettings(): Promise<ActionResult<EmailSettings>> {
-  return withRead(() => client.getEmailSettings());
+  return withAdmin(() => client.getEmailSettings());
 }
 
 export async function saveEmailSettings(
   input: EmailSettingsInput,
 ): Promise<ActionResult<EmailSettings>> {
-  return withWrite(() => client.saveEmailSettings(input));
+  return withAdmin(() => client.saveEmailSettings(input));
 }
 
 export async function sendTestEmail(
   input: TestEmailInput,
 ): Promise<ActionResult<SentMessage>> {
-  return withWrite(() => client.sendTestEmail(input));
+  return withAdmin(() => client.sendTestEmail(input));
 }
 
 export async function getLlmSettings(): Promise<ActionResult<LlmSettings>> {
-  return withRead(() => client.getLlmSettings());
+  return withAdmin(() => client.getLlmSettings());
 }
 
 export async function saveLlmSettings(
   input: LlmSettingsInput,
 ): Promise<ActionResult<LlmSettings>> {
-  return withWrite(() => client.saveLlmSettings(input));
+  return withAdmin(() => client.saveLlmSettings(input));
 }
 
 export async function getWebSearchSettings(): Promise<
   ActionResult<WebSearchSettings>
 > {
-  return withRead(() => client.getWebSearchSettings());
+  return withAdmin(() => client.getWebSearchSettings());
 }
 
 export async function saveWebSearchSettings(
   input: WebSearchSettingsInput,
 ): Promise<ActionResult<WebSearchSettings>> {
-  return withWrite(() => client.saveWebSearchSettings(input));
+  return withAdmin(() => client.saveWebSearchSettings(input));
 }
 
 /**

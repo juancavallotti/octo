@@ -20,6 +20,7 @@ import {
   writeRoles,
 } from "@/app/auth/guard";
 import { authEnabled } from "@/auth";
+import { PLATFORM_ADMIN } from "@/app/auth/roles";
 import type { Session } from "next-auth";
 import type { ActionResult } from "@octo/http";
 import * as client from "./_client";
@@ -59,6 +60,27 @@ export async function withWrite<T>(
   fn: (session: Session) => Promise<ActionResult<T>>,
 ): Promise<ActionResult<T>> {
   const g = await gate(writeRoles);
+  return "session" in g ? fn(g.session) : g;
+}
+
+/**
+ * Run `fn` only for an administrator — the gate on everything the admin section
+ * does, reads included.
+ *
+ * This is the check that matters, and not the one in the admin layout. Every one
+ * of these actions is a POST endpoint in its own right, reachable by anyone who
+ * knows its id whether or not a page ever rendered for them, so a layout that
+ * declines to draw the page protects nothing on its own. The layout is there so
+ * an administrator's colleague sees an honest refusal instead of a screen of
+ * failed requests.
+ *
+ * Unlike withWrite it does not read AUTH_WRITE_ROLES: which roles may write is an
+ * operator's decision, and who may change the installation's own settings is not.
+ */
+export async function withAdmin<T>(
+  fn: (session: Session) => Promise<ActionResult<T>>,
+): Promise<ActionResult<T>> {
+  const g = await gate([PLATFORM_ADMIN]);
   return "session" in g ? fn(g.session) : g;
 }
 
@@ -114,6 +136,17 @@ export function withUser<T>(
   fn: (userId: string, session: Session) => Promise<ActionResult<T>>,
 ): Promise<ActionResult<T>> {
   return gateUser([], fn);
+}
+
+/**
+ * {@link withAdmin}, for an admin operation the orchestrator attributes to whoever
+ * performed it — installing or rolling out the platform agent, which it records
+ * an actor for.
+ */
+export function withAdminUser<T>(
+  fn: (userId: string, session: Session) => Promise<ActionResult<T>>,
+): Promise<ActionResult<T>> {
+  return gateUser([PLATFORM_ADMIN], fn);
 }
 
 /** {@link withUser}, for an operation that also spends cluster resources. */

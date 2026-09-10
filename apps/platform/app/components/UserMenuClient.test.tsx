@@ -3,15 +3,19 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import UserMenuClient from "./UserMenuClient";
+import { RolesProvider } from "@/app/auth/RolesContext";
+import { PLATFORM_ADMIN, PLATFORM_MONITOR } from "@/app/auth/roles";
 
-function renderMenu() {
+function renderMenu(roles: string[] = [PLATFORM_ADMIN]) {
   return render(
-    <UserMenuClient
-      name="Ada Lovelace"
-      email="ada@example.com"
-      image={null}
-      signOutAction={vi.fn()}
-    />,
+    <RolesProvider roles={roles} enforced>
+      <UserMenuClient
+        name="Ada Lovelace"
+        email="ada@example.com"
+        image={null}
+        signOutAction={vi.fn()}
+      />
+    </RolesProvider>,
   );
 }
 
@@ -45,5 +49,19 @@ describe("UserMenuClient", () => {
     renderMenu();
 
     expect(screen.getByText("AL")).toBeTruthy();
+  });
+
+  // The section's layout would send them straight back, so an entry that only
+  // bounces is worse than no entry.
+  it("hides the admin entry from somebody who cannot use it", async () => {
+    const user = userEvent.setup();
+    renderMenu([PLATFORM_MONITOR]);
+
+    await user.click(screen.getByRole("button", { name: "Ada Lovelace" }));
+
+    expect(screen.queryByRole("menuitem", { name: "Admin" })).toBeNull();
+    // The rest of the menu is theirs as much as anyone's.
+    expect(screen.getByRole("menuitem", { name: "API keys" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
   });
 });
