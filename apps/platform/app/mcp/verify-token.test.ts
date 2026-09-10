@@ -41,45 +41,78 @@ async function mintToken(
 }
 
 /** Build a verifier over fakes; individual specs tweak the returned mocks. */
-function makeVerifier(over: Partial<McpTokenVerifierDeps> = {}) {
-  const bootstrapUser = vi.fn(async () => ({
+/** What iam answers with for a caller it recognises. */
+function minted(over: { roles?: string[]; expiresAt?: string } = {}) {
+  return {
     ok: true as const,
-    data: { id: "octo-user-1", email: "", name: "", createdAt: "", lastLoginAt: "" },
-  }));
-  const fetchUserinfo = vi.fn(async () => ({ email: "a@b.co", name: "Ada" }));
+    data: {
+      token: "octo-token",
+      expiresAt: over.expiresAt ?? new Date(Date.now() + 3600_000).toISOString(),
+      user: {
+        id: "octo-user-1",
+        email: "a@b.co",
+        name: "Ada",
+        roles: over.roles ?? ["platform:developer"],
+        createdAt: "",
+        lastLoginAt: "",
+      },
+    },
+  };
+}
+
+function makeVerifier(over: Partial<McpTokenVerifierDeps> = {}) {
+  const exchangeIdToken = vi.fn(async () => minted());
   const deps: McpTokenVerifierDeps = {
     issuer: ISSUER,
     resource: RESOURCE,
     getKey,
-    fetchUserinfo,
-    bootstrapUser: bootstrapUser as unknown as McpTokenVerifierDeps["bootstrapUser"],
+    exchangeIdToken: exchangeIdToken as unknown as McpTokenVerifierDeps["exchangeIdToken"],
     ...over,
   };
-  return { verify: createMcpTokenVerifier(deps), bootstrapUser, fetchUserinfo };
+  return { verify: createMcpTokenVerifier(deps), exchangeIdToken };
 }
 
 const req = new Request("https://platform.example/mcp");
 
 describe("verifyMcpToken — OAuth JWT", () => {
-  it("accepts a valid token and resolves the user via userinfo + bootstrap", async () => {
-    const { verify, bootstrapUser, fetchUserinfo } = makeVerifier();
-    const info = await verify(req, await mintToken());
+  it("accepts a valid token and resolves the caller by exchanging it with iam", async () => {
+    const { verify, exchangeIdToken } = makeVerifier();
+    const token = await mintToken();
+    const info = await verify(req, token);
 
     expect(info).toBeDefined();
-    expect(info!.extra).toMatchObject({ userId: "octo-user-1", subject: "user-sub-1" });
+    expect(info!.extra).toMatchObject({
+      userId: "octo-user-1",
+      subject: "user-sub-1",
+      roles: ["platform:developer"],
+      // The caller's own credential, for the tools to spend against the API.
+      octoToken: "octo-token",
+    });
     expect(info!.clientId).toBe("cid-123");
     expect(info!.scopes).toEqual(["openid", "profile", "email"]);
     expect(info!.resource?.toString()).toBe(RESOURCE);
-    // userinfo claims seed the bootstrap call.
-    expect(fetchUserinfo).toHaveBeenCalledOnce();
-    expect(bootstrapUser).toHaveBeenCalledWith("user-sub-1", "a@b.co", "Ada");
+    expect(exchangeIdToken).toHaveBeenCalledWith(token);
   });
 
-  it("caches subject→userId (bootstrap runs once across requests)", async () => {
-    const { verify, bootstrapUser } = makeVerifier();
+  it("reuses the exchange while the platform token it returned is still good", async () => {
+    const { verify, exchangeIdToken } = makeVerifier();
     await verify(req, await mintToken());
     await verify(req, await mintToken());
-    expect(bootstrapUser).toHaveBeenCalledOnce();
+    expect(exchangeIdToken).toHaveBeenCalledOnce();
+  });
+
+  // A client refreshes its access token far more often than the platform token
+  // behind it expires, but the cached one must not outlive its own expiry.
+  it("exchanges again once the cached platform token is near expiry", async () => {
+    const exchangeIdToken = vi.fn(async () =>
+      minted({ expiresAt: new Date(Date.now() + 30_000).toISOString() }),
+    );
+    const { verify } = makeVerifier({
+      exchangeIdToken: exchangeIdToken as unknown as McpTokenVerifierDeps["exchangeIdToken"],
+    });
+    await verify(req, await mintToken());
+    await verify(req, await mintToken());
+    expect(exchangeIdToken).toHaveBeenCalledTimes(2);
   });
 
   it("rejects an expired token", async () => {
@@ -106,14 +139,15 @@ describe("verifyMcpToken — OAuth JWT", () => {
     expect(await verify(req, token)).toBeUndefined();
   });
 
-  it("still authenticates when the user can't be provisioned (userId undefined)", async () => {
-    const bootstrapUser = vi.fn(async () => ({ ok: false as const, error: "orchestrator down" }));
+  // A change of posture from when this only had to authenticate: the tools now
+  // carry the caller's own credential, so a caller iam will not vouch for is
+  // refused rather than admitted with no identity attached.
+  it("refuses a caller iam will not exchange for", async () => {
+    const exchangeIdToken = vi.fn(async () => ({ ok: false as const, error: "iam down" }));
     const { verify } = makeVerifier({
-      bootstrapUser: bootstrapUser as unknown as McpTokenVerifierDeps["bootstrapUser"],
+      exchangeIdToken: exchangeIdToken as unknown as McpTokenVerifierDeps["exchangeIdToken"],
     });
-    const info = await verify(req, await mintToken());
-    expect(info).toBeDefined();
-    expect(info!.extra?.userId).toBeUndefined();
+    expect(await verify(req, await mintToken())).toBeUndefined();
   });
 });
 

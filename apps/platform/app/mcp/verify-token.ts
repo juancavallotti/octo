@@ -8,9 +8,15 @@
  * identifier so a token minted for another resource can't be replayed here (MCP's
  * anti-passthrough rule).
  *
- * We resolve the caller to a durable octo user id and hang it off
- * {@link AuthInfo.extra} so tools can scope per-user work later; today it mirrors
- * the previous authentication-only boundary.
+ * The token is then traded with iam for a platform token, which is what resolves
+ * the caller to a durable octo user id and tells us their roles. Both, and the
+ * platform token itself, are hung off {@link AuthInfo.extra} so the tools can
+ * scope per-user work and carry the caller's own credential to the API.
+ *
+ * The signature check above is not made redundant by that exchange. iam checks
+ * the same things, but MCP's anti-passthrough rule is about *this* resource
+ * server refusing a token minted for somewhere else, and that check belongs
+ * here.
  *
  * The default export {@link verifyMcpToken} is wired to the configured provider's
  * real JWKS and the orchestrator; {@link createMcpTokenVerifier} takes injectable
@@ -24,15 +30,9 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import { bootstrapUser } from "@/app/actions/_client";
-import { OIDC_JWKS_URL, OIDC_USERINFO_URL, trimSlashes } from "@/oidc.config";
+import { exchangeIdToken } from "@/app/actions/client/iam";
+import { OIDC_JWKS_URL, trimSlashes } from "@/oidc.config";
 import { MCP_ISSUER, MCP_RESOURCE } from "./oauth-config";
-
-/** Claims we read from the authorization server's userinfo to provision a user. */
-interface UserinfoClaims {
-  email?: string;
-  name?: string;
-}
 
 /** Injectable collaborators, so tests need no network or live JWKS. */
 export interface McpTokenVerifierDeps {
@@ -42,11 +42,24 @@ export interface McpTokenVerifierDeps {
   resource: string;
   /** Resolve the signing key for a token; the provider's remote JWKS in production. */
   getKey: JWTVerifyGetKey;
-  /** Fetch email/name for the bearer's subject from the authorization server. */
-  fetchUserinfo: (token: string) => Promise<UserinfoClaims>;
-  /** Provision (or refresh) the octo user row for an OIDC subject. */
-  bootstrapUser: typeof bootstrapUser;
+  /** Trade the caller's provider token for a platform one. */
+  exchangeIdToken: typeof exchangeIdToken;
 }
+
+/** A completed exchange, kept only as long as the platform token it holds. */
+interface Exchanged {
+  userId: string;
+  roles: string[];
+  octoToken: string;
+  expiresAt: number;
+}
+
+/**
+ * How long before a cached platform token expires it stops being reused. A minute
+ * is far longer than a tool call takes, so nothing is handed a credential that
+ * dies while it is being used.
+ */
+const EXCHANGE_LEAD_MS = 60_000;
 
 /** The `verifyToken` callback shape `withMcpAuth` expects. */
 export type McpTokenVerifier = (
@@ -61,28 +74,37 @@ export type McpTokenVerifier = (
 export function createMcpTokenVerifier(
   deps: McpTokenVerifierDeps,
 ): McpTokenVerifier {
-  const userIdCache = new Map<string, string>();
+  const exchanged = new Map<string, Exchanged>();
 
-  /** Resolve (and cache) the durable octo user id for an OIDC subject. */
-  async function resolveUserId(
-    subject: string,
-    token: string,
-  ): Promise<string | undefined> {
-    const cached = userIdCache.get(subject);
-    if (cached) return cached;
-    // Access tokens carry only `sub`, so pull email/name from userinfo to seed
-    // the user row (best-effort: a userinfo hiccup shouldn't fail the request).
-    const claims = await deps
-      .fetchUserinfo(token)
-      .catch(() => ({}) as UserinfoClaims);
-    const res = await deps.bootstrapUser(
-      subject,
-      claims.email ?? "",
-      claims.name ?? "",
-    );
-    if (!res.ok) return undefined;
-    userIdCache.set(subject, res.data.id);
-    return res.data.id;
+  /**
+   * Trade the caller's token for a platform one, reusing the last result while it
+   * is still good.
+   *
+   * Cached per subject rather than per token because a client refreshes its
+   * access token far more often than the platform token behind it expires, and an
+   * exchange is a round trip to iam plus one to the identity provider. The cached
+   * entry is dropped a minute before its expiry so nothing is ever handed a
+   * credential that dies mid-request.
+   */
+  async function exchange(subject: string, token: string): Promise<Exchanged | undefined> {
+    const cached = exchanged.get(subject);
+    if (cached && cached.expiresAt - Date.now() > EXCHANGE_LEAD_MS) return cached;
+
+    const res = await deps.exchangeIdToken(token);
+    if (!res.ok) {
+      // No platform token means no identity we are willing to act on, so the
+      // request is refused rather than admitted as an anonymous caller.
+      console.warn(`could not exchange an MCP caller's token with iam: ${res.error}`);
+      return undefined;
+    }
+    const fresh: Exchanged = {
+      userId: res.data.user.id,
+      roles: res.data.user.roles,
+      octoToken: res.data.token,
+      expiresAt: new Date(res.data.expiresAt).getTime(),
+    };
+    exchanged.set(subject, fresh);
+    return fresh;
   }
 
   return async function verify(
@@ -108,7 +130,9 @@ export function createMcpTokenVerifier(
     const subject = payload.sub;
     if (!subject) return undefined;
 
-    const userId = await resolveUserId(subject, bearer);
+    const identity = await exchange(subject, bearer);
+    if (!identity) return undefined;
+
     const scope = typeof payload.scope === "string" ? payload.scope : "";
     return {
       token: bearer,
@@ -116,7 +140,13 @@ export function createMcpTokenVerifier(
       scopes: scope ? scope.split(" ").filter(Boolean) : [],
       expiresAt: typeof payload.exp === "number" ? payload.exp : undefined,
       resource: new URL(deps.resource),
-      extra: { userId, subject },
+      extra: {
+        userId: identity.userId,
+        subject,
+        roles: identity.roles,
+        // The caller's own credential, for the tools to spend against the API.
+        octoToken: identity.octoToken,
+      },
     };
   };
 }
@@ -126,7 +156,6 @@ export function createMcpTokenVerifier(
 /** The bits of the provider's OIDC discovery document we consume. */
 interface Discovery {
   jwks_uri: string;
-  userinfo_endpoint?: string;
 }
 
 /** Memoized OIDC discovery lookup (a failed fetch isn't cached). */
@@ -162,30 +191,10 @@ const defaultGetKey: JWTVerifyGetKey = async (header, input) => {
   return remoteJwks(header, input);
 };
 
-/**
- * Fetch email/name from the provider's userinfo endpoint with the caller's
- * token. Skipped entirely when neither the override nor discovery names one —
- * userinfo is optional, and a provider without it simply yields no claims.
- */
-async function defaultFetchUserinfo(token: string): Promise<UserinfoClaims> {
-  const endpoint = OIDC_USERINFO_URL ?? (await discovery()).userinfo_endpoint;
-  if (!endpoint) return {};
-  const res = await fetch(endpoint, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return {};
-  const u = (await res.json()) as Record<string, unknown>;
-  return {
-    email: typeof u.email === "string" ? u.email : undefined,
-    name: typeof u.name === "string" ? u.name : undefined,
-  };
-}
-
-/** The verifier the `/mcp` route uses, bound to the configured provider + the orchestrator. */
+/** The verifier the `/mcp` route uses, bound to the configured provider and iam. */
 export const verifyMcpToken: McpTokenVerifier = createMcpTokenVerifier({
   issuer: MCP_ISSUER,
   resource: MCP_RESOURCE,
   getKey: defaultGetKey,
-  fetchUserinfo: defaultFetchUserinfo,
-  bootstrapUser,
+  exchangeIdToken,
 });
