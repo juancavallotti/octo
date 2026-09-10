@@ -97,17 +97,42 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error
 
 // resolve returns the verifier, performing discovery on the first call that needs
 // it. A failure is returned and not remembered, so the next request tries again.
+//
+// The network call happens OUTSIDE the mutex, which matters when the provider is
+// down. Holding the lock across it would make every concurrent sign-in queue
+// behind one attempt and then start its own, so with a handful of callers most
+// would burn their whole deadline waiting rather than being told promptly that
+// the provider is unreachable. The lock guards only the field.
+//
+// The cost is that several first-time callers may each discover at once. That is
+// one GET apiece, it happens only until one of them succeeds, and it is the
+// cheaper of the two failure modes by a wide margin.
 func (v *Verifier) resolve(ctx context.Context) (*oidc.IDTokenVerifier, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	if v.verifier != nil {
-		return v.verifier, nil
+	if cached := v.cached(); cached != nil {
+		return cached, nil
 	}
+
 	provider, err := oidc.NewProvider(ctx, v.issuer)
 	if err != nil {
 		return nil, fmt.Errorf("%w: discovering %s: %w", ErrProviderUnreachable, v.issuer, err)
 	}
-	v.verifier = provider.Verifier(&oidc.Config{ClientID: v.clientID})
+	verifier := provider.Verifier(&oidc.Config{ClientID: v.clientID})
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	// First writer wins. Two concurrent discoveries of the same issuer produce
+	// equivalent verifiers, so which one is kept does not matter — only that every
+	// later caller sees the same one and none of them discovers again.
+	if v.verifier == nil {
+		v.verifier = verifier
+	}
 	return v.verifier, nil
+}
+
+// cached returns the resolved verifier, or nil when discovery has not succeeded
+// yet.
+func (v *Verifier) cached() *oidc.IDTokenVerifier {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.verifier
 }

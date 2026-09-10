@@ -169,6 +169,9 @@ func TestASubsequentExchangeCarriesNewlyGrantedRoles(t *testing.T) {
 	rec = h.post(t, "Bearer "+h.idp.idToken(t, tokenOptions{
 		subject: "provider|second", email: "second@example.com",
 	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second POST /auth = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
 	var second authResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
 		t.Fatalf("decode: %v", err)

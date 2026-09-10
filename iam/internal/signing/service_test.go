@@ -406,3 +406,25 @@ func kidOf(t *testing.T, token string) string {
 	}
 	return parsed.Headers[0].KeyID
 }
+
+// The issuer is the `iss` claim, what the discovery document reports, and the
+// base jwks_uri is built on. A trailing slash in one and not the others is a
+// mismatch a verifier reports as an issuer it does not recognise.
+func TestNewServiceNormalizesTheIssuer(t *testing.T) {
+	for _, given := range []string{
+		"https://iam.example/", "https://iam.example//", " https://iam.example/ ",
+	} {
+		svc, err := NewService(&memRepo{}, Config{Issuer: given, Audience: "octo"})
+		if err != nil {
+			t.Fatalf("NewService(%q): %v", given, err)
+		}
+		if got := svc.Issuer(); got != "https://iam.example" {
+			t.Errorf("Issuer() = %q for input %q, want %q", got, given, "https://iam.example")
+		}
+	}
+
+	// A slash-only issuer is still no issuer.
+	if _, err := NewService(&memRepo{}, Config{Issuer: "///", Audience: "octo"}); err == nil {
+		t.Error("NewService(\"///\") returned no error")
+	}
+}

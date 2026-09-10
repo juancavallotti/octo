@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,17 @@ type fakeIDP struct {
 	key      *rsa.PrivateKey
 	kid      string
 	clientID string
+
+	// discoveries counts requests to the discovery document, so a test can assert
+	// that a warm verifier stops asking.
+	mu          sync.Mutex
+	discoveries int
+}
+
+func (f *fakeIDP) discoveryCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.discoveries
 }
 
 func newFakeIDP(t *testing.T) *fakeIDP {
@@ -41,6 +53,9 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		idp.mu.Lock()
+		idp.discoveries++
+		idp.mu.Unlock()
 		writeJSON(w, map[string]any{
 			"issuer":                                idp.Issuer(),
 			"authorization_endpoint":                idp.Issuer() + "/authorize",
