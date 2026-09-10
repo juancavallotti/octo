@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/juancavallotti/octo/iam/internal/authz"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
 )
 
@@ -23,22 +24,49 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// Register attaches the user routes to mux.
+// RegisterOpen attaches the routes a caller reaches without a token.
+//
+// One route, and it is the one that cannot require a credential without a
+// circularity: a local `task dev` run has no identity provider to get a token
+// from, and this is how it gets a user at all. See bootstrap.
+func (h *Handler) RegisterOpen(mux *http.ServeMux) {
+	mux.HandleFunc("POST /users/bootstrap", h.bootstrap)
+}
+
+// Middleware wraps a handler with whatever a caller must satisfy to reach it.
+type Middleware func(http.Handler) http.Handler
+
+// Register attaches the user routes to mux, each behind the guard its contents
+// call for.
+//
+// The guards arrive as arguments rather than being built here, because this
+// package must not decide who may administer the platform on top of describing
+// what administering it looks like — and because handing them in is what lets
+// the caller refuse to register any of this at all when it has no way to check a
+// token. See newServer.
 //
 // Role grants stay nested under the user they belong to, following the same rule
 // the orchestrator's per-integration resources and per-user API keys follow: a
 // sub-entity is addressed through its owner, so there is never a second way to
 // name the same thing.
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /roles", h.catalogue)
-	mux.HandleFunc("POST /users/bootstrap", h.bootstrap)
-	mux.HandleFunc("POST /users", h.create)
-	mux.HandleFunc("GET /users", h.list)
-	mux.HandleFunc("GET /users/{id}", h.get)
-	mux.HandleFunc("PUT /users/{id}", h.update)
-	mux.HandleFunc("DELETE /users/{id}", h.delete)
-	mux.HandleFunc("PUT /users/{id}/roles/{role}", h.grant)
-	mux.HandleFunc("DELETE /users/{id}/roles/{role}", h.revoke)
+func (h *Handler) Register(mux *http.ServeMux, signedIn, admin Middleware) {
+	// The catalogue is a list of four constants and describes nothing about this
+	// installation, so it asks only that the caller be somebody.
+	mux.Handle("GET /roles", signedIn(http.HandlerFunc(h.catalogue)))
+
+	// Everything else is the user directory and what people may do, which is an
+	// administrator's business and nobody else's.
+	for pattern, handler := range map[string]http.HandlerFunc{
+		"POST /users":                     h.create,
+		"GET /users":                      h.list,
+		"GET /users/{id}":                 h.get,
+		"PUT /users/{id}":                 h.update,
+		"DELETE /users/{id}":              h.delete,
+		"PUT /users/{id}/roles/{role}":    h.grant,
+		"DELETE /users/{id}/roles/{role}": h.revoke,
+	} {
+		mux.Handle(pattern, admin(handler))
+	}
 }
 
 // Response is the wire representation of a user. It carries the durable id every
@@ -233,10 +261,18 @@ func (h *Handler) grant(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	id := r.PathValue("id")
-	// grantedBy is nil until the wiring change puts an authenticated caller behind
-	// these routes; the column is nullable for exactly this reason, and recording
-	// a guess would be worse than recording nothing.
-	if err := h.svc.Grant(ctx, id, Role(r.PathValue("role")), nil); err != nil {
+	// Who granted it. The column stays nullable because rows written before there
+	// was an authenticated caller have nothing to put there, but every new one
+	// records somebody.
+	caller, err := authz.FromContext(r.Context())
+	if err != nil {
+		// Only reachable if this route were mounted without its guard, which would
+		// be a wiring mistake rather than a caller's — so it fails loudly here
+		// instead of recording an anonymous grant.
+		h.writeError(w, err)
+		return
+	}
+	if err := h.svc.Grant(ctx, id, Role(r.PathValue("role")), &caller.Subject); err != nil {
 		h.writeError(w, err)
 		return
 	}

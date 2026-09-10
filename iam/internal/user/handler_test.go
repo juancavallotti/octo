@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/juancavallotti/octo/iam/internal/authz"
 )
 
 // newTestServer wires the real Service and Handler over the in-memory repository,
@@ -16,8 +19,24 @@ func newTestServer(t *testing.T) (*http.ServeMux, *Service, *memRepo) {
 	repo := newMemRepo()
 	svc := NewService(repo)
 	mux := http.NewServeMux()
-	NewHandler(svc).Register(mux)
+	handler := NewHandler(svc)
+	handler.RegisterOpen(mux)
+	// A stand-in caller rather than a real token: what a guard admits is the authz
+	// package's business and is tested there. What these cover is routing, status
+	// mapping and the wire shape, which need a principal on the request and not a
+	// keyset behind it.
+	handler.Register(mux, asTestCaller, asTestCaller)
 	return mux, svc, repo
+}
+
+// testCaller is the subject every grant in these tests is attributed to.
+const testCaller = "00000000-0000-0000-0000-00000000ca11"
+
+func asTestCaller(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(
+			authz.NewContext(r.Context(), authz.Principal{Subject: testCaller})))
+	})
 }
 
 func do(t *testing.T, mux *http.ServeMux, method, path string) *httptest.ResponseRecorder {
@@ -186,5 +205,34 @@ func TestListIsAnEmptyArrayOnAFreshInstall(t *testing.T) {
 	}
 	if got := rec.Body.String(); got != "[]\n" {
 		t.Errorf("GET /users body = %q, want an empty array", got)
+	}
+}
+
+// createUser posts a user and returns them, for the cases that need somebody to
+// act on.
+func createUser(t *testing.T, mux *http.ServeMux, subject, email string) Response {
+	t.Helper()
+	body := `{"subject":"` + subject + `","email":"` + email + `","name":""}`
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /users = %d (%s), want 201", rec.Code, rec.Body.String())
+	}
+	return decode[Response](t, rec)
+}
+
+// The note this replaced said grants were recorded with nobody behind them,
+// because there was nobody to record. There is now, and it has to reach the row.
+func TestGrantIsAttributedToTheCaller(t *testing.T) {
+	mux, _, repo := newTestServer(t)
+	created := createUser(t, mux, "provider|abc", "a@example.com")
+
+	rec := do(t, mux, http.MethodPut, "/users/"+created.ID+"/roles/"+string(RoleMonitor))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT role = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if got := repo.grantedBy[created.ID+"|"+string(RoleMonitor)]; got == nil || *got != testCaller {
+		t.Errorf("granted_by = %v, want the caller %q", got, testCaller)
 	}
 }

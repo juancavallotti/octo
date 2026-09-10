@@ -25,7 +25,7 @@ type (
 	}
 	minter interface {
 		Mint(ctx context.Context, subject string, private any) (signing.Token, error)
-		Verify(ctx context.Context, raw string, allowExpiredFor time.Duration) (jwt.Claims, error)
+		Verify(ctx context.Context, raw string, allowExpiredFor time.Duration, private any) (jwt.Claims, error)
 	}
 )
 
@@ -127,7 +127,7 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 // sign-in, and treating it as one would make the column mean "was recently using
 // the platform" rather than what it says.
 func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) {
-	claims, err := s.minter.Verify(ctx, rawToken, s.refreshGrace)
+	claims, err := s.minter.Verify(ctx, rawToken, s.refreshGrace, nil)
 	if err != nil {
 		// Only a token this service did not mint, or minted too long ago, is the
 		// caller's problem. Verify also reads the keyset from the database on its

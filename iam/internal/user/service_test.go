@@ -17,13 +17,21 @@ type memRepo struct {
 	bySubject map[string]string
 	nextID    int
 
+	// grantedBy records who attributed each grant, keyed "userID|role". The real
+	// column is nullable and a test needs to see what actually landed in it.
+	grantedBy map[string]*string
+
 	// failNext, when set, is returned by the next call to any method. It is how
 	// the tests reach the paths that only a database fault can produce.
 	failNext error
 }
 
 func newMemRepo() *memRepo {
-	return &memRepo{users: map[string]*User{}, bySubject: map[string]string{}}
+	return &memRepo{
+		users:     map[string]*User{},
+		bySubject: map[string]string{},
+		grantedBy: map[string]*string{},
+	}
 }
 
 func (m *memRepo) fail() error {
@@ -139,7 +147,7 @@ func (m *memRepo) List(_ context.Context) ([]User, error) {
 	return out, nil
 }
 
-func (m *memRepo) Grant(_ context.Context, userID string, granted Role, _ *string) error {
+func (m *memRepo) Grant(_ context.Context, userID string, granted Role, grantedBy *string) error {
 	if err := m.fail(); err != nil {
 		return err
 	}
@@ -147,6 +155,7 @@ func (m *memRepo) Grant(_ context.Context, userID string, granted Role, _ *strin
 	if !ok {
 		return ErrNotFound
 	}
+	m.grantedBy[userID+"|"+string(granted)] = grantedBy
 	if u.HasRole(granted) {
 		return nil
 	}

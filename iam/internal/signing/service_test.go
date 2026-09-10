@@ -442,7 +442,7 @@ func TestVerifyAcceptsAValidToken(t *testing.T) {
 		t.Fatalf("Mint: %v", err)
 	}
 
-	claims, err := svc.Verify(ctx, token.Value, 0)
+	claims, err := svc.Verify(ctx, token.Value, 0, nil)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestVerifyAcceptsATokenExpiredWithinTheWindow(t *testing.T) {
 
 	// A minute past expiry, with ten minutes of grace.
 	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + time.Minute) }
-	if _, err := svc.Verify(ctx, token.Value, 10*time.Minute); err != nil {
+	if _, err := svc.Verify(ctx, token.Value, 10*time.Minute, nil); err != nil {
 		t.Errorf("Verify() inside the window: %v", err)
 	}
 }
@@ -484,7 +484,7 @@ func TestVerifyRejectsATokenExpiredBeyondTheWindow(t *testing.T) {
 	}
 
 	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + 11*time.Minute) }
-	if _, err := svc.Verify(ctx, token.Value, 10*time.Minute); !errors.Is(err, ErrNotOurToken) {
+	if _, err := svc.Verify(ctx, token.Value, 10*time.Minute, nil); !errors.Is(err, ErrNotOurToken) {
 		t.Errorf("Verify() error = %v, want ErrNotOurToken", err)
 	}
 }
@@ -503,7 +503,7 @@ func TestVerifyWithNoWindowRejectsAnExpiredToken(t *testing.T) {
 	}
 
 	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + time.Minute) }
-	if _, err := svc.Verify(ctx, token.Value, 0); !errors.Is(err, ErrNotOurToken) {
+	if _, err := svc.Verify(ctx, token.Value, 0, nil); !errors.Is(err, ErrNotOurToken) {
 		t.Errorf("Verify() error = %v, want ErrNotOurToken", err)
 	}
 }
@@ -522,11 +522,11 @@ func TestVerifyRejectsTokensThatAreNotOurs(t *testing.T) {
 
 	// Minted by a service with its own keyset, so both the signature and the
 	// issuer are wrong — which is what a token from anywhere else looks like.
-	if _, err := svc.Verify(ctx, foreign.Value, time.Hour); !errors.Is(err, ErrNotOurToken) {
+	if _, err := svc.Verify(ctx, foreign.Value, time.Hour, nil); !errors.Is(err, ErrNotOurToken) {
 		t.Errorf("Verify(another issuer's token) error = %v, want ErrNotOurToken", err)
 	}
 	for _, garbage := range []string{"", "not-a-token", "a.b.c"} {
-		if _, err := svc.Verify(ctx, garbage, time.Hour); !errors.Is(err, ErrNotOurToken) {
+		if _, err := svc.Verify(ctx, garbage, time.Hour, nil); !errors.Is(err, ErrNotOurToken) {
 			t.Errorf("Verify(%q) error = %v, want ErrNotOurToken", garbage, err)
 		}
 	}
@@ -552,7 +552,7 @@ func TestVerifyAcceptsATokenSignedByARetiredKey(t *testing.T) {
 		t.Fatalf("Mint after rotation: %v", err)
 	}
 
-	if _, err := svc.Verify(ctx, token.Value, 2*time.Hour); err != nil {
+	if _, err := svc.Verify(ctx, token.Value, 2*time.Hour, nil); err != nil {
 		t.Errorf("Verify() of a token signed by the retired key: %v", err)
 	}
 }
@@ -569,7 +569,7 @@ func TestVerifyWithAWindowStillAcceptsABrandNewToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-	if _, err := svc.Verify(ctx, token.Value, time.Hour); err != nil {
+	if _, err := svc.Verify(ctx, token.Value, time.Hour, nil); err != nil {
 		t.Errorf("Verify() of a freshly minted token with an hour of grace: %v", err)
 	}
 }
@@ -598,10 +598,10 @@ func TestVerifyForgivesAnExpiryAgainstTheRealClock(t *testing.T) {
 	}
 
 	svc.now = time.Now
-	if _, err := svc.Verify(ctx, token.Value, 2*time.Hour); err != nil {
+	if _, err := svc.Verify(ctx, token.Value, 2*time.Hour, nil); err != nil {
 		t.Errorf("Verify() of a genuinely expired token inside the window: %v", err)
 	}
-	if _, err := svc.Verify(ctx, token.Value, 0); !errors.Is(err, ErrNotOurToken) {
+	if _, err := svc.Verify(ctx, token.Value, 0, nil); !errors.Is(err, ErrNotOurToken) {
 		t.Errorf("Verify() with no window accepted an expired token: %v", err)
 	}
 }

@@ -174,7 +174,14 @@ func (s *Service) Mint(ctx context.Context, subject string, private any) (Token,
 // Everything except expiry is checked strictly. A token from another issuer, for
 // another audience, or signed by a key we never published is not ours, and no
 // window makes it ours.
-func (s *Service) Verify(ctx context.Context, raw string, allowExpiredFor time.Duration) (jwt.Claims, error) {
+//
+// private, when non-nil, is unmarshalled from the same verified payload — the
+// mirror of Mint's argument of the same name, so what one side stamps the other
+// reads back through the same door. Passing nil asks for the registered claims
+// alone.
+func (s *Service) Verify(
+	ctx context.Context, raw string, allowExpiredFor time.Duration, private any,
+) (jwt.Claims, error) {
 	parsed, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
 	if err != nil {
 		return jwt.Claims{}, fmt.Errorf("%w: %w", ErrNotOurToken, err)
@@ -186,7 +193,7 @@ func (s *Service) Verify(ctx context.Context, raw string, allowExpiredFor time.D
 	}
 
 	var claims jwt.Claims
-	if err := s.claimsFromAnyKey(parsed, keys, &claims); err != nil {
+	if err := s.claimsFromAnyKey(parsed, keys, &claims, private); err != nil {
 		return jwt.Claims{}, err
 	}
 
@@ -233,13 +240,19 @@ func (s *Service) Verify(ctx context.Context, raw string, allowExpiredFor time.D
 // that decides whether to believe the token at all. Retired keys are in the set
 // on purpose: they stopped signing, but what they signed is still inside its
 // lifetime, which is exactly the token a refresh arrives holding.
-func (s *Service) claimsFromAnyKey(parsed *jwt.JSONWebToken, keys []Key, into *jwt.Claims) error {
+func (s *Service) claimsFromAnyKey(
+	parsed *jwt.JSONWebToken, keys []Key, into *jwt.Claims, private any,
+) error {
+	dests := []any{into}
+	if private != nil {
+		dests = append(dests, private)
+	}
 	for _, k := range keys {
 		pub, err := x509.ParsePKIXPublicKey(k.Public)
 		if err != nil {
 			return fmt.Errorf("signing: parse stored public key %s: %w", k.KID, err)
 		}
-		if err := parsed.Claims(pub, into); err == nil {
+		if err := parsed.Claims(pub, dests...); err == nil {
 			return nil
 		}
 	}

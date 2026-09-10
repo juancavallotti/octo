@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/iam/internal/auth"
+	"github.com/juancavallotti/octo/iam/internal/authz"
 	"github.com/juancavallotti/octo/iam/internal/db"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
 	"github.com/juancavallotti/octo/iam/internal/signing"
@@ -115,10 +116,12 @@ func newServer(database *db.DB) (http.Handler, error) {
 	}
 
 	userSvc := user.NewService(user.NewRepo(database.Pool()))
-	user.NewHandler(userSvc).Register(mux)
-	slog.Info("user routes registered",
-		"endpoints", "GET /roles, POST /users/bootstrap, POST/GET /users, "+
-			"GET/PUT/DELETE /users/{id}, PUT/DELETE /users/{id}/roles/{role}")
+	userHandler := user.NewHandler(userSvc)
+
+	// The one route that cannot ask for a token, because it is how a local run
+	// gets a user without an identity provider to get a token from.
+	userHandler.RegisterOpen(mux)
+	slog.Info("open user routes registered", "endpoints", "POST /users/bootstrap")
 
 	// The signing keyset. It needs no configuration beyond the issuer it stamps:
 	// the keypair is generated on demand, stored, shared by every replica through
@@ -153,6 +156,19 @@ func newServer(database *db.DB) (http.Handler, error) {
 		return mux, nil
 	}
 	signing.NewHandler(signingSvc).Register(mux)
+
+	// The management routes, mounted only now that there is something to check a
+	// token with. Registered after the keyset rather than beside the bootstrap
+	// above, and that ordering is the point: an install with no keyset cannot
+	// authenticate anybody, and the alternative to not serving these would be
+	// serving the user directory and the role grants to whoever asked.
+	userHandler.Register(mux,
+		authz.Require(signingSvc),
+		authz.Require(signingSvc, string(user.RoleAdmin)))
+	slog.Info("user management routes registered",
+		"endpoints", "GET /roles, POST/GET /users, GET/PUT/DELETE /users/{id}, "+
+			"PUT/DELETE /users/{id}/roles/{role}")
+
 	slog.Info("signing routes registered",
 		"issuer", signingSvc.Issuer(), "audience", signingSvc.Audience(),
 		"tokenTtl", signingSvc.TokenTTL(),
