@@ -176,3 +176,55 @@ func TestCredentialDoesNotPrintItsToken(t *testing.T) {
 		t.Errorf("nil String() = %q, want %q", got, "no credential")
 	}
 }
+
+// The orchestrator can replace the mounted token — a rollout, a rotation, a
+// revocation — and a pod that only looked when its own copy was expiring would
+// keep presenting a withdrawn credential for the best part of an hour.
+func TestCredentialPicksUpAReplacedFileWhileItsTokenIsStillGood(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	original := mintToken(t, time.Hour)
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	c := newCredential(path, "", "")
+
+	if got := c.get(t.Context()); got != original {
+		t.Fatalf("get() = %q, want the mounted token", got)
+	}
+
+	replaced := mintToken(t, 2*time.Hour)
+	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+		t.Fatalf("replace token: %v", err)
+	}
+	if got := c.get(t.Context()); got != replaced {
+		t.Errorf("get() = %q after the file was replaced, want the new token", got)
+	}
+}
+
+// The other direction, and the one the obvious fix gets wrong: after a renewal
+// the in-memory token is newer than the file, and re-adopting the file would undo
+// it — then renew again on the next call, and the next, once per request.
+func TestCredentialDoesNotUndoARenewalFromTheStaleFile(t *testing.T) {
+	fresh := mintToken(t, time.Hour)
+	var calls int
+	iam := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": fresh})
+	}))
+	defer iam.Close()
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte(mintToken(t, time.Minute)), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	c := newCredential(path, "", iam.URL)
+
+	for range 5 {
+		if got := c.get(t.Context()); got != fresh {
+			t.Fatalf("get() = %q, want the renewed token", got)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("iam was asked %d times across five calls, want 1", calls)
+	}
+}

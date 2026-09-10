@@ -596,3 +596,80 @@ func TestTheRuntimeRoleIsNotInTheCatalogue(t *testing.T) {
 		}
 	}
 }
+
+// Without this, anybody with an account could hand themselves the runtime role —
+// which reaches a deployment's key/value store and its frozen resources — simply
+// by claiming to be deploying something.
+func TestMachineTokenRefusesSomebodyWhoMayNotDeploy(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	// The first user is the administrator; the second is let in holding nothing.
+	admin := h.signIn(t, "provider|admin", "admin@example.com")
+	if _, err := h.users.Create(ctx, "provider|watcher", "watcher@example.com", ""); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	watcher := h.signIn(t, "provider|watcher", "watcher@example.com")
+	if err := h.users.Grant(ctx, watcher.User.ID, user.RoleMonitor, &admin.User.ID); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	watcher = h.signIn(t, "provider|watcher", "watcher@example.com") // a token carrying the role
+
+	rec := h.postMachine(t, "Bearer "+watcher.Token, "deployment-1")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("a monitor minting a machine token = %d (%s), want 403", rec.Code, rec.Body.String())
+	}
+}
+
+// Somebody who runs deployments may lend one an identity.
+func TestMachineTokenAdmitsAnOperator(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	admin := h.signIn(t, "provider|admin", "admin@example.com")
+	if _, err := h.users.Create(ctx, "provider|ops", "ops@example.com", ""); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	ops := h.signIn(t, "provider|ops", "ops@example.com")
+	if err := h.users.Grant(ctx, ops.User.ID, user.RoleOperator, &admin.User.ID); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	ops = h.signIn(t, "provider|ops", "ops@example.com")
+
+	if rec := h.postMachine(t, "Bearer "+ops.Token, "deployment-1"); rec.Code != http.StatusOK {
+		t.Errorf("an operator minting a machine token = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+}
+
+// A deployment that is serving traffic must not stop because somebody's role
+// changed: stopping it is what deleting it is for.
+func TestRefreshOfAMachineTokenDoesNotRecheckTheOwnersRole(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	admin := h.signIn(t, "provider|admin", "admin@example.com")
+	if _, err := h.users.Create(ctx, "provider|ops", "ops@example.com", ""); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	ops := h.signIn(t, "provider|ops", "ops@example.com")
+	if err := h.users.Grant(ctx, ops.User.ID, user.RoleOperator, &admin.User.ID); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	ops = h.signIn(t, "provider|ops", "ops@example.com")
+
+	rec := h.postMachine(t, "Bearer "+ops.Token, "deployment-1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d, want 200", rec.Code)
+	}
+	var machine authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &machine); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if err := h.users.Revoke(ctx, ops.User.ID, user.RoleOperator); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if refreshed := h.postRefresh(t, "Bearer "+machine.Token); refreshed.Code != http.StatusOK {
+		t.Errorf("renewing after the owner was demoted = %d, want 200", refreshed.Code)
+	}
+}

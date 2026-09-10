@@ -28,4 +28,9 @@ var (
 	// than the route disappearing — a 404 leaves a caller unable to tell a
 	// misconfigured install from a version that never had the feature.
 	ErrNotConfigured = errors.New("no identity provider is configured")
+	// ErrForbidden is returned when the caller is exactly who they say they are
+	// and still may not have what they asked for. Distinct from
+	// ErrUnauthenticated because the answer is different: there is nothing to
+	// retry, and no credential that would help.
+	ErrForbidden = errors.New("forbidden")
 )

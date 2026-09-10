@@ -200,6 +200,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrProviderUnreachable):
 		slog.Error("auth exchange could not reach the identity provider", "error", err)
 		httpx.WriteError(w, http.StatusServiceUnavailable, "the identity provider is unreachable")
+	case errors.Is(err, ErrForbidden):
+		httpx.WriteError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, user.ErrNotProvisioned):
 		// 403 and not 401: they authenticated perfectly well. Re-authenticating
 		// would change nothing, and telling them to try again would be a lie. What

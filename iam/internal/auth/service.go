@@ -166,6 +166,12 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 	// MintMachine, which would verify the presented token again — and would refuse
 	// it, both because it is a machine's and because it may be inside the grace
 	// window rather than still valid.
+	//
+	// It also does not re-ask whether the owner may still deploy, and that is
+	// deliberate. The deployment was authorised when it was created; taking
+	// somebody's operator role away should not quietly stop integrations that are
+	// serving traffic. Stopping one is what deleting the deployment is for, and it
+	// is a decision somebody should have to make on purpose.
 	if private.Deployment != "" {
 		token, err := s.mintMachine(ctx, u, private.Deployment)
 		if err != nil {
@@ -219,6 +225,12 @@ func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) 
 //     administrator's deployment is not an administrator. This is the difference
 //     between lending an identity and handing over an account.
 //
+// And it is only issued to somebody who may deploy in the first place. Without
+// that check this would be a way for anyone with an account to hand themselves
+// the runtime role — which reaches a deployment's key/value store and its frozen
+// resources — by claiming to be deploying something. A read-only account asking
+// for one is not a deployment, it is an escalation.
+//
 // It lives exactly as long as a person's token and is renewed the same way, which
 // is deliberate: a longer-lived one could outlive the key that signed it, since
 // the keyset only keeps a key published for one token lifetime past its
@@ -232,6 +244,11 @@ func (s *Service) MintMachine(ctx context.Context, rawToken, deployment string) 
 	owner, err := s.owner(ctx, rawToken)
 	if err != nil {
 		return Result{}, err
+	}
+	if !mayDeploy(owner) {
+		return Result{}, fmt.Errorf(
+			"%w: lending an identity to a deployment requires %s or %s",
+			ErrForbidden, user.RoleOperator, user.RoleAdmin)
 	}
 
 	token, err := s.mintMachine(ctx, owner, deployment)
@@ -279,4 +296,15 @@ func (s *Service) owner(ctx context.Context, rawToken string) (user.User, error)
 		return user.User{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 	}
 	return u, nil
+}
+
+// mayDeploy reports whether u is somebody who runs things here, and so somebody
+// whose deployments may be given an identity.
+//
+// The two roles that describe running deployments, named here rather than
+// derived from what the orchestrator will allow: this service cannot see that
+// policy, and the question it is actually answering is narrower — is this a
+// person who deploys, or a person asking for a credential they have no use for.
+func mayDeploy(u user.User) bool {
+	return u.HasRole(user.RoleAdmin) || u.HasRole(user.RoleOperator)
 }

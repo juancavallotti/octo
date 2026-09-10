@@ -90,16 +90,12 @@ func (c *credential) get(ctx context.Context) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.token == "" {
-		c.readFile()
-	}
+	// The file is consulted every time, not only when the held token is expiring.
+	// The orchestrator can replace it — a rollout, a rotation, a revocation — and
+	// a pod that only looked when its own copy was about to run out would keep
+	// presenting a withdrawn credential for the best part of an hour.
+	c.readFile()
 	if c.token == "" || !c.expiring() {
-		return c.token
-	}
-
-	// A token the orchestrator has replaced on disk is cheaper and safer than one
-	// we renew ourselves, so look there first.
-	if c.readFile(); !c.expiring() {
 		return c.token
 	}
 	c.renew(ctx)
@@ -120,13 +116,24 @@ func (c *credential) readFile() {
 	}
 	raw, err := os.ReadFile(c.path)
 	if err != nil {
-		// Not an error worth failing a request over: the caller will try without a
-		// credential, and the orchestrator will say whether that was acceptable.
+		// Not an error worth failing a request over: whatever is held stands, and
+		// the orchestrator will say whether that was acceptable.
 		slog.Debug("k8s: could not read the orchestrator token file",
 			"path", c.path, "error", err)
 		return
 	}
-	c.set(strings.TrimSpace(string(raw)))
+
+	mounted := strings.TrimSpace(string(raw))
+	if mounted == "" || mounted == c.token {
+		return
+	}
+	// Adopted only when it outlasts what is held. Otherwise a renewal would be
+	// undone on the very next call — the file still has the older token the
+	// orchestrator mounted, and taking it back would mean renewing again, and
+	// again, once per request.
+	if expiryOf(mounted).After(c.expiresAt) {
+		c.set(mounted)
+	}
 }
 
 // renew trades the held token for a fresh one at iam.
