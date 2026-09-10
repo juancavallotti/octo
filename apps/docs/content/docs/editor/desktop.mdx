@@ -1,0 +1,99 @@
+---
+title: "Octo Desktop"
+description: "Download the macOS app: the visual editor, the runtime, and the test runner in one install."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Octo Desktop is the standalone editor as a native macOS app. You pick a folder,
+edit the flows in it, run them, and point an AI assistant at the MCP endpoint the
+app advertises. The `octo` runtime and the `dolphin` test runner are bundled
+inside, so there is nothing else to install — no Docker, no checkout, no
+terminal.
+
+## Download
+
+| Platform | Download |
+| --- | --- |
+| macOS (Apple Silicon) | [Octo_mac_arm64.dmg](https://github.com/juancavallotti/octo/releases/latest/download/Octo_mac_arm64.dmg) |
+| macOS (Intel) | [Octo_mac_x64.dmg](https://github.com/juancavallotti/octo/releases/latest/download/Octo_mac_x64.dmg) |
+
+Both links resolve to the newest release. The app is built from the same tag as
+the CLI archives on that release, and it ships the very binaries published
+there — the runner inside the app is the runner you would have downloaded.
+
+Open the `.dmg`, drag **Octo** to Applications, and launch it. Builds are signed
+with a Developer ID certificate and notarized by Apple, so Gatekeeper lets them
+through on first launch.
+
+<Callout type="info">
+Windows and Linux builds are not published yet. On those platforms run the
+[Docker editor](/editor/docker), which is the same editor served in a browser.
+</Callout>
+
+## One folder at a time
+
+The app opens the folder you used last; **File → Open Folder…** picks another.
+Everything in it is plain YAML on disk — the same files the CLI runs, so a flow
+you build here runs unchanged with `octo run`, commits to git, and opens in the
+Docker editor.
+
+Switching folders restarts the embedded server rather than repointing it, so a
+run started in one folder can never show up in another. That also means one
+folder is open at a time.
+
+## The MCP endpoint
+
+The app serves the editor's own [MCP endpoint](/ai/mcp-server), unauthenticated
+and local-only, exactly as the Docker image does. Its URL is on the app menu
+(**Octo → Copy MCP Endpoint URL**) and is written into the open folder as
+`.octo/mcp-endpoint.json`, so an assistant working in that directory can find it
+without knowing this app exists.
+
+The port is fixed at `8477`, clear of the run pools and the runtime's
+observability default, so an assistant configured against it stays configured
+across restarts and folder switches. Pin a different one with
+`OCTO_DESKTOP_PORT`.
+
+## What it actually is
+
+An Electron shell around the **same** standalone editor server the Docker image
+runs. The app builds no editor of its own: it spawns that server as a child
+process and loads `http://127.0.0.1:8477` in a window.
+
+```
+Electron main ──spawns──> standalone server ──spawns──> octo / dolphin
+     │                          │
+   window ──loads──> http://127.0.0.1:8477
+```
+
+That equivalence is the point: the environment contract is the Docker image's
+verbatim (`OCTO_FS_DIR`, `OCTO_BIN_PATH`, `DOLPHIN_BIN_PATH`, `OCTO_RUN_DIR`),
+and a bug you can reproduce in `docker run` is the same bug here. Everything in
+[the editor tour](/editor), [running flows](/editor/running-flows), and
+[testing in the editor](/testing/in-the-editor) applies unchanged.
+
+## Where things live
+
+| | Path |
+| --- | --- |
+| Application state, endpoint record | `~/Library/Application Support/Octo` |
+| Server log | `~/Library/Logs/Octo/server.log` |
+| Editor server, `octo`, `dolphin` | inside `Octo.app/Contents/Resources` |
+
+The server log is the first place to look if a window comes up empty: it is the
+standalone server's own output.
+
+## Building it yourself
+
+From a clone of the repository:
+
+```bash
+task desktop:dev     # run it from the repo, rebuilding on change
+task desktop:dist    # package a macOS .app + dmg into apps/desktop/dist/release
+```
+
+A local package is ad-hoc signed, which is enough to launch on the machine that
+built it. Only the release pipeline signs and notarizes for distribution. See
+[apps/desktop/README.md](https://github.com/juancavallotti/octo/blob/main/apps/desktop/README.md)
+for the internals.

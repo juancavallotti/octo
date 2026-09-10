@@ -9,7 +9,10 @@ The standalone editor is a local, single-user visual editor for Octo flows. It
 reads and writes plain `*.yaml` files in a directory on your disk, and runs them
 with the bundled `octo` binary. No database, no account, no orchestrator.
 
-The fastest way to get it is the published Docker image:
+It ships two ways, and they are the same editor. On macOS, install
+[Octo Desktop](/editor/desktop) and open a folder — the runtime and the test
+runner come with it. Everywhere else, run the published Docker image and mount
+the directory you want to edit:
 
 ```bash
 docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
