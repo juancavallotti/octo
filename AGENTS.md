@@ -7,6 +7,17 @@ The Go module (`github.com/juancavallotti/octo`) is rooted at the repo root; all
 app (see [apps/platform/README.md](apps/platform/README.md)). Run `pnpm install`
 at the repo root to install all workspace dependencies.
 
+Four more Go modules sit beside it, each self-contained (its own `go.mod`, built
+from its own directory, importing none of the others): **`orchestrator/`** is the
+control plane, **`observability/`** serves logs, traces and pod stats,
+**`iam/`** owns platform users and their roles and exchanges an identity
+provider's sign-in token for a platform JWT, and **`sidecars/`** holds the
+per-pod helpers. They share one Postgres and one schema (`sql/schema.sql`), and
+find each other by URL. Adding one means registering it in the root
+`Taskfile.yml`, `.github/workflows/validate.yml` and `release.yml`,
+`cloudbuild.yaml`, `devspace.yaml` and the chart — each of those enumerates its
+members rather than discovering them, and the enumeration is the guarantee.
+
 Required reading:
 
 - [docs/coding-standards.md](docs/coding-standards.md) — Go code
