@@ -147,7 +147,9 @@ dev:
       app.kubernetes.io/instance: octo
       app.kubernetes.io/component: platform
     namespace: octo-dev
-    # Hot-reload image (next dev). Build+import with `task cluster:images:dev`.
+    # The image the chart already deploys locally (helm/values-k3d.yaml): the pod
+    # is running `next dev` before DevSpace arrives, so this entry is here for the
+    # sync and the logs, not to swap a production build out from under you.
     devImage: octo-platform-dev:dev
     command: ["pnpm", "run", "dev"]
     workingDir: /app/apps/platform
