@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CopyMcpUrlButton,
+  DocumentRename,
   EditorRoot,
   setCapabilities,
   type Capabilities,
@@ -16,6 +17,7 @@ import { bffEditorMetaStore } from "@/app/run/editorMetaStore";
 import { bffTestSuiteStore } from "@/app/run/testSuiteStore";
 import { makeResourceStore } from "@/app/run/resourceStore";
 import EditorHeader from "./EditorHeader";
+import IntegrationNameChip from "./IntegrationNameChip";
 
 /**
  * Platform wiring for the shared editor: supplies the orchestrator-backed
@@ -83,6 +85,14 @@ export default function PlatformEditor({
           userMenu={userMenu}
           getIntegrationId={() => idRef.current}
         />
+      }
+      files={
+        <DocumentRename
+          placeholder="untitled-integration"
+          label="Rename integration"
+        >
+          <IntegrationNameChip />
+        </DocumentRename>
       }
       consoleActions={mcpUrl ? <CopyMcpUrlButton url={mcpUrl} /> : undefined}
       fs={available ? orchestratorFileSystem : null}

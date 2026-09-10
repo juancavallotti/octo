@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { EditorRoot, setCapabilities, type Capabilities } from "@octo/editor";
+import {
+  DocumentRename,
+  EditorRoot,
+  setCapabilities,
+  type Capabilities,
+} from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { localRunTransport } from "@/app/run/localRunTransport";
 import { localDevEnvStore } from "@/app/run/devEnvStore";
@@ -73,7 +78,11 @@ export default function StandaloneEditor({
       tests={localTestSuiteStore}
       testsToken={testsToken}
       header={<StandaloneHeader />}
-      files={<StandaloneFileMenu />}
+      files={
+        <DocumentRename placeholder="untitled-file" label="Rename file">
+          <StandaloneFileMenu />
+        </DocumentRename>
+      }
       consoleActions={<McpCopyAction />}
       onSaved={(stored) => {
         // Reflect the open file in the URL so a reload reopens it; the header

@@ -4,8 +4,6 @@ import {
   useFileSystem,
   LayoutToggles,
   RunBar,
-  IntegrationTitle,
-  FolderPicker,
   ViewModeToggle,
   SaveButton,
 } from "@octo/editor";
@@ -16,8 +14,8 @@ import MoreMenu from "./MoreMenu";
 import DeployButton from "./DeployButton";
 
 /**
- * The editor's top bar. The integration controls (picker, title, folder, Deploy,
- * Save, manage, and the ⋮ overflow) only appear when a filesystem capability is present (`useFileSystem()`);
+ * The editor's top bar. The integration controls (picker, Deploy, Save, manage and
+ * the ⋮ overflow) only appear when a filesystem capability is present (`useFileSystem()`);
  * otherwise the bar is just the logo and the RUN control.
  */
 export default function EditorHeader({
@@ -39,10 +37,9 @@ export default function EditorHeader({
         <>
           <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
           {/* Which integration is open, in the corner the desktop shell keeps its
-              folder in: it names the window, the title edits it. */}
+              folder in. Its name is edited in the document bar below, next to the
+              file switcher, exactly as the standalone does it. */}
           <IntegrationPicker />
-          <IntegrationTitle />
-          <FolderPicker />
 
           {/* Centred on the bar itself — see StandaloneHeader; both sides of it
               change width with the integration's name and its controls. */}

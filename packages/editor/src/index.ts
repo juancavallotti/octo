@@ -21,12 +21,14 @@ export {
 export { default as RunBar } from "./app/components/RunBar";
 export { default as SaveButton } from "./app/components/SaveButton";
 export { useSave, type SaveController } from "./app/save/SaveContext";
-export { default as FolderPicker } from "./app/components/FolderPicker";
 export { default as ViewModeToggle } from "./app/components/ViewModeToggle";
 // The document bar's trigger look, so a host filling the `files` slot matches the
 // launchers standing next to it.
 export { BAR_BUTTON, BAR_COUNT } from "./app/components/barButton";
 export { default as LayoutToggles } from "./app/components/LayoutToggles";
+// The document bar's name-and-pencil; the host supplies what the name looks like
+// when it is not being edited.
+export { default as DocumentRename } from "./app/components/DocumentRename";
 export { default as CopyMcpUrlButton } from "./app/components/CopyMcpUrlButton";
 // The header's "what am I working on" chip: folders in the desktop shell,
 // integrations in the platform.
