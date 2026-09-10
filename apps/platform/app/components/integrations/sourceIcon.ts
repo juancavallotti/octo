@@ -1,11 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import { Workflow } from "lucide-react";
+import { parse } from "yaml";
 import {
   fromDefinitionYaml,
   getConnectorSpec,
   getSourceSpec,
   resolveIcon,
 } from "@octo/editor/runtime";
+import { DR_OCTO_AGENT_ID } from "@/app/actions/client/conversations";
 
 /**
  * Choose a scannable icon for an integration from its definition, so the list
@@ -23,7 +25,31 @@ import {
 // over any other connector) when the integration declares several.
 const TYPE_PRIORITY = ["slack", "notion", "cron", "events", "queue", "http"];
 
+/**
+ * Is this Dr. Octo? He is an integration like any other — an Octo App, which is
+ * the whole joke — so he arrives here as a definition and would otherwise be drawn
+ * as the http source he happens to ride on.
+ *
+ * Asked of the service name he declares, not of the integration's title: the name
+ * is part of his definition (orchestrator/agent/config.yaml), while a title is
+ * something anyone can type over.
+ *
+ * Read from the raw YAML rather than from the parsed document, because the parsed
+ * one keeps only what the loaded capability schema knows about — and this runs in
+ * places that have no schema, where the whole thing would silently stop working.
+ */
+function isDrOcto(definition: string): boolean {
+  try {
+    const doc = parse(definition) as { service?: { name?: unknown } } | null;
+    return doc?.service?.name === DR_OCTO_AGENT_ID;
+  } catch {
+    return false;
+  }
+}
+
 export function iconForDefinition(definition: string): LucideIcon {
+  if (isDrOcto(definition)) return resolveIcon("DrOcto");
+
   let doc;
   try {
     doc = fromDefinitionYaml(definition);

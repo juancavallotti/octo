@@ -9,6 +9,10 @@ import type { LucideProps } from "lucide-react";
  * about which one. Typed as a LucideProps icon (size, className, forwarded ref)
  * so it drops in wherever the robot stood.
  *
+ * It lives here, beside the other brand marks, because the icon registry is what
+ * the integration icon picker offers: an octopus that only the agent's own chat
+ * button could use would not be choosable for the integration that IS the agent.
+ *
  * Strokes use `currentColor` at the same 12/256 weight as the source drawing, so
  * it inherits its colour and reads correctly on the sky-600 launcher and in a
  * grey nav row alike.

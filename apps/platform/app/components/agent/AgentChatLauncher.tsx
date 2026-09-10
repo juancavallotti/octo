@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { DrOctoIcon } from "../DrOctoIcon";
+import { DrOctoIcon } from "@octo/editor";
 import {
   clampWidth,
   DEFAULT_WIDTH,

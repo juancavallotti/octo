@@ -1,7 +1,7 @@
 "use client";
 
 import { Activity, Mail, Trash2 } from "lucide-react";
-import { DrOctoIcon } from "@/app/components/DrOctoIcon";
+import { DrOctoIcon } from "@octo/editor";
 import { ShortcutTile } from "../DashboardTiles";
 
 /**

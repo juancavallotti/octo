@@ -35,6 +35,7 @@ import {
 import { SlackIcon } from "./slack-icon";
 import { NotionIcon } from "./notion-icon";
 import { McpIcon } from "./mcp-icon";
+import { DrOctoIcon } from "./dr-octo-icon";
 import { PineconeIcon } from "./pinecone-icon";
 import { TavilyIcon } from "./tavily-icon";
 import { ParallelIcon } from "./parallel-icon";
@@ -116,6 +117,7 @@ const ICONS: Record<string, LucideIcon> = {
   Slack: SlackIcon,
   Notion: NotionIcon,
   Mcp: McpIcon,
+  DrOcto: DrOctoIcon,
   Pinecone: PineconeIcon,
   Tavily: TavilyIcon,
   Parallel: ParallelIcon,

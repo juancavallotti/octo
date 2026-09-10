@@ -139,4 +139,5 @@ export { setCapabilities, getCapabilities } from "./app/schema";
 // The MCP brand mark, exported for hosts that surface an MCP endpoint of their
 // own (the platform dashboard) rather than a block icon.
 export { McpIcon } from "./app/schema/mcp-icon";
+export { DrOctoIcon } from "./app/schema/dr-octo-icon";
 export type { Capabilities } from "./app/schema/types";

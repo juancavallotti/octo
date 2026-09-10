@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, ArrowLeft, Mail, Settings, Trash2 } from "lucide-react";
-import { DrOctoIcon } from "@/app/components/DrOctoIcon";
+import { DrOctoIcon } from "@octo/editor";
 
 /**
  * The admin section's own switcher, in the shared header's controls slot.
