@@ -244,6 +244,9 @@ jobs:
           - image: octo-observability-paas
             context: ./observability
             dockerfile: observability/Dockerfile
+          - image: octo-iam-paas
+            context: ./iam
+            dockerfile: iam/Dockerfile
           - image: octo-schema-paas
             context: ./sql
             dockerfile: sql/Dockerfile

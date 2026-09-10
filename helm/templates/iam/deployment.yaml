@@ -1,0 +1,16 @@
+{{- include "octo-common.deployment" (dict
+      "root" $
+      "component" "iam"
+      "replicas" .Values.iam.replicas
+      "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "iam"
+        "name" "iam"
+        "image" (include "octo-common.image" (dict "root" $ "component" "iam"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "iam"))
+        "ports" (list (dict "containerPort" .Values.iam.service.port))
+        "env" (include "octo.iam.env" .)
+        "readinessProbe" (dict
+          "httpGet" (dict "path" "/healthz" "port" .Values.iam.service.port)
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}
