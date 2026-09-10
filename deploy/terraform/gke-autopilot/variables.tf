@@ -144,12 +144,6 @@ variable "oidc_write_roles" {
   default     = ""
 }
 
-variable "oidc_roles_claim" {
-  type        = string
-  description = "id-token claim carrying roles. Empty uses the Auth.js default, \"roles\"."
-  default     = ""
-}
-
 variable "private_nodes" {
   type        = bool
   description = "Give nodes no public IPs, adding a Cloud NAT for egress and the control-plane firewall rule the admission webhooks need. Off by default: the NAT gateway is a standing hourly charge, and public nodes reach Docker Hub, ghcr.io and Let's Encrypt directly."

@@ -447,7 +447,6 @@ module "octo" {
   oidc_provider_name   = var.oidc_provider_name
   auth_existing_secret = try(module.secrets.auth.name, "")
   oidc_write_roles     = var.oidc_write_roles
-  oidc_roles_claim     = var.oidc_roles_claim
 
   kv_existing_secret       = module.secrets.kv.name
   dev_runs_existing_secret = module.secrets.dev_runs.name

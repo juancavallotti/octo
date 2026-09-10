@@ -1189,10 +1189,10 @@ CREATE INDEX IF NOT EXISTS idx_alert_evaluations_incident
     WHERE incident_id IS NOT NULL;
 
 -- user_roles records what a principal is allowed to do. Roles used to be whatever
--- the identity provider's id token claimed (AUTH_ROLES_CLAIM in the editor), which
--- meant no role could be granted without editing the provider, and the platform's
--- whole authorization vocabulary was one setting naming who may write. They are
--- rows now, owned by the iam service.
+-- the identity provider's id token claimed, which meant no role could be granted
+-- without editing the provider, and the platform's whole authorization vocabulary
+-- was one setting naming who may write. They are rows now, owned by the iam
+-- service, and the claim that used to carry them is gone.
 --
 -- `role` is a plain varchar and not an enum. The catalogue is expected to grow into
 -- a finer set than the four coarse platform:* roles it starts with, and a Postgres

@@ -144,12 +144,6 @@ variable "oidc_write_roles" {
   default     = ""
 }
 
-variable "oidc_roles_claim" {
-  type        = string
-  description = "id-token claim carrying roles. Empty uses the Auth.js default, \"roles\"."
-  default     = ""
-}
-
 
 variable "machine_type" {
   type        = string

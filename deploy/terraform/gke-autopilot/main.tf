@@ -59,7 +59,6 @@ module "octo_gke" {
   oidc_provider_name = var.oidc_provider_name
   oidc_client_secret = var.oidc_client_secret
   oidc_write_roles   = var.oidc_write_roles
-  oidc_roles_claim   = var.oidc_roles_claim
 
   private_nodes              = var.private_nodes
   master_authorized_networks = var.master_authorized_networks

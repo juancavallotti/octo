@@ -207,7 +207,6 @@ locals {
   : (local.oidc_provided ? "" : try(local.oidc_stored.provider_name, "")))
   oidc_client_secret_eff = local.oidc_provided ? var.oidc_client_secret : try(local.oidc_stored.client_secret, "")
   oidc_write_roles_eff   = local.oidc_provided ? var.oidc_write_roles : try(local.oidc_stored.write_roles, "")
-  oidc_roles_claim_eff   = local.oidc_provided ? var.oidc_roles_claim : try(local.oidc_stored.roles_claim, "")
 }
 
 # Persisted OIDC config so a Cloud Build deploy (which has no terraform.tfvars) can read
@@ -226,7 +225,6 @@ resource "google_storage_bucket_object" "oidc" {
     provider_name = local.oidc_provider_name_eff
     client_secret = local.oidc_client_secret_eff
     write_roles   = local.oidc_write_roles_eff
-    roles_claim   = local.oidc_roles_claim_eff
   })
 }
 
@@ -379,7 +377,6 @@ module "octo" {
   oidc_provider_name   = local.oidc_provider_name_eff
   auth_existing_secret = try(module.secrets.auth.name, "")
   oidc_write_roles     = local.oidc_write_roles_eff
-  oidc_roles_claim     = local.oidc_roles_claim_eff
 
   # KV secret-namespace encryption key and the dev-run hostname/identity HMAC key,
   # both generated above, held in this root's state, and read by the chart from

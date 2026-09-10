@@ -154,12 +154,6 @@ variable "oidc_write_roles" {
   default     = ""
 }
 
-variable "oidc_roles_claim" {
-  type        = string
-  description = "id-token claim carrying roles. Empty uses the Auth.js default, \"roles\"."
-  default     = ""
-}
-
 # --- Cost / production toggles ---
 # Every default below is the cheap, disposable choice. Each has a production
 # counterpart, and none of them changes what the chart sees.

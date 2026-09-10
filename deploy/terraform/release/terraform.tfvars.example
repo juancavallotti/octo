@@ -40,7 +40,6 @@ apps_domain = "apps.example.com"
 # oidc_issuer        = "https://idp.example.com" # your OIDC provider
 # oidc_provider_name = "eetr auth"               # sign-in button label; empty = "OIDC"
 # oidc_write_roles   = ""                        # e.g. "admin,operator"; empty = any signed-in user
-# oidc_roles_claim   = ""                        # override if the IdP uses a non-"roles" claim
 
 # --- Embeddings (optional) ---
 # Deploy the embedding server so searching agent memory ranks by MEANING rather

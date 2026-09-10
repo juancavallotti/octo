@@ -331,12 +331,6 @@ variable "oidc_write_roles" {
   default     = ""
 }
 
-variable "oidc_roles_claim" {
-  type        = string
-  description = "id-token claim carrying roles (Auth.js default \"roles\")."
-  default     = ""
-}
-
 variable "kv_existing_secret" {
   type        = string
   description = "Name of a Secret holding the base64-encoded 32-byte AES-256 key that encrypts KV secret namespaces at rest (chart value kv.existingSecret). Empty disables encryption: secret-namespace writes are rejected and plain KV still works."

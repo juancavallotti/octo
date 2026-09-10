@@ -54,13 +54,28 @@ When SSO is on, the app-wide request gate redirects unauthenticated browser navi
 
 ## User provisioning
 
-There is no user management UI to administer, because accounts are provisioned automatically. On first sign-in the platform calls the orchestrator's `POST /users/bootstrap` with the IdP's stable OIDC `sub`, email, and name; the orchestrator upserts a `users` row keyed by that subject and returns a durable user id. Later sign-ins refresh email, name and the last-login stamp. That id is what integration attribution and API keys reference, so it survives IdP email changes, and removing a user never cascade-deletes their integrations.
+There is no user management UI to administer, because accounts are provisioned automatically. On first sign-in the platform trades the identity provider's token with the iam service, which upserts a `users` row keyed by the stable OIDC `sub` and returns a durable user id. Later sign-ins refresh email, name and the last-login stamp. That id is what integration attribution and API keys reference, so it survives IdP email changes, and removing a user never cascade-deletes their integrations.
+
+The very first person to sign in on a fresh installation is granted `platform:admin`, so that somebody can administer it.
 
 ## Roles
 
-Roles come from the identity provider, not the platform: a configurable id-token claim (`AUTH_ROLES_CLAIM`, default `roles`) is copied onto the session at sign-in. One check uses them today. `AUTH_WRITE_ROLES` (the chart's `auth.writeRoles`) is a comma-separated list of roles allowed to perform write and mutating operations, enforced by the platform app. Empty (the default) means any signed-in user can write. A signed-in user without a listed role gets a `403` on writes but can still read.
+Roles are rows in this platform's own database, owned by the iam service, not claims the identity provider chose to send. There are four:
 
-There is no further role model: no admin tier, no per-integration permissions.
+| Role | For |
+| --- | --- |
+| `platform:admin` | Administering the installation: its settings, its users, its agent. |
+| `platform:operator` | Running things — deployments, and the state behind them. |
+| `platform:developer` | Building things — integrations, resources, dev runs. |
+| `platform:monitor` | Looking, and nothing else. |
+
+Sign-in exchanges the provider's token for one this platform signed, carrying the caller's user id and their roles. That token is renewed while the session runs, and the renewal re-reads the roles — so a grant or a revocation takes effect within a token lifetime (an hour by default) rather than at next sign-in.
+
+`platform:admin` gates the whole admin section: its pages and, more to the point, every server action behind them. Reads are gated there as well as writes, because those settings hold the installation's SMTP credentials and its LLM API keys.
+
+`AUTH_WRITE_ROLES` (the chart's `auth.writeRoles`) is a comma-separated list of roles allowed to perform write and mutating operations elsewhere in the product. Empty (the default) means any signed-in user can write. A signed-in user without a listed role gets a `403` on writes but can still read.
+
+There are no per-integration permissions yet. The `platform:` prefix is there to leave room for them.
 
 ## API keys
 

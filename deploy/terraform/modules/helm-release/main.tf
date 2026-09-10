@@ -258,7 +258,6 @@ resource "helm_release" "octo" {
       },
       var.oidc_provider_name != "" ? { "auth.oidc.providerName" = var.oidc_provider_name } : {},
       var.oidc_write_roles != "" ? { "auth.writeRoles" = var.oidc_write_roles } : {},
-      var.oidc_roles_claim != "" ? { "auth.rolesClaim" = var.oidc_roles_claim } : {},
     ) : {}
     content {
       name  = set.key

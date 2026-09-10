@@ -103,12 +103,6 @@ variable "oidc_write_roles" {
   default     = ""
 }
 
-variable "oidc_roles_claim" {
-  type        = string
-  description = "id-token claim carrying roles (Auth.js default \"roles\")."
-  default     = ""
-}
-
 variable "oidc_client_id" {
   type        = string
   description = "OIDC client id from the IdP (non-secret); passed to the chart."

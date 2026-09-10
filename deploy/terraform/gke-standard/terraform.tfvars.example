@@ -56,7 +56,6 @@ apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cer
 # oidc_issuer        = "https://idp.example.com" # your OIDC provider
 # oidc_provider_name = "Keycloak"                # sign-in button label; empty = "OIDC"
 # oidc_write_roles   = ""                        # e.g. "admin,operator"; empty = any signed-in user
-# oidc_roles_claim   = ""                        # override if the IdP uses a non-"roles" claim
 
 # --- Cost / production toggles (defaults are the cheap, disposable choices) ---
 # machine_type        = "e2-standard-2"
