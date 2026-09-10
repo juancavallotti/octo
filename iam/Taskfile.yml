@@ -1,0 +1,58 @@
+version: '3'
+
+# Tasks for the iam service module. Included from the root Taskfile under the
+# `iam:` namespace, with the working directory set to iam/, so all paths here are
+# relative to it.
+#
+# There is no `openapi` task, unlike orchestrator/ and observability/. This
+# service publishes no API description on purpose — see the package comment in
+# main.go — so there is nothing to generate and nothing for CI to diff.
+
+vars:
+  GO: go
+
+tasks:
+  fmt:
+    desc: Format the iam module
+    cmds:
+      - '{{.GO}} fmt ./...'
+
+  build:
+    desc: Build the iam binary
+    cmds:
+      - mkdir -p ../bin
+      - '{{.GO}} build -trimpath -o ../bin/iam .'
+
+  test:
+    desc: 'Run the iam tests (pass go test flags after --, e.g. task iam:test -- -race)'
+    # The repository-layer tests need Postgres and skip without it, the same way
+    # the orchestrator's do. Set TEST_DATABASE_URL to run them against a database
+    # with sql/schema.sql applied:
+    #
+    #   docker run --rm -d -p 55432:5432 -e POSTGRES_PASSWORD=octo \
+    #     --name iam-test postgres:16-alpine
+    #   PGPASSWORD=octo psql -h 127.0.0.1 -p 55432 -U postgres -f ../sql/schema.sql
+    #   TEST_DATABASE_URL='postgres://postgres:octo@127.0.0.1:55432/postgres' \
+    #     task iam:test
+    #
+    # Rows are DELETED from users, user_roles and iam_signing_keys, so point it at
+    # a throwaway database and never at one holding anything.
+    cmds:
+      # CLI_ARGS lands before the package list so `-race` and friends are flags
+      # rather than package names. CI passes -race; a local run defaults to plain.
+      - '{{.GO}} test {{.CLI_ARGS}} ./...'
+
+  lint:
+    desc: Run golangci-lint over the iam module
+    cmds:
+      - golangci-lint run ./...
+
+  tidy:
+    desc: Tidy the iam module
+    cmds:
+      - '{{.GO}} mod tidy'
+
+  run:
+    desc: Run the iam service locally (set DATABASE_URL/OIDC_ISSUER/IAM_ISSUER/PORT as needed)
+    cmds:
+      - '{{.GO}} run . {{.CLI_ARGS}}'
