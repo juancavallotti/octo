@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useRun } from "./RunContext";
 
 /**
  * Who owns the bottom console's tab and collapsed state.
@@ -51,7 +52,9 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     [tab, override, openTo],
   );
 
-  return <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>;
+  return (
+    <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>
+  );
 }
 
 /**
@@ -61,6 +64,21 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
  */
 export function useConsole(): ConsoleValue {
   const value = useContext(ConsoleContext);
-  if (!value) throw new Error("useConsole must be used within a ConsoleProvider");
+  if (!value)
+    throw new Error("useConsole must be used within a ConsoleProvider");
   return value;
+}
+
+/**
+ * Whether the console is collapsed right now, and the toggle that flips it.
+ *
+ * The rule — the user's override, or else "open while something is running" — has
+ * two callers since the layout controls arrived in the header, and two copies of it
+ * would drift the first time one of them was touched.
+ */
+export function useConsoleCollapsed(): { collapsed: boolean; toggle(): void } {
+  const run = useRun();
+  const { override, setOverride } = useConsole();
+  const collapsed = override ?? !(run?.running ?? false);
+  return { collapsed, toggle: () => setOverride(!collapsed) };
 }

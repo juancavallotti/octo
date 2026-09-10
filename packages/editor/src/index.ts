@@ -26,6 +26,7 @@ export { default as ViewModeToggle } from "./app/components/ViewModeToggle";
 // The document bar's trigger look, so a host filling the `files` slot matches the
 // launchers standing next to it.
 export { BAR_BUTTON, BAR_COUNT } from "./app/components/barButton";
+export { default as LayoutToggles } from "./app/components/LayoutToggles";
 export { default as IntegrationTitle } from "./app/components/IntegrationTitle";
 export { default as IntegrationLoader } from "./app/components/IntegrationLoader";
 

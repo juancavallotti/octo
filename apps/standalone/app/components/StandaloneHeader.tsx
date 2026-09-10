@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { RunBar, SaveButton, ViewModeToggle } from "@octo/editor";
+import { LayoutToggles, RunBar, SaveButton, ViewModeToggle } from "@octo/editor";
 import ModeBadge from "./ModeBadge";
 import VaultChip from "./VaultChip";
 
@@ -49,6 +49,10 @@ export default function StandaloneHeader() {
         <VaultChip />
         <SaveButton />
         <RunBar />
+        {/* Last on the bar, VS Code's corner: these are about the window, not about
+            the file or the run. */}
+        <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+        <LayoutToggles />
       </div>
     </header>
   );

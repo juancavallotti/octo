@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
-import { useConsole, type ConsoleTab } from "../run/console";
+import {
+  useConsole,
+  useConsoleCollapsed,
+  type ConsoleTab,
+} from "../run/console";
 import { useSuiteRun } from "../run/SuiteRunContext";
 import DevEnvPanel from "./DevEnvPanel";
 import ConsoleTabs from "./console/ConsoleTabs";
@@ -58,7 +62,9 @@ const NO_LOGS: RunLogLine[] = [];
 export default function LogPanel() {
   const run = useRun();
   const flowRun = useFlowRun();
-  const { tab, setTab, override, setOverride, openTo } = useConsole();
+  const { tab, setTab, setOverride, openTo } = useConsole();
+  // Shared with the header's layout toggles, which flip the same panel.
+  const { collapsed } = useConsoleCollapsed();
   const [height, setHeight] = useState(readStoredHeight);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,9 +84,6 @@ export default function LogPanel() {
     ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
     : 0;
   const issues = run?.validation.issues ?? [];
-  // Collapsed by default, following the run state, until the user overrides it.
-  const collapsed = override ?? !running;
-
   // Pressing Run should surface the log stream. Snap on the false→true transition only,
   // so the user can switch away freely while a run continues.
   const prevRunning = useRef(running);
@@ -191,7 +194,10 @@ export default function LogPanel() {
                 navigator.clipboard.writeText(testUrl).then(() => {
                   setCopied(true);
                   if (copiedTimer.current) clearTimeout(copiedTimer.current);
-                  copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+                  copiedTimer.current = setTimeout(
+                    () => setCopied(false),
+                    1500,
+                  );
                 });
               }}
               aria-label="Copy test URL"
@@ -245,7 +251,9 @@ export default function LogPanel() {
       {!collapsed && tab === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && <LogsTab logs={logs} running={running} />}
+      {!collapsed && tab === "logs" && (
+        <LogsTab logs={logs} running={running} />
+      )}
       {!collapsed && tab === "results" && <ResultsTab results={results} />}
       {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "env" && <DevEnvPanel />}

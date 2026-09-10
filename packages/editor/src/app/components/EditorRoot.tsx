@@ -26,6 +26,7 @@ import {
   type TestSuiteStore,
 } from "../providers/TestSuiteProvider";
 import { CanvasZoomProvider } from "../canvas/ZoomContext";
+import { LayoutProvider } from "../state/layout";
 import IntegrationLoader from "./IntegrationLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
@@ -183,7 +184,11 @@ export default function EditorRoot({
             big to read at 100%. The drag overlay and the draggable nodes read it
             too, and both sit outside the canvas. */}
         <CanvasZoomProvider>
-          <ConsoleProvider>{tree}</ConsoleProvider>
+          {/* Above the console provider: the header's layout toggles read both, and
+              which panels are showing outlives any one run. */}
+          <LayoutProvider>
+            <ConsoleProvider>{tree}</ConsoleProvider>
+          </LayoutProvider>
         </CanvasZoomProvider>
       </EditorMetaProvider>
     </EditorStateProvider>

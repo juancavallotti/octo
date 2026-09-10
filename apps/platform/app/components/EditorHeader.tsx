@@ -2,6 +2,7 @@
 
 import {
   useFileSystem,
+  LayoutToggles,
   RunBar,
   IntegrationTitle,
   FolderPicker,
@@ -61,6 +62,9 @@ export default function EditorHeader({
           </>
         )}
         <RunBar />
+        {/* Last on the bar, VS Code's corner: about the window, not the file. */}
+        <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+        <LayoutToggles />
         {userMenu}
       </div>
     </header>
