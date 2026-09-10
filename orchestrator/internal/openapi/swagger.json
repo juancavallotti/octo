@@ -1043,6 +1043,18 @@
                 },
                 "type": "object"
             },
+            "integration.iconRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "icon": {
+                        "description": "Icon is a name from the editor's icon registry, or \"\" to go back to\nderiving one from the definition.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "integration.integrationRequest": {
                 "properties": {
                     "actorId": {
@@ -1069,6 +1081,9 @@
                         "type": "string"
                     },
                     "definition": {
+                        "type": "string"
+                    },
+                    "icon": {
                         "type": "string"
                     },
                     "id": {
@@ -1214,6 +1229,9 @@
             },
             "resource.resourceRequest": {
                 "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
                     "content": {
                         "type": "string"
                     },
@@ -1234,6 +1252,15 @@
                     "createdAt": {
                         "type": "string"
                     },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "createdByEmail": {
+                        "type": "string"
+                    },
+                    "createdByName": {
+                        "type": "string"
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -1247,6 +1274,15 @@
                         "type": "string"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "updatedBy": {
+                        "type": "string"
+                    },
+                    "updatedByEmail": {
+                        "type": "string"
+                    },
+                    "updatedByName": {
                         "type": "string"
                     }
                 },
@@ -4969,6 +5005,78 @@
                 "summary": "What a deploy of this integration would need",
                 "tags": [
                     "deployments"
+                ]
+            }
+        },
+        "/integrations/{id}/icon": {
+            "put": {
+                "description": "Records an intentionally chosen icon, by name, from the editor's icon\nregistry. An empty name clears the choice, which puts the icon back to\nbeing derived from the definition's trigger types.\nThis is its own route because every other write sends a whole\nintegration, and none of those callers know about icons.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/integration.iconRequest",
+                                        "summary": "body",
+                                        "description": "Icon name, or empty to derive"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Icon name, or empty to derive",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.integrationResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Set an integration's icon",
+                "tags": [
+                    "integrations"
                 ]
             }
         },

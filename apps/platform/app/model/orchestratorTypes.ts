@@ -12,6 +12,11 @@
 export interface Integration {
   id: string;
   name: string;
+  /**
+   * An intentionally chosen icon, by name from the editor's icon registry.
+   * Empty or absent means derive one from the definition.
+   */
+  icon?: string;
   /** The flow definition, as the runtime YAML the editor serializes. */
   definition: string;
   /** RFC3339 timestamp of the last update. */
@@ -65,6 +70,16 @@ export interface Resource {
   /** RFC3339 timestamps. */
   createdAt: string;
   lastUpdated: string;
+  /**
+   * Who wrote the file and who last changed it, resolved for display. Absent
+   * when the write had no known actor — the MCP path, or local dev without SSO.
+   */
+  createdBy?: string;
+  updatedBy?: string;
+  createdByEmail?: string;
+  createdByName?: string;
+  updatedByEmail?: string;
+  updatedByName?: string;
 }
 
 /** An authenticated principal, provisioned from the OIDC identity on first sign-in. */

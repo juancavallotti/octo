@@ -62,6 +62,16 @@ func (m *memRepo) Update(_ context.Context, id, name, definition, actorID string
 	return it, nil
 }
 
+func (m *memRepo) SetIcon(_ context.Context, id, icon, _ string) (Integration, error) {
+	it, ok := m.items[id]
+	if !ok {
+		return Integration{}, ErrNotFound
+	}
+	it.Icon = icon
+	m.items[id] = it
+	return it, nil
+}
+
 func (m *memRepo) Delete(_ context.Context, id string) error {
 	if _, ok := m.items[id]; !ok {
 		return ErrNotFound

@@ -5,7 +5,7 @@ description: "Integration version history and restoring previous definitions."
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-A snapshot (a **version tag** in the UI) freezes an integration's definition, together with a copy of its resources, under a named tag. Tags are immutable and unique per integration, and they are what deployments actually run: a deploy references a tag and ships its frozen definition, never the live working copy.
+A snapshot (a **version tag** in the UI) freezes a copy of every file an integration is made of — its flow files and its resources together, in one transaction — under a named tag. Tags are immutable and unique per integration, and they are what deployments actually run: a deploy references a tag and ships its frozen definition, never the live working copy.
 
 ![An integration's version-tag history on the platform](/screenshots/platform-snapshots.png)
 

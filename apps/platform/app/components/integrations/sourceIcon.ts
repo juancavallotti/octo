@@ -53,3 +53,17 @@ export function iconForDefinition(definition: string): LucideIcon {
     getConnectorSpec(primary)?.icon;
   return iconName ? resolveIcon(iconName) : Workflow;
 }
+
+/**
+ * The icon to show for an integration: the one it chose, or the one its
+ * definition suggests.
+ *
+ * An unset icon derives, which is what every integration did before choosing was
+ * possible — so this reads the same as iconForDefinition until somebody picks.
+ */
+export function iconForIntegration(
+  icon: string | undefined,
+  definition: string,
+): LucideIcon {
+  return icon ? resolveIcon(icon) : iconForDefinition(definition);
+}

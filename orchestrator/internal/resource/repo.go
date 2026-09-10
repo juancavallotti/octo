@@ -8,14 +8,33 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // resourceColumns is the canonical column list (and order) that scanResource
-// expects, kept in one place so reads and RETURNING clauses stay in sync.
-const resourceColumns = "id, integration_id, kind, name, content, created_at, last_updated"
+// expects, kept in one place so reads and RETURNING clauses stay in sync. A
+// resource's Name is the file's path, which is what it always was — the column
+// is called path now that flow files share the table.
+const resourceColumns = `f.id, f.integration_id, f.kind, f.path, f.content, f.created_at, f.last_updated,
+	f.created_by, f.updated_by, cu.email, cu.name, uu.email, uu.name`
+
+// userJoins resolves created_by/updated_by to display fields, the same way the
+// integration read does. It requires the base row to be aliased f.
+const userJoins = `LEFT JOIN users cu ON cu.id = f.created_by
+	LEFT JOIN users uu ON uu.id = f.updated_by`
+
+// writeReturning is the RETURNING list for an insert/update, exposing the base
+// columns the following CTE join needs (aliased f in resourceColumns).
+const writeReturning = "id, integration_id, kind, path, content, created_at, last_updated, created_by, updated_by"
+
+// resourceRole is the role every row this package touches carries. Every read is
+// filtered by it and every write sets it, so a config file is never handed back
+// as a resource and a resource never lands in the merged definition.
+const resourceRole = string(projectfile.RoleResource)
 
 const (
-	// pgUniqueViolation is raised when (integration_id, name) already exists.
+	// pgUniqueViolation is raised when (integration_id, path) already exists.
 	pgUniqueViolation = "23505"
 	// pgForeignKeyViolation is raised when integration_id references no integration.
 	pgForeignKeyViolation = "23503"
@@ -34,12 +53,15 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // Create inserts a new resource under integrationID and returns the stored row.
 // A duplicate (integration_id, name) surfaces as ErrNameExists; an unknown
 // integration as ErrIntegrationNotFound.
-func (r *Repo) Create(ctx context.Context, integrationID, kind, name, content string) (Resource, error) {
+func (r *Repo) Create(ctx context.Context, integrationID, kind, name, content, actorID string) (Resource, error) {
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO integration_resources (integration_id, kind, name, content)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING `+resourceColumns,
-		integrationID, kind, name, content,
+		`WITH f AS (
+			INSERT INTO integration_files (integration_id, kind, path, content, role, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, NULLIF($6, '')::uuid, NULLIF($6, '')::uuid)
+			RETURNING `+writeReturning+`
+		)
+		SELECT `+resourceColumns+` FROM f `+userJoins,
+		integrationID, kind, name, content, resourceRole, actorID,
 	)
 	res, err := scanResource(row)
 	if err != nil {
@@ -60,8 +82,9 @@ func (r *Repo) Create(ctx context.Context, integrationID, kind, name, content st
 func (r *Repo) Get(ctx context.Context, integrationID, id string) (Resource, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT `+resourceColumns+`
-		 FROM integration_resources WHERE id = $1 AND integration_id = $2`,
-		id, integrationID,
+		 FROM integration_files f `+userJoins+`
+		 WHERE f.id = $1 AND f.integration_id = $2 AND f.role = $3`,
+		id, integrationID, resourceRole,
 	)
 	res, err := scanResource(row)
 	if err != nil {
@@ -77,10 +100,10 @@ func (r *Repo) Get(ctx context.Context, integrationID, id string) (Resource, err
 func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]Resource, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+resourceColumns+`
-		 FROM integration_resources
-		 WHERE integration_id = $1
-		 ORDER BY name`,
-		integrationID,
+		 FROM integration_files f `+userJoins+`
+		 WHERE f.integration_id = $1 AND f.role = $2
+		 ORDER BY f.path`,
+		integrationID, resourceRole,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("resource repo: list by integration: %w", err)
@@ -98,13 +121,17 @@ func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]R
 // updated row. It matches on both id and integration_id so a resource is only
 // mutated within its own integration; ErrNotFound if no such row. A rename that
 // collides with an existing name surfaces as ErrNameExists.
-func (r *Repo) Update(ctx context.Context, integrationID, id, kind, name, content string) (Resource, error) {
+func (r *Repo) Update(ctx context.Context, integrationID, id, kind, name, content, actorID string) (Resource, error) {
 	row := r.pool.QueryRow(ctx,
-		`UPDATE integration_resources
-		 SET kind = $3, name = $4, content = $5, last_updated = now()
-		 WHERE id = $1 AND integration_id = $2
-		 RETURNING `+resourceColumns,
-		id, integrationID, kind, name, content,
+		`WITH f AS (
+			UPDATE integration_files
+			SET kind = $3, path = $4, content = $5, last_updated = now(),
+				updated_by = NULLIF($7, '')::uuid
+			WHERE id = $1 AND integration_id = $2 AND role = $6
+			RETURNING `+writeReturning+`
+		)
+		SELECT `+resourceColumns+` FROM f `+userJoins,
+		id, integrationID, kind, name, content, resourceRole, actorID,
 	)
 	res, err := scanResource(row)
 	if err != nil {
@@ -123,8 +150,9 @@ func (r *Repo) Update(ctx context.Context, integrationID, id, kind, name, conten
 // matching row was deleted.
 func (r *Repo) Delete(ctx context.Context, integrationID, id string) error {
 	tag, err := r.pool.Exec(ctx,
-		`DELETE FROM integration_resources WHERE id = $1 AND integration_id = $2`,
-		id, integrationID,
+		`DELETE FROM integration_files
+		 WHERE id = $1 AND integration_id = $2 AND role = $3`,
+		id, integrationID, resourceRole,
 	)
 	if err != nil {
 		return fmt.Errorf("resource repo: delete: %w", err)
@@ -141,6 +169,9 @@ func scanResource(row pgx.Row) (Resource, error) {
 	if err := row.Scan(
 		&res.ID, &res.IntegrationID, &res.Kind, &res.Name, &res.Content,
 		&res.CreatedAt, &res.LastUpdated,
+		&res.CreatedBy, &res.UpdatedBy,
+		&res.CreatedByEmail, &res.CreatedByName,
+		&res.UpdatedByEmail, &res.UpdatedByName,
 	); err != nil {
 		return Resource{}, err
 	}

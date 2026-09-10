@@ -58,6 +58,13 @@ export async function updateIntegration(
   return unwrap(await integrationActions.updateIntegration(id, input));
 }
 
+export async function setIntegrationIcon(
+  id: string,
+  icon: string,
+): Promise<Integration> {
+  return unwrap(await integrationActions.setIntegrationIcon(id, icon));
+}
+
 export async function deleteIntegration(id: string): Promise<void> {
   return unwrap(await integrationActions.deleteIntegration(id));
 }

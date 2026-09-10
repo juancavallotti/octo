@@ -111,6 +111,7 @@ export function useIntegrationTree({
     replaceSelectedFromBundle,
     copySelected,
     renameSelected,
+    setSelectedIcon,
     removeSelected,
   } = useIntegrationActions({
     selected,
@@ -224,6 +225,7 @@ export function useIntegrationTree({
     replaceSelectedFromBundle,
     copySelected,
     renameSelected,
+    setSelectedIcon,
     removeSelected,
     applyDrag,
   };

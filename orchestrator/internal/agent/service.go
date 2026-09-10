@@ -37,8 +37,8 @@ type (
 	}
 
 	resources interface {
-		Create(ctx context.Context, integrationID, kind, name, content string) (resource.Resource, error)
-		Update(ctx context.Context, integrationID, id, kind, name, content string) (resource.Resource, error)
+		Create(ctx context.Context, integrationID, kind, name, content, actorID string) (resource.Resource, error)
+		Update(ctx context.Context, integrationID, id, kind, name, content, actorID string) (resource.Resource, error)
 		Delete(ctx context.Context, integrationID, id string) error
 		ListByIntegration(ctx context.Context, integrationID string) ([]resource.Resource, error)
 	}
@@ -461,7 +461,7 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 	// thing anyone reading the failure needs, and the only party that knows it is
 	// the code that took the step.
 	next := cur
-	if err := s.syncResources(ctx, next.IntegrationID); err != nil {
+	if err := s.syncResources(ctx, next.IntegrationID, actorID); err != nil {
 		return cur, fmt.Errorf("write the agent's skills as resources: %w", err)
 	}
 
@@ -515,8 +515,10 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 }
 
 // syncResources writes the bundle's skills onto the integration, updating a
-// resource that already exists rather than failing on its name.
-func (s *Service) syncResources(ctx context.Context, integrationID string) error {
+// resource that already exists rather than failing on its name. actorID is the
+// user whose action caused the write, so the skill files carry the same
+// attribution as the definition written beside them.
+func (s *Service) syncResources(ctx context.Context, integrationID, actorID string) error {
 	skills, err := agentapp.Skills()
 	if err != nil {
 		return err
@@ -545,13 +547,13 @@ func (s *Service) syncResources(ctx context.Context, integrationID string) error
 				continue
 			}
 			if _, err := s.resources.Update(ctx, integrationID, current.ID,
-				agentapp.SkillResourceKind, name, content); err != nil {
+				agentapp.SkillResourceKind, name, content, actorID); err != nil {
 				return err
 			}
 			continue
 		}
 		if _, err := s.resources.Create(ctx, integrationID,
-			agentapp.SkillResourceKind, name, content); err != nil {
+			agentapp.SkillResourceKind, name, content, actorID); err != nil {
 			return err
 		}
 	}
@@ -891,7 +893,7 @@ func (s *Service) republish(ctx context.Context, integrationID, actorID string) 
 	if _, err := s.integrations.Update(ctx, integrationID, agentapp.Name, definition, actorID); err != nil {
 		return err
 	}
-	return s.syncResources(ctx, integrationID)
+	return s.syncResources(ctx, integrationID, actorID)
 }
 
 // rollout is the body of Rollout, run with the settings row locked.

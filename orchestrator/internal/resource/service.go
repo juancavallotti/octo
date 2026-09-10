@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // maxNameLen bounds a resource name; the column is unconstrained varchar so the
@@ -17,10 +19,10 @@ const maxNameLen = 512
 // integration id so a resource is only ever addressed within its integration —
 // a mismatch reads as ErrNotFound.
 type repository interface {
-	Create(ctx context.Context, integrationID, kind, name, content string) (Resource, error)
+	Create(ctx context.Context, integrationID, kind, name, content, actorID string) (Resource, error)
 	Get(ctx context.Context, integrationID, id string) (Resource, error)
 	ListByIntegration(ctx context.Context, integrationID string) ([]Resource, error)
-	Update(ctx context.Context, integrationID, id, kind, name, content string) (Resource, error)
+	Update(ctx context.Context, integrationID, id, kind, name, content, actorID string) (Resource, error)
 	Delete(ctx context.Context, integrationID, id string) error
 }
 
@@ -72,13 +74,15 @@ func (s *Service) notifyChanged(ctx context.Context, integrationID string) {
 	}
 }
 
-// Create validates the resource and persists it under integrationID.
-func (s *Service) Create(ctx context.Context, integrationID, kind, name, content string) (Resource, error) {
+// Create validates the resource and persists it under integrationID. actorID is
+// the creating user's id, or "" when unknown; it seeds both created_by and
+// updated_by.
+func (s *Service) Create(ctx context.Context, integrationID, kind, name, content, actorID string) (Resource, error) {
 	kind, name, err := validate(kind, name)
 	if err != nil {
 		return Resource{}, err
 	}
-	created, err := s.repo.Create(ctx, integrationID, kind, name, content)
+	created, err := s.repo.Create(ctx, integrationID, kind, name, content, actorID)
 	if err != nil {
 		return Resource{}, err
 	}
@@ -96,13 +100,15 @@ func (s *Service) ListByIntegration(ctx context.Context, integrationID string) (
 	return s.repo.ListByIntegration(ctx, integrationID)
 }
 
-// Update validates and persists changes to an existing resource within integrationID.
-func (s *Service) Update(ctx context.Context, integrationID, id, kind, name, content string) (Resource, error) {
+// Update validates and persists changes to an existing resource within
+// integrationID. actorID is the editing user's id, or "" when unknown; it is
+// recorded as updated_by (created_by is left untouched).
+func (s *Service) Update(ctx context.Context, integrationID, id, kind, name, content, actorID string) (Resource, error) {
 	kind, name, err := validate(kind, name)
 	if err != nil {
 		return Resource{}, err
 	}
-	updated, err := s.repo.Update(ctx, integrationID, id, kind, name, content)
+	updated, err := s.repo.Update(ctx, integrationID, id, kind, name, content, actorID)
 	if err != nil {
 		return Resource{}, err
 	}
@@ -132,7 +138,26 @@ func validate(kind, name string) (string, string, error) {
 	if err := validateName(name); err != nil {
 		return "", "", err
 	}
+	if err := validateRole(name); err != nil {
+		return "", "", err
+	}
 	return kind, name, nil
+}
+
+// validateRole refuses a resource whose path would make it something else.
+//
+// A file's role follows from its path, and a root-level .yaml is a flow file to
+// the runtime no matter what the API that wrote it called it. Storing one as a
+// resource would be a claim the runtime contradicts the moment it loads the
+// folder, so it is refused where the claim is made. Everything resources are
+// actually used for today — .env files, templates/, .octo/ — is nested or a
+// dotfile and lands nowhere near this.
+func validateRole(name string) error {
+	if role := projectfile.Classify(name); role != projectfile.RoleResource {
+		return fmt.Errorf("%w: %q would be a %s file, not a resource — nest it or rename it",
+			ErrInvalid, name, role)
+	}
+	return nil
 }
 
 // validateName enforces a non-empty, length-bounded, path-like name. Names may

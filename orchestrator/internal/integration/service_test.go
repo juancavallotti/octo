@@ -12,6 +12,7 @@ import (
 type fakeRepo struct {
 	called     bool
 	gotName    string
+	gotIcon    string
 	ret        Integration
 	retErr     error
 	delErr     error
@@ -49,6 +50,11 @@ func (f *fakeRepo) Get(_ context.Context, _ string) (Integration, error) {
 func (f *fakeRepo) List(_ context.Context) ([]Integration, error) {
 	f.called = true
 	return []Integration{f.ret}, f.retErr
+}
+
+func (f *fakeRepo) SetIcon(_ context.Context, _, icon, _ string) (Integration, error) {
+	f.gotIcon = icon
+	return f.ret, f.retErr
 }
 
 func (f *fakeRepo) Delete(_ context.Context, _ string) error {

@@ -8,11 +8,24 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
+
+// frozenConfig aggregates a snapshot's frozen config files into two parallel
+// arrays ordered by path, so scanSnapshot can fold them into the one definition
+// a deploy still asks for. Correlated on s.id, which every query below exposes.
+const frozenConfig = `
+	(SELECT coalesce(array_agg(f.path ORDER BY f.path), '{}')
+	   FROM integration_file_snapshots f
+	  WHERE f.snapshot_id = s.id AND f.role = 'config'),
+	(SELECT coalesce(array_agg(f.content ORDER BY f.path), '{}')
+	   FROM integration_file_snapshots f
+	  WHERE f.snapshot_id = s.id AND f.role = 'config')`
 
 // snapshotColumns is the canonical column list (and order) that scanSnapshot
 // expects, kept in one place so reads and RETURNING clauses stay in sync.
-const snapshotColumns = "id, integration_id, tag, definition, created_at"
+const snapshotColumns = "s.id, s.integration_id, s.tag, s.created_at," + frozenConfig
 
 const (
 	// pgUniqueViolation is raised when (integration_id, tag) already exists.
@@ -31,13 +44,17 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 	return &Repo{pool: pool}
 }
 
-// Create inserts a snapshot freezing definition under tag for integrationID, and
-// in the same transaction freezes a copy of the integration's live resources into
-// integration_resource_snapshots — so a deploy of this tag ships the resources
-// that matched its definition, and the tag and its frozen resources appear
-// atomically. A duplicate (integration_id, tag) surfaces as ErrTagExists; an
-// unknown integration as ErrIntegrationNotFound.
-func (r *Repo) Create(ctx context.Context, integrationID, tag, definition string) (Snapshot, error) {
+// Create tags integrationID and, in the same transaction, freezes a copy of every
+// one of its files — flow files and resources alike — into
+// integration_file_snapshots, so a deploy of this tag ships the definition and
+// the resources that matched each other. A duplicate (integration_id, tag)
+// surfaces as ErrTagExists; an unknown integration as ErrIntegrationNotFound.
+//
+// definition is no longer passed in and no longer stored. It used to be copied
+// from a column while the resources were copied from a table, which left two
+// mechanisms that could in principle disagree about when they ran. Now one
+// INSERT ... SELECT freezes everything at one instant.
+func (r *Repo) Create(ctx context.Context, integrationID, tag string) (Snapshot, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot repo: create: begin: %w", err)
@@ -45,10 +62,13 @@ func (r *Repo) Create(ctx context.Context, integrationID, tag, definition string
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	row := tx.QueryRow(ctx,
-		`INSERT INTO integration_snapshots (integration_id, tag, definition)
-		 VALUES ($1, $2, $3)
-		 RETURNING `+snapshotColumns,
-		integrationID, tag, definition,
+		`WITH s AS (
+			INSERT INTO integration_snapshots (integration_id, tag)
+			VALUES ($1, $2)
+			RETURNING id, integration_id, tag, created_at
+		)
+		SELECT `+snapshotColumns+` FROM s`,
+		integrationID, tag,
 	)
 	s, err := scanSnapshot(row)
 	if err != nil {
@@ -62,12 +82,20 @@ func (r *Repo) Create(ctx context.Context, integrationID, tag, definition string
 	}
 
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO integration_resource_snapshots (snapshot_id, kind, name, content)
-		 SELECT $1, kind, name, content FROM integration_resources WHERE integration_id = $2`,
+		`INSERT INTO integration_file_snapshots (snapshot_id, kind, path, content, role)
+		 SELECT $1, kind, path, content, role FROM integration_files WHERE integration_id = $2`,
 		s.ID, integrationID,
 	); err != nil {
-		return Snapshot{}, fmt.Errorf("snapshot repo: create: freeze resources: %w", err)
+		return Snapshot{}, fmt.Errorf("snapshot repo: create: freeze files: %w", err)
 	}
+
+	// The files were frozen after the row above was read, so the projection could
+	// not see them; read the definition back now that they are there.
+	definition, err := frozenDefinition(ctx, tx, s.ID)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("snapshot repo: create: %w", err)
+	}
+	s.Definition = definition
 
 	if err := tx.Commit(ctx); err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot repo: create: commit: %w", err)
@@ -75,10 +103,32 @@ func (r *Repo) Create(ctx context.Context, integrationID, tag, definition string
 	return s, nil
 }
 
+// frozenDefinition merges a snapshot's frozen config files.
+func frozenDefinition(ctx context.Context, tx pgx.Tx, snapshotID string) (string, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT path, content FROM integration_file_snapshots
+		  WHERE snapshot_id = $1 AND role = $2
+		  ORDER BY path`,
+		snapshotID, string(projectfile.RoleConfig),
+	)
+	if err != nil {
+		return "", err
+	}
+	files, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (projectfile.File, error) {
+		var f projectfile.File
+		err := row.Scan(&f.Path, &f.Content)
+		return f, err
+	})
+	if err != nil {
+		return "", err
+	}
+	return projectfile.Merge(files)
+}
+
 // Get returns the snapshot by id, or ErrNotFound if it does not exist.
 func (r *Repo) Get(ctx context.Context, id string) (Snapshot, error) {
 	row := r.pool.QueryRow(ctx,
-		`SELECT `+snapshotColumns+` FROM integration_snapshots WHERE id = $1`, id,
+		`SELECT `+snapshotColumns+` FROM integration_snapshots s WHERE s.id = $1`, id,
 	)
 	s, err := scanSnapshot(row)
 	if err != nil {
@@ -94,9 +144,9 @@ func (r *Repo) Get(ctx context.Context, id string) (Snapshot, error) {
 func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]Snapshot, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+snapshotColumns+`
-		 FROM integration_snapshots
-		 WHERE integration_id = $1
-		 ORDER BY created_at DESC`,
+		 FROM integration_snapshots s
+		 WHERE s.integration_id = $1
+		 ORDER BY s.created_at DESC`,
 		integrationID,
 	)
 	if err != nil {
@@ -152,17 +202,17 @@ func (r *Repo) DeploymentsUsingSnapshot(ctx context.Context, integrationID, snap
 
 // resourceColumns is the canonical column list (and order) that scanResource
 // expects for a frozen resource. Frozen rows are written by Create (INSERT ...
-// SELECT from integration_resources) and are read-only thereafter.
-const resourceColumns = "id, snapshot_id, kind, name, content, created_at"
+// SELECT from integration_files) and are read-only thereafter.
+const resourceColumns = "id, snapshot_id, kind, path, content, created_at"
 
 // ListResources returns a snapshot's frozen resources ordered by name.
 func (r *Repo) ListResources(ctx context.Context, snapshotID string) ([]Resource, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+resourceColumns+`
-		 FROM integration_resource_snapshots
-		 WHERE snapshot_id = $1
-		 ORDER BY name`,
-		snapshotID,
+		 FROM integration_file_snapshots
+		 WHERE snapshot_id = $1 AND role = $2
+		 ORDER BY path`,
+		snapshotID, string(projectfile.RoleResource),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot repo: list resources: %w", err)
@@ -182,9 +232,9 @@ func (r *Repo) ListResources(ctx context.Context, snapshotID string) ([]Resource
 func (r *Repo) ResourceContent(ctx context.Context, snapshotID, kind, name string) ([]byte, bool, error) {
 	var content string
 	err := r.pool.QueryRow(ctx,
-		`SELECT content FROM integration_resource_snapshots
-		 WHERE snapshot_id = $1 AND kind = $2 AND name = $3`,
-		snapshotID, kind, name,
+		`SELECT content FROM integration_file_snapshots
+		 WHERE snapshot_id = $1 AND kind = $2 AND path = $3 AND role = $4`,
+		snapshotID, kind, name, string(projectfile.RoleResource),
 	).Scan(&content)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -197,10 +247,27 @@ func (r *Repo) ResourceContent(ctx context.Context, snapshotID, kind, name strin
 
 // scanSnapshot reads one row in snapshotColumns order.
 func scanSnapshot(row pgx.Row) (Snapshot, error) {
-	var s Snapshot
-	if err := row.Scan(&s.ID, &s.IntegrationID, &s.Tag, &s.Definition, &s.CreatedAt); err != nil {
+	var (
+		s        Snapshot
+		paths    []string
+		contents []string
+	)
+	if err := row.Scan(&s.ID, &s.IntegrationID, &s.Tag, &s.CreatedAt, &paths, &contents); err != nil {
 		return Snapshot{}, err
 	}
+	if len(paths) != len(contents) {
+		return Snapshot{}, fmt.Errorf("frozen config paths and contents disagree (%d vs %d)", len(paths), len(contents))
+	}
+
+	files := make([]projectfile.File, len(paths))
+	for i := range paths {
+		files[i] = projectfile.File{Path: paths[i], Content: contents[i]}
+	}
+	definition, err := projectfile.Merge(files)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	s.Definition = definition
 	return s, nil
 }
 

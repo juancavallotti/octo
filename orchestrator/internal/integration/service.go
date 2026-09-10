@@ -19,6 +19,7 @@ type repository interface {
 	Get(ctx context.Context, id string) (Integration, error)
 	List(ctx context.Context) ([]Integration, error)
 	Update(ctx context.Context, id, name, definition, actorID string) (Integration, error)
+	SetIcon(ctx context.Context, id, icon, actorID string) (Integration, error)
 	Delete(ctx context.Context, id string) error
 	NameExists(ctx context.Context, name, excludeID string) (bool, error)
 }
@@ -136,6 +137,13 @@ func (s *Service) Update(ctx context.Context, id, name, definition, actorID stri
 	}
 	s.notifyChanged(ctx, id)
 	return updated, nil
+}
+
+// SetIcon records an integration's chosen icon. An empty icon clears the choice,
+// which puts the UI back to deriving one from the definition — so clearing keeps
+// following the definition rather than freezing whatever it suggests today.
+func (s *Service) SetIcon(ctx context.Context, id, icon, actorID string) (Integration, error) {
+	return s.repo.SetIcon(ctx, id, strings.TrimSpace(icon), actorID)
 }
 
 // ensureNameFree rejects a name already used by a different integration

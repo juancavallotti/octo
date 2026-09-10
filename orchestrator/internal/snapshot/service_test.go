@@ -14,7 +14,6 @@ import (
 type fakeRepo struct {
 	createIntegrationID string
 	createTag           string
-	createDefinition    string
 	createErr           error
 
 	listResult []Snapshot
@@ -28,14 +27,13 @@ type fakeRepo struct {
 	deleteCalled   bool
 }
 
-func (f *fakeRepo) Create(_ context.Context, integrationID, tag, definition string) (Snapshot, error) {
+func (f *fakeRepo) Create(_ context.Context, integrationID, tag string) (Snapshot, error) {
 	f.createIntegrationID = integrationID
 	f.createTag = tag
-	f.createDefinition = definition
 	if f.createErr != nil {
 		return Snapshot{}, f.createErr
 	}
-	return Snapshot{ID: "snap-1", IntegrationID: integrationID, Tag: tag, Definition: definition}, nil
+	return Snapshot{ID: "snap-1", IntegrationID: integrationID, Tag: tag}, nil
 }
 
 func (f *fakeRepo) Get(_ context.Context, id string) (Snapshot, error) {
@@ -80,7 +78,7 @@ func (f fakeIntegrations) Get(_ context.Context, _ string) (integration.Integrat
 }
 
 func TestCreate(t *testing.T) {
-	t.Run("freezes the live definition under a trimmed tag", func(t *testing.T) {
+	t.Run("freezes the integration's files under a trimmed tag", func(t *testing.T) {
 		repo := &fakeRepo{}
 		svc := NewService(repo, fakeIntegrations{
 			it: integration.Integration{ID: "int-1", Definition: "flow: yaml"},
@@ -92,8 +90,8 @@ func TestCreate(t *testing.T) {
 		if repo.createTag != "v1.0" {
 			t.Errorf("tag = %q, want v1.0 (trimmed)", repo.createTag)
 		}
-		if repo.createDefinition != "flow: yaml" {
-			t.Errorf("definition = %q, want the live definition", repo.createDefinition)
+		if repo.createIntegrationID != "int-1" {
+			t.Errorf("integration = %q, want int-1", repo.createIntegrationID)
 		}
 		if s.Tag != "v1.0" {
 			t.Errorf("returned tag = %q, want v1.0", s.Tag)

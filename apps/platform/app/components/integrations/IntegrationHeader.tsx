@@ -1,21 +1,21 @@
 "use client";
 
-import { useRef, useState, type RefObject } from "react";
+import { type RefObject } from "react";
 import Link from "next/link";
 import { Copy, Pencil, Rocket, Trash2, Upload } from "lucide-react";
 import type { Integration, Snapshot } from "@/app/model/orchestrator";
 import DownloadMenu from "./DownloadMenu";
+import HeaderName from "./HeaderName";
+import IconPicker from "./IconPicker";
 import VersionMenu from "./VersionMenu";
 import { downloadDefinition } from "./files";
 
 /**
- * The detail pane's header: the integration's name, edited in place, and the
- * Deploy control beside it.
+ * The detail pane's header: the integration's icon and name, and the version and
+ * Deploy controls beside them.
  *
- * It owns the rename's editing state — the draft, whether the field is open, and
- * the ref that lets Escape cancel without committing — because nothing outside
- * the header can see any of it. The parent supplies only `onRename`, and the
- * boolean it returns is what keeps the field open on a rejected name.
+ * The name's editing interaction lives in HeaderName, which owns it end to end;
+ * this component only passes `onRename` through.
  */
 export default function IntegrationHeader({
   integration,
@@ -27,6 +27,7 @@ export default function IntegrationHeader({
   replaceInput,
   onSelectTag,
   onRename,
+  onSelectIcon,
   onDownloadBundle,
   onReplaceFromBundle,
   onDeploy,
@@ -48,6 +49,8 @@ export default function IntegrationHeader({
   onSelectTag: (tag: string | null) => void;
   /** Returns whether the rename was accepted; false keeps the field open. */
   onRename: (name: string) => Promise<boolean>;
+  /** Choose the integration's icon; "" hands it back to the derivation. */
+  onSelectIcon: (icon: string) => void;
   /** Download a version as a bundle archive: the active tag's frozen contents,
    * or the working copy when it is null. */
   onDownloadBundle: (snapshot: { id: string; tag: string } | null) => void;
@@ -57,62 +60,17 @@ export default function IntegrationHeader({
   onCopy: () => void;
   onDelete: () => void;
 }) {
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(integration.name);
-  const cancelRename = useRef(false);
-  const nameInput = useRef<HTMLInputElement>(null);
-  const commitRename = async () => {
-    if (cancelRename.current) {
-      cancelRename.current = false;
-      setEditingName(false);
-      return;
-    }
-    const name = nameDraft.trim();
-    if (!name || name === integration.name) {
-      setEditingName(false);
-      return;
-    }
-    // Keep the editor open until the rename is accepted; a rejected name (e.g. a
-    // duplicate) leaves the field open and re-focused so it can be corrected. The
-    // error itself is surfaced by the parent's inline banner.
-    const ok = await onRename(name);
-    if (ok) setEditingName(false);
-    else nameInput.current?.focus();
-  };
-
   return (
     <header className="flex items-center gap-2 px-4 py-3">
-      {editingName ? (
-        <input
-          ref={nameInput}
-          autoFocus
-          value={nameDraft}
-          disabled={busy}
-          aria-label="Integration name"
-          onChange={(e) => setNameDraft(e.target.value)}
-          onBlur={commitRename}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            else if (e.key === "Escape") {
-              cancelRename.current = true;
-              e.currentTarget.blur();
-            }
-          }}
-          className="min-w-0 flex-1 rounded-md border border-black/10 bg-transparent px-1.5 py-0.5 text-base font-semibold outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/30"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            setNameDraft(integration.name);
-            setEditingName(true);
-          }}
-          title="Rename integration"
-          className="min-w-0 flex-1 truncate text-left text-base font-semibold hover:underline"
-        >
-          {integration.name}
-        </button>
-      )}
+      {/* The icon is the trigger, so choosing one costs the header no extra
+          chrome — the thing you want to change is the thing you click. */}
+      <IconPicker
+        icon={integration.icon ?? ""}
+        definition={integration.definition}
+        disabled={busy}
+        onSelect={onSelectIcon}
+      />
+      <HeaderName name={integration.name} disabled={busy} onRename={onRename} />
       {/* Active version: scopes the Resources/Env panels, the pills below, the
           deployments filter, and the deploy target. Always available (Current is
           always a choice, even with no tags yet). */}

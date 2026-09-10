@@ -82,7 +82,7 @@ func (f *fakeResources) ListByIntegration(_ context.Context, integrationID strin
 	return f.items[integrationID], nil
 }
 
-func (f *fakeResources) Create(_ context.Context, integrationID, kind, name, content string) (resource.Resource, error) {
+func (f *fakeResources) Create(_ context.Context, integrationID, kind, name, content, _ string) (resource.Resource, error) {
 	if f.failCreate != nil {
 		return resource.Resource{}, f.failCreate
 	}
@@ -98,7 +98,7 @@ func (f *fakeResources) Create(_ context.Context, integrationID, kind, name, con
 	return r, nil
 }
 
-func (f *fakeResources) Update(_ context.Context, integrationID, id, kind, name, content string) (resource.Resource, error) {
+func (f *fakeResources) Update(_ context.Context, integrationID, id, kind, name, content, _ string) (resource.Resource, error) {
 	for i, r := range f.items[integrationID] {
 		if r.ID == id {
 			r.Kind, r.Name, r.Content = kind, name, content
@@ -161,7 +161,7 @@ func TestExportCarriesTheDefinitionAndEveryResource(t *testing.T) {
 	svc, ints, res, _ := newService()
 	ctx := context.Background()
 	it, _ := ints.Create(ctx, "Order Sync", "name: order-sync\n", "")
-	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "A=1\n"); err != nil {
+	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "A=1\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestExportSnapshotUsesTheFrozenContents(t *testing.T) {
 	svc, ints, res, snaps := newService()
 	ctx := context.Background()
 	it, _ := ints.Create(ctx, "Order Sync", "definition: live\n", "")
-	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "LIVE=1\n"); err != nil {
+	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "LIVE=1\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	snaps.snaps["s1"] = snapshot.Snapshot{ID: "s1", IntegrationID: it.ID, Tag: "v1", Definition: "definition: frozen\n"}
@@ -312,8 +312,8 @@ func TestReplaceReconcilesTheResourceSet(t *testing.T) {
 	svc, ints, res, _ := newService()
 	ctx := context.Background()
 	it, _ := ints.Create(ctx, "Order Sync", "definition: old\n", "")
-	kept, _ := res.Create(ctx, it.ID, "env", ".env.dev", "OLD=1\n")
-	if _, err := res.Create(ctx, it.ID, "template", "templates/gone.tmpl", "bye\n"); err != nil {
+	kept, _ := res.Create(ctx, it.ID, "env", ".env.dev", "OLD=1\n", "")
+	if _, err := res.Create(ctx, it.ID, "template", "templates/gone.tmpl", "bye\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	data, err := Write(Bundle{
@@ -374,7 +374,7 @@ func TestReplaceRestoresThePreviousStateWhenReconcileFails(t *testing.T) {
 	svc, ints, res, _ := newService()
 	ctx := context.Background()
 	it, _ := ints.Create(ctx, "Order Sync", "definition: old\n", "")
-	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "OLD=1\n"); err != nil {
+	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "OLD=1\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	data, err := Write(Bundle{

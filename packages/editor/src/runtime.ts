@@ -90,7 +90,12 @@ export {
   fileMetaFor,
   withFileMeta,
 } from "./app/meta/parse";
-export { flowIdNames, syncFlowNames, renameFlow, readdress } from "./app/meta/rename";
+export {
+  flowIdNames,
+  syncFlowNames,
+  renameFlow,
+  readdress,
+} from "./app/meta/rename";
 // Block addresses: the names a mock, a spy and a breakpoint all call a block by. Every
 // address-taking tool needs these, both to offer the valid ones and to refuse an
 // address that names nothing rather than write a mock that can never fire.
@@ -115,6 +120,7 @@ export {
   CAPABILITIES,
   setCapabilities,
   resolveIcon,
+  listIcons,
   listConnectors,
   getConnectorSpec,
   getSourceSpec,

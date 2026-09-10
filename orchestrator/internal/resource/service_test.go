@@ -19,7 +19,7 @@ type fakeRepo struct {
 	listResult []Resource
 }
 
-func (f *fakeRepo) Create(_ context.Context, integrationID, kind, name, content string) (Resource, error) {
+func (f *fakeRepo) Create(_ context.Context, integrationID, kind, name, content, actorID string) (Resource, error) {
 	f.createCalled = true
 	f.createIntegrationID = integrationID
 	f.createKind = kind
@@ -39,7 +39,7 @@ func (f *fakeRepo) ListByIntegration(_ context.Context, _ string) ([]Resource, e
 	return f.listResult, nil
 }
 
-func (f *fakeRepo) Update(_ context.Context, integrationID, id, kind, name, content string) (Resource, error) {
+func (f *fakeRepo) Update(_ context.Context, integrationID, id, kind, name, content, actorID string) (Resource, error) {
 	return Resource{ID: id, IntegrationID: integrationID, Kind: kind, Name: name, Content: content}, nil
 }
 
@@ -49,7 +49,7 @@ func TestCreate(t *testing.T) {
 	t.Run("trims the name and persists a valid resource", func(t *testing.T) {
 		repo := &fakeRepo{}
 		svc := NewService(repo)
-		res, err := svc.Create(context.Background(), "int-1", KindTemplate, "  templates/welcome.tmpl  ", "hi")
+		res, err := svc.Create(context.Background(), "int-1", KindTemplate, "  templates/welcome.tmpl  ", "hi", "")
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
@@ -68,7 +68,7 @@ func TestCreate(t *testing.T) {
 		repo := &fakeRepo{}
 		svc := NewService(repo)
 		for _, name := range []string{".env.dev", "templates/mail/welcome.tmpl", "a/b/c.txt"} {
-			if _, err := svc.Create(context.Background(), "int-1", KindEnv, name, ""); err != nil {
+			if _, err := svc.Create(context.Background(), "int-1", KindEnv, name, "", ""); err != nil {
 				t.Errorf("name %q: unexpected error %v", name, err)
 			}
 		}
@@ -77,7 +77,7 @@ func TestCreate(t *testing.T) {
 	t.Run("rejects an invalid kind before touching the repo", func(t *testing.T) {
 		repo := &fakeRepo{}
 		svc := NewService(repo)
-		if _, err := svc.Create(context.Background(), "int-1", "binary", "x", ""); !errors.Is(err, ErrInvalid) {
+		if _, err := svc.Create(context.Background(), "int-1", "binary", "x", "", ""); !errors.Is(err, ErrInvalid) {
 			t.Errorf("error = %v, want ErrInvalid", err)
 		}
 		if repo.createCalled {
@@ -89,7 +89,7 @@ func TestCreate(t *testing.T) {
 		repo := &fakeRepo{}
 		svc := NewService(repo)
 		for _, name := range []string{"", "   ", "/abs/path", "../escape", "a/../b", "trailing/"} {
-			if _, err := svc.Create(context.Background(), "int-1", KindEnv, name, ""); !errors.Is(err, ErrInvalid) {
+			if _, err := svc.Create(context.Background(), "int-1", KindEnv, name, "", ""); !errors.Is(err, ErrInvalid) {
 				t.Errorf("name %q: error = %v, want ErrInvalid", name, err)
 			}
 		}
@@ -101,7 +101,7 @@ func TestCreate(t *testing.T) {
 	t.Run("propagates a name-exists conflict from the repo", func(t *testing.T) {
 		repo := &fakeRepo{createErr: ErrNameExists}
 		svc := NewService(repo)
-		if _, err := svc.Create(context.Background(), "int-1", KindEnv, ".env", ""); !errors.Is(err, ErrNameExists) {
+		if _, err := svc.Create(context.Background(), "int-1", KindEnv, ".env", "", ""); !errors.Is(err, ErrNameExists) {
 			t.Errorf("error = %v, want ErrNameExists", err)
 		}
 	})
@@ -124,11 +124,11 @@ func (f *fakeNotifier) NotifyIntegrationChanged(_ context.Context, id string) er
 func TestWritesNotify(t *testing.T) {
 	for name, write := range map[string]func(*Service) error{
 		"create": func(s *Service) error {
-			_, err := s.Create(context.Background(), "int-1", KindEnv, ".env.dev", "A=1")
+			_, err := s.Create(context.Background(), "int-1", KindEnv, ".env.dev", "A=1", "")
 			return err
 		},
 		"update": func(s *Service) error {
-			_, err := s.Update(context.Background(), "int-1", "res-1", KindEnv, ".env.dev", "A=2")
+			_, err := s.Update(context.Background(), "int-1", "res-1", KindEnv, ".env.dev", "A=2", "")
 			return err
 		},
 		"delete": func(s *Service) error {
@@ -152,7 +152,7 @@ func TestNotifyFailureDoesNotFailTheWrite(t *testing.T) {
 	notifier := &fakeNotifier{err: errors.New("sidecar unreachable")}
 	svc := NewService(&fakeRepo{}, WithReloadNotifier(notifier))
 
-	if _, err := svc.Create(context.Background(), "int-1", KindEnv, ".env.dev", "A=1"); err != nil {
+	if _, err := svc.Create(context.Background(), "int-1", KindEnv, ".env.dev", "A=1", ""); err != nil {
 		t.Fatalf("Create failed because the notification did: %v", err)
 	}
 }
@@ -162,10 +162,30 @@ func TestInvalidWriteDoesNotNotify(t *testing.T) {
 	notifier := &fakeNotifier{}
 	svc := NewService(&fakeRepo{}, WithReloadNotifier(notifier))
 
-	if _, err := svc.Create(context.Background(), "int-1", "not-a-kind", ".env.dev", "A=1"); err == nil {
+	if _, err := svc.Create(context.Background(), "int-1", "not-a-kind", ".env.dev", "A=1", ""); err == nil {
 		t.Fatal("Create accepted an invalid kind")
 	}
 	if len(notifier.got) != 0 {
 		t.Fatalf("notified %v after a rejected write, want nothing", notifier.got)
+	}
+}
+
+// A file's role follows from its path, so a resource cannot be given a path that
+// would make the runtime treat it as a flow file.
+func TestCreateRefusesAPathThatIsNotAResource(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	ctx := context.Background()
+
+	for _, name := range []string{"orders.yaml", "orders.yml", "orders_test.yaml"} {
+		if _, err := svc.Create(ctx, "int-1", KindTemplate, name, "x", ""); !errors.Is(err, ErrInvalid) {
+			t.Errorf("create %q = %v, want ErrInvalid", name, err)
+		}
+	}
+
+	// the shapes resources actually take are unaffected
+	for _, name := range []string{".env.dev", "templates/welcome.tmpl", ".octo/editor-meta.json", "nested/orders.yaml"} {
+		if _, err := svc.Create(ctx, "int-1", KindTemplate, name, "x", ""); err != nil {
+			t.Errorf("create %q = %v, want it accepted", name, err)
+		}
 	}
 }

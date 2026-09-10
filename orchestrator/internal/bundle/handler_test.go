@@ -26,7 +26,7 @@ func TestExportServesADownloadableArchive(t *testing.T) {
 	mux, ints, res, _ := newTestServer()
 	ctx := context.Background()
 	it, _ := ints.Create(ctx, "Order Sync", "name: order-sync\n", "")
-	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "A=1\n"); err != nil {
+	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "A=1\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -153,7 +153,7 @@ func TestReplaceOverwritesTheIntegration(t *testing.T) {
 	mux, ints, res, _ := newTestServer()
 	ctx := context.Background()
 	it, _ := ints.Create(ctx, "Order Sync", "definition: old\n", "")
-	if _, err := res.Create(ctx, it.ID, "template", "templates/gone.tmpl", "bye\n"); err != nil {
+	if _, err := res.Create(ctx, it.ID, "template", "templates/gone.tmpl", "bye\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	data, err := Write(Bundle{Name: "Whatever", Definition: "definition: new\n"})

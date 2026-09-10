@@ -42,6 +42,15 @@ export async function updateIntegration(
   );
 }
 
+export async function setIntegrationIcon(
+  id: string,
+  icon: string,
+): Promise<ActionResult<Integration>> {
+  return withWrite((session) =>
+    client.setIntegrationIcon(id, icon, session.user.id),
+  );
+}
+
 export async function deleteIntegration(
   id: string,
 ): Promise<ActionResult<void>> {

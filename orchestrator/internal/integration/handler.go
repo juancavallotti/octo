@@ -29,6 +29,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /integrations", h.list)
 	mux.HandleFunc("GET /integrations/{id}", h.get)
 	mux.HandleFunc("PUT /integrations/{id}", h.update)
+	mux.HandleFunc("PUT /integrations/{id}/icon", h.setIcon)
 	mux.HandleFunc("DELETE /integrations/{id}", h.delete)
 }
 
@@ -48,6 +49,7 @@ type integrationRequest struct {
 type integrationResponse struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
+	Icon        string    `json:"icon"`
 	Definition  string    `json:"definition"`
 	LastUpdated time.Time `json:"lastUpdated"`
 
@@ -136,6 +138,49 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	it, err := h.svc.Get(ctx, r.PathValue("id"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toResponse(it))
+}
+
+// iconRequest is the payload for choosing an integration's icon.
+type iconRequest struct {
+	// Icon is a name from the editor's icon registry, or "" to go back to
+	// deriving one from the definition.
+	Icon    string `json:"icon"`
+	ActorID string `json:"actorId"`
+}
+
+// setIcon godoc
+//
+//	@Summary		Set an integration's icon
+//	@Description	Records an intentionally chosen icon, by name, from the editor's icon
+//	@Description	registry. An empty name clears the choice, which puts the icon back to
+//	@Description	being derived from the definition's trigger types.
+//	@Description	This is its own route because every other write sends a whole
+//	@Description	integration, and none of those callers know about icons.
+//	@Tags			integrations
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string		true	"Integration id"
+//	@Param			body	body		iconRequest	true	"Icon name, or empty to derive"
+//	@Success		200		{object}	integrationResponse
+//	@Failure		400		{object}	httpx.ErrorResponse
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Router			/integrations/{id}/icon [put]
+func (h *Handler) setIcon(w http.ResponseWriter, r *http.Request) {
+	var req iconRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	it, err := h.svc.SetIcon(ctx, r.PathValue("id"), req.Icon, req.ActorID)
 	if err != nil {
 		h.writeError(w, err)
 		return

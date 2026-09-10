@@ -9,7 +9,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Integration } from "@/app/model/orchestrator";
 import type { DragData } from "./model";
-import { iconForDefinition } from "./sourceIcon";
+import { iconForIntegration } from "./sourceIcon";
 
 /** The middle column: the selected bucket's integrations, selectable into the detail panel. */
 interface Props {
@@ -70,11 +70,13 @@ function IntegrationCard({
   reorderable: boolean;
 }) {
   const data: DragData = { kind: "integration", id: i.id, name: i.name };
-  // The icon element for this integration's source/connector type; parsing the
-  // definition is memoized so it only reruns when the definition changes.
+  // The integration's icon: the one it chose, else the one its definition
+  // suggests. Memoized because deriving parses the definition, and keyed on the
+  // choice as well as the definition — otherwise picking an icon would not show
+  // up until something else re-rendered the row.
   const icon = useMemo(
-    () => createElement(iconForDefinition(i.definition), { size: 16 }),
-    [i.definition],
+    () => createElement(iconForIntegration(i.icon, i.definition), { size: 16 }),
+    [i.icon, i.definition],
   );
   const {
     attributes,

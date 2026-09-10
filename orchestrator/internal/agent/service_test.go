@@ -101,7 +101,7 @@ func newFakeResources() *fakeResources {
 	return &fakeResources{items: map[string]resource.Resource{}}
 }
 
-func (f *fakeResources) Create(_ context.Context, integrationID, kind, name, content string) (resource.Resource, error) {
+func (f *fakeResources) Create(_ context.Context, integrationID, kind, name, content, _ string) (resource.Resource, error) {
 	f.creates++
 	res := resource.Resource{
 		ID: "res-" + name, IntegrationID: integrationID, Kind: kind, Name: name, Content: content,
@@ -110,7 +110,7 @@ func (f *fakeResources) Create(_ context.Context, integrationID, kind, name, con
 	return res, nil
 }
 
-func (f *fakeResources) Update(_ context.Context, integrationID, id, kind, name, content string) (resource.Resource, error) {
+func (f *fakeResources) Update(_ context.Context, integrationID, id, kind, name, content, _ string) (resource.Resource, error) {
 	f.updates++
 	res := resource.Resource{
 		ID: id, IntegrationID: integrationID, Kind: kind, Name: name, Content: content,
@@ -1068,7 +1068,7 @@ func TestAUserAddedResourceIsNotAnEdit(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 	if _, err := h.resources.Create(ctx, installed.IntegrationID,
-		"template", "templates/mine.tmpl", "hello"); err != nil {
+		"template", "templates/mine.tmpl", "hello", ""); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -1461,7 +1461,7 @@ func TestRolloutRemovesASkillTheBundleNoLongerShips(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 	if _, err := h.resources.Create(ctx, installed.IntegrationID,
-		agentapp.SkillResourceKind, "skills/retired.md", "an older bundle shipped this"); err != nil {
+		agentapp.SkillResourceKind, "skills/retired.md", "an older bundle shipped this", ""); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
