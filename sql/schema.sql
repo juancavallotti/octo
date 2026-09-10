@@ -1228,10 +1228,12 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles (role);
 -- can still be verified for the whole of its life. Rows past expires_at are
 -- deleted by the next rotation, so nothing sweeps in the background.
 --
--- The private key is stored as it is, not encrypted. Encrypting it would need a
--- key to hold, which is precisely the operator-visible knob this design does
--- without, and the protection would be thin: anyone who can read this table can
--- write user_roles and make themselves an admin.
+-- The private half is encrypted at rest under KV_ENCRYPTION_KEY -- the key the
+-- orchestrator already holds for the KV store, so this adds no knob an operator can
+-- get wrong. It is not a defence against someone who can read this table: they can
+-- write user_roles and make themselves an admin without ever touching a key. What it
+-- buys is that a database backup, or a dump handed to somebody to debug, is not a
+-- signing key.
 CREATE TABLE IF NOT EXISTS iam_signing_keys (
     kid          varchar PRIMARY KEY,
     algorithm    varchar NOT NULL,
