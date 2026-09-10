@@ -48,7 +48,7 @@ export default function PlatformEditor({
 
   const { available } = useOrchestrator();
   // The authoritative integration id: seeded from the route and updated on save
-  // (the first save mints it). TagButton reads it through getIntegrationId so it
+  // (the first save mints it). TagForm reads it through getIntegrationId so it
   // never tags against a stale id captured before the save resolved.
   const idRef = useRef<string | null>(integrationId ?? null);
   /**

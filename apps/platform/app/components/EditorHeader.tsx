@@ -12,13 +12,12 @@ import {
 import AppLogo from "./AppLogo";
 import IntegrationPicker from "./IntegrationPicker";
 import IntegrationsButton from "./IntegrationsButton";
-import DuplicateButton from "./DuplicateButton";
-import TagButton from "./TagButton";
+import MoreMenu from "./MoreMenu";
 import DeployButton from "./DeployButton";
 
 /**
- * The editor's top bar. The integration controls (title, folder, Tag, Save,
- * manage) only appear when a filesystem capability is present (`useFileSystem()`);
+ * The editor's top bar. The integration controls (picker, title, folder, Deploy,
+ * Save, manage, and the ⋮ overflow) only appear when a filesystem capability is present (`useFileSystem()`);
  * otherwise the bar is just the logo and the RUN control.
  */
 export default function EditorHeader({
@@ -59,10 +58,11 @@ export default function EditorHeader({
         {available && (
           <>
             <IntegrationsButton getIntegrationId={getIntegrationId} />
-            <DuplicateButton getIntegrationId={getIntegrationId} />
-            <TagButton getIntegrationId={getIntegrationId} />
             <DeployButton getIntegrationId={getIntegrationId} />
             <SaveButton />
+            {/* Duplicate and Tag: real, but rare. They live behind the ⋮ rather
+                than beside the controls used every session. */}
+            <MoreMenu getIntegrationId={getIntegrationId} />
           </>
         )}
         <RunBar />
