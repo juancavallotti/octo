@@ -33,15 +33,15 @@ const (
 type httpStore struct {
 	baseURL      string
 	deploymentID string
-	token        string
+	cred         *credential
 	http         *http.Client
 }
 
-func newHTTPStore(baseURL, deploymentID, token string) *httpStore {
+func newHTTPStore(baseURL, deploymentID string, cred *credential) *httpStore {
 	return &httpStore{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		deploymentID: deploymentID,
-		token:        token,
+		cred:         cred,
 		http:         &http.Client{Timeout: httpTimeout},
 	}
 }
@@ -147,11 +147,11 @@ func (c *httpStore) Delete(ctx context.Context, namespace, key string, expectedV
 	}
 }
 
-// authorize attaches the bearer token when one is configured.
+// authorize attaches the pod's credential, renewing it first if it is close to
+// expiry. A pod with no credential sends none, which is what an installation that
+// is not enforcing expects.
 func (c *httpStore) authorize(req *http.Request) {
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.cred.authorize(req)
 }
 
 // statusError builds an error from an unexpected response, including a short snippet

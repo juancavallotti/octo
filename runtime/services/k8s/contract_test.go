@@ -74,7 +74,7 @@ func (s *multiKeyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func TestKVContract(t *testing.T) {
 	ts := httptest.NewServer(newMultiKeyServer())
 	t.Cleanup(ts.Close)
-	servicestest.KVContract(t, core.NamespaceUser, newHTTPStore(ts.URL, "dep-123", ""))
+	servicestest.KVContract(t, core.NamespaceUser, newHTTPStore(ts.URL, "dep-123", nil))
 }
 
 // And against its coordination-Lease claims.

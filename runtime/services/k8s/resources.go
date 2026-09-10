@@ -27,16 +27,16 @@ const resourceHTTPTimeout = 10 * time.Second
 type httpResourceLoader struct {
 	baseURL    string
 	snapshotID string
-	token      string
+	cred       *credential
 	http       *http.Client
 }
 
 // newHTTPResourceLoader builds a loader for one deployment's snapshot.
-func newHTTPResourceLoader(baseURL, snapshotID, token string) *httpResourceLoader {
+func newHTTPResourceLoader(baseURL, snapshotID string, cred *credential) *httpResourceLoader {
 	return &httpResourceLoader{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		snapshotID: snapshotID,
-		token:      token,
+		cred:       cred,
 		http:       &http.Client{Timeout: resourceHTTPTimeout},
 	}
 }
@@ -60,9 +60,7 @@ func (l *httpResourceLoader) Load(ctx context.Context, kind core.ResourceKind, i
 	if err != nil {
 		return nil, fmt.Errorf("resource load: new request: %w", err)
 	}
-	if l.token != "" {
-		req.Header.Set("Authorization", "Bearer "+l.token)
-	}
+	l.cred.authorize(req)
 
 	resp, err := l.http.Do(req) //nolint:bodyclose // drainClose (deferred below) closes the body
 	if err != nil {

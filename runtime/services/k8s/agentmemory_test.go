@@ -93,7 +93,7 @@ func newTestMemory(t *testing.T, srv *memoryServer) *agentMemory {
 	t.Helper()
 	ts := httptest.NewServer(srv.handler())
 	t.Cleanup(ts.Close)
-	m := newAgentMemory(ts.URL, "dep-1", "tok")
+	m := newAgentMemory(ts.URL, "dep-1", staticCredential("tok"))
 	t.Cleanup(m.close)
 	return m
 }
@@ -162,7 +162,7 @@ func TestK8sMemoryEscapesPathSegments(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	m := newAgentMemory(ts.URL, "dep-1", "")
+	m := newAgentMemory(ts.URL, "dep-1", nil)
 	defer m.close()
 	ref := core.MemoryRef{AgentID: "dr octo", ThreadKey: "user/42", UserID: "alice"}
 	if _, _, err := m.LoadWorking(context.Background(), ref); err != nil {
@@ -290,10 +290,10 @@ func TestK8sMemoryDegradesWhenTheOrchestratorIsOlder(t *testing.T) {
 // TestK8sMemoryDisabledWithoutAnOrchestrator covers the case where there is
 // nothing to talk to at all.
 func TestK8sMemoryDisabledWithoutAnOrchestrator(t *testing.T) {
-	if newAgentMemory("", "dep-1", "tok").Enabled() {
+	if newAgentMemory("", "dep-1", staticCredential("tok")).Enabled() {
 		t.Error("no orchestrator URL means no store")
 	}
-	if newAgentMemory("http://example.invalid", "", "tok").Enabled() {
+	if newAgentMemory("http://example.invalid", "", staticCredential("tok")).Enabled() {
 		t.Error("no deployment id means nothing to scope memory to")
 	}
 }
@@ -323,7 +323,7 @@ func TestK8sMemoryAuthorizes(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	m := newAgentMemory(ts.URL, "dep-1", "secret-token")
+	m := newAgentMemory(ts.URL, "dep-1", staticCredential("secret-token"))
 	defer m.close()
 	_, _, _ = m.LoadWorking(context.Background(), memRef())
 
