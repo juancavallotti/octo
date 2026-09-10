@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EditorStateProvider } from "../state/editorState";
-import { ConsoleProvider } from "../run/console";
 import DndProvider from "./DndProvider";
 import Sidebar from "./Sidebar";
 import Canvas from "./Canvas";
@@ -11,15 +10,11 @@ import SettingsPanel from "./SettingsPanel";
 function renderEditor() {
   return render(
     <EditorStateProvider>
-      {/* The settings panel's CEL shortcut opens a console tab, so the console's
-          owner has to be mounted here as it is in the real editor. */}
-      <ConsoleProvider>
-        <DndProvider>
-          <Sidebar />
-          <Canvas />
-          <SettingsPanel />
-        </DndProvider>
-      </ConsoleProvider>
+      <DndProvider>
+        <Sidebar />
+        <Canvas />
+        <SettingsPanel />
+      </DndProvider>
     </EditorStateProvider>,
   );
 }
@@ -57,7 +52,9 @@ describe("source flow", () => {
     await addFlowWithSource(/HTTP route/);
 
     // Close the panel, then click the node to reopen its settings.
-    await userEvent.click(screen.getByRole("button", { name: "Close settings" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Close settings" }),
+    );
     expect(screen.queryByLabelText(/Path/)).not.toBeInTheDocument();
 
     await userEvent.click(
@@ -73,7 +70,9 @@ describe("source flow", () => {
       screen.queryByRole("button", { name: "Add source" }),
     ).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Remove source" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove source" }),
+    );
     expect(
       screen.getByRole("button", { name: "Add source" }),
     ).toBeInTheDocument();
