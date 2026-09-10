@@ -189,7 +189,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 	auth.NewHandler(newAuthService(userSvc, signingSvc, grace)).Register(mux)
 	slog.Info("auth routes registered",
 		"oidcIssuer", os.Getenv("OIDC_ISSUER"),
-		"endpoints", "POST /auth, POST /auth/refresh")
+		"endpoints", "POST /auth, POST /auth/refresh, POST /auth/machine")
 
 	return mux, nil
 }

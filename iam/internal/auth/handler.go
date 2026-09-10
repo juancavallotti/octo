@@ -45,6 +45,7 @@ func NewHandler(svc *Service) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth", h.exchange)
 	mux.HandleFunc("POST /auth/refresh", h.refresh)
+	mux.HandleFunc("POST /auth/machine", h.machine)
 }
 
 // response is what a successful exchange returns: the token, when it stops being
@@ -104,6 +105,50 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	result, err := h.svc.Refresh(ctx, token)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeToken(w, result)
+}
+
+// machineRequest names the deployed integration a token is being minted for.
+type machineRequest struct {
+	Deployment string `json:"deployment"`
+}
+
+// machine issues a token for a deployed integration, on the authority of the
+// person deploying it — whose own platform token is the bearer here.
+//
+// Unlike the other two this takes a body, because the deployment is not something
+// the credential can say. It is the caller's assertion about what they are
+// deploying, which is safe: the token it produces can only ever act as them and
+// only ever with the runtime role, so naming a different deployment buys nothing
+// that naming their own would not.
+func (h *Handler) machine(w http.ResponseWriter, r *http.Request) {
+	if h.svc == nil {
+		httpx.WriteError(w, http.StatusServiceUnavailable,
+			"no identity provider is configured; set OIDC_ISSUER and OIDC_CLIENT_ID")
+		return
+	}
+
+	token := bearerToken(r)
+	if token == "" {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		httpx.WriteError(w, http.StatusUnauthorized, "a bearer token is required")
+		return
+	}
+
+	var req machineRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	result, err := h.svc.MintMachine(ctx, token, req.Deployment)
 	if err != nil {
 		h.writeError(w, err)
 		return

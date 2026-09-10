@@ -436,3 +436,163 @@ func TestRefreshResponseIsNotCacheable(t *testing.T) {
 		t.Errorf("Cache-Control = %q, want no-store", cc)
 	}
 }
+
+// --- machine tokens --------------------------------------------------------
+
+/** postMachine asks for a token on behalf of whoever `bearer` speaks for. */
+func (h *harness) postMachine(t *testing.T, bearer, deployment string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := `{"deployment":"` + deployment + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/machine", strings.NewReader(body))
+	if bearer != "" {
+		req.Header.Set("Authorization", bearer)
+	}
+	rec := httptest.NewRecorder()
+	h.mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// claimsOf verifies a minted token the way a downstream service must and returns
+// what it carries.
+func (h *harness) claimsOf(t *testing.T, token string) (josejwt.Claims, machinePrivate) {
+	t.Helper()
+	set, err := h.signing.JWKS(context.Background())
+	if err != nil {
+		t.Fatalf("JWKS: %v", err)
+	}
+	parsed, err := josejwt.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	keys := set.Key(parsed.Headers[0].KeyID)
+	if len(keys) != 1 {
+		t.Fatalf("the published set holds %d keys for this kid, want 1", len(keys))
+	}
+	var (
+		registered josejwt.Claims
+		private    machinePrivate
+	)
+	if err := parsed.Claims(keys[0].Key, &registered, &private); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	return registered, private
+}
+
+type machinePrivate struct {
+	Roles      []user.Role `json:"roles"`
+	Deployment string      `json:"deployment"`
+}
+
+// The whole design in one test: a deployment acts as the person who deployed it,
+// and holds only the runtime role however much that person holds.
+func TestMachineTokenSpeaksForItsOwnerWithOnlyTheRuntimeRole(t *testing.T) {
+	h := newHarness(t)
+	// The first user is an administrator, which is the interesting owner: their
+	// deployment must not be an administrator.
+	owner := h.signIn(t, "provider|admin", "admin@example.com")
+
+	rec := h.postMachine(t, "Bearer "+owner.Token, "deployment-1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var got authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	registered, private := h.claimsOf(t, got.Token)
+	if registered.Subject != owner.User.ID {
+		t.Errorf("sub = %q, want the owner %q", registered.Subject, owner.User.ID)
+	}
+	if private.Deployment != "deployment-1" {
+		t.Errorf("deployment = %q, want deployment-1", private.Deployment)
+	}
+	if len(private.Roles) != 1 || private.Roles[0] != user.RoleRuntime {
+		t.Errorf("roles = %v, want only %q", private.Roles, user.RoleRuntime)
+	}
+	for _, r := range private.Roles {
+		if r == user.RoleAdmin {
+			t.Fatal("the deployment inherited its owner's admin role")
+		}
+	}
+}
+
+// A leaked machine credential must not be renewable into a family of them, none
+// of which any person ever authorised.
+func TestAMachineTokenCannotMintAnother(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|admin", "admin@example.com")
+
+	rec := h.postMachine(t, "Bearer "+owner.Token, "deployment-1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d, want 200", rec.Code)
+	}
+	var machine authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &machine); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	again := h.postMachine(t, "Bearer "+machine.Token, "deployment-2")
+	if again.Code != http.StatusUnauthorized {
+		t.Errorf("a machine minting another = %d (%s), want 401", again.Code, again.Body.String())
+	}
+}
+
+// Renewing must not quietly promote a pod to whatever its owner may do.
+func TestRefreshKeepsAMachineTokenAMachineToken(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|admin", "admin@example.com")
+
+	rec := h.postMachine(t, "Bearer "+owner.Token, "deployment-1")
+	var machine authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &machine); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	refreshed := h.postRefresh(t, "Bearer "+machine.Token)
+	if refreshed.Code != http.StatusOK {
+		t.Fatalf("POST /auth/refresh = %d (%s), want 200", refreshed.Code, refreshed.Body.String())
+	}
+	var renewed authResponse
+	if err := json.Unmarshal(refreshed.Body.Bytes(), &renewed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	registered, private := h.claimsOf(t, renewed.Token)
+	if private.Deployment != "deployment-1" {
+		t.Errorf("deployment = %q after renewal, want it kept", private.Deployment)
+	}
+	if len(private.Roles) != 1 || private.Roles[0] != user.RoleRuntime {
+		t.Errorf("roles = %v after renewal, want only %q", private.Roles, user.RoleRuntime)
+	}
+	if registered.Subject != owner.User.ID {
+		t.Errorf("sub = %q after renewal, want the owner", registered.Subject)
+	}
+}
+
+func TestMachineTokenRefusesABadRequest(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|admin", "admin@example.com")
+
+	if rec := h.postMachine(t, "Bearer "+owner.Token, ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("with no deployment = %d, want 400", rec.Code)
+	}
+	if rec := h.postMachine(t, "", "deployment-1"); rec.Code != http.StatusUnauthorized {
+		t.Errorf("with no bearer = %d, want 401", rec.Code)
+	}
+	if rec := h.postMachine(t, "Bearer nonsense", "deployment-1"); rec.Code != http.StatusUnauthorized {
+		t.Errorf("with a token we did not mint = %d, want 401", rec.Code)
+	}
+}
+
+// The role a pod holds must never be grantable to a person.
+func TestTheRuntimeRoleIsNotInTheCatalogue(t *testing.T) {
+	if user.ValidRole(user.RoleRuntime) {
+		t.Error("platform:runtime is grantable, and should not be")
+	}
+	for _, r := range user.AllRoles() {
+		if r == user.RoleRuntime {
+			t.Error("platform:runtime is offered in the catalogue, and should not be")
+		}
+	}
+}

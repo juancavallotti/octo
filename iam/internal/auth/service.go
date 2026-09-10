@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-jose/go-jose/v4/jwt"
@@ -72,6 +73,10 @@ type platformClaims struct {
 	Email string      `json:"email"`
 	Name  string      `json:"name"`
 	Roles []user.Role `json:"roles"`
+	// Deployment names the deployed integration a machine token was minted for,
+	// and is empty on a person's token. It is what tells the two apart on the way
+	// back in — see Refresh.
+	Deployment string `json:"deployment,omitempty"`
 }
 
 // Result is a completed exchange: the minted token and the user it speaks for.
@@ -127,7 +132,8 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 // sign-in, and treating it as one would make the column mean "was recently using
 // the platform" rather than what it says.
 func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) {
-	claims, err := s.minter.Verify(ctx, rawToken, s.refreshGrace, nil)
+	var private platformClaims
+	claims, err := s.minter.Verify(ctx, rawToken, s.refreshGrace, &private)
 	if err != nil {
 		// Only a token this service did not mint, or minted too long ago, is the
 		// caller's problem. Verify also reads the keyset from the database on its
@@ -150,6 +156,22 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 		}
 		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+
+	// A machine token is renewed as a machine token. Re-minting it from the
+	// owner's current roles would quietly promote a pod to whatever its owner may
+	// do, which is the one thing a machine token is careful not to give it.
+	//
+	// Minted from the owner resolved above rather than by going back through
+	// MintMachine, which would verify the presented token again — and would refuse
+	// it, both because it is a machine's and because it may be inside the grace
+	// window rather than still valid.
+	if private.Deployment != "" {
+		token, err := s.mintMachine(ctx, u, private.Deployment)
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Token: token, User: u}, nil
 	}
 
 	token, err := s.mint(ctx, u)
@@ -177,4 +199,84 @@ func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) 
 		return signing.Token{}, fmt.Errorf("auth: mint token: %w", err)
 	}
 	return token, nil
+}
+
+// MintMachine issues a token for a deployed integration, on the authority of the
+// person deploying it.
+//
+// A running integration has to reach the platform's API — its key/value store,
+// its frozen resources, its agent memory — and has no way to sign in. So the
+// person who deploys it lends it an identity: rawToken is their platform token,
+// and what comes back speaks for them.
+//
+// Two things about the token it gets, and they are the whole design:
+//
+//   - Its subject is that person, so everything the platform scopes to a user
+//     scopes the same way for their deployment. A pod cannot reach another
+//     person's data, because as far as the API is concerned it is not another
+//     person.
+//   - Its only role is platform:runtime, whatever the person holds. An
+//     administrator's deployment is not an administrator. This is the difference
+//     between lending an identity and handing over an account.
+//
+// It lives exactly as long as a person's token and is renewed the same way, which
+// is deliberate: a longer-lived one could outlive the key that signed it, since
+// the keyset only keeps a key published for one token lifetime past its
+// retirement.
+func (s *Service) MintMachine(ctx context.Context, rawToken, deployment string) (Result, error) {
+	deployment = strings.TrimSpace(deployment)
+	if deployment == "" {
+		return Result{}, fmt.Errorf("%w: a deployment is required", user.ErrInvalid)
+	}
+
+	owner, err := s.owner(ctx, rawToken)
+	if err != nil {
+		return Result{}, err
+	}
+
+	token, err := s.mintMachine(ctx, owner, deployment)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Token: token, User: owner}, nil
+}
+
+// mintMachine stamps the token itself. Shared by the first mint and every
+// renewal, so the two cannot drift into describing the same pod differently.
+func (s *Service) mintMachine(
+	ctx context.Context, owner user.User, deployment string,
+) (signing.Token, error) {
+	token, err := s.minter.Mint(ctx, owner.ID, platformClaims{
+		Email:      owner.Email,
+		Name:       owner.Name,
+		Roles:      []user.Role{user.RoleRuntime},
+		Deployment: deployment,
+	})
+	if err != nil {
+		return signing.Token{}, fmt.Errorf("auth: mint machine token: %w", err)
+	}
+	return token, nil
+}
+
+// owner verifies a platform token and returns the person it speaks for, refusing
+// one that is itself a machine's.
+//
+// A pod must not be able to mint another pod a token: that would make a single
+// leaked machine credential renewable into an unbounded family of them, none of
+// which any person ever authorised.
+func (s *Service) owner(ctx context.Context, rawToken string) (user.User, error) {
+	var claims platformClaims
+	verified, err := s.minter.Verify(ctx, rawToken, 0, &claims)
+	if err != nil {
+		return user.User{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+	}
+	if claims.Deployment != "" {
+		return user.User{}, fmt.Errorf(
+			"%w: a machine token cannot mint another", ErrUnauthenticated)
+	}
+	u, err := s.users.Get(ctx, verified.Subject)
+	if err != nil {
+		return user.User{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+	}
+	return u, nil
 }
