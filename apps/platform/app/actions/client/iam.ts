@@ -13,6 +13,18 @@
 import { requestJson, type ActionResult } from "@octo/http";
 import { iamBaseUrl, iamUnconfigured } from "../_iam";
 
+/** One grantable role, as iam's own catalogue describes it. */
+export interface RoleOption {
+  role: string;
+  description: string;
+}
+
+/** The profile fields an administrator may set on a user. */
+export interface UserInput {
+  email: string;
+  name: string;
+}
+
 /** A user as iam describes them. `roles` is always present, empty rather than null. */
 export interface PlatformUser {
   id: string;
