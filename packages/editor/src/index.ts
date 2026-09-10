@@ -28,6 +28,12 @@ export { default as ViewModeToggle } from "./app/components/ViewModeToggle";
 export { BAR_BUTTON, BAR_COUNT } from "./app/components/barButton";
 export { default as LayoutToggles } from "./app/components/LayoutToggles";
 export { default as CopyMcpUrlButton } from "./app/components/CopyMcpUrlButton";
+// The header's "what am I working on" chip: folders in the desktop shell,
+// integrations in the platform.
+export {
+  default as WorkspacePicker,
+  type PickerItem,
+} from "./app/components/WorkspacePicker";
 export { default as IntegrationTitle } from "./app/components/IntegrationTitle";
 export { default as IntegrationLoader } from "./app/components/IntegrationLoader";
 

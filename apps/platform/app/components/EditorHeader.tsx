@@ -10,6 +10,7 @@ import {
   SaveButton,
 } from "@octo/editor";
 import AppLogo from "./AppLogo";
+import IntegrationPicker from "./IntegrationPicker";
 import IntegrationsButton from "./IntegrationsButton";
 import DuplicateButton from "./DuplicateButton";
 import TagButton from "./TagButton";
@@ -54,6 +55,8 @@ export default function EditorHeader({
       <div className="ml-auto flex items-center gap-2">
         {available && (
           <>
+            {/* Right of the bar is "which one am I on", as in the desktop shell. */}
+            <IntegrationPicker />
             <IntegrationsButton getIntegrationId={getIntegrationId} />
             <DuplicateButton getIntegrationId={getIntegrationId} />
             <TagButton getIntegrationId={getIntegrationId} />
