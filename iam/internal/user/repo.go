@@ -14,7 +14,10 @@ const (
 	// userColumns is the canonical column list (and order) scanUser expects, kept
 	// in one place so reads and RETURNING clauses stay in sync. It is qualified
 	// with the table alias every read below uses, because every read joins.
-	userColumns = "u.id, u.subject, u.email, u.name, u.created_at, u.last_login_at"
+	// COALESCE on the subject: it is NULL until the first sign-in writes it, and
+	// an empty string is what every reader of this struct already treats as "not
+	// signed in yet".
+	userColumns = "u.id, COALESCE(u.subject, ''), u.email, u.name, u.created_at, u.last_login_at"
 
 	// rolesColumn aggregates the joined grants into one text array. FILTER drops
 	// the single NULL row a LEFT JOIN produces for a user with no grants, which
@@ -99,9 +102,22 @@ func (r *Repo) Admit(ctx context.Context, subject, email, name string) (User, bo
 			`UPDATE users SET email = $2, name = $3, last_login_at = now() WHERE id = $1`,
 			id, email, name,
 		); err != nil {
+			if hasSQLState(err, pgUniqueViolation) {
+				// The provider moved this account onto an address another row
+				// already holds. Refused rather than resolved: the directory is in a
+				// state this schema cannot represent, and picking a winner here would
+				// merge two people quietly.
+				return User{}, false, ErrConflict
+			}
 			return User{}, false, fmt.Errorf("user repo: admit: refresh: %w", err)
 		}
 	case errors.Is(err, pgx.ErrNoRows):
+		if id, err = r.adopt(ctx, tx, subject, email, name); err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return User{}, false, err
+		}
 		if id, err = r.admitNewcomer(ctx, tx, subject, email, name); err != nil {
 			return User{}, false, err
 		}
@@ -118,6 +134,47 @@ func (r *Repo) Admit(ctx context.Context, subject, email, name string) (User, bo
 		return User{}, false, fmt.Errorf("user repo: admit: commit: %w", err)
 	}
 	return u, created, nil
+}
+
+// adopt claims the row an administrator provisioned for this address, writing
+// the subject onto it so every later sign-in keys on that instead.
+//
+// This is the one moment an address decides who somebody is, and it happens at
+// most once per row — which is what bounds the exposure. Two rules make it safe
+// to do at all:
+//
+//   - A row that already carries a different subject is refused. That is a
+//     different principal wearing a familiar address, not the person the row was
+//     waiting for.
+//   - The row is taken FOR UPDATE inside the caller's transaction, so two first
+//     sign-ins racing for the same address cannot both adopt it.
+//
+// pgx.ErrNoRows means no row is waiting, which is not a failure: it is the
+// caller's signal to fall through to the first-administrator path.
+func (r *Repo) adopt(ctx context.Context, tx pgx.Tx, subject, email, name string) (string, error) {
+	var (
+		id       string
+		existing *string
+	)
+	if err := tx.QueryRow(ctx,
+		`SELECT id, subject FROM users WHERE lower(email) = lower($1) FOR UPDATE`, email,
+	).Scan(&id, &existing); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		return "", fmt.Errorf("user repo: admit: look up address: %w", err)
+	}
+	if existing != nil && *existing != subject {
+		return "", ErrSubjectMismatch
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE users SET subject = $2, email = $3, name = $4, last_login_at = now()
+		 WHERE id = $1`,
+		id, subject, email, name,
+	); err != nil {
+		return "", fmt.Errorf("user repo: admit: adopt: %w", err)
+	}
+	return id, nil
 }
 
 // admitNewcomer creates the account for somebody with no row yet, which is only
@@ -142,7 +199,8 @@ func (r *Repo) admitNewcomer(
 
 	var id string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO users (subject, email, name) VALUES ($1, $2, $3) RETURNING id`,
+		`INSERT INTO users (subject, email, name, last_login_at)
+		 VALUES ($1, $2, $3, now()) RETURNING id`,
 		subject, email, name,
 	).Scan(&id); err != nil {
 		return "", fmt.Errorf("user repo: admit: create: %w", err)
@@ -161,23 +219,23 @@ func (r *Repo) admitNewcomer(
 //
 // It is how somebody is let in before their first sign-in: this platform admits
 // only provisioned users (see Service.SignIn), so an account has to exist here
-// before the person it belongs to can get past the door. The subject is the one
-// the identity provider will present, which an administrator reads out of their
-// provider's own console — there is no way for us to discover it, and guessing
-// at it from an email address would let one person be admitted as another.
+// before the person it belongs to can get past the door. All it takes is their
+// address, because that is all an administrator knows about a colleague who has
+// never been here — the OIDC subject is left NULL for the first sign-in to write
+// (see adopt).
 //
-// A subject that already exists is ErrConflict rather than an update: the caller
-// asked to create somebody, and quietly rewriting an existing account's email
-// would be a different and much worse thing to do.
-func (r *Repo) Create(ctx context.Context, subject, email, name string) (User, error) {
+// An address that already has an account is ErrConflict rather than an update:
+// the caller asked to create somebody, and quietly rewriting an existing
+// account's name would be a different and much worse thing to do.
+func (r *Repo) Create(ctx context.Context, email, name string) (User, error) {
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO users (subject, email, name)
-		 VALUES ($1, $2, $3)
-		 RETURNING id, subject, email, name, created_at, last_login_at`,
-		subject, email, name,
+		`INSERT INTO users (email, name)
+		 VALUES ($1, $2)
+		 RETURNING id, email, name, created_at`,
+		email, name,
 	)
 	var u User
-	if err := row.Scan(&u.ID, &u.Subject, &u.Email, &u.Name, &u.CreatedAt, &u.LastLoginAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.Name, &u.CreatedAt); err != nil {
 		if hasSQLState(err, pgUniqueViolation) {
 			return User{}, ErrConflict
 		}
@@ -187,15 +245,17 @@ func (r *Repo) Create(ctx context.Context, subject, email, name string) (User, e
 }
 
 // Update rewrites the profile fields an administrator may correct. The subject is
-// not among them: it is what the row is keyed by and what the identity provider
-// will present, so changing it would silently point an account at a different
-// person.
+// not among them: nobody types one, and rewriting the one the first sign-in
+// discovered would silently point an account at a different person.
 func (r *Repo) Update(ctx context.Context, id, email, name string) error {
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE users SET email = $2, name = $3 WHERE id = $1`, id, email, name)
 	if err != nil {
 		if isInvalidTextRepresentation(err) {
 			return ErrNotFound
+		}
+		if hasSQLState(err, pgUniqueViolation) {
+			return ErrConflict
 		}
 		return fmt.Errorf("user repo: update: %w", err)
 	}
@@ -256,27 +316,65 @@ func (r *Repo) GetBySubject(ctx context.Context, subject string) (User, error) {
 	return u, nil
 }
 
-// List returns every user with their granted roles, oldest first — which is the
-// order they signed in, and puts whoever set the platform up at the top.
-func (r *Repo) List(ctx context.Context) ([]User, error) {
-	rows, err := r.pool.Query(ctx, selectUsers+` GROUP BY u.id ORDER BY u.created_at, u.id`)
+// List returns one page of users with their granted roles, oldest first — which
+// puts whoever set the platform up at the top.
+//
+// Keyset paging on (created_at, id) rather than an offset: an offset shifts under
+// a page when somebody is provisioned or removed between two requests, which on
+// this screen means a row read twice or skipped while an administrator is part
+// way through a directory. The tiebreak on id is what makes the order total, and
+// therefore what makes the cursor unambiguous when two rows were created in the
+// same microsecond.
+//
+// `query` matches a substring of the name or the address, case-insensitively,
+// and `role` narrows to the people holding it. Both are applied here rather than
+// in the caller because a filter applied after paging would return short pages of
+// an unknown total.
+//
+// It reads one row more than asked for and reports the cursor for the next page,
+// or "" on the last. Asking the database for that row is what tells the caller
+// there is a next page without a second count query.
+func (r *Repo) List(
+	ctx context.Context, query string, role Role, limit int, cursor string,
+) ([]User, string, error) {
+	after, err := decodeCursor(cursor)
 	if err != nil {
-		return nil, fmt.Errorf("user repo: list: %w", err)
+		return nil, "", err
+	}
+
+	pattern := "%" + escapeLike(query) + "%"
+	// The role filter is an EXISTS rather than a condition on the joined rows:
+	// restricting the join would also drop the other grants from the aggregate, so
+	// a row would report only the role it was filtered by.
+	rows, err := r.pool.Query(ctx, selectUsers+`
+		 WHERE ($1 = '' OR u.name ILIKE $2 ESCAPE '\' OR u.email ILIKE $2 ESCAPE '\')
+		   AND ($3 = '' OR EXISTS (
+		         SELECT 1 FROM user_roles f WHERE f.user_id = u.id AND f.role = $3))
+		   AND ($4::timestamptz IS NULL OR (u.created_at, u.id) > ($4, $5::uuid))
+		 GROUP BY u.id ORDER BY u.created_at, u.id LIMIT $6`,
+		query, pattern, string(role), after.createdAt, after.id, limit+1)
+	if err != nil {
+		return nil, "", fmt.Errorf("user repo: list: %w", err)
 	}
 	defer rows.Close()
 
-	users := make([]User, 0)
+	users := make([]User, 0, limit)
 	for rows.Next() {
 		u, err := scanUser(rows)
 		if err != nil {
-			return nil, fmt.Errorf("user repo: list: scan: %w", err)
+			return nil, "", fmt.Errorf("user repo: list: scan: %w", err)
 		}
 		users = append(users, u)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("user repo: list: %w", err)
+		return nil, "", fmt.Errorf("user repo: list: %w", err)
 	}
-	return users, nil
+
+	if len(users) > limit {
+		last := users[limit-1]
+		return users[:limit], encodeCursor(last.CreatedAt, last.ID), nil
+	}
+	return users, "", nil
 }
 
 // Grant gives userID the role r, attributed to grantedBy (nil when the service

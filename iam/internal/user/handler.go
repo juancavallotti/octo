@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/juancavallotti/octo/iam/internal/authz"
@@ -68,12 +69,15 @@ func (h *Handler) Register(mux *http.ServeMux, signedIn, admin Middleware) {
 // Exported because the token exchange renders the same shape inside its own
 // response, and two structs describing one user is how they come to disagree.
 type Response struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
-	Name        string    `json:"name"`
-	Roles       []Role    `json:"roles"`
-	CreatedAt   time.Time `json:"createdAt"`
-	LastLoginAt time.Time `json:"lastLoginAt"`
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Roles     []Role    `json:"roles"`
+	CreatedAt time.Time `json:"createdAt"`
+	// LastLoginAt is null for somebody provisioned who has not arrived yet, which
+	// is why it is a pointer: zero time would render as a date in the year 1 and
+	// read as data.
+	LastLoginAt *time.Time `json:"lastLoginAt"`
 }
 
 // ToResponse renders u for the wire.
@@ -112,16 +116,16 @@ func (h *Handler) catalogue(w http.ResponseWriter, _ *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// createRequest is a user an administrator is adding.
+// createRequest is a user an administrator is adding. The address is all of it:
+// the OIDC subject is not typed by anybody, it is written by the first sign-in.
 type createRequest struct {
-	Subject string `json:"subject"`
-	Email   string `json:"email"`
-	Name    string `json:"name"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
 }
 
 // updateRequest is the profile an administrator is correcting. The subject is
-// absent on purpose — it keys the row and is what the identity provider will
-// present, so changing it would point the account at somebody else.
+// absent on purpose — it is what the row is keyed by once the first sign-in has
+// discovered it, so changing it would point the account at somebody else.
 type updateRequest struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
@@ -139,7 +143,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	u, err := h.svc.Create(ctx, req.Subject, req.Email, req.Name)
+	u, err := h.svc.Create(ctx, req.Email, req.Name)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -176,20 +180,43 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// page is one screenful of the directory, with the cursor for the next.
+//
+// An envelope rather than a bare array, because the cursor has to travel with
+// the rows and a header would put half the answer somewhere a JSON client is not
+// looking. `nextCursor` is absent on the last page, which is what a caller checks
+// rather than comparing counts against the limit it asked for.
+type page struct {
+	Items      []Response `json:"items"`
+	NextCursor string     `json:"nextCursor,omitempty"`
+}
+
+// list serves one page of the directory, filtered by `q` over name and address
+// and by `role` over what people hold.
+//
+// A limit that is not a number is the default rather than a refusal: the
+// parameter is a hint about page size, and failing a listing over it would be a
+// worse answer to a typo than serving a screenful.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	users, err := h.svc.List(ctx)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	users, next, err := h.svc.List(ctx,
+		r.URL.Query().Get("q"),
+		Role(r.URL.Query().Get("role")),
+		limit,
+		r.URL.Query().Get("cursor"),
+	)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	out := make([]Response, 0, len(users))
+	items := make([]Response, 0, len(users))
 	for _, u := range users {
-		out = append(out, ToResponse(u))
+		items = append(items, ToResponse(u))
 	}
-	httpx.WriteJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, page{Items: items, NextCursor: next})
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

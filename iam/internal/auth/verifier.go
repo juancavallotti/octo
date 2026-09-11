@@ -29,7 +29,8 @@ import (
 // theirs and stays theirs.
 type Identity struct {
 	// Subject is the OIDC `sub` — stable across email changes at the provider,
-	// which is why it and not the address is what the user row is keyed by.
+	// which is why it and not the address is what the user row is keyed by once
+	// it is known.
 	Subject string
 	Email   string
 	Name    string

@@ -10,11 +10,17 @@ var (
 	// handler passes through to the caller — these are all mistakes a caller can
 	// correct, so saying which one it was is worth more than uniformity.
 	ErrInvalid = errors.New("invalid request")
-	// ErrConflict is returned when creating a user whose OIDC subject already has
-	// an account. Distinct from ErrInvalid because the caller's request was
-	// well-formed and the answer is "that person is already here", which is a
-	// different thing to tell somebody.
-	ErrConflict = errors.New("that subject already has an account")
+	// ErrConflict is returned when a write would put two accounts on one address.
+	// Distinct from ErrInvalid because the caller's request was well-formed and
+	// the answer is "that person is already here", which is a different thing to
+	// tell somebody.
+	ErrConflict = errors.New("that address already has an account")
+	// ErrSubjectMismatch is returned when somebody authenticates with an address
+	// that belongs to an account already claimed by a different principal at the
+	// identity provider. Refused rather than resolved: an address decides who
+	// somebody is exactly once, on the account's first sign-in, and after that the
+	// subject is what the row is keyed by.
+	ErrSubjectMismatch = errors.New("that address belongs to a different account")
 	// ErrNotProvisioned is returned when somebody the identity provider vouches
 	// for has no account here. Distinct from ErrNotFound, which is a caller naming
 	// a user that does not exist: this is a real person, correctly authenticated,

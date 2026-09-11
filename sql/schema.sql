@@ -326,20 +326,49 @@ SET value = jsonb_build_object('version', 1, 'updated', CURRENT_DATE::text)
 -- a NULL comparison would silently skip the bump and leave that row unrepaired.
 WHERE COALESCE((site_settings.value->>'version')::int, 0) < 1;
 
--- users records each authenticated principal. Identity comes from the OIDC
--- provider; on first sign-in iam upserts a row keyed by the stable `subject`
--- (the OIDC `sub`) and keeps email/name in sync on subsequent logins.
--- The generated `id` is the durable handle other tables (api_keys) reference, so
--- it survives IdP email changes. The local-dev (no-SSO) session uses a sentinel
--- subject so `task dev` still resolves to a real user row.
+-- users records each principal this platform admits. The generated `id` is the
+-- durable handle other tables reference.
+--
+-- Two keys, and the difference between them is the whole provisioning story.
+-- `email` is what an administrator provisions by, because it is the only thing
+-- they know about a colleague before that colleague has ever arrived; it is
+-- unique case-insensitively, since providers treat addresses that way and two
+-- rows differing only in case would make "who is this address" unanswerable.
+-- `subject` is the OIDC `sub`, which nobody types: it is NULL until the first
+-- sign-in writes it, and from then on it is what every sign-in keys on, so a
+-- changed address at the provider is a refresh rather than a new person.
+--
+-- `last_login_at` is NULL for somebody provisioned who has not arrived yet,
+-- which is a different thing from having arrived at the moment the row was
+-- written.
 CREATE TABLE IF NOT EXISTS users (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    subject       varchar UNIQUE NOT NULL,
+    subject       varchar UNIQUE,
     email         varchar NOT NULL,
     name          varchar NOT NULL DEFAULT '',
     created_at    timestamptz NOT NULL DEFAULT now(),
-    last_login_at timestamptz NOT NULL DEFAULT now()
+    last_login_at timestamptz
 );
+
+-- Two accounts on one address was possible before an address identified a
+-- person, so an installation upgrading into this index may hold a pair. Checked
+-- first and reported as itself: a unique violation from CREATE INDEX names one
+-- duplicate and gives no way to find the rest.
+DO $$
+DECLARE duplicates int;
+BEGIN
+    SELECT count(*) INTO duplicates FROM (
+        SELECT lower(email) FROM users GROUP BY lower(email) HAVING count(*) > 1
+    ) d;
+    IF duplicates > 0 THEN
+        -- The count and not the addresses. This message lands in migration, CI
+        -- and deployment logs, which are read by more people and kept longer
+        -- than the table it would be quoting from.
+        RAISE EXCEPTION '% address(es) are on more than one account. An address now identifies one person here; find them with: SELECT lower(email), count(*) FROM users GROUP BY 1 HAVING count(*) > 1; then remove or correct the duplicates and upgrade again.', duplicates;
+    END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key ON users (lower(email));
 
 -- api_keys are per-user bearer tokens used to authenticate machine clients (the
 -- platform MCP endpoint). The plaintext token is shown to the user exactly once at
@@ -1286,5 +1315,31 @@ BEGIN
         VALUES ('db_version', jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text))
         ON CONFLICT (key) DO UPDATE
         SET value = jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text);
+    END IF;
+END $$;
+
+-- db_version 3: an address identifies a person here, and a subject is discovered.
+--
+-- Provisioning used to take the OIDC subject, which an administrator had to read
+-- out of their provider's console before they could let a colleague in. Now they
+-- provision an address and the first sign-in writes the subject onto that row.
+-- Three column changes follow, and an existing installation needs all of them:
+-- `subject` becomes nullable (a provisioned person has none yet),
+-- `last_login_at` becomes nullable (they have not arrived), and `email` gains
+-- the case-insensitive unique index that makes an address an identity.
+--
+-- The index itself is created beside the table, behind the duplicate check that
+-- has to run before it on either path.
+DO $$
+BEGIN
+    IF COALESCE((SELECT (value->>'version')::int FROM site_settings WHERE key = 'db_version'), 0) < 3 THEN
+        ALTER TABLE users ALTER COLUMN subject DROP NOT NULL;
+        ALTER TABLE users ALTER COLUMN last_login_at DROP NOT NULL;
+        ALTER TABLE users ALTER COLUMN last_login_at DROP DEFAULT;
+
+        INSERT INTO site_settings (key, value)
+        VALUES ('db_version', jsonb_build_object('version', 3, 'updated', CURRENT_DATE::text))
+        ON CONFLICT (key) DO UPDATE
+        SET value = jsonb_build_object('version', 3, 'updated', CURRENT_DATE::text);
     END IF;
 END $$;

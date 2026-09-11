@@ -58,9 +58,21 @@ The app-wide request gate redirects unauthenticated browser navigations to sign-
 
 The exception is the very first sign-in on a fresh installation, because there is nobody to have created that account. That person is granted `platform:admin` so that somebody can administer it. The rule is keyed on there being no administrator rather than on there being no users, which is the same thing on a new install and the more useful thing on one that has somehow lost its administrators.
 
-Accounts are managed under **Admin → People**. Adding somebody asks for three things, and the awkward one is the OIDC subject — the `sub` their provider will present. There is no way for the platform to discover it before they arrive, and deriving it from an email address would be a way for one person to be admitted as another, so you copy it from your provider's own console.
+Accounts are managed under **Admin → People**. Adding somebody asks for their email address and, optionally, their name. That is all, because that is all you know about a colleague who has never been here — and until they arrive their row shows **Never** where a last sign-in would be.
 
-A `users` row is keyed on that subject and carries a durable id. Sign-ins refresh email, name and the last-login stamp. The id is what integration attribution and API keys reference, so it survives IdP email changes; deleting a user takes their API keys and role grants with them but leaves what they authored, with the attribution cleared.
+**Two keys, and the difference between them matters.** The address is what you provision by, and it is what decides who somebody is exactly once: the first time a person authenticates with it, their OIDC `sub` is written onto that waiting row. From then on the subject is what every sign-in keys on, so a changed address at the provider is a refresh of an existing account rather than a new person. Nobody ever types a subject.
+
+One rule follows from that, and it is a refusal: somebody authenticating with an address that belongs to a row **another** principal has already claimed is refused. That is a different person wearing a familiar address, not the one the row was waiting for.
+
+Addresses are unique case-insensitively, since providers treat them that way.
+
+<Callout type="warn">
+**An address is worth what your identity provider makes it worth.** Octo takes the address the provider vouches for and reads no further claim — so a provider that lets anybody self-register an address is a provider that lets anybody take the account waiting for one, including an administrator's. Point this platform at a tenant that owns its address namespace.
+</Callout>
+
+A `users` row carries a durable id, which is what integration attribution and API keys reference; deleting a user takes their API keys and role grants with them but leaves what they authored, with the attribution cleared.
+
+The directory is paged and filtered by iam rather than by the browser — by a substring of the name or address, and by role.
 
 An administrator cannot edit or remove their own row from this screen, and iam refuses to remove the last administrator however the request arrives.
 

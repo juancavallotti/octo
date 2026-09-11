@@ -109,7 +109,7 @@ func TestAdmitIsRaceFree(t *testing.T) {
 		t.Errorf("%d were refused, want %d", refused, contenders-1)
 	}
 
-	users, err := repo.List(ctx)
+	users, _, err := repo.List(ctx, "", "", 100, "")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestTheLastAdministratorSurvivesConcurrentRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Admit(first): %v", err)
 	}
-	second, err := repo.Create(ctx, "sub-2", "second@example.com", "Second")
+	second, err := repo.Create(ctx, "second@example.com", "Second")
 	if err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
@@ -176,5 +176,79 @@ func TestTheLastAdministratorSurvivesConcurrentRemoval(t *testing.T) {
 	}
 	if admins != 1 {
 		t.Errorf("the install has %d admins, want exactly 1 left", admins)
+	}
+}
+
+// PINS: that a row-value comparison orders by the whole tuple, and that an
+// EXISTS filter does not reach inside the aggregate beside it.
+//
+// Both are what the paged listing bets on, and both are the kind of claim a fake
+// would simply agree with.
+//
+// The first is keyset paging itself: `(created_at, id) > ($1, $2)` has to mean
+// "after that row in this order", not "later timestamp OR larger id". Get it
+// wrong and two people provisioned in the same microsecond are skipped or
+// repeated, which is a bug nobody reproduces on a small directory.
+//
+// The second is why the role filter is an EXISTS rather than a condition on the
+// joined rows. Restricting the join would also drop the other grants from
+// array_agg, so a person filtered by one role would be reported as holding only
+// that one — and the screen's role chips would show a set that is not theirs.
+func TestPagingAndTheRoleFilterMeanWhatTheQueryAssumes(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+
+	// Three rows sharing one created_at, so ordering can only come from the
+	// tiebreak — which is the case the tuple comparison exists for.
+	if _, err := repo.pool.Exec(ctx,
+		`INSERT INTO users (email, created_at) VALUES
+		   ('a@example.com', '2026-01-01T00:00:00Z'),
+		   ('b@example.com', '2026-01-01T00:00:00Z'),
+		   ('c@example.com', '2026-01-01T00:00:00Z')`,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	seen := map[string]bool{}
+	cursor := ""
+	for range 3 {
+		page, next, err := repo.List(ctx, "", "", 1, cursor)
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(page) != 1 {
+			t.Fatalf("page = %d rows, want 1", len(page))
+		}
+		if seen[page[0].ID] {
+			t.Fatalf("%s came back on two pages", page[0].Email)
+		}
+		seen[page[0].ID] = true
+		cursor = next
+	}
+	if len(seen) != 3 || cursor != "" {
+		t.Errorf("saw %d of 3 rows, trailing cursor %q", len(seen), cursor)
+	}
+
+	// Two grants on one person, filtered by one of them.
+	people, _, err := repo.List(ctx, "a@example.com", "", 1, "")
+	if err != nil || len(people) != 1 {
+		t.Fatalf("List: %v (%d rows)", err, len(people))
+	}
+	for _, role := range []Role{RoleAdmin, RoleMonitor} {
+		if err := repo.Grant(ctx, people[0].ID, role, nil); err != nil {
+			t.Fatalf("Grant(%s): %v", role, err)
+		}
+	}
+
+	filtered, _, err := repo.List(ctx, "", RoleMonitor, 10, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("filtered = %d rows, want the one person holding it", len(filtered))
+	}
+	if len(filtered[0].Roles) != 2 {
+		t.Errorf("roles = %v, want both grants: the filter reached into the aggregate",
+			filtered[0].Roles)
 	}
 }

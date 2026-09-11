@@ -11,12 +11,12 @@ import (
 // satisfies it structurally.
 type repository interface {
 	Admit(ctx context.Context, subject, email, name string) (User, bool, error)
-	Create(ctx context.Context, subject, email, name string) (User, error)
+	Create(ctx context.Context, email, name string) (User, error)
 	Update(ctx context.Context, id, email, name string) error
 	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (User, error)
 	GetBySubject(ctx context.Context, subject string) (User, error)
-	List(ctx context.Context) ([]User, error)
+	List(ctx context.Context, query string, role Role, limit int, cursor string) ([]User, string, error)
 	Grant(ctx context.Context, userID string, granted Role, grantedBy *string) error
 	Revoke(ctx context.Context, userID string, revoked Role) error
 	CountWithRole(ctx context.Context, held Role) (int, error)
@@ -45,8 +45,14 @@ func NewService(repo repository) *Service {
 // whose provider admits an entire company should not admit an entire company.
 //
 // The exception is the first ever sign-in, because there is nobody to have
-// created that account. See Repo.EnsureFirstAdmin for why that moment is
+// created that account. See Repo.admitNewcomer for why that moment is
 // identifiable and why it cannot happen twice.
+//
+// Nothing here reads a claim beyond the three arguments. What an address is worth
+// as an identity is the identity provider's business: this service takes the
+// address it was given, and an installation whose provider hands out addresses
+// that are not their owners' has a provider to fix. See Repo.adopt for the one
+// moment an address decides anything, and for the two rules that bound it.
 func (s *Service) SignIn(ctx context.Context, subject, email, name string) (User, error) {
 	subject = strings.TrimSpace(subject)
 	email = strings.TrimSpace(email)
@@ -77,9 +83,38 @@ func (s *Service) GetBySubject(ctx context.Context, subject string) (User, error
 	return s.repo.GetBySubject(ctx, subject)
 }
 
-// List returns every user with their roles.
-func (s *Service) List(ctx context.Context) ([]User, error) {
-	return s.repo.List(ctx)
+// defaultPageSize and maxPageSize bound a listing. The default is a screenful;
+// the cap is what stops a caller asking for the whole directory in one request
+// and is generous enough that no honest client meets it.
+const (
+	defaultPageSize = 25
+	maxPageSize     = 100
+)
+
+// List returns one page of users with their roles, and the cursor for the next
+// page or "" on the last.
+//
+// A limit of zero or less takes the default, and one above the cap is clamped
+// rather than refused: the caller asked for as many as possible, and answering
+// with the most this service will give is more useful than a 400.
+//
+// A role outside the catalogue is refused rather than silently ignored: a
+// listing filtered by a role that cannot exist would answer "nobody here holds
+// that", which reads as an answer about the directory instead of about the
+// request.
+func (s *Service) List(
+	ctx context.Context, query string, role Role, limit int, cursor string,
+) ([]User, string, error) {
+	if role != "" && !ValidRole(role) {
+		return nil, "", fmt.Errorf("%w: %q is not a role", ErrInvalid, string(role))
+	}
+	switch {
+	case limit <= 0:
+		limit = defaultPageSize
+	case limit > maxPageSize:
+		limit = maxPageSize
+	}
+	return s.repo.List(ctx, strings.TrimSpace(query), role, limit, cursor)
 }
 
 // Grant gives a user a role from the catalogue, attributed to grantedBy when the
@@ -120,17 +155,14 @@ func validate(userID string, r Role) error {
 	return nil
 }
 
-// Create provisions a user an administrator named. See Repo.Create for why the
-// OIDC subject has to be supplied rather than discovered.
-func (s *Service) Create(ctx context.Context, subject, email, name string) (User, error) {
-	subject, email = strings.TrimSpace(subject), strings.TrimSpace(email)
-	if subject == "" {
-		return User{}, fmt.Errorf("%w: subject is required", ErrInvalid)
+// Create provisions a user an administrator named, by address. See Repo.Create
+// for why the OIDC subject is discovered rather than supplied.
+func (s *Service) Create(ctx context.Context, email, name string) (User, error) {
+	email = strings.TrimSpace(email)
+	if err := validAddress(email); err != nil {
+		return User{}, err
 	}
-	if email == "" {
-		return User{}, fmt.Errorf("%w: email is required", ErrInvalid)
-	}
-	u, err := s.repo.Create(ctx, subject, email, strings.TrimSpace(name))
+	u, err := s.repo.Create(ctx, email, strings.TrimSpace(name))
 	if err != nil {
 		return User{}, err
 	}
@@ -145,10 +177,11 @@ func (s *Service) Update(ctx context.Context, id, email, name string) (User, err
 	if strings.TrimSpace(id) == "" {
 		return User{}, fmt.Errorf("%w: id is required", ErrInvalid)
 	}
-	if strings.TrimSpace(email) == "" {
-		return User{}, fmt.Errorf("%w: email is required", ErrInvalid)
+	email = strings.TrimSpace(email)
+	if err := validAddress(email); err != nil {
+		return User{}, err
 	}
-	if err := s.repo.Update(ctx, id, strings.TrimSpace(email), strings.TrimSpace(name)); err != nil {
+	if err := s.repo.Update(ctx, id, email, strings.TrimSpace(name)); err != nil {
 		return User{}, err
 	}
 	return s.repo.Get(ctx, id)
@@ -167,4 +200,24 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	}
 	// Same rule as Revoke and enforced in the same place, for the same reason.
 	return s.repo.Delete(ctx, id)
+}
+
+// validAddress rejects what cannot be an address at all.
+//
+// One @ with something either side, and no spaces. Deliberately not a grammar
+// from the RFC: the authority on whether an address exists is the identity
+// provider that authenticates it, and a stricter rule here would refuse valid
+// addresses while catching nothing an administrator would actually type. What it
+// does catch is the two mistakes they do make — an empty field, and a name typed
+// into the address box.
+func validAddress(email string) error {
+	if email == "" {
+		return fmt.Errorf("%w: an email address is required", ErrInvalid)
+	}
+	local, domain, ok := strings.Cut(email, "@")
+	if !ok || local == "" || domain == "" || strings.ContainsAny(email, " \t") ||
+		strings.Contains(domain, "@") {
+		return fmt.Errorf("%w: %q is not an email address", ErrInvalid, email)
+	}
+	return nil
 }

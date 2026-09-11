@@ -117,7 +117,7 @@ func TestRolesSerializeAsAnEmptyArrayNotNull(t *testing.T) {
 	}
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -143,7 +143,7 @@ func TestGrantAndRevokeReturnTheUpdatedUser(t *testing.T) {
 	}
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -205,8 +205,9 @@ func TestHandlerStatusMapping(t *testing.T) {
 	}
 }
 
-// An empty install must answer with [] rather than null, for the same reason an
-// unroled user must.
+// An empty install must answer with an empty array rather than null, for the
+// same reason an unroled user must — and with no cursor, because there is no
+// next page to ask for.
 func TestListIsAnEmptyArrayOnAFreshInstall(t *testing.T) {
 	mux, _, _ := newTestServer(t)
 
@@ -214,16 +215,16 @@ func TestListIsAnEmptyArrayOnAFreshInstall(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /users = %d, want 200", rec.Code)
 	}
-	if got := rec.Body.String(); got != "[]\n" {
-		t.Errorf("GET /users body = %q, want an empty array", got)
+	if got := rec.Body.String(); got != "{\"items\":[]}\n" {
+		t.Errorf("GET /users body = %q, want an empty page", got)
 	}
 }
 
 // createUser posts a user and returns them, for the cases that need somebody to
 // act on.
-func createUser(t *testing.T, mux *http.ServeMux, subject, email string) Response {
+func createUser(t *testing.T, mux *http.ServeMux, email string) Response {
 	t.Helper()
-	body := `{"subject":"` + subject + `","email":"` + email + `","name":""}`
+	body := `{"email":"` + email + `","name":""}`
 	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -237,7 +238,7 @@ func createUser(t *testing.T, mux *http.ServeMux, subject, email string) Respons
 // because there was nobody to record. There is now, and it has to reach the row.
 func TestGrantIsAttributedToTheCaller(t *testing.T) {
 	mux, _, repo := newTestServer(t)
-	created := createUser(t, mux, "provider|abc", "a@example.com")
+	created := createUser(t, mux, "a@example.com")
 
 	rec := do(t, mux, http.MethodPut, "/users/"+created.ID+"/roles/"+string(RoleMonitor))
 	if rec.Code != http.StatusOK {

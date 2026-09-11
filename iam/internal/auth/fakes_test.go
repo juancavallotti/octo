@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/juancavallotti/octo/iam/internal/signing"
@@ -23,6 +24,7 @@ type memUsers struct {
 	byID      map[string]*user.User
 	bySubject map[string]string
 	roles     map[string][]user.Role
+	byEmail   map[string]string
 	next      int
 }
 
@@ -30,14 +32,35 @@ func newMemUsers() *memUsers {
 	return &memUsers{
 		byID:      map[string]*user.User{},
 		bySubject: map[string]string{},
+		byEmail:   map[string]string{},
 		roles:     map[string][]user.Role{},
 	}
 }
 
 func (m *memUsers) Admit(ctx context.Context, subject, email, name string) (user.User, bool, error) {
+	now := time.Now()
 	if id, ok := m.bySubject[subject]; ok {
 		u := m.byID[id]
-		u.Email, u.Name, u.LastLoginAt = email, name, time.Now()
+		// The address is unique in the real schema, so a refresh that would land on
+		// somebody else's is a conflict rather than a silent overwrite of their
+		// index entry.
+		if other, taken := m.byEmail[strings.ToLower(email)]; taken && other != id {
+			return user.User{}, false, user.ErrConflict
+		}
+		delete(m.byEmail, strings.ToLower(u.Email))
+		u.Email, u.Name, u.LastLoginAt = email, name, &now
+		m.byEmail[strings.ToLower(email)] = id
+		return m.mustGet(ctx, id), false, nil
+	}
+	// Adoption: the row an administrator provisioned for this address takes the
+	// subject, once.
+	if id, ok := m.byEmail[strings.ToLower(email)]; ok {
+		u := m.byID[id]
+		if u.Subject != "" && u.Subject != subject {
+			return user.User{}, false, user.ErrSubjectMismatch
+		}
+		u.Subject, u.Name, u.LastLoginAt = subject, name, &now
+		m.bySubject[subject] = id
 		return m.mustGet(ctx, id), false, nil
 	}
 	// The allowlist: a stranger is admitted only while there is no administrator
@@ -45,18 +68,25 @@ func (m *memUsers) Admit(ctx context.Context, subject, email, name string) (user
 	if n, _ := m.CountWithRole(ctx, user.RoleAdmin); n > 0 {
 		return user.User{}, false, user.ErrNotProvisioned
 	}
+	u := m.insert(subject, email, name)
+	u.LastLoginAt = &now
+	m.roles[u.ID] = []user.Role{user.RoleAdmin}
+	return m.mustGet(ctx, u.ID), true, nil
+}
+
+// insert adds a row and both indexes, which every creating path needs. The id is
+// shaped like a UUID, because the exchange puts it in a token's `sub` and a test
+// asserting on that should not be reading something that could not occur.
+func (m *memUsers) insert(subject, email, name string) *user.User {
 	m.next++
-	// Shaped like a UUID, because the exchange puts it in a token's `sub` and a
-	// test asserting on that should not be reading something that could not occur.
 	id := fmt.Sprintf("00000000-0000-0000-0000-%012d", m.next)
-	u := &user.User{
-		ID: id, Subject: subject, Email: email, Name: name,
-		CreatedAt: time.Now(), LastLoginAt: time.Now(),
-	}
+	u := &user.User{ID: id, Subject: subject, Email: email, Name: name, CreatedAt: time.Now()}
 	m.byID[id] = u
-	m.bySubject[subject] = id
-	m.roles[id] = []user.Role{user.RoleAdmin}
-	return m.mustGet(ctx, id), true, nil
+	m.byEmail[strings.ToLower(email)] = id
+	if subject != "" {
+		m.bySubject[subject] = id
+	}
+	return u
 }
 
 // mustGet reads a user back for a caller that has just written them, where a
@@ -69,19 +99,11 @@ func (m *memUsers) mustGet(ctx context.Context, id string) user.User {
 	return u
 }
 
-func (m *memUsers) Create(_ context.Context, subject, email, name string) (user.User, error) {
-	if _, taken := m.bySubject[subject]; taken {
+func (m *memUsers) Create(_ context.Context, email, name string) (user.User, error) {
+	if _, taken := m.byEmail[strings.ToLower(email)]; taken {
 		return user.User{}, user.ErrConflict
 	}
-	m.next++
-	id := fmt.Sprintf("00000000-0000-0000-0000-%012d", m.next)
-	u := &user.User{
-		ID: id, Subject: subject, Email: email, Name: name,
-		CreatedAt: time.Now(), LastLoginAt: time.Now(),
-	}
-	m.byID[id] = u
-	m.bySubject[subject] = id
-	return *u, nil
+	return *m.insert("", email, name), nil
 }
 
 func (m *memUsers) Update(_ context.Context, id, email, name string) error {
@@ -89,7 +111,12 @@ func (m *memUsers) Update(_ context.Context, id, email, name string) error {
 	if !ok {
 		return user.ErrNotFound
 	}
+	if other, taken := m.byEmail[strings.ToLower(email)]; taken && other != id {
+		return user.ErrConflict
+	}
+	delete(m.byEmail, strings.ToLower(u.Email))
 	u.Email, u.Name = email, name
+	m.byEmail[strings.ToLower(email)] = id
 	return nil
 }
 
@@ -102,6 +129,7 @@ func (m *memUsers) Delete(ctx context.Context, id string) error {
 		return user.ErrLastAdmin
 	}
 	delete(m.bySubject, u.Subject)
+	delete(m.byEmail, strings.ToLower(u.Email))
 	delete(m.byID, id)
 	delete(m.roles, id)
 	return nil
@@ -125,16 +153,18 @@ func (m *memUsers) GetBySubject(ctx context.Context, subject string) (user.User,
 	return m.Get(ctx, id)
 }
 
-func (m *memUsers) List(ctx context.Context) ([]user.User, error) {
+// List is unpaged here: these tests are about the exchange, and nothing in them
+// reads a second page.
+func (m *memUsers) List(ctx context.Context, _ string, _ user.Role, _ int, _ string) ([]user.User, string, error) {
 	out := make([]user.User, 0, len(m.byID))
 	for id := range m.byID {
 		u, err := m.Get(ctx, id)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out = append(out, u)
 	}
-	return out, nil
+	return out, "", nil
 }
 
 func (m *memUsers) Grant(_ context.Context, userID string, granted user.Role, _ *string) error {

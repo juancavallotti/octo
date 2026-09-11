@@ -2,7 +2,11 @@ package user
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +19,7 @@ import (
 type memRepo struct {
 	users     map[string]*User
 	bySubject map[string]string
+	byEmail   map[string]string
 	nextID    int
 
 	// grantedBy records who attributed each grant, keyed "userID|role". The real
@@ -30,6 +35,7 @@ func newMemRepo() *memRepo {
 	return &memRepo{
 		users:     map[string]*User{},
 		bySubject: map[string]string{},
+		byEmail:   map[string]string{},
 		grantedBy: map[string]*string{},
 	}
 }
@@ -44,10 +50,26 @@ func (m *memRepo) Admit(_ context.Context, subject, email, name string) (User, b
 	if err := m.fail(); err != nil {
 		return User{}, false, err
 	}
+	now := time.Now()
 	if id, ok := m.bySubject[subject]; ok {
 		u := m.users[id]
-		u.Email, u.Name = email, name
-		u.LastLoginAt = time.Now()
+		if other, taken := m.byEmail[lower(email)]; taken && other != id {
+			return User{}, false, ErrConflict
+		}
+		delete(m.byEmail, lower(u.Email))
+		u.Email, u.Name, u.LastLoginAt = email, name, &now
+		m.byEmail[lower(email)] = id
+		return withRoleList(*u), false, nil
+	}
+	// Adoption: the row an administrator provisioned for this address takes the
+	// subject, once.
+	if id, ok := m.byEmail[lower(email)]; ok {
+		u := m.users[id]
+		if u.Subject != "" && u.Subject != subject {
+			return User{}, false, ErrSubjectMismatch
+		}
+		u.Subject, u.Name, u.LastLoginAt = subject, name, &now
+		m.bySubject[subject] = id
 		return withRoleList(*u), false, nil
 	}
 	// The allowlist: somebody with no account is admitted only while there is no
@@ -55,17 +77,27 @@ func (m *memRepo) Admit(_ context.Context, subject, email, name string) (User, b
 	if m.countWithRole(RoleAdmin) > 0 {
 		return User{}, false, ErrNotProvisioned
 	}
-	m.nextID++
-	id := string(rune('a'+m.nextID-1)) + "0000000-0000-0000-0000-000000000000"
-	u := &User{
-		ID: id, Subject: subject, Email: email, Name: name,
-		CreatedAt: time.Now(), LastLoginAt: time.Now(),
-		Roles: []Role{RoleAdmin},
-	}
-	m.users[id] = u
-	m.bySubject[subject] = id
+	u := m.insert(subject, email, name)
+	u.LastLoginAt = &now
+	u.Roles = []Role{RoleAdmin}
 	return withRoleList(*u), true, nil
 }
+
+// insert adds a row and both indexes, which every creating path needs.
+func (m *memRepo) insert(subject, email, name string) *User {
+	m.nextID++
+	id := string(rune('a'+m.nextID-1)) + "0000000-0000-0000-0000-000000000000"
+	u := &User{ID: id, Subject: subject, Email: email, Name: name, CreatedAt: time.Now()}
+	m.users[id] = u
+	m.byEmail[lower(email)] = id
+	if subject != "" {
+		m.bySubject[subject] = id
+	}
+	return u
+}
+
+// lower matches the real schema's case-insensitive unique index on the address.
+func lower(email string) string { return strings.ToLower(email) }
 
 // countWithRole is the shared counter behind CountWithRole and the last-
 // administrator rule.
@@ -86,22 +118,14 @@ func (m *memRepo) isLastAdmin(id string) bool {
 	return ok && u.HasRole(RoleAdmin) && m.countWithRole(RoleAdmin) <= 1
 }
 
-func (m *memRepo) Create(_ context.Context, subject, email, name string) (User, error) {
+func (m *memRepo) Create(_ context.Context, email, name string) (User, error) {
 	if err := m.fail(); err != nil {
 		return User{}, err
 	}
-	if _, taken := m.bySubject[subject]; taken {
+	if _, taken := m.byEmail[lower(email)]; taken {
 		return User{}, ErrConflict
 	}
-	m.nextID++
-	id := string(rune('a'+m.nextID-1)) + "0000000-0000-0000-0000-000000000000"
-	u := &User{
-		ID: id, Subject: subject, Email: email, Name: name,
-		CreatedAt: time.Now(), LastLoginAt: time.Now(),
-	}
-	m.users[id] = u
-	m.bySubject[subject] = id
-	return *u, nil
+	return *m.insert("", email, name), nil
 }
 
 func (m *memRepo) Update(_ context.Context, id, email, name string) error {
@@ -112,7 +136,12 @@ func (m *memRepo) Update(_ context.Context, id, email, name string) error {
 	if !ok {
 		return ErrNotFound
 	}
+	if other, taken := m.byEmail[lower(email)]; taken && other != id {
+		return ErrConflict
+	}
+	delete(m.byEmail, lower(u.Email))
 	u.Email, u.Name = email, name
+	m.byEmail[lower(email)] = id
 	return nil
 }
 
@@ -128,6 +157,7 @@ func (m *memRepo) Delete(_ context.Context, id string) error {
 		return ErrLastAdmin
 	}
 	delete(m.bySubject, u.Subject)
+	delete(m.byEmail, lower(u.Email))
 	delete(m.users, id)
 	return nil
 }
@@ -164,15 +194,45 @@ func (m *memRepo) GetBySubject(_ context.Context, subject string) (User, error) 
 	return withRoleList(*m.users[id]), nil
 }
 
-func (m *memRepo) List(_ context.Context) ([]User, error) {
+// List mirrors the real one: filtered, ordered by creation, and paged by a
+// cursor naming the last row of the previous page.
+func (m *memRepo) List(_ context.Context, query string, role Role, limit int, cursor string) ([]User, string, error) {
 	if err := m.fail(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	out := make([]User, 0, len(m.users))
+	after, err := decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+
+	all := make([]User, 0, len(m.users))
 	for _, u := range m.users {
-		out = append(out, *u)
+		if query != "" && !strings.Contains(lower(u.Name+" "+u.Email), lower(query)) {
+			continue
+		}
+		if role != "" && !u.HasRole(role) {
+			continue
+		}
+		all = append(all, withRoleList(*u))
 	}
-	return out, nil
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].CreatedAt.Before(all[j].CreatedAt)
+		}
+		return all[i].ID < all[j].ID
+	})
+	if after.id != nil {
+		for i, u := range all {
+			if u.ID == *after.id {
+				all = all[i+1:]
+				break
+			}
+		}
+	}
+	if len(all) > limit {
+		return all[:limit], encodeCursor(all[limit-1].CreatedAt, all[limit-1].ID), nil
+	}
+	return all, "", nil
 }
 
 func (m *memRepo) Grant(_ context.Context, userID string, granted Role, grantedBy *string) error {
@@ -240,7 +300,7 @@ func TestSignInMakesTheFirstUserAnAdmin(t *testing.T) {
 
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -391,7 +451,7 @@ func TestRevokeRefusesToRemoveTheLastAdmin(t *testing.T) {
 	// With a second admin in place the same revocation is allowed.
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "sub-2", "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -459,7 +519,7 @@ func TestCreateProvisionsAUserWhoHasNeverSignedIn(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	u, err := svc.Create(ctx, "provider|abc", "new@example.com", "New Person")
+	u, err := svc.Create(ctx, "new@example.com", "New Person")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -472,31 +532,53 @@ func TestCreateProvisionsAUserWhoHasNeverSignedIn(t *testing.T) {
 	}
 }
 
-func TestCreateRefusesADuplicateSubject(t *testing.T) {
+func TestCreateRefusesAnAddressThatAlreadyHasAnAccount(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	if _, err := svc.Create(ctx, "provider|abc", "a@example.com", ""); err != nil {
+	if _, err := svc.Create(ctx, "a@example.com", "First"); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	// Quietly rewriting the existing account's email would be a different and much
+	// Quietly rewriting the existing account's name would be a different and much
 	// worse thing than refusing.
-	_, err := svc.Create(ctx, "provider|abc", "somebody-else@example.com", "")
+	_, err := svc.Create(ctx, "a@example.com", "Somebody Else")
 	if !errors.Is(err, ErrConflict) {
 		t.Errorf("Create() error = %v, want ErrConflict", err)
 	}
 }
 
-func TestCreateRequiresASubjectAndAnEmail(t *testing.T) {
+// The case a lower(email) index exists for: providers treat addresses
+// case-insensitively, so two rows differing only in case would make "who is this
+// address" unanswerable at exactly the moment it decides who somebody is.
+func TestCreateRefusesTheSameAddressInDifferentCase(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "Ada@Example.com", "Ada"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Create(ctx, "ada@example.com", "Ada"); !errors.Is(err, ErrConflict) {
+		t.Errorf("Create() error = %v, want ErrConflict", err)
+	}
+}
+
+// What an administrator types is an address, so what is checked is that it
+// could be one. Nothing stricter: whether it exists is the identity provider's
+// answer, not ours.
+func TestCreateRefusesWhatCannotBeAnAddress(t *testing.T) {
 	svc := NewService(newMemRepo())
 
-	for _, tt := range []struct{ name, subject, email string }{
-		{"no subject", "", "a@example.com"},
-		{"no email", "provider|abc", ""},
-		{"blank subject", "   ", "a@example.com"},
+	for _, tt := range []struct{ name, email string }{
+		{"empty", ""},
+		{"blank", "   "},
+		{"a name typed into the address box", "Ada Lovelace"},
+		{"no local part", "@example.com"},
+		{"no domain", "ada@"},
+		{"two at signs", "ada@example@com"},
+		{"a space inside", "ada @example.com"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := svc.Create(context.Background(), tt.subject, tt.email, ""); !errors.Is(err, ErrInvalid) {
+			if _, err := svc.Create(context.Background(), tt.email, ""); !errors.Is(err, ErrInvalid) {
 				t.Errorf("Create() error = %v, want ErrInvalid", err)
 			}
 		})
@@ -508,7 +590,7 @@ func TestUpdateCorrectsTheProfile(t *testing.T) {
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	created, err := svc.Create(ctx, "provider|abc", "old@example.com", "Old Name")
+	created, err := svc.Create(ctx, "old@example.com", "Old Name")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -520,10 +602,10 @@ func TestUpdateCorrectsTheProfile(t *testing.T) {
 	if u.Email != "new@example.com" || u.Name != "New Name" {
 		t.Errorf("Update() = %+v, want the new profile", u)
 	}
-	// The subject keys the row and is what the provider presents; an update must
-	// not be a way to point an account at somebody else.
-	if u.Subject != "provider|abc" {
-		t.Errorf("subject = %q, want it unchanged", u.Subject)
+	// A provisioned person has no subject until they arrive, and correcting their
+	// profile must not be a way to invent one.
+	if u.Subject != "" {
+		t.Errorf("subject = %q, want it still unset", u.Subject)
 	}
 }
 
@@ -543,7 +625,7 @@ func TestDeleteRemovesAUser(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	created, err := svc.Create(ctx, "provider|abc", "a@example.com", "")
+	created, err := svc.Create(ctx, "a@example.com", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -563,7 +645,7 @@ func TestDeleteRefusesTheLastAdmin(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	only, err := svc.Create(ctx, "provider|only", "only@example.com", "")
+	only, err := svc.Create(ctx, "only@example.com", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -576,7 +658,7 @@ func TestDeleteRefusesTheLastAdmin(t *testing.T) {
 	}
 
 	// With a second administrator in place, the first may go.
-	second, err := svc.Create(ctx, "provider|second", "second@example.com", "")
+	second, err := svc.Create(ctx, "second@example.com", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -594,14 +676,14 @@ func TestDeleteAllowsRemovingTheLastNonAdmin(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	admin, err := svc.Create(ctx, "provider|admin", "admin@example.com", "")
+	admin, err := svc.Create(ctx, "admin@example.com", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if err := svc.Grant(ctx, admin.ID, RoleAdmin, nil); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	other, err := svc.Create(ctx, "provider|other", "other@example.com", "")
+	other, err := svc.Create(ctx, "other@example.com", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -635,7 +717,7 @@ func TestSignInAdmitsSomebodyAnAdministratorCreated(t *testing.T) {
 	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
 		t.Fatalf("SignIn(first): %v", err)
 	}
-	created, err := svc.Create(ctx, "sub-2", "invited@example.com", "Invited")
+	created, err := svc.Create(ctx, "invited@example.com", "Invited")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -679,5 +761,204 @@ func TestSignInBootstrapsWhileNobodyIsAnAdministrator(t *testing.T) {
 	}
 	if !second.HasRole(RoleAdmin) {
 		t.Errorf("second user roles = %v, want the bootstrap to have made them an admin", second.Roles)
+	}
+}
+
+// The provisioning path this platform is built on: an administrator names an
+// address, and the person who turns up with it takes the row.
+func TestASignInAdoptsTheRowProvisionedForThatAddress(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	// Somebody has to be the administrator first, or the newcomer path would
+	// admit the second person as the first.
+	if _, err := svc.SignIn(ctx, "sub-admin", "admin@example.com", "Admin"); err != nil {
+		t.Fatalf("SignIn(admin): %v", err)
+	}
+	provisioned, err := svc.Create(ctx, "ada@example.com", "Ada Lovelace")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if provisioned.Subject != "" || provisioned.LastLoginAt != nil {
+		t.Fatalf("a provisioned user arrived with a subject or a login: %+v", provisioned)
+	}
+
+	arrived, err := svc.SignIn(ctx, "provider|ada", "ada@example.com", "Ada")
+	if err != nil {
+		t.Fatalf("SignIn(ada): %v", err)
+	}
+	if arrived.ID != provisioned.ID {
+		t.Errorf("id = %q, want the provisioned row %q", arrived.ID, provisioned.ID)
+	}
+	if arrived.Subject != "provider|ada" {
+		t.Errorf("subject = %q, want the one the provider presented", arrived.Subject)
+	}
+	if arrived.LastLoginAt == nil {
+		t.Error("the adopted row reports no sign-in")
+	}
+}
+
+// The address decides once. After that the subject is what the row is keyed by,
+// and a second principal presenting the same address is a different person
+// wearing a familiar name.
+func TestASecondPrincipalCannotTakeAnAdoptedRow(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.SignIn(ctx, "sub-admin", "admin@example.com", "Admin"); err != nil {
+		t.Fatalf("SignIn(admin): %v", err)
+	}
+	if _, err := svc.Create(ctx, "ada@example.com", "Ada"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.SignIn(ctx, "provider|ada", "ada@example.com", "Ada"); err != nil {
+		t.Fatalf("SignIn(ada): %v", err)
+	}
+
+	_, err := svc.SignIn(ctx, "provider|impostor", "ada@example.com", "Ada")
+	if !errors.Is(err, ErrSubjectMismatch) {
+		t.Errorf("SignIn() error = %v, want ErrSubjectMismatch", err)
+	}
+}
+
+// The directory is paged because an administrator reads it a screenful at a
+// time, and a cursor rather than an offset because rows are added and removed
+// while they read.
+func TestListPagesThroughTheDirectoryWithoutRepeatingOrSkipping(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	for i := range 5 {
+		if _, err := svc.Create(ctx, fmt.Sprintf("person-%d@example.com", i), ""); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	seen := map[string]bool{}
+	cursor := ""
+	for page := 0; ; page++ {
+		if page > 5 {
+			t.Fatal("the listing never reported a last page")
+		}
+		users, next, err := svc.List(ctx, "", "", 2, cursor)
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		for _, u := range users {
+			if seen[u.ID] {
+				t.Errorf("%s appeared on two pages", u.Email)
+			}
+			seen[u.ID] = true
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	if len(seen) != 5 {
+		t.Errorf("saw %d of 5 people", len(seen))
+	}
+}
+
+// The filter is the server's, so a page is a page of matches rather than a page
+// of everybody with the non-matches removed.
+func TestListFiltersOnNameAndAddress(t *testing.T) {
+	svc := NewService(newMemRepo())
+	ctx := context.Background()
+
+	for _, p := range [][2]string{
+		{"ada@example.com", "Ada Lovelace"},
+		{"grace@example.com", "Grace Hopper"},
+		{"alan@elsewhere.test", "Alan Turing"},
+	} {
+		if _, err := svc.Create(ctx, p[0], p[1]); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	for _, tt := range []struct {
+		query string
+		want  int
+	}{
+		{"lovelace", 1},
+		{"example.com", 2},
+		{"a", 3},
+		{"nobody", 0},
+		// A wildcard is a character somebody typed, not a pattern.
+		{"%", 0},
+	} {
+		t.Run(tt.query, func(t *testing.T) {
+			users, _, err := svc.List(ctx, tt.query, "", 25, "")
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(users) != tt.want {
+				t.Errorf("List(%q) returned %d, want %d", tt.query, len(users), tt.want)
+			}
+		})
+	}
+}
+
+// A cursor is this module's bookkeeping, and one a caller composed by hand is a
+// mistake worth reporting rather than a listing that silently starts over.
+func TestAnUnreadableCursorIsRefused(t *testing.T) {
+	svc := NewService(newMemRepo())
+
+	if _, _, err := svc.List(context.Background(), "", "", 25, "not-a-cursor"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("List() error = %v, want ErrInvalid", err)
+	}
+}
+
+// The role filter has to be the server's too, or a page is a page of everybody
+// with the non-matches taken out of it.
+func TestListFiltersByRole(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	for _, address := range []string{"a@example.com", "b@example.com"} {
+		if _, err := svc.Create(ctx, address, ""); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	people, _, err := svc.List(ctx, "", "", 25, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if err := svc.Grant(ctx, people[0].ID, RoleMonitor, nil); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+
+	monitors, _, err := svc.List(ctx, "", RoleMonitor, 25, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(monitors) != 1 || monitors[0].ID != people[0].ID {
+		t.Errorf("List(monitor) = %+v, want the one person holding it", monitors)
+	}
+}
+
+// A role that is not in the catalogue is the caller's mistake, and answering
+// "nobody holds that" would read as a fact about the directory.
+func TestListRefusesARoleOutsideTheCatalogue(t *testing.T) {
+	svc := NewService(newMemRepo())
+
+	if _, _, err := svc.List(context.Background(), "", "platform:wizard", 25, ""); !errors.Is(err, ErrInvalid) {
+		t.Errorf("List() error = %v, want ErrInvalid", err)
+	}
+}
+
+// A cursor a caller composed by hand carries an id that is not a UUID, which the
+// column it is compared against cannot parse. Refused here rather than reaching
+// Postgres, where it would come back a 500 for a value the caller supplied.
+func TestACursorNamingSomethingThatIsNotAUserIsRefused(t *testing.T) {
+	svc := NewService(newMemRepo())
+	handmade := base64.RawURLEncoding.EncodeToString([]byte("2026-01-01T00:00:00Z|abc"))
+
+	if _, _, err := svc.List(context.Background(), "", "", 25, handmade); !errors.Is(err, ErrInvalid) {
+		t.Errorf("List() error = %v, want ErrInvalid", err)
 	}
 }

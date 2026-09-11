@@ -52,7 +52,7 @@ func expired() error {
 func serviceWith(t *testing.T, m *stubMinter) (*Service, string) {
 	t.Helper()
 	repo := newMemUsers()
-	owner, err := repo.Create(context.Background(), "subject", "owner@example.com", "Owner")
+	owner, err := repo.Create(context.Background(), "owner@example.com", "Owner")
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
