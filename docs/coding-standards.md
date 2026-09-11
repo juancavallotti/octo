@@ -53,6 +53,44 @@ cannot follow a rule, document the reason in the code or the pull request.
   `runtime/.golangci.yml` draws the line at **60 lines / 45 statements** — cited
   rather than restated, so there is one number with one owner.
 
+## Comments
+
+A comment earns its place two ways, and only two:
+
+- **It makes non-obvious logic clear** — why this order, why this bound, what the
+  algorithm is doing that the code cannot say for itself.
+- **It documents the contract of the thing it is attached to** — what this
+  function, type or package does, what it takes, what it guarantees, how it fails.
+
+**Comments obey the layering policy that the code obeys.** A package is written
+without knowledge of what sits above it; its comments are written the same way. A
+comment documents the surface this unit exposes — never who calls it, never what a
+sibling component does with the result, never which deployment shape happens to be
+in front of it, and never an accommodation made for one of those. Naming your own
+route, env var or error is documenting your surface. Naming the caller on the other
+side of it is not.
+
+What is left over after that is context, and it belongs somewhere else: the commit
+message, the pull request, or `docs/`. None of those goes stale sitting next to code
+it no longer describes.
+
+**The test:** if a change that does not touch this function forces you to edit its
+comment, the comment was carrying context it should not have had. One change
+rewriting twenty comments is the symptom, and the cost is real — every one of
+those lines is a diff to review and a chance to leave a lie behind.
+
+Two habits follow. Delete a comment rather than update it when the code beneath
+now says the same thing. And never narrate the change itself ("now uses…", "no
+longer…"): the code is the current state, and git holds the previous one.
+
+**The comments already in this repository are not the model.** Most of them predate
+this rule and break it: long headers narrating deployment modes, module history and
+alternatives that were considered and dropped. Until this paragraph is removed, read
+them as debt rather than as precedent — do not mimic the shape of a neighbouring
+comment merely because it is there, and trim what you find in a file you are already
+editing. Opportunistic, not a campaign: a file you touch should come out shorter
+than it went in.
+
 ## File size and organization
 
 **A split that leaves the code harder to follow is worse than the file being

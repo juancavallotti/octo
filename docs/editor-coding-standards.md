@@ -3,7 +3,8 @@
 Conventions for the Next.js code under `apps/` (the **Octo** visual editor and its
 hosts, `apps/platform` and `apps/standalone`) and the shared `packages/`. These
 complement the Go [coding-standards.md](coding-standards.md), which points here for
-all TypeScript rather than restating any of them.
+all TypeScript rather than restating any of them. Its **Comments** section is the
+one part that governs both: it is a rule about prose, not about Go.
 
 **Only `apps/platform` and `apps/standalone` have an `eslint.config.mjs`**, so
 those are the two workspaces where the mechanical rules below are enforced in CI.
