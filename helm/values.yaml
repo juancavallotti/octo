@@ -135,16 +135,10 @@ iam:
   tokenTtl: ""
 
   # How long a signing key signs before the service replaces it, as a Go duration.
-  # Empty uses the service's default of 720h (30 days). The retired key keeps being
-  # published until every token it signed has expired, so shortening this costs
-  # nothing but a slightly larger key set.
+  # Empty uses the service's default of 720h (30 days). A retired key goes on
+  # verifying what it signed for good — a deployment's token is renewable however
+  # long ago it expired — so shortening this only makes the key set grow faster.
   keyLifetime: ""
-
-  # How long past its expiry a platform token can still be traded for a fresh one,
-  # as a Go duration. Empty uses the service's default of 10m, which is what lets
-  # somebody who stepped away from a tab come back to a working session instead of
-  # a sign-in page. Past it they sign in again.
-  refreshGrace: ""
 
   service:
     # ClusterIP only, and the template says why: this service mints platform

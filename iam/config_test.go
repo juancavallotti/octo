@@ -3,9 +3,6 @@ package main
 import (
 	"testing"
 	"time"
-
-	"github.com/juancavallotti/octo/iam/internal/auth"
-	"github.com/juancavallotti/octo/iam/internal/signing"
 )
 
 // A duration that is mistyped rather than omitted has to stop startup naming the
@@ -87,46 +84,5 @@ func clearSigningEnv(t *testing.T) {
 		"IAM_ISSUER", "IAM_AUDIENCE", "IAM_TOKEN_TTL", "IAM_KEY_LIFETIME",
 	} {
 		t.Setenv(key, "")
-	}
-}
-
-func TestRefreshGrace(t *testing.T) {
-	tests := []struct {
-		name    string
-		set     string
-		want    time.Duration
-		wantErr bool
-	}{
-		{"unset falls back to the package default", "", auth.DefaultRefreshGrace, false},
-		{"a duration is taken as given", "2m", 2 * time.Minute, false},
-		{"the keyset's own margin is the ceiling", signing.MaxRefreshGrace.String(), signing.MaxRefreshGrace, false},
-		// The likely typos: a bare number, and an English-looking unit. Both would
-		// otherwise mean something quite different from the intent, or nothing.
-		{"a bare number is refused", "600", 0, true},
-		{"an invented unit is refused", "10minutes", 0, true},
-		{"zero is refused", "0s", 0, true},
-		{"a negative duration is refused", "-1m", 0, true},
-		// Past this the keyset stops publishing the key a token was signed with
-		// while the token is still inside its window, so the promise would hold for
-		// most tokens and break for the ones minted near a rotation.
-		{"longer than the keyset can honour is refused", (signing.MaxRefreshGrace + time.Minute).String(), 0, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("IAM_REFRESH_GRACE", tt.set)
-			got, err := refreshGrace()
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("refreshGrace() = %v, want an error", got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("refreshGrace(): %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("refreshGrace() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }

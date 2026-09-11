@@ -40,11 +40,7 @@ func newHarness(t *testing.T, grace ...time.Duration) *harness {
 	if err != nil {
 		t.Fatalf("signing.NewService: %v", err)
 	}
-	window := DefaultRefreshGrace
-	if len(grace) == 1 {
-		window = grace[0]
-	}
-	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer, window)
+	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -312,7 +308,7 @@ func TestNewServiceRequiresEveryCollaborator(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := NewService(tt.verif, tt.store, tt.mint, 0); !errors.Is(err, ErrNotConfigured) {
+			if _, err := NewService(tt.verif, tt.store, tt.mint); !errors.Is(err, ErrNotConfigured) {
 				t.Errorf("NewService() error = %v, want ErrNotConfigured", err)
 			}
 		})

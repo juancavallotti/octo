@@ -174,19 +174,10 @@ func newServer(database *db.DB) (http.Handler, error) {
 		"tokenTtl", signingSvc.TokenTTL(),
 		"endpoints", "GET /.well-known/jwks.json, GET /.well-known/openid-configuration")
 
-	// Read here rather than inside newAuthService, because a malformed duration is
-	// a typo in the chart and the only thing that builder can do with an error is
-	// disable itself — which would leave the service healthy, answering 503 on
-	// sign-in, with the reason in a log line nobody is reading yet.
-	grace, err := refreshGrace()
-	if err != nil {
-		return nil, err
-	}
-
 	// The exchange itself, which needs the identity provider on top of everything
 	// above. A nil service is the "no provider configured" state; see the comment
 	// on auth.Handler for why the route is registered either way.
-	auth.NewHandler(newAuthService(userSvc, signingSvc, grace)).Register(mux)
+	auth.NewHandler(newAuthService(userSvc, signingSvc)).Register(mux)
 	slog.Info("auth routes registered",
 		"oidcIssuer", os.Getenv("OIDC_ISSUER"),
 		"endpoints", "POST /auth, POST /auth/refresh, POST /auth/machine")
@@ -208,7 +199,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 // the `/mcp` resource identifier is the other one. It is named for the platform
 // rather than for MCP — this service has no business knowing what MCP is, only
 // which audiences are this install.
-func newAuthService(users *user.Service, signer *signing.Service, grace time.Duration) *auth.Service {
+func newAuthService(users *user.Service, signer *signing.Service) *auth.Service {
 	issuer, clientID := os.Getenv("OIDC_ISSUER"), os.Getenv("OIDC_CLIENT_ID")
 	if issuer == "" || clientID == "" {
 		// Named individually, because the exchange needs both and either one
@@ -219,7 +210,7 @@ func newAuthService(users *user.Service, signer *signing.Service, grace time.Dur
 		return nil
 	}
 	audiences := acceptedAudiences(clientID, os.Getenv("IAM_ACCEPTED_AUDIENCES"))
-	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer, grace)
+	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer)
 	if err != nil {
 		// Unreachable given the guard above, and reported rather than ignored so it
 		// cannot become a silent nil if the constructor grows another requirement.

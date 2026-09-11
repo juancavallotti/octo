@@ -43,10 +43,6 @@
 - name: IAM_KEY_LIFETIME
   value: {{ . | quote }}
 {{- end }}
-{{- with .Values.iam.refreshGrace }}
-- name: IAM_REFRESH_GRACE
-  value: {{ . | quote }}
-{{- end }}
 {{- if .Values.auth.oidc.enabled }}
 {{- /*
   The identity provider whose sign-in tokens this service exchanges. The SAME two
