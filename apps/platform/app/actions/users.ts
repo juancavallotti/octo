@@ -12,22 +12,25 @@
 
 import { withAdmin } from "./_auth";
 import * as iam from "./client/iamAdmin";
-import type { PlatformUser, RoleOption, UserInput } from "./client/iam";
+import type {
+  PlatformUser,
+  RoleOption,
+  UserInput,
+  UserPage,
+  UserQuery,
+} from "./client/iam";
 import type { ActionResult } from "@octo/http";
 
-export async function listUsers(): Promise<ActionResult<PlatformUser[]>> {
-  return withAdmin(() => iam.listUsers());
+export async function listUsers(query: UserQuery): Promise<ActionResult<UserPage>> {
+  return withAdmin(() => iam.listUsers(query));
 }
 
 export async function listRoles(): Promise<ActionResult<RoleOption[]>> {
   return withAdmin(() => iam.listRoles());
 }
 
-export async function createUser(
-  subject: string,
-  input: UserInput,
-): Promise<ActionResult<PlatformUser>> {
-  return withAdmin(() => iam.createUser(subject, input));
+export async function createUser(input: UserInput): Promise<ActionResult<PlatformUser>> {
+  return withAdmin(() => iam.createUser(input));
 }
 
 export async function updateUser(

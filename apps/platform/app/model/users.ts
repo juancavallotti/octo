@@ -20,7 +20,25 @@ export interface PlatformUser {
   /** The roles they hold. Always present, empty rather than absent. */
   roles: string[];
   createdAt: string;
-  lastLoginAt: string;
+  /** Null for somebody provisioned who has never signed in. */
+  lastLoginAt: string | null;
+}
+
+/** One page of the directory, with the cursor for the next or none on the last. */
+export interface UserPage {
+  items: PlatformUser[];
+  nextCursor?: string;
+}
+
+/** Which page of the directory to read, and which people to look for. */
+export interface UserQuery {
+  /** Substring of a name or an address; empty matches everybody. */
+  q?: string;
+  /** Narrow to the people holding this role; empty matches everybody. */
+  role?: string;
+  limit?: number;
+  /** The `nextCursor` of the page before, or absent for the first. */
+  cursor?: string;
 }
 
 /** One grantable role, with the sentence iam uses to describe it. */
@@ -35,16 +53,16 @@ export interface UserInput {
   name: string;
 }
 
-export async function listUsers(): Promise<PlatformUser[]> {
-  return unwrap(await actions.listUsers());
+export async function listUsers(query: UserQuery = {}): Promise<UserPage> {
+  return unwrap(await actions.listUsers(query));
 }
 
 export async function listRoles(): Promise<RoleOption[]> {
   return unwrap(await actions.listRoles());
 }
 
-export async function createUser(subject: string, input: UserInput): Promise<PlatformUser> {
-  return unwrap(await actions.createUser(subject, input));
+export async function createUser(input: UserInput): Promise<PlatformUser> {
+  return unwrap(await actions.createUser(input));
 }
 
 export async function updateUser(id: string, input: UserInput): Promise<PlatformUser> {

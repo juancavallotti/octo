@@ -11,7 +11,13 @@
 import { requestJson, type ActionResult } from "@octo/http";
 import { currentOctoToken } from "@/app/auth/sessionCookie";
 import { iamBaseUrl, iamUnconfigured } from "../_iam";
-import type { PlatformUser, RoleOption, UserInput } from "./iam";
+import type {
+  PlatformUser,
+  RoleOption,
+  UserInput,
+  UserPage,
+  UserQuery,
+} from "./iam";
 
 //
 // Everything below is behind iam's own administrator check, and every call
@@ -25,22 +31,30 @@ export function listRoles(): Promise<ActionResult<RoleOption[]>> {
   return managed<RoleOption[]>("GET", "/roles");
 }
 
-/** Every user, oldest first — which puts whoever set the platform up at the top. */
-export function listUsers(): Promise<ActionResult<PlatformUser[]>> {
-  return managed<PlatformUser[]>("GET", "/users");
+/**
+ * One page of the directory, oldest first — which puts whoever set the platform
+ * up at the top. Filtering and paging are iam's, not this layer's: a filter
+ * applied after paging would return short pages of an unknown total.
+ */
+export function listUsers(query: UserQuery = {}): Promise<ActionResult<UserPage>> {
+  const params = new URLSearchParams();
+  if (query.q) params.set("q", query.q);
+  if (query.role) params.set("role", query.role);
+  if (query.limit != null) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
+  const qs = params.toString();
+  return managed<UserPage>("GET", qs ? `/users?${qs}` : "/users");
 }
 
 /**
- * Add somebody who has never signed in. The subject is the one their identity
- * provider will present, which an administrator reads from the provider's own
- * console — there is no way to discover it, and this platform admits only
- * provisioned users, so an account has to exist before its owner can sign in.
+ * Add somebody who has never signed in, by address.
+ *
+ * That is all it takes, because an address is all an administrator knows about a
+ * colleague who has never been here. The OIDC subject is written by that
+ * person's first sign-in, which claims this row.
  */
-export function createUser(
-  subject: string,
-  input: UserInput,
-): Promise<ActionResult<PlatformUser>> {
-  return managed<PlatformUser>("POST", "/users", { subject, ...input });
+export function createUser(input: UserInput): Promise<ActionResult<PlatformUser>> {
+  return managed<PlatformUser>("POST", "/users", input);
 }
 
 /** Correct a user's profile. The subject is not among the fields: it keys the row. */

@@ -85,7 +85,14 @@ export default function UserRow({
         )}
       </td>
       <td className="py-2 pr-4 align-top text-xs text-zinc-500">
-        {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : "never"}
+        {user.lastLoginAt ? (
+          new Date(user.lastLoginAt).toLocaleDateString()
+        ) : (
+          // They have been provisioned and have not arrived. Worth saying as a
+          // state rather than a blank, because "did my invite work" is the
+          // question this screen will be asked.
+          <span className="italic">Never</span>
+        )}
       </td>
       <td className="py-2 align-top text-right">
         <button

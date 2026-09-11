@@ -32,7 +32,25 @@ export interface PlatformUser {
   name: string;
   roles: string[];
   createdAt: string;
-  lastLoginAt: string;
+  /** Null for somebody provisioned who has never signed in. */
+  lastLoginAt: string | null;
+}
+
+/** One page of the directory, with the cursor for the next or none on the last. */
+export interface UserPage {
+  items: PlatformUser[];
+  nextCursor?: string;
+}
+
+/** Which page of the directory to read, and which people to look for. */
+export interface UserQuery {
+  /** Substring of a name or an address; empty matches everybody. */
+  q?: string;
+  /** Narrow to the people holding this role; empty matches everybody. */
+  role?: string;
+  limit?: number;
+  /** The `nextCursor` of the page before, or absent for the first. */
+  cursor?: string;
 }
 
 /**
