@@ -118,11 +118,6 @@ func newServer(database *db.DB) (http.Handler, error) {
 	userSvc := user.NewService(user.NewRepo(database.Pool()))
 	userHandler := user.NewHandler(userSvc)
 
-	// The one route that cannot ask for a token, because it is how a local run
-	// gets a user without an identity provider to get a token from.
-	userHandler.RegisterOpen(mux)
-	slog.Info("open user routes registered", "endpoints", "POST /users/bootstrap")
-
 	// The signing keyset. It needs no configuration beyond the issuer it stamps:
 	// the keypair is generated on demand, stored, shared by every replica through
 	// the database, and rotated by whichever request first finds the current one

@@ -20,7 +20,6 @@ func newTestServer(t *testing.T) (*http.ServeMux, *Service, *memRepo) {
 	svc := NewService(repo)
 	mux := http.NewServeMux()
 	handler := NewHandler(svc)
-	handler.RegisterOpen(mux)
 	// A stand-in caller rather than a real token: what a guard admits is the authz
 	// package's business and is tested there. What these cover is routing, status
 	// mapping and the wire shape, which need a principal on the request and not a

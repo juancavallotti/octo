@@ -1,18 +1,10 @@
 // Package user is the iam service's feature module for platform principals and
-// the roles granted to them. Identity originates at the OIDC provider; iam
-// bootstraps a row on first sign-in (keyed by the stable `subject`) and keeps
-// email/name in sync on later logins. The generated `id` is the durable handle
-// every other table references — api_keys, integrations.created_by — so it
-// survives the identity provider changing an account's email.
+// the roles granted to them. Identity originates at the OIDC provider; a row is
+// created on first sign-in, keyed by the stable `subject`, and email/name are
+// kept in sync on later ones. The generated `id` is the durable handle other
+// tables reference, so it survives the provider changing an account's email.
 //
-// It shares the `users` table with the orchestrator's own user module, which
-// still serves POST /users/bootstrap while the platform is pointed at it. Both
-// write the same idempotent upsert keyed on `subject`, so the two paths converge
-// on one row. The orchestrator's copy goes away in the change that moves the
-// platform onto POST /auth.
-//
-// The module follows the same repository/service/handler shape as the
-// orchestrator's feature modules.
+// There is one way in: POST /auth, which verifies the provider's token.
 package user
 
 import (
