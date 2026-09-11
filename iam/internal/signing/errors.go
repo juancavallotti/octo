@@ -16,3 +16,10 @@ var (
 	// who can do nothing differently in any of the cases.
 	ErrNotOurToken = errors.New("not a token this service minted")
 )
+
+// ErrExpired accompanies ErrNotOurToken when a token failed the expiry check and
+// nothing else. It exists so that a caller allowed to renew an expired token —
+// only auth.Service.Refresh, and only for a machine token — can tell that apart
+// from a token that was never ours. Treating it like any other error refuses the
+// token, which is the reading every other caller should take.
+var ErrExpired = errors.New("the token has expired")

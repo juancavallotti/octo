@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/juancavallotti/octo/iam/internal/signing"
@@ -26,7 +25,7 @@ type (
 	}
 	minter interface {
 		Mint(ctx context.Context, subject string, private any) (signing.Token, error)
-		Verify(ctx context.Context, raw string, allowExpiredFor time.Duration, private any) (jwt.Claims, error)
+		Verify(ctx context.Context, raw string, private any) (jwt.Claims, error)
 	}
 )
 
@@ -35,34 +34,17 @@ type Service struct {
 	verifier verifier
 	users    users
 	minter   minter
-
-	// refreshGrace is how long after expiry a platform token can still be traded
-	// for a fresh one. See Refresh.
-	refreshGrace time.Duration
 }
-
-// DefaultRefreshGrace is how long past its expiry a platform token is still
-// accepted by Refresh.
-//
-// Ten minutes, and the number is a compromise between two annoyances. Too short
-// and somebody who stepped away from a tab is signed out for it; too long and an
-// expired token stays a credential well after the moment it was supposed to stop
-// being one. The real bound on the whole chain is the session lifetime the
-// platform sets on its cookie, not this.
-const DefaultRefreshGrace = 10 * time.Minute
 
 // NewService returns a Service. Any collaborator being absent is ErrNotConfigured
 // rather than a nil dereference later: the exchange needs all three, and an
 // install missing the identity provider is a supported way to run — it simply
 // cannot mint.
-func NewService(v verifier, u users, m minter, refreshGrace time.Duration) (*Service, error) {
+func NewService(v verifier, u users, m minter) (*Service, error) {
 	if v == nil || u == nil || m == nil {
 		return nil, ErrNotConfigured
 	}
-	if refreshGrace <= 0 {
-		refreshGrace = DefaultRefreshGrace
-	}
-	return &Service{verifier: v, users: u, minter: m, refreshGrace: refreshGrace}, nil
+	return &Service{verifier: v, users: u, minter: m}, nil
 }
 
 // platformClaims is what a platform token carries beyond the registered claims
@@ -133,11 +115,12 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 // the platform" rather than what it says.
 func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) {
 	var private platformClaims
-	claims, err := s.minter.Verify(ctx, rawToken, s.refreshGrace, &private)
-	if err != nil {
-		// Only a token this service did not mint, or minted too long ago, is the
-		// caller's problem. Verify also reads the keyset from the database on its
-		// way through, and that failing says nothing at all about the token.
+	claims, err := s.minter.Verify(ctx, rawToken, &private)
+	if err != nil && !renewableWhileExpired(err, private) {
+		// Only a token this service did not mint — or a person's, minted too long
+		// ago — is the caller's problem. Verify also reads the keyset from the
+		// database on its way through, and that failing says nothing at all about
+		// the token, so it must not be answered as though the token were bad.
 		if errors.Is(err, signing.ErrNotOurToken) {
 			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 		}
@@ -185,6 +168,20 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 		return Result{}, err
 	}
 	return Result{Token: token, User: u}, nil
+}
+
+// renewableWhileExpired reports whether an otherwise-good token may be renewed
+// despite having expired.
+//
+// Only a machine token, and always. It is a deployment's standing credential
+// rather than a session: a pod that has been idle or switched off for a month
+// must still be able to trade its token in, and an expiry it cannot act on would
+// strand it with no way back. Every other check stood — the signature, the
+// issuer, the audience — so this forgives an old token, never a forged one.
+//
+// A person's token is not renewable once expired. They sign in again.
+func renewableWhileExpired(err error, private platformClaims) bool {
+	return errors.Is(err, signing.ErrExpired) && private.Deployment != ""
 }
 
 // mint stamps a platform token for u. Shared by the exchange and the refresh so
@@ -283,7 +280,7 @@ func (s *Service) mintMachine(
 // which any person ever authorised.
 func (s *Service) owner(ctx context.Context, rawToken string) (user.User, error) {
 	var claims platformClaims
-	verified, err := s.minter.Verify(ctx, rawToken, 0, &claims)
+	verified, err := s.minter.Verify(ctx, rawToken, &claims)
 	if err != nil {
 		return user.User{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 	}

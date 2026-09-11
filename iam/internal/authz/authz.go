@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/go-jose/go-jose/v4/jwt"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
@@ -26,7 +25,7 @@ import (
 // verifier is the one thing this needs from the keyset, declared here in the
 // consumer so the guard can be tested without one. *signing.Service satisfies it.
 type verifier interface {
-	Verify(ctx context.Context, raw string, allowExpiredFor time.Duration, private any) (jwt.Claims, error)
+	Verify(ctx context.Context, raw string, private any) (jwt.Claims, error)
 }
 
 // Principal is who a verified token speaks for.
@@ -72,7 +71,7 @@ func Require(v verifier, roles ...string) func(http.Handler) http.Handler {
 			}
 
 			var private principalClaims
-			claims, err := v.Verify(r.Context(), token, 0, &private)
+			claims, err := v.Verify(r.Context(), token, &private)
 			if err != nil {
 				// Logged in full, answered in one word — the reason a token failed is
 				// a hint to whoever is guessing at one.

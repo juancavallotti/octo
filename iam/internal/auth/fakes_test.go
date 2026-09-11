@@ -213,14 +213,9 @@ func (m *memKeys) Current(_ context.Context, now time.Time) (signing.Key, error)
 	return best, nil
 }
 
-func (m *memKeys) Verifiers(_ context.Context, now time.Time) ([]signing.Key, error) {
-	out := make([]signing.Key, 0, len(m.keys))
-	for _, k := range m.keys {
-		if k.ExpiresAt.After(now) {
-			out = append(out, k)
-		}
-	}
-	return out, nil
+func (m *memKeys) Verifiers(_ context.Context, _ time.Time) ([]signing.Key, error) {
+	// Every key, however old: a key goes on verifying what it signed for good.
+	return append([]signing.Key(nil), m.keys...), nil
 }
 
 func (m *memKeys) Rotate(

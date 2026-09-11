@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/go-jose/go-jose/v4/jwt"
 
@@ -25,25 +24,25 @@ import (
 // a moment's trouble at Postgres into an installation-wide sign-out — every
 // session that happened to be inside its renewal window at the time.
 
-// stubMinter answers Verify with whatever the case set up.
-type stubMinter struct{ err error }
+// taxonomyMinter answers Verify with whatever the case set up.
+type taxonomyMinter struct{ err error }
 
-func (s stubMinter) Mint(context.Context, string, any) (signing.Token, error) {
+func (s taxonomyMinter) Mint(context.Context, string, any) (signing.Token, error) {
 	return signing.Token{}, nil
 }
 
-func (s stubMinter) Verify(context.Context, string, time.Duration, any) (jwt.Claims, error) {
+func (s taxonomyMinter) Verify(context.Context, string, any) (jwt.Claims, error) {
 	return jwt.Claims{Subject: "user-1"}, s.err
 }
 
-// stubUsers answers Get with whatever the case set up.
-type stubUsers struct{ err error }
+// taxonomyUsers answers Get with whatever the case set up.
+type taxonomyUsers struct{ err error }
 
-func (s stubUsers) SignIn(context.Context, string, string, string) (user.User, error) {
+func (s taxonomyUsers) SignIn(context.Context, string, string, string) (user.User, error) {
 	return user.User{}, nil
 }
 
-func (s stubUsers) Get(context.Context, string) (user.User, error) {
+func (s taxonomyUsers) Get(context.Context, string) (user.User, error) {
 	return user.User{ID: "user-1"}, s.err
 }
 
@@ -83,9 +82,8 @@ func TestRefreshTellsABadTokenFromAServiceThatCannotAnswer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := &Service{
-				minter:       stubMinter{err: tt.minter},
-				users:        stubUsers{err: tt.users},
-				refreshGrace: DefaultRefreshGrace,
+				minter: taxonomyMinter{err: tt.minter},
+				users:  taxonomyUsers{err: tt.users},
 			}
 			_, err := svc.Refresh(context.Background(), "a.b.c")
 			if !errors.Is(err, tt.want) {

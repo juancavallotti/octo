@@ -30,12 +30,6 @@ const (
 	// setting: a second would have to be verifiable everywhere the first is, for
 	// no gain that anyone has asked for.
 	signingAlgorithm = string(jose.ES256)
-
-	// gracePeriod is how much longer than one token lifetime a retired key stays
-	// published. Without it a token minted in the last instant before rotation
-	// would expire exactly as its key stopped verifying, which is a race decided
-	// by clock skew between two machines.
-	gracePeriod = time.Hour
 )
 
 // repository is the persistence surface the service needs. Declared in the
@@ -165,23 +159,19 @@ func (s *Service) Mint(ctx context.Context, subject string, private any) (Token,
 // the identity provider. Verifying our own signature is how we know the caller
 // once held a real session, and the subject is how we find whose it was.
 //
-// allowExpiredFor is the window past `exp` in which a token is still good enough
-// to trade in. Zero means "must still be valid". It is a deliberate widening and
-// the reason it is a parameter rather than a constant: the only caller that may
-// pass a non-zero value is the refresh, and a reader of any other call site can
-// see at a glance that it does not.
+// Every check is strict, expiry included: another issuer, another audience, or a
+// signature no published key verifies is not our token and never becomes one.
 //
-// Everything except expiry is checked strictly. A token from another issuer, for
-// another audience, or signed by a key we never published is not ours, and no
-// window makes it ours.
+// A token that fails only the expiry check comes back with its claims populated
+// and an error carrying ErrExpired, so a caller entitled to renew an expired
+// token can tell it from a forged one — see auth.Service.Refresh, where a machine
+// token is exactly that.
 //
 // private, when non-nil, is unmarshalled from the same verified payload — the
 // mirror of Mint's argument of the same name, so what one side stamps the other
 // reads back through the same door. Passing nil asks for the registered claims
 // alone.
-func (s *Service) Verify(
-	ctx context.Context, raw string, allowExpiredFor time.Duration, private any,
-) (jwt.Claims, error) {
+func (s *Service) Verify(ctx context.Context, raw string, private any) (jwt.Claims, error) {
 	parsed, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
 	if err != nil {
 		return jwt.Claims{}, fmt.Errorf("%w: %w", ErrNotOurToken, err)
@@ -225,9 +215,14 @@ func (s *Service) Verify(
 	}
 	// The only horizon the window moves. A token that died inside it still reads
 	// as live here and nowhere else.
-	if deadline := claims.Expiry.Time().Add(allowExpiredFor + clockSkew); now.After(deadline) {
-		return jwt.Claims{}, fmt.Errorf("%w: the token expired at %s, beyond the %s that can be "+
-			"traded for a fresh one", ErrNotOurToken, claims.Expiry.Time().UTC(), allowExpiredFor)
+	if deadline := claims.Expiry.Time().Add(clockSkew); now.After(deadline) {
+		// The claims come back populated alongside the error, and the error carries
+		// ErrExpired as well as ErrNotOurToken. A caller that treats every error the
+		// same refuses the token, which is the safe reading; one that is entitled to
+		// forgive an expiry — see auth.Service.Refresh and machine tokens — can tell
+		// this apart from a bad signature without parsing the token itself.
+		return claims, fmt.Errorf("%w: the token expired at %s: %w",
+			ErrNotOurToken, claims.Expiry.Time().UTC(), ErrExpired)
 	}
 	return claims, nil
 }
@@ -264,17 +259,6 @@ func (s *Service) claimsFromAnyKey(
 // and a token rejected for being from the future is the least diagnosable
 // possible failure.
 const clockSkew = 30 * time.Second
-
-// MaxRefreshGrace is the longest a caller may ask Verify to forgive an expiry.
-//
-// It is gracePeriod because that is exactly the slack the keyset leaves. A key
-// stays published until retire_after + TokenTTL + gracePeriod, and a token minted
-// the moment before retirement expires at retire_after + TokenTTL — so an expired
-// token has gracePeriod left before the key that signed it stops being published
-// and it can no longer be verified at all. A window longer than that would be a
-// promise the keyset does not keep, failing only for the unlucky tokens near a
-// rotation.
-const MaxRefreshGrace = gracePeriod
 
 // JWKS returns the public half of every key that has not expired, as the document
 // served at /.well-known/jwks.json. Retired keys are in it on purpose: they no
@@ -356,7 +340,6 @@ func (s *Service) generate(now time.Time) (Key, error) {
 		// One token lifetime past retirement, plus a margin: the last token this
 		// key signs is minted an instant before retireAfter and lives a full TTL
 		// beyond that.
-		ExpiresAt: retireAfter.Add(s.cfg.TokenTTL + gracePeriod),
 	}, nil
 }
 

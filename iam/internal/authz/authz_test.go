@@ -3,13 +3,15 @@ package authz
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-jose/go-jose/v4/jwt"
+
+	"github.com/juancavallotti/octo/iam/internal/signing"
 )
 
 // fakeVerifier stands in for the keyset: it answers with whatever the case set
@@ -19,16 +21,11 @@ type fakeVerifier struct {
 	claims jwt.Claims
 	roles  []string
 	err    error
-
-	// window records the grace the guard asked for, so a case can assert it asked
-	// for none.
-	window time.Duration
 }
 
 func (f *fakeVerifier) Verify(
-	_ context.Context, _ string, allowExpiredFor time.Duration, private any,
+	_ context.Context, _ string, private any,
 ) (jwt.Claims, error) {
-	f.window = allowExpiredFor
 	if f.err != nil {
 		return jwt.Claims{}, f.err
 	}
@@ -135,16 +132,15 @@ func TestRequireRefusesAMissingOrUnusableToken(t *testing.T) {
 	})
 }
 
-// An expired token is a credential for renewing itself at POST /auth/refresh and
-// for nothing else. Allowing a window here would make every management route
-// accept a token ten minutes after it died.
-func TestRequireAllowsNoGraceWindow(t *testing.T) {
-	v := &fakeVerifier{claims: jwt.Claims{Subject: "user-1"}, roles: []string{"platform:admin"}}
+// An expired token renews itself at POST /auth/refresh and does nothing else.
+// The refresh forgives a machine token's expiry; this must not, or every
+// management route would accept a credential after it died.
+func TestRequireRefusesAnExpiredToken(t *testing.T) {
+	v := &fakeVerifier{err: fmt.Errorf("%w: %w", signing.ErrNotOurToken, signing.ErrExpired)}
 	h, _ := guarded(v, "platform:admin")
 
-	call(h, "Bearer good")
-	if v.window != 0 {
-		t.Errorf("the guard asked for %s of grace, want none", v.window)
+	if rec := call(h, "Bearer expired"); rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d for an expired token, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 
