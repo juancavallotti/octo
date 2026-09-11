@@ -10,6 +10,8 @@ import {
 } from "@octo/editor";
 import { subscribeIntegrationEvents } from "@octo/events";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
+import { useRoles } from "@/app/auth/RolesContext";
+import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
 import { bffRunTransport } from "@/app/run/transport";
 import { bffDevEnvStore } from "@/app/run/devEnvStore";
@@ -49,6 +51,15 @@ export default function PlatformEditor({
   setCapabilities(capabilities);
 
   const { available } = useOrchestrator();
+  const { can } = useRoles();
+  // Read-only rather than absent, for somebody who may open an integration and
+  // not change it. Absent would take the Testing tab and the resource panels with
+  // it, and the point is that they can look.
+  const fs = available
+    ? can.build
+      ? orchestratorFileSystem
+      : { ...orchestratorFileSystem, readOnly: CAPABILITY_REASONS.build }
+    : null;
   // The authoritative integration id: seeded from the route and updated on save
   // (the first save mints it). TagForm reads it through getIntegrationId so it
   // never tags against a stale id captured before the save resolved.
@@ -95,7 +106,7 @@ export default function PlatformEditor({
         </DocumentRename>
       }
       consoleActions={mcpUrl ? <CopyMcpUrlButton url={mcpUrl} /> : undefined}
-      fs={available ? orchestratorFileSystem : null}
+      fs={fs}
       run={bffRunTransport}
       devEnv={available ? bffDevEnvStore : null}
       resources={available ? resourceStore : null}

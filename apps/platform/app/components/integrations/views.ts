@@ -8,7 +8,9 @@ import {
   Network,
   ScrollText,
   Waypoints,
+  type LucideIcon,
 } from "lucide-react";
+import type { Capabilities } from "@/app/auth/capabilities";
 
 /**
  * The top-level sections of the platform, each its own route. Kept in a plain
@@ -17,8 +19,18 @@ import {
  * nav renders next to its label (matching the dashboard shortcut icons). Rendered
  * in the shared header on every signed-in page so the bar stays put as you move
  * between sections.
+ *
+ * `requires` names the capability a section is worthless without — a page whose
+ * every request would be refused. Sections with none are open to anyone signed
+ * in, which is most of them: reading what is running here is not a privilege.
  */
-export const MANAGEMENT_SECTIONS = [
+export const MANAGEMENT_SECTIONS: readonly {
+  key: string;
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  requires?: keyof Capabilities;
+}[] = [
   {
     key: "dashboard",
     label: "Dashboard",
@@ -61,11 +73,12 @@ export const MANAGEMENT_SECTIONS = [
     label: "Secrets",
     href: "/platform/secrets",
     icon: KeyRound,
+    // The whole page is administrators', reads included: these are the
+    // installation's own credentials, and its list of them is as telling as their
+    // values.
+    requires: "administer",
   },
   { key: "queues", label: "Queues", href: "/platform/queues", icon: Network },
   { key: "logs", label: "Logs", href: "/platform/logs", icon: ScrollText },
   { key: "traces", label: "Traces", href: "/platform/traces", icon: Waypoints },
-] as const;
-
-export type ManagementSection = (typeof MANAGEMENT_SECTIONS)[number];
-export type ManagementSectionKey = ManagementSection["key"];
+];

@@ -7,6 +7,8 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
+import { useRoles } from "@/app/auth/RolesContext";
+import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import type { Deployment } from "@/app/model/orchestrator";
 import ReplicaStepper from "./ReplicaStepper";
 import { relativeAge } from "@/app/lib/relativeAge";
@@ -49,6 +51,10 @@ export default function DeploymentRow({
   /** Open the dockable log panel tailing a specific pod of this deployment. */
   onOpenLogs?: (d: Deployment, podName: string) => void;
 }) {
+  const { can } = useRoles();
+  // Disabled rather than hidden: the row is a read anyone may have, and controls
+  // that vanish read as a broken page rather than as a permission not held.
+  const denied = can.deploy ? undefined : CAPABILITY_REASONS.deploy;
   const age = relativeAge(d.createdAt);
   const restarts = totalRestarts(d);
   const desired = d.desiredReplicas || d.replicas;
@@ -67,7 +73,7 @@ export default function DeploymentRow({
         </span>
         <ReplicaStepper
           desired={desired}
-          busy={busy}
+          busy={busy || !can.deploy}
           onScale={(n) => onScale(d, n)}
         />
         <span className="text-xs text-zinc-500">
@@ -98,9 +104,9 @@ export default function DeploymentRow({
           {onOpenRollout && (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || !can.deploy}
               onClick={() => onOpenRollout(d)}
-              title="Change version or environment"
+              title={denied ?? "Change version or environment"}
               aria-label="Roll out"
               className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-white/[0.08] dark:hover:text-zinc-300"
             >
@@ -110,7 +116,8 @@ export default function DeploymentRow({
           <button
             type="button"
             onClick={() => onUndeploy(d)}
-            disabled={busy}
+            disabled={busy || !can.deploy}
+            title={denied ?? "Undeploy"}
             aria-label="Undeploy"
             className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
           >

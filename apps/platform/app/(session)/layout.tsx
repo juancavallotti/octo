@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { RolesProvider } from "@/app/auth/RolesContext";
+import { writeRoles } from "@/app/auth/guard";
 import AgentChatLauncher from "@/app/components/agent/AgentChatLauncher";
 
 /**
@@ -31,8 +32,12 @@ export default async function SessionLayout({
   // resumed by whoever signs in next on a shared machine. The identity the agent
   // actually trusts is read server-side by the chat route.
   const userKey = session.user.id ?? session.user.email ?? "user";
+  const roles = session.user.roles ?? [];
   return (
-    <RolesProvider roles={session.user.roles ?? []}>
+    <RolesProvider
+      roles={roles}
+      mayWrite={roles.some((role) => writeRoles.includes(role))}
+    >
       <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>
     </RolesProvider>
   );

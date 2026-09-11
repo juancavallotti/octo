@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Rocket } from "lucide-react";
 import { useSave } from "@octo/editor";
+import { useRoles } from "@/app/auth/RolesContext";
+import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import {
   createDeployment,
   createSnapshot,
@@ -38,6 +40,7 @@ export default function DeployButton({
   getIntegrationId: () => string | null;
 }) {
   const save = useSave();
+  const { can } = useRoles();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The rollout dialog's context (live deployments to choose among). Null when closed.
@@ -135,8 +138,14 @@ export default function DeployButton({
       <button
         type="button"
         onClick={begin}
-        disabled={save.empty || busy}
-        title={save.empty ? "Nothing to deploy yet" : "Deploy this integration"}
+        disabled={save.empty || busy || !can.deploy}
+        title={
+          !can.deploy
+            ? CAPABILITY_REASONS.deploy
+            : save.empty
+              ? "Nothing to deploy yet"
+              : "Deploy this integration"
+        }
         className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
       >
         <Rocket size={14} />

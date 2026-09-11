@@ -11,6 +11,8 @@ import {
 } from "@/app/model/orchestrator";
 import { downloadResource } from "./files";
 import ResourceUploadForm from "./ResourceUploadForm";
+import { useRoles } from "@/app/auth/RolesContext";
+import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import { fromFrozen, fromLive, type DisplayResource } from "./resources";
 
 /**
@@ -39,6 +41,7 @@ export default function ResourcesSection({
   versionLabel?: string;
 }) {
   const confirm = useConfirm();
+  const { can } = useRoles();
   const frozen = snapshotId != null;
   const [resources, setResources] = useState<DisplayResource[]>([]);
   const [busy, setBusy] = useState(false);
@@ -109,6 +112,11 @@ export default function ResourcesSection({
           Frozen at {versionLabel ?? "this version"} — read-only. Select
           “Current” to edit.
         </p>
+      ) : !can.build ? (
+        <p className="mb-2 flex items-center gap-1.5 text-xs text-zinc-400">
+          <Lock size={12} className="shrink-0" />
+          Read-only. {CAPABILITY_REASONS.build} to add or remove resources.
+        </p>
       ) : (
         <ResourceUploadForm
           integrationId={integrationId}
@@ -148,7 +156,7 @@ export default function ResourcesSection({
               >
                 <Download size={13} />
               </button>
-              {!frozen && (
+              {!frozen && can.build && (
                 <button
                   type="button"
                   onClick={() => remove(r)}

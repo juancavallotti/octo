@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy } from "lucide-react";
 import { useSave } from "@octo/editor";
+import { useRoles } from "@/app/auth/RolesContext";
+import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import { createIntegration, getIntegration } from "@/app/model/orchestrator";
 
 /**
@@ -26,6 +28,7 @@ export default function DuplicateMenuItem({
   onDone?: () => void;
 }) {
   const save = useSave();
+  const { can } = useRoles();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -57,8 +60,14 @@ export default function DuplicateMenuItem({
     <button
       type="button"
       onClick={duplicate}
-      disabled={save.empty || busy}
-      title={save.empty ? "Nothing to duplicate yet" : "Duplicate this integration"}
+      disabled={save.empty || busy || !can.build}
+      title={
+        !can.build
+          ? CAPABILITY_REASONS.build
+          : save.empty
+            ? "Nothing to duplicate yet"
+            : "Duplicate this integration"
+      }
       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-black/[0.04] disabled:opacity-50 dark:hover:bg-white/[0.06]"
     >
       <Copy size={15} className="shrink-0 text-zinc-400" />

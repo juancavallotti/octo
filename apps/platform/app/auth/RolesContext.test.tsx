@@ -16,7 +16,7 @@ function Probe() {
 
 function renderWith(roles: string[]) {
   render(
-    <RolesProvider roles={roles}>
+    <RolesProvider roles={roles} mayWrite>
       <Probe />
     </RolesProvider>,
   );

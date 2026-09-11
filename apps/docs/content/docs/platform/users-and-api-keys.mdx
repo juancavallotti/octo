@@ -83,6 +83,14 @@ Sign-in exchanges the provider's token for one this platform signed, carrying th
 
 There are no per-integration permissions yet. The `platform:` prefix is there to leave room for them.
 
+### What the screens do with a role
+
+The UI reflects the same split the servers enforce, and reflects it only — every decision with a consequence is made on the server, and nothing here is a control.
+
+- **Controls are disabled, with a title saying which role is missing.** Deploy, roll out, scale and undeploy want Operator; creating, importing, duplicating, deleting and saving an integration want Developer or Operator. They stay visible because they sit on pages anybody signed in may read, and a header that quietly loses its buttons reads as a broken page rather than as a permission not held.
+- **Sections are hidden.** Secrets is administrators only, reads included, so the tab and the dashboard shortcut are left out for everybody else rather than shown leading to a refusal.
+- **The editor opens read-only.** Somebody without Developer or Operator can open an integration, read it, and browse its resources; Save is disabled and says why.
+
 ## API keys
 
 API keys are per-user bearer tokens for programmatic access, kept for the coming CLI. They are not accepted at `/mcp`.

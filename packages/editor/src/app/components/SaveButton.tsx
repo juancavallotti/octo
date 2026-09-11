@@ -18,7 +18,14 @@ import { useSave } from "../save/SaveContext";
  * A failure goes to the Problems tab with the validation issues, where it is one
  * of the things standing between this document and a run — and where it has a
  * badge, a place to sit, and room for a sentence. See LogPanel.
+ *
+ * A backend that declines writes disables it with that backend's own sentence as
+ * the title, rather than hiding it: the document still loads and reads, and a
+ * header that has silently lost its Save reads as a broken editor.
  */
+/** Ties the button to the sentence explaining why it is disabled. */
+const REASON_ID = "save-read-only-reason";
+
 export default function SaveButton() {
   const ctl = useSave();
   const { state } = useEditorState();
@@ -26,27 +33,40 @@ export default function SaveButton() {
   // No save controller => no filesystem capability => render nothing.
   if (!ctl) return null;
 
-  const { save, busy, blocked, empty, saved } = ctl;
-  const title = empty
-    ? "Nothing to save yet"
-    : saved
-      ? "No changes to save"
-      : state.integration.id
-        ? "Save changes (⌘/Ctrl+S)"
-        : "Save as a new integration (⌘/Ctrl+S)";
+  const { save, busy, blocked, empty, saved, readOnly } = ctl;
+  const title = readOnly
+    ? readOnly
+    : empty
+      ? "Nothing to save yet"
+      : saved
+        ? "No changes to save"
+        : state.integration.id
+          ? "Save changes (⌘/Ctrl+S)"
+          : "Save as a new integration (⌘/Ctrl+S)";
 
   return (
-    <button
-      type="button"
-      // Wrapped rather than passed: save() takes options now, and a click event
-      // is not one of them.
-      onClick={() => void save()}
-      disabled={busy || blocked}
-      title={title}
-      className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <Save className="h-3.5 w-3.5" />
-      Save
-    </button>
+    <>
+      <button
+        type="button"
+        // Wrapped rather than passed: save() takes options now, and a click event
+        // is not one of them.
+        onClick={() => void save()}
+        disabled={busy || blocked}
+        title={title}
+        aria-describedby={readOnly ? REASON_ID : undefined}
+        className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Save className="h-3.5 w-3.5" />
+        Save
+      </button>
+      {/* A disabled button cannot take keyboard focus and a title is not
+          reachable by touch, so the one reason a person cannot act on by
+          editing is said where a screen reader will find it. */}
+      {readOnly && (
+        <span id={REASON_ID} className="sr-only">
+          {readOnly}
+        </span>
+      )}
+    </>
   );
 }
