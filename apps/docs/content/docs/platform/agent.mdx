@@ -143,7 +143,9 @@ Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him 
 
 His `observability_api` tool is a second, independent boundary on a different connector with a different `baseURL`, so narrowing one does nothing to the other. It ships with `allowMethods: [GET]`, and that line matters: the observability API also serves `PUT /settings/retention` and `POST /retention/run`, so without it he could change the retention policy or run a sweep. The `alerts_api` tool on the same connector allows GET, POST, PUT and DELETE but is bounded by `pathPrefix` to `/alerts`, so he can create and edit watches and nothing else on that service.
 
-To take the observability address away, untick the observability grant and roll out; he will say so when asked. That withholds the address rather than the reach: the observability API [performs no authentication](/platform/deployments#platform-access), and `http_fetch` reaches any address his pod can, so if stored logs and traces must be out of his reach entirely, delete `http_fetch` as well.
+To take the observability address away, untick the observability grant and roll out; he will say so when asked.
+
+What those tools spend is the token of whoever is chatting, not his pod's, so what he can read there is what that person can read in the Traces view — and an administrator asking him to change the retention policy would succeed where a monitor asking the same thing gets a refusal he reports as one. `http_fetch` reaches any address his pod can, but it carries no credential, so it reads nothing from a service that wants one.
 
 ### The command tools are a different kind of thing
 

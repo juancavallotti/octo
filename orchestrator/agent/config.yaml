@@ -1950,6 +1950,7 @@ flows:
                         path: body.path
                         allowMethods: [GET]
                         query: 'has(body.query) ? body.query : {}'
+                        headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
                         failOnError: false
                 else:
                   process:
@@ -1999,6 +2000,7 @@ flows:
                         allowMethods: [GET, POST, PUT, DELETE]
                         query: 'has(body.query) ? body.query : {}'
                         body: 'has(body.body) ? body.body : {}'
+                        headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
                         failOnError: false
                 else:
                   process:
