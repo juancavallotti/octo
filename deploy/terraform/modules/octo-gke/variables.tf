@@ -117,15 +117,9 @@ variable "cloudsql_tier" {
 # destroy/recreate cycle: the database that their ciphertext and sessions belong
 # to goes with the cluster. See random_password.auth_secret in main.tf.
 
-variable "oidc_enabled" {
-  type        = bool
-  description = "Require OIDC single sign-on to reach the editor. Off by default, which suits a cluster that exists for an afternoon — but it means anyone who can resolve the hostname gets in, so turn it on for anything left standing on a public domain. Needs oidc_client_id and oidc_client_secret; with those empty the editor comes up asking for a login it cannot complete."
-  default     = false
-}
-
 variable "oidc_issuer" {
   type        = string
-  description = "OIDC issuer URL of your identity provider (OIDC_ISSUER) — the base its .well-known/openid-configuration hangs off. Any OIDC provider works."
+  description = "OIDC issuer URL of your identity provider (OIDC_ISSUER) — the base its .well-known/openid-configuration hangs off. Any OIDC provider works. Required: signing in is how anybody reaches the editor, and the chart refuses to render without it."
   default     = ""
 }
 

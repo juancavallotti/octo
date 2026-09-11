@@ -283,12 +283,6 @@ variable "atomic" {
 
 # --- OIDC SSO ---
 
-variable "oidc_enabled" {
-  type        = bool
-  description = "Enable OIDC SSO in the chart (creates the auth Secret + editor env)."
-  default     = false
-}
-
 variable "oidc_issuer" {
   type        = string
   description = "OIDC issuer URL of your identity provider (OIDC_ISSUER) — the base its .well-known/openid-configuration hangs off. Any OIDC provider works."
@@ -309,7 +303,7 @@ variable "oidc_provider_name" {
 
 variable "auth_existing_secret" {
   type        = string
-  description = "Name of a Secret holding BOTH the OIDC client secret and the Auth.js session secret (chart value auth.existingSecret). Required in practice when oidc_enabled is true: the chart refuses to render an SSO install with neither this nor the inline values, and the inline values are not something this module will pass."
+  description = "Name of a Secret holding BOTH the OIDC client secret and the Auth.js session secret (chart value auth.existingSecret). Required in practice: the chart refuses to render an install with neither this nor the inline values, and the inline values are not something this module will pass."
   default     = ""
 }
 

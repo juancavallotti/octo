@@ -41,21 +41,20 @@ apps_domain      = "gke.octopaas.dev"       # {slug}.{apps_domain}; wildcard cer
 # external_database = false
 # cloudsql_tier     = "db-g1-small"
 
-# --- Editor sign-in ---
-# Off by default, which means the editor is reachable by anyone who can resolve the
-# hostname above. Register https://{domain}/api/auth/callback/oidc as the redirect
-# URI with the IdP before turning this on, or the sign-in round trip fails at the
-# callback.
+# --- Editor sign-in (required) ---
+# Signing in is how anybody reaches the editor; there is no open mode, and the
+# chart refuses to render without these three. Register
+# https://{domain}/api/auth/callback/oidc as the redirect URI with the IdP first,
+# or the sign-in round trip fails at the callback.
 #
 # The Auth.js session secret and the KV secret-namespace encryption key are NOT set
 # here — Terraform mints both per cluster and holds them in state, so secret KV
 # namespaces work on a fresh cluster with nothing to configure.
-# oidc_enabled       = true
-# oidc_client_id     = "xxxxxxxxxxxxxxxxxxxxxxxx"
-# oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-# oidc_issuer        = "https://idp.example.com" # your OIDC provider
+oidc_client_id     = "xxxxxxxxxxxxxxxxxxxxxxxx"
+oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+oidc_issuer        = "https://idp.example.com" # your OIDC provider
 # oidc_provider_name = "Keycloak"                # sign-in button label; empty = "OIDC"
-# oidc_write_roles   = ""                        # e.g. "admin,operator"; empty = any signed-in user
+# oidc_write_roles   = ""  # e.g. "platform:admin,platform:operator"; empty = every role but platform:monitor
 
 # --- Cost / production toggles (defaults are the cheap, disposable choices) ---
 # machine_type        = "e2-standard-2"

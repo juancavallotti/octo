@@ -85,12 +85,6 @@ variable "kubeconfig" {
 
 # --- OIDC SSO ---
 
-variable "oidc_enabled" {
-  type        = bool
-  description = "Enable OIDC single sign-on for the editor."
-  default     = false
-}
-
 variable "oidc_issuer" {
   type        = string
   description = "OIDC issuer URL of your identity provider (OIDC_ISSUER) — the base its .well-known/openid-configuration hangs off. Any OIDC provider works."
