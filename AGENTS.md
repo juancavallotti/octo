@@ -38,6 +38,12 @@ Required reading:
   [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md) — which is
   the policy; this is a pointer to it, not a second copy.
 - Use Conventional Commit messages — release automation depends on them.
+- **Comments explain the logic or document the declaration — nothing else.** A
+  change that rewrites twenty comments is the sign that they were carrying
+  context which belonged in the commit message or `docs/`. The comments already
+  in this repository mostly break this rule and are **not** the pattern to
+  follow — trim what you find in a file you are already editing. See the comments
+  section of [docs/coding-standards.md](docs/coding-standards.md).
 - **Do not test what the supply chain already tests.** If a failing test could only
   mean that Postgres, pgx, or the standard library is broken, it should not exist —
   see the testing section of
@@ -103,6 +109,10 @@ verbatim. Later readers cannot be anticipated — audit, replay, reconstructing 
 a model actually saw — so trimming at write time serves one reader by destroying
 the record for every other. Reshaping happens at the edge, on read, by the surface
 that knows why.
+
+**This governs comments as well as code.** A comment documents its own layer's
+contract and assumes nothing about the layers around it — see the comments section
+of [docs/coding-standards.md](docs/coding-standards.md).
 
 ## Refactoring policy
 
