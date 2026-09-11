@@ -4,7 +4,7 @@
  * Two sources, in order: a token set explicitly for the current async context
  * ({@link runWithToken}), then the session cookie. An async-local store rather
  * than a parameter, so that a credential does not appear in the signature of
- * every function that can reach the orchestrator.
+ * every function that calls out on the caller's behalf.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";

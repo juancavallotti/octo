@@ -15,8 +15,8 @@
  * deployment it belongs to.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
-import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
+import type { ActionResult } from "@octo/http";
+import { observabilityCall } from "./_observability";
 import type {
   StatsMetricsPage,
   StatsPodsPage,
@@ -37,11 +37,7 @@ import {
 /** GET `path?query` against the observability service, or an error result when
  * it is unconfigured. Path segments are already encoded by the caller. */
 async function get<T>(path: string, query = ""): Promise<ActionResult<T>> {
-  const base = observabilityBaseUrl();
-  if (!base) {
-    return observabilityUnconfigured("pod stats");
-  }
-  return requestJson<T>("GET", query ? `${base}${path}?${query}` : `${base}${path}`);
+  return observabilityCall<T>("pod stats", "GET", query ? `${path}?${query}` : path);
 }
 
 /** The stats routes for one deployment. Ids are opaque, so they are encoded. */

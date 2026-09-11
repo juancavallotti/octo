@@ -18,8 +18,8 @@
  * way.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
-import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
+import type { ActionResult } from "@octo/http";
+import { observabilityCall } from "./_observability";
 
 /** Redis counters, from INFO and DBSIZE. */
 export interface RedisStats {
@@ -69,9 +69,5 @@ export interface StorageStats {
 
 /** Read the report, or an error result when the observability service is unconfigured. */
 export function getStorageStats(): Promise<ActionResult<StorageStats>> {
-  const base = observabilityBaseUrl();
-  if (!base) {
-    return Promise.resolve(observabilityUnconfigured("storage report"));
-  }
-  return requestJson<StorageStats>("GET", `${base}/settings/storage`);
+  return observabilityCall<StorageStats>("storage report", "GET", "/settings/storage");
 }

@@ -7,8 +7,8 @@ vi.mock("@octo/http", () => ({
 
 const BASE = "http://observability:8091";
 vi.mock("./_observability", () => ({
-  observabilityBaseUrl: () => BASE,
-  observabilityUnconfigured: () => ({ ok: false, error: "unconfigured" }),
+  observabilityCall: (_feature: string, method: string, path: string, body?: unknown) =>
+    requestJson(method, `${BASE}${path}`, body),
 }));
 
 import * as alerts from "./_alerts";

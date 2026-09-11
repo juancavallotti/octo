@@ -39,6 +39,23 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // One way to the observability service, for the same reason.
+  {
+    files: ["app/**/*.{ts,tsx}"],
+    // The client itself, and the tests that set the variable to stand it up.
+    ignores: ["app/actions/_observability.ts", "**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "MemberExpression[object.object.name='process'][object.property.name='env'][property.name='OBSERVABILITY_URL']",
+          message:
+            "Reach the observability service through app/actions/_observability.ts, which attaches the caller's credential. It is the only module that may read OBSERVABILITY_URL.",
+        },
+      ],
+    },
+  },
   // Tests may be longer than implementation files.
   {
     files: ["**/*.test.{ts,tsx}", "vitest.setup.ts"],

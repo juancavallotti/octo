@@ -17,11 +17,8 @@
  * live so that nothing client-side has to import this module to name them.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
-import {
-  observabilityBaseUrl,
-  observabilityUnconfigured,
-} from "./_observability";
+import type { ActionResult } from "@octo/http";
+import { observabilityCall } from "./_observability";
 import type {
   RetentionPolicy,
   RetentionPolicyInput,
@@ -49,8 +46,13 @@ interface RawRun {
   duration_ms: number;
 }
 
-function unconfigured<T>(): ActionResult<T> {
-  return observabilityUnconfigured("retention");
+/** Issue a request against the observability service. */
+function call<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<ActionResult<T>> {
+  return observabilityCall<T>("retention", method, path, body);
 }
 
 function toPolicy(r: RawPolicy): RetentionPolicy {
@@ -64,10 +66,7 @@ function toPolicy(r: RawPolicy): RetentionPolicy {
 
 /** Read the stored policy. */
 export async function getRetention(): Promise<ActionResult<RetentionPolicy>> {
-  const base = observabilityBaseUrl();
-  if (!base) return unconfigured();
-
-  const res = await requestJson<RawPolicy>("GET", `${base}/settings/retention`);
+  const res = await call<RawPolicy>("GET", "/settings/retention");
   if (!res.ok) return res;
   return { ok: true, data: toPolicy(res.data) };
 }
@@ -76,28 +75,18 @@ export async function getRetention(): Promise<ActionResult<RetentionPolicy>> {
 export async function saveRetention(
   input: RetentionPolicyInput,
 ): Promise<ActionResult<RetentionPolicy>> {
-  const base = observabilityBaseUrl();
-  if (!base) return unconfigured();
-
-  const res = await requestJson<RawPolicy>(
-    "PUT",
-    `${base}/settings/retention`,
-    {
-      logs_days: input.logsDays,
-      traces_days: input.tracesDays,
-      alerts_days: input.alertsDays,
-    },
-  );
+  const res = await call<RawPolicy>("PUT", "/settings/retention", {
+    logs_days: input.logsDays,
+    traces_days: input.tracesDays,
+    alerts_days: input.alertsDays,
+  });
   if (!res.ok) return res;
   return { ok: true, data: toPolicy(res.data) };
 }
 
 /** Enforce the stored policy now, and report what went. */
 export async function runRetention(): Promise<ActionResult<RetentionRun>> {
-  const base = observabilityBaseUrl();
-  if (!base) return unconfigured();
-
-  const res = await requestJson<RawRun>("POST", `${base}/retention/run`);
+  const res = await call<RawRun>("POST", "/retention/run");
   if (!res.ok) return res;
   return {
     ok: true,

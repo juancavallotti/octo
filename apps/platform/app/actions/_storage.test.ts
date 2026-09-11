@@ -24,7 +24,12 @@ describe("the storage-report client", () => {
 
     const res = await storage.getStorageStats();
     expect(res).toEqual({ ok: true, data: report });
-    expect(requestJson).toHaveBeenCalledWith("GET", `${BASE}/settings/storage`);
+    expect(requestJson).toHaveBeenCalledWith(
+      "GET",
+      `${BASE}/settings/storage`,
+      undefined,
+      undefined,
+    );
   });
 
   it("does not double the slash when the address has a trailing one", async () => {
@@ -32,7 +37,12 @@ describe("the storage-report client", () => {
     requestJson.mockResolvedValue({ ok: true, data: {} });
 
     await storage.getStorageStats();
-    expect(requestJson).toHaveBeenCalledWith("GET", `${BASE}/settings/storage`);
+    expect(requestJson).toHaveBeenCalledWith(
+      "GET",
+      `${BASE}/settings/storage`,
+      undefined,
+      undefined,
+    );
   });
 
   it("says what to set when the service is unconfigured", async () => {
