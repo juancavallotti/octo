@@ -18,9 +18,9 @@ Regenerate them all:
 cd apps/standalone && npm run screenshots
 ```
 
-It boots the editor dev server with the OIDC env vars cleared (unauthenticated —
-see `auth.config.ts` `authEnabled`), renders each sample, and writes the PNGs at
-1440×900 @2x (2880×1800).
+It boots the standalone editor's dev server — a pure editor canvas with no
+sign-in and no orchestrator behind it — renders each sample, and writes the PNGs
+at 1440×900 @2x (2880×1800).
 
 To add a sample to the shoot, add it to the `SAMPLES` list in the spec and
 reference it from the relevant docs page. Directory samples (`mcp-router/`,

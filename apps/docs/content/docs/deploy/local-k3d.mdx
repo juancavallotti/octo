@@ -52,8 +52,10 @@ This single target:
    checks each one landed.
 5. Installs the Helm chart via `devspace deploy`, using
    `helm/values-k3d.yaml` for the local shape: no registry, `:dev` images,
-   NodePorts instead of an Ingress, and SSO off. The schema Job runs as a
-   Helm hook on every install and upgrade.
+   and NodePorts instead of an Ingress. Single sign-on is required here as
+   everywhere else: put your development provider's `OIDC_*` settings and
+   `AUTH_SECRET` in the repo root `.env`, which `devspace deploy` reads. The
+   schema Job runs as a Helm hook on every install and upgrade.
 6. Restarts the platform, orchestrator, observability and embeddings Deployments
    so they pick up freshly imported images (the `:dev` tag never changes between
    runs).

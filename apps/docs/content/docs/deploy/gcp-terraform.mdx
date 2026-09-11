@@ -62,7 +62,7 @@ each, so Cloud Build and your laptop share it.
 
 <Callout type="warn">
   The release state holds generated secrets (the Postgres password and, with
-  SSO, the OIDC client secret and Auth.js session secret), and the fetched
+  the OIDC client secret and the Auth.js session secret), and the fetched
   kubeconfig holds cluster-admin credentials. Both are gitignored, so keep the
   state bucket locked down.
 </Callout>
@@ -154,7 +154,7 @@ Set in each root's `terraform.tfvars` (values needed by both must agree):
 | `acme_email` | (none) | Let's Encrypt account email. |
 | `enable_cloudbuild` | `false` | Create the trigger (GitHub App must be connected first). |
 | `cloudbuild_auto_deploy` | `true` | Also roll the cluster on a version tag (`_DEPLOY=true`). |
-| `oidc_enabled` + `oidc_client_id` / `oidc_client_secret` / `oidc_issuer` | `false`, then unset | Gate the editor behind OIDC SSO; consumed by the `release` root. |
+| `oidc_client_id` / `oidc_client_secret` / `oidc_issuer` | unset | **Required.** The identity provider the editor signs people in against; consumed by the `release` root. There is no unauthenticated mode, so an apply without them fails at the chart. |
 
 The `release` root additionally takes `image_tag` (default `latest`) and
 `chart_version` (required, must match the published `helm/Chart.yaml`), both

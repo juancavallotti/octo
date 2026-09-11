@@ -13,7 +13,7 @@ Authentication lives entirely in the platform app, built on Auth.js (NextAuth), 
 
 Sessions are JWTs with no database adapter. The session rides in a signed cookie (`AUTH_SECRET`), so the same config backs both route handlers and the edge request gate.
 
-SSO is opt-in: it is enforced only when both `OIDC_ISSUER` and `AUTH_SECRET` are set. Local development without them runs open, with a synthetic local session.
+Single sign-on is not optional and there is no unauthenticated mode — local development included. An install missing any of `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` or `AUTH_SECRET` is one nobody can sign in to, and the welcome page names the ones that are missing rather than offering a button that would fail at the provider. The Helm chart refuses to render without them.
 
 ### Configuration
 
@@ -50,7 +50,7 @@ Beyond DCR, `/mcp` requires three things of the provider:
 
 Where DCR is unavailable, an MCP client cannot reach `/mcp` at all: it verifies access tokens the provider minted and nothing else.
 
-When SSO is on, the app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. `/mcp` is the one application endpoint that bypasses it, because it authenticates itself with bearer tokens (below); the welcome page, `/api/auth*` and two static images are exempt too. A running integration is a pod with a hostname of its own, so a webhook callback never reaches the platform app to be redirected in the first place.
+The app-wide request gate redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with `401`. `/mcp` is the one application endpoint that bypasses it, because it authenticates itself with bearer tokens (below); the welcome page, `/api/auth*` and two static images are exempt too. A running integration is a pod with a hostname of its own, so a webhook callback never reaches the platform app to be redirected in the first place.
 
 ## Who may sign in
 

@@ -238,10 +238,12 @@ class it asked for; `kubectl get ingressclass` shows what the cluster has.
 
 <Step>
 
-### Turn on single sign-on
+### Configure single sign-on
 
-Any provider that speaks the authorization-code flow works. Register a client
-with yours, with this redirect URI:
+Signing in is how anybody reaches the editor — there is no open mode, and the
+chart refuses to render without the settings below. Any provider that speaks the
+authorization-code flow works. Register a client with yours, with this redirect
+URI:
 
 ```
 https://octo.example.com/api/auth/callback/oidc
@@ -261,13 +263,13 @@ and add to your values file:
 ```yaml title="octo-values.yaml"
 auth:
   oidc:
-    enabled: true
     issuer: https://id.example.com
     clientId: octo
     # Optional: what the sign-in button calls your provider.
     providerName: Acme SSO
   existingSecret: octo-auth-creds
-  # Optional: restrict writes to these roles. Empty means any signed-in user.
+  # Optional: restrict writes to these roles. Empty means every role except
+  # platform:monitor.
   writeRoles: ""
 ```
 
