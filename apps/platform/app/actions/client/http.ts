@@ -68,7 +68,34 @@ export async function callStream(
 ): Promise<ActionResult<ReadableStream<Uint8Array>>> {
   const base = baseUrl();
   if (!base) return unconfigured();
-  return requestStream(method, `${base}${path}`, { ...(await authorized()), signal });
+  return requestStream(method, `${base}${path}`, {
+    ...(await authorized()),
+    signal,
+  });
+}
+
+/**
+ * Issue one orchestrator request and hand back the raw Response.
+ *
+ * For the proxies: a route handler that streams the orchestrator's answer
+ * straight to the browser needs the headers and the body untouched, which the
+ * helpers above deliberately do not give it. It exists so those routes do not
+ * have to build a URL and attach a credential themselves — the two things this
+ * module is here to be the only place for.
+ *
+ * Null when the orchestrator is unconfigured, which the caller reports as a 503.
+ */
+export async function callRaw(
+  path: string,
+  init?: RequestInit,
+): Promise<Response | null> {
+  const base = baseUrl();
+  if (!base) return null;
+  const auth = await authorized();
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), ...(auth?.headers ?? {}) },
+  });
 }
 
 /**
@@ -98,7 +125,13 @@ export async function callWithBytes<T>(
 ): Promise<ActionResult<T>> {
   const base = baseUrl();
   if (!base) return unconfigured();
-  return sendBytes<T>(method, `${base}${path}`, body, contentType, await authorized());
+  return sendBytes<T>(
+    method,
+    `${base}${path}`,
+    body,
+    contentType,
+    await authorized(),
+  );
 }
 
 /** The error result every call reports when ORCHESTRATOR_URL is unset. */

@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { currentWriteUserId } from "@/app/actions/_auth";
 import { AuthError, ForbiddenError } from "@/app/auth/guard";
-import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "@/app/actions/client/agentUrl";
+import { resolveAgentUrl, forgetAgentUrl, orchestratorConfigured } from "@/app/actions/client/agentUrl";
 import { callerToken } from "@/app/auth/callerToken";
 
 /**
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     throw e;
   }
 
-  if (!orchestratorUrl()) {
+  if (!orchestratorConfigured()) {
     return Response.json(
       { error: "orchestrator not configured (ORCHESTRATOR_URL unset)" },
       { status: 503 },

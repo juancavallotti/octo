@@ -15,7 +15,7 @@
  * orchestrator now.
  */
 
-import { callerToken } from "@/app/auth/callerToken";
+import { baseUrl, callRaw } from "./http";
 
 /** How long a resolved address is trusted. Short enough that an uninstall is noticed. */
 const TTL_MS = 30_000;
@@ -40,8 +40,8 @@ interface Resolved {
 let cached: Resolved | null = null;
 
 /** The orchestrator base URL with any trailing slash trimmed, or "" when unset. */
-export function orchestratorUrl(): string {
-  return (process.env.ORCHESTRATOR_URL ?? "").replace(/\/+$/, "");
+export function orchestratorConfigured(): boolean {
+  return baseUrl() !== "";
 }
 
 /** The agent's status, as much of it as these routes care about. */
@@ -65,22 +65,12 @@ export type ResolveResult =
  * which wants the state and not just the address.
  */
 export async function fetchAgentStatus(): Promise<AgentReachability | null> {
-  const base = orchestratorUrl();
-  if (!base) return null;
   try {
-    // The caller's own credential, as every other call to this API carries.
-    // This one goes through `fetch` rather than the orchestrator client because
-    // it wants a timeout and a null on any failure — but the header is not
-    // optional: without it the orchestrator answers 401, which this reads as "no
-    // agent", and the chat launcher then renders nothing for a reason no screen
-    // can show.
-    const token = await callerToken();
-    const res = await fetch(`${base}/settings/agent`, {
+    const res = await callRaw("/settings/agent", {
       cache: "no-store",
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     return (await res.json()) as AgentReachability;
   } catch {
     return null;
