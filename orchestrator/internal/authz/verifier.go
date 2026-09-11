@@ -52,6 +52,11 @@ type Verifier struct {
 // costs one attempt rather than one each.
 const retryAfter = 5 * time.Second
 
+// discoveryTimeout caps one keyset fetch. The lock is held for its duration, so
+// it is also the longest any request waits on a resolution somebody else
+// started.
+const discoveryTimeout = 5 * time.Second
+
 // NewVerifier returns a Verifier for the iam at issuer.
 func NewVerifier(issuer string) *Verifier {
 	return &Verifier{issuer: strings.TrimRight(strings.TrimSpace(issuer), "/")}
@@ -143,7 +148,16 @@ func (v *Verifier) resolve(ctx context.Context) (*oidc.IDTokenVerifier, error) {
 		return nil, fmt.Errorf("%w: the keyset could not be fetched", ErrUnavailable)
 	}
 
-	provider, err := oidc.NewProvider(ctx, v.issuer)
+	// Bounded, and detached from the caller. Without the deadline an iam that
+	// accepts the connection and then says nothing holds this lock for as long as
+	// the first request lives, and every other request queues behind it — which is
+	// the serialization retryAt exists to prevent. Without the detachment a client
+	// that simply hung up would be recorded as iam failing, and unrelated callers
+	// would be turned away for it.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
+	defer cancel()
+
+	provider, err := oidc.NewProvider(fetchCtx, v.issuer)
 	if err != nil {
 		// Not cached as a permanent answer: iam may simply not be up yet, and a
 		// failure remembered forever would mean this service never authorizes
