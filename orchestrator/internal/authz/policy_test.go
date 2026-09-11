@@ -127,3 +127,33 @@ func matchedByARule(route string) bool {
 	}
 	return false
 }
+
+// The dev-run sidecar holds a token that authorises exactly one run, and the
+// handler checks it. Gating those two routes on a platform token as well broke
+// every dev run: the sidecar has no such token, so it retried a 401 forever and
+// the pod never left Init.
+func TestTheSidecarsOwnRoutesAreNotGated(t *testing.T) {
+	for _, path := range []string{
+		"/devruns/671b74fc-cfff-81cf/bundle",
+		"/devruns/671b74fc-cfff-81cf/expire",
+	} {
+		if !exempt(path) {
+			t.Errorf("%s is gated, and the sidecar has no platform token to pass it with", path)
+		}
+	}
+}
+
+// Stepping aside is for those two exactly, not for anything shaped like them.
+func TestOnlyThoseTwoDevRunRoutesStepAside(t *testing.T) {
+	for _, path := range []string{
+		"/devruns",
+		"/devruns/abc",
+		"/devruns/abc/logs",
+		"/devruns/abc/bundle/extra",
+		"/devruns/abc/reload",
+	} {
+		if exempt(path) {
+			t.Errorf("%s steps aside from the guard and must not", path)
+		}
+	}
+}

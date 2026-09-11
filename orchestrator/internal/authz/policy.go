@@ -98,10 +98,35 @@ var bypass = map[string]struct{}{
 	"/db-version":         {},
 }
 
-// exempt reports whether path is served without authentication.
+// selfAuthenticated are routes that carry a credential of their own and check it
+// themselves, so this guard steps aside rather than refusing them.
+//
+// They are not open. A dev run's sidecar holds a token that authorises exactly
+// one run and nothing else, and the handler verifies it — which is an
+// authentication this service performs, just not with a platform token. Demanding
+// one as well would mean a pod needing two credentials for a route whose whole
+// design is that it needs a narrow one.
+//
+// Matched on the whole path rather than a prefix: stepping aside is not something
+// to do for anything that merely starts the same way.
+var selfAuthenticated = []string{
+	"devruns/*/bundle",
+	"devruns/*/expire",
+}
+
+// exempt reports whether path is served without a platform token — either
+// because it is open, or because it authenticates itself.
 func exempt(path string) bool {
-	_, ok := bypass[strings.TrimSuffix(path, "/")]
-	return ok
+	if _, ok := bypass[strings.TrimSuffix(path, "/")]; ok {
+		return true
+	}
+	segments := split(path)
+	for _, pattern := range selfAuthenticated {
+		if len(strings.Split(pattern, "/")) == len(segments) && matches(pattern, segments) {
+			return true
+		}
+	}
+	return false
 }
 
 // required returns the roles that may perform method on path. An empty result
