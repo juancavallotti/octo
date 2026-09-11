@@ -169,9 +169,22 @@ wildcardTLS:
   secretName: octo-local-tls
   clusterIssuer: ""
 
-auth:
-  oidc:
-    enabled: false
+# Single sign-on is required, and a laptop cluster is no exception — there is no
+# unauthenticated mode to fall back to. This profile names no provider because it
+# cannot know yours.
+#
+# Put the two credentials in a Secret rather than handing them to Helm, which
+# keeps every value it is given in the release history:
+#
+#   kubectl -n octo create secret generic octo-auth \
+#     --from-literal=oidc-client-secret=... \
+#     --from-literal=auth-secret="$(openssl rand -base64 32)"
+#
+# The issuer and client id are not credentials and can be set directly:
+#
+#   --set auth.existingSecret=octo-auth \
+#   --set auth.oidc.issuer=https://idp.example.com \
+#   --set auth.oidc.clientId=...
 
 kv:
   # Fixed, deliberately non-secret development key so KV secret namespaces work

@@ -80,15 +80,15 @@
 # serves them and none needs the orchestrator in the path.
 - name: OBSERVABILITY_URL
   value: {{ include "octo.observability.url" . | quote }}
-{{- if .Values.auth.oidc.enabled }}
-# OIDC SSO (Auth.js). The presence of OIDC_ISSUER + AUTH_SECRET turns auth
-# on in the editor. Any OIDC provider works — the chart names none. Issuer
-# and client id are non-secret plain values; the client secret and session
-# secret come from the auth Secret.
+# OIDC SSO (Auth.js). Signing in is the only way into the editor, so these are
+# not optional and rendering fails without them — by name, here, rather than as
+# a sign-in that dies at the identity provider. Any OIDC provider works: the
+# chart names none. Issuer and client id are non-secret plain values; the client
+# secret and session secret come from the auth Secret.
 - name: OIDC_ISSUER
-  value: {{ .Values.auth.oidc.issuer | quote }}
+  value: {{ required "auth.oidc.issuer is required — it is the identity provider the editor signs people in against, and Octo has no other way to authenticate anybody." .Values.auth.oidc.issuer | quote }}
 - name: OIDC_CLIENT_ID
-  value: {{ .Values.auth.oidc.clientId | quote }}
+  value: {{ required "auth.oidc.clientId is required — it is the client your identity provider issued for this install." .Values.auth.oidc.clientId | quote }}
 - name: OIDC_CLIENT_SECRET
   valueFrom:
     secretKeyRef:
@@ -151,7 +151,7 @@
        someone tries to log in: with no host this renders "https://" and the
        redirect dies at the identity provider rather than here. */}}
 - name: AUTH_URL
-  value: "https://{{ required "ingress.host is required when auth.oidc.enabled is true — it is the OIDC callback origin. Set auth.url instead to name the origin explicitly." .Values.ingress.host }}"
+  value: "https://{{ required "ingress.host is required — it is the OIDC callback origin. Set auth.url instead to name the origin explicitly." .Values.ingress.host }}"
 {{- end }}
 - name: AUTH_TRUST_HOST
   value: "true"
@@ -167,5 +167,4 @@
 */}}
 - name: MCP_RESOURCE_URL
   value: {{ include "octo.mcp.resource" . | quote }}
-{{- end }}
 {{- end }}

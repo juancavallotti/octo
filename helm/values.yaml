@@ -892,25 +892,33 @@ externalRedis:
   existingSecret: ""
   existingSecretKey: redis-url
 
-# OIDC single sign-on for the editor (Auth.js). Disabled by default so local and
-# bare deploys stay open; enable on the platform. When enabled the chart creates
-# an auth Secret and the editor mounts these as env vars (OIDC_*, AUTH_SECRET).
-# Terraform supplies the sensitive values and holds them in its own (bucket-backed)
-# release state — this setup uses no Secret Manager. See deploy/terraform.
+# OIDC single sign-on for the editor (Auth.js). There is no off switch: signing
+# in is how you reach this platform, and an install with no identity provider is
+# one nobody can use. Rendering fails, by name, on any of the four values below
+# that is missing — the chart creates an auth Secret and the editor mounts these
+# as env vars (OIDC_*, AUTH_SECRET). Terraform supplies the sensitive values and
+# holds them in its own (bucket-backed) release state — this setup uses no Secret
+# Manager. See deploy/terraform.
 #
 # Any OIDC provider that speaks the authorization-code flow works — Octo ships
 # none and privileges none. Register {auth.url}/api/auth/callback/oidc as the
 # redirect URI on whichever one you bring. Note that MCP clients additionally
 # need the provider to support Dynamic Client Registration; without it, users
 # authenticate to /mcp with an Octo API key instead.
+#
+# A laptop install needs one too. Point it at whatever you develop against — a
+# local Keycloak or Dex, or a throwaway tenant — and register
+# http://localhost:8443/api/auth/callback/oidc (or whatever auth.url says) with
+# it. See the values-k3d* profiles.
 auth:
   oidc:
-    enabled: false
     # Issuer URL — the base its .well-known/openid-configuration hangs off.
+    # Required.
     issuer: ""
+    # The client your identity provider issued for this install. Required.
     clientId: ""
-    # The client secret your identity provider issued. Required when SSO is on,
-    # unless existingSecret below names a Secret that already holds it.
+    # The client secret your identity provider issued. Required, unless
+    # existingSecret below names a Secret that already holds it.
     clientSecret: ""
     # Optional: how the sign-in button names the provider ("Sign in with …").
     # Empty renders the app default, "OIDC".
@@ -928,8 +936,8 @@ auth:
       token: ""
       userinfo: ""
       jwks: ""
-  # Auth.js session secret (AUTH_SECRET). Required when SSO is on, unless
-  # existingSecret below names a Secret that already holds it. Any random string
+  # Auth.js session secret (AUTH_SECRET). Required, unless existingSecret below
+  # names a Secret that already holds it. Any random string
   # of reasonable length; `openssl rand -base64 32` is the usual way to mint one.
   secret: ""
   # Or name a Secret you already hold carrying BOTH of the values above, and the

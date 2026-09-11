@@ -347,7 +347,7 @@ dev-run-hash-secret
 {{- if .Values.auth.url -}}
 {{- printf "%s/mcp" (trimSuffix "/" .Values.auth.url) -}}
 {{- else -}}
-{{- printf "https://%s/mcp" (required "ingress.host is required when auth.oidc.enabled is true — it is the origin MCP clients reach this install at. Set auth.url instead to name the origin explicitly." .Values.ingress.host) -}}
+{{- printf "https://%s/mcp" (required "ingress.host is required — it is the origin MCP clients reach this install at. Set auth.url instead to name the origin explicitly." .Values.ingress.host) -}}
 {{- end -}}
 {{- end }}
 

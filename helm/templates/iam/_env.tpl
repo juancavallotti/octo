@@ -43,7 +43,6 @@
 - name: IAM_KEY_LIFETIME
   value: {{ . | quote }}
 {{- end }}
-{{- if .Values.auth.oidc.enabled }}
 {{- /*
   The identity provider whose sign-in tokens this service exchanges. The SAME two
   values the editor is configured with, and read from the same place on purpose:
@@ -55,9 +54,9 @@
   provider and is not given one.
 */}}
 - name: OIDC_ISSUER
-  value: {{ .Values.auth.oidc.issuer | quote }}
+  value: {{ required "auth.oidc.issuer is required — it is the identity provider whose tokens iam exchanges." .Values.auth.oidc.issuer | quote }}
 - name: OIDC_CLIENT_ID
-  value: {{ .Values.auth.oidc.clientId | quote }}
+  value: {{ required "auth.oidc.clientId is required — it is the audience iam accepts on a sign-in token." .Values.auth.oidc.clientId | quote }}
 {{- /*
   The other audience this install answers to. A person signing in to the editor
   arrives with a token minted for the client id above; an MCP client arrives with
@@ -71,5 +70,4 @@
 */}}
 - name: IAM_ACCEPTED_AUDIENCES
   value: {{ include "octo.mcp.resource" . | quote }}
-{{- end }}
 {{- end }}
