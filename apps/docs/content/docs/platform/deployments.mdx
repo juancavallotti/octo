@@ -62,30 +62,29 @@ Captured bodies and variables are stored as they arrived and are readable by any
 
 ## Platform access
 
-For integrations that read the installation they run on, such as the [platform agent](/platform/agent), the deploy and rollout dialogs carry two grants under **Advanced**, both off by default.
+Every deployed integration presents a platform token of its own, and what it may do is what that token carries. Every one of them reaches the stores its pod owns — its [key-value namespace](/platform/kv-and-storage), its objects, its agent memory — and the deploy and rollout dialogs carry one setting under **Advanced** saying what it reaches besides.
 
-| Grant | What it does |
+| Access | What the token additionally opens |
 | --- | --- |
-| **Needs access to the orchestrator API** | Declares that this deployment's flows call the [orchestrator API](/platform/api-reference) |
-| **Needs access to the observability API** | Injects `OBSERVABILITY_URL`, the address of the [observability API](/platform/observability-api-reference): stored logs, traces and pod stats |
+| **Serves only** (the default) | Nothing. Right for almost every integration. |
+| **Builds integrations** | Integrations, their resources, versions and dev runs — across the whole installation. For an integration that builds or tests others. |
+| **Runs the installation** | The above, plus deploying, rolling out, scaling and removing deployments — anyone else's included. |
 
-An integration that needs both, and a reason to grant them, is the alert-triage agent in [Agentic self-healing](/guides/agentic-self-healing).
+A choice rather than a set of switches: the three are ordered, each the one before it plus more, so a set would only ever be spelled as its widest member.
 
-**The observability grant supplies the address.** `OBSERVABILITY_URL` is in no pod unless this box is ticked, and it is orchestrator-managed: a definition cannot declare it and a deploy cannot bind it.
+An integration that needs more than the default, and a reason for it, is the alert-triage agent in [Agentic self-healing](/guides/agentic-self-healing).
 
 <Callout type="warn">
-Stored logs and traces span **every** deployment on the installation, not just the one being granted. An integration that can read them can read its neighbours' captured request bodies. Grant it only to integrations you would trust with the Traces view itself.
+This is not scoped to the deployment's own integration. "Builds integrations" reads and writes **every** integration here, and "Runs the installation" acts on **every** deployment. Grant either only to an integration you would trust with the corresponding role on your own account.
 </Callout>
 
-**The observability grant is the address, not the reach.** The [observability API](/platform/observability-api-reference) authorizes every request by the roles on the presented token, and a deployment's own token carries `platform:runtime`, which matches no rule there. A deployment that has the address therefore reads nothing with its own credential, whatever this box says.
+**Who may grant it.** The token is minted on the authority of whoever is deploying, and iam refuses to lend a deployment more than that person could do themselves. It never inherits: an administrator's deployment is not an administrator, and access is what was asked for on purpose.
 
-What does read is a request carrying **somebody else's** token: a flow reached by a person — Dr. Octo answering a question in the chat, for instance — spends the caller's token, and the read succeeds exactly when that person is allowed the read. The deployment's own token is never widened into a person's.
+**Addresses are not access.** `ORCHESTRATOR_URL` and `OBSERVABILITY_URL` are in every runtime pod — the first because the runtime needs it for the KV store and leader election, the second so a granted integration can use it without a second setting. Neither is a boundary: both APIs authorize the token they are presented, and anything on the cluster network could dial either address regardless. This replaced two checkboxes that withheld an address, which only ever hid a service from the deployments that had asked to use it.
 
-**The orchestrator grant is still a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod, because the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election, and this checkbox gates nothing on its own.
+**Renewal keeps what was granted.** A deployment's token is renewed as what it was minted as, not as what its owner may do now. Taking somebody's operator role away does not quietly change what their running integrations can reach — stopping one is what deleting the deployment is for.
 
-What does gate it is the token each deployment is given. The orchestrator authorizes every request by the roles on the presented token, and a deployment's own token carries `platform:runtime` — which reaches its key-value store, its objects, its agent memory and the frozen resources of the snapshot it runs, and nothing else. Declaring the grant does not widen that; a pod cannot read another deployment's data, change an integration, or see the installation's settings whatever this box says.
-
-Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them.
+Access is stored on the deployment and, like tracing, is carried through a rollout that does not mention it.
 
 ## Runners
 

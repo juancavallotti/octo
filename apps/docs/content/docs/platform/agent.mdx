@@ -23,10 +23,10 @@ Installing needs three things. The page tells you which one is missing instead o
 
 Press **Install**. That creates the integration, writes his skills as [resources](/platform/resources-and-secrets), publishes a version tag derived from the bundle this orchestrator ships, writes the provider key as a cluster secret, and deploys him with one replica and **no external route**. If the integration exists but nothing is running, the same button reads **Deploy**.
 
-He is deployed with both [platform access grants](/platform/deployments#platform-access), requested the way any integration requests them. The observability grant puts `OBSERVABILITY_URL` in his pod and lets him read stored logs and traces. Without it he still installs and works, and says he was not granted that access when asked about history.
+He is deployed with the narrowest [platform access](/platform/deployments#platform-access) there is, which looks wrong for an agent that drives the whole API and is not. **His tools spend the token of whoever is chatting**, so what he may do is what that person may do — his own token is only for what his pod owns: its conversation memory and its key-value store. Lending him more would be lending it to every question anybody asks him.
 
 <Callout>
-Granting him observability hands a chat-panel user nothing they could not already read: [Traces](/platform/traces) and [Logs](/platform/logs) are readable by any signed-in user, while the chat panel additionally requires the write roles. Untick the grant and roll out if you want him without it anyway; the reason to weigh is prompt injection, below.
+Because he acts as whoever is asking, he hands a chat-panel user nothing they could not already reach: [Traces](/platform/traces) and [Logs](/platform/logs) are readable by any signed-in user, and a write he performs is one that person could have performed themselves. The reason to weigh is prompt injection, below.
 </Callout>
 
 Installing is idempotent. An existing integration is reused and an existing tag is not recreated, so you never get a second agent, and retrying after a failed deploy picks up where it stopped. He is deployed **internal-only**: the platform proxies to the in-cluster address shown on the status card.
@@ -143,8 +143,6 @@ Use `allowMethods: [GET]` to make him read-only, or `pathPrefix` to confine him 
 
 His `observability_api` tool is a second, independent boundary on a different connector with a different `baseURL`, so narrowing one does nothing to the other. It ships with `allowMethods: [GET]`, and that line matters: the observability API also serves `PUT /settings/retention` and `POST /retention/run`, so without it he could change the retention policy or run a sweep. The `alerts_api` tool on the same connector allows GET, POST, PUT and DELETE but is bounded by `pathPrefix` to `/alerts`, so he can create and edit watches and nothing else on that service.
 
-To take the observability address away, untick the observability grant and roll out; he will say so when asked.
-
 What those tools spend is the token of whoever is chatting, not his pod's, so what he can read there is what that person can read in the Traces view — and an administrator asking him to change the retention policy would succeed where a monitor asking the same thing gets a refusal he reports as one. `http_fetch` reaches any address his pod can, but it carries no credential, so it reads nothing from a service that wants one.
 
 ### The command tools are a different kind of thing
@@ -156,7 +154,7 @@ The `allow` list on those blocks is a guardrail, not a boundary. It names the fi
 `http_fetch` is the new reach. Before it, his outbound access was two `baseURL`s and his model provider; now it is anything his pod can route to, including other integrations' internal Services and, on a cloud node, the instance metadata endpoint. He is restricted to `http` and `https`, which stops `file://` reading his own pod, but nothing in his definition restricts *hosts*. If that matters on your cluster, a NetworkPolicy on his deployment is the control.
 
 <Callout>
-He reads integration definitions, resource contents, pod logs and, with the observability grant, stored log messages and captured request bodies from every deployment. All of that is text other people wrote, so a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. Narrow `allowMethods` to bound what such an instruction could achieve, delete the command tools if the loop above is not worth that reach, untick the observability grant if you would rather he did not read that surface, and leave tracing on so that "was he told to do that" is answerable after the fact.
+He reads integration definitions, resource contents, pod logs and, for whoever is asking, stored log messages and captured request bodies from every deployment. All of that is text other people wrote, so a malicious string in a flow definition, or in a log line an integration was made to emit, is an instruction he may see. What bounds the damage is that he acts as the person chatting: an instruction he picks up can do no more than they could. Narrow `allowMethods` to bound it further, delete the command tools if the loop above is not worth that reach, and leave tracing on so that "was he told to do that" is answerable after the fact.
 </Callout>
 
 ## What he is made of

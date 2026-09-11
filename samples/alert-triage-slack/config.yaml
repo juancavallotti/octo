@@ -13,9 +13,9 @@ service:
 # to whoever the watch named.
 #
 # Setup:
-#   1. Deploy this integration on the platform with both platform-access grants
-#      ticked (orchestrator API and observability API). The grants inject
-#      ORCHESTRATOR_URL and OBSERVABILITY_URL.
+#   1. Deploy this integration on the platform with its access set to "Builds
+#      integrations". ORCHESTRATOR_URL and OBSERVABILITY_URL are already in
+#      every pod; the access is what its token opens at those addresses.
 #   2. Create a Slack app with the chat:write scope, subscribe it to the
 #      message.channels event, invite the bot to a channel, and put the
 #      channel id in SLACK_CHANNEL. Point the Events API request URL at this

@@ -42,10 +42,16 @@ func (c *Client) Configured() bool { return c != nil && c.baseURL != "" }
 // MintMachine asks iam for a token belonging to deployment, on the authority of
 // the caller's own token.
 //
+// `access` says how much of the platform the deployment is being lent; empty is
+// the narrowest. It is a request, not an instruction: iam decides whether this
+// caller may lend that much and refuses if not.
+//
 // The token comes back opaque and is not inspected here: what it may reach is
 // iam's decision, stamped into claims the orchestrator verifies at the other end
 // rather than a shape this caller chose.
-func (c *Client) MintMachine(ctx context.Context, callerToken, deployment string) (string, error) {
+func (c *Client) MintMachine(
+	ctx context.Context, callerToken, deployment, access string,
+) (string, error) {
 	if !c.Configured() {
 		return "", fmt.Errorf("iam: no address is configured")
 	}
@@ -53,7 +59,11 @@ func (c *Client) MintMachine(ctx context.Context, callerToken, deployment string
 		return "", fmt.Errorf("iam: the caller presented no token to mint on the authority of")
 	}
 
-	body, err := json.Marshal(map[string]string{"deployment": deployment})
+	request := map[string]string{"deployment": deployment}
+	if access != "" {
+		request["access"] = access
+	}
+	body, err := json.Marshal(request)
 	if err != nil {
 		return "", fmt.Errorf("iam: encode request: %w", err)
 	}

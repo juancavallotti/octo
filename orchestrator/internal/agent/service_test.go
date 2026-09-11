@@ -750,22 +750,19 @@ func TestInstallDeploysInternalOnly(t *testing.T) {
 	}
 }
 
-// The agent asks for the platform-access grants the same way any integration does.
-// Observability is the one that does something: it is what puts OBSERVABILITY_URL in his pod,
-// and without it his observability tools answer that they were not granted rather than that
-// there is nothing stored.
-func TestInstallAsksForThePlatformAccessGrants(t *testing.T) {
+// He is deployed with the narrowest access there is, and that looks wrong for an
+// agent that drives the whole API. His tools spend the token of whoever is
+// chatting, so what he may do is what that person may do; his own token is for
+// what his pod owns. Lending him more would be lending it to every question
+// anybody asks him.
+func TestInstallLendsTheAgentNothingOfItsOwn(t *testing.T) {
 	h := newHarness(t, true)
 
 	if _, err := h.svc.Install(context.Background(), ""); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	got := h.deployments.deployed[0]
-	if !got.ObservabilityAPI {
-		t.Error("want the observability grant; without it he cannot read stored logs or traces")
-	}
-	if !got.OrchestratorAPI {
-		t.Error("want the orchestrator grant declared; he drives that API on every turn")
+	if got := h.deployments.deployed[0].Access; got != "" {
+		t.Errorf("access = %q, want the narrowest", got)
 	}
 }
 

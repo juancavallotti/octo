@@ -56,27 +56,20 @@ type Settings struct {
 	// switch rather than an integration-wide one: you turn it on for the deployment
 	// you are investigating.
 	Tracing bool `json:"tracing,omitempty"`
-	// OrchestratorAPI declares that this deployment's flows call the orchestrator's
-	// own API — the platform agent being the first, but any integration that reads
-	// its own installation is another.
+	// Access says how much of the platform this deployment's own token opens
+	// beyond the stores every pod owns — its key/value namespace, its objects, its
+	// agent memory.
 	//
-	// It grants nothing today: ORCHESTRATOR_URL is already in every runtime pod,
-	// because the k8s services module needs it for the KV store and leader election,
-	// and taking it away would break both. What this records is the *intent*, which
-	// is what a future access model gates on — a deployment that never declared it
-	// has no business calling the API, and saying so now means the enforcement point
-	// arrives with the declarations already in place rather than needing every
-	// existing deployment reclassified.
-	OrchestratorAPI bool `json:"orchestratorApi,omitempty"`
-	// ObservabilityAPI grants this deployment's flows the address of the
-	// observability service's API, injected as OBSERVABILITY_URL. Unlike the
-	// orchestrator's, that address is in no pod otherwise, so this switch is the
-	// whole of the access.
+	// Empty and "basic" are a deployment that serves, which is almost all of them.
+	// "developer" adds integrations, resources, snapshots and dev runs, for an
+	// integration that builds or tests others. "operator" adds deployments, for
+	// one that runs the installation.
 	//
-	// Off by default: stored logs and traces span every deployment on the install,
-	// so an integration that can read them can read its neighbours' — which is a
-	// thing to ask for rather than to receive by default.
-	ObservabilityAPI bool `json:"observabilityApi,omitempty"`
+	// It replaced two checkboxes that asked which addresses to inject. Addresses
+	// were never the boundary: both APIs authorize the token they are presented,
+	// so what a deployment may do is what its token carries and nothing else. Both
+	// addresses are in every pod now, and this is the grant.
+	Access string `json:"access,omitempty" enums:"basic,developer,operator"`
 	// Runner selects the image this deployment's pods run. Empty and "standard"
 	// are the generic octo-runtime: distroless, one static binary, no shell and
 	// nothing writable, which is what almost every integration wants.

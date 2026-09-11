@@ -160,8 +160,13 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 	// somebody's operator role away should not quietly stop integrations that are
 	// serving traffic. Stopping one is what deleting the deployment is for, and it
 	// is a decision somebody should have to make on purpose.
+	//
+	// The access comes back off the presented token rather than from anywhere
+	// else. It is the only record of what this deployment was lent, and reading it
+	// through accessOf rather than copying the roles across is what keeps a
+	// renewal from carrying anything this service would not mint today.
 	if private.Deployment != "" {
-		token, err := s.mintMachine(ctx, u, private.Deployment)
+		token, err := s.mintMachine(ctx, u, private.Deployment, accessOf(private.Roles))
 		if err != nil {
 			return Result{}, err
 		}
@@ -223,9 +228,11 @@ func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) 
 //     scopes the same way for their deployment. A pod cannot reach another
 //     person's data, because as far as the API is concerned it is not another
 //     person.
-//   - Its only role is platform:runtime, whatever the person holds. An
+//   - Its roles are what `access` asks for and never what the person holds. An
 //     administrator's deployment is not an administrator. This is the difference
-//     between lending an identity and handing over an account.
+//     between lending an identity and handing over an account — and it is why
+//     access is asked for rather than inherited: a deployment reaches what it
+//     was deployed to reach, decided once, by somebody, on purpose.
 //
 // And it is only issued to somebody who may deploy in the first place. Without
 // that check this would be a way for anyone with an account to hand themselves
@@ -237,10 +244,15 @@ func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) 
 // is deliberate: a longer-lived one could outlive the key that signed it, since
 // the keyset only keeps a key published for one token lifetime past its
 // retirement.
-func (s *Service) MintMachine(ctx context.Context, rawToken, deployment string) (Result, error) {
+func (s *Service) MintMachine(
+	ctx context.Context, rawToken, deployment string, access Access,
+) (Result, error) {
 	deployment = strings.TrimSpace(deployment)
 	if deployment == "" {
 		return Result{}, fmt.Errorf("%w: a deployment is required", user.ErrInvalid)
+	}
+	if _, err := rolesFor(access); err != nil {
+		return Result{}, err
 	}
 
 	owner, err := s.owner(ctx, rawToken)
@@ -252,8 +264,14 @@ func (s *Service) MintMachine(ctx context.Context, rawToken, deployment string) 
 			"%w: lending an identity to a deployment requires %s or %s",
 			ErrForbidden, user.RoleOperator, user.RoleAdmin)
 	}
+	if !mayLend(owner, access) {
+		// The access is named and the caller's roles are not: they asked for this
+		// much and may not have it, which is a thing they can act on.
+		return Result{}, fmt.Errorf(
+			"%w: this account may not lend a deployment %s access", ErrForbidden, access)
+	}
 
-	token, err := s.mintMachine(ctx, owner, deployment)
+	token, err := s.mintMachine(ctx, owner, deployment, access)
 	if err != nil {
 		return Result{}, err
 	}
@@ -263,14 +281,18 @@ func (s *Service) MintMachine(ctx context.Context, rawToken, deployment string) 
 // mintMachine stamps the token itself. Shared by the first mint and every
 // renewal, so the two cannot drift into describing the same pod differently.
 func (s *Service) mintMachine(
-	ctx context.Context, owner user.User, deployment string,
+	ctx context.Context, owner user.User, deployment string, access Access,
 ) (signing.Token, error) {
+	roles, err := rolesFor(access)
+	if err != nil {
+		return signing.Token{}, err
+	}
 	// No Email, no Name. The subject still ties this token to the person who lent
 	// it — that is what scopes every store the pod reaches — but nothing reads
 	// their address off a machine token, and a token that sits on a pod filesystem
 	// should carry only what something actually consumes.
 	token, err := s.minter.Mint(ctx, owner.ID, platformClaims{
-		Roles:      []user.Role{user.RoleRuntime},
+		Roles:      roles,
 		Deployment: deployment,
 	})
 	if err != nil {

@@ -451,6 +451,15 @@
             },
             "deployment.Settings": {
                 "properties": {
+                    "access": {
+                        "description": "Access says how much of the platform this deployment's own token opens\nbeyond the stores every pod owns — its key/value namespace, its objects, its\nagent memory.\n\nEmpty and \"basic\" are a deployment that serves, which is almost all of them.\n\"developer\" adds integrations, resources, snapshots and dev runs, for an\nintegration that builds or tests others. \"operator\" adds deployments, for\none that runs the installation.\n\nIt replaced two checkboxes that asked which addresses to inject. Addresses\nwere never the boundary: both APIs authorize the token they are presented,\nso what a deployment may do is what its token carries and nothing else. Both\naddresses are in every pod now, and this is the grant.",
+                        "enum": [
+                            "basic",
+                            "developer",
+                            "operator"
+                        ],
+                        "type": "string"
+                    },
                     "env": {
                         "additionalProperties": {
                             "$ref": "#/components/schemas/deployment.EnvBinding"
@@ -461,14 +470,6 @@
                     "expose": {
                         "description": "Expose opts the deployment into an external HTTP endpoint. \"external\"\npublishes a {subdomain}.{baseDomain} Ingress with TLS; empty = internal only.",
                         "type": "string"
-                    },
-                    "observabilityApi": {
-                        "description": "ObservabilityAPI grants this deployment's flows the address of the\nobservability service's API, injected as OBSERVABILITY_URL. Unlike the\norchestrator's, that address is in no pod otherwise, so this switch is the\nwhole of the access.\n\nOff by default: stored logs and traces span every deployment on the install,\nso an integration that can read them can read its neighbours' — which is a\nthing to ask for rather than to receive by default.",
-                        "type": "boolean"
-                    },
-                    "orchestratorApi": {
-                        "description": "OrchestratorAPI declares that this deployment's flows call the orchestrator's\nown API — the platform agent being the first, but any integration that reads\nits own installation is another.\n\nIt grants nothing today: ORCHESTRATOR_URL is already in every runtime pod,\nbecause the k8s services module needs it for the KV store and leader election,\nand taking it away would break both. What this records is the *intent*, which\nis what a future access model gates on — a deployment that never declared it\nhas no business calling the API, and saying so now means the enforcement point\narrives with the declarations already in place rather than needing every\nexisting deployment reclassified.",
-                        "type": "boolean"
                     },
                     "replicas": {
                         "description": "Replicas is the desired runtime replica count; \u003c1 is normalized to 1. The\nper-deployment Service load-balances across them for internal callers.",

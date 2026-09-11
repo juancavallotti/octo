@@ -1,41 +1,40 @@
 "use client";
 
-import { Boxes, ChartNoAxesGantt, Terminal } from "lucide-react";
+import { ShieldCheck, Terminal } from "lucide-react";
+import {
+  DEPLOYMENT_ACCESS,
+  type DeploymentAccess,
+} from "@/app/model/orchestratorTypes";
 
 /**
  * The settings almost no deployment needs, shared by the deploy and rollout
  * dialogs so the two cannot describe the same ones differently.
  *
- * Two kinds live here and they are not the same kind of claim. The platform-access
- * grants say what a deployment's flows are *meant* to reach — a smaller claim than
- * it sounds today, but the one a future access model reads, so collecting the
- * declarations now beats reconstructing them later for every deployment that
- * already exists. The runner says what its pods actually ARE, and takes effect
- * immediately.
+ * Two settings, and they are not the same kind of claim. Access says what this
+ * deployment's own token opens on the platform it runs on. The runner says what
+ * its pods actually ARE.
  *
- * All of it sits behind a disclosure because the default is right for almost
- * everything: an app that serves a webhook has no business reading the installation
- * it runs on, and needs no shell to do its job. Burying these is how that stays the
- * obvious default.
+ * Both sit behind a disclosure because the defaults are right for almost
+ * everything: an app that serves a webhook has no business reading the
+ * installation it runs on, and needs no shell to do its job. Burying these is
+ * how that stays the obvious default.
  */
 export default function AdvancedDeployFields({
-  orchestratorApi,
-  observabilityApi,
+  access,
   runner,
   busy,
-  onOrchestratorApi,
-  onObservabilityApi,
+  onAccess,
   onRunner,
 }: {
-  orchestratorApi: boolean;
-  observabilityApi: boolean;
+  access: DeploymentAccess;
   /** "" or "standard" for the default runner; "agentic" for the heavier one. */
   runner: string;
   busy: boolean;
-  onOrchestratorApi: (next: boolean) => void;
-  onObservabilityApi: (next: boolean) => void;
+  onAccess: (next: DeploymentAccess) => void;
   onRunner: (next: string) => void;
 }) {
+  const chosen = DEPLOYMENT_ACCESS.find((a) => a.value === access);
+
   return (
     <details className="rounded-md border border-black/10 px-3 py-2 dark:border-white/10">
       <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-400">
@@ -43,54 +42,33 @@ export default function AdvancedDeployFields({
       </summary>
 
       <div className="mt-3 space-y-3">
-        <p className="text-xs text-zinc-400">
-          What this deployment&apos;s flows may reach on the platform itself. Leave
-          both off unless the integration is built to read its own installation.
-        </p>
-
         <div>
           <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-            <input
-              type="checkbox"
-              checked={orchestratorApi}
-              disabled={busy}
-              onChange={(e) => onOrchestratorApi(e.target.checked)}
-              className="accent-sky-500"
-            />
-            <Boxes size={14} />
-            Needs access to the orchestrator API
+            <ShieldCheck size={14} />
+            What this deployment may reach
           </label>
-          {orchestratorApi && (
-            <p className="mt-2 text-xs text-zinc-400">
-              Integrations, deployments, resources and secrets, at{" "}
-              <code>ORCHESTRATOR_URL</code>. That address is already in every pod
-              because the runtime needs it, so this records the intent rather than
-              opening anything — a later release can restrict the API to the
-              deployments that declared it.
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-            <input
-              type="checkbox"
-              checked={observabilityApi}
-              disabled={busy}
-              onChange={(e) => onObservabilityApi(e.target.checked)}
-              className="accent-sky-500"
-            />
-            <ChartNoAxesGantt size={14} />
-            Needs access to the observability API
-          </label>
-          {observabilityApi && (
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-              Injects <code>OBSERVABILITY_URL</code>, the stored logs and traces of{" "}
-              <strong>every</strong> deployment on this installation — not just this
-              one. Captured request bodies are readable through it, so grant it to
-              integrations you would trust with the Traces view.
-            </p>
-          )}
+          <select
+            value={access}
+            disabled={busy}
+            aria-label="What this deployment may reach"
+            onChange={(e) => onAccess(e.target.value as DeploymentAccess)}
+            className="mt-2 w-full rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm disabled:opacity-50 dark:border-white/15"
+          >
+            {DEPLOYMENT_ACCESS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <p
+            className={`mt-2 text-xs ${
+              access === "basic"
+                ? "text-zinc-400"
+                : "text-amber-600 dark:text-amber-400"
+            }`}
+          >
+            {chosen?.detail}
+          </p>
         </div>
 
         <div className="border-t border-black/10 pt-3 dark:border-white/10">

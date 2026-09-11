@@ -129,13 +129,6 @@ type Spec struct {
 	Expose        bool              // when true, also publish an external Ingress
 	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
 	Tracing       bool              // when true, run the pods with the runtime's tracer on
-	// ObservabilityAPI grants the pods the observability service's address, injected
-	// as OBSERVABILITY_URL. Nothing else puts it in a pod, so this flag is the whole of the
-	// grant. The orchestrator's own API needs no counterpart here: ORCHESTRATOR_URL
-	// is already injected for the runtime services module, and the declaration that
-	// a deployment calls that API lives on the deployment record for a future access
-	// model to read.
-	ObservabilityAPI bool
 	// Runner selects the image these pods run. The zero value is RunnerStandard, so
 	// a deployment written before runners existed keeps exactly the pod it had.
 	Runner Runner
@@ -658,17 +651,20 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// OBSERVABILITY_URL is the orchestrator's to set, so it is dropped from the user's
 	// bindings wherever it came from. The deployment service already refuses a
 	// binding that targets it, and this is the same rule at the layer that actually
-	// builds the pod — so a caller assembling a Spec directly cannot hand a
-	// deployment the address that its own record says it was never granted.
+	// builds the pod — so a caller assembling a Spec directly cannot name that
+	// address itself.
 	env := append(c.runtimeServicesEnv(spec), without(containerEnv(spec), envObservability)...)
 	if spec.Tracing {
 		env = append(env, corev1.EnvVar{Name: envTracing, Value: "true"})
 	}
-	// The grant and the address are both required. A deployment that asked for
-	// observability on an orchestrator that has no observability address gets nothing,
-	// rather than an empty OBSERVABILITY_URL that turns every query into a confusing failure
-	// inside the flow.
-	if spec.ObservabilityAPI && c.runtimeServices.ObservabilityURL != "" {
+	// Every pod learns where the observability service is, and reaching it is
+	// another matter: that API authorizes the token it is presented, and a
+	// deployment's token opens nothing there unless it was minted to. An address
+	// was never a boundary — anything on the cluster network could dial it — so
+	// withholding it only ever hid a service from the deployments that had asked
+	// to use it. Absent when this orchestrator has no such address, rather than
+	// empty, which turns every query into a confusing failure inside the flow.
+	if c.runtimeServices.ObservabilityURL != "" {
 		env = append(env, corev1.EnvVar{Name: envObservability, Value: c.runtimeServices.ObservabilityURL})
 	}
 	// The stats sidecar scrapes this runtime's /metrics, which the runtime does

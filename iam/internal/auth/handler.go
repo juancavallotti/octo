@@ -112,19 +112,21 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	h.writeToken(w, result)
 }
 
-// machineRequest names the deployed integration a token is being minted for.
+// machineRequest names the deployed integration a token is being minted for, and
+// how much of the platform it is being lent. An absent access is the narrowest
+// one, so a caller that says nothing asks for nothing.
 type machineRequest struct {
 	Deployment string `json:"deployment"`
+	Access     Access `json:"access,omitempty"`
 }
 
 // machine issues a token for a deployed integration, on the authority of the
 // person deploying it — whose own platform token is the bearer here.
 //
-// Unlike the other two this takes a body, because the deployment is not something
-// the credential can say. It is the caller's assertion about what they are
-// deploying, which is safe: the token it produces can only ever act as them and
-// only ever with the runtime role, so naming a different deployment buys nothing
-// that naming their own would not.
+// Unlike the other two this takes a body, because neither the deployment nor the
+// access it is being lent is something the credential can say. Naming a
+// different deployment buys nothing — the token can only ever act as the caller —
+// and the access is checked against what the caller may lend.
 func (h *Handler) machine(w http.ResponseWriter, r *http.Request) {
 	if h.svc == nil {
 		httpx.WriteError(w, http.StatusServiceUnavailable,
@@ -148,7 +150,7 @@ func (h *Handler) machine(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	result, err := h.svc.MintMachine(ctx, token, req.Deployment)
+	result, err := h.svc.MintMachine(ctx, token, req.Deployment, req.Access)
 	if err != nil {
 		h.writeError(w, err)
 		return

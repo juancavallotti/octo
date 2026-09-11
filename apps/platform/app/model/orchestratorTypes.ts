@@ -186,17 +186,50 @@ export interface DeploymentInput {
   /** Run the pods with the runtime tracer on. Off by default; it costs throughput. */
   tracing?: boolean;
   /**
-   * Declares that this deployment's flows call the orchestrator's own API. Grants
-   * nothing today — ORCHESTRATOR_URL is already in every pod for the runtime's KV
-   * store — but it is the declaration a future access model gates on.
+   * How much of the platform this deployment's own token opens beyond the stores
+   * every pod owns. See {@link DEPLOYMENT_ACCESS}. Absent is "basic".
    */
-  orchestratorApi?: boolean;
-  /**
-   * Grants this deployment the observability service's address as OBSERVABILITY_URL. Off by
-   * default: stored logs and traces span every deployment on the installation.
-   */
-  observabilityApi?: boolean;
+  access?: DeploymentAccess;
 }
+
+/**
+ * How much of the platform a deployment's own token opens.
+ *
+ * A running integration presents a token of its own, and what it may do is what
+ * that token carries. Every one of them reaches the stores its pod owns — its
+ * key/value namespace, its objects, its agent memory — and this says what it
+ * reaches besides.
+ *
+ * One choice rather than a set of switches. The three are ordered, each the one
+ * before it plus more, so a set would only ever be spelled as its widest member.
+ */
+export type DeploymentAccess = "basic" | "developer" | "operator";
+
+/** The three, in order, with what each one is for. */
+export const DEPLOYMENT_ACCESS: {
+  value: DeploymentAccess;
+  label: string;
+  detail: string;
+}[] = [
+  {
+    value: "basic",
+    label: "Serves only",
+    detail:
+      "Its own key-value store, objects and agent memory, and nothing of the installation's. Right for almost every integration.",
+  },
+  {
+    value: "developer",
+    label: "Builds integrations",
+    detail:
+      "Additionally reads and writes integrations, their resources, versions and dev runs — across the whole installation, not just its own. For an integration that builds or tests others.",
+  },
+  {
+    value: "operator",
+    label: "Runs the installation",
+    detail:
+      "Additionally deploys, rolls out, scales and removes deployments — anyone else's included. For an integration that operates this platform.",
+  },
+];
 
 /** An environment variable an integration declares, for the modal to prompt on. */
 export interface DeployEnvVar {

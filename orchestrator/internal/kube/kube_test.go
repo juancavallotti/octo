@@ -306,30 +306,32 @@ func TestTracingEnvWinsOverAUserBinding(t *testing.T) {
 	}
 }
 
-// TestObservabilityEnvNeedsBothTheGrantAndTheAddress verifies OBSERVABILITY_URL reaches a pod
-// only when the deployment asked for it and this orchestrator has an address to give.
+// TestObservabilityEnvFollowsTheAddressAlone verifies OBSERVABILITY_URL reaches a
+// pod whenever this orchestrator has an address to give, and never as an empty
+// string.
 //
-// Both halves matter. Injecting without the grant would hand every integration the
-// stored telemetry of every other one; injecting an empty value because the grant was
-// given would turn a missing chart setting into a confusing failure inside the flow,
-// which is the shape of bug that gets blamed on the query rather than the install.
-func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
+// It used to take a per-deployment grant as well. That grant was withholding an
+// address from the deployments that had asked to use it, while anything else on
+// the cluster network could dial the service anyway — so it was never the
+// boundary it read as. The boundary is the token: that API authorizes what it is
+// presented, and a deployment's token opens nothing there unless it was minted
+// to. What is still worth holding is the empty case: injecting an empty value
+// because a chart setting is missing turns it into a confusing failure inside
+// the flow, which is the shape of bug that gets blamed on the query.
+func TestObservabilityEnvFollowsTheAddressAlone(t *testing.T) {
 	const observabilityURL = "http://octo-observability.octo:8091"
 
 	for _, tc := range []struct {
 		name    string
 		address string
-		granted bool
 		want    string // "" means the var must be absent
 	}{
-		{"granted and configured", observabilityURL, true, observabilityURL},
-		{"granted but no address", "", true, ""},
-		{"address but not granted", observabilityURL, false, ""},
-		{"neither", "", false, ""},
+		{"configured", observabilityURL, observabilityURL},
+		{"no address", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &Client{runtimeServices: RuntimeServices{ObservabilityURL: tc.address}}
-			env := c.podEnv(Spec{ObservabilityAPI: tc.granted})
+			env := c.podEnv(Spec{})
 
 			var got string
 			var found bool
@@ -350,39 +352,27 @@ func TestObservabilityEnvNeedsBothTheGrantAndTheAddress(t *testing.T) {
 	}
 }
 
-// TestObservabilityEnvIgnoresAUserBinding verifies OBSERVABILITY_URL is the orchestrator's to
-// set and nobody else's: a binding that targets it is dropped whether or not the
-// grant was given.
+// TestObservabilityEnvIgnoresAUserBinding verifies OBSERVABILITY_URL is the
+// orchestrator's to set and nobody else's: a binding that targets it is dropped,
+// and the orchestrator's own value is what lands.
 //
-// The deployment service refuses such a binding outright, so reaching this code needs
-// a Spec assembled directly — which is exactly the case worth covering, because the
-// ungranted half is the one that matters. A deployment whose pod carries the address
-// while its record says it was never granted the API is a record that lies, and the
-// record is what a future access model reads.
+// The deployment service refuses such a binding outright, so reaching this code
+// needs a Spec assembled directly. It is worth covering anyway: an integration
+// that could name this address itself would be choosing which observability
+// service its pod talks to, and this is the layer that actually builds the pod.
 func TestObservabilityEnvIgnoresAUserBinding(t *testing.T) {
 	const observabilityURL = "http://octo-observability.octo:8091"
 	const smuggled = "http://somewhere-else:9999"
 	c := &Client{runtimeServices: RuntimeServices{ObservabilityURL: observabilityURL}}
 
-	t.Run("granted", func(t *testing.T) {
-		env := c.podEnv(Spec{
-			Env:              map[string]string{envObservability: smuggled},
-			ObservabilityAPI: true,
-		})
-		if got := valueOf(env, envObservability); got != observabilityURL {
-			t.Errorf("%s = %q, want the granted %q: %+v", envObservability, got, observabilityURL, env)
-		}
-		if n := count(env, envObservability); n != 1 {
-			t.Errorf("%s appears %d times, want exactly 1: %+v", envObservability, n, env)
-		}
-	})
-
-	t.Run("not granted", func(t *testing.T) {
-		env := c.podEnv(Spec{Env: map[string]string{envObservability: smuggled}})
-		if got := valueOf(env, envObservability); got != "" {
-			t.Errorf("%s = %q, want it absent without the grant: %+v", envObservability, got, env)
-		}
-	})
+	env := c.podEnv(Spec{Env: map[string]string{envObservability: smuggled}})
+	if got := valueOf(env, envObservability); got != observabilityURL {
+		t.Errorf("%s = %q, want the orchestrator's %q: %+v",
+			envObservability, got, observabilityURL, env)
+	}
+	if n := count(env, envObservability); n != 1 {
+		t.Errorf("%s appears %d times, want exactly 1: %+v", envObservability, n, env)
+	}
 }
 
 // valueOf returns the value of the named env var, or "" when it is absent.

@@ -84,6 +84,7 @@ export default function DeployEnvFields({
               <select
                 value={b.secret}
                 disabled={busy}
+                aria-label={`Secret for ${ev.name}`}
                 onChange={(e) => onChange(ev.name, { secret: e.target.value })}
                 className={INPUT}
               >

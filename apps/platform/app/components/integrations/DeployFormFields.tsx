@@ -2,6 +2,7 @@
 
 import { Globe, Tag } from "lucide-react";
 import type { DeployEnvVar } from "@/app/model/orchestrator";
+import type { DeploymentAccess } from "@/app/model/orchestratorTypes";
 
 import { INPUT } from "./inputStyles";
 import SlugField from "./SlugField";
@@ -36,10 +37,8 @@ export default function DeployFormFields({
   onSlugOk,
   tracing,
   onTracing,
-  orchestratorApi,
-  onOrchestratorApi,
-  observabilityApi,
-  onObservabilityApi,
+  access,
+  onAccess,
   runner,
   onRunner,
   envVars,
@@ -73,10 +72,8 @@ export default function DeployFormFields({
   onSlugOk: (ok: boolean) => void;
   tracing: boolean;
   onTracing: (on: boolean) => void;
-  orchestratorApi: boolean;
-  onOrchestratorApi: (on: boolean) => void;
-  observabilityApi: boolean;
-  onObservabilityApi: (on: boolean) => void;
+  access: DeploymentAccess;
+  onAccess: (next: DeploymentAccess) => void;
   /** Which runner image the pods run: "" (the default) or "agentic". */
   runner: string;
   onRunner: (runner: string) => void;
@@ -201,14 +198,12 @@ export default function DeployFormFields({
         </Field>
       )}
 
-      {/* Last, and collapsed: almost no integration needs either grant, and the
-          ones that do are written for it. */}
+      {/* Last, and collapsed: almost no integration reaches past its own stores,
+          and the ones that do are written for it. */}
       <AdvancedDeployFields
         busy={busy}
-        orchestratorApi={orchestratorApi}
-        onOrchestratorApi={onOrchestratorApi}
-        observabilityApi={observabilityApi}
-        onObservabilityApi={onObservabilityApi}
+        access={access}
+        onAccess={onAccess}
         runner={runner}
         onRunner={onRunner}
       />

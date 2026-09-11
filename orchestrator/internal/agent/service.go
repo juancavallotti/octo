@@ -478,11 +478,12 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
-	// Dr. Octo is the reference consumer of both platform-access grants, so he asks
-	// for them the same way any integration does rather than through a private path.
-	// Observability is what puts OBSERVABILITY_URL in his pod; the orchestrator one grants
-	// nothing today and is the declaration a future access model reads — an agent
-	// that drives the whole API is precisely the deployment that should carry it.
+	// He is deployed with the narrowest access there is, which looks wrong for an
+	// agent that drives the whole API and is not. His tools spend the token of
+	// whoever is chatting, so what he may do is what that person may do — and his
+	// own token is only for what his pod owns: its conversation memory and its
+	// key/value store. Lending him more would be lending it to every question
+	// anybody asks him.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
 		Replicas:   1,
 		SnapshotID: snap.ID,
@@ -494,9 +495,7 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		// his flow would not even load there, because a `cli-run` allow list is
 		// resolved when the flow is built. blocked() refuses the install up front
 		// when this installation has no such image, so reaching here means it does.
-		Runner:           agenticRunner,
-		OrchestratorAPI:  true,
-		ObservabilityAPI: true,
+		Runner: agenticRunner,
 	})
 	if err != nil {
 		return cur, fmt.Errorf("deploy version %q: %w", snap.Tag, err)

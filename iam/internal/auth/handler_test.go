@@ -438,7 +438,19 @@ func TestRefreshResponseIsNotCacheable(t *testing.T) {
 /** postMachine asks for a token on behalf of whoever `bearer` speaks for. */
 func (h *harness) postMachine(t *testing.T, bearer, deployment string) *httptest.ResponseRecorder {
 	t.Helper()
-	body := `{"deployment":"` + deployment + `"}`
+	return h.postMachineWith(t, bearer, deployment, "")
+}
+
+/** postMachineWith is postMachine asking for a particular access. */
+func (h *harness) postMachineWith(
+	t *testing.T, bearer, deployment string, access Access,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	body := `{"deployment":"` + deployment + `"`
+	if access != "" {
+		body += `,"access":"` + string(access) + `"`
+	}
+	body += `}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/machine", strings.NewReader(body))
 	if bearer != "" {
 		req.Header.Set("Authorization", bearer)
@@ -705,4 +717,109 @@ func TestRefreshOfAMachineTokenDoesNotRecheckTheOwnersRole(t *testing.T) {
 	if refreshed := h.postRefresh(t, "Bearer "+machine.Token); refreshed.Code != http.StatusOK {
 		t.Errorf("renewing after the owner was demoted = %d, want 200", refreshed.Code)
 	}
+}
+
+// --- how much a deployment is lent -----------------------------------------
+
+// The default is the narrowest thing, so an integration that was deployed
+// without a thought about access reaches its own stores and nothing else.
+func TestAMachineTokenDefaultsToTheRuntimeRoleAlone(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|owner", "owner@example.com")
+
+	rec := h.postMachine(t, "Bearer "+owner.Token, "dep-1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	_, private := h.claimsOf(t, decodeToken(t, rec).Token)
+	if len(private.Roles) != 1 || private.Roles[0] != user.RoleRuntime {
+		t.Errorf("roles = %v, want platform:runtime alone", private.Roles)
+	}
+}
+
+// The two wider ones each add exactly one role, and neither drops the runtime
+// role: a deployment that can build is still a pod that owns a store.
+func TestAWiderAccessAddsOneRoleAndKeepsTheRuntimeOne(t *testing.T) {
+	for _, tt := range []struct {
+		access Access
+		want   user.Role
+	}{
+		{AccessDeveloper, user.RoleDeveloper},
+		{AccessOperator, user.RoleOperator},
+	} {
+		t.Run(string(tt.access), func(t *testing.T) {
+			h := newHarness(t)
+			owner := h.signIn(t, "provider|owner", "owner@example.com")
+
+			rec := h.postMachineWith(t, "Bearer "+owner.Token, "dep-1", tt.access)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+			}
+			_, private := h.claimsOf(t, decodeToken(t, rec).Token)
+			if !contains(private.Roles, user.RoleRuntime) || !contains(private.Roles, tt.want) {
+				t.Errorf("roles = %v, want runtime and %s", private.Roles, tt.want)
+			}
+			if len(private.Roles) != 2 {
+				t.Errorf("roles = %v, want exactly those two", private.Roles)
+			}
+		})
+	}
+}
+
+// An access nobody defined is the caller's mistake and is refused, rather than
+// quietly becoming the narrowest one — which would hand back a token that does
+// less than the caller believes and fail somewhere else entirely.
+func TestAnUnknownAccessIsRefused(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|owner", "owner@example.com")
+
+	rec := h.postMachineWith(t, "Bearer "+owner.Token, "dep-1", "administrator")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("POST /auth/machine = %d (%s), want 400", rec.Code, rec.Body.String())
+	}
+}
+
+// A renewal is of what the deployment was lent, not of what its owner may do
+// now. The owner here is an administrator and the token stays a basic one.
+func TestARenewalKeepsTheAccessItWasMintedWith(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|owner", "owner@example.com")
+
+	rec := h.postMachineWith(t, "Bearer "+owner.Token, "dep-1", AccessDeveloper)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	minted := decodeToken(t, rec).Token
+
+	renewed := h.postRefresh(t, "Bearer "+minted)
+	if renewed.Code != http.StatusOK {
+		t.Fatalf("POST /auth/refresh = %d (%s), want 200", renewed.Code, renewed.Body.String())
+	}
+	_, private := h.claimsOf(t, decodeToken(t, renewed).Token)
+	if !contains(private.Roles, user.RoleDeveloper) || contains(private.Roles, user.RoleAdmin) {
+		t.Errorf("roles = %v, want the developer access it was minted with and no more",
+			private.Roles)
+	}
+	if private.Deployment != "dep-1" {
+		t.Errorf("deployment = %q, want it carried through the renewal", private.Deployment)
+	}
+}
+
+// decodeToken reads a minted-token reply.
+func decodeToken(t *testing.T, rec *httptest.ResponseRecorder) authResponse {
+	t.Helper()
+	var got authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return got
+}
+
+func contains(roles []user.Role, want user.Role) bool {
+	for _, held := range roles {
+		if held == want {
+			return true
+		}
+	}
+	return false
 }

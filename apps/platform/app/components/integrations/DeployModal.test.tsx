@@ -74,12 +74,15 @@ describe("DeployModal environment section", () => {
     const deploy = screen.getByRole("button", { name: "Deploy" });
     expect(deploy).toBeDisabled(); // API_KEY is required and unset
 
-    // Switch API_KEY (first row) to Secret mode and pick the cluster secret. There
-    // are now two comboboxes (the Version selector and the secret picker); the
-    // secret picker is the one that just appeared.
+    // Switch API_KEY (first row) to Secret mode and pick the cluster secret. The
+    // picker is addressed by the variable it binds rather than by position: this
+    // dialog grows selects, and a positional query silently starts driving
+    // whichever one was added last.
     await userEvent.click(screen.getAllByRole("button", { name: "secret" })[0]);
-    const combos = await screen.findAllByRole("combobox");
-    await userEvent.selectOptions(combos[combos.length - 1], "DB_PASSWORD");
+    await userEvent.selectOptions(
+      await screen.findByRole("combobox", { name: "Secret for API_KEY" }),
+      "DB_PASSWORD",
+    );
 
     await waitFor(() => expect(deploy).toBeEnabled());
     await userEvent.click(deploy);

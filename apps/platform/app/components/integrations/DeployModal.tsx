@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Rocket, X } from "lucide-react";
 import type { EnvBindingInput, Snapshot } from "@/app/model/orchestrator";
+import type { DeploymentAccess } from "@/app/model/orchestratorTypes";
 import { suggestNextTag } from "@/app/model/tags";
 import { useDeployOptions } from "./useDeployOptions";
 import { useDeployEnv } from "./useDeployEnv";
@@ -31,8 +32,7 @@ export interface DeploySubmit {
   expose?: "external";
   env?: Record<string, EnvBindingInput>;
   tracing?: boolean;
-  orchestratorApi?: boolean;
-  observabilityApi?: boolean;
+  access?: DeploymentAccess;
   runner?: string;
 }
 
@@ -65,8 +65,7 @@ export default function DeployModal({
   const [tracing, setTracing] = useState(false);
   // Platform-access grants, both off by default: an integration that reads its own
   // installation is the exception, and the default should be the rule.
-  const [orchestratorApi, setOrchestratorApi] = useState(false);
-  const [observabilityApi, setObservabilityApi] = useState(false);
+  const [access, setAccess] = useState<DeploymentAccess>("basic");
   // Which image the pods run. Empty is the distroless default every integration
   // has always had; "agentic" is the privileged one, so it is opt-in like the
   // grants above and for a stronger reason.
@@ -123,8 +122,7 @@ export default function DeployModal({
       ...(networked && expose ? { expose: "external" } : {}),
       ...(Object.keys(env).length ? { env } : {}),
       ...(tracing ? { tracing: true } : {}),
-      ...(orchestratorApi ? { orchestratorApi: true } : {}),
-      ...(observabilityApi ? { observabilityApi: true } : {}),
+      ...(access !== "basic" ? { access } : {}),
       ...(runner ? { runner } : {}),
     });
   };
@@ -174,10 +172,8 @@ export default function DeployModal({
           onSlugOk={setSlugOk}
           tracing={tracing}
           onTracing={setTracing}
-          orchestratorApi={orchestratorApi}
-          onOrchestratorApi={setOrchestratorApi}
-          observabilityApi={observabilityApi}
-          onObservabilityApi={setObservabilityApi}
+          access={access}
+          onAccess={setAccess}
           runner={runner}
           onRunner={setRunner}
           envVars={envVars}
