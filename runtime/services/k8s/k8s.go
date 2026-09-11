@@ -53,6 +53,19 @@ func init() {
 	services.Register(Module, New)
 }
 
+// podCredential builds this pod's orchestrator credential from the environment
+// and renews it once, so that what the pod presents is a token it obtained rather
+// than one written before it started.
+func podCredential(ctx context.Context) *credential {
+	cred := newCredential(credentialConfig{
+		Seed:   os.Getenv(envOrchestrTokenFile),
+		Inline: os.Getenv(envOrchestrToken),
+		IAMURL: os.Getenv(envIAMURL),
+	})
+	cred.start(ctx)
+	return cred
+}
+
 // Services is the Kubernetes runtime-services provider.
 type Services struct {
 	le        *leaderElection
@@ -73,7 +86,7 @@ type Services struct {
 // first use.
 //
 //nolint:ireturn // satisfies services.Factory (returns core.RuntimeServices)
-func New(_ context.Context, opts services.Options) (core.RuntimeServices, error) {
+func New(ctx context.Context, opts services.Options) (core.RuntimeServices, error) {
 	identity := os.Getenv(envPodName)
 	namespace := os.Getenv(envPodNamespace)
 	deploymentID := os.Getenv(envDeploymentID)
@@ -103,8 +116,7 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 		return nil, fmt.Errorf("k8s: connect nats %q: %w", natsURL, err)
 	}
 
-	cred := newCredential(
-		os.Getenv(envOrchestrTokenFile), os.Getenv(envOrchestrToken), os.Getenv(envIAMURL))
+	cred := podCredential(ctx)
 
 	volatile := volatileStore(deploymentID)
 
