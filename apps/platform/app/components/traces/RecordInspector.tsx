@@ -7,6 +7,7 @@ import { describeCost, describeCostStatus, formatDuration, formatTokens } from "
 import Payload from "./Payload";
 import type { WaterfallNode } from "./types";
 import { useTraceRecord } from "./useTraceRecord";
+import Callout from "@/app/components/ui/Callout";
 
 /**
  * One span, opened.
@@ -83,10 +84,12 @@ export default function RecordInspector({
         )}
 
         {node.inferred && (
-          <p className="rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-            No record ended this invocation, so its extent is inferred from what
-            ran inside it — a lower bound on what really happened here.
-          </p>
+          <Callout>
+            <p>
+              No record ended this invocation, so its extent is inferred from what
+              ran inside it — a lower bound on what really happened here.
+            </p>
+          </Callout>
         )}
 
         {record && record.costStatus !== "" && <ModelCall record={record} />}

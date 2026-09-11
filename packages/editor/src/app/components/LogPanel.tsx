@@ -16,6 +16,7 @@ import DevEnvPanel from "./DevEnvPanel";
 import ConsoleTabs from "./console/ConsoleTabs";
 import LogsTab from "./console/LogsTab";
 import ProblemsTab from "./console/ProblemsTab";
+import { useSave } from "../save/SaveContext";
 import ResultsTab from "./console/ResultsTab";
 import TestsTab from "./console/TestsTab";
 
@@ -94,6 +95,10 @@ export default function LogPanel({
     ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
     : 0;
   const issues = run?.validation.issues ?? [];
+  // A save that failed is a problem with the document in front of you, and it
+  // belongs where the other ones are rather than as a line of red in the toolbar
+  // that has nowhere to go and nothing to click.
+  const saveError = useSave()?.error ?? "";
   // Pressing Run should surface the log stream. Snap on the false→true transition only,
   // so the user can switch away freely while a run continues.
   const prevRunning = useRef(running);
@@ -107,7 +112,10 @@ export default function LogPanel({
 
   // The last run's failure, shown under the validation issues: a document can be
   // perfectly valid and still fail the moment it actually runs.
-  const runErrors = results[0]?.error ? [results[0].error] : [];
+  const runErrors = [
+    ...(saveError ? [`Could not save: ${saveError}`] : []),
+    ...(results[0]?.error ? [results[0].error] : []),
+  ];
 
   function startResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -170,7 +178,7 @@ export default function LogPanel({
           active={tab}
           running={running}
           counts={{
-            problems: issues.length,
+            problems: issues.length + (saveError ? 1 : 0),
             results: results.length,
             tests: testFailures,
           }}

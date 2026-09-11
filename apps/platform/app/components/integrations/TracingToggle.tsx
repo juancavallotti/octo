@@ -1,6 +1,7 @@
 "use client";
 
 import { Waypoints } from "lucide-react";
+import Callout from "@/app/components/ui/Callout";
 
 /**
  * The per-deployment tracing switch, shared by the deploy and rollout dialogs so
@@ -36,17 +37,19 @@ export default function TracingToggle({
         Trace this deployment
       </label>
       {checked && (
-        <div className="mt-2 space-y-1.5 text-xs text-amber-600 dark:text-amber-400">
-          <p>
-            Significantly reduces this deployment&apos;s throughput. Trace to
-            troubleshoot, then switch it off — this is not a setting to leave on
-            a deployment serving real traffic.
-          </p>
-          <p>
-            Captured request bodies and variables are stored as they arrive and
-            are readable by anyone signed in to the platform. Avoid tracing a
-            deployment whose messages carry credentials.
-          </p>
+        <div className="mt-2">
+          <Callout>
+            <p>
+              Significantly reduces this deployment&apos;s throughput. Trace to
+              troubleshoot, then switch it off — this is not a setting to leave
+              on a deployment serving real traffic.
+            </p>
+            <p>
+              Captured request bodies and variables are stored as they arrive and
+              are readable by anyone signed in to the platform. Avoid tracing a
+              deployment whose messages carry credentials.
+            </p>
+          </Callout>
         </div>
       )}
     </>

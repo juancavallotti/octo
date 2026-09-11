@@ -9,6 +9,7 @@ import RecordInspector from "./RecordInspector";
 import TraceSummaryPanel from "./TraceSummaryPanel";
 import { useTraceDetail } from "./useTraceDetail";
 import Waterfall from "./Waterfall";
+import Callout from "@/app/components/ui/Callout";
 
 /**
  * The right-hand pane: one trace, as the waterfall of everything that happened
@@ -56,11 +57,13 @@ export default function TraceDetail({ traceId }: { traceId: string }) {
       </header>
 
       {detail.truncated && (
-        <p className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 text-xs text-amber-600 dark:text-amber-400">
-          This trace holds more records than one response carries, so the chart
-          below is drawn from part of it. A waterfall cut this way is incomplete in
-          a way the picture itself cannot show.
-        </p>
+        <Callout flush>
+          <p>
+            This trace holds more records than one response carries, so the chart
+            below is drawn from part of it. A waterfall cut this way is incomplete
+            in a way the picture itself cannot show.
+          </p>
+        </Callout>
       )}
 
       <TraceSummaryPanel summary={summary} waterfall={waterfall} />
