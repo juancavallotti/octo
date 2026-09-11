@@ -162,31 +162,30 @@ func NewService(repo repository, integrations integrationStore, kube kubeClient,
 // identityFor mints the token a deployment presents to this API, on the
 // authority of whoever is deploying it.
 //
-// Empty is a normal answer, not a failure: an install with no iam configured
-// gives its pods no identity, and nothing yet requires one. What it must never do
-// is silently hand out an identity belonging to somebody who is not the caller,
-// which is why a missing caller token yields nothing rather than falling back to
-// anything of the orchestrator's own.
-func (s *Service) identityFor(ctx context.Context, deploymentID string) string {
+// Where there is an iam to mint from, a deployment gets an identity or the
+// operation fails. Carrying on without one would create pods refused by this
+// same API on every call they make — and on a rollout it would be worse than
+// that, because a deployment whose token cannot be minted has its existing one
+// withdrawn, so a moment's trouble at iam would strip a working deployment of a
+// credential it already had.
+//
+// Where there is no iam, a deployment has no identity and nothing asks it for
+// one. That is the whole of the empty case: never a fallback to a credential of
+// this service's own, and never one belonging to somebody who is not the caller.
+func (s *Service) identityFor(ctx context.Context, deploymentID string) (string, error) {
 	if s.identities == nil || !s.identities.Configured() {
-		return ""
+		return "", nil
 	}
 	token := caller.Token(ctx)
 	if token == "" {
-		slog.WarnContext(ctx, "deploying with no caller credential, so the pods get no identity",
-			"deployment", deploymentID)
-		return ""
+		return "", fmt.Errorf(
+			"this deployment needs an identity and the request carried no credential to mint it with")
 	}
 	minted, err := s.identities.MintMachine(ctx, token, deploymentID)
 	if err != nil {
-		// Not fatal. The deployment is what the caller asked for; the identity is
-		// what its pods will need once this API requires one, and refusing the
-		// deploy over it would take the platform down the moment iam blinked.
-		slog.WarnContext(ctx, "could not lend the deployment an identity",
-			"deployment", deploymentID, "error", err)
-		return ""
+		return "", fmt.Errorf("lend the deployment an identity: %w", err)
 	}
-	return minted
+	return minted, nil
 }
 
 // resolveRunner turns a settings value into the runner the workload will use,
@@ -418,7 +417,9 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Tracing:          settings.Tracing,
 		ObservabilityAPI: settings.ObservabilityAPI,
 		Runner:           runner,
-		Token:            s.identityFor(ctx, dep.ID),
+	}
+	if spec.Token, err = s.identityFor(ctx, dep.ID); err != nil {
+		return Deployment{}, err
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {
 		// Roll back: remove any partially created resources and the row so the
@@ -892,9 +893,11 @@ func (s *Service) Rollout(
 		Tracing:          settings.Tracing,
 		ObservabilityAPI: settings.ObservabilityAPI,
 		Runner:           resolvedRunner,
-		// Re-minted rather than carried over: a rollout is a fresh authorisation by
-		// whoever is performing it, and the pods are replaced anyway.
-		Token: s.identityFor(ctx, dep.ID),
+	}
+	// Re-minted rather than carried over: a rollout is a fresh authorisation by
+	// whoever is performing it, and the pods are replaced anyway.
+	if spec.Token, err = s.identityFor(ctx, dep.ID); err != nil {
+		return Deployment{}, err
 	}
 	if err := s.kube.Rollout(ctx, spec); err != nil {
 		return Deployment{}, err

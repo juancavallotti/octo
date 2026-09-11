@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -34,9 +35,22 @@ const clockSkew = 60 * time.Second
 type Verifier struct {
 	issuer string
 
-	mu       sync.Mutex
-	verifier *oidc.IDTokenVerifier
+	// ready is the fast path: once the keyset has been fetched, every request
+	// reads it without touching the lock below.
+	ready atomic.Pointer[oidc.IDTokenVerifier]
+
+	mu sync.Mutex
+	// retryAt is when a failed fetch may be tried again. Without it an iam that is
+	// down turns every request into its own discovery attempt, each waiting out
+	// its own timeout behind the lock, and the orchestrator serializes all of its
+	// traffic on a dependency that is not answering.
+	retryAt time.Time
 }
+
+// retryAfter is how long a failed keyset fetch is left alone. Short enough that
+// an iam coming back is picked up promptly, long enough that a burst of requests
+// costs one attempt rather than one each.
+const retryAfter = 5 * time.Second
 
 // NewVerifier returns a Verifier for the iam at issuer.
 func NewVerifier(issuer string) *Verifier {
@@ -106,26 +120,44 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	}, nil
 }
 
-// resolve builds the verifier on first use, outside the lock where it can.
+// resolve returns the verifier, fetching the keyset the first time.
+//
+// The common case takes no lock at all. The first request through does, and any
+// arriving alongside it wait for that one fetch rather than starting their own —
+// and if it fails they are turned away immediately until retryAfter has passed,
+// so an iam that is down costs one attempt every few seconds instead of one per
+// request.
 func (v *Verifier) resolve(ctx context.Context) (*oidc.IDTokenVerifier, error) {
+	if ready := v.ready.Load(); ready != nil {
+		return ready, nil
+	}
+
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.verifier != nil {
-		return v.verifier, nil
+	// Re-checked under the lock: another request may have fetched it while this
+	// one waited.
+	if ready := v.ready.Load(); ready != nil {
+		return ready, nil
+	}
+	if time.Now().Before(v.retryAt) {
+		return nil, fmt.Errorf("%w: the keyset could not be fetched", ErrUnavailable)
 	}
 
 	provider, err := oidc.NewProvider(ctx, v.issuer)
 	if err != nil {
-		// Not cached: iam may simply not be up yet, and a permanent failure here
-		// would mean the orchestrator never authorizes anybody until it restarts.
+		// Not cached as a permanent answer: iam may simply not be up yet, and a
+		// failure remembered forever would mean this service never authorizes
+		// anybody again until it restarts.
+		v.retryAt = time.Now().Add(retryAfter)
 		slog.WarnContext(ctx, "could not reach iam to fetch its keys", "issuer", v.issuer, "error", err)
 		return nil, fmt.Errorf("%w: the keyset could not be fetched", ErrUnavailable)
 	}
-	v.verifier = provider.Verifier(&oidc.Config{
+	ready := provider.Verifier(&oidc.Config{
 		ClientID:             tokenAudience,
 		SupportedSigningAlgs: []string{oidc.ES256},
-		// Checked below with a tolerance, against the same clock as `nbf`.
+		// Checked in Verify with a tolerance, against the same clock as `nbf`.
 		SkipExpiryCheck: true,
 	})
-	return v.verifier, nil
+	v.ready.Store(ready)
+	return ready, nil
 }

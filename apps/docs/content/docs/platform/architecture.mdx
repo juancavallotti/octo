@@ -74,11 +74,11 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 
 The wiring degrades gracefully. Without `DATABASE_URL`, only `/healthz`, the OpenAPI routes (which describe the build rather than what it is connected to) and a degraded `/db-version` serve. Outside a cluster the deployment and secret routes stay disabled while everything database-backed still works.
 
-The orchestrator trusts the platform app as its authentication boundary: the acting user's id is forwarded in request bodies (`actorId`) from the authenticated session, not verified as a credential. Keep the orchestrator internal (ClusterIP); the chart does.
+The orchestrator verifies the caller's platform token on every route but the health and description endpoints, and applies a role policy to it. The acting user's id is still forwarded in request bodies (`actorId`) for attribution, and is still not a credential — what authorizes the call is the token. Keep the orchestrator internal (ClusterIP) anyway; the chart does.
 
 ### iam (`iam/`)
 
-A small Go service (port `8093`) that owns identity and authorization for the platform. It is the only component that talks to an identity provider: it verifies the token somebody arrives with, resolves them to a `users` row and its roles, and mints a token this platform signed. That token is verifiable against the keys iam publishes at `/.well-known/jwks.json`, so a service that checks it needs to understand nothing about OIDC. Today the platform app is the one that holds it — the orchestrator still trusts the platform as its boundary, as described above.
+A small Go service (port `8093`) that owns identity and authorization for the platform. It is the only component that talks to an identity provider: it verifies the token somebody arrives with, resolves them to a `users` row and its roles, and mints a token this platform signed. That token is verifiable against the keys iam publishes at `/.well-known/jwks.json`, so a service that checks it needs to understand nothing about OIDC. Both the platform app and the orchestrator verify tokens against those keys.
 
 It signs ES256 and generates, stores and rotates its own keys — there is no signing key for an operator to set. The private halves live in `iam_signing_keys` encrypted under `KV_ENCRYPTION_KEY`, the same key the orchestrator uses for the KV store.
 
