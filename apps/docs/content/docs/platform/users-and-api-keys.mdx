@@ -79,7 +79,7 @@ Sign-in exchanges the provider's token for one this platform signed, carrying th
 
 `platform:admin` gates the whole admin section: its pages and, more to the point, every server action behind them. Reads are gated there as well as writes, because those settings hold the installation's SMTP credentials and its LLM API keys.
 
-`AUTH_WRITE_ROLES` (the chart's `auth.writeRoles`) is a comma-separated list of roles allowed to perform write and mutating operations elsewhere in the product. Empty (the default) means any signed-in user can write. A signed-in user without a listed role gets a `403` on writes but can still read.
+`AUTH_WRITE_ROLES` (the chart's `auth.writeRoles`) is a comma-separated list of roles allowed to perform write and mutating operations elsewhere in the product. Empty (the default) means every role except `platform:monitor`, the role that exists to mean "looks, and nothing else". A signed-in user without a listed role gets a `403` on writes but can still read.
 
 There are no per-integration permissions yet. The `platform:` prefix is there to leave room for them.
 
