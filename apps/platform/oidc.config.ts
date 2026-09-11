@@ -8,8 +8,8 @@
  * (app/mcp/oauth-config.ts) cannot drift apart on which issuer they trust.
  *
  * Only `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` are required;
- * everything else has a working default. Leaving the issuer unset disables SSO
- * entirely, which is what local `task dev` runs do (see `authEnabled`).
+ * everything else has a working default. {@link missingAuthConfig} reports which
+ * of the required ones are unset.
  *
  * This module is deliberately dependency-free: it is imported by the edge-safe
  * auth config and by the lightweight `.well-known` metadata routes, neither of
@@ -39,7 +39,7 @@ export const OIDC_PROVIDER_ID = "oidc";
 
 /**
  * The provider's issuer URL — the base its discovery document hangs off, and the
- * exact string tokens must carry as `iss`. Empty when SSO is unconfigured.
+ * exact string tokens must carry as `iss`. Empty only on a misconfigured install.
  *
  * Kept byte-for-byte as configured, trailing slash and all: the issuer is an
  * identifier, not a path, and some providers' really does end in one (Auth0's
@@ -97,3 +97,21 @@ export const OIDC_PROVIDER_LOGO = (() => {
   const origin = issuerOrigin();
   return origin ? `${origin}/favicon.ico` : undefined;
 })();
+
+/**
+ * The names of the required settings this process has not been given, in the
+ * order listed below; empty when it has them all.
+ *
+ * Read at call time rather than at module scope, so that importing this module
+ * is safe where none of them are set. Returns names, never values.
+ */
+export function missingAuthConfig(): string[] {
+  return [
+    "OIDC_ISSUER",
+    "OIDC_CLIENT_ID",
+    "OIDC_CLIENT_SECRET",
+    // Not an OIDC_* var, but required on the same terms: it keys the session
+    // cookie.
+    "AUTH_SECRET",
+  ].filter((name) => !env(name));
+}

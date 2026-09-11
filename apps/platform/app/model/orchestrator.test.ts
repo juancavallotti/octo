@@ -1,11 +1,14 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-// The model now delegates to server actions, which authorize via the auth guard
-// (`@/auth`). next-auth can't load in the vitest environment, so stub the guard's
-// dependency: auth disabled → every action authorizes with the local session.
+// next-auth cannot load in the vitest environment, so stub it with a session that
+// passes every gate: what these cover is the request the model builds.
 vi.mock("@/auth", () => ({
-  authEnabled: false,
-  auth: async () => null,
+  auth: async () => ({
+    user: {
+      id: "00000000-0000-0000-0000-000000000001",
+      roles: ["platform:admin", "platform:operator", "platform:developer"],
+    },
+  }),
 }));
 
 import {
@@ -62,7 +65,11 @@ describe("orchestrator client", () => {
     expect(url).toBe(`${ORCH}/integrations`);
     expect(init).toMatchObject({
       method: "POST",
-      body: JSON.stringify({ name: "n", definition: "yaml" }),
+      body: JSON.stringify({
+        name: "n",
+        definition: "yaml",
+        actorId: "00000000-0000-0000-0000-000000000001",
+      }),
     });
   });
 

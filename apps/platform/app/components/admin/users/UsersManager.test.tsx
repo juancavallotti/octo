@@ -34,7 +34,7 @@ function user(over: Partial<{ id: string; email: string; name: string; roles: st
 
 function renderManager(currentUserId = "somebody-else") {
   return render(
-    <RolesProvider roles={[PLATFORM_ADMIN]} enforced>
+    <RolesProvider roles={[PLATFORM_ADMIN]}>
       <UsersManager currentUserId={currentUserId} />
     </RolesProvider>,
   );

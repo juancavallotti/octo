@@ -75,22 +75,3 @@ function post(path: string, bearer: string): Promise<ActionResult<PlatformToken>
     headers: { Authorization: `Bearer ${bearer}` },
   });
 }
-
-/**
- * Provision (or refresh) the user identified by an OIDC subject, returning the
- * row with its durable id.
- *
- * The one caller that cannot exchange a token: a local `task dev` run has no
- * identity provider, so it asserts a sentinel identity and works with that. A
- * deployment signs people in through {@link exchangeIdToken}, which verifies a
- * token rather than believing a body.
- */
-export function bootstrapUser(
-  subject: string,
-  email: string,
-  name: string,
-): Promise<ActionResult<PlatformUser>> {
-  const base = iamBaseUrl();
-  if (!base) return Promise.resolve(iamUnconfigured<PlatformUser>("user provisioning"));
-  return requestJson<PlatformUser>("POST", `${base}/users/bootstrap`, { subject, email, name });
-}

@@ -8,7 +8,7 @@ import { PLATFORM_ADMIN, PLATFORM_MONITOR } from "@/app/auth/roles";
 
 function renderMenu(roles: string[] = [PLATFORM_ADMIN]) {
   return render(
-    <RolesProvider roles={roles} enforced>
+    <RolesProvider roles={roles}>
       <UserMenuClient
         name="Ada Lovelace"
         email="ada@example.com"

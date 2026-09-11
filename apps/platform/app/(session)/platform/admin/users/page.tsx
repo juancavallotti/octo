@@ -1,4 +1,4 @@
-import { auth, authEnabled } from "@/auth";
+import { auth } from "@/auth";
 import UsersManager from "@/app/components/admin/users/UsersManager";
 
 /**
@@ -8,21 +8,10 @@ import UsersManager from "@/app/components/admin/users/UsersManager";
  * adds is knowing *which* administrator is looking, so the screen can refuse to
  * let somebody edit their own roles and lock themselves out of it.
  *
- * Without that id the guard would silently pass for every row, so the list is not
- * offered at all rather than offered unguarded. In practice it is always there:
- * sign-in cannot complete without the exchange that sets it. With SSO off there
- * is no identity to have, and no iam to administer either.
+ * Without that id the guard would pass for every row, so the list is not offered
+ * at all rather than offered unguarded.
  */
 export default async function UsersPage() {
-  if (!authEnabled) {
-    return (
-      <p className="p-6 text-sm text-zinc-500">
-        User administration needs single sign-on configured — there is nobody to
-        administer without an identity provider.
-      </p>
-    );
-  }
-
   const session = await auth();
   const currentUserId = session?.user?.id;
   if (!currentUserId) {

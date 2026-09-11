@@ -23,8 +23,9 @@ export interface Integration {
   lastUpdated: string;
   /**
    * Attribution: the ids of the creating and last-editing users, with those
-   * users resolved to email/name for display. All optional — a row may have no
-   * known actor (local no-SSO, MCP writes) or the user may since be gone.
+   * users resolved to email/name for display. All optional — a row written
+   * before attribution existed has no actor, and one whose user has since been
+   * deleted keeps the row and loses the name.
    */
   createdBy?: string;
   updatedBy?: string;

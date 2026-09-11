@@ -19,11 +19,9 @@ import {
   requireSession,
   writeRoles,
 } from "@/app/auth/guard";
-import { authEnabled } from "@/auth";
 import { PLATFORM_ADMIN } from "@/app/auth/roles";
 import type { Session } from "next-auth";
 import type { ActionResult } from "@octo/http";
-import { bootstrapUser } from "./client/iam";
 
 /**
  * Authorize `roles`, returning the authenticated session on success or an error
@@ -84,27 +82,13 @@ export async function withAdmin<T>(
   return "session" in g ? fn(g.session) : g;
 }
 
-// Stable identity for the local (no-SSO) dev session, which has no OIDC subject.
-// Bootstrapping it on demand gives `task dev` a real user row to own keys and dev runs.
-const LOCAL_SUBJECT = "local-dev";
-const LOCAL_EMAIL = "local@localhost";
-const LOCAL_NAME = "Local Dev";
-
 /**
- * The caller's durable user id. With SSO it is on the session, put there when the
- * exchange resolved them at sign-in. In local dev there is no identity provider, so a
- * stable sentinel user is bootstrapped through iam on demand and its id used — which is
- * why this can reach the orchestrator at all.
+ * The caller's durable user id, from the session.
  *
- * Throws AuthError when no user can be resolved, which the gates below turn into an
- * error result so an action never throws across the boundary.
+ * Throws AuthError when the session carries none, which the gates below turn into
+ * an error result so an action never throws across the boundary.
  */
-async function userIdOf(session: Session): Promise<string> {
-  if (!authEnabled) {
-    const res = await bootstrapUser(LOCAL_SUBJECT, LOCAL_EMAIL, LOCAL_NAME);
-    if (!res.ok) throw new AuthError(res.error);
-    return res.data.id;
-  }
+function userIdOf(session: Session): string {
   const id = session.user.id;
   if (!id) throw new AuthError("user not provisioned");
   return id;
@@ -119,7 +103,7 @@ async function gateUser<T>(
   if (!("session" in g)) return g;
   let userId: string;
   try {
-    userId = await userIdOf(g.session);
+    userId = userIdOf(g.session);
   } catch (err) {
     if (err instanceof AuthError) return { ok: false, error: err.message };
     throw err;
@@ -177,5 +161,5 @@ export async function currentUserId(): Promise<string> {
  */
 export async function currentWriteUserId(): Promise<{ id: string; name: string }> {
   const session = await requireRole(...writeRoles);
-  return { id: await userIdOf(session), name: session.user?.name ?? "" };
+  return { id: userIdOf(session), name: session.user?.name ?? "" };
 }

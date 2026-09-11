@@ -14,17 +14,6 @@ export const PLATFORM_MONITOR = "platform:monitor";
 export const PLATFORM_DEVELOPER = "platform:developer";
 export const PLATFORM_OPERATOR = "platform:operator";
 
-/**
- * Every role, in the order they are worth showing: the one that can change
- * anything first, then the rest.
- */
-export const ALL_ROLES = [
-  PLATFORM_ADMIN,
-  PLATFORM_OPERATOR,
-  PLATFORM_DEVELOPER,
-  PLATFORM_MONITOR,
-] as const;
-
 /** Short labels for the roles, for anywhere one is shown to a person. */
 export const ROLE_LABELS: Record<string, string> = {
   [PLATFORM_ADMIN]: "Admin",

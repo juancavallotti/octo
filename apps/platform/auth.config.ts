@@ -14,14 +14,8 @@ import {
 } from "@/oidc.config";
 
 /**
- * Edge-safe Auth.js configuration, shared with the full `auth.ts`.
- * SSO is opt-in: it is only wired up when the OIDC config is present (platform
- * deploys). Local `task dev` runs leave these env vars unset and stay
- * unauthenticated — see `authEnabled`.
- *
- * The identity provider is whatever OIDC provider the operator configured (see
- * oidc.config.ts); Octo talks plain authorization-code OIDC and privileges none
- * of them.
+ * Edge-safe Auth.js configuration, shared with the full `auth.ts`. One provider,
+ * plain authorization-code OIDC, configured entirely from oidc.config.ts.
  *
  * What the provider says about somebody is not what this platform authorizes on.
  * At sign-in the provider's token is traded with iam for a platform token, and
@@ -29,9 +23,6 @@ import {
  * database, not from a claim the provider chose to send. See
  * app/auth/octoToken.ts for the token's life after that.
  */
-
-/** True when OIDC SSO is configured and should be enforced. */
-export const authEnabled = !!OIDC_ISSUER && !!process.env.AUTH_SECRET;
 
 export const authConfig: NextAuthConfig = {
   trustHost: true,
