@@ -1222,11 +1222,10 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles (role);
 -- self-rotating key costs nothing and a chart value would be one more thing an
 -- operator can get wrong.
 --
--- Two horizons, and they are not the same date. `retire_after` is when the key
--- stops signing; `expires_at` is when it stops being published. The gap between
--- them is at least one token lifetime, so a token minted a moment before rotation
--- can still be verified for the whole of its life. Rows past expires_at are
--- deleted by the next rotation, so nothing sweeps in the background.
+-- One horizon: `retire_after`, when the key stops signing. It goes on verifying
+-- what it signed for good, and is never deleted — a deployment's token can be
+-- renewed however long ago it expired, so dropping the key that signed it would
+-- strand the pod holding it. The set grows by one key per rotation.
 --
 -- The private half is encrypted at rest under KV_ENCRYPTION_KEY -- the key the
 -- orchestrator already holds for the KV store, so this adds no knob an operator can
@@ -1241,16 +1240,15 @@ CREATE TABLE IF NOT EXISTS iam_signing_keys (
     private_key  bytea NOT NULL,        -- PKCS#8 DER
     public_key   bytea NOT NULL,        -- PKIX DER
     created_at   timestamptz NOT NULL DEFAULT now(),
-    retire_after timestamptz NOT NULL,
-    expires_at   timestamptz NOT NULL
+    retire_after timestamptz NOT NULL
 );
 
--- The two reads this table gets: "which key signs now" (the newest that has not
--- retired) and "which keys still verify" (everything unexpired, for the JWKS).
+-- One read needs an index: "which key signs now", the newest that has not
+-- retired. The other read is "which keys verify", which is all of them — a key
+-- goes on verifying what it signed for good, because a deployment's token is
+-- renewable however long ago it expired and dropping its key would end that.
 CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_retire_after
     ON iam_signing_keys (retire_after DESC);
-CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_expires_at
-    ON iam_signing_keys (expires_at);
 
 -- db_version 2: everybody who already had an account becomes an administrator.
 --
