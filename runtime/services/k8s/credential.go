@@ -151,6 +151,12 @@ func (c *credential) load() {
 }
 
 // readToken reads a token file, answering "" for any reason it cannot.
+//
+// A file that is simply absent is the ordinary case for an install with no iam,
+// and says nothing. A file that exists and cannot be read is a misconfiguration
+// — the wrong mode on a mount, most likely — and it is reported, because the
+// symptom otherwise is a pod that authenticates as nobody for a reason nothing
+// prints.
 func readToken(path string) string {
 	if path == "" {
 		return ""
@@ -159,8 +165,11 @@ func readToken(path string) string {
 	// reading it is the whole job.
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			slog.Debug("k8s: could not read a token file", "path", path, "error", err)
+		if os.IsNotExist(err) {
+			slog.Debug("k8s: no token file", "path", path)
+		} else {
+			slog.Error("k8s: a token is mounted but cannot be read, so this pod has none",
+				"path", path, "error", err)
 		}
 		return ""
 	}

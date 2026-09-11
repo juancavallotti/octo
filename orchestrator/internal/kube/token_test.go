@@ -74,10 +74,12 @@ func TestApplyWritesTheTokenToASecretAndMountsIt(t *testing.T) {
 	if volume.Secret == nil || volume.Secret.SecretName != tokenSecretName(spec.ID) {
 		t.Fatalf("%q is not backed by the token secret: %+v", tokenVolume, volume.VolumeSource)
 	}
-	// A credential readable by every user in the image is a credential handed to
-	// anything the container runs.
-	if volume.Secret.DefaultMode == nil || *volume.Secret.DefaultMode != 0o400 {
-		t.Errorf("token volume mode = %v, want 0400", volume.Secret.DefaultMode)
+	// The runner images run as 65532 and secret files are owned by root, so an
+	// owner-only mode hides the token from the process that has to present it —
+	// and hides it silently, which is how this shipped the first time.
+	if volume.Secret.DefaultMode == nil || *volume.Secret.DefaultMode != 0o444 {
+		t.Errorf("token volume mode = %v, want 0444: the runtime does not run as root",
+			volume.Secret.DefaultMode)
 	}
 
 	var mount *corev1.VolumeMount

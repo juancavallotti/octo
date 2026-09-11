@@ -507,7 +507,12 @@ func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
 		})
 	}
 	if spec.Token != "" {
-		mode := int32(0o400)
+		// Readable by everyone in the pod, because the only reader is not root and
+		// the file is. Secret volume files are owned by root:root, and these images
+		// run as 65532 — so 0400 hides the token from the one process that needs
+		// it, and does so silently. It costs nothing: what can read this mount is
+		// what is inside this pod either way.
+		mode := int32(0o444)
 		volumes = append(volumes, corev1.Volume{
 			Name: tokenVolume,
 			VolumeSource: corev1.VolumeSource{
