@@ -348,7 +348,12 @@ flows:
         # tool call the run is holding in front of a person. The headers are the
         # whole signal: the expressions on the agent below are the only thing that
         # gives them meaning.
-        headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth]
+        # X-Agent-Caller-Token is the credential of whoever is chatting, and it is
+        # what every tool below spends against the orchestrator API. Without it
+        # those calls carry no bearer and the API refuses them, which is the
+        # intended failure: this agent reaches what the person asking reaches, and
+        # never more.
+        headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth, X-Agent-Caller-Token]
         # On an SSE route this bounds the wait for the FIRST frame only. An agent
         # takes a moment to produce its first token.
         timeout: 60s
@@ -733,6 +738,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
+                  headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
                   method: '"GET"'
                   path: body.path
                   allowMethods: [GET]
@@ -899,6 +905,8 @@ flows:
                 name: send-report
                 settings:
                   connector: octo
+                  headers:
+                    Authorization: '"X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""'
                   method: POST
                   path: /email/send
                   body: >-
@@ -1596,6 +1604,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
+                  headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
                   method: '"GET"'
                   path: body.path
                   allowMethods: [GET]
@@ -1834,6 +1843,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
+                  headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
                   method: body.method
                   path: body.path
                   query: 'has(body.query) ? body.query : {}'
@@ -2551,6 +2561,8 @@ flows:
                 name: send-report
                 settings:
                   connector: octo
+                  headers:
+                    Authorization: '"X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""'
                   method: POST
                   path: /email/send
                   body: >-
@@ -2745,6 +2757,8 @@ flows:
         name: send-final-report
         settings:
           connector: octo
+          headers:
+            Authorization: '"X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""'
           method: POST
           path: /email/send
           body: 'body'
