@@ -81,7 +81,9 @@ Stored logs and traces span **every** deployment on the installation, not just t
 **This is not a network boundary.** The [observability API](/platform/observability-api-reference) performs no authentication and is reachable from anywhere on the cluster network, so a flow author can point a connector at the service's address directly. Until the API gains authentication, treat the grant as a declaration, the same footing as the orchestrator one below.
 </Callout>
 
-**The orchestrator grant is a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod, because the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election. Access control over the orchestrator API is expected to arrive as RBAC gating on this declaration, so declare it now for the integrations that genuinely call the API.
+**The orchestrator grant is still a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod, because the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election, and this checkbox gates nothing on its own.
+
+What does gate it is the token each deployment is given. The orchestrator authorizes every request by the roles on the presented token, and a deployment's own token carries `platform:runtime` — which reaches its key-value store, its objects and its agent memory, and nothing else. Declaring the grant does not widen that; a pod cannot read another deployment's data, change an integration, or see the installation's settings whatever this box says.
 
 Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them.
 

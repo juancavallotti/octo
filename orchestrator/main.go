@@ -24,8 +24,10 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/agentmemory"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
+	"github.com/juancavallotti/octo/orchestrator/internal/authz"
 	"github.com/juancavallotti/octo/orchestrator/internal/bundle"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
+	"github.com/juancavallotti/octo/orchestrator/internal/caller"
 	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
 	"github.com/juancavallotti/octo/orchestrator/internal/db"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
@@ -35,6 +37,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	"github.com/juancavallotti/octo/orchestrator/internal/health"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
+	"github.com/juancavallotti/octo/orchestrator/internal/iam"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/kv"
@@ -465,6 +468,9 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		// the chart bound this orchestrator's own REDIS_URL to — a managed Redis
 		// URL carries a password, and a password written into every integration
 		// Deployment would be readable by anyone who can read workloads.
+		// Where a deployment's pods renew their own token. Empty leaves a mounted
+		// token to stand until it expires, so it travels with the mint below.
+		IAMURL:   os.Getenv("IAM_URL"),
 		RedisURL: os.Getenv("REDIS_URL"),
 		RedisSecret: kube.SecretKeyRef{
 			Name: os.Getenv("REDIS_URL_SECRET_NAME"),
@@ -776,6 +782,10 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			deploymentRepo := deployment.NewRepo(database.Pool())
 			deploymentSvc := deployment.NewService(deploymentRepo, integrationSvc, kubeClient,
 				deployment.WithStoreCleaner(kvSvc),
+				// Each deployment gets a token of its own, minted on the authority of
+				// whoever deployed it. Unconfigured, they get none — which is every
+				// install that has not turned iam on.
+				deployment.WithIdentities(iam.New(os.Getenv("IAM_URL"))),
 				// Enforce tagged deploys: a deploy must reference a snapshot and ships
 				// its frozen definition.
 				deployment.WithSnapshots(snapshotSvc),
@@ -905,7 +915,28 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	)).Register(mux)
 	slog.Info("health routes registered", "endpoints", "GET /settings/health")
 
-	return mux, nil
+	// Every request carries whatever credential it arrived with, for the two
+	// things that need it: minting a deployment's identity on the caller's
+	// authority, and the guard below. Reading a header authenticates nobody — see
+	// internal/caller.
+	return caller.Middleware(guard(mux)), nil
+}
+
+// guard wraps the API in the authorization policy, when this install has an iam
+// to verify tokens against.
+//
+// Without one it returns the mux untouched and says so, which is the same
+// decision newServer makes for every other absent dependency: an orchestrator
+// that cannot verify a token must not start refusing every request, because
+// there is no way for a caller to fix that from the outside.
+func guard(mux http.Handler) http.Handler {
+	issuer := os.Getenv("IAM_URL")
+	if issuer == "" {
+		slog.Warn("IAM_URL is unset, so the API authorizes nothing and serves every caller")
+		return mux
+	}
+	slog.Info("api authorization enabled", "iam", issuer)
+	return authz.Wrap(authz.NewVerifier(issuer), mux)
 }
 
 // embeddingsProbe checks the embedding server, or nil when there is none.

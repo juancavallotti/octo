@@ -1382,10 +1382,17 @@
                 },
                 "type": "object"
             }
+        },
+        "securitySchemes": {
+            "Bearer": {
+                "in": "header",
+                "name": "Authorization",
+                "type": "apiKey"
+            }
         }
     },
     "info": {
-        "description": "The control plane behind the Octo platform: integrations and their\nresources, version tags, deployments, cluster secrets, the\ndeployment-scoped key-value store, users and API keys, and the\nsite-wide settings.\n\nThe orchestrator is an in-cluster service and performs no\nauthentication of its own. Callers reach it over the cluster network\nand the platform BFF is the authorization boundary in front of it.\nIdentity, where a route needs it, is passed as a parameter (an actor\nid, a user id in the path) rather than proven by a credential.",
+        "description": "The control plane behind the Octo platform: integrations and their\nresources, version tags, deployments, cluster secrets, the\ndeployment-scoped key-value store, users and API keys, and the\nsite-wide settings.\n\nEvery route requires a bearer token minted by this platform's iam\nservice, except the health and description endpoints. What a route\nrequires of the caller depends on the roles the token carries: most\nreads are open to anyone signed in, building and deploying need the\ncorresponding role, and the installation's own settings and secrets\nare administrators only. A deployed integration presents a token of\nits own, which reaches its key-value store, its objects and its agent\nmemory and nothing else.\n\nAn installation with no iam configured authorizes nothing and serves\nevery caller, which is what a local run is.",
         "license": {
             "name": "Elastic License 2.0",
             "url": "https://www.elastic.co/licensing/elastic-license"

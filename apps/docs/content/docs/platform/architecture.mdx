@@ -42,7 +42,7 @@ All control-plane components run in one namespace (`octo-dev` by default) and ar
 
 ### Platform app (`apps/platform`)
 
-A Next.js App Router application that serves the visual editor and every platform view. It is also the **backend-for-frontend**: the browser never calls the orchestrator directly. Server actions and route handlers under `app/api` proxy every call using the server-only `ORCHESTRATOR_URL`, so the orchestrator needs no CORS, no public exposure, and no authentication of its own.
+A Next.js App Router application that serves the visual editor and every platform view. It is also the **backend-for-frontend**: the browser never calls the orchestrator directly. Server actions and route handlers under `app/api` proxy every call using the server-only `ORCHESTRATOR_URL`, so the orchestrator needs no CORS and no public exposure. It does authenticate: every proxied call carries the caller's own platform token, and the orchestrator checks it and the roles on it before serving the route.
 
 Authentication is Auth.js (NextAuth) with an OIDC provider and JWT sessions. There is no database adapter, so the same config backs both the route handlers and the request proxy (`proxy.ts`), which redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with a 401.
 
