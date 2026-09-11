@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const listUsers = vi.fn();
@@ -8,6 +8,7 @@ const grantRole = vi.fn();
 const revokeRole = vi.fn();
 const deleteUser = vi.fn();
 const createUser = vi.fn();
+const updateUser = vi.fn();
 vi.mock("@/app/model/users", () => ({
   listUsers: (query: unknown) => listUsers(query),
   listRoles: () => listRoles(),
@@ -15,14 +16,17 @@ vi.mock("@/app/model/users", () => ({
   revokeRole: (id: string, role: string) => revokeRole(id, role),
   deleteUser: (id: string) => deleteUser(id),
   createUser: (input: unknown) => createUser(input),
+  updateUser: (id: string, input: unknown) => updateUser(id, input),
 }));
 
 import UsersManager from "./UsersManager";
+import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import { RolesProvider } from "@/app/auth/RolesContext";
 import { PLATFORM_ADMIN, PLATFORM_MONITOR } from "@/app/auth/roles";
 
 interface Person {
   id: string;
+  subject: string;
   email: string;
   name: string;
   roles: string[];
@@ -33,6 +37,7 @@ interface Person {
 function user(over: Partial<Person> = {}): Person {
   return {
     id: over.id ?? "u1",
+    subject: over.subject === undefined ? "auth0|ada" : over.subject,
     email: over.email ?? "ada@example.com",
     name: over.name ?? "Ada Lovelace",
     roles: over.roles ?? [PLATFORM_ADMIN],
@@ -69,9 +74,16 @@ function serve(people: Person[], pageSize = 25) {
 function renderManager(currentUserId = "somebody-else") {
   return render(
     <RolesProvider roles={[PLATFORM_ADMIN]} mayWrite>
-      <UsersManager currentUserId={currentUserId} />
+      <ConfirmProvider>
+        <UsersManager currentUserId={currentUserId} />
+      </ConfirmProvider>
     </RolesProvider>,
   );
+}
+
+/** The open dialog, which is where every role change happens now. */
+function dialog() {
+  return screen.getByRole("dialog");
 }
 
 beforeEach(() => {
@@ -83,70 +95,40 @@ beforeEach(() => {
   serve([user()]);
 });
 
-describe("UsersManager", () => {
+describe("the directory", () => {
   it("lists people with the roles they hold", async () => {
     renderManager();
 
-    expect(await screen.findByText("Ada Lovelace")).toBeTruthy();
-    expect(screen.getByText("ada@example.com")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Admin" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("button", { name: "Monitor" }).getAttribute("aria-pressed")).toBe("false");
+    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    expect(screen.getByText("ada@example.com")).toBeInTheDocument();
+    // Scoped to the table: the role filter offers every role as an option, and a
+    // bare text query would find those instead.
+    const row = within(screen.getByRole("table"));
+    expect(row.getByText("Admin")).toBeInTheDocument();
+    // A reading, not a control: the role a person does NOT hold has no place in
+    // the row at all, because there is nothing to click.
+    expect(row.queryByText("Monitor")).toBeNull();
   });
 
-  // "Did my invite work" is the question this screen will be asked, and a blank
-  // cell is not an answer to it.
-  it("says Never for somebody who has not arrived yet", async () => {
-    serve([user({ lastLoginAt: null })]);
+  // The answer to "why is this person not getting in" belongs on the screen that
+  // gets asked it.
+  it("shows the subject their provider presents", async () => {
+    renderManager();
+    expect(await screen.findByText("auth0|ada")).toBeInTheDocument();
+  });
+
+  it("says so when a provisioned person has not arrived", async () => {
+    serve([user({ subject: "", lastLoginAt: null })]);
     renderManager();
 
-    expect(await screen.findByText("Never")).toBeTruthy();
+    expect(await screen.findByText("Not signed in yet")).toBeInTheDocument();
+    expect(screen.getByText("Never")).toBeInTheDocument();
   });
 
-  it("grants a role the person does not hold", async () => {
-    grantRole.mockResolvedValue(user({ roles: [PLATFORM_ADMIN, PLATFORM_MONITOR] }));
-    const person = userEvent.setup();
+  it("says so when somebody holds nothing", async () => {
+    serve([user({ roles: [] })]);
     renderManager();
-
-    await person.click(await screen.findByRole("button", { name: "Monitor" }));
-
-    expect(grantRole).toHaveBeenCalledWith("u1", PLATFORM_MONITOR);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Monitor" }).getAttribute("aria-pressed")).toBe("true"),
-    );
-  });
-
-  it("revokes a role the person holds", async () => {
-    revokeRole.mockResolvedValue(user({ roles: [] }));
-    const person = userEvent.setup();
-    renderManager();
-
-    await person.click(await screen.findByRole("button", { name: "Admin" }));
-    expect(revokeRole).toHaveBeenCalledWith("u1", PLATFORM_ADMIN);
-  });
-
-  // Editing your own roles is how somebody locks themselves out of the section
-  // they are standing in. iam refuses to remove the last administrator anyway;
-  // this stops the attempt being made by accident.
-  it("will not let somebody change or remove themselves", async () => {
-    renderManager("u1");
-
-    await screen.findByText("Ada Lovelace");
-    expect(screen.getByRole("button", { name: "Admin" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: /Remove ada@example.com/ })).toHaveProperty(
-      "disabled",
-      true,
-    );
-  });
-
-  it("leaves somebody else's row editable", async () => {
-    serve([user(), user({ id: "u2", email: "bob@example.com", name: "Bob" })]);
-    renderManager("u1");
-
-    await screen.findByText("Bob");
-    expect(screen.getByRole("button", { name: /Remove bob@example.com/ })).toHaveProperty(
-      "disabled",
-      false,
-    );
+    expect(await screen.findByText("No roles")).toBeInTheDocument();
   });
 
   // The filter is a question for iam, not a pass over what is already on screen:
@@ -160,7 +142,6 @@ describe("UsersManager", () => {
     await person.type(screen.getByLabelText("Filter by name or email"), "bob");
 
     await waitFor(() => expect(screen.queryByText("Ada Lovelace")).toBeNull());
-    expect(screen.getByText("Bob")).toBeTruthy();
     expect(listUsers).toHaveBeenCalledWith(expect.objectContaining({ q: "bob" }));
   });
 
@@ -176,35 +157,13 @@ describe("UsersManager", () => {
     await person.selectOptions(screen.getByLabelText("Filter by role"), PLATFORM_MONITOR);
 
     await waitFor(() => expect(screen.queryByText("Ada Lovelace")).toBeNull());
-    expect(screen.getByText("Bob")).toBeTruthy();
     expect(listUsers).toHaveBeenCalledWith(expect.objectContaining({ role: PLATFORM_MONITOR }));
   });
 
-  it("surfaces a refusal from iam rather than swallowing it", async () => {
-    revokeRole.mockRejectedValue(new Error("this is the last platform:admin"));
-    const person = userEvent.setup();
+  it("says so when the list is empty", async () => {
+    serve([]);
     renderManager();
-
-    await person.click(await screen.findByRole("button", { name: "Admin" }));
-
-    expect(await screen.findByText(/last platform:admin/)).toBeTruthy();
-  });
-
-  // Each call answers with the whole user, so two in flight together can land out
-  // of order and the older reply would overwrite the newer state.
-  it("takes one role change at a time", async () => {
-    let settle: (u: unknown) => void = () => {};
-    grantRole.mockReturnValue(new Promise((r) => (settle = r)));
-    const person = userEvent.setup();
-    renderManager();
-
-    await person.click(await screen.findByRole("button", { name: "Monitor" }));
-
-    expect(screen.getByRole("button", { name: "Admin" })).toHaveProperty("disabled", true);
-    settle(user({ roles: [PLATFORM_ADMIN, PLATFORM_MONITOR] }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Admin" })).toHaveProperty("disabled", false),
-    );
+    expect(await screen.findByText("Nobody yet.")).toBeInTheDocument();
   });
 
   // A first load that fails must stop saying "Loading…", or the error sits
@@ -213,15 +172,179 @@ describe("UsersManager", () => {
     listUsers.mockRejectedValue(new Error("iam unreachable"));
     renderManager();
 
-    expect(await screen.findByText("iam unreachable")).toBeTruthy();
+    expect(await screen.findByText("iam unreachable")).toBeInTheDocument();
     expect(screen.queryByText("Loading…")).toBeNull();
   });
+});
 
-  it("says so when the list is empty", async () => {
-    serve([]);
+describe("adding a person", () => {
+  // The point of the whole change: nobody types an OIDC subject any more, so
+  // there is no field for one to be typed into.
+  it("asks for an address, a name and roles, and nothing else", async () => {
+    const person = userEvent.setup();
     renderManager();
 
-    expect(await screen.findByText("Nobody yet.")).toBeTruthy();
+    await screen.findByText("Ada Lovelace");
+    await person.click(screen.getByRole("button", { name: "Add a person" }));
+
+    expect(within(dialog()).getByLabelText(/Email/)).toBeInTheDocument();
+    expect(within(dialog()).getByLabelText(/Name/)).toBeInTheDocument();
+    expect(within(dialog()).getByRole("checkbox", { name: /Admin/ })).toBeInTheDocument();
+    expect(within(dialog()).queryByLabelText(/subject/i)).toBeNull();
+  });
+
+  // Letting somebody in and saying what they may do is one decision, so it is
+  // one call: nobody exists here holding something nobody chose.
+  it("sends the chosen roles with the create", async () => {
+    createUser.mockResolvedValue({});
+    const person = userEvent.setup();
+    renderManager();
+
+    await screen.findByText("Ada Lovelace");
+    await person.click(screen.getByRole("button", { name: "Add a person" }));
+    await person.type(within(dialog()).getByLabelText(/Email/), "grace@example.com");
+    await person.click(within(dialog()).getByRole("checkbox", { name: /Monitor/ }));
+    await person.click(within(dialog()).getByRole("button", { name: "Add" }));
+
+    expect(createUser).toHaveBeenCalledWith({
+      email: "grace@example.com",
+      name: "",
+      roles: [PLATFORM_MONITOR],
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  // A refusal belongs in front of the person who can correct it, which means the
+  // dialog they typed into rather than the list behind it.
+  it("stays open and shows a refusal", async () => {
+    createUser.mockRejectedValue(new Error("that address already has an account"));
+    const person = userEvent.setup();
+    renderManager();
+
+    await screen.findByText("Ada Lovelace");
+    await person.click(screen.getByRole("button", { name: "Add a person" }));
+    await person.type(within(dialog()).getByLabelText(/Email/), "ada@example.com");
+    await person.click(within(dialog()).getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByText(/already has an account/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("editing a person", () => {
+  // Roles are not changeable from the table at all any more. That is the whole
+  // reason the dialog exists: a chip in a list somebody is scrolling is how
+  // platform:admin gets handed out by accident.
+  it("offers no role control in the row", async () => {
+    renderManager();
+    await screen.findByText("Ada Lovelace");
+
+    expect(screen.queryByRole("button", { name: "Monitor" })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("opens with what the person already holds", async () => {
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Edit ada@example.com/ }));
+
+    expect(within(dialog()).getByLabelText(/Email/)).toHaveValue("ada@example.com");
+    expect(within(dialog()).getByRole("checkbox", { name: /Admin/ })).toBeChecked();
+    expect(within(dialog()).getByRole("checkbox", { name: /Monitor/ })).not.toBeChecked();
+  });
+
+  it("sends only the roles that changed", async () => {
+    updateUser.mockResolvedValue({});
+    grantRole.mockResolvedValue({});
+    revokeRole.mockResolvedValue({});
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Edit ada@example.com/ }));
+    await person.click(within(dialog()).getByRole("checkbox", { name: /Monitor/ }));
+    await person.click(within(dialog()).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(grantRole).toHaveBeenCalledWith("u1", PLATFORM_MONITOR));
+    expect(revokeRole).not.toHaveBeenCalled();
+    expect(updateUser).toHaveBeenCalledWith("u1", {
+      email: "ada@example.com",
+      name: "Ada Lovelace",
+    });
+  });
+
+  it("revokes what was unticked", async () => {
+    updateUser.mockResolvedValue({});
+    revokeRole.mockResolvedValue({});
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Edit ada@example.com/ }));
+    await person.click(within(dialog()).getByRole("checkbox", { name: /Admin/ }));
+    await person.click(within(dialog()).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(revokeRole).toHaveBeenCalledWith("u1", PLATFORM_ADMIN));
+    expect(grantRole).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a refusal from iam rather than swallowing it", async () => {
+    updateUser.mockResolvedValue({});
+    revokeRole.mockRejectedValue(new Error("this is the last platform:admin"));
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Edit ada@example.com/ }));
+    await person.click(within(dialog()).getByRole("checkbox", { name: /Admin/ }));
+    await person.click(within(dialog()).getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(/last platform:admin/)).toBeInTheDocument();
+  });
+
+  // Editing your own roles is how somebody locks themselves out of the section
+  // they are standing in. iam refuses to remove the last administrator anyway;
+  // this stops the attempt being made by accident.
+  it("will not let somebody change their own roles or remove themselves", async () => {
+    const person = userEvent.setup();
+    renderManager("u1");
+
+    await screen.findByText("Ada Lovelace");
+    expect(screen.getByRole("button", { name: /Remove ada@example.com/ })).toBeDisabled();
+
+    await person.click(screen.getByRole("button", { name: /Edit ada@example.com/ }));
+    expect(within(dialog()).getByRole("checkbox", { name: /Admin/ })).toBeDisabled();
+    expect(within(dialog()).getByText(/cannot change your own roles/)).toBeInTheDocument();
+  });
+
+  it("leaves somebody else's row removable", async () => {
+    serve([user(), user({ id: "u2", email: "bob@example.com", name: "Bob" })]);
+    renderManager("u1");
+
+    await screen.findByText("Bob");
+    expect(screen.getByRole("button", { name: /Remove bob@example.com/ })).toBeEnabled();
+  });
+});
+
+describe("removing a person", () => {
+  // Their API keys and grants go with them, so it asks first.
+  it("asks before removing, and does not remove when declined", async () => {
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Remove ada@example.com/ }));
+    await person.click(await screen.findByRole("button", { name: /cancel/i }));
+
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("removes when confirmed", async () => {
+    deleteUser.mockResolvedValue(undefined);
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Remove ada@example.com/ }));
+    await person.click(await screen.findByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(deleteUser).toHaveBeenCalledWith("u1"));
   });
 });
 
@@ -251,11 +374,11 @@ describe("paging", () => {
     expect(screen.queryByText("Person 2")).toBeNull();
 
     await person.click(screen.getByRole("button", { name: "Next page" }));
-    expect(await screen.findByText("Person 2")).toBeTruthy();
+    expect(await screen.findByText("Person 2")).toBeInTheDocument();
     expect(screen.queryByText("Person 0")).toBeNull();
 
     await person.click(screen.getByRole("button", { name: "Previous page" }));
-    expect(await screen.findByText("Person 0")).toBeTruthy();
+    expect(await screen.findByText("Person 0")).toBeInTheDocument();
   });
 
   // A filter is a different listing, and the cursors collected for the old one
@@ -270,6 +393,6 @@ describe("paging", () => {
 
     await person.type(screen.getByLabelText("Filter by name or email"), "Person");
 
-    await waitFor(() => expect(screen.getByText("Person 0")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Person 0")).toBeInTheDocument());
   });
 });

@@ -72,9 +72,11 @@ Addresses are unique case-insensitively, since providers treat them that way.
 
 A `users` row carries a durable id, which is what integration attribution and API keys reference; deleting a user takes their API keys and role grants with them but leaves what they authored, with the attribution cleared.
 
-The directory is paged and filtered by iam rather than by the browser — by a substring of the name or address, and by role.
+The directory is paged and filtered by iam rather than by the browser — by a substring of the name or address, and by role. Each row shows the subject their provider presents, or **Not signed in yet**: that is the answer to "why can this person not get in", and it is the first thing to look at when somebody says they cannot.
 
-An administrator cannot edit or remove their own row from this screen, and iam refuses to remove the last administrator however the request arrives.
+**Roles are changed in a dialog, never in the table.** Adding somebody takes their address, their name and their roles together — they are granted with the row, so nobody exists here holding something nobody chose. Changing what an existing person may do means opening **Edit**, ticking, and saving. A role chip in a list somebody is scrolling is how `platform:admin` gets handed out by accident, which is the whole reason the table's pills are a reading and not a control.
+
+An administrator cannot change their own roles or remove themselves from this screen, and iam refuses to remove the last administrator however the request arrives. Removing somebody asks first: their API keys and role grants go with them.
 
 ## Roles
 

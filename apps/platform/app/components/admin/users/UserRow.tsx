@@ -1,65 +1,57 @@
 "use client";
 
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { PLATFORM_ADMIN } from "@/app/auth/roles";
-import {
-  deleteUser,
-  grantRole,
-  revokeRole,
-  type PlatformUser,
-  type RoleOption,
-} from "@/app/model/users";
-import RoleChips from "./RoleChips";
+import { deleteUser, type PlatformUser } from "@/app/model/users";
+import { useConfirm } from "@/app/components/ConfirmDialog";
+import RoleBadges from "./RoleBadges";
 
 /**
- * One person: who they are, what they may do, and a way to remove them.
+ * One person: who they are, how their provider knows them, what they hold, and
+ * the two ways to act on them.
  *
- * Their own row is treated differently in one place. An administrator editing
- * their own roles is how somebody locks themselves out of the section they are
- * standing in, so the toggles are disabled there and say why. iam refuses to
- * remove the last administrator regardless — this only stops the attempt being
- * made by accident, which is the difference between a rule and a trap.
+ * Nothing here changes a role. The row is a reading; editing opens a dialog.
+ * That is the whole point of the split — role chips in a table make granting one
+ * a single click on a list somebody is scrolling.
+ *
+ * Their own row cannot be removed. An administrator deleting themselves is how
+ * somebody locks themselves out of the section they are standing in; iam refuses
+ * to remove the last administrator regardless, and this stops the attempt being
+ * made by accident.
  */
 export default function UserRow({
   user,
-  roles,
   isSelf,
-  onChanged,
+  busy,
+  onEdit,
   onRemoved,
   onError,
 }: {
   user: PlatformUser;
-  roles: RoleOption[];
   isSelf: boolean;
-  onChanged: (user: PlatformUser) => void;
+  busy: boolean;
+  onEdit: () => void;
   onRemoved: () => void;
   onError: (message: string) => void;
 }) {
-  // One change at a time. Each call answers with the whole user, so two in flight
-  // together can land out of order and the older reply would overwrite the newer
-  // state — the row would end up showing something nobody asked for.
-  const [busy, setBusy] = useState(false);
-
-  const toggle = async (role: string, grant: boolean) => {
-    setBusy(true);
-    try {
-      onChanged(await (grant ? grantRole(user.id, role) : revokeRole(user.id, role)));
-    } catch (e) {
-      onError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const confirm = useConfirm();
 
   const remove = async () => {
-    setBusy(true);
+    const ok = await confirm({
+      title: `Remove ${user.name || user.email}?`,
+      body:
+        "Their API keys and role grants go with them. What they authored stays, " +
+        "with the attribution cleared. They can be added again, and their next " +
+        "sign-in would claim the new row.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await deleteUser(user.id);
       onRemoved();
     } catch (e) {
       onError((e as Error).message);
-      setBusy(false);
     }
   };
 
@@ -70,18 +62,17 @@ export default function UserRow({
         <div className="text-xs text-zinc-500">{user.email}</div>
       </td>
       <td className="py-2 pr-4 align-top">
-        <RoleChips
-          held={user.roles}
-          catalogue={roles}
-          disabled={isSelf || busy}
-          onToggle={toggle}
-        />
-        {isSelf && (
-          // Said in the row rather than in a title: a disabled control cannot take
-          // keyboard focus, and a tooltip is not reachable by touch at all.
-          <p className="mt-1 text-xs text-zinc-500">
-            You cannot change your own roles or remove yourself.
-          </p>
+        <RoleBadges roles={user.roles} />
+      </td>
+      <td className="py-2 pr-4 align-top">
+        {user.subject ? (
+          // The provider's own id, for the question this screen gets asked when
+          // somebody cannot get in. Monospace and breakable: these are long and
+          // shaped like `auth0|65f…`, and truncating one would defeat the point
+          // of showing it.
+          <code className="text-xs break-all text-zinc-500">{user.subject}</code>
+        ) : (
+          <span className="text-xs text-zinc-400 italic">Not signed in yet</span>
         )}
       </td>
       <td className="py-2 pr-4 align-top text-xs text-zinc-500">
@@ -94,12 +85,23 @@ export default function UserRow({
           <span className="italic">Never</span>
         )}
       </td>
-      <td className="py-2 align-top text-right">
+      <td className="py-2 align-top text-right whitespace-nowrap">
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={busy}
+          aria-label={`Edit ${user.email}`}
+          title="Edit"
+          className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-black/5 hover:text-zinc-800 disabled:opacity-40 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
         <button
           type="button"
           onClick={remove}
           disabled={isSelf || busy}
           aria-label={`Remove ${user.email}`}
+          title={isSelf ? "You cannot remove yourself." : "Remove"}
           className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-black/5 hover:text-red-600 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-500 dark:hover:bg-white/10"
         >
           <Trash2 className="h-4 w-4" />

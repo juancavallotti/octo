@@ -61,15 +61,21 @@ func (h *Handler) Register(mux *http.ServeMux, signedIn, admin Middleware) {
 	}
 }
 
-// Response is the wire representation of a user. It carries the durable id every
-// other table references and the roles a caller is entitled to; the OIDC subject
-// stays internal, because nothing outside this service has any use for it and it
-// identifies the account at the identity provider.
+// Response is the wire representation of a user: the durable id every other table
+// references, the roles they hold, and the subject their identity provider
+// presents.
+//
+// The subject is here for one reason, and it is worth naming so it is not
+// mistaken for something to key on. It is the answer to "why is this person not
+// getting in" — whether their row has been claimed yet, and by which account at
+// the provider. Nothing addresses a user by it outside this service.
 //
 // Exported because the token exchange renders the same shape inside its own
 // response, and two structs describing one user is how they come to disagree.
 type Response struct {
-	ID        string    `json:"id"`
+	ID string `json:"id"`
+	// Subject is empty for somebody provisioned who has not signed in yet.
+	Subject   string    `json:"subject"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
 	Roles     []Role    `json:"roles"`
@@ -90,6 +96,7 @@ func ToResponse(u User) Response {
 	}
 	return Response{
 		ID:          u.ID,
+		Subject:     u.Subject,
 		Email:       u.Email,
 		Name:        u.Name,
 		Roles:       roles,
@@ -116,11 +123,13 @@ func (h *Handler) catalogue(w http.ResponseWriter, _ *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// createRequest is a user an administrator is adding. The address is all of it:
-// the OIDC subject is not typed by anybody, it is written by the first sign-in.
+// createRequest is a user an administrator is adding. No subject: nobody types
+// one, it is written by the first sign-in. Roles arrive with the person because
+// letting somebody in and saying what they may do is one decision.
 type createRequest struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
+	Roles []Role `json:"roles,omitempty"`
 }
 
 // updateRequest is the profile an administrator is correcting. The subject is
@@ -143,7 +152,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	u, err := h.svc.Create(ctx, req.Email, req.Name)
+	// Who granted the roles that come with them, recorded the same way a later
+	// grant records it. Only nil-able if this route were mounted without its
+	// guard, which would be a wiring mistake rather than a caller's.
+	caller, err := authz.FromContext(r.Context())
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	u, err := h.svc.Create(ctx, req.Email, req.Name, req.Roles, &caller.Subject)
 	if err != nil {
 		h.writeError(w, err)
 		return

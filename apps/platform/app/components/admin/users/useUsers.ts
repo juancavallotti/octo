@@ -43,10 +43,8 @@ export interface UsersData {
   hasNext: boolean;
   next: () => void;
   previous: () => void;
-  /** Re-read the page on screen — after an add, or a removal. */
+  /** Re-read the page on screen — after an add, an edit, or a removal. */
   reload: () => void;
-  /** Replace one row in place, for a change that answered with the new user. */
-  replace: (user: PlatformUser) => void;
 }
 
 /** How many rows a page holds. A screenful, and the same number iam defaults to. */
@@ -154,20 +152,6 @@ export function useUsers(): UsersData {
 
   const reload = useCallback(() => setGeneration((g) => g + 1), []);
 
-  // Grants and profile edits answer with the whole user, so the row can be
-  // swapped rather than the page re-fetched — which keeps the list from jumping
-  // under somebody's hands mid-edit.
-  const replace = useCallback((user: PlatformUser) => {
-    setAnswer((current) =>
-      current === null
-        ? current
-        : {
-            ...current,
-            items: current.items.map((u) => (u.id === user.id ? user : u)),
-          },
-    );
-  }, []);
-
   return {
     users,
     roles,
@@ -183,6 +167,5 @@ export function useUsers(): UsersData {
     next,
     previous,
     reload,
-    replace,
   };
 }

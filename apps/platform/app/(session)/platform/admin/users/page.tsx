@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { ConfirmProvider } from "@/app/components/ConfirmDialog";
 import UsersManager from "@/app/components/admin/users/UsersManager";
 
 /**
@@ -22,5 +23,11 @@ export default async function UsersPage() {
       </p>
     );
   }
-  return <UsersManager currentUserId={currentUserId} />;
+  // Removing somebody takes their API keys and their grants with them, so it
+  // asks first — through the app's own dialog rather than the browser's.
+  return (
+    <ConfirmProvider>
+      <UsersManager currentUserId={currentUserId} />
+    </ConfirmProvider>
+  );
 }

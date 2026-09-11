@@ -47,11 +47,13 @@ export function listUsers(query: UserQuery = {}): Promise<ActionResult<UserPage>
 }
 
 /**
- * Add somebody who has never signed in, by address.
+ * Add somebody who has never signed in, by address, holding roles.
  *
- * That is all it takes, because an address is all an administrator knows about a
- * colleague who has never been here. The OIDC subject is written by that
- * person's first sign-in, which claims this row.
+ * The address is all it takes to identify them, because it is all an
+ * administrator knows about a colleague who has never been here — the OIDC
+ * subject is written by that person's first sign-in, which claims this row. The
+ * roles travel with the create so that a person never exists here in a state
+ * nobody chose.
  */
 export function createUser(input: UserInput): Promise<ActionResult<PlatformUser>> {
   return managed<PlatformUser>("POST", "/users", input);

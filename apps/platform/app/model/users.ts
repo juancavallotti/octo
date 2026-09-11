@@ -15,6 +15,12 @@ import { unwrap } from "./bff";
 /** A user of this platform. */
 export interface PlatformUser {
   id: string;
+  /**
+   * The `sub` their identity provider presents, empty until their first sign-in
+   * claims this row. Shown for the question this screen gets asked; nothing
+   * addresses a user by it.
+   */
+  subject: string;
   email: string;
   name: string;
   /** The roles they hold. Always present, empty rather than absent. */
@@ -51,6 +57,8 @@ export interface RoleOption {
 export interface UserInput {
   email: string;
   name: string;
+  /** Granted with the row on a create; ignored on an update. */
+  roles?: string[];
 }
 
 export async function listUsers(query: UserQuery = {}): Promise<UserPage> {

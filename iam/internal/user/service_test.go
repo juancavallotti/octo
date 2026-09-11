@@ -300,7 +300,7 @@ func TestSignInMakesTheFirstUserAnAdmin(t *testing.T) {
 
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second", nil, nil); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -451,7 +451,7 @@ func TestRevokeRefusesToRemoveTheLastAdmin(t *testing.T) {
 	// With a second admin in place the same revocation is allowed.
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second", nil, nil); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -519,7 +519,7 @@ func TestCreateProvisionsAUserWhoHasNeverSignedIn(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	u, err := svc.Create(ctx, "new@example.com", "New Person")
+	u, err := svc.Create(ctx, "new@example.com", "New Person", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -536,12 +536,12 @@ func TestCreateRefusesAnAddressThatAlreadyHasAnAccount(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	if _, err := svc.Create(ctx, "a@example.com", "First"); err != nil {
+	if _, err := svc.Create(ctx, "a@example.com", "First", nil, nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	// Quietly rewriting the existing account's name would be a different and much
 	// worse thing than refusing.
-	_, err := svc.Create(ctx, "a@example.com", "Somebody Else")
+	_, err := svc.Create(ctx, "a@example.com", "Somebody Else", nil, nil)
 	if !errors.Is(err, ErrConflict) {
 		t.Errorf("Create() error = %v, want ErrConflict", err)
 	}
@@ -554,10 +554,10 @@ func TestCreateRefusesTheSameAddressInDifferentCase(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	if _, err := svc.Create(ctx, "Ada@Example.com", "Ada"); err != nil {
+	if _, err := svc.Create(ctx, "Ada@Example.com", "Ada", nil, nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := svc.Create(ctx, "ada@example.com", "Ada"); !errors.Is(err, ErrConflict) {
+	if _, err := svc.Create(ctx, "ada@example.com", "Ada", nil, nil); !errors.Is(err, ErrConflict) {
 		t.Errorf("Create() error = %v, want ErrConflict", err)
 	}
 }
@@ -578,7 +578,7 @@ func TestCreateRefusesWhatCannotBeAnAddress(t *testing.T) {
 		{"a space inside", "ada @example.com"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := svc.Create(context.Background(), tt.email, ""); !errors.Is(err, ErrInvalid) {
+			if _, err := svc.Create(context.Background(), tt.email, "", nil, nil); !errors.Is(err, ErrInvalid) {
 				t.Errorf("Create() error = %v, want ErrInvalid", err)
 			}
 		})
@@ -590,7 +590,7 @@ func TestUpdateCorrectsTheProfile(t *testing.T) {
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	created, err := svc.Create(ctx, "old@example.com", "Old Name")
+	created, err := svc.Create(ctx, "old@example.com", "Old Name", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -625,7 +625,7 @@ func TestDeleteRemovesAUser(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	created, err := svc.Create(ctx, "a@example.com", "")
+	created, err := svc.Create(ctx, "a@example.com", "", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -645,7 +645,7 @@ func TestDeleteRefusesTheLastAdmin(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	only, err := svc.Create(ctx, "only@example.com", "")
+	only, err := svc.Create(ctx, "only@example.com", "", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -658,7 +658,7 @@ func TestDeleteRefusesTheLastAdmin(t *testing.T) {
 	}
 
 	// With a second administrator in place, the first may go.
-	second, err := svc.Create(ctx, "second@example.com", "")
+	second, err := svc.Create(ctx, "second@example.com", "", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -676,14 +676,14 @@ func TestDeleteAllowsRemovingTheLastNonAdmin(t *testing.T) {
 	svc := NewService(newMemRepo())
 	ctx := context.Background()
 
-	admin, err := svc.Create(ctx, "admin@example.com", "")
+	admin, err := svc.Create(ctx, "admin@example.com", "", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if err := svc.Grant(ctx, admin.ID, RoleAdmin, nil); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	other, err := svc.Create(ctx, "other@example.com", "")
+	other, err := svc.Create(ctx, "other@example.com", "", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -717,7 +717,7 @@ func TestSignInAdmitsSomebodyAnAdministratorCreated(t *testing.T) {
 	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
 		t.Fatalf("SignIn(first): %v", err)
 	}
-	created, err := svc.Create(ctx, "invited@example.com", "Invited")
+	created, err := svc.Create(ctx, "invited@example.com", "Invited", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -776,7 +776,7 @@ func TestASignInAdoptsTheRowProvisionedForThatAddress(t *testing.T) {
 	if _, err := svc.SignIn(ctx, "sub-admin", "admin@example.com", "Admin"); err != nil {
 		t.Fatalf("SignIn(admin): %v", err)
 	}
-	provisioned, err := svc.Create(ctx, "ada@example.com", "Ada Lovelace")
+	provisioned, err := svc.Create(ctx, "ada@example.com", "Ada Lovelace", nil, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -810,7 +810,7 @@ func TestASecondPrincipalCannotTakeAnAdoptedRow(t *testing.T) {
 	if _, err := svc.SignIn(ctx, "sub-admin", "admin@example.com", "Admin"); err != nil {
 		t.Fatalf("SignIn(admin): %v", err)
 	}
-	if _, err := svc.Create(ctx, "ada@example.com", "Ada"); err != nil {
+	if _, err := svc.Create(ctx, "ada@example.com", "Ada", nil, nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if _, err := svc.SignIn(ctx, "provider|ada", "ada@example.com", "Ada"); err != nil {
@@ -832,7 +832,7 @@ func TestListPagesThroughTheDirectoryWithoutRepeatingOrSkipping(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 5 {
-		if _, err := svc.Create(ctx, fmt.Sprintf("person-%d@example.com", i), ""); err != nil {
+		if _, err := svc.Create(ctx, fmt.Sprintf("person-%d@example.com", i), "", nil, nil); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 	}
@@ -874,7 +874,7 @@ func TestListFiltersOnNameAndAddress(t *testing.T) {
 		{"grace@example.com", "Grace Hopper"},
 		{"alan@elsewhere.test", "Alan Turing"},
 	} {
-		if _, err := svc.Create(ctx, p[0], p[1]); err != nil {
+		if _, err := svc.Create(ctx, p[0], p[1], nil, nil); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 	}
@@ -920,7 +920,7 @@ func TestListFiltersByRole(t *testing.T) {
 	ctx := context.Background()
 
 	for _, address := range []string{"a@example.com", "b@example.com"} {
-		if _, err := svc.Create(ctx, address, ""); err != nil {
+		if _, err := svc.Create(ctx, address, "", nil, nil); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 	}
@@ -960,5 +960,44 @@ func TestACursorNamingSomethingThatIsNotAUserIsRefused(t *testing.T) {
 
 	if _, _, err := svc.List(context.Background(), "", "", 25, handmade); !errors.Is(err, ErrInvalid) {
 		t.Errorf("List() error = %v, want ErrInvalid", err)
+	}
+}
+
+// Letting somebody in and saying what they may do is one decision, so it is one
+// call: a person created with roles has them before anybody sees the row.
+func TestCreateGrantsTheRolesItWasGiven(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	granter := "admin-id"
+
+	u, err := svc.Create(context.Background(), "ada@example.com", "Ada",
+		[]Role{RoleDeveloper, RoleMonitor}, &granter)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !u.HasRole(RoleDeveloper) || !u.HasRole(RoleMonitor) {
+		t.Errorf("roles = %v, want both of them", u.Roles)
+	}
+	if got := repo.grantedBy[u.ID+"|"+string(RoleDeveloper)]; got == nil || *got != granter {
+		t.Errorf("granted_by = %v, want the administrator who added them", got)
+	}
+}
+
+// Validated before the row is written, so the one failure a caller can cause
+// cannot leave a person created with half of what was asked for.
+func TestCreateWithARoleOutsideTheCatalogueCreatesNobody(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "ada@example.com", "", []Role{"platform:wizard"}, nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create() error = %v, want ErrInvalid", err)
+	}
+	people, _, err := svc.List(ctx, "", "", 25, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(people) != 0 {
+		t.Errorf("the refused create left %d people behind", len(people))
 	}
 }

@@ -83,7 +83,7 @@ func TestCatalogueListsEveryRoleWithADescription(t *testing.T) {
 
 // The OIDC subject identifies the account at the identity provider and nothing
 // outside this service has a use for it, so it must not ride along on a read.
-func TestUserResponseDoesNotLeakTheOIDCSubject(t *testing.T) {
+func TestUserResponseCarriesTheSubjectForDebugging(t *testing.T) {
 	mux, svc, _ := newTestServer(t)
 	u, err := svc.SignIn(context.Background(), "provider|abc123", "first@example.com", "First")
 	if err != nil {
@@ -99,11 +99,37 @@ func TestUserResponseDoesNotLeakTheOIDCSubject(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if _, present := raw["subject"]; present {
-		t.Errorf("response carries the OIDC subject: %s", rec.Body.String())
+	// It is the answer to "why is this person not getting in": whether their row
+	// has been claimed, and by which account at the provider. Nothing outside
+	// this service addresses a user by it.
+	if got := raw["subject"]; got != "provider|abc123" {
+		t.Errorf("subject = %v, want the one the provider presented", got)
 	}
 	if got := raw["id"]; got != u.ID {
 		t.Errorf("id = %v, want %q", got, u.ID)
+	}
+}
+
+// Somebody provisioned who has not arrived has no subject, and the field says so
+// with an empty string rather than going missing — a reader of this list is
+// asking exactly that question.
+func TestAProvisionedUserReportsNoSubject(t *testing.T) {
+	mux, svc, _ := newTestServer(t)
+	u, err := svc.Create(context.Background(), "waiting@example.com", "Waiting", nil, nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rec := do(t, mux, http.MethodGet, "/users/"+u.ID)
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := raw["subject"]; got != "" {
+		t.Errorf("subject = %v, want it empty", got)
+	}
+	if raw["lastLoginAt"] != nil {
+		t.Errorf("lastLoginAt = %v, want null", raw["lastLoginAt"])
 	}
 }
 
@@ -117,7 +143,7 @@ func TestRolesSerializeAsAnEmptyArrayNotNull(t *testing.T) {
 	}
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second", nil, nil); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
@@ -143,7 +169,7 @@ func TestGrantAndRevokeReturnTheUpdatedUser(t *testing.T) {
 	}
 	// Provisioned first: after the first user, this platform is an allowlist and
 	// signing in is not by itself a way to get an account.
-	if _, err := svc.Create(ctx, "second@example.com", "Second"); err != nil {
+	if _, err := svc.Create(ctx, "second@example.com", "Second", nil, nil); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")

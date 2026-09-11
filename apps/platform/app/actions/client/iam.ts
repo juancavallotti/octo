@@ -23,11 +23,23 @@ export interface RoleOption {
 export interface UserInput {
   email: string;
   name: string;
+  /**
+   * The roles this person holds. On a create they are granted with the row,
+   * because letting somebody in and saying what they may do is one decision.
+   * Absent leaves whatever they hold alone.
+   */
+  roles?: string[];
 }
 
 /** A user as iam describes them. `roles` is always present, empty rather than null. */
 export interface PlatformUser {
   id: string;
+  /**
+   * The `sub` their identity provider presents, empty until their first sign-in
+   * claims this row. Shown so that "why is this person not getting in" has an
+   * answer on the screen; nothing addresses a user by it.
+   */
+  subject: string;
   email: string;
   name: string;
   roles: string[];

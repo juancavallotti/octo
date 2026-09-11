@@ -155,20 +155,42 @@ func validate(userID string, r Role) error {
 	return nil
 }
 
-// Create provisions a user an administrator named, by address. See Repo.Create
-// for why the OIDC subject is discovered rather than supplied.
-func (s *Service) Create(ctx context.Context, email, name string) (User, error) {
+// Create provisions a user an administrator named, by address, holding roles.
+// See Repo.Create for why the OIDC subject is discovered rather than supplied.
+//
+// The roles come with the person because that is one intent — "let this
+// colleague in as an operator" — and splitting it across two calls would leave
+// the caller to decide what a half-done one means. Every role is validated
+// before the row is written, so the one failure a caller can cause cannot land
+// halfway; what remains is a database fault between two statements, which leaves
+// the person created with fewer roles and is reported as itself.
+//
+// `grantedBy` attributes the grants, and is nil when the grantor is not known.
+func (s *Service) Create(
+	ctx context.Context, email, name string, roles []Role, grantedBy *string,
+) (User, error) {
 	email = strings.TrimSpace(email)
 	if err := validAddress(email); err != nil {
 		return User{}, err
 	}
+	for _, r := range roles {
+		if !ValidRole(r) {
+			return User{}, fmt.Errorf("%w: %q is not a role", ErrInvalid, string(r))
+		}
+	}
+
 	u, err := s.repo.Create(ctx, email, strings.TrimSpace(name))
 	if err != nil {
 		return User{}, err
 	}
+	for _, r := range roles {
+		if err := s.repo.Grant(ctx, u.ID, r, grantedBy); err != nil {
+			return User{}, fmt.Errorf("%s was created but could not be granted %s: %w",
+				u.Email, string(r), err)
+		}
+	}
 	// Read back rather than returning what the insert gave us, so a created user
-	// and a listed one are the same shape — with roles, which a fresh one has none
-	// of but still reports as an empty list.
+	// and a listed one are the same shape — with the roles that landed.
 	return s.repo.Get(ctx, u.ID)
 }
 

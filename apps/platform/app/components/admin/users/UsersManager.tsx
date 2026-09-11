@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { UserPlus } from "lucide-react";
 import { useRoles } from "@/app/auth/RolesContext";
+import type { PlatformUser } from "@/app/model/users";
 import { ROLE_LABELS } from "@/app/auth/roles";
 import { INPUT } from "../fields";
-import AddUserModal from "./AddUserModal";
+import UserModal from "./UserModal";
 import UserRow from "./UserRow";
 import UsersPager from "./UsersPager";
 import { useUsers } from "./useUsers";
@@ -23,9 +24,12 @@ import { useUsers } from "./useUsers";
  */
 export default function UsersManager({ currentUserId }: { currentUserId: string }) {
   const directory = useUsers();
-  const { users, roles, loading, error, replace, reload } = directory;
+  const { users, roles, loading, error, reload } = directory;
   const { isAdmin } = useRoles();
-  const [adding, setAdding] = useState(false);
+  // Which dialog is open: none, adding (null), or editing a person. One piece of
+  // state rather than two booleans, because the two can never both be true and
+  // two flags would let them.
+  const [editing, setEditing] = useState<PlatformUser | null | undefined>(undefined);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Belt and braces: the section's layout and every action behind it already
@@ -60,7 +64,7 @@ export default function UsersManager({ currentUserId }: { currentUserId: string 
         </select>
         <button
           type="button"
-          onClick={() => setAdding(true)}
+          onClick={() => setEditing(null)}
           className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500"
         >
           <UserPlus size={15} />
@@ -88,6 +92,7 @@ export default function UsersManager({ currentUserId }: { currentUserId: string 
               <tr className="text-xs font-medium text-zinc-500">
                 <th className="pb-2 pr-4">Person</th>
                 <th className="pb-2 pr-4">Roles</th>
+                <th className="pb-2 pr-4">OIDC subject</th>
                 <th className="pb-2 pr-4">Last signed in</th>
                 <th className="pb-2" />
               </tr>
@@ -97,9 +102,9 @@ export default function UsersManager({ currentUserId }: { currentUserId: string 
                 <UserRow
                   key={user.id}
                   user={user}
-                  roles={roles}
                   isSelf={user.id === currentUserId}
-                  onChanged={replace}
+                  busy={loading}
+                  onEdit={() => setEditing(user)}
                   onRemoved={reload}
                   onError={setActionError}
                 />
@@ -110,8 +115,14 @@ export default function UsersManager({ currentUserId }: { currentUserId: string 
         </>
       )}
 
-      {adding && (
-        <AddUserModal onAdded={reload} onClose={() => setAdding(false)} />
+      {editing !== undefined && (
+        <UserModal
+          person={editing ?? undefined}
+          catalogue={roles}
+          isSelf={editing?.id === currentUserId}
+          onSaved={reload}
+          onClose={() => setEditing(undefined)}
+        />
       )}
     </div>
   );

@@ -158,7 +158,7 @@ func TestASubsequentExchangeCarriesNewlyGrantedRoles(t *testing.T) {
 	// The first user takes the admin role, so the second starts with none — and
 	// has to be let in first, since after that this platform is an allowlist.
 	h.post(t, "Bearer "+h.idp.idToken(t, tokenOptions{subject: "admin", email: "admin@example.com"}))
-	if _, err := h.users.Create(ctx, "second@example.com", ""); err != nil {
+	if _, err := h.users.Create(ctx, "second@example.com", "", nil, nil); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 
@@ -367,7 +367,7 @@ func TestRefreshPicksUpARoleChange(t *testing.T) {
 	// is really there. A second admin first, or the last-admin rule refuses — and
 	// after the first user this platform is an allowlist, so they have to be
 	// provisioned before they can sign in at all.
-	if _, err := h.users.Create(context.Background(), "second@example.com", ""); err != nil {
+	if _, err := h.users.Create(context.Background(), "second@example.com", "", nil, nil); err != nil {
 		t.Fatalf("Create(second): %v", err)
 	}
 	second := h.signIn(t, "provider|second", "second@example.com")
@@ -639,7 +639,7 @@ func TestMachineTokenRefusesSomebodyWhoMayNotDeploy(t *testing.T) {
 
 	// The first user is the administrator; the second is let in holding nothing.
 	admin := h.signIn(t, "provider|admin", "admin@example.com")
-	if _, err := h.users.Create(ctx, "watcher@example.com", ""); err != nil {
+	if _, err := h.users.Create(ctx, "watcher@example.com", "", nil, nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	watcher := h.signIn(t, "provider|watcher", "watcher@example.com")
@@ -660,7 +660,7 @@ func TestMachineTokenAdmitsAnOperator(t *testing.T) {
 	ctx := context.Background()
 
 	admin := h.signIn(t, "provider|admin", "admin@example.com")
-	if _, err := h.users.Create(ctx, "ops@example.com", ""); err != nil {
+	if _, err := h.users.Create(ctx, "ops@example.com", "", nil, nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	ops := h.signIn(t, "provider|ops", "ops@example.com")
@@ -681,7 +681,7 @@ func TestRefreshOfAMachineTokenDoesNotRecheckTheOwnersRole(t *testing.T) {
 	ctx := context.Background()
 
 	admin := h.signIn(t, "provider|admin", "admin@example.com")
-	if _, err := h.users.Create(ctx, "ops@example.com", ""); err != nil {
+	if _, err := h.users.Create(ctx, "ops@example.com", "", nil, nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	ops := h.signIn(t, "provider|ops", "ops@example.com")
