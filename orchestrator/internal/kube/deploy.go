@@ -32,6 +32,14 @@ const (
 	// message that reached for a file.
 	workspaceVolume    = "workspace"
 	workspaceMountPath = "/workspace"
+
+	// The pod's own platform token, mounted from a Secret of its own rather than
+	// injected as an environment variable: an env var is in the pod's spec for
+	// anyone who can describe it, is inherited by every process the container
+	// starts, and cannot be replaced without a restart. A file is none of those.
+	tokenVolume    = "platform-token"
+	tokenMountPath = "/var/run/octo"
+	tokenFileName  = "token"
 	// runtimePort is the default port the Service/Ingress target when a deployment
 	// declares no HTTP_PORT (Spec.Port == 0). An integration that declares
 	// HTTP_PORT overrides it; the Service simply has no endpoints if the runtime
@@ -95,6 +103,9 @@ const (
 	// tracing, and unlike tracing it is a grant: the definition's author asks for it,
 	// but whoever deploys decides.
 	envObservability = "OBSERVABILITY_URL"
+	// Where the runtime reads its own token, and where it renews it.
+	envTokenFile = "ORCHESTRATOR_TOKEN_FILE"
+	envIAMURL    = "IAM_URL"
 
 	// envEmbeddings is the embedding server's in-cluster address. Injected into
 	// every pod when the installation has one, because an embedding grants access
@@ -128,6 +139,10 @@ type Spec struct {
 	// Runner selects the image these pods run. The zero value is RunnerStandard, so
 	// a deployment written before runners existed keeps exactly the pod it had.
 	Runner Runner
+	// Token is the platform token this deployment presents to the orchestrator,
+	// mounted as a Secret. Empty mounts nothing and injects nothing, which is what
+	// an install with no iam configured gets.
+	Token string
 }
 
 // agentic reports whether this deployment runs the agentic runner, which is the
@@ -163,6 +178,12 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 		Data:       map[string]string{configFileName: spec.Definition},
 	}, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("kube: create configmap: %w", err)
+	}
+
+	// Before the Deployment: a pod whose Secret does not exist yet stays pending
+	// on the mount, and there is no reason to make it wait.
+	if err := c.putToken(ctx, spec, labels); err != nil {
+		return err
 	}
 
 	deps := c.clientset.AppsV1().Deployments(c.namespace)
@@ -282,6 +303,10 @@ func (c *Client) Rollout(ctx context.Context, spec Spec) error {
 	cm.Data = map[string]string{configFileName: spec.Definition}
 	if _, err := cms.Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("kube: rollout update configmap: %w", err)
+	}
+
+	if err := c.putToken(ctx, spec, labels); err != nil {
+		return err
 	}
 
 	deps := c.clientset.AppsV1().Deployments(c.namespace)
@@ -439,6 +464,13 @@ func (c *Client) volumeMounts(spec Spec) []corev1.VolumeMount {
 			MountPath: workspaceMountPath,
 		})
 	}
+	if spec.Token != "" {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      tokenVolume,
+			MountPath: tokenMountPath,
+			ReadOnly:  true,
+		})
+	}
 	return mounts
 }
 
@@ -474,7 +506,62 @@ func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
 			},
 		})
 	}
+	if spec.Token != "" {
+		mode := int32(0o400)
+		volumes = append(volumes, corev1.Volume{
+			Name: tokenVolume,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tokenSecretName(spec.ID),
+					DefaultMode: &mode,
+				},
+			},
+		})
+	}
 	return volumes
+}
+
+// putToken writes the deployment's token into a Secret of its own, creating it
+// or replacing what is there.
+//
+// A deployment with no token has no Secret, and one it had is removed: a token
+// left behind on disk after the grant that produced it went away would go on
+// working, since a machine token renews at any age.
+func (c *Client) putToken(ctx context.Context, spec Spec, labels map[string]string) error {
+	secrets := c.clientset.CoreV1().Secrets(c.namespace)
+	name := tokenSecretName(spec.ID)
+
+	if spec.Token == "" {
+		if err := secrets.Delete(ctx, name, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
+			return fmt.Errorf("kube: delete token secret: %w", err)
+		}
+		return nil
+	}
+
+	desired := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
+		Type:       corev1.SecretTypeOpaque,
+		StringData: map[string]string{tokenFileName: spec.Token},
+	}
+	_, err := secrets.Create(ctx, desired, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("kube: create token secret: %w", err)
+	}
+	if _, err := secrets.Update(ctx, desired, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kube: update token secret: %w", err)
+	}
+	return nil
+}
+
+// tokenSecretName is the Secret holding one deployment's token. Suffixed rather
+// than sharing the name its ConfigMap and Deployment use, so that reading the
+// Secrets in this namespace is a question about credentials and not about every
+// object a deployment owns.
+func tokenSecretName(deploymentID string) string {
+	return resourceName(deploymentID) + "-token"
 }
 
 // pullSecretRefs converts the configured Secret names into the reference list a
@@ -570,6 +657,14 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// OCTO_METRICS among its own env.
 	if c.statsSidecarEnabled() {
 		env = append(env, corev1.EnvVar{Name: envMetrics, Value: "true"})
+	}
+	// Where the mounted token is, and where the pod renews it. Both or neither: a
+	// pod told where its token lives but not where to renew it would present the
+	// same one until it expired.
+	if spec.Token != "" && c.runtimeServices.IAMURL != "" {
+		env = append(env,
+			corev1.EnvVar{Name: envTokenFile, Value: tokenMountPath + "/" + tokenFileName},
+			corev1.EnvVar{Name: envIAMURL, Value: c.runtimeServices.IAMURL})
 	}
 	if len(env) == 0 {
 		return nil
@@ -729,6 +824,10 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 	}
 	if err := c.clientset.CoreV1().ConfigMaps(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete configmap: %w", err))
+	}
+	if err := c.clientset.CoreV1().Secrets(c.namespace).Delete(
+		ctx, tokenSecretName(deploymentID), del); ignoreNotFound(err) != nil {
+		errs = append(errs, fmt.Errorf("delete token secret: %w", err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("kube: delete %s: %w", name, errors.Join(errs...))

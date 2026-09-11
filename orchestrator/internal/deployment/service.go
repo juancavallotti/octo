@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/caller"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
@@ -104,7 +105,15 @@ type Service struct {
 	snapshots    snapshotStore
 	resources    resourceStore
 	kube         kubeClient
+	identities   identityMinter
 	cleaners     []storeCleaner
+}
+
+// identityMinter lends a deployment a platform identity of its own. Declared here
+// in the consumer and one method wide; *iam.Client satisfies it.
+type identityMinter interface {
+	Configured() bool
+	MintMachine(ctx context.Context, callerToken, deployment string) (string, error)
 }
 
 // Option customizes a Service at construction.
@@ -115,6 +124,13 @@ type Option func(*Service)
 // stores (e.g. the KV store and the secret store).
 func WithStoreCleaner(c storeCleaner) Option {
 	return func(s *Service) { s.cleaners = append(s.cleaners, c) }
+}
+
+// WithIdentities wires the minter that gives each deployment its own token.
+// Without it, deployments are created with no identity — which is what an install
+// with no iam configured has, and what every install had before there was one.
+func WithIdentities(m identityMinter) Option {
+	return func(s *Service) { s.identities = m }
 }
 
 // WithSnapshots wires the snapshot store, switching the service into tagged-deploy
@@ -141,6 +157,36 @@ func NewService(repo repository, integrations integrationStore, kube kubeClient,
 		opt(s)
 	}
 	return s
+}
+
+// identityFor mints the token a deployment presents to this API, on the
+// authority of whoever is deploying it.
+//
+// Empty is a normal answer, not a failure: an install with no iam configured
+// gives its pods no identity, and nothing yet requires one. What it must never do
+// is silently hand out an identity belonging to somebody who is not the caller,
+// which is why a missing caller token yields nothing rather than falling back to
+// anything of the orchestrator's own.
+func (s *Service) identityFor(ctx context.Context, deploymentID string) string {
+	if s.identities == nil || !s.identities.Configured() {
+		return ""
+	}
+	token := caller.Token(ctx)
+	if token == "" {
+		slog.WarnContext(ctx, "deploying with no caller credential, so the pods get no identity",
+			"deployment", deploymentID)
+		return ""
+	}
+	minted, err := s.identities.MintMachine(ctx, token, deploymentID)
+	if err != nil {
+		// Not fatal. The deployment is what the caller asked for; the identity is
+		// what its pods will need once this API requires one, and refusing the
+		// deploy over it would take the platform down the moment iam blinked.
+		slog.WarnContext(ctx, "could not lend the deployment an identity",
+			"deployment", deploymentID, "error", err)
+		return ""
+	}
+	return minted
 }
 
 // resolveRunner turns a settings value into the runner the workload will use,
@@ -372,6 +418,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Tracing:          settings.Tracing,
 		ObservabilityAPI: settings.ObservabilityAPI,
 		Runner:           runner,
+		Token:            s.identityFor(ctx, dep.ID),
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {
 		// Roll back: remove any partially created resources and the row so the
@@ -845,6 +892,9 @@ func (s *Service) Rollout(
 		Tracing:          settings.Tracing,
 		ObservabilityAPI: settings.ObservabilityAPI,
 		Runner:           resolvedRunner,
+		// Re-minted rather than carried over: a rollout is a fresh authorisation by
+		// whoever is performing it, and the pods are replaced anyway.
+		Token: s.identityFor(ctx, dep.ID),
 	}
 	if err := s.kube.Rollout(ctx, spec); err != nil {
 		return Deployment{}, err

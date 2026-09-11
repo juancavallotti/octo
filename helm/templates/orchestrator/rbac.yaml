@@ -10,11 +10,15 @@
 - apiGroups: [""]
   resources: ["pods/log"]
   verbs: ["get"]
-# Shared cluster secrets: the orchestrator manages the single octo-secrets
-# Secret (get to read, create on first write, update to add/remove keys).
+# Secrets, for two jobs. The single octo-secrets Secret holding the cluster's
+# shared values (get to read, create on first write, update to add and remove
+# keys), and one Secret per deployment holding the platform token its pods
+# present — created with the deployment, replaced on a rollout, and deleted with
+# it, because a machine token renews at any age and one left behind would go on
+# working after the deployment it belonged to was gone.
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "create", "update"]
+  verbs: ["get", "create", "update", "delete"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
   # patch is required to scale an existing deployment (merge-patch on spec.replicas).
