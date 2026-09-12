@@ -308,6 +308,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalid):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrGranterGone):
+		// 401 rather than 404: what is missing is the caller, not the target, and
+		// the thing to do about it is sign in again as somebody who exists.
+		httpx.WriteError(w, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "user not found")
 	case errors.Is(err, ErrLastAdmin):

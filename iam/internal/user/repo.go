@@ -294,6 +294,13 @@ func (r *Repo) Grant(ctx context.Context, userID string, granted Role, grantedBy
 		userID, string(granted), grantedBy,
 	)
 	if err != nil {
+		// Two foreign keys can refuse this row, and they mean opposite things: the
+		// target does not exist, or the caller does not. Reported apart, because
+		// "user not found" about a user the administrator is looking at sends them
+		// hunting for the wrong problem.
+		if violated(err, grantedByConstraint) {
+			return ErrGranterGone
+		}
 		if isForeignKeyViolation(err) || isInvalidTextRepresentation(err) {
 			return ErrNotFound
 		}
@@ -421,6 +428,19 @@ func scanUser(row pgx.Row) (User, error) {
 // pgForeignKeyViolation is what Postgres reports when a grant names a user that
 // does not exist.
 const pgForeignKeyViolation = "23503"
+
+// grantedByConstraint is the foreign key from a grant to the administrator who
+// made it. Postgres names it by its table and column, and it is named here so the
+// two keys on user_roles can be told apart.
+const grantedByConstraint = "user_roles_granted_by_fkey"
+
+// violated reports whether err is Postgres refusing a row because of the named
+// constraint.
+func violated(err error, constraint string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == pgForeignKeyViolation && pgErr.ConstraintName == constraint
+}
 
 // isForeignKeyViolation reports whether err is Postgres refusing a row whose
 // reference points at nothing.

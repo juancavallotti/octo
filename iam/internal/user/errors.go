@@ -21,6 +21,14 @@ var (
 	// who has simply not been let in — and the two want different words said to
 	// them.
 	ErrNotProvisioned = errors.New("this account has not been provisioned on this platform")
+	// ErrGranterGone is returned when a grant cannot be attributed because the
+	// account making it no longer exists — an administrator deleted while their
+	// token was still valid, which stays valid until it expires.
+	//
+	// Separate from ErrNotFound because two foreign keys can refuse this write and
+	// they mean opposite things. Told "user not found", an administrator goes
+	// looking for a person who is plainly in the list in front of them.
+	ErrGranterGone = errors.New("the account making this grant no longer exists")
 	// ErrLastAdmin is returned when an operation would leave the platform with no
 	// administrator — revoking the last admin role, or deleting the last person
 	// holding it. Not merely inconvenient: with nobody able to administer it, the
