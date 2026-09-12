@@ -12,6 +12,17 @@ var (
 	// reached to discover its keys. It is a fault on our side of the exchange, not
 	// the caller's, and is reported as one.
 	ErrProviderUnreachable = errors.New("identity provider unreachable")
+	// ErrUnavailable is returned when this service could not answer — the keyset
+	// could not be read, or the user could not be looked up — as opposed to the
+	// token failing to verify.
+	//
+	// The distinction is the whole of it, and it is worth stating why. A platform
+	// told "unauthenticated" clears the session and sends the person back to sign
+	// in; a platform told "unavailable" keeps the credential it has and carries
+	// on. So reporting a database blip as a bad token signs out every session
+	// that happened to be inside its renewal window, which is a moment's trouble
+	// at the database turning into an installation-wide sign-out.
+	ErrUnavailable = errors.New("this service cannot answer right now")
 	// ErrNotConfigured is returned by NewService when no identity provider is
 	// configured. The exchange then answers every request by saying so, rather
 	// than the route disappearing — a 404 leaves a caller unable to tell a

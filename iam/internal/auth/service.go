@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -128,7 +129,13 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) {
 	claims, err := s.minter.Verify(ctx, rawToken, s.refreshGrace)
 	if err != nil {
-		return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		// Only a token this service did not mint, or minted too long ago, is the
+		// caller's problem. Verify also reads the keyset from the database on its
+		// way through, and that failing says nothing at all about the token.
+		if errors.Is(err, signing.ErrNotOurToken) {
+			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		}
+		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
 	// The subject of a platform token is the octo user id, which is what makes
@@ -136,8 +143,13 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 	u, err := s.users.Get(ctx, claims.Subject)
 	if err != nil {
 		// A user who has been deleted since the token was minted lands here, and a
-		// refusal is the right answer: the token outlived the account.
-		return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		// refusal is the right answer: the token outlived the account. A database
+		// that could not be reached is not that, and must not be answered as if it
+		// were — see ErrUnavailable.
+		if errors.Is(err, user.ErrNotFound) {
+			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		}
+		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
 	token, err := s.mint(ctx, u)

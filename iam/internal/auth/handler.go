@@ -147,6 +147,11 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		slog.Info("auth exchange rejected a token", "error", err)
 		w.Header().Set("WWW-Authenticate", "Bearer error=\"invalid_token\"")
 		httpx.WriteError(w, http.StatusUnauthorized, "the token is not valid")
+	case errors.Is(err, ErrUnavailable):
+		// 503 and not 401, so a platform holding a valid credential keeps it rather
+		// than signing its users out over a fault on this side.
+		slog.Error("auth could not answer", "error", err)
+		httpx.WriteError(w, http.StatusServiceUnavailable, "this service cannot answer right now")
 	case errors.Is(err, ErrProviderUnreachable):
 		slog.Error("auth exchange could not reach the identity provider", "error", err)
 		httpx.WriteError(w, http.StatusServiceUnavailable, "the identity provider is unreachable")
