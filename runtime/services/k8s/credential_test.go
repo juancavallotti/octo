@@ -412,3 +412,60 @@ func TestTheDaemonStopsWithItsContext(t *testing.T) {
 	}
 	t.Error("the daemon outlived its context")
 }
+
+// The token has to be readable while it is being renewed.
+//
+// get() is called on every outbound request and on every expression that reads
+// env.PLATFORM_TOKEN. If the renewal held the lock across its HTTP call, all of
+// them would queue behind a request bounded only by renewTimeout — which is the
+// stall the daemon exists to prevent, arriving by a different road.
+//
+// The iam stub here refuses to answer until a read has gone through, so a
+// lock-holding implementation deadlocks and this fails on its timer.
+func TestAReadIsNotBlockedByARenewalInFlight(t *testing.T) {
+	readDone := make(chan struct{})
+	iam := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case <-readDone:
+		case <-time.After(5 * time.Second):
+			// Falls through to answer anyway, so the failure is this test's
+			// assertion rather than a hung server.
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": mintToken(t, time.Hour)})
+	}))
+	defer iam.Close()
+
+	path := filepath.Join(t.TempDir(), "token")
+	seed := mintToken(t, time.Minute)
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	c := newCredential(credentialConfig{Seed: path, IAMURL: iam.URL})
+	c.mu.Lock()
+	c.set(seed)
+	c.mu.Unlock()
+
+	renewing := make(chan struct{})
+	go func() {
+		close(renewing)
+		c.refresh(context.Background())
+	}()
+	<-renewing
+
+	read := make(chan string, 1)
+	go func() { read <- c.get() }()
+
+	select {
+	case got := <-read:
+		// The token held while the exchange is in flight is the old one, which is
+		// the correct answer: it is still valid, and it is what this pod presents
+		// until a renewal actually lands.
+		if got == "" {
+			t.Error("get() answered empty while a renewal was in flight")
+		}
+		close(readDone)
+	case <-time.After(2 * time.Second):
+		close(readDone)
+		t.Fatal("get() blocked behind a renewal in flight — the lock is held across the exchange")
+	}
+}

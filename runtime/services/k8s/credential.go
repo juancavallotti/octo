@@ -118,13 +118,18 @@ func (c *credential) start(ctx context.Context) {
 	}
 	c.mu.Lock()
 	c.load()
-	seeded := c.token != "" && c.iamURL != ""
-	if seeded {
-		c.renew(ctx)
-	}
+	held := c.token
 	c.mu.Unlock()
 
-	if seeded {
+	if held != "" && c.iamURL != "" {
+		c.adopt(held, exchange(ctx, c.http, c.iamURL, held))
+	}
+
+	// Maintained whenever there is a file to re-read OR something to renew, which
+	// are different conditions. A pod given a mounted token and no iam still has
+	// to notice a rollout replacing that file — without the daemon it would read
+	// it once at start and go on presenting it long after it was withdrawn.
+	if c.seedPath != "" || (held != "" && c.iamURL != "") {
 		go c.maintain(ctx)
 	}
 }
@@ -157,14 +162,42 @@ func (c *credential) maintain(ctx context.Context) {
 // The file comes first because a rollout mints a new token and mounts it, and
 // adopting that is both cheaper than an exchange and more correct — it is the
 // token this deployment is now meant to present.
+//
+// The exchange happens with no lock held, and that is the whole shape of this
+// function. get() is called on every outbound request and on every expression
+// that reads the variable this backs; holding the mutex across an HTTP call
+// bounded by renewTimeout would stall all of them behind it — which is exactly
+// the cost the daemon exists to avoid.
 func (c *credential) refresh(ctx context.Context) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.load()
-	if c.token != "" && c.expiring() {
-		c.renew(ctx)
+	held := c.token
+	due := held != "" && c.expiring()
+	c.mu.Unlock()
+
+	if !due || c.iamURL == "" {
+		return
 	}
+	c.adopt(held, exchange(ctx, c.http, c.iamURL, held))
+}
+
+// adopt records a renewed token, unless what it was renewed from is no longer
+// what this credential holds.
+//
+// The exchange runs unlocked, so a rollout can mount a newer token while one is
+// in flight. Writing the result back blindly would replace that newer token with
+// one derived from the token it superseded.
+func (c *credential) adopt(from, renewed string) {
+	if renewed == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.token != from {
+		slog.Debug("k8s: discarding a renewal, the mounted token changed under it")
+		return
+	}
+	c.set(renewed)
 }
 
 // sleepFor is how long until the held token wants attention: its renewal lead,
@@ -259,28 +292,34 @@ func readToken(path string) string {
 	return strings.TrimSpace(string(raw))
 }
 
-// renew trades the held token for a fresh one at iam.
-func (c *credential) renew(ctx context.Context) {
-	if c.iamURL == "" || c.token == "" {
-		return
+// exchange trades token for a fresh one at iam, answering "" for every reason it
+// could not.
+//
+// A free function taking what it needs rather than a method reading fields,
+// because it must never be called with the credential's lock held: it makes an
+// HTTP request, and everything that reads the token would queue behind it. Taking
+// the token as an argument is what makes that impossible to get wrong.
+func exchange(ctx context.Context, client *http.Client, iamURL, token string) string {
+	if iamURL == "" || token == "" {
+		return ""
 	}
 	ctx, cancel := context.WithTimeout(ctx, renewTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.iamURL+"/auth/refresh", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, iamURL+"/auth/refresh", nil)
 	if err != nil {
 		slog.Warn("k8s: could not build the token renewal request", "error", err)
-		return
+		return ""
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := c.http.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		// Kept rather than dropped. The one we hold may still have minutes left,
 		// and iam being briefly unreachable is not a reason to start making
 		// unauthenticated requests.
 		slog.Warn("k8s: could not renew the orchestrator token", "error", err)
-		return
+		return ""
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -288,16 +327,16 @@ func (c *credential) renew(ctx context.Context) {
 		slog.Warn("k8s: iam refused to renew the orchestrator token",
 			"status", resp.StatusCode,
 			"hint", "the deployment may need to be rolled to be given a fresh one")
-		return
+		return ""
 	}
 	var body struct {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		slog.Warn("k8s: could not read the renewed orchestrator token", "error", err)
-		return
+		return ""
 	}
-	c.set(strings.TrimSpace(body.Token))
+	return strings.TrimSpace(body.Token)
 }
 
 // set records a token and reads its timestamps out of it.
