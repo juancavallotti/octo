@@ -2,7 +2,7 @@ import { app } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { append, closeLog, openLog, recent } from "./log";
-import { binary, runDir, serverDir, serverEntry } from "./paths";
+import { binary, nodeExecutable, runDir, serverDir, serverEntry } from "./paths";
 
 /**
  * The editor server as a child process.
@@ -15,7 +15,8 @@ import { binary, runDir, serverDir, serverEntry } from "./paths";
  *
  * It runs on Electron's own Node (ELECTRON_RUN_AS_NODE), which is why nothing
  * bundles a second Node binary — one fewer thing to ship, sign, and keep aligned
- * with the Next version.
+ * with the Next version. *Which* of Electron's executables it runs on is not a
+ * detail: see nodeExecutable() in paths.ts.
  */
 
 /** How long to wait for the server to answer /api/health before giving up. */
@@ -129,7 +130,7 @@ export async function start(vault: string, port: number): Promise<RunningServer>
 
   const url = `http://127.0.0.1:${port}`;
   wasReady = false;
-  child = spawn(process.execPath, [serverEntry()], {
+  child = spawn(nodeExecutable(), [serverEntry()], {
     cwd: serverDir(),
     env: childEnv(vault, port),
     stdio: ["ignore", "pipe", "pipe"],

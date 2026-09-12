@@ -1,5 +1,7 @@
 import { app } from "electron";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { helperExecutable } from "./helper";
 
 /**
  * Where the app's three moving parts live, in both of the modes this app runs in.
@@ -59,4 +61,19 @@ export function binary(name: "octo" | "dolphin"): string {
  */
 export function runDir(): string {
   return path.join(app.getPath("userData"), "runs");
+}
+
+/**
+ * The executable to spawn the editor server on — see helper.ts for why this is not
+ * simply `process.execPath`.
+ *
+ * Falls back to `process.execPath` when the helper is not where it should be. A
+ * missing helper means a bundle we do not recognise, and the cost of the two answers
+ * is wildly asymmetric: the wrong-but-present one costs a stray dock icon, and a path
+ * that does not exist costs the app starting at all.
+ */
+export function nodeExecutable(): string {
+  if (!app.isPackaged || process.platform !== "darwin") return process.execPath;
+  const helper = helperExecutable(process.resourcesPath, app.getName());
+  return existsSync(helper) ? helper : process.execPath;
 }
