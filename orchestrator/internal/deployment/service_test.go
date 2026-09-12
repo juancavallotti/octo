@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/caller"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
@@ -1464,5 +1465,66 @@ func TestRolloutRequiredEnvSatisfiedByFrozenEnvFile(t *testing.T) {
 	}
 	if !kc.rolledOut {
 		t.Error("expected kube.Rollout when the required var is supplied by a frozen .env file")
+	}
+}
+
+// --- what a failed mint leaves behind ---------------------------------------
+
+// failingMinter is an iam that is reachable and refuses, which is the case that
+// matters: Configured() answers yes, so the deployment must get an identity or
+// the operation fails.
+type failingMinter struct{}
+
+func (failingMinter) Configured() bool { return true }
+func (failingMinter) MintMachine(context.Context, string, string) (string, error) {
+	return "", errors.New("iam said no")
+}
+
+// The row is written before the identity is minted, so a mint that fails leaves
+// a deployment that does not exist holding the slug it claimed.
+func TestDeployRemovesTheRowWhenTheIdentityCannotBeMinted(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{
+		ID: "int-1", Name: "Orders", Definition: "service:\n  name: orders\n"}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, integrations, kc, WithIdentities(failingMinter{}))
+
+	ctx := caller.With(context.Background(), "a.b.c")
+	if _, err := svc.Deploy(ctx, "int-1", Settings{}); err == nil {
+		t.Fatal("Deploy succeeded with no identity to give the deployment")
+	}
+	if !repo.deleted {
+		t.Error("the deployment row survived a deploy that failed before anything was created")
+	}
+	if kc.applied {
+		t.Error("the workload was created despite the failure")
+	}
+}
+
+// The mirror image, and the one worth stating loudest: a rollout acts on a
+// deployment that already exists and is still serving. A mint that fails there
+// means this rollout did not happen — not that the deployment is gone.
+func TestRolloutKeepsTheDeploymentWhenTheIdentityCannotBeMinted(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID:            "dep-1",
+		IntegrationID: "int-1",
+		Settings:      json.RawMessage(`{"replicas":2}`),
+		Metadata:      json.RawMessage(`{"name":"Orders","slug":"orders","tag":"v1.0","snapshotId":"snap-0"}`),
+	}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{
+		ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc,
+		WithSnapshots(snaps), WithIdentities(failingMinter{}))
+
+	ctx := caller.With(context.Background(), "a.b.c")
+	if _, err := svc.Rollout(ctx, "dep-1", "snap-2", nil, nil, nil); err == nil {
+		t.Fatal("Rollout succeeded with no identity to give the deployment")
+	}
+	if repo.deleted {
+		t.Error("a failed rollout deleted the running deployment's row")
+	}
+	if kc.deleted {
+		t.Error("a failed rollout tore down the running workload")
 	}
 }

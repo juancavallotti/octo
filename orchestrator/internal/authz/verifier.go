@@ -114,9 +114,18 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	var claims struct {
 		Roles      []string `json:"roles"`
 		Deployment string   `json:"deployment"`
+		// NotBefore is read here because nothing else reads it: go-oidc exposes
+		// `exp` and `iat` on the token and not `nbf`, and SkipExpiryCheck turns off
+		// what time checking it does. Without this a token stamped to become valid
+		// an hour from now is accepted the moment it is signed.
+		NotBefore int64 `json:"nbf"`
 	}
 	if err := token.Claims(&claims); err != nil {
 		return Principal{}, fmt.Errorf("%w: reading claims: %w", ErrUnauthenticated, err)
+	}
+	if claims.NotBefore != 0 &&
+		time.Unix(claims.NotBefore, 0).Add(-clockSkew).After(now) {
+		return Principal{}, fmt.Errorf("%w: the token is not valid yet", ErrUnauthenticated)
 	}
 	return Principal{
 		Subject:    token.Subject,

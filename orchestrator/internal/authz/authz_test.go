@@ -117,6 +117,40 @@ func TestAMachineTokenReachesItsStoresAndNotTheInstallation(t *testing.T) {
 	}
 }
 
+// The half the roles cannot express: platform:runtime says a pod may reach a
+// key/value namespace, not whose. A token mounted into one pod must not open
+// another deployment's stores — it is a file on a filesystem, so "somebody else
+// is holding it" is the case to design for.
+func TestAMachineTokenCannotReachAnotherDeployment(t *testing.T) {
+	c := stubChecker{principal: Principal{
+		Subject: "user-1", Roles: []string{RoleRuntime}, Deployment: "dep-1",
+	}}
+
+	for _, path := range []string{
+		"/deployments/dep-2/kv/ns/k",
+		"/deployments/dep-2/objects/thing",
+		"/deployments/dep-2/agent-memory/working",
+		"/deployments/dep-2/namespaces",
+	} {
+		if rec, _ := call(t, c, "GET", path, "a.b.c"); rec.Code != http.StatusForbidden {
+			t.Errorf("GET %s = %d, want 403 — dep-1's token reached dep-2", path, rec.Code)
+		}
+		if rec, _ := call(t, c, "PUT", path, "a.b.c"); rec.Code != http.StatusForbidden {
+			t.Errorf("PUT %s = %d, want 403 — dep-1's token wrote to dep-2", path, rec.Code)
+		}
+	}
+}
+
+// A person's token names no deployment, so nothing above applies to it: an
+// operator looking at any deployment they like is the ordinary case.
+func TestAPersonIsNotConstrainedToOneDeployment(t *testing.T) {
+	c := stubChecker{principal: Principal{Subject: "user-1", Roles: []string{RoleOperator}}}
+
+	if rec, _ := call(t, c, "GET", "/deployments/dep-2/pods", "a.b.c"); rec.Code != http.StatusOK {
+		t.Errorf("an operator was refused a deployment they did not deploy: %d", rec.Code)
+	}
+}
+
 func containsAnyRole(body string) bool {
 	for _, role := range []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor, RoleRuntime} {
 		if strings.Contains(body, role) {

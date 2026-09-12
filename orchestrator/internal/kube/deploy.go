@@ -555,7 +555,23 @@ func (c *Client) putToken(ctx context.Context, spec Spec, labels map[string]stri
 	if !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("kube: create token secret: %w", err)
 	}
-	if _, err := secrets.Update(ctx, desired, metav1.UpdateOptions{}); err != nil {
+	// Updated through the object the server currently holds rather than through
+	// `desired`, which carries no resourceVersion. An update is a replacement of a
+	// specific revision, and the fake clientset these are tested against does not
+	// enforce that — so a rollout against a real API server is where a blind
+	// replacement would first be seen to fail.
+	current, err := secrets.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: read token secret before replacing it: %w", err)
+	}
+	current.Labels = labels
+	current.Type = corev1.SecretTypeOpaque
+	// Both halves: StringData is what we write, and Data is what the server
+	// answered with. Leaving the old Data in place would have the server merge a
+	// stale token back in under the same key.
+	current.Data = nil
+	current.StringData = map[string]string{tokenFileName: spec.Token}
+	if _, err := secrets.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("kube: update token secret: %w", err)
 	}
 	return nil

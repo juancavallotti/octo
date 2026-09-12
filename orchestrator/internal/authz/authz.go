@@ -62,6 +62,18 @@ func Wrap(v checker, next http.Handler) http.Handler {
 			return
 		}
 
+		// A machine token may only act on its own deployment, whatever its roles
+		// admit. Refused as a plain 403 rather than something more specific: a pod
+		// reaching for another deployment is either a bug or a stolen credential,
+		// and neither is owed the distinction.
+		if !ownsTarget(principal, r.URL.Path) {
+			slog.WarnContext(r.Context(), "a deployment reached for another one",
+				"deployment", principal.Deployment, "path", r.URL.Path)
+			httpx.WriteError(w, http.StatusForbidden,
+				"this account may not perform that operation")
+			return
+		}
+
 		allowed := required(r.Method, r.URL.Path)
 		if len(allowed) == 0 || !principal.Has(allowed...) {
 			// The roles are not named. What this install requires is not something an

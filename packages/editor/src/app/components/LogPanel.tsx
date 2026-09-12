@@ -107,7 +107,14 @@ export default function LogPanel({
     prevRunning.current = running;
   }, [running, openTo]);
 
-  if (!run || !run.available) return null;
+  // A save failure belongs under Problems, and Problems lives in this panel —
+  // but the panel is gated on a run controller, and the two are independent: a
+  // host can provide saving and no way to run. Without this the whole panel goes
+  // with the controller and a failed save is silent, since the button that
+  // triggered it stopped showing the reason when it moved here.
+  if (!run || !run.available) {
+    return saveError ? <SaveFailure error={saveError} /> : null;
+  }
   const { version, testUrl, clearLogs } = run;
 
   // The last run's failure, shown under the validation issues: a document can be
@@ -289,6 +296,22 @@ export default function LogPanel({
       {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "cel" && <CelTester />}
       {!collapsed && tab === "env" && <DevEnvPanel />}
+    </section>
+  );
+}
+
+/**
+ * The save error on its own, for a host with no run controller: the panel it
+ * normally appears in is not rendered there, and a save that failed silently is
+ * worse than an unstyled strip.
+ */
+function SaveFailure({ error }: { error: string }) {
+  return (
+    <section
+      role="alert"
+      className="shrink-0 border-t border-black/10 bg-zinc-50 px-3 py-2 text-xs text-red-600 dark:border-white/10 dark:bg-zinc-900 dark:text-red-400"
+    >
+      Could not save: {error}
     </section>
   );
 }

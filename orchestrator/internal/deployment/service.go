@@ -419,6 +419,14 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Runner:           runner,
 	}
 	if spec.Token, err = s.identityFor(ctx, dep.ID); err != nil {
+		// The row is already written, and nothing has been created in the cluster
+		// yet. Left behind it is a deployment that does not exist holding a slug
+		// nothing can take — the same reason the Apply failure below rolls back,
+		// arriving one step earlier.
+		if delErr := s.repo.Delete(ctx, dep.ID); delErr != nil {
+			slog.Error("deployment rollback: delete row after an identity could not be minted",
+				"id", dep.ID, "error", delErr)
+		}
 		return Deployment{}, err
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {

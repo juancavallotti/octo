@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 // The deployment's own platform token: written to a Secret, mounted read-only,
@@ -173,6 +174,43 @@ func TestRolloutReplacesTheToken(t *testing.T) {
 	if got := secret.StringData[tokenFileName]; got != "second.token" {
 		t.Errorf("secret holds %q after the rollout, want the re-minted token", got)
 	}
+	// The replacement is built from the object the server holds rather than from a
+	// fresh one, because an update replaces a specific revision and a fresh object
+	// carries no resourceVersion to name it. The fake clientset enforces none of
+	// that — a real API server does — so what is asserted here is the read that
+	// makes it possible.
+	if !readSecretBeforeUpdating(t, c) {
+		t.Error("the token secret was replaced without reading it first")
+	}
+	// Data is what the server answers with and StringData is what we write. A
+	// replacement that left the old Data in place would have the server merge the
+	// previous token back in under the same key.
+	if _, stale := secret.Data[tokenFileName]; stale {
+		t.Error("the previous token is still in the secret's Data")
+	}
+}
+
+// readSecretBeforeUpdating reports whether the client fetched the token secret
+// before it wrote one, in that order.
+func readSecretBeforeUpdating(t *testing.T, c *Client) bool {
+	t.Helper()
+	fakeClient, ok := c.clientset.(*fake.Clientset)
+	if !ok {
+		t.Fatalf("these run against the fake clientset, got %T", c.clientset)
+	}
+	got := false
+	for _, a := range fakeClient.Actions() {
+		if a.GetResource().Resource != "secrets" {
+			continue
+		}
+		switch a.GetVerb() {
+		case "get":
+			got = true
+		case "update":
+			return got
+		}
+	}
+	return false
 }
 
 // Undeploy takes the credential with it. A machine token renews at any age, so

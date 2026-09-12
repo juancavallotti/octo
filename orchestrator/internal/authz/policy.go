@@ -49,7 +49,8 @@ var policy = []rule{
 	// --- what a running pod reaches -------------------------------------
 	// Its own key/value store, its own object store, its own agent memory. A pod
 	// holds platform:runtime and nothing else, so these are the only routes its
-	// token opens — and they are scoped to a deployment id the handler checks.
+	// token opens — and "its own" is enforced by ownsTarget, which is what keeps
+	// these from reading every other deployment's data.
 	{"deployments/*/kv", runs, runs},
 	{"deployments/*/namespaces", runs, runs},
 	{"deployments/*/objects", append(builds, RoleRuntime), append(builds, RoleRuntime)},
@@ -147,6 +148,35 @@ func required(method, path string) []string {
 	// Fail closed. A route nobody wrote a rule for is the installation's own
 	// business until somebody says otherwise.
 	return []string{RoleAdmin}
+}
+
+// ownsTarget reports whether principal may act on the deployment this path names.
+//
+// The roles say a pod may reach a key/value namespace, an object store and an
+// agent memory. They do not say WHOSE, and every one of those routes is addressed
+// by a deployment id in the path — so without this a token mounted into one pod
+// reads and writes every other deployment's stores. A machine token is a file on
+// a filesystem, which makes "somebody else's pod" a realistic holder of it.
+//
+// Only deployment-addressed paths are constrained, and only for a token that
+// names a deployment. A person's token names none and is governed by roles alone,
+// which is what lets an operator look at any deployment they like.
+//
+// What this deliberately does NOT cover: `snapshots/{id}/resources`, which a pod
+// also reaches. Which snapshot a deployment runs is a fact in the database and
+// this package has none, so the constraint cannot be stated here. It is a narrower
+// exposure — frozen, read-only definition files rather than live data — and
+// closing it belongs at the handler, which can look it up.
+func ownsTarget(principal Principal, path string) bool {
+	if principal.Deployment == "" {
+		return true
+	}
+	segments := split(path)
+	const idAt = 1
+	if len(segments) <= idAt || segments[0] != "deployments" {
+		return true
+	}
+	return segments[idAt] == principal.Deployment
 }
 
 // matches reports whether pattern describes the leading segments of path.
