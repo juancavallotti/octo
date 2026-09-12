@@ -185,11 +185,17 @@ export function shapeOfExpression(expression: string, scope?: Scope): ValueShape
   const text = expression.trim();
   if (text === "") return undefined;
 
-  const literal = readMap({ text, at: 0 });
-  if (literal) return literal;
+  // The literal has to BE the expression, not merely start it. `{"a": 1}["a"]` and
+  // `["a"] + b` both begin with something readable and evaluate to something else
+  // entirely, and publishing the opening literal's keys as a closed object would offer
+  // the user members the body will not have.
+  const mapCursor: Cursor = { text, at: 0 };
+  const literal = readMap(mapCursor);
+  if (literal && mapCursor.at === text.length) return literal;
 
-  const list = readList({ text, at: 0 }, 0);
-  if (list) return list;
+  const listCursor: Cursor = { text, at: 0 };
+  const list = readList(listCursor, 0);
+  if (list && listCursor.at === text.length) return list;
 
   const path = pathOf(text);
   if (path && scope) {

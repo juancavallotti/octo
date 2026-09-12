@@ -16,9 +16,11 @@ import type { Contribution, Field, Scope, ValueShape } from "./types";
  * setting names a variable".
  *
  * This is a second hand-mirror of Go, which is the same debt `cel/catalog.ts`
- * documents, and it decays the same way. The mitigation is the rot-alarm test in
- * contributions.test.ts: a new block with a variable-naming setting that neither tier
- * accounts for fails the suite.
+ * documents, and it decays the same way. The mitigation is the rot alarm in
+ * scripts/check-scope-contributions.mjs, which reads the real catalogue from
+ * `bin/octo schema` in CI: a new block with a variable-naming setting that neither
+ * tier accounts for fails that check. It cannot live in a unit test here, because the
+ * bundled capabilities.json is an empty fallback and the suite would pass vacuously.
  */
 
 /** Settings whose value is the NAME of a variable the block sets. */

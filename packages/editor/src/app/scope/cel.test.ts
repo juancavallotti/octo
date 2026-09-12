@@ -58,6 +58,14 @@ describe("shapeOfExpression: map literals", () => {
     expect(shapeOfExpression('{"a": ')).toBeUndefined();
   });
 
+  it("says nothing about a literal that is only the start of the expression", () => {
+    // Each of these begins with something readable and evaluates to something else.
+    // Publishing the opening literal's keys would offer members the body never has.
+    expect(shapeOfExpression('{"a": 1}["a"]')).toBeUndefined();
+    expect(shapeOfExpression('{"a": 1}.a')).toBeUndefined();
+    expect(shapeOfExpression('["a"] + b')).toBeUndefined();
+  });
+
   it("says nothing about an expression that is not a literal at all", () => {
     expect(shapeOfExpression('has(body.x) ? body.x : "none"')).toBeUndefined();
     expect(shapeOfExpression('toJson(body)')).toBeUndefined();

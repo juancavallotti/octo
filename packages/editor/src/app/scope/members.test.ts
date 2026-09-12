@@ -32,8 +32,10 @@ describe("membersFor", () => {
     expect(names(members(["body"]))).toEqual(expect.arrayContaining(["orderId", "lines"]));
   });
 
-  it("completes a nested path", () => {
-    expect(names(members(["body", "lines"]))).toEqual([]);
+  it("offers list methods on a nested list, not only on a root one", () => {
+    // `names` turns undefined into [], so asserting [] here passed while membersFor
+    // was answering "no idea" — the module treats those as different answers.
+    expect(names(members(["body", "lines"]))).toContain("map");
   });
 
   it("says nothing about a root it has never heard of", () => {

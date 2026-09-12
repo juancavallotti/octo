@@ -99,14 +99,21 @@ export function rootScope(
   // Evidence about the body wins over the source's declaration: a saved input or a
   // traced run says what this flow was actually called with, while the payload says
   // what the source would synthesize if it fired.
-  const bodyShape: ValueShape = known?.body ?? sourceBody(flow) ?? { kind: "unknown" };
+  // Kept apart so the note can say which of the two this actually was: the completion
+  // menu renders it as the reason line, and telling someone a cron flow's keys were
+  // "seen in a test input" when it has never had one is a small lie in the one place
+  // the user goes to find out where a suggestion came from.
+  const declaredBody = known?.body ? undefined : sourceBody(flow);
+  const bodyShape: ValueShape = known?.body ?? declaredBody ?? { kind: "unknown" };
   if (known?.vars) varsShape = merge(varsShape, known.vars);
 
   if (bodyShape.kind !== "unknown") {
     // Replaced, not merged. The declared seed is `dyn` — the absence of evidence —
     // and merging evidence with the absence of it widens straight back to `dyn`,
     // throwing away the only thing the editor actually knows about this body.
-    roots.body = field(bodyShape, "sample", "seen in a test input");
+    roots.body = declaredBody
+      ? field(declaredBody, "inferred", "the body this source builds")
+      : field(bodyShape, "sample", "seen in a test input");
   }
   roots.vars = { ...roots.vars, shape: varsShape };
   return { roots };

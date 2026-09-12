@@ -120,6 +120,12 @@ describe("CommandPalette", () => {
 
     await userEvent.click(screen.getByRole("dialog"));
     expect(onClose).toHaveBeenCalledTimes(1);
+
+    // The backdrop is the dialog's parent, and dismissal is bound to mousedown so a
+    // drag that ends outside the panel is not a dismissal.
+    const backdrop = screen.getByRole("dialog").parentElement as HTMLElement;
+    await userEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("wraps the highlight around both ends", async () => {

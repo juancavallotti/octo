@@ -1,6 +1,6 @@
 import { LIST_METHODS, MAP_METHODS, STRING_METHODS, type CelEntry } from "../cel/catalog";
 import type { MemberProvider } from "../cel/complete";
-import { fieldsAtPath } from "./shape";
+import { fieldsAtPath, shapeAtPath } from "./shape";
 import type { Field, Scope, ValueShape } from "./types";
 
 /**
@@ -85,8 +85,10 @@ export function membersFor(scope: Scope): MemberProvider {
     }
 
     // Not an object at that path — but it may still be a list or a string, which
-    // have methods worth offering even though they have no members.
-    const at = rest.length === 0 ? root.shape : undefined;
+    // have methods worth offering even though they have no members. Resolved at the
+    // full path, not just the root: `body.lines.` is exactly as much a list as
+    // `items.` is, and answering only for the root offered nothing after a dot.
+    const at = shapeAtPath(root.shape, rest);
     const methods = at ? methodsFor(at) : [];
     return methods.length > 0 ? methods : undefined;
   };

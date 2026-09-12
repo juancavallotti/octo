@@ -50,8 +50,18 @@ const NAMING = /(^as$)|(^name$)|(Var$)/;
 // The hand-written table's keys, read out of the source rather than imported: this is
 // a plain Node script and that file is TypeScript inside a workspace package.
 const source = readFileSync(contributions, 'utf8');
+// Anchored to the SPECIAL table rather than scanned over the whole file. A loose scan
+// picks up the keys of any other object-of-functions in there, and those keys can
+// equal real block types — which would mark a block as accounted for that nobody ever
+// looked at. A drift check that fails open is worse than no check.
+// The declaration carries a function type, so its `=>` defeats a naive [^=]*.
+const specialBlock = /const SPECIAL\b[^\n]*=\s*\{\r?\n([\s\S]*?)\r?\n\};/.exec(source);
+if (!specialBlock) {
+  console.error(`could not find the SPECIAL table in ${contributions} — refusing to guess`);
+  process.exit(2);
+}
 const special = new Set(
-  [...source.matchAll(/^\s*"?([a-z0-9-]+)"?:\s*\(/gm)].map((m) => m[1]),
+  [...specialBlock[1].matchAll(/^\s{2}"?([a-z0-9-]+)"?:\s*\(/gm)].map((m) => m[1]),
 );
 
 const allowlist = existsSync(allowlistPath)

@@ -383,6 +383,14 @@ describe("the body a source says it will send", () => {
     expect((members(["body"]) ?? []).map((e) => e.name)).toEqual(
       expect.arrayContaining(["kind", "time"]),
     );
+    // And says where it came from. `body`'s own entry carries the note the menu
+    // renders as its reason line, and a cron flow that has never had a test input
+    // must not claim one.
+    const body = rootsFor(scopeAt(index, { kind: "block", blockId: f.process[0].id })).find(
+      (e) => e.name === "body",
+    );
+    expect(JSON.stringify(body)).toContain("source");
+    expect(JSON.stringify(body)).not.toContain("test input");
   });
 
   it("knows nothing when the source declares no payload", () => {

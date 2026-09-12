@@ -65,17 +65,6 @@ export default function CommandPalette<T>({
     };
   }, [open]);
 
-  // Keep the highlighted row on screen while the arrows walk past the fold.
-  useEffect(() => {
-    if (!open) return;
-    const row = list.current?.children[active];
-    // Optional call: jsdom has no scrollIntoView, and a palette that throws in the
-    // tests to keep a row visible has its priorities backwards.
-    (row as HTMLElement | undefined)?.scrollIntoView?.({ block: "nearest" });
-  }, [open, active]);
-
-  if (!open) return null;
-
   /**
    * The highlighted row, clamped into the list.
    *
@@ -84,8 +73,25 @@ export default function CommandPalette<T>({
    * here rather than trusting the parent is the difference between a filtered list
    * whose Enter does nothing and one that always has a selection: every way the two
    * can drift apart is a way for the palette to look broken.
+   *
+   * Computed above the early return, not below it, because the scroll effect needs it
+   * — an effect cannot sit after a conditional return.
    */
   const activeIndex = items.length === 0 ? -1 : Math.min(Math.max(active, 0), items.length - 1);
+
+  // Keep the highlighted row on screen while the arrows walk past the fold. On the
+  // clamped index, not the raw one: out of range is exactly the case the clamp exists
+  // for, and `children[active]` is undefined there — so the row the user can see
+  // highlighted would be the one row never scrolled to.
+  useEffect(() => {
+    if (!open || activeIndex < 0) return;
+    const row = list.current?.children[activeIndex];
+    // Optional call: jsdom has no scrollIntoView, and a palette that throws in the
+    // tests to keep a row visible has its priorities backwards.
+    (row as HTMLElement | undefined)?.scrollIntoView?.({ block: "nearest" });
+  }, [open, activeIndex]);
+
+  if (!open) return null;
 
   const move = (delta: number) => {
     if (items.length === 0) return;
