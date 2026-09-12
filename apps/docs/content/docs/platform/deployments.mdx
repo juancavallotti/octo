@@ -77,7 +77,9 @@ An integration that needs both, and a reason to grant them, is the alert-triage 
 Stored logs and traces span **every** deployment on the installation, not just the one being granted. An integration that can read them can read its neighbours' captured request bodies. Grant it only to integrations you would trust with the Traces view itself.
 </Callout>
 
-**The observability grant is the address, not the reach.** The [observability API](/platform/observability-api-reference) authorizes every request by the roles on the presented token, and a deployment's own token carries `platform:runtime`, which matches no rule there. So a deployment that has the address still reads nothing through it until its token is minted carrying a person's role.
+**The observability grant is the address, not the reach.** The [observability API](/platform/observability-api-reference) authorizes every request by the roles on the presented token, and a deployment's own token carries `platform:runtime`, which matches no rule there. A deployment that has the address therefore reads nothing with its own credential, whatever this box says.
+
+What does read is a request carrying **somebody else's** token: a flow reached by a person — Dr. Octo answering a question in the chat, for instance — spends the caller's token, and the read succeeds exactly when that person is allowed the read. The deployment's own token is never widened into a person's.
 
 **The orchestrator grant is still a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod, because the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election, and this checkbox gates nothing on its own.
 

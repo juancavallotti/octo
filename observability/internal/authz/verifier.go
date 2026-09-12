@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,11 +113,20 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	}
 
 	var claims struct {
-		Roles      []string `json:"roles"`
-		Deployment string   `json:"deployment"`
+		Roles []string `json:"roles"`
+		// NotBefore is read here because nothing else reads it: go-oidc exposes
+		// `exp` and `iat` on the token and not `nbf`, and SkipExpiryCheck turns off
+		// what time checking it does. Without this a token stamped to become valid
+		// an hour from now is accepted the moment it is signed.
+		NotBefore  int64  `json:"nbf"`
+		Deployment string `json:"deployment"`
 	}
 	if err := token.Claims(&claims); err != nil {
 		return Principal{}, fmt.Errorf("%w: reading claims: %w", ErrUnauthenticated, err)
+	}
+	if claims.NotBefore != 0 &&
+		time.Unix(claims.NotBefore, 0).Add(-clockSkew).After(now) {
+		return Principal{}, fmt.Errorf("%w: the token is not valid yet", ErrUnauthenticated)
 	}
 	return Principal{
 		Subject:    token.Subject,
@@ -156,6 +166,14 @@ func (v *Verifier) resolve(ctx context.Context) (*oidc.IDTokenVerifier, error) {
 	// would be turned away for it.
 	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
 	defer cancel()
+
+	// The client goes on the context because go-oidc keeps this context for the
+	// life of the keyset, and uses it for every later fetch as well as this one.
+	// Those later fetches are the ones that need it: when iam rotates its keys the
+	// keyset re-fetches on the unknown kid, on a background context this deadline
+	// does not reach, so without a client timeout a stalled iam blocks token
+	// verification with no deadline at all.
+	fetchCtx = oidc.ClientContext(fetchCtx, &http.Client{Timeout: discoveryTimeout})
 
 	provider, err := oidc.NewProvider(fetchCtx, v.issuer)
 	if err != nil {

@@ -2,6 +2,39 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+/**
+ * Every way a module could read one of the single-entry-point env variables.
+ *
+ * Dot access is the form somebody writes on purpose; the other two are the forms
+ * a rule that only knows about dot access silently permits — and a bypass that
+ * lints clean is worse than no rule, because it reads as enforcement.
+ */
+function noDirectEnvRead(name, through) {
+  const message =
+    `Reach it through ${through}, which attaches the caller's credential. ` +
+    `It is the only module that may read ${name}.`;
+  return [
+    // process.env.NAME
+    {
+      selector:
+        `MemberExpression[object.object.name='process'][object.property.name='env'][property.name='${name}']`,
+      message,
+    },
+    // process.env["NAME"]
+    {
+      selector:
+        `MemberExpression[computed=true][object.object.name='process'][object.property.name='env'][property.value='${name}']`,
+      message,
+    },
+    // const { NAME } = process.env
+    {
+      selector:
+        `VariableDeclarator[init.object.name='process'][init.property.name='env'] > ObjectPattern > Property[key.name='${name}']`,
+      message,
+    },
+  ];
+}
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -23,36 +56,42 @@ const eslintConfig = defineConfig([
   // was empty for no visible reason, a chat launcher that never appeared.
   //
   // Reading the variable is how that starts, so that is what this refuses.
+  //
+  // Both variables are declared in ONE block, and that is load-bearing. Flat
+  // config does not merge the options of a rule configured twice — the last
+  // block matching a file wins outright — so two blocks each naming
+  // `no-restricted-syntax` over `app/**` meant the second silently switched the
+  // first off, and the orchestrator rule enforced nothing at all.
   {
     files: ["app/**/*.{ts,tsx}"],
-    // The client itself, and the tests that set the variable to stand it up.
-    ignores: ["app/actions/client/http.ts", "**/*.test.{ts,tsx}"],
+    // Tests set these variables to stand the services up.
+    ignores: ["**/*.test.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector:
-            "MemberExpression[object.object.name='process'][object.property.name='env'][property.name='ORCHESTRATOR_URL']",
-          message:
-            "Reach the orchestrator through app/actions/client/http.ts, which attaches the caller's credential. It is the only module that may read ORCHESTRATOR_URL.",
-        },
+        ...noDirectEnvRead("ORCHESTRATOR_URL", "app/actions/client/http.ts"),
+        ...noDirectEnvRead("OBSERVABILITY_URL", "app/actions/_observability.ts"),
       ],
     },
   },
-  // One way to the observability service, for the same reason.
+  // The two entry points themselves, each allowed its own variable and no more.
+  // Written as an override rather than an `ignores` for the same reason as above:
+  // what a later block says about a rule is the whole of what that rule is.
   {
-    files: ["app/**/*.{ts,tsx}"],
-    // The client itself, and the tests that set the variable to stand it up.
-    ignores: ["app/actions/_observability.ts", "**/*.test.{ts,tsx}"],
+    files: ["app/actions/client/http.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector:
-            "MemberExpression[object.object.name='process'][object.property.name='env'][property.name='OBSERVABILITY_URL']",
-          message:
-            "Reach the observability service through app/actions/_observability.ts, which attaches the caller's credential. It is the only module that may read OBSERVABILITY_URL.",
-        },
+        ...noDirectEnvRead("OBSERVABILITY_URL", "app/actions/_observability.ts"),
+      ],
+    },
+  },
+  {
+    files: ["app/actions/_observability.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...noDirectEnvRead("ORCHESTRATOR_URL", "app/actions/client/http.ts"),
       ],
     },
   },
