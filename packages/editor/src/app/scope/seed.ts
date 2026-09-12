@@ -1,5 +1,6 @@
 import type { EditorDocument, FlowDoc } from "../model/document";
-import { DYN, field, merge, objectOf, shapeOfJson } from "./shape";
+import type { MessageShape } from "./evidence";
+import { DYN, field, merge, objectOf } from "./shape";
 import type { Field, Scope, ValueShape } from "./types";
 
 /**
@@ -60,45 +61,21 @@ function sourceVars(flow: FlowDoc | null): Record<string, Field> {
   return out;
 }
 
-/** Parse one JSON sample, or undefined when it is absent or half-typed. */
-function sample(text: string | undefined): unknown | undefined {
-  if (!text || text.trim() === "") return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    // A test input being edited is normal, not exceptional.
-    return undefined;
-  }
-}
-
 /**
- * The scope at the top of a flow.
- *
- * Test inputs are merged across all of them rather than the first taken: a flow with
- * a "happy path" and an "error" input knows about the keys of both, and `merge`
- * marks anything present in only one as uncertain.
+ * The scope at the top of a flow: the runtime's variables, refined by whatever the
+ * workspace says these messages start as (see evidence.ts).
  */
 export function rootScope(
   doc: EditorDocument,
   flow: FlowDoc | null,
-  inputs: { data?: string; vars?: string }[] | undefined,
+  known: MessageShape | undefined,
 ): Scope {
   const roots = messageRoots(envShape(doc));
 
   const declared = sourceVars(flow);
   let varsShape: ValueShape = objectOf(declared);
-  let bodyShape: ValueShape = { kind: "unknown" };
-
-  for (const input of inputs ?? []) {
-    const data = sample(input.data);
-    if (data !== undefined) {
-      bodyShape = merge(bodyShape, shapeOfJson(data, "sample", "seen in a test input"));
-    }
-    const vars = sample(input.vars);
-    if (vars !== undefined) {
-      varsShape = merge(varsShape, shapeOfJson(vars, "sample", "seen in a test input"));
-    }
-  }
+  const bodyShape: ValueShape = known?.body ?? { kind: "unknown" };
+  if (known?.vars) varsShape = merge(varsShape, known.vars);
 
   if (bodyShape.kind !== "unknown") {
     // Replaced, not merged. The declared seed is `dyn` — the absence of evidence —

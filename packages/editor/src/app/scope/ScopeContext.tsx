@@ -4,6 +4,15 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { CelEntry } from "../cel/catalog";
 import type { MemberProvider } from "../cel/complete";
 import { useEditorMeta } from "../providers/EditorMetaProvider";
+import { useTestSuites } from "../providers/TestSuiteProvider";
+import { parseSuite } from "../suite/parse";
+import {
+  emptyEvidence,
+  fromBlockMocks,
+  fromSuite,
+  fromTestInputs,
+  mergeMessages,
+} from "./evidence";
 import { useEditorState } from "../state/editorState";
 import { membersFor, rootsFor } from "./members";
 import { buildIndex, scopeAt, type ScopeIndex } from "./walk";
@@ -28,20 +37,31 @@ const SiteContext = createContext<CelSite>({ kind: "document" });
 export function ScopeIndexProvider({ children }: { children: ReactNode }) {
   const { state } = useEditorState();
   const meta = useEditorMeta();
+  const suites = useTestSuites();
   const doc = state.document;
 
-  // Saved test inputs are the only evidence about `body` that costs nothing: the
-  // user already typed them, and they are already on disk.
-  const inputs = useMemo(() => {
-    const byFlow = new Map<string, { data?: string; vars?: string }[]>();
-    for (const flow of doc.flows) byFlow.set(flow.id, meta?.inputs(flow.id) ?? []);
-    return byFlow;
-  }, [doc, meta]);
+  // Everything the workspace already says about these messages. All of it authored
+  // rather than captured, so none of it costs a run — and the suites and mocks are
+  // committed alongside the flows, so it is there on a fresh checkout too.
+  const evidence = useMemo(() => {
+    const gathered = emptyEvidence();
+    for (const flow of doc.flows) {
+      if (!flow.name) continue;
+      const inputs = meta?.inputs(flow.id) ?? [];
+      if (inputs.length > 0) {
+        gathered.root.set(flow.name, mergeMessages(gathered.root.get(flow.name), fromTestInputs(inputs)));
+      }
+      const suite = suites?.suiteFor(flow.name);
+      if (suite) fromSuite(parseSuite(suite).suite, gathered);
+    }
+    fromBlockMocks(meta?.enabledMocks() ?? [], gathered);
+    return gathered;
+  }, [doc, meta, suites]);
 
   // Keyed on document identity: the reducer mints a new document for every edit and
   // reuses it for everything else, so this walks once per change rather than once
   // per render.
-  const index = useMemo(() => buildIndex({ doc, inputs }), [doc, inputs]);
+  const index = useMemo(() => buildIndex({ doc, evidence }), [doc, evidence]);
 
   return <IndexContext.Provider value={index}>{children}</IndexContext.Provider>;
 }

@@ -85,10 +85,20 @@ one stop being offered. Each suggestion says where it came from — *set by
 set-variable*, *seen in a test input* — and one that only some branches set is marked
 as not being on every path.
 
-A saved [test input](/editor/running-flows) is what teaches `body.` its keys, since
-the runtime types a body as `dyn` and the editor has nothing else to go on. The
-editor never suggests a name it cannot justify from the flow: an empty menu means it
-does not know, which is more useful than a guess.
+Bodies are harder than variables — the runtime types a body as `dyn` — so the editor
+reads what you have already written down about them:
+
+- **Saved test inputs**, which are what the flow is run with.
+- **Mocks**, which say what a block returns. A mocked payment block whose body you
+  wrote out completes downstream of itself, without ever calling the real API.
+- **[Test suites](/testing/in-the-editor)**, which are the richest source: their
+  shared inputs, each case's input, what a case expects the flow to answer, the mocks
+  they stand blocks in with, and the messages a spy expectation names.
+
+All of that is authored rather than captured, so it costs no run and it is committed
+beside the flows — a fresh checkout has it. The editor never suggests a name it
+cannot justify from one of these: an empty menu means it does not know, which is
+more useful than a guess.
 
 ### Console
 

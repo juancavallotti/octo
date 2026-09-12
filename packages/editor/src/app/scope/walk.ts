@@ -1,5 +1,7 @@
 import type { BlockNode, EditorDocument, FlowDoc } from "../model/document";
 import { contributionOf } from "./contributions";
+import { emptyEvidence, type Evidence, type MessageShape } from "./evidence";
+import { blockIdAddresses } from "../run/address";
 import { DYN, field, mergeFields, objectOf } from "./shape";
 import { rootScope, sourceScope } from "./seed";
 import type { CelSite, Field, Scope } from "./types";
@@ -14,8 +16,8 @@ import type { CelSite, Field, Scope } from "./types";
 
 export interface ScopeInputs {
   doc: EditorDocument;
-  /** Saved test inputs by flow id, for seeding `body` and `vars`. */
-  inputs?: ReadonlyMap<string, { data?: string; vars?: string }[]>;
+  /** What the workspace already says about these messages — see evidence.ts. */
+  evidence?: Evidence;
 }
 
 export interface ScopeIndex {
@@ -94,7 +96,7 @@ function slotSeed(block: BlockNode, slot: string, scope: Scope): Scope {
  */
 const ISOLATED_SLOTS = new Set(["enrich", "foreach"]);
 
-export function buildIndex({ doc, inputs }: ScopeInputs): ScopeIndex {
+export function buildIndex({ doc, evidence = emptyEvidence() }: ScopeInputs): ScopeIndex {
   const index: ScopeIndex = {
     blocks: new Map(),
     flowOutputs: new Map(),
@@ -102,10 +104,35 @@ export function buildIndex({ doc, inputs }: ScopeInputs): ScopeIndex {
     document: rootScope(doc, null, undefined),
   };
 
+  /**
+   * Fold in what is known about the block at this address.
+   *
+   * `in` refines the scope the block itself sees; `out` refines what everything after
+   * it sees. Keeping them apart is the whole point of the distinction: a variable a
+   * block sets belongs downstream of it, and offering it in the block's own settings
+   * would be a name that is not there yet.
+   */
+  const applyAt = (scope: Scope, shape: MessageShape | undefined): Scope => {
+    if (!shape) return scope;
+    const roots = { ...scope.roots };
+    if (shape.body) roots.body = field(shape.body, "inferred", "what this block returns");
+    if (shape.vars?.kind === "object") {
+      const vars = roots.vars;
+      const known = vars?.shape.kind === "object" ? { ...vars.shape.fields } : {};
+      for (const [name, f] of Object.entries(shape.vars.fields)) known[name] = f;
+      roots.vars = { ...(vars ?? field(objectOf({}), "declared")), shape: objectOf(known) };
+    }
+    return { roots };
+  };
+
+  const addresses = blockIdAddresses(doc);
+
   /** Walk a chain, recording each block's incoming scope; return the scope after it. */
   const walkChain = (blocks: BlockNode[], entry: Scope): Scope => {
     let scope = entry;
     for (const block of blocks) {
+      const known = evidence.at.get(addresses.get(block.id) ?? "");
+      scope = applyAt(scope, known?.in);
       index.blocks.set(block.id, scope);
 
       const branchEnds: Scope[] = [];
@@ -116,7 +143,10 @@ export function buildIndex({ doc, inputs }: ScopeInputs): ScopeIndex {
         }
       }
 
-      const after = advance(scope, block);
+      // What the block is known to produce overrides what advance() could only say
+      // was opaque: a mocked payment block whose body the user wrote out is far more
+      // than "something we cannot describe".
+      const after = applyAt(advance(scope, block), known?.out);
       // A composite whose branches are paths through the flow continues with what
       // every branch agrees on — plus the fact that a branch may not have run, which
       // is why `after` is in the join rather than replaced by it.
@@ -127,7 +157,11 @@ export function buildIndex({ doc, inputs }: ScopeInputs): ScopeIndex {
 
   /** Walk a flow's process chain (and its error chain), recording its end scope. */
   const walkFlow = (flow: FlowDoc, entry: Scope): Scope => {
-    const end = walkChain(flow.process, entry);
+    const walked = walkChain(flow.process, entry);
+    // A suite's expectation describes the answer directly, which beats anything the
+    // walk could infer about a body a dozen blocks downstream of the last thing it
+    // recognised.
+    const end = applyAt(walked, evidence.output.get(flow.name ?? ""));
     index.flowOutputs.set(flow.id, end);
     // The error chain starts from the flow's entry, not from wherever it failed: what
     // the failing block had done is exactly what is not knowable.
@@ -137,7 +171,7 @@ export function buildIndex({ doc, inputs }: ScopeInputs): ScopeIndex {
 
   for (const flow of doc.flows) {
     index.sources.set(flow.id, sourceScope());
-    walkFlow(flow, rootScope(doc, flow, inputs?.get(flow.id)));
+    walkFlow(flow, rootScope(doc, flow, evidence.root.get(flow.name ?? "")));
   }
   return index;
 }

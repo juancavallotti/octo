@@ -168,6 +168,11 @@ export default function EditorRoot({
       </FileSystemProvider>
     );
 
+  // Below the suite provider (wrapped first, so it ends up inside): the scope model
+  // reads the suites, and a suite is the richest thing the workspace has to say about
+  // what a flow's messages look like — its inputs, its mocks, what it expects back.
+  tree = <ScopeIndexProvider>{tree}</ScopeIndexProvider>;
+
   // Suites are mounted only when the host backs them, because that null is what hides
   // the Testing tab — the one capability where absence means "not offered" rather than
   // "works, but forgets". It wraps the whole tree rather than the tab, because the
@@ -186,10 +191,6 @@ export default function EditorRoot({
   return (
     <EditorStateProvider>
       <EditorMetaProvider store={meta ?? null} reloadToken={metaToken}>
-        {/* Inside the meta provider because it reads the saved test inputs, which are
-            the only evidence about a message body the editor has without running
-            anything. One walk of the document serves every CEL field below. */}
-        <ScopeIndexProvider>
         {/* Canvas zoom is mounted here rather than in EditorBody, which returns
             early for the YAML, Resources and Testing views — a provider there
             would unmount on every trip to the YAML tab and hand the reader back
@@ -207,7 +208,6 @@ export default function EditorRoot({
             </ConsoleProvider>
           </LayoutProvider>
         </CanvasZoomProvider>
-        </ScopeIndexProvider>
       </EditorMetaProvider>
     </EditorStateProvider>
   );

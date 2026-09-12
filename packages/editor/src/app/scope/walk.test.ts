@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { newBlock, type BlockNode, type EditorDocument, type FlowDoc } from "../model/document";
 import { setCapabilities } from "../schema";
 import type { BlockSpec, FieldSpec } from "../schema/types";
+import { emptyEvidence, fromBlockMocks, fromSuite, fromTestInputs, type Evidence } from "./evidence";
 import { membersFor, rootsFor } from "./members";
 import { buildIndex, scopeAt } from "./walk";
 
@@ -55,6 +56,13 @@ function flow(process: BlockNode[], extra: Partial<FlowDoc> = {}): FlowDoc {
 
 function doc(flows: FlowDoc[]): EditorDocument {
   return { flows, connectors: [], processors: [], env: [] };
+}
+
+/** Evidence carrying saved test inputs for the one flow these tests use. */
+function evidenceWithInputs(inputs: Parameters<typeof fromTestInputs>[0]): Evidence {
+  const evidence = emptyEvidence();
+  evidence.root.set("orders", fromTestInputs(inputs));
+  return evidence;
 }
 
 /** The variable names offered at `blockId`. */
@@ -174,7 +182,7 @@ describe("test inputs", () => {
     const document = doc([flow([log])]);
     const index = buildIndex({
       doc: document,
-      inputs: new Map([["flow-1", [{ data: '{"orderId":"a","total":3}' }]]]),
+      evidence: evidenceWithInputs([{ id: "i", name: "one", data: '{"orderId":"a","total":3}' }]),
     });
     const members = membersFor(scopeAt(index, { kind: "block", blockId: log.id }));
     expect((members(["body"]) ?? []).map((e) => e.name)).toEqual(
@@ -186,7 +194,10 @@ describe("test inputs", () => {
     const log = block("log");
     const index = buildIndex({
       doc: doc([flow([log])]),
-      inputs: new Map([["flow-1", [{ data: '{"a":1}' }, { data: '{"b":2}' }]]]),
+      evidence: evidenceWithInputs([
+        { id: "a", name: "a", data: '{"a":1}' },
+        { id: "b", name: "b", data: '{"b":2}' },
+      ]),
     });
     const members = membersFor(scopeAt(index, { kind: "block", blockId: log.id }));
     expect((members(["body"]) ?? []).map((e) => e.name)).toEqual(
@@ -198,7 +209,7 @@ describe("test inputs", () => {
     const log = block("log");
     const index = buildIndex({
       doc: doc([flow([log])]),
-      inputs: new Map([["flow-1", [{ data: '{"a":' }]]]),
+      evidence: evidenceWithInputs([{ id: "i", name: "half", data: '{"a":' }]),
     });
     expect(() => scopeAt(index, { kind: "block", blockId: log.id })).not.toThrow();
   });
@@ -208,11 +219,63 @@ describe("test inputs", () => {
     const log = block("log");
     const index = buildIndex({
       doc: doc([flow([rest, log])]),
-      inputs: new Map([["flow-1", [{ data: '{"orderId":"a"}' }]]]),
+      evidence: evidenceWithInputs([{ id: "i", name: "one", data: '{"orderId":"a"}' }]),
     });
     // The REST response is the body now. Still offering `orderId` would be the
     // confidently-wrong suggestion this whole model exists to avoid.
     const members = membersFor(scopeAt(index, { kind: "block", blockId: log.id }));
     expect((members(["body"]) ?? []).map((e) => e.name)).not.toContain("orderId");
+  });
+});
+
+describe("evidence about a block", () => {
+  it("describes a body that a mock says the block returns", () => {
+    // `rest` replaces the body with something the walk alone can only call opaque.
+    // A mock on it says exactly what it answers — so downstream, `body.` completes.
+    const rest = block("rest");
+    rest.name = "charge";
+    const after = block("log");
+    const document = doc([flow([rest, after])]);
+
+    const evidence = emptyEvidence();
+    fromBlockMocks(
+      [{ address: "orders.charge", enabled: true, cases: [{ when: "true", body: '{"chargeId":"ch_1"}' }] }],
+      evidence,
+    );
+
+    const index = buildIndex({ doc: document, evidence });
+    const members = membersFor(scopeAt(index, { kind: "block", blockId: after.id }));
+    expect((members(["body"]) ?? []).map((e) => e.name)).toContain("chargeId");
+  });
+
+  it("does not offer it to the mocked block itself", () => {
+    // The mock describes what the block RETURNS. Its own settings see what arrived.
+    const rest = block("rest");
+    rest.name = "charge";
+    const document = doc([flow([rest])]);
+
+    const evidence = emptyEvidence();
+    fromBlockMocks(
+      [{ address: "orders.charge", enabled: true, cases: [{ when: "true", body: '{"chargeId":"ch_1"}' }] }],
+      evidence,
+    );
+
+    const index = buildIndex({ doc: document, evidence });
+    const members = membersFor(scopeAt(index, { kind: "block", blockId: rest.id }));
+    expect((members(["body"]) ?? []).map((e) => e.name)).not.toContain("chargeId");
+  });
+
+  it("uses a suite's expectation for what the flow answers with", () => {
+    const log = block("log");
+    const document = doc([flow([log])]);
+    const evidence = emptyEvidence();
+    fromSuite(
+      { flow: "orders", cases: [{ name: "ok", expect: { body: { receiptUrl: "https://x" } } }] },
+      evidence,
+    );
+
+    const index = buildIndex({ doc: document, evidence });
+    const members = membersFor(scopeAt(index, { kind: "flow-output", flowId: "flow-1" }));
+    expect((members(["body"]) ?? []).map((e) => e.name)).toContain("receiptUrl");
   });
 });
