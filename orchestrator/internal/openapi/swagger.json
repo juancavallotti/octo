@@ -452,13 +452,12 @@
             "deployment.Settings": {
                 "properties": {
                     "access": {
-                        "description": "Access says how much of the platform this deployment's own token opens\nbeyond the stores every pod owns — its key/value namespace, its objects, its\nagent memory.\n\nEmpty and \"basic\" are a deployment that serves, which is almost all of them.\n\"developer\" adds integrations, resources, snapshots and dev runs, for an\nintegration that builds or tests others. \"operator\" adds deployments, for\none that runs the installation.\n\nIt replaced two checkboxes that asked which addresses to inject. Addresses\nwere never the boundary: both APIs authorize the token they are presented,\nso what a deployment may do is what its token carries and nothing else. Both\naddresses are in every pod now, and this is the grant.",
-                        "enum": [
-                            "basic",
-                            "developer",
-                            "operator"
-                        ],
-                        "type": "string"
+                        "description": "Access is what this deployment's own token opens beyond the stores every pod\nowns — its key/value namespace, its objects, its agent memory.\n\nA set, and empty for almost every deployment. \"developer\" adds integrations,\nresources, snapshots and dev runs; \"operator\" adds deployments. They are\nindependent because they are different jobs, and something that builds\nintegrations and operates them is one thing that does both.\n\nThis is the credential an integration with no person behind it has — one\nwoken by a queue message or a webhook, where there is no caller's token to\nborrow — so it is the whole of what such a flow may do.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "env": {
                         "additionalProperties": {

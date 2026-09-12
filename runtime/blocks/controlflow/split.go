@@ -60,7 +60,7 @@ type split struct {
 	abort     bool
 
 	buildResponse core.MessageProcessor
-	env           map[string]any
+	env           expr.Env
 
 	// cont is the rest of the flow, handed over at build time.
 	cont core.Continuation

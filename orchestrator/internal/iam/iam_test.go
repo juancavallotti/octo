@@ -23,7 +23,7 @@ func TestMintMachineSendsTheCallerTokenAndTheDeployment(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	token, err := New(srv.URL).MintMachine(context.Background(), "caller.token", "dep-1", "")
+	token, err := New(srv.URL).MintMachine(context.Background(), "caller.token", "dep-1", nil)
 	if err != nil {
 		t.Fatalf("MintMachine: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestMintMachineTrimsTheAddress(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL+"/").MintMachine(context.Background(), "c", "dep-1", ""); err != nil {
+	if _, err := New(srv.URL+"/").MintMachine(context.Background(), "c", "dep-1", nil); err != nil {
 		t.Fatalf("MintMachine: %v", err)
 	}
 	if gotPath != "/auth/machine" {
@@ -69,7 +69,7 @@ func TestMintMachineReportsWhatIAMSaid(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", "")
+	_, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", nil)
 	if err == nil {
 		t.Fatal("MintMachine succeeded against a 403")
 	}
@@ -86,7 +86,7 @@ func TestMintMachineRefusesWithoutACallerToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL).MintMachine(context.Background(), "  ", "dep-1", ""); err == nil {
+	if _, err := New(srv.URL).MintMachine(context.Background(), "  ", "dep-1", nil); err == nil {
 		t.Error("MintMachine accepted an empty caller token")
 	}
 }
@@ -96,7 +96,7 @@ func TestUnconfiguredClientMintsNothing(t *testing.T) {
 	if c.Configured() {
 		t.Error("Configured() is true with no address")
 	}
-	if _, err := c.MintMachine(context.Background(), "c", "dep-1", ""); err == nil {
+	if _, err := c.MintMachine(context.Background(), "c", "dep-1", nil); err == nil {
 		t.Error("MintMachine succeeded with no address")
 	}
 }
@@ -109,7 +109,7 @@ func TestMintMachineRefusesAnEmptyToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", ""); err == nil {
+	if _, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", nil); err == nil {
 		t.Error("MintMachine accepted a reply with no token")
 	}
 }

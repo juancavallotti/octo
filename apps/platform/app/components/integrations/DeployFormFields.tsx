@@ -72,8 +72,8 @@ export default function DeployFormFields({
   onSlugOk: (ok: boolean) => void;
   tracing: boolean;
   onTracing: (on: boolean) => void;
-  access: DeploymentAccess;
-  onAccess: (next: DeploymentAccess) => void;
+  access: DeploymentAccess[];
+  onAccess: (next: DeploymentAccess[]) => void;
   /** Which runner image the pods run: "" (the default) or "agentic". */
   runner: string;
   onRunner: (runner: string) => void;

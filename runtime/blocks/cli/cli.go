@@ -123,7 +123,7 @@ type cliRun struct {
 	allowed map[string]bool
 	args    *expr.Program
 	stdin   *expr.Program
-	env     map[string]any
+	env     expr.Env
 	events  *observe.Emitter
 	onExit  string
 	name    string
@@ -205,7 +205,7 @@ func buildCommand(cfg cliRunSettings) (*command, error) {
 // written as bare names, absolute paths, or a mix. An entry that resolves to
 // nothing fails the build rather than the first message that reached for it.
 func buildAllowList(
-	cfg cliRunSettings, name string, program *expr.Program, env map[string]any,
+	cfg cliRunSettings, name string, program *expr.Program, env expr.Env,
 ) (map[string]bool, error) {
 	if len(cfg.Allow) == 0 {
 		constant, isConstant := constantProgram(program, env)
@@ -260,7 +260,7 @@ func buildAllowList(
 // that happens to evaluate on an empty message but would differ on a real one is
 // pinned to what it produced here, so a later value is refused rather than
 // allowed. The mis-detection errs toward running less.
-func constantProgram(program *expr.Program, env map[string]any) (string, bool) {
+func constantProgram(program *expr.Program, env expr.Env) (string, bool) {
 	msg, err := types.NewMessage("")
 	if err != nil {
 		return "", false

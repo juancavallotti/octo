@@ -379,7 +379,7 @@ type clearAgentMemorySettings struct {
 type clearAgentMemory struct {
 	threadID *expr.Program
 	agentID  string
-	env      map[string]any
+	env      expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

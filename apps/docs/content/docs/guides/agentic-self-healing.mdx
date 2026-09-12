@@ -129,7 +129,7 @@ The sample is [`samples/alert-triage-slack/config.yaml`](https://github.com/juan
 
 A user integration cannot call Dr. Octo's specialist flows: `flow-ref` reaches flows in the same integration only. So this agent holds its own tools, and they are narrower than his.
 
-**Connectors.** Two `http-client` connectors give the agent its boundaries: `octo` for the orchestrator's API and `observability` for stored logs and traces. Their base URLs come from `ORCHESTRATOR_URL` and `OBSERVABILITY_URL`, which are in every runtime pod. Reaching either takes a token that opens it, so set [platform access](/platform/deployments#platform-access) to **Runs the installation** under **Advanced** when you deploy: `octo_change` sends `POST`, `PUT`, `PATCH` and `DELETE` under `/deployments`, which **Builds integrations** does not permit.
+**Connectors.** Two `http-client` connectors give the agent its boundaries: `octo` for the orchestrator's API and `observability` for stored logs and traces. Their base URLs come from `ORCHESTRATOR_URL` and `OBSERVABILITY_URL`, which are in every runtime pod. Reaching either takes a token that opens it, so tick both [platform access](/platform/deployments#platform-access) grants under **Advanced** when you deploy — `octo_change` sends `POST`, `PUT`, `PATCH` and `DELETE` under `/deployments`, and the agent reads integrations to work out what it is looking at. The token itself is `env.PLATFORM_TOKEN`, which matters here more than anywhere: this agent is woken by an alert, so there is no person whose credential it could borrow.
 
 ```yaml
 connectors:
@@ -258,7 +258,7 @@ With a pending question, the reply becomes the answer: `authorizeId` names the p
 **Set it up.**
 
 1. Create a Slack app with the `chat:write` scope, subscribe it to the `message.channels` event, and invite the bot to a channel. Put the channel id in `SLACK_CHANNEL`.
-2. Deploy the integration with platform access set to **Runs the installation**, and point the Slack app's Events API request URL at the deployment's `/slack/events` route.
+2. Deploy the integration with both platform access grants ticked, and point the Slack app's Events API request URL at the deployment's `/slack/events` route.
 3. Create a watch whose **Send it to an app** action names **this** deployment and uses subject `triage`.
 
 The suites next to the sample (`on-alert_test.yaml`, `on-slack-event_test.yaml`, `triage_test.yaml`) run under `task runtime:test:samples` and pin the loop without a model: the gate, the thread bookkeeping, the approve and deny paths, and that the email goes to `reportTo` only.

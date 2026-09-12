@@ -78,7 +78,7 @@ type searchProcessor struct {
 	fixed          map[string]any
 	resultVar      string
 	failOnError    bool
-	env            map[string]any
+	env            expr.Env
 }
 
 // newSearch builds a search processor, resolving its tavily connector and

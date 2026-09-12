@@ -55,7 +55,7 @@ type processor struct {
 	args   []*expr.Program
 	exec   bool
 	single bool
-	env    map[string]any
+	env    expr.Env
 }
 
 // newSQL builds a sql processor, resolving its database connector and compiling

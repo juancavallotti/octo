@@ -113,11 +113,11 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // machineRequest names the deployed integration a token is being minted for, and
-// how much of the platform it is being lent. An absent access is the narrowest
-// one, so a caller that says nothing asks for nothing.
+// what it is being lent beyond its own stores. An absent set asks for nothing,
+// which is what almost every deployment wants.
 type machineRequest struct {
-	Deployment string `json:"deployment"`
-	Access     Access `json:"access,omitempty"`
+	Deployment string   `json:"deployment"`
+	Access     []Access `json:"access,omitempty"`
 }
 
 // machine issues a token for a deployed integration, on the authority of the

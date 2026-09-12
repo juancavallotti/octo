@@ -212,7 +212,7 @@ type aggregate struct {
 	maxGroups    int
 	onOverflow   string
 	buildRespone core.MessageProcessor
-	env          map[string]any
+	env          expr.Env
 
 	cont core.Continuation
 

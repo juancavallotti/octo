@@ -62,27 +62,66 @@ Captured bodies and variables are stored as they arrived and are readable by any
 
 ## Platform access
 
-Every deployed integration presents a platform token of its own, and what it may do is what that token carries. Every one of them reaches the stores its pod owns — its [key-value namespace](/platform/kv-and-storage), its objects, its agent memory — and the deploy and rollout dialogs carry one setting under **Advanced** saying what it reaches besides.
+Every deployed integration presents a platform token of its own, and what it may do is what that token carries. Every one of them reaches the stores its pod owns — its [key-value namespace](/platform/kv-and-storage), its objects, its agent memory. The deploy and rollout dialogs carry two independent grants under **Advanced**, both off by default, saying what it reaches besides.
 
-| Access | What the token additionally opens |
+| Grant | What the token additionally opens |
 | --- | --- |
-| **Serves only** (the default) | Nothing. Right for almost every integration. |
-| **Builds integrations** | Integrations, their resources, versions and dev runs — across the whole installation. For an integration that builds or tests others. |
-| **Runs the installation** | The above, plus deploying, rolling out, scaling and removing deployments — anyone else's included. |
+| **Builds integrations** | Integrations, their resources, versions and dev runs — across the whole installation, not just its own |
+| **Operates deployments** | Deploying, rolling out, scaling and removing deployments — anyone else's included |
 
-A choice rather than a set of switches: the three are ordered, each the one before it plus more, so a set would only ever be spelled as its widest member.
-
-An integration that needs more than the default, and a reason for it, is the alert-triage agent in [Agentic self-healing](/guides/agentic-self-healing).
+Two checkboxes and not a choice: building integrations and operating them are different jobs, and one integration can do both, either, or neither.
 
 <Callout type="warn">
-This is not scoped to the deployment's own integration. "Builds integrations" reads and writes **every** integration here, and "Runs the installation" acts on **every** deployment. Grant either only to an integration you would trust with the corresponding role on your own account.
+Neither grant is scoped to the deployment's own integration. **Builds integrations** reads and writes *every* integration here, and **Operates deployments** acts on *every* deployment. Grant either only to an integration you would trust with the corresponding role on your own account.
 </Callout>
 
-**Who may grant it.** The token is minted on the authority of whoever is deploying, and iam refuses to lend a deployment more than that person could do themselves. It never inherits: an administrator's deployment is not an administrator, and access is what was asked for on purpose.
+### The token an unattended flow uses
 
-**Addresses are not access.** `ORCHESTRATOR_URL` and `OBSERVABILITY_URL` are in every runtime pod — the first because the runtime needs it for the KV store and leader election, the second so a granted integration can use it without a second setting. Neither is a boundary: both APIs authorize the token they are presented, and anything on the cluster network could dial either address regardless. This replaced two checkboxes that withheld an address, which only ever hid a service from the deployments that had asked to use it.
+This matters most where there is nobody to borrow a credential from. A flow woken by a queue message, a webhook or a Slack event has no person behind it and never will — so the deployment's own token is not a fallback, it is the only credential that flow has.
 
-**Renewal keeps what was granted.** A deployment's token is renewed as what it was minted as, not as what its owner may do now. Taking somebody's operator role away does not quietly change what their running integrations can reach — stopping one is what deleting the deployment is for.
+It is available to the flow as **`env.PLATFORM_TOKEN`**, and the runtime keeps it valid. You do not have to obtain it, refresh it, or notice when it changes:
+
+```yaml
+connectors:
+  - name: octo
+    type: http-client
+    settings:
+      baseURL: ${ORCHESTRATOR_URL}
+```
+
+```yaml
+- type: rest
+  settings:
+    connector: octo
+    method: GET
+    path: /integrations
+    headers:
+      Authorization: '"Bearer " + env.PLATFORM_TOKEN'
+```
+
+Two things to know about how you reference it:
+
+- **Read it through an expression, as `env.PLATFORM_TOKEN`.** That is what gets you the token that is valid *now*.
+- **Not as `${PLATFORM_TOKEN}`.** That spelling is substituted once when the definition is loaded, so it would freeze whatever was valid at startup — and start failing an hour later, silently.
+
+On a runtime that has no platform identity — the editor's Run, `dolphin`, a local `octo run` — the variable is an ordinary environment variable and is simply unset unless you set it, so the same definition loads and tests everywhere.
+
+**Who may grant it.** The token is minted on the authority of whoever is deploying, and iam refuses to lend a deployment more than that person could do themselves. It never inherits: an administrator's deployment is not an administrator, and the grants are what somebody ticked on purpose.
+
+**Renewal keeps what was granted.** A deployment's token is renewed as what it was minted as, not as what its owner may do now. Taking somebody's operator role away does not quietly change what their running integrations reach — stopping one is what deleting the deployment is for.
+
+**Addresses are not access.** `ORCHESTRATOR_URL` and `OBSERVABILITY_URL` are in every runtime pod. Neither is a boundary: both APIs authorize the token they are presented, and anything on the cluster network could dial either address regardless.
+
+### Shared responsibility
+
+**Octo's side.** The token exists, is scoped to the grants above and nothing more, is renewable however long ago it expired, and is kept valid without your flow doing anything. It is mounted rather than passed in the pod's spec, and it is never written into a log line.
+
+**Your side.** What the flow does with it. `env.PLATFORM_TOKEN` is a string like any other once your definition has it, and a flow can put a string anywhere:
+
+- **Do not copy it into a message variable.** A traced deployment records variables, and [traces](/platform/traces) are readable by anyone signed in to this platform. A token in a variable is a token handed to everybody with an account.
+- **Do not send it anywhere but this installation.** It is a bearer credential: whoever holds it is your deployment, with its grants, until it expires.
+- **Do not log it**, including by logging a whole message that carries it.
+- **Treat the grants as the blast radius of your definition.** An integration with **Operates deployments** that can be made to act on attacker-chosen input can remove somebody else's deployment. Narrow what the flow will act on, not just what it can reach.
 
 Access is stored on the deployment and, like tracing, is carried through a rollout that does not mention it.
 

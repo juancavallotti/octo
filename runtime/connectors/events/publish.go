@@ -48,7 +48,7 @@ type publishSettings struct {
 type publish struct {
 	subject *expr.Program
 	value   *expr.Program // nil publishes the current body
-	env     map[string]any
+	env     expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

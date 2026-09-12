@@ -113,7 +113,7 @@ type Service struct {
 // in the consumer and one method wide; *iam.Client satisfies it.
 type identityMinter interface {
 	Configured() bool
-	MintMachine(ctx context.Context, callerToken, deployment, access string) (string, error)
+	MintMachine(ctx context.Context, callerToken, deployment string, access []string) (string, error)
 }
 
 // Option customizes a Service at construction.
@@ -172,7 +172,7 @@ func NewService(repo repository, integrations integrationStore, kube kubeClient,
 // Where there is no iam, a deployment has no identity and nothing asks it for
 // one. That is the whole of the empty case: never a fallback to a credential of
 // this service's own, and never one belonging to somebody who is not the caller.
-func (s *Service) identityFor(ctx context.Context, deploymentID, access string) (string, error) {
+func (s *Service) identityFor(ctx context.Context, deploymentID string, access []string) (string, error) {
 	if s.identities == nil || !s.identities.Configured() {
 		return "", nil
 	}

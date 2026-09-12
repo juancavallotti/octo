@@ -245,7 +245,7 @@ func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) 
 // the keyset only keeps a key published for one token lifetime past its
 // retirement.
 func (s *Service) MintMachine(
-	ctx context.Context, rawToken, deployment string, access Access,
+	ctx context.Context, rawToken, deployment string, access []Access,
 ) (Result, error) {
 	deployment = strings.TrimSpace(deployment)
 	if deployment == "" {
@@ -268,7 +268,8 @@ func (s *Service) MintMachine(
 		// The access is named and the caller's roles are not: they asked for this
 		// much and may not have it, which is a thing they can act on.
 		return Result{}, fmt.Errorf(
-			"%w: this account may not lend a deployment %s access", ErrForbidden, access)
+			"%w: this account may not lend a deployment %s access",
+			ErrForbidden, describe(access))
 	}
 
 	token, err := s.mintMachine(ctx, owner, deployment, access)
@@ -281,7 +282,7 @@ func (s *Service) MintMachine(
 // mintMachine stamps the token itself. Shared by the first mint and every
 // renewal, so the two cannot drift into describing the same pod differently.
 func (s *Service) mintMachine(
-	ctx context.Context, owner user.User, deployment string, access Access,
+	ctx context.Context, owner user.User, deployment string, access []Access,
 ) (signing.Token, error) {
 	roles, err := rolesFor(access)
 	if err != nil {

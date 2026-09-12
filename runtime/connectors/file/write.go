@@ -63,7 +63,7 @@ type writeProcessor struct {
 	content   *expr.Program
 	encoding  string
 	resultVar string
-	env       map[string]any
+	env       expr.Env
 }
 
 // newWrite builds a file-write processor, resolving the connector and compiling

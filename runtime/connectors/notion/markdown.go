@@ -51,7 +51,7 @@ type markdownSettings struct {
 type markdownProcessor struct {
 	source    *expr.Program
 	resultVar string
-	env       map[string]any
+	env       expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

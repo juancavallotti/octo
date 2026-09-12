@@ -71,7 +71,7 @@ type queryProcessor struct {
 	includeValues   bool
 	includeMetadata bool
 	resultVar       string
-	env             map[string]any
+	env             expr.Env
 }
 
 // newQuery builds a query processor, resolving its pinecone connector and

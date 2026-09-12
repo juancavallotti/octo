@@ -32,7 +32,7 @@ export interface DeploySubmit {
   expose?: "external";
   env?: Record<string, EnvBindingInput>;
   tracing?: boolean;
-  access?: DeploymentAccess;
+  access?: DeploymentAccess[];
   runner?: string;
 }
 
@@ -65,7 +65,7 @@ export default function DeployModal({
   const [tracing, setTracing] = useState(false);
   // Platform-access grants, both off by default: an integration that reads its own
   // installation is the exception, and the default should be the rule.
-  const [access, setAccess] = useState<DeploymentAccess>("basic");
+  const [access, setAccess] = useState<DeploymentAccess[]>([]);
   // Which image the pods run. Empty is the distroless default every integration
   // has always had; "agentic" is the privileged one, so it is opt-in like the
   // grants above and for a stronger reason.
@@ -122,7 +122,7 @@ export default function DeployModal({
       ...(networked && expose ? { expose: "external" } : {}),
       ...(Object.keys(env).length ? { env } : {}),
       ...(tracing ? { tracing: true } : {}),
-      ...(access !== "basic" ? { access } : {}),
+      ...(access.length > 0 ? { access } : {}),
       ...(runner ? { runner } : {}),
     });
   };

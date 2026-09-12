@@ -31,7 +31,7 @@ type mockBlock struct {
 	// def is the outcome for a message no case matched. Nil means there is none, and
 	// an unmatched message fails.
 	def *mockOutcome
-	env map[string]any
+	env expr.Env
 }
 
 // mockCase is a compiled case: the condition, and what to do when it holds.

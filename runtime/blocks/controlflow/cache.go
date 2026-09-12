@@ -48,7 +48,7 @@ type cacheScope struct {
 	body core.MessageProcessor
 	key  *expr.Program
 	ttl  time.Duration
-	env  map[string]any
+	env  expr.Env
 }
 
 // cacheScopeSettings configures the cache-scope composite.
@@ -197,7 +197,7 @@ type invalidateCacheSettings struct {
 // cache-scope with the same key recomputes.
 type invalidateCache struct {
 	key *expr.Program
-	env map[string]any
+	env expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

@@ -761,8 +761,8 @@ func TestInstallLendsTheAgentNothingOfItsOwn(t *testing.T) {
 	if _, err := h.svc.Install(context.Background(), ""); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if got := h.deployments.deployed[0].Access; got != "" {
-		t.Errorf("access = %q, want the narrowest", got)
+	if got := h.deployments.deployed[0].Access; len(got) != 0 {
+		t.Errorf("access = %v, want none", got)
 	}
 }
 

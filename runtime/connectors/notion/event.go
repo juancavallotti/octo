@@ -41,7 +41,7 @@ type eventSettings struct {
 type eventProcessor struct {
 	eventTypes map[string]struct{}
 	filter     *expr.Program
-	env        map[string]any
+	env        expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

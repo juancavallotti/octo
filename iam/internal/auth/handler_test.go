@@ -438,17 +438,21 @@ func TestRefreshResponseIsNotCacheable(t *testing.T) {
 /** postMachine asks for a token on behalf of whoever `bearer` speaks for. */
 func (h *harness) postMachine(t *testing.T, bearer, deployment string) *httptest.ResponseRecorder {
 	t.Helper()
-	return h.postMachineWith(t, bearer, deployment, "")
+	return h.postMachineWith(t, bearer, deployment)
 }
 
-/** postMachineWith is postMachine asking for a particular access. */
+/** postMachineWith is postMachine asking for particular access grants. */
 func (h *harness) postMachineWith(
-	t *testing.T, bearer, deployment string, access Access,
+	t *testing.T, bearer, deployment string, access ...Access,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 	body := `{"deployment":"` + deployment + `"`
-	if access != "" {
-		body += `,"access":"` + string(access) + `"`
+	if len(access) > 0 {
+		quoted := make([]string, 0, len(access))
+		for _, a := range access {
+			quoted = append(quoted, `"`+string(a)+`"`)
+		}
+		body += `,"access":[` + strings.Join(quoted, ",") + `]`
 	}
 	body += `}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/machine", strings.NewReader(body))
@@ -737,9 +741,9 @@ func TestAMachineTokenDefaultsToTheRuntimeRoleAlone(t *testing.T) {
 	}
 }
 
-// The two wider ones each add exactly one role, and neither drops the runtime
-// role: a deployment that can build is still a pod that owns a store.
-func TestAWiderAccessAddsOneRoleAndKeepsTheRuntimeOne(t *testing.T) {
+// Each grant adds exactly one role, and none of them drops the runtime role: a
+// deployment that can build is still a pod that owns a store.
+func TestEachGrantAddsOneRoleAndKeepsTheRuntimeOne(t *testing.T) {
 	for _, tt := range []struct {
 		access Access
 		want   user.Role
@@ -766,16 +770,40 @@ func TestAWiderAccessAddsOneRoleAndKeepsTheRuntimeOne(t *testing.T) {
 	}
 }
 
-// An access nobody defined is the caller's mistake and is refused, rather than
-// quietly becoming the narrowest one — which would hand back a token that does
-// less than the caller believes and fail somewhere else entirely.
-func TestAnUnknownAccessIsRefused(t *testing.T) {
+// The combination a ladder made unsayable: building other integrations and
+// operating deployments are different jobs, and one thing can do both.
+func TestADeploymentCanBeLentBothGrants(t *testing.T) {
 	h := newHarness(t)
 	owner := h.signIn(t, "provider|owner", "owner@example.com")
 
-	rec := h.postMachineWith(t, "Bearer "+owner.Token, "dep-1", "administrator")
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("POST /auth/machine = %d (%s), want 400", rec.Code, rec.Body.String())
+	rec := h.postMachineWith(t, "Bearer "+owner.Token, "dep-1", AccessDeveloper, AccessOperator)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	_, private := h.claimsOf(t, decodeToken(t, rec).Token)
+	for _, want := range []user.Role{user.RoleRuntime, user.RoleDeveloper, user.RoleOperator} {
+		if !contains(private.Roles, want) {
+			t.Errorf("roles = %v, missing %s", private.Roles, want)
+		}
+	}
+	if len(private.Roles) != 3 {
+		t.Errorf("roles = %v, want exactly those three", private.Roles)
+	}
+}
+
+// Asking for the same thing twice is a caller sending the same thing twice, and
+// means nothing. The token must not end up carrying it twice.
+func TestARepeatedGrantIsNotARepeatedRole(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|owner", "owner@example.com")
+
+	rec := h.postMachineWith(t, "Bearer "+owner.Token, "dep-1", AccessOperator, AccessOperator)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	_, private := h.claimsOf(t, decodeToken(t, rec).Token)
+	if len(private.Roles) != 2 {
+		t.Errorf("roles = %v, want runtime and operator once each", private.Roles)
 	}
 }
 

@@ -66,7 +66,7 @@ type embed struct {
 	model      string
 	dimensions int
 	resultVar  string
-	env        map[string]any
+	env        expr.Env
 }
 
 // newAIEmbed builds the block, resolving the embedding connector and compiling

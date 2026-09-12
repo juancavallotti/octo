@@ -62,7 +62,7 @@ type sendProcessor struct {
 	threadTS    *expr.Program
 	blocks      *expr.Program
 	failOnError bool
-	env         map[string]any
+	env         expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

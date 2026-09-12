@@ -79,7 +79,7 @@ type sseEvent struct {
 	event      string
 	data       *expr.Program
 	stream     *expr.Program
-	env        map[string]any
+	env        expr.Env
 	closeAfter bool
 	stopAfter  bool
 	ifClosed   string

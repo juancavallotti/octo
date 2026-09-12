@@ -56,20 +56,18 @@ type Settings struct {
 	// switch rather than an integration-wide one: you turn it on for the deployment
 	// you are investigating.
 	Tracing bool `json:"tracing,omitempty"`
-	// Access says how much of the platform this deployment's own token opens
-	// beyond the stores every pod owns — its key/value namespace, its objects, its
-	// agent memory.
+	// Access is what this deployment's own token opens beyond the stores every pod
+	// owns — its key/value namespace, its objects, its agent memory.
 	//
-	// Empty and "basic" are a deployment that serves, which is almost all of them.
-	// "developer" adds integrations, resources, snapshots and dev runs, for an
-	// integration that builds or tests others. "operator" adds deployments, for
-	// one that runs the installation.
+	// A set, and empty for almost every deployment. "developer" adds integrations,
+	// resources, snapshots and dev runs; "operator" adds deployments. They are
+	// independent because they are different jobs, and something that builds
+	// integrations and operates them is one thing that does both.
 	//
-	// It replaced two checkboxes that asked which addresses to inject. Addresses
-	// were never the boundary: both APIs authorize the token they are presented,
-	// so what a deployment may do is what its token carries and nothing else. Both
-	// addresses are in every pod now, and this is the grant.
-	Access string `json:"access,omitempty" enums:"basic,developer,operator"`
+	// This is the credential an integration with no person behind it has — one
+	// woken by a queue message or a webhook, where there is no caller's token to
+	// borrow — so it is the whole of what such a flow may do.
+	Access []string `json:"access,omitempty"`
 	// Runner selects the image this deployment's pods run. Empty and "standard"
 	// are the generic octo-runtime: distroless, one static binary, no shell and
 	// nothing writable, which is what almost every integration wants.

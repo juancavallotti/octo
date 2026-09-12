@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
 	"github.com/juancavallotti/octo/runtime/services"
 	"github.com/nats-io/nats.go"
 	"k8s.io/client-go/kubernetes"
@@ -44,18 +45,35 @@ const (
 	// Where the pod renews its own token, since a short-lived one outlives neither
 	// the pod nor the work it is doing. Absent, whatever was mounted stands until
 	// it expires.
-	envIAMURL   = "IAM_URL"
-	envNATSURL  = "NATS_URL"  // NATS broker URL backing the queues
-	envRedisURL = "REDIS_URL" // optional Redis backing the volatile KV tier
+	envIAMURL = "IAM_URL"
+	// The variable a flow reads to present this deployment's own identity. Not set
+	// in the pod's environment by anybody: it is served from the credential above,
+	// so that what an expression reads is the token that is valid now.
+	envPlatformToken = "PLATFORM_TOKEN"
+	envNATSURL       = "NATS_URL"  // NATS broker URL backing the queues
+	envRedisURL      = "REDIS_URL" // optional Redis backing the volatile KV tier
 )
 
 func init() {
 	services.Register(Module, New)
 }
 
-// podCredential builds this pod's orchestrator credential from the environment
-// and renews it once, so that what the pod presents is a token it obtained rather
-// than one written before it started.
+// podCredential builds this pod's platform credential from the environment and
+// renews it once, so that what the pod presents is a token it obtained rather
+// than one written before it started. start leaves a daemon behind to keep it
+// that way.
+//
+// It then publishes the credential as `env.PLATFORM_TOKEN`, which is how a flow
+// spends it. The variable is the whole interface: an integration triggered by a
+// queue message or a webhook has no person behind it and no token of anybody
+// else's to borrow, so this is the only credential it has — and because it is
+// read through the seam rather than copied at load, what an expression gets is
+// the current one rather than whatever was valid when the pod started.
+//
+// Registered only here. A runtime built without this provider has no such
+// variable and does the ordinary lookup, so the same definition loads in the
+// editor and runs under dolphin — and an operator running Octo elsewhere can set
+// PLATFORM_TOKEN themselves and have it mean what it says.
 func podCredential(ctx context.Context) *credential {
 	cred := newCredential(credentialConfig{
 		Seed:   os.Getenv(envOrchestrTokenFile),
@@ -63,6 +81,7 @@ func podCredential(ctx context.Context) *credential {
 		IAMURL: os.Getenv(envIAMURL),
 	})
 	cred.start(ctx)
+	expr.RegisterEnvValue(envPlatformToken, cred.get)
 	return cred
 }
 

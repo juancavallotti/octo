@@ -89,7 +89,7 @@ type readProcessor struct {
 	encoding    string
 	contentType string
 	resultVar   string
-	env         map[string]any
+	env         expr.Env
 }
 
 // newRead builds a file-read processor, resolving the connector and compiling the

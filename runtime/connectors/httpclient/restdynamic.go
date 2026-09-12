@@ -93,7 +93,7 @@ type dynamicProcessor struct {
 	pathPrefix   string
 	failOnError  bool
 	statusVar    string
-	env          map[string]any
+	env          expr.Env
 }
 
 // newRESTDynamic builds the processor, compiling every expression once so a bad

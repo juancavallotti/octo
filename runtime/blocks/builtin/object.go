@@ -108,7 +108,7 @@ type objectWrite struct {
 	key       *expr.Program
 	value     *expr.Program // nil stores the message body
 	namespace string
-	env       map[string]any
+	env       expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
@@ -203,7 +203,7 @@ type objectRead struct {
 	defaultProg *expr.Program // nil leaves a miss as null/unset
 	existsVar   string        // empty writes no presence variable
 	namespace   string
-	env         map[string]any
+	env         expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
@@ -310,7 +310,7 @@ type objectDeleteSettings struct {
 type objectDelete struct {
 	key       *expr.Program
 	namespace string
-	env       map[string]any
+	env       expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

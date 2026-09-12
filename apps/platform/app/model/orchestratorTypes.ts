@@ -186,48 +186,42 @@ export interface DeploymentInput {
   /** Run the pods with the runtime tracer on. Off by default; it costs throughput. */
   tracing?: boolean;
   /**
-   * How much of the platform this deployment's own token opens beyond the stores
-   * every pod owns. See {@link DEPLOYMENT_ACCESS}. Absent is "basic".
+   * What this deployment's own token opens beyond the stores every pod owns. See
+   * {@link DEPLOYMENT_ACCESS}. Absent or empty opens nothing more.
    */
-  access?: DeploymentAccess;
+  access?: DeploymentAccess[];
 }
 
 /**
- * How much of the platform a deployment's own token opens.
+ * One thing a deployment's own token opens beyond its own stores.
  *
  * A running integration presents a token of its own, and what it may do is what
- * that token carries. Every one of them reaches the stores its pod owns — its
- * key/value namespace, its objects, its agent memory — and this says what it
- * reaches besides.
+ * that token carries. For an integration woken by a queue message or a webhook
+ * there is nobody else's credential to borrow, so this is the whole of what it
+ * may reach.
  *
- * One choice rather than a set of switches. The three are ordered, each the one
- * before it plus more, so a set would only ever be spelled as its widest member.
+ * A set rather than a ladder: building integrations and operating deployments
+ * are different jobs, and something can do both, either, or neither.
  */
-export type DeploymentAccess = "basic" | "developer" | "operator";
+export type DeploymentAccess = "developer" | "operator";
 
-/** The three, in order, with what each one is for. */
+/** The grants, with what each one is for. */
 export const DEPLOYMENT_ACCESS: {
   value: DeploymentAccess;
   label: string;
   detail: string;
 }[] = [
   {
-    value: "basic",
-    label: "Serves only",
-    detail:
-      "Its own key-value store, objects and agent memory, and nothing of the installation's. Right for almost every integration.",
-  },
-  {
     value: "developer",
     label: "Builds integrations",
     detail:
-      "Additionally reads and writes integrations, their resources, versions and dev runs — across the whole installation, not just its own. For an integration that builds or tests others.",
+      "Reads and writes integrations, their resources, versions and dev runs — across the whole installation, not just its own. For an integration that builds or tests others.",
   },
   {
     value: "operator",
-    label: "Runs the installation",
+    label: "Operates deployments",
     detail:
-      "Additionally deploys, rolls out, scales and removes deployments — anyone else's included. For an integration that operates this platform.",
+      "Deploys, rolls out, scales and removes deployments — anyone else's included. For an integration that runs this platform.",
   },
 ];
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/juancavallotti/octo/runtime/core/expr"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -35,7 +36,7 @@ func TestEvalExpression(t *testing.T) {
 
 	t.Run("vars and env references", func(t *testing.T) {
 		msg := evalMessage(t, map[string]any{}, types.Variables{"tier": "gold"})
-		env := map[string]any{"REGION": "us"}
+		env := expr.EnvActivation(map[string]string{"REGION": "us"})
 		got := evalExpression(`vars.tier == "gold" && env.REGION == "us"`, msg, env)
 		if !got.OK || got.Result != true {
 			t.Errorf("evalExpression = %+v, want ok result true", got)

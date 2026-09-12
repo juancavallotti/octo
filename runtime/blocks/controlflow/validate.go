@@ -34,7 +34,7 @@ type validateBlock struct {
 	rules        []validateRule
 	onReject     core.MessageProcessor // nil uses the built-in default response
 	rejectStatus int
-	env          map[string]any
+	env          expr.Env
 }
 
 // Process evaluates every rule against the message, collecting the messages of

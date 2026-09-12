@@ -1,6 +1,6 @@
 "use client";
 
-import { ShieldCheck, Terminal } from "lucide-react";
+import { Boxes, ShieldCheck, Terminal } from "lucide-react";
 import {
   DEPLOYMENT_ACCESS,
   type DeploymentAccess,
@@ -10,14 +10,13 @@ import {
  * The settings almost no deployment needs, shared by the deploy and rollout
  * dialogs so the two cannot describe the same ones differently.
  *
- * Two settings, and they are not the same kind of claim. Access says what this
- * deployment's own token opens on the platform it runs on. The runner says what
- * its pods actually ARE.
+ * Two kinds live here. Access says what this deployment's own token opens on the
+ * platform it runs on; the runner says what its pods actually ARE.
  *
  * Both sit behind a disclosure because the defaults are right for almost
- * everything: an app that serves a webhook has no business reading the
- * installation it runs on, and needs no shell to do its job. Burying these is
- * how that stays the obvious default.
+ * everything: an app that serves a webhook has no business acting on the
+ * installation it runs on, and needs no shell to do its job. Burying these is how
+ * that stays the obvious default.
  */
 export default function AdvancedDeployFields({
   access,
@@ -26,14 +25,15 @@ export default function AdvancedDeployFields({
   onAccess,
   onRunner,
 }: {
-  access: DeploymentAccess;
+  access: DeploymentAccess[];
   /** "" or "standard" for the default runner; "agentic" for the heavier one. */
   runner: string;
   busy: boolean;
-  onAccess: (next: DeploymentAccess) => void;
+  onAccess: (next: DeploymentAccess[]) => void;
   onRunner: (next: string) => void;
 }) {
-  const chosen = DEPLOYMENT_ACCESS.find((a) => a.value === access);
+  const toggle = (grant: DeploymentAccess, on: boolean) =>
+    onAccess(on ? [...access, grant] : access.filter((a) => a !== grant));
 
   return (
     <details className="rounded-md border border-black/10 px-3 py-2 dark:border-white/10">
@@ -42,34 +42,35 @@ export default function AdvancedDeployFields({
       </summary>
 
       <div className="mt-3 space-y-3">
-        <div>
-          <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-            <ShieldCheck size={14} />
-            What this deployment may reach
-          </label>
-          <select
-            value={access}
-            disabled={busy}
-            aria-label="What this deployment may reach"
-            onChange={(e) => onAccess(e.target.value as DeploymentAccess)}
-            className="mt-2 w-full rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm disabled:opacity-50 dark:border-white/15"
-          >
-            {DEPLOYMENT_ACCESS.map(({ value, label }) => (
-              <option key={value} value={value}>
+        <p className="flex items-center gap-2 text-xs text-zinc-400">
+          <ShieldCheck size={14} className="shrink-0" />
+          What this deployment may reach on the platform itself. Leave both off
+          unless the integration is built to act on its own installation.
+        </p>
+
+        {DEPLOYMENT_ACCESS.map(({ value, label, detail }) => {
+          const on = access.includes(value);
+          return (
+            <div key={value}>
+              <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={busy}
+                  onChange={(e) => toggle(value, e.target.checked)}
+                  className="accent-sky-500"
+                />
+                <Boxes size={14} />
                 {label}
-              </option>
-            ))}
-          </select>
-          <p
-            className={`mt-2 text-xs ${
-              access === "basic"
-                ? "text-zinc-400"
-                : "text-amber-600 dark:text-amber-400"
-            }`}
-          >
-            {chosen?.detail}
-          </p>
-        </div>
+              </label>
+              {on && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  {detail}
+                </p>
+              )}
+            </div>
+          );
+        })}
 
         <div className="border-t border-black/10 pt-3 dark:border-white/10">
           <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">

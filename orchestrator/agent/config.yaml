@@ -348,11 +348,21 @@ flows:
         # tool call the run is holding in front of a person. The headers are the
         # whole signal: the expressions on the agent below are the only thing that
         # gives them meaning.
-        # X-Agent-Caller-Token is the credential of whoever is chatting, and it is
-        # what every tool below spends against the orchestrator API. Without it
-        # those calls carry no bearer and the API refuses them, which is the
-        # intended failure: this agent reaches what the person asking reaches, and
-        # never more.
+        # X-Agent-Caller-Token is the credential of whoever is chatting. Each flow
+        # resolves it into one variable — `authToken`, set in the transform that
+        # opens the flow — and every tool spends that variable without knowing
+        # where it came from. On this path it is the person asking, so the agent
+        # reaches what they reach and never more; on the alert-driven flow there
+        # is no person, and it resolves to this deployment's own identity instead.
+        #
+        # One variable and not an expression repeated at each tool: what a run
+        # acts as is one decision, and a decision spelled out in eight places is
+        # eight places to get it wrong.
+        #
+        # It is a variable, which means tracing records it. That is already true
+        # of the caller's token — a header reaches an expression by becoming one —
+        # and it is the reason `authToken` is a name worth recognising: redacting
+        # credentials at the trace sink starts by knowing what they are called.
         headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth, X-Agent-Caller-Token]
         # On an SSE route this bounds the wait for the FIRST frame only. An agent
         # takes a moment to produce its first token.
@@ -397,6 +407,13 @@ flows:
             # one of them at a time.
             - setVar: question
               value: 'has(body.message) ? body.message : ""'
+            # The credential every tool below spends, resolved once here so that
+            # no tool has to know where it came from. On this flow it is the
+            # person chatting: this agent reaches what they reach and never more.
+            - setVar: authToken
+              value: >-
+                "X-Agent-Caller-Token" in vars
+                  ? vars["X-Agent-Caller-Token"] : ""
 
       # The agent's input, stated rather than inherited. The email is dropped — it
       # identifies a real person to an external provider and nothing in the prompt
@@ -738,7 +755,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
-                  headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
+                  headers: '{"Authorization": "Bearer " + vars.authToken}'
                   method: '"GET"'
                   path: body.path
                   allowMethods: [GET]
@@ -906,7 +923,7 @@ flows:
                 settings:
                   connector: octo
                   headers:
-                    Authorization: '"X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""'
+                    Authorization: '"Bearer " + vars.authToken'
                   method: POST
                   path: /email/send
                   body: >-
@@ -1604,7 +1621,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
-                  headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
+                  headers: '{"Authorization": "Bearer " + vars.authToken}'
                   method: '"GET"'
                   path: body.path
                   allowMethods: [GET]
@@ -1843,7 +1860,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
-                  headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
+                  headers: '{"Authorization": "Bearer " + vars.authToken}'
                   method: body.method
                   path: body.path
                   query: 'has(body.query) ? body.query : {}'
@@ -1950,7 +1967,7 @@ flows:
                         path: body.path
                         allowMethods: [GET]
                         query: 'has(body.query) ? body.query : {}'
-                        headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
+                        headers: '{"Authorization": "Bearer " + vars.authToken}'
                         failOnError: false
                 else:
                   process:
@@ -2000,7 +2017,7 @@ flows:
                         allowMethods: [GET, POST, PUT, DELETE]
                         query: 'has(body.query) ? body.query : {}'
                         body: 'has(body.body) ? body.body : {}'
-                        headers: '{"Authorization": "X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""}'
+                        headers: '{"Authorization": "Bearer " + vars.authToken}'
                         failOnError: false
                 else:
                   process:
@@ -2189,6 +2206,14 @@ flows:
         name: alert-facts
         settings:
           transforms:
+            # The credential every tool spends, resolved once, exactly as the chat
+            # flow resolves it — and to a different thing, which is the whole
+            # point of resolving it in one place per flow. An alert wakes this
+            # run, so there is no person to act as and never will be: what it
+            # acts as is this deployment's own identity, which the runtime keeps
+            # valid. Empty where there is none, which the API refuses.
+            - setVar: authToken
+              value: 'has(env.PLATFORM_TOKEN) ? env.PLATFORM_TOKEN : ""'
             - setVar: reportTo
               value: 'has(body.reportTo) ? body.reportTo : []'
             - setVar: watchName
@@ -2564,7 +2589,7 @@ flows:
                 settings:
                   connector: octo
                   headers:
-                    Authorization: '"X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""'
+                    Authorization: '"Bearer " + vars.authToken'
                   method: POST
                   path: /email/send
                   body: >-
@@ -2760,7 +2785,7 @@ flows:
         settings:
           connector: octo
           headers:
-            Authorization: '"X-Agent-Caller-Token" in vars ? "Bearer " + vars["X-Agent-Caller-Token"] : ""'
+            Authorization: '"Bearer " + vars.authToken'
           method: POST
           path: /email/send
           body: 'body'

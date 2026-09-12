@@ -478,12 +478,16 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
-	// He is deployed with the narrowest access there is, which looks wrong for an
-	// agent that drives the whole API and is not. His tools spend the token of
-	// whoever is chatting, so what he may do is what that person may do — and his
-	// own token is only for what his pod owns: its conversation memory and its
-	// key/value store. Lending him more would be lending it to every question
-	// anybody asks him.
+	// He is deployed with no platform access of his own, which looks wrong for an
+	// agent that drives the whole API and is not. When somebody is chatting, his
+	// tools spend that person's token, so what he may do is what they may do.
+	//
+	// His own token is what an unattended run falls back to — an alert waking the
+	// troubleshooter, where there is no person to borrow from — and it opens only
+	// what his pod owns until an administrator grants more on the deployment.
+	// That is left to them rather than decided here: the grants say what a run
+	// nobody started may do to this installation, and defaulting them on would
+	// make that decision for every install at once.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
 		Replicas:   1,
 		SnapshotID: snap.ID,

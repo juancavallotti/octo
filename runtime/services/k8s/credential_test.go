@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -64,8 +65,11 @@ func TestCredentialReadsTheMountedFile(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
+	c := newCredential(credentialConfig{Seed: path})
+	c.start(t.Context())
+
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
-	newCredential(credentialConfig{Seed: path}).authorize(req)
+	c.authorize(req)
 
 	if got := req.Header.Get("Authorization"); got != "Bearer "+token {
 		t.Errorf("Authorization = %q, want the mounted token", got)
@@ -81,8 +85,11 @@ func TestTheMountedFileWinsOverTheVariable(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
+	c := newCredential(credentialConfig{Seed: path, Inline: "from-the-environment"})
+	c.start(t.Context())
+
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
-	newCredential(credentialConfig{Seed: path, Inline: "from-the-environment"}).authorize(req)
+	c.authorize(req)
 
 	if got := req.Header.Get("Authorization"); got != "Bearer "+mounted {
 		t.Errorf("Authorization = %q, want the mounted token", got)
@@ -90,8 +97,11 @@ func TestTheMountedFileWinsOverTheVariable(t *testing.T) {
 }
 
 func TestCredentialFallsBackToTheVariable(t *testing.T) {
+	c := newCredential(credentialConfig{Inline: "inline-token"})
+	c.start(t.Context())
+
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
-	newCredential(credentialConfig{Inline: "inline-token"}).authorize(req)
+	c.authorize(req)
 
 	if got := req.Header.Get("Authorization"); got != "Bearer inline-token" {
 		t.Errorf("Authorization = %q, want the inline token", got)
@@ -119,13 +129,15 @@ func TestCredentialRenewsATokenNearExpiry(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 	c := newCredential(credentialConfig{Seed: path, IAMURL: iam.URL})
+	c.start(t.Context())
 
-	if got := c.get(context.Background()); got != fresh {
+	if got := c.get(); got != fresh {
 		t.Errorf("get() = %q, want the renewed token", got)
 	}
-	// The renewed one has an hour on it, so a second call must not go back.
-	if got := c.get(context.Background()); got != fresh {
-		t.Errorf("get() = %q on the second call, want the renewed token", got)
+	// The renewed one has an hour on it, so reading it again asks nobody: reading
+	// is a field read, and keeping it valid is the daemon's job.
+	if got := c.get(); got != fresh {
+		t.Errorf("get() = %q on the second read, want the renewed token", got)
 	}
 	if calls != 1 {
 		t.Errorf("iam was asked %d times, want 1", calls)
@@ -150,7 +162,10 @@ func TestCredentialPrefersAReplacedFileOverRenewing(t *testing.T) {
 	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
 		t.Fatalf("replace token: %v", err)
 	}
-	if got := c.get(context.Background()); got != replaced {
+	// One pass of the daemon, driven rather than waited for.
+	c.refresh(t.Context())
+
+	if got := c.get(); got != replaced {
 		t.Errorf("get() = %q, want the replaced token", got)
 	}
 }
@@ -169,8 +184,9 @@ func TestCredentialKeepsTheOldTokenWhenRenewalFails(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 	c := newCredential(credentialConfig{Seed: path, IAMURL: iam.URL})
+	c.start(t.Context())
 
-	if got := c.get(context.Background()); got != held {
+	if got := c.get(); got != held {
 		t.Errorf("get() = %q, want the token we already had", got)
 	}
 }
@@ -199,8 +215,9 @@ func TestCredentialPicksUpAReplacedFileWhileItsTokenIsStillGood(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 	c := newCredential(credentialConfig{Seed: path})
+	c.start(t.Context())
 
-	if got := c.get(t.Context()); got != original {
+	if got := c.get(); got != original {
 		t.Fatalf("get() = %q, want the mounted token", got)
 	}
 
@@ -208,7 +225,9 @@ func TestCredentialPicksUpAReplacedFileWhileItsTokenIsStillGood(t *testing.T) {
 	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
 		t.Fatalf("replace token: %v", err)
 	}
-	if got := c.get(t.Context()); got != replaced {
+	c.refresh(t.Context())
+
+	if got := c.get(); got != replaced {
 		t.Errorf("get() = %q after the file was replaced, want the new token", got)
 	}
 }
@@ -230,14 +249,17 @@ func TestCredentialDoesNotUndoARenewalFromTheStaleFile(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 	c := newCredential(credentialConfig{Seed: path, IAMURL: iam.URL})
+	c.start(t.Context())
 
+	// Five more passes of the daemon, each of which re-reads the now-stale file.
 	for range 5 {
-		if got := c.get(t.Context()); got != fresh {
+		c.refresh(t.Context())
+		if got := c.get(); got != fresh {
 			t.Fatalf("get() = %q, want the renewed token", got)
 		}
 	}
 	if calls != 1 {
-		t.Errorf("iam was asked %d times across five calls, want 1", calls)
+		t.Errorf("iam was asked %d times across six passes, want 1", calls)
 	}
 }
 
@@ -281,7 +303,7 @@ func TestCredentialRenewsOnStart(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("iam was asked %d times at start, want 1", calls)
 	}
-	if got := c.get(context.Background()); got != fresh {
+	if got := c.get(); got != fresh {
 		t.Errorf("get() = %q, want the token renewed at start", got)
 	}
 }
@@ -292,4 +314,101 @@ func TestCredentialStartWithoutAnythingConfigured(t *testing.T) {
 	newCredential(credentialConfig{}).start(context.Background())
 	var absent *credential
 	absent.start(context.Background())
+}
+
+// The daemon is what makes reading the token cheap, so the scheduling has to be
+// right: a pod that sleeps all night must wake with a valid credential, and one
+// whose renewal failed must not spin.
+func TestTheDaemonSleepsUntilTheTokenIsDue(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		expiry   time.Duration
+		want     time.Duration
+		wantZero bool
+	}{
+		// Nothing to renew: look at the file now and then, in case a rollout
+		// mounts one.
+		{name: "no token", wantZero: true, want: seedPoll},
+		// Comfortably valid: the file poll comes first, so a replaced token is
+		// noticed long before this one would have needed renewing.
+		{name: "an hour left", expiry: time.Hour, want: seedPoll},
+		// Due inside the poll window: wake when it is actually due.
+		{name: "due soon", expiry: renewLead + 2*time.Minute, want: 2 * time.Minute},
+		// Already overdue — a failed renewal, or a token minted shorter than the
+		// lead. Try again shortly rather than as fast as the network allows.
+		{name: "already due", expiry: time.Minute, want: renewRetry},
+		{name: "expired", expiry: -time.Hour, want: renewRetry},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &credential{}
+			if !tc.wantZero {
+				c.set(mintToken(t, tc.expiry))
+			}
+			got := c.sleepFor()
+			// A minute of slack: the expiry is computed from time.Now twice.
+			if got < tc.want-time.Minute || got > tc.want+time.Minute {
+				t.Errorf("sleepFor() = %v, want about %v", got, tc.want)
+			}
+			if got < renewFloor && got != tc.want {
+				t.Errorf("sleepFor() = %v, below the floor %v", got, renewFloor)
+			}
+		})
+	}
+}
+
+// The whole reason this is a daemon and not a lazy refresh: an integration that
+// goes quiet and then wakes on a queue message has nobody to trigger a renewal
+// on its behalf, and must find a valid token rather than wait for one.
+func TestTheDaemonRenewsWithoutAnybodyAsking(t *testing.T) {
+	fresh := mintToken(t, time.Hour)
+	renewed := make(chan struct{}, 1)
+	iam := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": fresh})
+		select {
+		case renewed <- struct{}{}:
+		default:
+		}
+	}))
+	defer iam.Close()
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte(mintToken(t, time.Minute)), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+
+	c := newCredential(credentialConfig{Seed: path, IAMURL: iam.URL})
+	c.start(t.Context())
+
+	select {
+	case <-renewed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the token was never renewed")
+	}
+	if got := c.get(); got != fresh {
+		t.Errorf("get() = %q, want the renewed token", got)
+	}
+}
+
+// The daemon stops with the context it was started on, so a runtime shutting down
+// does not leave a goroutine renewing a credential nobody holds.
+func TestTheDaemonStopsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	before := runtime.NumGoroutine()
+
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte(mintToken(t, time.Hour)), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	c := newCredential(credentialConfig{Seed: path, IAMURL: "http://iam.invalid"})
+	c.start(ctx)
+	cancel()
+
+	// It is sleeping on a select that watches ctx, so it returns promptly.
+	for range 50 {
+		if runtime.NumGoroutine() <= before {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("the daemon outlived its context")
 }

@@ -67,7 +67,7 @@ type updateProcessor struct {
 	upsert    bool
 	many      bool
 	resultVar string
-	env       map[string]any
+	env       expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

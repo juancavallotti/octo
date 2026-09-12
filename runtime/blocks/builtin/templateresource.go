@@ -53,7 +53,7 @@ type templateResourceBlock struct {
 	rawBody     bool
 	contentType string
 	registry    *expr.TemplateRegistry
-	env         map[string]any
+	env         expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
