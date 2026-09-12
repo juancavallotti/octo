@@ -106,9 +106,12 @@ when a run starts and can be resized or collapsed.
 <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> runs whatever the view is about, which is the
 same rule the RUN button follows: the integration on the canvas, every suite on the
 Testing tab. It never *stops* a run — a key labelled run that halts things is a
-surprise — so <kbd>Cmd/Ctrl</kbd> + <kbd>.</kbd> is the one that means stop. Inside a
-CEL field, <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> belongs to the field and runs the
-expression.
+surprise — so <kbd>Cmd/Ctrl</kbd> + <kbd>.</kbd> is the one that means stop.
+
+It runs with the caret anywhere, including in a setting you were just editing, since
+that is where the caret usually is when you want to run. The CEL tab is the one
+exception: there <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> evaluates the expression, and
+only that.
 
 Undo covers everything that changes the document — blocks, settings, connections,
 environment variables and resources — and not the view or the selection, so one

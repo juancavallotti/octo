@@ -73,16 +73,25 @@ export function useRunShortcuts(): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      // A focused field owns these: the CEL tab runs its expression with Cmd+Enter,
-      // and Cmd+. in a text field is the platform's own.
-      if (isTypingTarget(e.target)) return;
 
       if (e.key === "Enter") {
+        // Deliberately NOT guarded on the focused element, unlike every other shortcut
+        // here and in the editor. Typing a URL into a block setting and pressing Run is
+        // the commonest thing there is, and a Run key that quietly does nothing because
+        // the caret is still in the field you just edited reads as a broken key, not as
+        // a focus rule — which is exactly how it was reported.
+        //
+        // No plain field wants Cmd+Enter, so there is nothing to take away. The one
+        // place that does want it is the CEL tab, which evaluates its expression with
+        // it and stops the event itself (CelTester.onKeyDown) rather than relying on a
+        // guard out here that cannot tell which fields care.
         e.preventDefault();
         act.current(e.shiftKey ? "run-flow" : "run");
         return;
       }
       if (e.key === ".") {
+        // Still guarded: Cmd+. in a text field is the platform's own cancel.
+        if (isTypingTarget(e.target)) return;
         e.preventDefault();
         act.current("stop");
       }

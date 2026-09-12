@@ -165,9 +165,9 @@ describe("useRunShortcuts", () => {
     expect(calls.stop).toBe(0);
   });
 
-  it("leaves Cmd+Enter alone while the user is typing", async () => {
-    // The CEL field runs its own expression with it, and a global handler that fired
-    // first would take that away.
+  it("still runs with the caret in a field, which is where it usually is", async () => {
+    // Editing a setting and pressing Run is the commonest thing there is. A Run key
+    // that does nothing because focus never left the field reads as a broken key.
     const user = userEvent.setup();
     const { transport, calls } = stub();
     renderHarness(transport);
@@ -175,7 +175,20 @@ describe("useRunShortcuts", () => {
 
     await user.click(screen.getByLabelText("a field"));
     await user.keyboard("{Meta>}{Enter}{/Meta}");
-    expect(calls.start).toBe(0);
+    await waitFor(() => expect(calls.start).toBe(1));
+  });
+
+  it("leaves Cmd+. alone while the user is typing, which is the platform's own", async () => {
+    const user = userEvent.setup();
+    const { transport, calls } = stub();
+    renderHarness(transport);
+    await ready(user);
+
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await waitFor(() => expect(calls.start).toBe(1));
+    await user.click(screen.getByLabelText("a field"));
+    await user.keyboard("{Meta>}.{/Meta}");
+    expect(calls.stop).toBe(0);
   });
 
   it("ignores a bare Enter", async () => {
