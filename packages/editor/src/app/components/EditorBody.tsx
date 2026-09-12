@@ -3,6 +3,7 @@
 import { useEditorState } from "../state/editorState";
 import { useLayout } from "../state/layout";
 import { useHistoryShortcuts } from "../keyboard/useHistoryShortcuts";
+import ComponentPalette from "./ComponentPalette";
 import DndProvider from "./DndProvider";
 import DocumentBar from "./DocumentBar";
 import Sidebar from "./Sidebar";
@@ -36,30 +37,41 @@ export default function EditorBody({ files }: { files?: React.ReactNode }) {
   // edited from the settings panel and the resources view too, not just the canvas.
   useHistoryShortcuts();
 
-  // No drawers here, so the bar spans the view — it is still directly above the
-  // thing it describes.
-  if (state.viewMode === "yaml")
+  const body = () => {
+    // No drawers here, so the bar spans the view — it is still directly above the
+    // thing it describes.
+    if (state.viewMode === "yaml")
+      return (
+        <div className="flex flex-1 min-h-0 flex-col">
+          <DocumentBar files={files} />
+          <YamlPreview />
+        </div>
+      );
+    if (state.viewMode === "resources") return <ResourcesView />;
+    if (state.viewMode === "testing") return <TestingView />;
+
     return (
-      <div className="flex flex-1 min-h-0 flex-col">
-        <DocumentBar files={files} />
-        <YamlPreview />
-      </div>
+      <DndProvider>
+        <div className="flex flex-1 min-h-0">
+          {/* Hidden, not collapsed to a rail: the header toggles say where they are
+              and bring them back, so a stub would only spend canvas. */}
+          {layout?.sidebar !== false && <Sidebar />}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <DocumentBar files={files} />
+            <Canvas />
+          </div>
+          {layout?.settings !== false && <SettingsPanel />}
+        </div>
+      </DndProvider>
     );
-  if (state.viewMode === "resources") return <ResourcesView />;
-  if (state.viewMode === "testing") return <TestingView />;
+  };
 
   return (
-    <DndProvider>
-      <div className="flex flex-1 min-h-0">
-        {/* Hidden, not collapsed to a rail: the header toggles say where they are
-            and bring them back, so a stub would only spend canvas. */}
-        {layout?.sidebar !== false && <Sidebar />}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <DocumentBar files={files} />
-          <Canvas />
-        </div>
-        {layout?.settings !== false && <SettingsPanel />}
-      </div>
-    </DndProvider>
+    <>
+      {body()}
+      {/* Outside the view switch: the palette adds to the document, and the YAML and
+          Testing views are looking at the same one. */}
+      <ComponentPalette />
+    </>
   );
 }
