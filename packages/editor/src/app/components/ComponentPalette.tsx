@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CommandPalette, paletteItemClasses } from "../../components/ui";
-import { owningFlowId } from "../model/document";
+import { findFlow, owningFlowId } from "../model/document";
 import { EditorActionType, useEditorState, type EditorState } from "../state/editorState";
 import { palette } from "./palette";
 import { rank, type RankedComponent } from "./paletteSearch";
@@ -16,20 +16,32 @@ import { rank, type RankedComponent } from "./paletteSearch";
  */
 
 /**
- * Which flow a new block lands in.
+ * Where a new block lands: which flow, and where in it.
  *
- * The selected block's own flow first, because a block selected inside a composite
+ * Directly AFTER the selected block, which is what selecting something and then adding
+ * means — you are building a chain from where you are, not appending to the bottom of
+ * whatever flow that block happens to be in. Appending was the obvious first
+ * implementation and the wrong one: with a block selected halfway down a flow it puts
+ * the new one somewhere you are not looking.
+ *
+ * The flow is the selected block's own, because a block selected inside a composite
  * means that composite's branch is where you are working — `activeFlowId` only ever
  * names a top-level flow (it is set by clicking a flow card), so using it alone would
- * drop the block outside the branch the user was looking at.
+ * drop the block outside the branch on screen.
  *
- * Null falls through to ADD_BLOCK's own "no flow yet, make one" path.
+ * With nothing selected there is no "after", so it appends to the active flow — and an
+ * undefined flow falls through to ADD_BLOCK's own "no flow yet, make one" path.
  */
-export function targetFlowId(state: EditorState): string | undefined {
-  const owner = state.selectedBlockId
-    ? owningFlowId(state.document, state.selectedBlockId)
-    : null;
-  return owner ?? state.activeFlowId ?? undefined;
+export function insertionPoint(state: EditorState): { flowId?: string; index?: number } {
+  const selected = state.selectedBlockId;
+  const flowId = selected ? owningFlowId(state.document, selected) : null;
+  if (selected && flowId) {
+    const at = findFlow(state.document, flowId)?.process.findIndex((b) => b.id === selected);
+    // -1 cannot happen — owningFlowId just found the block in this flow's own chain —
+    // but appending is the honest fallback if it ever did.
+    if (at !== undefined && at >= 0) return { flowId, index: at + 1 };
+  }
+  return { flowId: flowId ?? state.activeFlowId ?? undefined };
 }
 
 export default function ComponentPalette() {
@@ -61,9 +73,9 @@ export default function ComponentPalette() {
   const pick = (item: RankedComponent) => {
     dispatch({
       type: EditorActionType.ADD_BLOCK,
-      data: { blockType: item.id, flowId: targetFlowId(state) },
+      data: { blockType: item.id, ...insertionPoint(state) },
     });
-    // ADD_BLOCK selects what it added, so the next one lands after it — which is what
+    // ADD_BLOCK selects what it added, so the next one lands after THAT — which is what
     // makes it possible to build a chain without touching the mouse.
     setOpen(false);
   };

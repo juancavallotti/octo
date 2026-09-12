@@ -53,6 +53,21 @@ function Harness() {
       >
         seed-branch
       </button>
+      <button
+        onClick={() =>
+          dispatch({
+            type: EditorActionType.SELECT_BLOCK,
+            data: { blockId: flow?.process[0]?.id ?? null },
+          })
+        }
+      >
+        select-first
+      </button>
+      <button
+        onClick={() => dispatch({ type: EditorActionType.SELECT_BLOCK, data: { blockId: null } })}
+      >
+        deselect
+      </button>
       <p data-testid="top">{flow ? flow.process.map((b) => b.type).join(",") : ""}</p>
       <p data-testid="branch">{sub ? sub.process.map((b) => b.type).join(",") : "no-branch"}</p>
     </div>
@@ -119,11 +134,40 @@ describe("ComponentPalette", () => {
     expect(screen.getByText("No components match.")).toBeInTheDocument();
   });
 
-  it("appends after the selected block", async () => {
+  it("chains each new block after the last, without touching the mouse", async () => {
     const user = userEvent.setup();
     renderHarness();
     await open(user);
     await user.keyboard("log{Enter}");
+    await open(user);
+    await user.keyboard("rest{Enter}");
+    expect(top()).toBe("log,rest");
+  });
+
+  it("inserts directly after the selected block, not at the end", async () => {
+    const user = userEvent.setup();
+    renderHarness();
+    // Build log,rest — then go back and select the FIRST one.
+    await open(user);
+    await user.keyboard("log{Enter}");
+    await open(user);
+    await user.keyboard("rest{Enter}");
+    await user.click(screen.getByText("select-first"));
+
+    await open(user);
+    await user.keyboard("switch{Enter}");
+
+    // Between them. Appending would put it somewhere the user is not looking.
+    expect(top()).toBe("log,switch,rest");
+  });
+
+  it("appends when nothing is selected, since there is no after", async () => {
+    const user = userEvent.setup();
+    renderHarness();
+    await open(user);
+    await user.keyboard("log{Enter}");
+    await user.click(screen.getByText("deselect"));
+
     await open(user);
     await user.keyboard("rest{Enter}");
     expect(top()).toBe("log,rest");
