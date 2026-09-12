@@ -42,7 +42,28 @@ beforeEach(() => {
         { name: "body", type: "flow" },
       ]),
     ],
-    connectors: [],
+    connectors: [
+      {
+        type: "cron",
+        label: "Cron",
+        category: "trigger",
+        icon: "clock",
+        description: "",
+        fields: [],
+        sources: [
+          {
+            type: "cron",
+            label: "Cron schedule",
+            icon: "clock",
+            description: "",
+            fields: [
+              { name: "schedule", type: "string", label: "Schedule", required: true },
+              { name: "payload", type: "cel", label: "Payload", required: false },
+            ],
+          },
+        ],
+      },
+    ],
   });
 });
 
@@ -338,5 +359,47 @@ describe("bodies the flow states outright", () => {
     expect((members(["vars", "copy"]) ?? []).map((e) => e.name)).toEqual(
       expect.arrayContaining(["email", "id"]),
     );
+  });
+});
+
+describe("the body a source says it will send", () => {
+  const cronFlow = (payload?: string): FlowDoc => ({
+    ...flow([block("log")]),
+    source: {
+      connector: "cron",
+      type: "cron",
+      settings: { schedule: "@every 30s", ...(payload ? { payload } : {}) },
+    },
+  });
+
+  it("completes from the source's payload expression, with nothing ever run", () => {
+    // The whole answer is in the document: the payload is the message this source
+    // synthesizes, written out by the user as CEL.
+    const f = cronFlow('{"time": string(now), "kind": "tick"}');
+    const index = buildIndex({ doc: doc([f]) });
+    const members = membersFor(
+      scopeAt(index, { kind: "block", blockId: f.process[0].id }),
+    );
+    expect((members(["body"]) ?? []).map((e) => e.name)).toEqual(
+      expect.arrayContaining(["kind", "time"]),
+    );
+  });
+
+  it("knows nothing when the source declares no payload", () => {
+    const f = cronFlow();
+    const index = buildIndex({ doc: doc([f]) });
+    const members = membersFor(scopeAt(index, { kind: "block", blockId: f.process[0].id }));
+    expect(members(["body"])).toBeUndefined();
+  });
+
+  it("lets a saved test input win over what the source would send", () => {
+    // An input says what this flow was actually called with; the payload only says
+    // what would happen if the source fired.
+    const f = cronFlow('{"time": string(now)}');
+    const evidence = emptyEvidence();
+    evidence.root.set("orders", fromTestInputs([{ id: "i", name: "one", data: '{"orderId":"a"}' }]));
+    const index = buildIndex({ doc: doc([f]), evidence });
+    const members = membersFor(scopeAt(index, { kind: "block", blockId: f.process[0].id }));
+    expect((members(["body"]) ?? []).map((e) => e.name)).toContain("orderId");
   });
 });

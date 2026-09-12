@@ -1,4 +1,6 @@
 import type { EditorDocument, FlowDoc } from "../model/document";
+import { getSourceSpec } from "../schema";
+import { shapeOfExpression } from "./cel";
 import type { MessageShape } from "./evidence";
 import { DYN, field, merge, objectOf } from "./shape";
 import type { Field, Scope, ValueShape } from "./types";
@@ -32,6 +34,26 @@ function envShape(doc: EditorDocument): ValueShape {
   }
   // Still open: an env file the editor cannot read may carry more.
   return objectOf(fields);
+}
+
+/**
+ * The body a source is configured to produce, when it says so in the document.
+ *
+ * A source whose schema gives it a `payload` CEL field — cron's, today — states the
+ * message it synthesizes right there in its settings, usually as a map literal. That
+ * is the same thing a `set-payload` states, and it is read the same way: this is the
+ * user's own expression, not a mirror of what the runtime does.
+ *
+ * It is why a cron flow can complete `body.time` before anything has ever been run.
+ */
+function sourceBody(flow: FlowDoc | null): ValueShape | undefined {
+  const source = flow?.source;
+  if (!source?.connector || !source.type) return undefined;
+  const spec = getSourceSpec(source.connector, source.type);
+  const field = spec?.fields.find((f) => f.type === "cel" && f.name === "payload");
+  if (!field) return undefined;
+  const expression = source.settings[field.name];
+  return typeof expression === "string" ? shapeOfExpression(expression) : undefined;
 }
 
 /** The variables an HTTP source is configured to set on every message it produces. */
@@ -74,7 +96,10 @@ export function rootScope(
 
   const declared = sourceVars(flow);
   let varsShape: ValueShape = objectOf(declared);
-  const bodyShape: ValueShape = known?.body ?? { kind: "unknown" };
+  // Evidence about the body wins over the source's declaration: a saved input or a
+  // traced run says what this flow was actually called with, while the payload says
+  // what the source would synthesize if it fired.
+  const bodyShape: ValueShape = known?.body ?? sourceBody(flow) ?? { kind: "unknown" };
   if (known?.vars) varsShape = merge(varsShape, known.vars);
 
   if (bodyShape.kind !== "unknown") {
