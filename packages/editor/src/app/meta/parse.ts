@@ -3,8 +3,11 @@ import {
   type BlockMock,
   type EditorMeta,
   type FileMeta,
+  type EncodedShape,
   type FlowMeta,
   type MockCase,
+  type ObservedEntry,
+  type ObservedMessage,
   type TestInput,
 } from "./types";
 
@@ -18,8 +21,12 @@ import {
  * editor down with it. The cost of being wrong here is a lost test input; the cost of
  * throwing is a blank screen.
  *
- * Unknown keys are preserved through a round-trip where they can be (a newer editor's
- * `mocks`, say), so an older editor does not silently strip what it doesn't understand.
+ * Unknown keys are NOT preserved through a round-trip: parseFlowMeta returns only the
+ * fields it knows, and serialize re-emits what it parsed. An older editor opening a
+ * project therefore drops a newer one's additions. That is tolerable for what this
+ * file holds — `observed` is a cache that regenerates, and the rest is scratch — but
+ * it is the constraint to check against before putting anything here that a user
+ * could not reproduce.
  */
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -92,6 +99,61 @@ function parseSpies(raw: unknown): string[] | undefined {
   return spies.length > 0 ? spies : undefined;
 }
 
+/** How deep a stored shape is read, matching the cap the producer writes under. */
+const MAX_SHAPE_DEPTH = 5;
+
+/**
+ * Read a stored shape, degrading rather than throwing.
+ *
+ * The depth cap is enforced on READ as well as on write: this file is hand-editable,
+ * and a shape nested a thousand deep would otherwise recurse until the stack gave
+ * out — in the parser, where every consumer of the file would meet it.
+ */
+function parseShape(raw: unknown, depth = 0): EncodedShape | undefined {
+  if (!isRecord(raw) || depth >= MAX_SHAPE_DEPTH) return undefined;
+  const t = raw.t;
+  if (typeof t !== "string") return undefined;
+  if (!["string", "number", "bool", "null", "list", "object", "dyn"].includes(t)) {
+    // A tag from a newer editor: it exists, and we do not know its shape.
+    return { t: "dyn" };
+  }
+  if (t === "list") {
+    const of = parseShape(raw.of, depth + 1);
+    return of ? { t: "list", of } : { t: "list" };
+  }
+  if (t === "object") {
+    const f: Record<string, EncodedShape> = {};
+    for (const [key, value] of Object.entries(isRecord(raw.f) ? raw.f : {})) {
+      const shape = parseShape(value, depth + 1);
+      if (shape) f[key] = shape;
+    }
+    return { t: "object", f };
+  }
+  return { t: t as EncodedShape["t"] };
+}
+
+function parseObservedMessage(raw: unknown): ObservedMessage | undefined {
+  if (!isRecord(raw)) return undefined;
+  const body = parseShape(raw.body);
+  const vars = parseShape(raw.vars);
+  return body || vars ? { ...(body ? { body } : {}), ...(vars ? { vars } : {}) } : undefined;
+}
+
+/** Observed shapes by block address, keeping only the entries that say something. */
+function parseObserved(raw: unknown): Record<string, ObservedEntry> | undefined {
+  if (!isRecord(raw)) return undefined;
+  const out: Record<string, ObservedEntry> = {};
+  for (const [address, value] of Object.entries(raw)) {
+    if (!isRecord(value)) continue;
+    const received = parseObservedMessage(value.in);
+    const produced = parseObservedMessage(value.out);
+    if (received || produced) {
+      out[address] = { ...(received ? { in: received } : {}), ...(produced ? { out: produced } : {}) };
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parseFlowMeta(raw: unknown): FlowMeta {
   if (!isRecord(raw)) return { inputs: [] };
   const inputs = Array.isArray(raw.inputs)
@@ -99,10 +161,12 @@ function parseFlowMeta(raw: unknown): FlowMeta {
     : [];
   const mocks = parseMocks(raw.mocks);
   const spies = parseSpies(raw.spies);
+  const observed = parseObserved(raw.observed);
   return {
     inputs,
     ...(mocks ? { mocks } : {}),
     ...(spies ? { spies } : {}),
+    ...(observed ? { observed } : {}),
   };
 }
 

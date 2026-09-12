@@ -16,7 +16,9 @@ export type Origin =
   /** A block upstream is configured to set it. */
   | "inferred"
   /** It was present in a saved test input. */
-  | "sample";
+  | "sample"
+  /** A traced run actually saw it. Evidence of what happened, not of what must. */
+  | "observed";
 
 export type ValueShape =
   /** No belief at all. Offers nothing. */

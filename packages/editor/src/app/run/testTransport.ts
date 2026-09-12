@@ -94,6 +94,32 @@ export interface TestRunRequest {
   suites: TestSuiteInput[];
   /** Extra environment for every case, over what the suites declare. */
   env?: Record<string, string>;
+  /**
+   * Trace the cases and report the message shapes they saw.
+   *
+   * The editor asks for this on every suite run it makes: the cases already say how to
+   * exercise the flow and their mocks mean nothing real is called, so a run the user
+   * wanted anyway is the cheapest true answer to "what do these messages look like".
+   */
+  learnShapes?: boolean;
+}
+
+/**
+ * A message shape a traced run saw: keys and type tags, never a value.
+ *
+ * Mirrors the wire format @octo/run-host produces (its exec/shapes.ts), which is where
+ * the traces are reduced — on the server, before the run's real bodies are discarded.
+ */
+export interface ObservedShape {
+  t: "string" | "number" | "bool" | "null" | "list" | "object" | "dyn";
+  of?: ObservedShape;
+  f?: Record<string, ObservedShape>;
+}
+
+/** What one block was seen receiving and producing. */
+export interface ObservedAtAddress {
+  in?: { body?: ObservedShape; vars?: ObservedShape };
+  out?: { body?: ObservedShape; vars?: ObservedShape };
 }
 
 /** The outcome of running one or more suites. */
@@ -114,6 +140,8 @@ export interface TestRunOutcome {
   logs: string[];
   /** Why the run could not be made at all, or its report not read. */
   error?: string;
+  /** Message shapes the run saw, by block address — only when they were asked for. */
+  shapes?: Record<string, ObservedAtAddress>;
 }
 
 /** An empty tally — what a run that produced no report reports. */

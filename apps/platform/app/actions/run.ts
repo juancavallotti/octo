@@ -229,6 +229,9 @@ export async function runTest(
         suites: req.suites,
         env: req.env,
         resources: resourcesFor(req.integrationId),
+        // The shapes come back reduced to keys and type tags — the traces they are
+        // read from never leave the run host, which is where the real bodies are.
+        learnShapes: req.learnShapes === true,
       });
       return {
         ok: true,
@@ -239,6 +242,7 @@ export async function runTest(
           suites: r.suites,
           logs: r.logs,
           ...(r.error !== undefined ? { error: r.error } : {}),
+          ...(r.shapes ? { shapes: r.shapes } : {}),
         },
       };
     } catch (err) {

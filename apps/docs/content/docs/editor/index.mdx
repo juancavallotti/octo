@@ -96,9 +96,24 @@ reads what you have already written down about them:
   they stand blocks in with, and the messages a spy expectation names.
 
 All of that is authored rather than captured, so it costs no run and it is committed
-beside the flows — a fresh checkout has it. The editor never suggests a name it
-cannot justify from one of these: an empty menu means it does not know, which is
-more useful than a guess.
+beside the flows — a fresh checkout has it.
+
+**Running your tests teaches it the rest.** Every suite run from the Testing tab is
+traced, and the message entering and leaving each block is recorded as a *shape* —
+its field names and their types. That is how `body.` learns what a REST call or an
+LLM actually answers, which nothing in the document could have said. The suite's own
+mocks mean nothing real is called, so this costs one test run you were going to make
+anyway.
+
+Only names and types are kept, never a value: the shapes are reduced on the server
+and the trace they came from is discarded there. Keys that look like data rather than
+field names — an object keyed by email address or id — collapse to "a map", because
+that is the one place where keeping "only the keys" would still keep the data. What
+is stored lands in `.octo/editor-meta.json`; the eraser beside a suite forgets it, and
+running the tests again learns it back.
+
+The editor never suggests a name it cannot justify from one of these sources: an
+empty menu means it does not know, which is more useful than a guess.
 
 ### Console
 

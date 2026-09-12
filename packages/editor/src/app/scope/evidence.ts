@@ -1,8 +1,8 @@
-import type { BlockMock, TestInput } from "../meta/types";
+import type { BlockMock, EncodedShape, ObservedEntry, ObservedMessage, TestInput } from "../meta/types";
 import type { MockSpec } from "../run/transport";
 import type { MessageExpect, Suite } from "../suite/types";
 import { merge, shapeOfJson } from "./shape";
-import type { Origin, ValueShape } from "./types";
+import type { Field, Origin, ValueShape } from "./types";
 
 /**
  * What the workspace already says about the messages flowing through it.
@@ -176,5 +176,55 @@ export function fromSuite(suite: Suite, evidence: Evidence): void {
         if (produced) addAt(evidence, address, "out", produced);
       }
     }
+  }
+}
+
+/** Decode a stored shape into the model's. An unknown tag means "exists, unknowable". */
+function decode(shape: EncodedShape | undefined, note: string): ValueShape | undefined {
+  if (!shape) return undefined;
+  switch (shape.t) {
+    case "list":
+      return { kind: "list", of: decode(shape.of, note) ?? { kind: "unknown" } };
+    case "object": {
+      const fields: Record<string, Field> = {};
+      for (const [name, value] of Object.entries(shape.f ?? {})) {
+        const inner = decode(value, note);
+        if (inner) fields[name] = { shape: inner, origin: "observed", note, certain: true };
+      }
+      return { kind: "object", fields, open: true };
+    }
+    case "bool":
+      return { kind: "bool" };
+    case "dyn":
+      return { kind: "dyn" };
+    default:
+      return { kind: shape.t };
+  }
+}
+
+function decodeMessage(message: ObservedMessage | undefined, note: string): MessageShape | undefined {
+  if (!message) return undefined;
+  const body = decode(message.body, note);
+  const vars = decode(message.vars, note);
+  return body || vars ? { body, vars } : undefined;
+}
+
+/**
+ * Shapes a traced test run actually saw.
+ *
+ * The strongest evidence of the lot, and the only kind that can describe a body no
+ * amount of reading the document would reveal — what an LLM answered, what a REST
+ * call returned. It is a cache: it says what happened on some run, not what must
+ * happen, which is why it carries its own provenance into the menu.
+ */
+export function fromObserved(
+  observed: Record<string, ObservedEntry> | undefined,
+  evidence: Evidence,
+): void {
+  for (const [address, entry] of Object.entries(observed ?? {})) {
+    const received = decodeMessage(entry.in, "seen at this block on a test run");
+    if (received) addAt(evidence, address, "in", received);
+    const produced = decodeMessage(entry.out, "seen leaving this block on a test run");
+    if (produced) addAt(evidence, address, "out", produced);
   }
 }

@@ -9,6 +9,7 @@ import { parseSuite } from "../suite/parse";
 import {
   emptyEvidence,
   fromBlockMocks,
+  fromObserved,
   fromSuite,
   fromTestInputs,
   mergeMessages,
@@ -55,6 +56,9 @@ export function ScopeIndexProvider({ children }: { children: ReactNode }) {
       if (suite) fromSuite(parseSuite(suite).suite, gathered);
     }
     fromBlockMocks(meta?.enabledMocks() ?? [], gathered);
+    // Last, because it is the strongest: a traced run saw what actually happened,
+    // which no amount of reading the document could have told us.
+    fromObserved(meta?.observed(), gathered);
     return gathered;
   }, [doc, meta, suites]);
 

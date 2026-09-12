@@ -104,7 +104,7 @@ export function mergeFields(a: Field, b: Field): Field {
   };
 }
 
-const STRENGTH: Record<Origin, number> = { declared: 3, inferred: 2, sample: 1 };
+const STRENGTH: Record<Origin, number> = { declared: 4, observed: 3, inferred: 2, sample: 1 };
 
 function weaker(a: Origin, b: Origin): Origin {
   return STRENGTH[a] <= STRENGTH[b] ? a : b;

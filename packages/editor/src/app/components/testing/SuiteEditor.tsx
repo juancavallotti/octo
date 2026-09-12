@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Eraser, Trash2 } from "lucide-react";
+import { useEditorMeta } from "../../providers/EditorMetaProvider";
+import { flowOfAddress } from "../../meta/observed";
+import { useEditorState } from "../../state/editorState";
 import { useRun } from "../../run/RunContext";
 import { useSuiteRun } from "../../run/SuiteRunContext";
 import { parseSuite } from "../../suite/parse";
@@ -46,6 +49,17 @@ export default function SuiteEditor({
 }) {
   const run = useRun();
   const suiteRun = useSuiteRun();
+  const meta = useEditorMeta();
+  const { state } = useEditorState();
+  // Running a suite records the message shapes it saw, which is what makes CEL
+  // completion know what a REST call actually returns. Offering to forget them is
+  // the counterpart: they describe what happened on some run, and a flow that has
+  // changed since should not keep completing to what it used to answer.
+  const flowId = state.document.flows.find((f) => f.name === flow)?.id ?? null;
+  const learned = Object.keys(meta?.observed() ?? {}).some(
+    (address) => flowOfAddress(address) === flow,
+  );
+  const forget = () => flowId && meta?.forgetObserved(flowId);
   const [wanted, setWanted] = useState<SuiteViewMode>("form");
 
   const { suite, issues } = useMemo(() => parseSuite(content), [content]);
@@ -90,6 +104,17 @@ export default function SuiteEditor({
         }
         onRun={() => void suiteRun?.run([{ name: flow, content }])}
       >
+        {learned && (
+          <button
+            type="button"
+            aria-label={`Forget shapes learned for ${flow}`}
+            title={`Forget the message shapes learned from running these tests. They are only used to complete CEL expressions, and running the tests again learns them back.`}
+            onClick={forget}
+            className="shrink-0 rounded p-1 text-zinc-400 hover:bg-black/5 hover:text-zinc-700 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+          >
+            <Eraser size={13} />
+          </button>
+        )}
         <button
           type="button"
           aria-label={`Delete tests for ${flow}`}

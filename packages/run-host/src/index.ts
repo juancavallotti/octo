@@ -71,6 +71,7 @@ export {
   type TestFailure,
   type TestTotals,
 } from "./exec/test";
+export type { ObservedShapes, MessageShapes, Shape } from "./exec/shapes";
 export {
   deriveNamespace,
   ensureNamespace,
