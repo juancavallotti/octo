@@ -40,11 +40,6 @@ image:
 # Traefik routes to them by name, so no NodePorts here.
 platform:
   repository: octo-platform
-  extraEnv:
-    # Auth.js callback/cookie origin. SSO is off locally, but the editor still
-    # reads this to build absolute URLs, and it must match the ingress host.
-    - name: AUTH_URL
-      value: https://local.octopaas.dev:8443
 
 orchestrator:
   repository: octo-orchestrator
@@ -186,3 +181,15 @@ postgres:
     hostPath: ""
     storageClassName: ""
     size: 5Gi
+
+# The origin the editor is reached at, and the one thing here that must match a
+# redirect URI registered with the identity provider — scheme and port included.
+#
+# It belongs here rather than in platform.extraEnv, and that is not tidiness.
+# extraEnv is appended after the chart's own variables and Kubernetes keeps the
+# last duplicate, so an AUTH_URL there silently replaced the chart's without
+# saying so — and only that copy moved. MCP_RESOURCE_URL and the audiences iam
+# accepts are built from auth.url, so the override left them naming an origin
+# nothing answers on.
+auth:
+  url: "https://local.octopaas.dev:8443"

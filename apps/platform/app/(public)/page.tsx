@@ -38,7 +38,7 @@ export default async function WelcomePage({
   searchParams: Promise<{ callbackUrl?: string }>;
 }) {
   const { callbackUrl } = await searchParams;
-  const target = callbackUrl || "/platform";
+  const target = withinThisSite(callbackUrl) ? callbackUrl : "/platform";
   const missing = missingAuthConfig();
 
   if (missing.length === 0) {
@@ -109,5 +109,24 @@ export default async function WelcomePage({
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Whether a callbackUrl names somewhere on this site.
+ *
+ * This value arrives in the query string, and a signed-in visitor is redirected
+ * straight to it — so without this, a link to `/?callbackUrl=https://elsewhere`
+ * is a redirect off this site wearing this site's address, which is the shape
+ * every credential-phishing link wants. The sign-in path is checked by Auth.js;
+ * this one had nothing checking it.
+ *
+ * A single leading slash and no second one: `//evil.example` is a URL to another
+ * host, not a path, and a backslash is treated as a slash by enough browsers to
+ * be worth refusing too.
+ */
+function withinThisSite(url: string | undefined): url is string {
+  return (
+    !!url && url.startsWith("/") && !url.startsWith("//") && !url.startsWith("/\\")
   );
 }

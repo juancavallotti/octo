@@ -113,5 +113,10 @@ export function missingAuthConfig(): string[] {
     // Not an OIDC_* var, but required on the same terms: it keys the session
     // cookie.
     "AUTH_SECRET",
+    // Nor is this one, and it is the one whose absence is hardest to read. The
+    // provider round trip succeeds, iam is then asked to trade the id token for
+    // a platform token, there is no address to ask — and the sign-in ends back
+    // at this page with no session and nothing on screen to say why.
+    "IAM_URL",
   ].filter((name) => !env(name));
 }

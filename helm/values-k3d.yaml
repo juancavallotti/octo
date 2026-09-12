@@ -23,11 +23,6 @@ platform:
     type: NodePort
     nodePorts:
       http: 30030
-  extraEnv:
-    # Auth.js callback/cookie origin. SSO is off locally, but the editor still
-    # reads this to build absolute URLs.
-    - name: AUTH_URL
-      value: http://localhost:3000
 
 orchestrator:
   repository: octo-orchestrator
@@ -137,9 +132,9 @@ ingress:
 #   --set auth.oidc.clientId=...
 #
 # These two profiles publish the editor on a NodePort rather than an Ingress, so
-# there is no hostname for the chart to derive the callback origin from: name it
-# with auth.url (e.g. --set auth.url=http://localhost:30080), and register that
-# same origin's /api/auth/callback/oidc with the provider.
+# there is no hostname for the chart to derive the callback origin from. This
+# profile names it below as auth.url, matching the NodePort it publishes; register
+# that same origin's /api/auth/callback/oidc with the provider.
 
 kv:
   # Fixed, deliberately non-secret development key so KV secret namespaces work
@@ -163,3 +158,15 @@ postgres:
     # `task cluster:db:reset` is what wipes it.
     hostPath: /var/lib/octo-data
     size: 5Gi
+
+# The origin the editor is reached at, and the one thing here that must match a
+# redirect URI registered with the identity provider — scheme and port included.
+#
+# It belongs here rather than in platform.extraEnv, and that is not tidiness.
+# extraEnv is appended after the chart's own variables and Kubernetes keeps the
+# last duplicate, so an AUTH_URL there silently replaced the chart's without
+# saying so — and only that copy moved. MCP_RESOURCE_URL and the audiences iam
+# accepts are built from auth.url, so the override left them naming an origin
+# nothing answers on.
+auth:
+  url: "http://localhost:30030"
