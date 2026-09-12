@@ -64,9 +64,18 @@ export function rank(items: PaletteComponent[], query: string): RankedComponent[
   for (const item of items) {
     // The id is searchable but not highlighted: people who know the runtime type
     // ("ai-agent") should be able to type it even when the label reads differently.
-    const matched = subsequence(item.label, trimmed) ?? (subsequence(item.id, trimmed) ? [] : null);
-    if (matched === null) continue;
-    hits.push({ item: { ...item, matched }, score: score(item.label, item.id, matched.length ? matched : [0], trimmed) });
+    // Both are scored — against their own text, with their own match positions — and
+    // the better one wins. Scoring an id match against the LABEL's characters, which
+    // is what a shared [0] amounts to, gives every id-only match the same number and
+    // leaves the order to fall back on the alphabet.
+    const onLabel = subsequence(item.label, trimmed);
+    const onId = subsequence(item.id, trimmed);
+    if (!onLabel && !onId) continue;
+    const byLabel = onLabel ? score(item.label, item.id, onLabel, trimmed) : Infinity;
+    const byId = onId ? score(item.id, item.id, onId, trimmed) : Infinity;
+    // Highlights belong to the label, so they are kept only when the label is what won.
+    const matched = byLabel <= byId ? (onLabel ?? []) : [];
+    hits.push({ item: { ...item, matched }, score: Math.min(byLabel, byId) });
   }
   return hits.sort((a, b) => a.score - b.score || a.item.label.localeCompare(b.item.label)).map((h) => h.item);
 }

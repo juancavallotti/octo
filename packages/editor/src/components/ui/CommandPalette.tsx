@@ -48,11 +48,21 @@ export default function CommandPalette<T>({
 }: CommandPaletteProps<T>) {
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  /** Whatever had focus when the palette opened, so closing can hand it back. */
+  const restoreTo = useRef<HTMLElement | null>(null);
 
   // Focus on open. Without this the palette appears and swallows nothing: the
   // keystroke that summoned it left focus on the canvas.
   useEffect(() => {
-    if (open) input.current?.focus();
+    if (!open) return;
+    restoreTo.current = document.activeElement as HTMLElement | null;
+    input.current?.focus();
+    return () => {
+      // And hand it back on close. A dismissed modal that leaves focus on <body>
+      // costs the user every keyboard shortcut until they click something.
+      restoreTo.current?.focus?.();
+    };
   }, [open]);
 
   // Keep the highlighted row on screen while the arrows walk past the fold.
@@ -97,6 +107,15 @@ export default function CommandPalette<T>({
         if (item !== undefined) onPick(item);
         return;
       }
+      case "Tab":
+        // `aria-modal` tells a screen reader the rest of the page is inert; nothing
+        // makes that true for the Tab key, so the dialog has to hold focus itself.
+        // With one focusable child — which is the usual shape here, since the rows are
+        // options rather than buttons — this simply keeps the caret in the box.
+        e.preventDefault();
+        e.stopPropagation();
+        cycleFocus(dialog.current, e.shiftKey);
+        return;
     }
   };
 
@@ -110,6 +129,7 @@ export default function CommandPalette<T>({
       }}
     >
       <div
+        ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-label={label}
@@ -148,4 +168,16 @@ export default function CommandPalette<T>({
       </div>
     </div>
   );
+}
+
+/** What counts as reachable by Tab. */
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+/** Move focus to the next (or previous) focusable element inside `root`, wrapping. */
+function cycleFocus(root: HTMLElement | null, back: boolean): void {
+  const all = root ? [...root.querySelectorAll<HTMLElement>(FOCUSABLE)] : [];
+  if (all.length === 0) return;
+  const at = all.indexOf(document.activeElement as HTMLElement);
+  all[(at + (back ? -1 : 1) + all.length) % all.length].focus();
 }

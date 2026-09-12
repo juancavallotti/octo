@@ -63,4 +63,15 @@ describe("rank", () => {
   it("reports where it matched, so the row can highlight it", () => {
     expect(rank(items, "log")[0].matched).toEqual([0, 1, 2]);
   });
+
+  it("orders id-only matches by how well the ID matched, not alphabetically", () => {
+    // Both ids match "z-r" and neither label does (the hyphen only exists in the id),
+    // so the id is the only thing there is to rank on. Scored against the LABEL's
+    // characters they tie at zero and the order falls back to the alphabet, which puts
+    // the worse match first — the wrong component under the caret when Enter is
+    // pressed. The ids are made up rather than real ones because the real palette has
+    // no pair that is id-only for one query, which is what made this easy to miss.
+    const typed = [item("a-zebra-runner", "Alpha Runner"), item("z-router", "Zeta Router")];
+    expect(rank(typed, "z-r").map((i) => i.label)).toEqual(["Zeta Router", "Alpha Runner"]);
+  });
 });
