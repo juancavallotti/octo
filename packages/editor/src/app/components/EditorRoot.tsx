@@ -26,6 +26,7 @@ import {
   type TestSuiteStore,
 } from "../providers/TestSuiteProvider";
 import { CanvasZoomProvider } from "../canvas/ZoomContext";
+import { ScopeIndexProvider } from "../scope/ScopeContext";
 import { LayoutProvider } from "../state/layout";
 import { CelTesterProvider } from "../cel/CelTesterStore";
 import IntegrationLoader from "./IntegrationLoader";
@@ -185,6 +186,10 @@ export default function EditorRoot({
   return (
     <EditorStateProvider>
       <EditorMetaProvider store={meta ?? null} reloadToken={metaToken}>
+        {/* Inside the meta provider because it reads the saved test inputs, which are
+            the only evidence about a message body the editor has without running
+            anything. One walk of the document serves every CEL field below. */}
+        <ScopeIndexProvider>
         {/* Canvas zoom is mounted here rather than in EditorBody, which returns
             early for the YAML, Resources and Testing views — a provider there
             would unmount on every trip to the YAML tab and hand the reader back
@@ -202,6 +207,7 @@ export default function EditorRoot({
             </ConsoleProvider>
           </LayoutProvider>
         </CanvasZoomProvider>
+        </ScopeIndexProvider>
       </EditorMetaProvider>
     </EditorStateProvider>
   );

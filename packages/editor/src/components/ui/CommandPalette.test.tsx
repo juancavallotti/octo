@@ -76,4 +76,60 @@ describe("CommandPalette", () => {
     expect(summoner).toHaveFocus();
     summoner.remove();
   });
+
+  it("picks the highlighted row on Enter", async () => {
+    const { onPick } = renderPalette({ active: 1 });
+    await userEvent.keyboard("{Enter}");
+    expect(onPick).toHaveBeenCalledWith("beta");
+  });
+
+  it("still has a selection when the index points past the list", async () => {
+    // The parent's index goes stale the moment the list it indexes into shrinks —
+    // a filter narrowing under a highlight the pointer put there. Left unclamped,
+    // nothing is highlighted and Enter picks nothing, which reads as a palette that
+    // has stopped working. The parent cannot prevent this; only the list's owner
+    // knows how long it is.
+    const { onPick } = renderPalette({ active: 7 });
+    expect(screen.getByRole("option", { name: "gamma" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await userEvent.keyboard("{Enter}");
+    expect(onPick).toHaveBeenCalledWith("gamma");
+  });
+
+  it("survives a negative index the same way", () => {
+    renderPalette({ active: -3 });
+    expect(screen.getByRole("option", { name: "alpha" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("picks nothing when there is nothing to pick", async () => {
+    const { onPick } = renderPalette({ items: [], empty: <p>No matches</p> });
+    await userEvent.keyboard("{Enter}");
+    expect(onPick).not.toHaveBeenCalled();
+    expect(screen.getByText("No matches")).toBeInTheDocument();
+  });
+
+  it("closes on Escape and on a click outside, but not on one inside", async () => {
+    const { onClose } = renderPalette();
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("dialog"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("wraps the highlight around both ends", async () => {
+    const onActiveChange = vi.fn();
+    renderPalette({ active: 0, onActiveChange });
+    await userEvent.keyboard("{ArrowUp}");
+    expect(onActiveChange).toHaveBeenCalledWith(ITEMS.length - 1);
+
+    onActiveChange.mockClear();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(onActiveChange).toHaveBeenCalledWith(1);
+  });
 });

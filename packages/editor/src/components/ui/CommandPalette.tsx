@@ -76,9 +76,20 @@ export default function CommandPalette<T>({
 
   if (!open) return null;
 
+  /**
+   * The highlighted row, clamped into the list.
+   *
+   * The parent owns `active`, and the list under it changes as the user types — so
+   * an index that was valid a keystroke ago can point past the end now. Clamping
+   * here rather than trusting the parent is the difference between a filtered list
+   * whose Enter does nothing and one that always has a selection: every way the two
+   * can drift apart is a way for the palette to look broken.
+   */
+  const activeIndex = items.length === 0 ? -1 : Math.min(Math.max(active, 0), items.length - 1);
+
   const move = (delta: number) => {
     if (items.length === 0) return;
-    onActiveChange((active + delta + items.length) % items.length);
+    onActiveChange((activeIndex + delta + items.length) % items.length);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -103,7 +114,7 @@ export default function CommandPalette<T>({
       case "Enter": {
         e.preventDefault();
         e.stopPropagation();
-        const item = items[active];
+        const item = items[activeIndex];
         if (item !== undefined) onPick(item);
         return;
       }
@@ -142,7 +153,9 @@ export default function CommandPalette<T>({
           role="combobox"
           aria-expanded
           aria-controls="command-palette-list"
-          aria-activedescendant={items[active] ? `command-palette-${keyOf(items[active])}` : undefined}
+          aria-activedescendant={
+            items[activeIndex] ? `command-palette-${keyOf(items[activeIndex])}` : undefined
+          }
           aria-label={label}
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
@@ -157,11 +170,11 @@ export default function CommandPalette<T>({
                   key={keyOf(item)}
                   id={`command-palette-${keyOf(item)}`}
                   role="option"
-                  aria-selected={i === active}
+                  aria-selected={i === activeIndex}
                   onMouseEnter={() => onActiveChange(i)}
                   onClick={() => onPick(item)}
                 >
-                  {renderItem(item, i === active)}
+                  {renderItem(item, i === activeIndex)}
                 </div>
               ))}
         </div>

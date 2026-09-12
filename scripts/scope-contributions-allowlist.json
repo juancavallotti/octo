@@ -1,0 +1,33 @@
+{
+  "_comment": "Blocks whose variable-naming settings the conventional tier in packages/editor/src/app/scope/contributions.ts reads correctly: the setting's value is the variable name, and where the field is resultVar or as, leaving it empty means the result becomes the body. Reviewed against the Go field comments. Adding a block here is a decision that the convention is right for it, not a way to silence the check.",
+  "conventional": [
+    "ai-embed",
+    "file-read",
+    "file-write",
+    "jwt-validate",
+    "mongodb-aggregate",
+    "mongodb-delete",
+    "mongodb-find",
+    "mongodb-insert",
+    "mongodb-update",
+    "notion-page-to-markdown",
+    "notion-query-datasource",
+    "notion-retrieve-blocks",
+    "notion-retrieve-page",
+    "notion-verify-request",
+    "object-read",
+    "parallel-extract",
+    "parallel-search",
+    "parallel-task-run",
+    "parallel-verify-request",
+    "pinecone-fetch",
+    "pinecone-query",
+    "pinecone-upsert",
+    "slack-lookup-user",
+    "slack-verify-request",
+    "tavily-crawl",
+    "tavily-extract",
+    "tavily-map",
+    "tavily-search"
+  ]
+}

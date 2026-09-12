@@ -245,6 +245,10 @@ jobs:
       # docs page claims a type that no longer exists). See AGENTS.md
       # "Documentation policy".
       - run: node scripts/check-docs-drift.mjs
+      # Fails when a block arrives declaring a variable the editor's CEL scope
+      # model has not been told about — which would otherwise show up as a
+      # completion menu quietly missing names the flow actually has.
+      - run: node scripts/check-scope-contributions.mjs
       # The downloadable platform API contract is a COPY of the one embedded in
       # the binary, so unlike the drift tests beside it in Go, only a diff can
       # tell whether it is current.

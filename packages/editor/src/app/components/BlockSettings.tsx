@@ -6,6 +6,7 @@ import type { BlockNode } from "../model/document";
 import { isSlotField, slotFields } from "../model/document";
 import { getBlockSpec, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { CelScopeProvider } from "../scope/ScopeContext";
 import SettingsField from "./SettingsField";
 import SlotListEditor from "./SlotListEditor";
 
@@ -67,6 +68,9 @@ export default function BlockSettings({ block }: { block: BlockNode }) {
         </button>
       </header>
 
+      {/* Every CEL field below completes against the message as THIS block receives
+          it — which is also what a mock's `when` is evaluated against. */}
+      <CelScopeProvider site={{ kind: "block", blockId: block.id }}>
       <div className="flex flex-col gap-4 overflow-y-auto p-4">
         <div className="flex flex-col gap-1">
           <label
@@ -118,6 +122,7 @@ export default function BlockSettings({ block }: { block: BlockNode }) {
           />
         ))}
       </div>
+      </CelScopeProvider>
     </>
   );
 }

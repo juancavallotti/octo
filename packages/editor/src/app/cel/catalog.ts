@@ -882,10 +882,17 @@ export const CEL_BUILTINS: CelEntry[] = [
   },
 ];
 
-/** Every top-level completion, variables first then functions and namespaces. */
-export function allCompletions(): CelEntry[] {
+/**
+ * Every top-level completion, variables first then functions and namespaces.
+ *
+ * `roots` replaces CEL_VARIABLES when the caller knows what is actually in scope at
+ * the caret — which is not always the six message variables. A source's payload
+ * expression compiles with `now` and `settings` and nothing else (Go:
+ * SourcePayloadVars), so offering `body` there suggests a name that cannot compile.
+ */
+export function allCompletions(roots?: CelEntry[]): CelEntry[] {
   return [
-    ...CEL_VARIABLES,
+    ...(roots ?? CEL_VARIABLES),
     ...OCTO_FUNCTIONS,
     ...EXT_METHODS,
     ...CEL_BUILTINS,
