@@ -83,8 +83,15 @@ func Wrap(v checker, next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, principal)))
+		next.ServeHTTP(w, r.WithContext(NewContext(r.Context(), principal)))
 	})
+}
+
+// NewContext carries a verified caller on ctx. Wrap is what calls it in
+// production; it is exported because a handler that has to reason about the
+// caller is otherwise untestable without standing up a keyset.
+func NewContext(ctx context.Context, principal Principal) context.Context {
+	return context.WithValue(ctx, contextKey{}, principal)
 }
 
 // FromContext returns the verified caller, and whether there was one. There is

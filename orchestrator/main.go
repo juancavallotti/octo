@@ -627,7 +627,8 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// is registered outside the deployment/kube gate below — tags can be created
 		// and managed even where deploys are unavailable.
 		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc)
-		snapshot.NewHandler(snapshotSvc).Register(mux)
+		snapshotHandler := snapshot.NewHandler(snapshotSvc)
+		snapshotHandler.Register(mux)
 		slog.Info("snapshot routes registered",
 			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}, "+
 				"GET /snapshots/{id}/resources, GET /snapshots/{id}/resources/content")
@@ -791,6 +792,10 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 				deployment.WithSnapshots(snapshotSvc),
 				// Report working-copy .env keys for the Current deploy case.
 				deployment.WithResources(resourceSvc))
+			// A pod may read the frozen resources of its own integration and no
+			// other. Wired here because it needs the deployment service, which
+			// exists only where there is a cluster to deploy to.
+			snapshotHandler.RestrictToOwnIntegration(deploymentSvc)
 			// Publish deployment status to NATS for cross-node fan-out; the BFF
 			// subscribes and serves the SSE. A noop publisher when NATS_URL is unset
 			// (local/standalone) leaves clients on the list-polling fallback.

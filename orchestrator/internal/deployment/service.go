@@ -950,6 +950,20 @@ func (s *Service) Rollout(
 }
 
 // Get returns a deployment with its status refreshed from the cluster.
+// IntegrationOf answers which integration a deployment belongs to, reading the
+// row and nothing else.
+//
+// Separate from Get because Get refreshes the deployment against the cluster,
+// and this one sits in front of an authorization check on a hot path — the
+// runtime asks for its frozen resources whenever a pod starts.
+func (s *Service) IntegrationOf(ctx context.Context, deploymentID string) (string, error) {
+	dep, err := s.repo.Get(ctx, deploymentID)
+	if err != nil {
+		return "", err
+	}
+	return dep.IntegrationID, nil
+}
+
 func (s *Service) Get(ctx context.Context, id string) (Deployment, error) {
 	dep, err := s.repo.Get(ctx, id)
 	if err != nil {
