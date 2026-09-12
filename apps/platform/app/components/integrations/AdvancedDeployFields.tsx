@@ -1,7 +1,8 @@
 "use client";
 
-import { Boxes, ShieldCheck, Terminal } from "lucide-react";
+import { ShieldCheck, Terminal } from "lucide-react";
 import Callout from "@/app/components/ui/Callout";
+import { GRANTS } from "./PrivilegePills";
 import {
   DEPLOYMENT_ACCESS,
   type DeploymentAccess,
@@ -51,6 +52,7 @@ export default function AdvancedDeployFields({
 
         {DEPLOYMENT_ACCESS.map(({ value, label, detail }) => {
           const on = access.includes(value);
+          const { Icon } = GRANTS[value];
           return (
             <div key={value}>
               <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
@@ -61,7 +63,7 @@ export default function AdvancedDeployFields({
                   onChange={(e) => toggle(value, e.target.checked)}
                   className="accent-sky-500"
                 />
-                <Boxes size={14} />
+                <Icon size={14} />
                 {label}
               </label>
               {on && (
