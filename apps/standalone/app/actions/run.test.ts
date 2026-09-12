@@ -95,6 +95,9 @@ describe("runTest", () => {
       suites: req.suites,
       env: { A: "1" },
       resources: { marker: "fs" },
+      // Off unless the caller asked: the editor sends it on every suite run, but the
+      // action must not decide that for a caller who said nothing.
+      learnShapes: false,
     });
   });
 
