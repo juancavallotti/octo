@@ -477,6 +477,10 @@ func (h *harness) claimsOf(t *testing.T, token string) (josejwt.Claims, machineP
 type machinePrivate struct {
 	Roles      []user.Role `json:"roles"`
 	Deployment string      `json:"deployment"`
+	// Read back so a test can assert their ABSENCE from a machine token, which is
+	// the only reason they are here.
+	Email string `json:"email"`
+	Name  string `json:"name"`
 }
 
 // The whole design in one test: a deployment acts as the person who deployed it,
@@ -510,6 +514,39 @@ func TestMachineTokenSpeaksForItsOwnerWithOnlyTheRuntimeRole(t *testing.T) {
 		if r == user.RoleAdmin {
 			t.Fatal("the deployment inherited its owner's admin role")
 		}
+	}
+}
+
+// A machine token is written to a file inside a pod, and a JWT is not encrypted:
+// anybody who can read that pod reads whatever it carries. The subject is what
+// scopes the stores the pod reaches and has to be there; the owner's address and
+// name are read by nothing, so they are not.
+func TestMachineTokenCarriesNoOwnerProfile(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signIn(t, "provider|admin", "admin@example.com")
+
+	rec := h.postMachine(t, "Bearer "+owner.Token, "deployment-1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var got authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	_, private := h.claimsOf(t, got.Token)
+	if private.Email != "" {
+		t.Errorf("the machine token carries the owner's address %q", private.Email)
+	}
+	if private.Name != "" {
+		t.Errorf("the machine token carries the owner's name %q", private.Name)
+	}
+
+	// And the person's own token still describes the person: this is about what a
+	// pod carries, not about dropping the claim everywhere.
+	_, hers := h.claimsOf(t, owner.Token)
+	if hers.Email != "admin@example.com" {
+		t.Errorf("a person's token lost its address: %q", hers.Email)
 	}
 }
 

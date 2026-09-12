@@ -52,8 +52,13 @@ func NewService(v verifier, u users, m minter) (*Service, error) {
 // what a downstream service authorizes on, and putting them in the token is what
 // spares every one of those services a call back here on every request.
 type platformClaims struct {
-	Email string      `json:"email"`
-	Name  string      `json:"name"`
+	// Email and Name describe the person a token speaks for, and are omitted
+	// entirely from a machine's — see mintMachine. A JWT is not encrypted, and a
+	// deployment's token sits on a pod filesystem where anybody who can read that
+	// pod can read it; carrying an address nothing consumes would be putting the
+	// owner's identity somewhere it is never needed.
+	Email string      `json:"email,omitempty"`
+	Name  string      `json:"name,omitempty"`
 	Roles []user.Role `json:"roles"`
 	// Deployment names the deployed integration a machine token was minted for,
 	// and is empty on a person's token. It is what tells the two apart on the way
@@ -260,9 +265,11 @@ func (s *Service) MintMachine(ctx context.Context, rawToken, deployment string) 
 func (s *Service) mintMachine(
 	ctx context.Context, owner user.User, deployment string,
 ) (signing.Token, error) {
+	// No Email, no Name. The subject still ties this token to the person who lent
+	// it — that is what scopes every store the pod reaches — but nothing reads
+	// their address off a machine token, and a token that sits on a pod filesystem
+	// should carry only what something actually consumes.
 	token, err := s.minter.Mint(ctx, owner.ID, platformClaims{
-		Email:      owner.Email,
-		Name:       owner.Name,
 		Roles:      []user.Role{user.RoleRuntime},
 		Deployment: deployment,
 	})
