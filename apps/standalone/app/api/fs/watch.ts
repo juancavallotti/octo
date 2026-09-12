@@ -3,7 +3,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { publish } from "@octo/events";
-import { fsRoot, isTestFile } from "./store";
+import { fsRoot, isStoredFile, isTestFile, nameOf } from "./store";
 
 /**
  * Noticing that somebody else changed a flow file.
@@ -59,9 +59,15 @@ export function noteWritten(id: string, content: string): void {
   state().digests.set(id, digest(content));
 }
 
-/** Whether a filename is one the editor opens. */
+/**
+ * Whether a filename is one the editor opens.
+ *
+ * Asked of the store rather than answered here, so the watcher cannot come to disagree
+ * with it about which files exist — `.yml` is as much a flow as `.yaml`, and a watcher
+ * that only knew the longer spelling would leave those files silently stale.
+ */
 function isFlowFile(name: string): boolean {
-  return name.endsWith(".yaml") && !name.startsWith(".");
+  return isStoredFile(name);
 }
 
 async function announce(id: string): Promise<void> {
@@ -85,8 +91,8 @@ async function announce(id: string): Promise<void> {
   // The event names the FLOW's id, because that is what an open editor is keyed by.
   publish(
     isTestFile(id)
-      ? { type: "integration.tests-updated", id: id.replace(/_test\.yaml$/i, ".yaml") }
-      : { type: "integration.updated", id, name: path.basename(id, ".yaml") },
+      ? { type: "integration.tests-updated", id: id.replace(/_test(?=\.ya?ml$)/i, "") }
+      : { type: "integration.updated", id, name: nameOf(id) },
   );
 }
 
