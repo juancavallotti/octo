@@ -131,6 +131,8 @@ export default function DeploymentRow({
         tracing={d.tracing}
         runtimeVersion={d.runtimeVersion}
         runtimeImage={d.runtimeImage}
+        access={d.access}
+        runner={d.runner}
         className="mt-1.5"
       />
 

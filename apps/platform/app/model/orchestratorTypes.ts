@@ -161,6 +161,11 @@ export interface Deployment {
    * over, so a cluster commonly runs several at once. */
   runtimeImage?: string;
   runtimeVersion?: string;
+  /** What this deployment's own token opens on the platform. See {@link DEPLOYMENT_ACCESS}. */
+  access?: DeploymentAccess[];
+  /** Which image its pods are: "" or "standard" for the default, "agentic" for the
+   * heavier runner carrying a shell. */
+  runner?: string;
 }
 
 /** How one declared env var is filled at deploy: a literal value or a secret ref. */

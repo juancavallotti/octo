@@ -104,6 +104,8 @@ export default function DeploymentListItem({
           runtimeVersion={d.runtimeVersion}
           runtimeImage={d.runtimeImage}
           currentRuntime={currentRuntime}
+          access={d.access}
+          runner={d.runner}
           className="shrink-0"
         />
       </div>

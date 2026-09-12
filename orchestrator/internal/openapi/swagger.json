@@ -533,6 +533,14 @@
             },
             "deployment.deploymentResponse": {
                 "properties": {
+                    "access": {
+                        "description": "Access is what this deployment's own token opens on the platform beyond its\nown stores, and Runner which image its pods are. Both are reported because\nboth are things a reader of a deployment has to be able to see without\nopening a dialog: a running pod that may rewrite anyone's integration, or one\ncarrying a shell, is not a fact that should live only in the deploy form that\nasked for it. Omitted when the deployment has neither, which is almost all of\nthem.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "createdAt": {
                         "type": "string"
                     },
@@ -579,6 +587,9 @@
                     },
                     "replicas": {
                         "type": "integer"
+                    },
+                    "runner": {
+                        "type": "string"
                     },
                     "runtimeImage": {
                         "description": "RuntimeImage is the octo runtime image the pods are actually running, and\nRuntimeVersion its tag on its own — which runtime a misbehaving deployment is\non is the first thing asked when troubleshooting one, and a deployment that\nwas never rolled over keeps running whatever image it was created with.\nOmitted when the cluster reports no image (an undeployed or unreachable\nworkload).",
