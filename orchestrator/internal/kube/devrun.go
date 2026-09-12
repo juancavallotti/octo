@@ -553,6 +553,7 @@ func (c *Client) devRunDeployment(name string, lbls map[string]string, spec DevR
 							Name:      devWorkspaceVolume,
 							MountPath: devWorkspaceRoot,
 						}},
+						SecurityContext: restricted(),
 					}},
 					Containers: []corev1.Container{{
 						Name: RuntimeContainer,
@@ -579,6 +580,7 @@ func (c *Client) devRunDeployment(name string, lbls map[string]string, spec DevR
 							// the same volume the sidecar writes, and a read-only mount of it
 							// would be a lie about who owns the directory.
 						}},
+						SecurityContext: restricted(),
 					}},
 					Volumes: []corev1.Volume{{
 						Name: devWorkspaceVolume,

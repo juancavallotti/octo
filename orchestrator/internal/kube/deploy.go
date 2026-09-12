@@ -390,8 +390,9 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 						ReadinessProbe:  readinessProbe(),
 						// Empty for every runner but the agentic one, which is the only
 						// deployment this orchestrator sizes. See Client.agenticResources.
-						Resources:    c.containerResources(spec),
-						VolumeMounts: c.volumeMounts(spec),
+						Resources:       c.containerResources(spec),
+						VolumeMounts:    c.volumeMounts(spec),
+						SecurityContext: restricted(),
 					}},
 					Volumes: c.volumes(name, spec),
 				},
