@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -165,6 +166,14 @@ func (v *Verifier) resolve(ctx context.Context) (*oidc.IDTokenVerifier, error) {
 	// would be turned away for it.
 	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
 	defer cancel()
+
+	// The client goes on the context because go-oidc keeps this context for the
+	// life of the keyset, and uses it for every later fetch as well as this one.
+	// Those later fetches are the ones that need it: when iam rotates its keys the
+	// keyset re-fetches on the unknown kid, on a background context this deadline
+	// does not reach, so without a client timeout a stalled iam blocks token
+	// verification with no deadline at all.
+	fetchCtx = oidc.ClientContext(fetchCtx, &http.Client{Timeout: discoveryTimeout})
 
 	provider, err := oidc.NewProvider(fetchCtx, v.issuer)
 	if err != nil {

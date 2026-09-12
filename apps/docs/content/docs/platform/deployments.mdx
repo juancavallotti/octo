@@ -83,7 +83,7 @@ Stored logs and traces span **every** deployment on the installation, not just t
 
 **The orchestrator grant is still a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod, because the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election, and this checkbox gates nothing on its own.
 
-What does gate it is the token each deployment is given. The orchestrator authorizes every request by the roles on the presented token, and a deployment's own token carries `platform:runtime` — which reaches its key-value store, its objects and its agent memory, and nothing else. Declaring the grant does not widen that; a pod cannot read another deployment's data, change an integration, or see the installation's settings whatever this box says.
+What does gate it is the token each deployment is given. The orchestrator authorizes every request by the roles on the presented token, and a deployment's own token carries `platform:runtime` — which reaches its key-value store, its objects, its agent memory and the frozen resources of the snapshot it runs, and nothing else. Declaring the grant does not widen that; a pod cannot read another deployment's data, change an integration, or see the installation's settings whatever this box says.
 
 Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them.
 
