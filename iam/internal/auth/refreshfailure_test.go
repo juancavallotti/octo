@@ -32,7 +32,7 @@ func (s stubMinter) Mint(context.Context, string, any) (signing.Token, error) {
 	return signing.Token{}, nil
 }
 
-func (s stubMinter) Verify(context.Context, string, time.Duration) (jwt.Claims, error) {
+func (s stubMinter) Verify(context.Context, string, time.Duration, any) (jwt.Claims, error) {
 	return jwt.Claims{Subject: "user-1"}, s.err
 }
 
