@@ -326,6 +326,37 @@ export function findBlock(
   return undefined;
 }
 
+/**
+ * The flow whose own chain holds `blockId` — the sub-flow when the block sits inside a
+ * composite, not the top-level flow that composite belongs to.
+ *
+ * REMOVE_BLOCK and ADD_BLOCK both address a flow, and every existing caller had one to
+ * hand from the props it was rendered with. A keyboard command has only the selection,
+ * so it has to ask.
+ */
+export function owningFlowId(
+  doc: EditorDocument,
+  blockId: string,
+): string | null {
+  const visit = (flow: FlowDoc): string | null => {
+    for (const block of flow.process) {
+      if (block.id === blockId) return flow.id;
+      for (const subs of Object.values(block.slots ?? {})) {
+        for (const sub of subs) {
+          const hit = visit(sub);
+          if (hit) return hit;
+        }
+      }
+    }
+    return flow.error ? visit(flow.error) : null;
+  };
+  for (const flow of doc.flows) {
+    const hit = visit(flow);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Find a flow by id anywhere in the tree (top-level or nested in a slot). */
 export function findFlow(
   doc: EditorDocument,

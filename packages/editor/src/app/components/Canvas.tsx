@@ -5,6 +5,8 @@ import FlowBoard from "./FlowBoard";
 import ZoomControls from "./ZoomControls";
 import { useCanvasZoom } from "../canvas/ZoomContext";
 import { contentPointAt, fitZoom, scrollToHold } from "../canvas/zoom";
+import { isTypingTarget } from "../keyboard/typing";
+import { useSelectionShortcuts } from "../keyboard/useSelectionShortcuts";
 
 /**
  * Canvas is the main flow-editing area: a scrollable dot-grid surface that hosts
@@ -93,6 +95,9 @@ export default function Canvas() {
   }, [zoom, setZoom]);
 
   useCanvasZoomShortcuts(fit);
+  // Canvas-scoped, not editor-wide: Delete means "the selected block" only where
+  // blocks are on screen. The Resources and Testing views have their own lists.
+  useSelectionShortcuts();
 
   return (
     <div className="relative flex-1 min-w-0">
@@ -126,16 +131,7 @@ function useCanvasZoomShortcuts(fit: () => void) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // The canvas is full of inline name fields, and "-" is a character in a
-      // block name before it is a command.
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.isContentEditable ||
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
+      if (isTypingTarget(e.target)) return;
 
       if (e.shiftKey && e.key === "!") {
         e.preventDefault();

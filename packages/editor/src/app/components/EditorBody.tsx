@@ -2,6 +2,7 @@
 
 import { useEditorState } from "../state/editorState";
 import { useLayout } from "../state/layout";
+import { useHistoryShortcuts } from "../keyboard/useHistoryShortcuts";
 import DndProvider from "./DndProvider";
 import DocumentBar from "./DocumentBar";
 import Sidebar from "./Sidebar";
@@ -31,6 +32,9 @@ import TestingView from "./testing/TestingView";
 export default function EditorBody({ files }: { files?: React.ReactNode }) {
   const { state } = useEditorState();
   const layout = useLayout();
+  // Above the view switch, because undo is about the document and the document is
+  // edited from the settings panel and the resources view too, not just the canvas.
+  useHistoryShortcuts();
 
   // No drawers here, so the bar spans the view — it is still directly above the
   // thing it describes.
