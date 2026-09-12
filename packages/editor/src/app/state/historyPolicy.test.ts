@@ -22,13 +22,18 @@ describe("trackingOf", () => {
 });
 
 describe("coalesceKey", () => {
-  const setting = (blockId: string, field: string) => ({
+  const setting = (blockId: string, field: string, value = "x") => ({
     type: EditorActionType.UPDATE_BLOCK_SETTING,
-    data: { blockId, field, value: "x" },
+    data: { blockId, field, value },
   });
 
   it("joins keystrokes in one field", () => {
-    expect(coalesceKey(setting("b1", "url"))).toBe(coalesceKey(setting("b1", "url")));
+    // Different VALUES, deliberately: successive keystrokes are what this has to join,
+    // and comparing one value with itself would pass just as well if the key included
+    // the value — which would put every character in its own undo step.
+    expect(coalesceKey(setting("b1", "url", "http"))).toBe(
+      coalesceKey(setting("b1", "url", "https")),
+    );
   });
 
   it("separates fields and blocks", () => {
