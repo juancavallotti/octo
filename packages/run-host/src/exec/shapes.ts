@@ -64,8 +64,22 @@ function looksLikeData(key: string): boolean {
   );
 }
 
-/** A map whose keys carry data, described as a map and nothing more. */
-const OPAQUE_MAP: Shape = { t: "object", f: {} };
+/**
+ * A map whose keys carry data: an object with NO field list at all.
+ *
+ * Distinct from `{ t: "object", f: {} }`, which is an object that genuinely had no
+ * keys. The two used to share one encoding, and that cost the collapse its permanence
+ * — merging a collapsed map with a later, uncollapsed sample of the same field handed
+ * back the very keys the collapse existed to hide. "Contents unknown" has to be a
+ * state a merge cannot climb out of.
+ *
+ * Built fresh each time rather than shared: a returned shape is the caller's, and a
+ * single frozen-by-convention constant handed to every caller is one mutation away
+ * from rewriting every other shape in the process.
+ */
+function opaqueMap(): Shape {
+  return { t: "object" };
+}
 
 function objectShape(value: Record<string, unknown>, depth: number): Shape {
   const keys = Object.keys(value);
@@ -73,10 +87,18 @@ function objectShape(value: Record<string, unknown>, depth: number): Shape {
   // Two ways to be a map rather than a record: too many keys to be field names, or
   // enough of them that look like data to make the rest suspect.
   if (keys.length > MAX_KEYS || (keys.length > 0 && dataKeys / keys.length > 0.4)) {
-    return OPAQUE_MAP;
+    return opaqueMap();
   }
   const f: Record<string, Shape> = {};
-  for (const key of keys) f[key] = shapeOf(value[key], depth + 1);
+  // Any single key that looks like data is dropped, whatever the ratio. The collapse
+  // above is proportional, but the risk is not: one order id among a dozen honest
+  // field names is still an order id written into a file somebody commits, and it is
+  // not something anyone completes a path into. The rest of the object survives,
+  // which the whole-object collapse would have thrown away.
+  for (const key of keys) {
+    if (looksLikeData(key)) continue;
+    f[key] = shapeOf(value[key], depth + 1);
+  }
   return { t: "object", f };
 }
 
@@ -121,17 +143,16 @@ export function mergeShape(a: Shape, b: Shape): Shape {
     return { t: "list", of: mergeShape(a.of, b.of) };
   }
   if (a.t === "object") {
-    // Either side having collapsed to a map means the union would be one too.
-    if (!a.f || !b.f || Object.keys(a.f).length === 0 || Object.keys(b.f).length === 0) {
-      return Object.keys({ ...a.f, ...b.f }).length > MAX_KEYS ? OPAQUE_MAP : { t: "object", f: { ...a.f, ...b.f } };
-    }
+    // Either side having collapsed to a map means the union is one too — merging can
+    // only ever widen, and "these keys" is narrower than "contents unknown".
+    if (!a.f || !b.f) return opaqueMap();
     const f: Record<string, Shape> = {};
     for (const key of new Set([...Object.keys(a.f), ...Object.keys(b.f)])) {
       const left = a.f[key];
       const right = b.f[key];
       f[key] = left && right ? mergeShape(left, right) : (left ?? right)!;
     }
-    return Object.keys(f).length > MAX_KEYS ? OPAQUE_MAP : { t: "object", f };
+    return Object.keys(f).length > MAX_KEYS ? opaqueMap() : { t: "object", f };
   }
   return a;
 }

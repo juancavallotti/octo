@@ -122,8 +122,12 @@ function parseShape(raw: unknown, depth = 0): EncodedShape | undefined {
     return of ? { t: "list", of } : { t: "list" };
   }
   if (t === "object") {
+    // No `f` at all means a map whose contents were deliberately not recorded, and
+    // that has to survive the round trip: rebuilding it as `f: {}` would turn it into
+    // an empty object, which the merger is entitled to union keys into.
+    if (!isRecord(raw.f)) return { t: "object" };
     const f: Record<string, EncodedShape> = {};
-    for (const [key, value] of Object.entries(isRecord(raw.f) ? raw.f : {})) {
+    for (const [key, value] of Object.entries(raw.f)) {
       const shape = parseShape(value, depth + 1);
       if (shape) f[key] = shape;
     }

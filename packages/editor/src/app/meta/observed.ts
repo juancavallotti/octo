@@ -28,15 +28,21 @@ export function mergeShape(a: EncodedShape, b: EncodedShape): EncodedShape {
     return { t: "list", of: mergeShape(a.of, b.of) };
   }
   if (a.t === "object") {
+    // An object with no `f` at all is a map whose contents were deliberately not
+    // recorded — keys that looked like data. Merging must not climb back out of that:
+    // "these keys" is narrower than "contents unknown", and the keys in question are
+    // somebody's email addresses. An object that merely had no keys carries `f: {}`,
+    // which is a different thing and unions normally.
+    if (!a.f || !b.f) return { t: "object" };
     const f: Record<string, EncodedShape> = {};
-    for (const key of new Set([...Object.keys(a.f ?? {}), ...Object.keys(b.f ?? {})])) {
-      const left = a.f?.[key];
-      const right = b.f?.[key];
+    for (const key of new Set([...Object.keys(a.f), ...Object.keys(b.f)])) {
+      const left = a.f[key];
+      const right = b.f[key];
       f[key] = left && right ? mergeShape(left, right) : (left ?? right)!;
     }
     // A union that grew past the cap is a map, exactly as one sample that was already
     // that wide would have been.
-    return Object.keys(f).length > MAX_KEYS ? { t: "object", f: {} } : { t: "object", f };
+    return Object.keys(f).length > MAX_KEYS ? { t: "object" } : { t: "object", f };
   }
   return a;
 }

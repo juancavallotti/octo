@@ -22,7 +22,7 @@ describe("mergeShape", () => {
   it("collapses to a map once the union grows past what anyone types", () => {
     const wide = (offset: number) =>
       obj(Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i + offset}`, str])));
-    expect(mergeShape(wide(0), wide(100)).f).toEqual({});
+    expect(mergeShape(wide(0), wide(100)).f).toBeUndefined();
   });
 });
 
@@ -97,3 +97,26 @@ describe("pruneObserved", () => {
     expect(pruneObserved(undefined, ["a.x"])).toBeUndefined();
   });
 });
+
+/**
+ * The file this merges into is committed, so a merge that recovers keys a collapse
+ * hid is a privacy regression one run later — not a completion bug.
+ */
+describe("mergeShape: a collapse is permanent", () => {
+  it("stays a bare map when a later sample carries keys", () => {
+    expect(mergeShape({ t: "object" }, { t: "object", f: { name: { t: "string" } } })).toEqual({
+      t: "object",
+    });
+    expect(mergeShape({ t: "object", f: { name: { t: "string" } } }, { t: "object" })).toEqual({
+      t: "object",
+    });
+  });
+
+  it("still unions an object that merely had no keys", () => {
+    expect(mergeShape({ t: "object", f: {} }, { t: "object", f: { a: { t: "number" } } })).toEqual({
+      t: "object",
+      f: { a: { t: "number" } },
+    });
+  });
+});
+

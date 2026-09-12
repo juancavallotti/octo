@@ -31,7 +31,7 @@ describe("shapeOf", () => {
     // Keys are values here — an object keyed by email address publishes the
     // addresses. Nobody completes a path into one, so it says only "a map".
     const byEmail = { "a@x.com": 1, "b@y.com": 2, "c@z.com": 3 };
-    expect(shapeOf(byEmail)).toEqual({ t: "object", f: {} });
+    expect(shapeOf(byEmail)).toEqual({ t: "object" });
     expect(json(shapeOf(byEmail))).not.toContain("@");
   });
 
@@ -39,12 +39,12 @@ describe("shapeOf", () => {
     const byId = Object.fromEntries(
       ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"].map((k) => [k, 1]),
     );
-    expect(shapeOf(byId).f).toEqual({});
+    expect(shapeOf(byId).f).toBeUndefined();
   });
 
   it("collapses an object with more keys than anyone types", () => {
     const wide = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`field${i}`, i]));
-    expect(shapeOf(wide).f).toEqual({});
+    expect(shapeOf(wide).f).toBeUndefined();
   });
 
   it("keeps a normal record of the same data's field names", () => {
@@ -79,7 +79,9 @@ describe("mergeShape", () => {
   });
 
   it("stays collapsed once either side was a bare map", () => {
-    expect(mergeShape({ t: "object", f: {} }, shapeOf({ a: 1 })).f).toEqual({ a: { t: "number" } });
+    // As the name says. This used to assert the opposite — that the union won — which
+    // made a merge the way back to the keys the collapse existed to hide.
+    expect(mergeShape({ t: "object" }, shapeOf({ a: 1 }))).toEqual({ t: "object" });
   });
 });
 
@@ -118,3 +120,55 @@ describe("parseTrace", () => {
     expect(parseTrace('{"kind":"a"}\n{"kind":"b"')).toHaveLength(1);
   });
 });
+
+/**
+ * The privacy rule is "keys and types, never values" — and an object's KEYS are
+ * sometimes values. These are the cases where that distinction does the work.
+ */
+describe("keys that are really values", () => {
+  it("drops a data-looking key even when the rest of the object is honest", () => {
+    // One address among three field names is a third of the keys, which the
+    // whole-object collapse does not trigger on — and it would have been written
+    // verbatim into a file the user commits.
+    const s = shapeOf({ "alice@example.com": 1, count: 2, status: "ok" });
+    expect(Object.keys(s.f ?? {})).toEqual(["count", "status"]);
+  });
+
+  it("keeps the honest keys rather than collapsing the whole object", () => {
+    // One uuid among three keys is under the collapse threshold, so the object
+    // survives — minus the uuid.
+    const s = shapeOf({ "550e8400-e29b-41d4-a716-446655440000": 1, name: "n", status: "ok" });
+    expect(Object.keys(s.f ?? {})).toEqual(["name", "status"]);
+  });
+
+  it("collapses an object that is mostly data, contents and all", () => {
+    const s = shapeOf({ "a@x.com": 1, "b@x.com": 2 });
+    expect(s).toEqual({ t: "object" });
+    expect(s.f).toBeUndefined();
+  });
+
+  it("never climbs back out of a collapse when a later run merges into it", () => {
+    // The collapse is what keeps the keys out of the file. A merge that restored them
+    // from a sample that happened not to collapse would undo it silently, one run later.
+    const collapsed = shapeOf({ "a@x.com": 1, "b@x.com": 2 });
+    const later = shapeOf({ name: "n", id: "i" });
+    expect(mergeShape(collapsed, later)).toEqual({ t: "object" });
+    expect(mergeShape(later, collapsed)).toEqual({ t: "object" });
+  });
+
+  it("still unions an object that merely had no keys", () => {
+    // `{}` is not a collapse and must not behave like one, or every empty object
+    // would poison the field it sits in for the rest of the project.
+    expect(mergeShape(shapeOf({}), shapeOf({ name: "n" }))).toEqual({
+      t: "object",
+      f: { name: { t: "string" } },
+    });
+  });
+
+  it("hands out a fresh map each time, so one caller cannot rewrite another's", () => {
+    const a = shapeOf({ "a@x.com": 1, "b@x.com": 2 });
+    const b = shapeOf({ "c@x.com": 1, "d@x.com": 2 });
+    expect(a).not.toBe(b);
+  });
+});
+
