@@ -47,9 +47,23 @@ export function binDir(): string {
     : path.join(repoRoot(), "bin");
 }
 
-/** A binary's absolute path, with the platform's executable suffix. */
-export function binary(name: "octo" | "dolphin"): string {
+/**
+ * A bundled binary's absolute path, with the platform's executable suffix.
+ *
+ * "Bundled" is the distinction that matters: this is where the binary that shipped
+ * inside the app lives, and it is not necessarily the one that runs. What the user
+ * chose in Settings is settings.ts's answer — see `binary()` there, which is what
+ * callers want.
+ */
+export function bundledBinary(name: RuntimeBinary): string {
   return path.join(binDir(), process.platform === "win32" ? `${name}.exe` : name);
+}
+
+export type RuntimeBinary = "octo" | "dolphin";
+
+/** Where the shell keeps its own state: the folder list, the port, the settings. */
+export function stateDir(): string {
+  return app.getPath("userData");
 }
 
 /**

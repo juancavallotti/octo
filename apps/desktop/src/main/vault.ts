@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { publish, retract } from "./endpoint";
 import { buildMenu } from "./menu";
+import { stateDir } from "./paths";
 import { choosePort, pinnedPort } from "./port";
 import { current, start, stop } from "./server";
 import { read, remember, write, type Vault } from "./state";
@@ -22,10 +23,6 @@ import { confineTo, mainWindow, showSplash, splashHint } from "./window";
  * The port is deliberately reused across a switch, so the MCP endpoint an agent
  * is configured against survives it.
  */
-
-function stateDir(): string {
-  return app.getPath("userData");
-}
 
 /** Remembered folders that still exist, most recent first. */
 export function recents(): Vault[] {
@@ -80,7 +77,7 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
  * switch folders because a status endpoint was unreachable would be the worse
  * failure of the two.
  */
-async function confirmIfRunning(): Promise<boolean> {
+async function confirmIfRunning(detail: string, verb: string): Promise<boolean> {
   const server = current();
   if (!server) return true;
 
@@ -102,8 +99,8 @@ async function confirmIfRunning(): Promise<boolean> {
   const options = {
     type: "question" as const,
     message: running === 1 ? "One flow is still running." : `${running} flows are still running.`,
-    detail: "Opening a different folder stops them.",
-    buttons: ["Cancel", running === 1 ? "Stop It and Switch" : "Stop Them and Switch"],
+    detail,
+    buttons: ["Cancel", running === 1 ? `Stop It and ${verb}` : `Stop Them and ${verb}`],
     defaultId: 0,
     cancelId: 0,
   };
@@ -159,8 +156,33 @@ async function restartOn(vaultPath: string): Promise<boolean> {
 export function switchTo(vaultPath: string): Promise<boolean> {
   if (vaultPath === current()?.vault) return Promise.resolve(true);
   return serialize(async () => {
-    if (!(await confirmIfRunning())) return false;
-    return restartOn(vaultPath);
+    const ok = await confirmIfRunning("Opening a different folder stops them.", "Switch");
+    return ok ? restartOn(vaultPath) : false;
+  });
+}
+
+/**
+ * Restart the server on the folder that is already open.
+ *
+ * Which is what changing the runtime binary needs: OCTO_BIN_PATH is read by the
+ * server process at startup and handed to every run, so a new binary only takes
+ * effect when that process is replaced. It goes through the same serialised restart
+ * a folder switch does — including the rollback — rather than growing a second one.
+ *
+ * Falls back to the remembered folder when there is no server, because the case that
+ * matters most has none: a runtime binary that does not start leaves the user on a
+ * splash screen, and pointing Settings at a working one has to be able to bring the
+ * app up rather than merely record a preference for next time.
+ */
+export function reopenCurrent(): Promise<boolean> {
+  const vault = current()?.vault ?? read(stateDir()).lastVault ?? null;
+  if (!vault) return Promise.resolve(false);
+  return serialize(async () => {
+    const ok = await confirmIfRunning(
+      "Changing the runtime restarts the editor server, which stops them.",
+      "Restart",
+    );
+    return ok ? restartOn(vault) : false;
   });
 }
 

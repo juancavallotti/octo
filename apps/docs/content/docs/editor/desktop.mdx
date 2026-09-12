@@ -73,6 +73,32 @@ and a bug you can reproduce in `docker run` is the same bug here. Everything in
 [the editor tour](/editor), [running flows](/editor/running-flows), and
 [testing in the editor](/testing/in-the-editor) applies unchanged.
 
+## Settings
+
+<kbd>Cmd</kbd> + <kbd>,</kbd> opens Settings.
+
+**Runtime.** Octo Desktop ships a matched `octo` and `dolphin` inside the app, and
+uses them unless you say otherwise. Point either at a binary of your own — a build
+from a checkout of the repository, say — to develop flows against a different
+runtime. Settings shows the version each one reports, so you can see which is in
+use at a glance.
+
+Changing a binary restarts the editor server, because the server hands the path to
+every run it starts. If flows are running you are asked first. A chosen binary that
+has since been moved or deleted is reported in Settings and **not** used — the
+bundled one runs instead, so a detached drive costs you the setting rather than the
+app.
+
+<Callout>
+If Octo cannot start its editor server, the error dialog offers Settings. That is
+the way back from a runtime binary that does not run.
+</Callout>
+
+**Updates.** Octo checks for a new version at startup and reports one if it finds it;
+turn that off in Settings if you would rather not. **Check for Updates…** in the Octo
+menu asks at any time, and says so when you are already up to date. An update is
+downloaded only if you agree, and installs the next time you quit.
+
 ## Where things live
 
 | | Path |

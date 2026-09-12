@@ -2,7 +2,8 @@ import { app } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { append, closeLog, openLog, recent } from "./log";
-import { binary, nodeExecutable, runDir, serverDir, serverEntry } from "./paths";
+import { nodeExecutable, runDir, serverDir, serverEntry } from "./paths";
+import { binary } from "./settings";
 
 /**
  * The editor server as a child process.

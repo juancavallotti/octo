@@ -1,6 +1,8 @@
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app, screen, shell } from "electron";
 import path from "node:path";
 import { sameOrigin } from "./origin";
+import { stateDir } from "./paths";
+import { read, write } from "./state";
 
 /**
  * The one window, and the rules about what may be shown in it.
@@ -29,10 +31,40 @@ export function mainWindow(): BrowserWindow | null {
   return win && !win.isDestroyed() ? win : null;
 }
 
+/**
+ * The size and place to open at: where the window was last, when that is still
+ * somewhere the user can see.
+ *
+ * The visibility check is the part worth having. A window remembered on a second
+ * monitor that is no longer attached opens entirely off-screen, and an app whose
+ * window cannot be found is indistinguishable from one that did not launch.
+ */
+function rememberedBounds(): Partial<Electron.BrowserWindowConstructorOptions> {
+  const saved = read(stateDir()).window;
+  if (!saved) return {};
+  const size = { width: saved.width, height: saved.height };
+  if (saved.x === undefined || saved.y === undefined) return size;
+
+  const onScreen = screen.getAllDisplays().some((d) => {
+    const { x, y, width, height } = d.workArea;
+    return saved.x! < x + width && saved.x! + saved.width > x && saved.y! < y + height && saved.y! + saved.height > y;
+  });
+  return onScreen ? { ...size, x: saved.x, y: saved.y } : size;
+}
+
+/** Store the window's geometry, unless it is minimised or full-screen — neither of
+ *  which is a size anyone wants to reopen at. */
+function rememberBounds(w: BrowserWindow): void {
+  if (w.isMinimized() || w.isFullScreen()) return;
+  const state = read(stateDir());
+  write(stateDir(), { ...state, window: w.getNormalBounds() });
+}
+
 export function createWindow(): BrowserWindow {
   win = new BrowserWindow({
     width: 1440,
     height: 900,
+    ...rememberedBounds(),
     minWidth: 900,
     minHeight: 600,
     show: false,
@@ -49,6 +81,9 @@ export function createWindow(): BrowserWindow {
   });
 
   win.once("ready-to-show", () => win?.show());
+  // On close rather than on every resize: a drag fires hundreds of events, and this
+  // writes a file. The geometry only has to be right the next time the app opens.
+  win.on("close", () => win && rememberBounds(win));
   void win.loadFile(splashFile());
   return win;
 }

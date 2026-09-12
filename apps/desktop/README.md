@@ -76,8 +76,34 @@ Signing and notarization are opt-in on the repository secrets being present, so 
 fork still gets a green job and an ad-hoc signed build — enough to launch on the
 machine that built it, not enough to clear Gatekeeper on a download.
 
+## Settings
+
+`Cmd+,` opens a Settings window: a static page in `src/main/static/`, loaded over
+`file://` into its own `BrowserWindow` with its own preload
+(`src/preload/settings.ts`). It is a *shell* window rather than a screen in the
+editor because of what it configures — one cause of a server that will not start is
+a runtime binary that does not run, and the editor is served by that server. The
+failed-start dialog offers it for that reason.
+
+Its IPC channels are guarded by the Settings window's `webContents` id, **not** by
+`sameOrigin`: the page is loaded over `file://`, and every `file://` page shares one
+origin, so an origin check would admit any local HTML. These channels choose which
+executable the app runs; the editor page, which renders the user's own files, must
+never reach them.
+
+**Runtime.** The bundled `octo` and `dolphin` are the default; an override is a path
+the user picked. `bundledBinary()` in `paths.ts` says where the shipped one is and
+`binary()` in `settings.ts` says which one actually runs — an override that is not
+there falls back, so a moved checkout costs a setting rather than the app. Changing
+one restarts the server through `vault.ts:reopenCurrent()`, the same serialised
+restart (and rollback) a folder switch uses.
+
+**Updates.** `electron-updater` against the GitHub release, bundled by esbuild rather
+than declared as a runtime dependency — which is what keeps `apps/desktop` free of a
+production dependency tree for electron-builder to resolve across pnpm's symlink
+farm. The release must attach the zips and `latest-mac.yml`; the dmg alone cannot
+deliver an update.
+
 ## Not done yet
 
-- **Auto-update.** electron-updater needs the zip target, which is packaged but
-  not yet attached to the release.
 - **Windows and Linux targets.**

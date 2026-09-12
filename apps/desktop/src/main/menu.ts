@@ -2,6 +2,8 @@ import { Menu, app, clipboard, shell, type MenuItemConstructorOptions } from "el
 import path from "node:path";
 import { logPath } from "./log";
 import { current } from "./server";
+import { openSettings } from "./settingsWindow";
+import { checkForUpdates } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
 
 /**
@@ -59,6 +61,16 @@ export function buildMenu(): void {
               enabled: mcpUrl() !== null,
               click: copyMcpUrl,
             },
+            {
+              label: "Check for Updates…",
+              click: () => void checkForUpdates(false),
+            },
+            { type: "separator" },
+            {
+              label: "Settings…",
+              accelerator: "CmdOrCtrl+,",
+              click: openSettings,
+            },
             { type: "separator" },
             { role: "hide" },
             { role: "hideOthers" },
@@ -87,6 +99,9 @@ export function buildMenu(): void {
           : ([
               { type: "separator" },
               { label: "Copy MCP Endpoint URL", enabled: mcpUrl() !== null, click: copyMcpUrl },
+              { type: "separator" },
+              { label: "Settings…", accelerator: "CmdOrCtrl+,", click: openSettings },
+              { label: "Check for Updates…", click: () => void checkForUpdates(false) },
               { type: "separator" },
               { role: "quit" },
             ] satisfies MenuItemConstructorOptions[])),
