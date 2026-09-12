@@ -1,6 +1,7 @@
 "use client";
 
 import { Boxes, ShieldCheck, Terminal } from "lucide-react";
+import Callout from "@/app/components/ui/Callout";
 import {
   DEPLOYMENT_ACCESS,
   type DeploymentAccess,
@@ -64,9 +65,11 @@ export default function AdvancedDeployFields({
                 {label}
               </label>
               {on && (
-                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                  {detail}
-                </p>
+                <div className="mt-2">
+                  <Callout>
+                    <p>{detail}</p>
+                  </Callout>
+                </div>
               )}
             </div>
           );
@@ -84,24 +87,32 @@ export default function AdvancedDeployFields({
             <Terminal size={14} />
             Run on the agentic runner
           </label>
-          {runner === "agentic" ? (
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-              A heavier image carrying a shell, <code>curl</code>, <code>jq</code>,
-              the standalone <code>octo</code> CLI, <code>dolphin</code> and a
-              writable <code>/workspace</code>. For an integration whose flows run
-              local commands or test other flows.{" "}
-              <strong>Treat it as privileged, not just bigger:</strong> a pod with a
-              shell and a runtime it can point at a definition it just wrote can run
-              anything this pod can reach, so the boundary is the pod rather than any
-              allow list in the flow.
-            </p>
-          ) : (
-            <p className="mt-2 text-xs text-zinc-400">
-              The default image is distroless — one binary, no shell, nothing
-              writable. Tick this only for an integration built to run local
-              commands, and only if you trust its definition.
-            </p>
-          )}
+          <div className="mt-2">
+            {runner === "agentic" ? (
+              <Callout>
+                <p>
+                  A heavier image carrying a shell, <code>curl</code>,{" "}
+                  <code>jq</code>, the standalone <code>octo</code> CLI,{" "}
+                  <code>dolphin</code> and a writable <code>/workspace</code>. For an
+                  integration whose flows run local commands or test other flows.
+                </p>
+                <p>
+                  <strong>Treat it as privileged, not just bigger:</strong> a pod with
+                  a shell and a runtime it can point at a definition it just wrote can
+                  run anything this pod can reach, so the boundary is the pod rather
+                  than any allow list in the flow.
+                </p>
+              </Callout>
+            ) : (
+              <Callout tone="note">
+                <p>
+                  The default image is distroless — one binary, no shell, nothing
+                  writable. Tick this only for an integration built to run local
+                  commands, and only if you trust its definition.
+                </p>
+              </Callout>
+            )}
+          </div>
         </div>
       </div>
     </details>
