@@ -75,7 +75,12 @@ var policy = []rule{
 	// configuration, and hold its credentials. Reads are as restricted as writes.
 	{"secrets", []string{RoleAdmin}, []string{RoleAdmin}},
 	{"settings", []string{RoleAdmin}, []string{RoleAdmin}},
-	{"email", []string{RoleAdmin}, []string{RoleAdmin}},
+	// Only POST /email/send lives here. The SMTP server itself — where it is, who
+	// it authenticates as — is under /settings/email and stays with the rest of
+	// the installation's credentials, which is why this one can be wider: sending
+	// through a server somebody else configured is an operating act, and an
+	// unattended run that has just repaired something has to be able to say so.
+	{"email", []string{RoleAdmin, RoleOperator}, []string{RoleAdmin, RoleOperator}},
 
 	// --- each caller's own -----------------------------------------------
 	// API keys are per-user and the handler scopes them to the id in the path;

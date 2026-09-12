@@ -49,14 +49,17 @@ Once configured, anything running inside the cluster can send through the site's
 
 ```bash
 curl -sS -X POST "$ORCHESTRATOR_URL/email/send" \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"to":["you@example.com"],"subject":"hello","text":"body"}'
 ```
 
+Sending needs a token holding **operator** or **admin**. A deployed integration presents its own — `env.PLATFORM_TOKEN`, see [platform access](/platform/deployments#platform-access) — and the *operates deployments* grant is what carries it, so a flow that has just repaired something can report that it did. Reading or changing the settings above stays with administrators: those hold the API key, and sending through a server somebody else configured does not.
+
 The endpoint takes **no API key and no from-address**: both come from the stored settings, and supplying either is rejected as an unknown field. Either `text` or `html` (or both) is required, and a request may carry at most 50 recipients; this is a transactional sender for notifications, not a bulk mailer. It returns `{"messageId": "..."}` on success, and `409` until email is configured.
 
 <Callout>
-Keep this internal. The orchestrator is ClusterIP in the chart and trusts its callers; there is no browser-facing route to it.
+Keep this internal. The orchestrator is ClusterIP in the chart and has no browser-facing route — and since it authorizes every request, a caller with no token gets a `401` rather than a delivered message.
 </Callout>
 
 ## Platform agent

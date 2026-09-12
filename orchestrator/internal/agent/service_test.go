@@ -750,19 +750,33 @@ func TestInstallDeploysInternalOnly(t *testing.T) {
 	}
 }
 
-// He is deployed with the narrowest access there is, and that looks wrong for an
-// agent that drives the whole API. His tools spend the token of whoever is
-// chatting, so what he may do is what that person may do; his own token is for
-// what his pod owns. Lending him more would be lending it to every question
-// anybody asks him.
-func TestInstallLendsTheAgentNothingOfItsOwn(t *testing.T) {
+// He is installed able to do the job he is installed for.
+//
+// The grants change nothing about a conversation: his tools spend the token of
+// whoever is chatting, so what he may do there is what that person may do. They
+// are for the unattended path, where nobody is chatting and his own token is the
+// run's only credential — and without them that path is inert rather than merely
+// narrow, because platform:runtime appears in no rule on either API and every
+// call an alert-woken triage makes is refused.
+func TestInstallLendsTheAgentWhatUnattendedTriageNeeds(t *testing.T) {
 	h := newHarness(t, true)
 
 	if _, err := h.svc.Install(context.Background(), ""); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if got := h.deployments.deployed[0].Access; len(got) != 0 {
-		t.Errorf("access = %v, want none", got)
+	got := h.deployments.deployed[0].Access
+	want := map[string]bool{deployment.AccessDeveloper: false, deployment.AccessOperator: false}
+	for _, a := range got {
+		if _, known := want[a]; !known {
+			t.Errorf("access includes %q, which is not one of the two grants", a)
+			continue
+		}
+		want[a] = true
+	}
+	for grant, present := range want {
+		if !present {
+			t.Errorf("access = %v, missing %q — unattended triage cannot act without it", got, grant)
+		}
 	}
 }
 

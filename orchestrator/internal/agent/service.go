@@ -478,21 +478,25 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
-	// He is deployed with no platform access of his own, which looks wrong for an
-	// agent that drives the whole API and is not. When somebody is chatting, his
-	// tools spend that person's token, so what he may do is what they may do.
+	// He is deployed able to do the job he is installed for.
 	//
-	// His own token is what an unattended run falls back to — an alert waking the
-	// troubleshooter, where there is no person to borrow from — and it opens only
-	// what his pod owns until an administrator grants more on the deployment.
-	// That is left to them rather than decided here: the grants say what a run
-	// nobody started may do to this installation, and defaulting them on would
-	// make that decision for every install at once.
+	// When somebody is chatting, his tools spend that person's token, so what he
+	// may do is what they may do and these grants change nothing. They are for the
+	// other path: an alert waking the troubleshooter, where there is nobody to
+	// borrow from and his own token is the only credential the run has.
+	//
+	// Without them that path is not merely limited, it is inert — platform:runtime
+	// is in no rule on either API, so every call an unattended triage makes is
+	// refused, including the reads. Installing an agent whose advertised job is to
+	// investigate and repair, in a state where it can do neither, is a worse
+	// default than granting what the job needs and letting an administrator take it
+	// back on the deployment.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
 		Replicas:   1,
 		SnapshotID: snap.ID,
 		Tracing:    next.Tracing,
 		Env:        bindings,
+		Access:     []string{deployment.AccessDeveloper, deployment.AccessOperator},
 		// The runner he needs, asked for the same way any integration asks. It is not
 		// a size preference: his tools run the standalone octo, dolphin and curl, and
 		// none of those exist in the distroless image every other deployment uses —

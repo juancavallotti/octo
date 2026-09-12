@@ -151,6 +151,36 @@ func TestAPersonIsNotConstrainedToOneDeployment(t *testing.T) {
 	}
 }
 
+// Sending mail is an operating act; the server it goes through is not.
+//
+// A deployment granted "operates deployments" is what an unattended repair runs
+// as, and a repair nobody watched has to be able to say what it did. The SMTP
+// credentials stay where the installation's other credentials are, under
+// /settings, which no operator reaches.
+func TestAnOperatorSendsMailButCannotReadTheServerItGoesThrough(t *testing.T) {
+	c := stubChecker{principal: Principal{Subject: "user-1", Roles: []string{RoleOperator}}}
+
+	if rec, _ := call(t, c, "POST", "/email/send", "a.b.c"); rec.Code != http.StatusOK {
+		t.Errorf("an operator could not send a report: %d", rec.Code)
+	}
+	if rec, _ := call(t, c, "GET", "/settings/email", "a.b.c"); rec.Code != http.StatusForbidden {
+		t.Errorf("an operator read the SMTP settings: %d, want 403", rec.Code)
+	}
+	if rec, _ := call(t, c, "PUT", "/settings/email", "a.b.c"); rec.Code != http.StatusForbidden {
+		t.Errorf("an operator rewrote the SMTP settings: %d, want 403", rec.Code)
+	}
+}
+
+// And nobody below an operator does: a monitor looks, and a developer builds.
+func TestSendingMailIsNotOpenToEverybody(t *testing.T) {
+	for _, role := range []string{RoleMonitor, RoleDeveloper, RoleRuntime} {
+		c := stubChecker{principal: Principal{Subject: "user-1", Roles: []string{role}}}
+		if rec, _ := call(t, c, "POST", "/email/send", "a.b.c"); rec.Code != http.StatusForbidden {
+			t.Errorf("%s sent mail: %d, want 403", role, rec.Code)
+		}
+	}
+}
+
 func containsAnyRole(body string) bool {
 	for _, role := range []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor, RoleRuntime} {
 		if strings.Contains(body, role) {

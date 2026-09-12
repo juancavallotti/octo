@@ -35,7 +35,11 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 		// The installation's own configuration, readable by nobody else.
 		{"GET", "/secrets", []string{RoleAdmin}},
 		{"PUT", "/settings/llm", []string{RoleAdmin}},
-		{"POST", "/email/send", []string{RoleAdmin}},
+		// Sending is the exception, and only sending: the server it goes through is
+		// under /settings/email with the rest of the credentials. An unattended
+		// repair has to be able to report what it did.
+		{"POST", "/email/send", []string{RoleAdmin, RoleOperator}},
+		{"GET", "/settings/email", []string{RoleAdmin}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {

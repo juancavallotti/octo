@@ -99,6 +99,14 @@ type EnvBinding struct {
 	Secret string `json:"secret,omitempty"`
 }
 
+// The grants a deployment's own token can be lent. Plain strings rather than a
+// type, because iam owns the catalogue and validates what it is sent — these
+// exist so a caller inside this service can name one instead of spelling it.
+const (
+	AccessDeveloper = "developer"
+	AccessOperator  = "operator"
+)
+
 // ExposeExternal is the Settings.Expose value that requests a public endpoint.
 const ExposeExternal = "external"
 
