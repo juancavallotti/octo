@@ -2,6 +2,7 @@
 
 import { Redo2, Undo2 } from "lucide-react";
 import { EditorActionType, useEditorState } from "../state/editorState";
+import { useModifier } from "../keyboard/useModifier";
 import { BAR_BUTTON } from "./barButton";
 
 /**
@@ -18,14 +19,14 @@ import { BAR_BUTTON } from "./barButton";
  */
 export default function HistoryButtons() {
   const { dispatch, canUndo, canRedo } = useEditorState();
-  const shortcut = navigator?.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
+  const modifier = useModifier();
 
   return (
     <>
       <button
         type="button"
         aria-label="Undo"
-        title={`Undo (${shortcut}Z)`}
+        title={`Undo (${modifier}Z)`}
         // Disabled rather than hidden: a control that appears when it becomes usable
         // is one you cannot find when you need it, which for undo is exactly the
         // moment you are looking.
@@ -38,7 +39,7 @@ export default function HistoryButtons() {
       <button
         type="button"
         aria-label="Redo"
-        title={`Redo (${shortcut}⇧Z)`}
+        title={`Redo (${modifier}⇧Z)`}
         disabled={!canRedo}
         onClick={() => dispatch({ type: EditorActionType.REDO })}
         className={`${BAR_BUTTON} disabled:pointer-events-none disabled:opacity-35`}

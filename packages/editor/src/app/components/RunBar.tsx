@@ -2,6 +2,7 @@
 
 import { Play, Square } from "lucide-react";
 import { useRun } from "../run/RunContext";
+import { useModifier } from "../keyboard/useModifier";
 import { useEditorState } from "../state/editorState";
 import { issueMessages } from "../model/validate";
 import TestRunButton from "./TestRunButton";
@@ -22,6 +23,7 @@ import TestRunButton from "./TestRunButton";
 export default function RunBar() {
   const run = useRun();
   const { state } = useEditorState();
+  const modifier = useModifier();
 
   // No RunProvider mounted, or no runner available => no RUN control. Note that a missing
   // dolphin does NOT land here: the host requires octo for a test run too, so `available`
@@ -46,6 +48,7 @@ export default function RunBar() {
           type="button"
           onClick={stop}
           disabled={busy}
+          title={`Stop this integration (${modifier}.)`}
           className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
         >
           <Square className="h-3.5 w-3.5 fill-current" />
@@ -58,7 +61,8 @@ export default function RunBar() {
   const blocked = !validation.ok;
   const title = blocked
     ? `Fix before running:\n• ${issueMessages(validation).join("\n• ")}`
-    : "Run this integration";
+    // The shortcut on the tooltip is how anyone finds out it exists.
+    : `Run this integration (${modifier}Enter)`;
 
   return (
     <div className="ml-auto flex items-center gap-2">

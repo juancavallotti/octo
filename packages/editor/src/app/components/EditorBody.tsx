@@ -3,6 +3,7 @@
 import { useEditorState } from "../state/editorState";
 import { useLayout } from "../state/layout";
 import { useHistoryShortcuts } from "../keyboard/useHistoryShortcuts";
+import { useRunShortcuts } from "../keyboard/useRunShortcuts";
 import ComponentPalette from "./ComponentPalette";
 import DndProvider from "./DndProvider";
 import DocumentBar from "./DocumentBar";
@@ -36,6 +37,9 @@ export default function EditorBody({ files }: { files?: React.ReactNode }) {
   // Above the view switch, because undo is about the document and the document is
   // edited from the settings panel and the resources view too, not just the canvas.
   useHistoryShortcuts();
+  // Here rather than in the canvas for the opposite reason: what Cmd+Enter runs
+  // depends on which view you are in, so it has to be mounted across all of them.
+  useRunShortcuts();
 
   const body = () => {
     // No drawers here, so the bar spans the view — it is still directly above the

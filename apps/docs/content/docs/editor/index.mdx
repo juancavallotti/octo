@@ -91,6 +91,9 @@ when a run starts and can be resized or collapsed.
 
 | | |
 | --- | --- |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> | Run — the integration, or the suites on the Testing tab |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> | Run the current flow once |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>.</kbd> | Stop |
 | <kbd>Cmd/Ctrl</kbd> + <kbd>/</kbd> | Add a component |
 | <kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd> | Undo |
 | <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> | Redo |
@@ -99,6 +102,13 @@ when a run starts and can be resized or collapsed.
 | <kbd>Escape</kbd> | Deselect |
 | <kbd>Cmd/Ctrl</kbd> + <kbd>=</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom in, out, reset |
 | <kbd>Shift</kbd> + <kbd>!</kbd> | Zoom to fit |
+
+<kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> runs whatever the view is about, which is the
+same rule the RUN button follows: the integration on the canvas, every suite on the
+Testing tab. It never *stops* a run — a key labelled run that halts things is a
+surprise — so <kbd>Cmd/Ctrl</kbd> + <kbd>.</kbd> is the one that means stop. Inside a
+CEL field, <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> belongs to the field and runs the
+expression.
 
 Undo covers everything that changes the document — blocks, settings, connections,
 environment variables and resources — and not the view or the selection, so one
