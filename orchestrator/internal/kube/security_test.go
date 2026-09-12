@@ -35,6 +35,15 @@ func assertRestricted(t *testing.T, what string, pod corev1.PodSpec) {
 		if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot {
 			t.Errorf("%s: container %q does not require a non-root user", what, ct.Name)
 		}
+		// Without the uid, requiring non-root is not a stricter pod — it is a pod
+		// that will not start. Every octo image names its user rather than
+		// numbering it, and the kubelet refuses what it cannot verify: "image has
+		// non-numeric user (nonroot), cannot verify user is non-root". This
+		// assertion exists because that failure reached a running cluster.
+		if sc.RunAsUser == nil || *sc.RunAsUser != nonrootUID {
+			t.Errorf("%s: container %q runs as %v, want the uid %d — a name alone will not start",
+				what, ct.Name, sc.RunAsUser, nonrootUID)
+		}
 	}
 }
 

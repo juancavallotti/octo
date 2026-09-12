@@ -24,6 +24,7 @@ import corev1 "k8s.io/api/core/v1"
 func restricted() *corev1.SecurityContext {
 	no := false
 	yes := true
+	uid := int64(nonrootUID)
 	return &corev1.SecurityContext{
 		// Capabilities are dropped wholesale rather than NET_RAW by name. The
 		// others — chown, setuid, changing file ownership — are equally unused by a
@@ -33,6 +34,19 @@ func restricted() *corev1.SecurityContext {
 		AllowPrivilegeEscalation: &no,
 		// Asserts what the images already are, so an image that stopped being
 		// non-root fails to start rather than quietly running as root.
+		//
+		// RunAsUser is required alongside it and is not decoration. Every image
+		// here declares its user by NAME (`USER nonroot`), and the kubelet cannot
+		// prove a name is not root — it refuses to start the container rather than
+		// guess, with "image has non-numeric user (nonroot), cannot verify user is
+		// non-root". Naming the uid is what lets the check pass, and it is the same
+		// uid the images already run as, so nothing about the process changes.
 		RunAsNonRoot: &yes,
+		RunAsUser:    &uid,
 	}
 }
+
+// nonrootUID is the user every octo image runs as: the uid behind distroless's
+// "nonroot", which the agentic runner's Dockerfile creates explicitly to match so
+// a workspace written by one runner is readable by the other.
+const nonrootUID = 65532
