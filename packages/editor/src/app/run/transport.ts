@@ -7,7 +7,7 @@
  * local process. The concrete transports live in the apps that embed the editor.
  */
 
-import type { TestRunOutcome, TestRunRequest } from "./testTransport";
+import type { ObservedAtAddress, TestRunOutcome, TestRunRequest } from "./testTransport";
 
 // The Testing tab's types live next door — they are as long again as the rest of this
 // contract — but they are part of it, so they are re-exported from here.
@@ -107,6 +107,15 @@ export interface FlowRunRequest {
   spies?: string[];
   /** Blocks to stand in for, by address; the real block never runs. */
   mocks?: Record<string, MockSpec>;
+  /**
+   * Trace the run and report the message shapes it saw.
+   *
+   * The editor asks for this on every flow run it makes. A one-shot invoke is one
+   * flow and one message, already mocked however the canvas says — so most of what
+   * the scope model cannot work out by reading the document (what a source
+   * synthesizes, what a call returned) is sitting in a run the user made anyway.
+   */
+  learnShapes?: boolean;
 }
 
 /** What the flow was carrying at the breakpoint, or why it never got there. */
@@ -142,6 +151,13 @@ export interface FlowRunOutcome {
   spies?: SpyTrace[];
   /** Why the run could not be made at all (a bad address, an unloadable config). */
   error?: string;
+  /**
+   * Message shapes the run saw, by block address — only when they were asked for.
+   *
+   * Keys and type tags, never a value; see @octo/run-host's exec/shapes.ts, which
+   * reduces the trace on the server and discards it there.
+   */
+  shapes?: Record<string, ObservedAtAddress>;
 }
 
 /** Point-in-time runner state, as the provider needs it. */

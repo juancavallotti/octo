@@ -10,7 +10,7 @@ import {
   type ResourceProvider,
 } from "../resources";
 import { dolphinBin, octoBin, terminate } from "../child";
-import { parseTrace, reduceTrace, toRecord, type ObservedShapes } from "./shapes";
+import { shapesFromTraces, type ObservedShapes } from "./shapes";
 
 /**
  * Running a flow's dolphin test suites, for the editor's Testing tab.
@@ -400,18 +400,12 @@ async function readShapes(dir: string): Promise<Record<string, ObservedShapes> |
   try {
     files = await readdir(dir);
   } catch {
+    // No case got far enough to trace anything. Nothing learned, nothing wrong.
     return undefined;
   }
-  const seen = new Map<string, ObservedShapes>();
-  for (const name of files) {
-    if (!name.endsWith(".trace.jsonl")) continue;
-    try {
-      reduceTrace(parseTrace(await readFile(join(dir, name), "utf8")), seen);
-    } catch {
-      // One unreadable trace costs that case's shapes, not the others'.
-    }
-  }
-  return seen.size > 0 ? toRecord(seen) : undefined;
+  return shapesFromTraces(
+    files.filter((name) => name.endsWith(".trace.jsonl")).map((name) => join(dir, name)),
+  );
 }
 
 /**

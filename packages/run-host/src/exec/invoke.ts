@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { injectDevEnvResource, resolveAndStage, type ResourceProvider } from "../resources";
 import { namespaceDir, writeConfig } from "../staging";
+import { shapesFromTraces, type ObservedShapes } from "./shapes";
 import { octoBin, splitLines, terminate } from "../child";
 
 /**
@@ -172,6 +173,15 @@ export interface InvokeResult {
    * narrow an optional `reached`.
    */
   breakpoint?: BreakOutcome;
+  /**
+   * The message shapes this run saw, by block address — present only when the caller
+   * asked for them with `learnShapes`.
+   *
+   * Keys and type tags, never a value. The trace they are reduced from holds the real
+   * bodies, and it is read and discarded inside this call, before the staged directory
+   * goes — so nothing carrying a scalar from the run leaves here. See exec/shapes.ts.
+   */
+  shapes?: Record<string, ObservedShapes>;
   /** What each spied block saw, present only for a `spies` invoke. */
   spies?: SpyTrace[];
 }
@@ -211,6 +221,16 @@ export async function invoke(
     mocks?: Record<string, MockSpec>;
     /** Runner log level. Applied as LOG_LEVEL, which `env` can still override. */
     logLevel?: LogLevel;
+    /**
+     * Trace the run and report the message shapes it saw.
+     *
+     * A one-shot invoke is the cheapest true answer there is to "what do this flow's
+     * messages look like" — it is one flow, one message, already mocked however the
+     * canvas says. Most of what a scope model cannot work out by reading the document
+     * (what a source synthesizes, what a REST call returned) is sitting in the run the
+     * user just made.
+     */
+    learnShapes?: boolean;
   },
 ): Promise<InvokeResult> {
   const bin = octoBin();
@@ -250,6 +270,11 @@ export async function invoke(
   // "mock nothing", which is what omitting the flag already means.
   const mocks = opts?.mocks ?? {};
   if (Object.keys(mocks).length > 0) args.push("--mocks", JSON.stringify(mocks));
+
+  // Inside the run's own directory, so it is removed with everything else this call
+  // staged — the trace holds the message bodies and must not outlive the call.
+  const tracePath = opts?.learnShapes ? join(invokeDir, "run.trace.jsonl") : undefined;
+  if (tracePath) args.push("--traces", "--traces-file", tracePath);
 
   // Only a run that was asked to *observe* itself prints an envelope. A mocks-only run
   // prints its result message like any other, so we must not go looking for one.
@@ -338,8 +363,11 @@ export async function invoke(
     proc.on("exit", (code) => finish(code));
   });
 
+  // Read before the cleanup below removes it. This is the only point at which the
+  // run's real bodies exist in this process, and they do not outlive the call.
+  const shapes = tracePath ? await shapesFromTraces([tracePath]) : undefined;
   await rm(invokeDir, { recursive: true, force: true }).catch(() => {});
-  return result;
+  return shapes ? { ...result, shapes } : result;
 }
 
 /**

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 /**
  * Turning a trace into message *shapes* — keys and types, never values.
  *
@@ -191,4 +193,26 @@ export function parseTrace(content: string): TraceRecord[] {
 /** The plain-object form, for a JSON response. */
 export function toRecord(shapes: Map<string, ObservedShapes>): Record<string, ObservedShapes> {
   return Object.fromEntries(shapes);
+}
+
+/**
+ * Fold every trace file into one set of shapes.
+ *
+ * One file per `octo invoke`, so a single flow run passes one path and a suite run
+ * passes one per case. A file that cannot be read costs that run's shapes and no
+ * more: this is a best-effort extra on top of whatever the caller actually asked
+ * for, and it must never be the reason that failed.
+ */
+export async function shapesFromTraces(
+  files: readonly string[],
+): Promise<Record<string, ObservedShapes> | undefined> {
+  const seen = new Map<string, ObservedShapes>();
+  for (const file of files) {
+    try {
+      reduceTrace(parseTrace(await readFile(file, "utf8")), seen);
+    } catch {
+      // Never written (the run died first), or unreadable. Nothing to learn from it.
+    }
+  }
+  return seen.size > 0 ? toRecord(seen) : undefined;
 }

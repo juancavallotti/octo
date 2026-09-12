@@ -176,6 +176,9 @@ export async function runInvoke(
         breakAt: req.breakAt,
         spies: req.spies,
         mocks: req.mocks,
+        // The shapes come back reduced to keys and type tags — the trace they are read
+        // from never leaves the run host, which is where the real bodies are.
+        learnShapes: req.learnShapes === true,
         logLevel: "error",
         resources: resourcesFor(req.integrationId),
       });
@@ -189,6 +192,7 @@ export async function runInvoke(
           logs: r.logs,
           breakpoint: r.breakpoint,
           spies: r.spies,
+          ...(r.shapes ? { shapes: r.shapes } : {}),
         },
       };
     } catch (err) {
