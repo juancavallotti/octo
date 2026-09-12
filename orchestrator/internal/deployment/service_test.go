@@ -1476,7 +1476,7 @@ func TestRolloutRequiredEnvSatisfiedByFrozenEnvFile(t *testing.T) {
 type failingMinter struct{}
 
 func (failingMinter) Configured() bool { return true }
-func (failingMinter) MintMachine(context.Context, string, string) (string, error) {
+func (failingMinter) MintMachine(context.Context, string, string, []string) (string, error) {
 	return "", errors.New("iam said no")
 }
 
