@@ -52,6 +52,12 @@ runtime. See [Running flows](/editor/running-flows).
 The left sidebar lists the flow blocks, grouped into collapsible sections with
 a filter box. Click or drag one to add it to the active flow.
 
+Press <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>/</kbd> to search the same list from
+anywhere without reaching for the sidebar: type part of a block's name or its
+runtime type, and <kbd>Enter</kbd> adds the first match. It lands in the flow the
+selected block is in, so a block selected inside a switch case or a fork branch
+adds to that branch.
+
 The palette is not hardcoded: it is generated from the runtime's capability
 schema (`octo schema`), so the editor always offers exactly what the bundled
 `octo` binary can run. See [How it works](/editor/how-it-works).
@@ -61,7 +67,8 @@ schema (`octo schema`), so the editor always offers exactly what the bundled
 The center canvas shows the integration: launchers along the top manage its
 connections, declared environment variables, and resources, and each flow is a
 board of source and block cards you reorder by drag and drop. Selecting a card
-opens it in the settings panel.
+opens it in the settings panel. <kbd>Delete</kbd> removes the selected card and
+<kbd>Escape</kbd> deselects.
 
 ### Settings panel
 
@@ -79,6 +86,25 @@ values for the flow's declared environment variables. It expands automatically
 when a run starts and can be resized or collapsed.
 
 ![The editor's tabbed console: Logs and Dev .env, with a run's test URL in the header](/screenshots/editor-console.png)
+
+### Keyboard
+
+| | |
+| --- | --- |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>/</kbd> | Add a component |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd> | Undo |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> | Redo |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>S</kbd> | Save |
+| <kbd>Delete</kbd> | Remove the selected card |
+| <kbd>Escape</kbd> | Deselect |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>=</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom in, out, reset |
+| <kbd>Shift</kbd> + <kbd>!</kbd> | Zoom to fit |
+
+Undo covers everything that changes the document — blocks, settings, connections,
+environment variables and resources — and not the view or the selection, so one
+press takes back one edit. Typing in a field is a single step rather than one per
+keystroke. Inside a text field the browser's own undo applies; step out of the
+field and <kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd> takes back the whole edit.
 
 ## Who it's for
 
