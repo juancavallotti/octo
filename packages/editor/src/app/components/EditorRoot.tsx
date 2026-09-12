@@ -26,6 +26,9 @@ import {
   type TestSuiteStore,
 } from "../providers/TestSuiteProvider";
 import { CanvasZoomProvider } from "../canvas/ZoomContext";
+import { EditorPrefsProvider, type EditorPrefs } from "../prefs/prefs";
+import AutoLearn from "../run/AutoLearn";
+import { ScopeIndexProvider } from "../scope/ScopeContext";
 import { LayoutProvider } from "../state/layout";
 import { CelTesterProvider } from "../cel/CelTesterStore";
 import IntegrationLoader from "./IntegrationLoader";
@@ -63,6 +66,7 @@ export default function EditorRoot({
   metaToken,
   tests,
   testsToken,
+  prefs,
   onSaved,
 }: {
   integrationId?: string;
@@ -113,6 +117,12 @@ export default function EditorRoot({
   tests?: TestSuiteStore | null;
   /** Bumped when something else wrote a suite for this document. */
   testsToken?: string | number;
+  /**
+   * How the person using the editor has said it should behave — set by the host, which
+   * is where a preferences UI belongs (Octo Desktop's Settings window, a platform user
+   * profile). Every field defaults conservatively, so omitting this is always safe.
+   */
+  prefs?: Partial<EditorPrefs> | null;
   /** Called after a save with the stored record (e.g. to update the URL). */
   onSaved?: (stored: StoredDocument) => void;
 }) {
@@ -150,6 +160,10 @@ export default function EditorRoot({
     tree = (
       <RunProvider transport={run}>
         <FlowRunProvider transport={run}>
+          {/* Runs nothing the user asked for, so it renders nothing and sits beside the
+              tree rather than wrapping it. It needs the run transport, which is why it
+              is mounted here and not with the other document-wide concerns. */}
+          <AutoLearn transport={run} />
           {/* Suite runs report into the console like every other kind of run, so this
               sits above both the Testing tab that starts one and the panel that shows
               what came back. */}
@@ -166,6 +180,11 @@ export default function EditorRoot({
         <SaveProvider onSaved={onSaved}>{tree}</SaveProvider>
       </FileSystemProvider>
     );
+
+  // Below the suite provider (wrapped first, so it ends up inside): the scope model
+  // reads the suites, and a suite is the richest thing the workspace has to say about
+  // what a flow's messages look like — its inputs, its mocks, what it expects back.
+  tree = <ScopeIndexProvider>{tree}</ScopeIndexProvider>;
 
   // Suites are mounted only when the host backs them, because that null is what hides
   // the Testing tab — the one capability where absence means "not offered" rather than
@@ -184,25 +203,27 @@ export default function EditorRoot({
   // the document, so it sits inside the state provider.
   return (
     <EditorStateProvider>
-      <EditorMetaProvider store={meta ?? null} reloadToken={metaToken}>
-        {/* Canvas zoom is mounted here rather than in EditorBody, which returns
-            early for the YAML, Resources and Testing views — a provider there
-            would unmount on every trip to the YAML tab and hand the reader back
-            a canvas at 100%, losing a setting they chose because the flow is too
-            big to read at 100%. The drag overlay and the draggable nodes read it
-            too, and both sit outside the canvas. */}
-        <CanvasZoomProvider>
-          {/* Above the console provider: the header's layout toggles read both, and
-              which panels are showing outlives any one run. */}
-          <LayoutProvider>
-            {/* The CEL tab's scratchpad outlives the tab, so it is mounted with the
-                console rather than inside it. */}
-            <ConsoleProvider>
-              <CelTesterProvider>{tree}</CelTesterProvider>
-            </ConsoleProvider>
-          </LayoutProvider>
-        </CanvasZoomProvider>
-      </EditorMetaProvider>
+      <EditorPrefsProvider prefs={prefs}>
+        <EditorMetaProvider store={meta ?? null} reloadToken={metaToken}>
+          {/* Canvas zoom is mounted here rather than in EditorBody, which returns
+              early for the YAML, Resources and Testing views — a provider there
+              would unmount on every trip to the YAML tab and hand the reader back
+              a canvas at 100%, losing a setting they chose because the flow is too
+              big to read at 100%. The drag overlay and the draggable nodes read it
+              too, and both sit outside the canvas. */}
+          <CanvasZoomProvider>
+            {/* Above the console provider: the header's layout toggles read both, and
+                which panels are showing outlives any one run. */}
+            <LayoutProvider>
+              {/* The CEL tab's scratchpad outlives the tab, so it is mounted with the
+                  console rather than inside it. */}
+              <ConsoleProvider>
+                <CelTesterProvider>{tree}</CelTesterProvider>
+              </ConsoleProvider>
+            </LayoutProvider>
+          </CanvasZoomProvider>
+        </EditorMetaProvider>
+      </EditorPrefsProvider>
     </EditorStateProvider>
   );
 }

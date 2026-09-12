@@ -326,6 +326,57 @@ export function findBlock(
   return undefined;
 }
 
+/**
+ * The flow whose own chain holds `blockId` — the sub-flow when the block sits inside a
+ * composite, not the top-level flow that composite belongs to.
+ *
+ * REMOVE_BLOCK and ADD_BLOCK both address a flow, and every existing caller had one to
+ * hand from the props it was rendered with. A keyboard command has only the selection,
+ * so it has to ask.
+ */
+export function owningFlowId(
+  doc: EditorDocument,
+  blockId: string,
+): string | null {
+  const visit = (flow: FlowDoc): string | null => {
+    for (const block of flow.process) {
+      if (block.id === blockId) return flow.id;
+      for (const subs of Object.values(block.slots ?? {})) {
+        for (const sub of subs) {
+          const hit = visit(sub);
+          if (hit) return hit;
+        }
+      }
+    }
+    return flow.error ? visit(flow.error) : null;
+  };
+  for (const flow of doc.flows) {
+    const hit = visit(flow);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * The TOP-LEVEL flow a block belongs to, however deep inside composites it sits.
+ *
+ * Distinct from {@link owningFlowId}, which answers "which chain holds it" — the
+ * sub-flow of a switch case, say. Running is a top-level idea: you invoke a flow by
+ * name, and a branch inside one is not something the runner can be pointed at.
+ */
+export function rootFlowIdOf(doc: EditorDocument, blockId: string): string | null {
+  const holds = (flow: FlowDoc): boolean => {
+    for (const block of flow.process) {
+      if (block.id === blockId) return true;
+      for (const subs of Object.values(block.slots ?? {})) {
+        if (subs.some(holds)) return true;
+      }
+    }
+    return flow.error ? holds(flow.error) : false;
+  };
+  return doc.flows.find(holds)?.id ?? null;
+}
+
 /** Find a flow by id anywhere in the tree (top-level or nested in a slot). */
 export function findFlow(
   doc: EditorDocument,

@@ -87,6 +87,45 @@ export function isValidCase(c: MockCase): boolean {
   return !(c.vars !== undefined && c.body === undefined);
 }
 
+/**
+ * A message shape the editor has seen, as it is stored.
+ *
+ * Keys and type tags only — never a value. This file is committed, and a traced run
+ * carries real bodies: bearer tokens, customer emails, card numbers. The rule is
+ * enforced where the shapes are produced (`@octo/run-host`'s exec/shapes.ts, which
+ * reduces the traces on the server and discards them), so nothing carrying a scalar
+ * from a run ever reaches here. This type mirrors that wire format.
+ *
+ * Tagged and self-describing so it can grow: an unrecognised `t` degrades to "not
+ * known" rather than failing the parse.
+ */
+export interface EncodedShape {
+  t: "string" | "number" | "bool" | "null" | "list" | "object" | "dyn";
+  /** Element shape, for a list. */
+  of?: EncodedShape;
+  /** Field shapes, for an object. */
+  f?: Record<string, EncodedShape>;
+}
+
+/** The body and variables of one observed message. */
+export interface ObservedMessage {
+  body?: EncodedShape;
+  vars?: EncodedShape;
+}
+
+/**
+ * What was seen at one block address: the message it received, and the one it
+ * produced.
+ *
+ * The two stay apart. A variable a block sets belongs downstream of it, so folding
+ * them together would offer that variable in the block's own settings — where it does
+ * not exist yet.
+ */
+export interface ObservedEntry {
+  in?: ObservedMessage;
+  out?: ObservedMessage;
+}
+
 /** What the editor knows about one flow. */
 export interface FlowMeta {
   inputs: TestInput[];
@@ -98,6 +137,12 @@ export interface FlowMeta {
    * or it is not.
    */
   spies?: string[];
+  /**
+   * Message shapes learned from a traced test run, by the same runtime address mocks
+   * and spies use. A cache: losing it costs the completion menu some field names
+   * until the next run, and nothing else.
+   */
+  observed?: Record<string, ObservedEntry>;
 }
 
 /**

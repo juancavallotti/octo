@@ -19,6 +19,7 @@
  */
 
 import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { noteWritten } from "./watch";
 import path from "node:path";
 
 export interface FlowDoc {
@@ -38,8 +39,20 @@ export function fsRoot(): string {
 // name a parent (`..`) or nested directory. This is the path-traversal guard.
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/;
 
-function nameOf(id: string): string {
+/**
+ * A flow id without its extension — the name the editor shows and the runtime uses.
+ *
+ * Exported because the filesystem watcher needs exactly this rule and must not grow a
+ * second copy of it: a watcher that knows about `.yaml` but not `.yml` silently stops
+ * announcing half the files this store is happy to read.
+ */
+export function nameOf(id: string): string {
   return id.replace(/\.ya?ml$/i, "");
+}
+
+/** Whether a filename is one this store would serve: a flow or a suite in the root. */
+export function isStoredFile(name: string): boolean {
+  return ID_RE.test(name);
 }
 
 /**
@@ -120,6 +133,10 @@ export async function readFlow(id: string): Promise<FlowDoc> {
 export async function writeFlow(id: string, definition: string): Promise<FlowDoc> {
   const full = resolveSafe(id);
   await mkdir(path.dirname(full), { recursive: true });
+  // Recorded BEFORE the write, so the watcher cannot see the file change before it
+  // has been told whose change it was — which would announce the editor's own save
+  // back to it as somebody else's.
+  noteWritten(id, definition);
   await writeFile(full, definition, "utf8");
   return { id, name: nameOf(id), definition };
 }

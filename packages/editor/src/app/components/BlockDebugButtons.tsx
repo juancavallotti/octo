@@ -5,6 +5,7 @@ import { Eye, TestTube } from "lucide-react";
 import { Popover } from "../../components/ui";
 import { useRun } from "../run/RunContext";
 import { useBlockDebug } from "../run/useBlockDebug";
+import { CelScopeProvider } from "../scope/ScopeContext";
 import MockForm from "./MockForm";
 import SpyBadge from "./SpyBadge";
 
@@ -62,6 +63,9 @@ export default function BlockDebugButtons({ blockId }: { blockId: string }) {
         }
       >
         {editing && (
+          // A mock's `when` is evaluated against the message the block RECEIVED, which
+          // is exactly the block site's scope.
+          <CelScopeProvider site={{ kind: "block", blockId }}>
           <MockForm
             initial={debug.mock}
             onSubmit={(mock) => {
@@ -78,6 +82,7 @@ export default function BlockDebugButtons({ blockId }: { blockId: string }) {
             }
             onCancel={() => setEditing(false)}
           />
+          </CelScopeProvider>
         )}
       </Popover>
 

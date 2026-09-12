@@ -160,6 +160,9 @@ describe("runTest", () => {
       suites: req.suites,
       env: undefined,
       resources: { marker: "int-1" },
+      // Off unless the caller asked: the editor sends it on every suite run, but the
+      // action must not decide that for a caller who said nothing.
+      learnShapes: false,
     });
   });
 

@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   createFlow,
+  isStoredFile,
   listFlows,
+  nameOf,
   readFlow,
   updateFlow,
   writeFlow,
@@ -137,5 +139,29 @@ describe("standalone flow store", () => {
   it("cannot create a flow whose name would look like a test suite", async () => {
     const created = await createFlow("orders_test", "x");
     expect(created.id).toBe("orders-test.yaml");
+  });
+});
+
+/**
+ * These two are exported for the filesystem watcher, which must agree with the store
+ * about which files exist — the watcher used to answer the question itself and left
+ * every `.yml` flow silently stale.
+ */
+describe("filename rules shared with the watcher", () => {
+  it("accepts both spellings of the extension", () => {
+    expect(isStoredFile("orders.yaml")).toBe(true);
+    expect(isStoredFile("orders.yml")).toBe(true);
+  });
+
+  it("rejects dotfiles, nested paths and anything else", () => {
+    expect(isStoredFile(".hidden.yaml")).toBe(false);
+    expect(isStoredFile("sub/orders.yaml")).toBe(false);
+    expect(isStoredFile("../orders.yaml")).toBe(false);
+    expect(isStoredFile("orders.json")).toBe(false);
+  });
+
+  it("strips either extension to get the name", () => {
+    expect(nameOf("orders.yaml")).toBe("orders");
+    expect(nameOf("orders.yml")).toBe("orders");
   });
 });

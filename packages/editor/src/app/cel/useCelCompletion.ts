@@ -61,12 +61,15 @@ export function useCelCompletion({
   onChange,
   scope,
   members,
+  roots,
 }: {
   value: string;
   onChange: (value: string) => void;
   scope: CelScope;
   /** Optional member-completion source (e.g. keys from the CEL tester's JSON samples). */
   members?: MemberProvider;
+  /** The root names actually in scope here, replacing the catalogue's fixed six. */
+  roots?: CelEntry[];
 }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [selected, setSelected] = useState(0);
@@ -91,6 +94,7 @@ export function useCelCompletion({
       const { items, query } = completionsAt(local, caret - region.start, {
         explicit,
         members,
+        roots,
       });
       if (items.length === 0) {
         setMenu(null);
@@ -116,7 +120,7 @@ export function useCelCompletion({
       });
       setSelected(0);
     },
-    [scope, members],
+    [scope, members, roots],
   );
 
   // Reposition the caret after an accepted completion re-renders with new value.

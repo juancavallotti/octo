@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Settings</title>
+<!-- No remote anything: this page is served from file:// and talks only to the
+     main process over its preload bridge. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'" />
+<style>
+  :root { color-scheme: light dark; --line: #e7e5e4; --muted: #78716c; --bg: #fafaf9; --fg: #1c1917; --card: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --line: #292524; --muted: #a8a29e; --bg: #1c1917; --fg: #f5f5f4; --card: #232020; }
+  }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--fg);
+    padding: 22px 24px 24px; box-sizing: border-box;
+  }
+  h1 { font-size: 15px; margin: 0 0 18px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  section { margin-bottom: 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .row { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .name { font-weight: 600; width: 68px; flex: none; }
+  .row .detail { flex: 1; min-width: 0; }
+  .path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted);
+    /* Wrapped rather than truncated. A path is read from both ends — the volume it
+       is on and the binary it names — so an ellipsis at either end hides the half
+       someone is checking. Two lines is enough for any path worth showing, and the
+       window is fixed-width so nothing here can widen it. */
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden; overflow-wrap: anywhere;
+  }
+  .version { color: var(--muted); }
+  .warn { color: #b45309; }
+  @media (prefers-color-scheme: dark) { .warn { color: #fbbf24; } }
+  button {
+    font: inherit; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: transparent; color: inherit; cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: rgba(120,113,108,.12); }
+  button:disabled { opacity: .45; cursor: default; }
+  label.check { display: flex; gap: 8px; align-items: flex-start; }
+  label.check span { flex: 1; }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+  footer { display: flex; align-items: center; gap: 10px; }
+  footer .spacer { flex: 1; }
+</style>
+
+<h1>Settings</h1>
+
+<section>
+  <h2>Runtime</h2>
+  <div class="card" id="binaries"></div>
+  <p class="hint">
+    Octo Desktop ships a matched pair of binaries. Point these at your own build to
+    run flows with a different runtime. Changing one restarts the editor server.
+  </p>
+</section>
+
+<section>
+  <h2>Editor</h2>
+  <div class="card">
+    <label class="check">
+      <input type="checkbox" id="autoLearn" />
+      <span>Execute flows automatically to enhance auto completion</span>
+    </label>
+  </div>
+  <p class="hint">
+    Only flows that do nothing outside Octo are ever run this way — a flow that calls an
+    API, sends a message or writes to storage is left alone until you run it yourself.
+  </p>
+</section>
+
+<section>
+  <h2>Updates</h2>
+  <div class="card">
+    <label class="check">
+      <input type="checkbox" id="auto" />
+      <span>Check for updates when Octo starts</span>
+    </label>
+  </div>
+</section>
+
+<footer>
+  <span class="version" id="appVersion"></span>
+  <span class="spacer"></span>
+  <button id="check">Check for Updates…</button>
+  <button id="close">Done</button>
+</footer>
+
+<script src="settings.js"></script>

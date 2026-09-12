@@ -5,6 +5,7 @@ import { highlightCel } from "./highlight";
 import CompletionMenu from "./CompletionMenu";
 import { useCelCompletion, WHOLE_TEXT_SCOPE } from "./useCelCompletion";
 import type { MemberProvider } from "./complete";
+import { useCelMembers, useCelRoots } from "../scope/ScopeContext";
 
 /**
  * A single-field CEL editor: a syntax-highlighted text input (react-simple-code-editor
@@ -39,7 +40,11 @@ export interface CelEditorProps {
   /** Forwarded to the textarea for label association. */
   id?: string;
   disabled?: boolean;
-  /** Optional member-completion source (e.g. keys from the CEL tester's JSON samples). */
+  /**
+   * Member-completion source. Omitted, the field takes the scope of wherever it is
+   * mounted (see scope/ScopeContext) — which is what every settings form relies on.
+   * The CEL tester passes its own, from the JSON samples the user typed there.
+   */
   members?: MemberProvider;
 }
 
@@ -52,11 +57,16 @@ export default function CelEditor({
   disabled,
   members,
 }: CelEditorProps) {
+  const scopeMembers = useCelMembers();
+  const roots = useCelRoots();
   const { menu, selected, setSelected, accept, handlers } = useCelCompletion({
     value,
     onChange,
     scope: WHOLE_TEXT_SCOPE,
-    members,
+    // An explicit prop wins: a caller that knows the data beats a caller that only
+    // knows the position.
+    members: members ?? scopeMembers,
+    roots,
   });
 
   return (

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { namespaceDir, writeConfig } from "../staging";
@@ -10,6 +10,7 @@ import {
   type ResourceProvider,
 } from "../resources";
 import { dolphinBin, octoBin, terminate } from "../child";
+import { shapesFromTraces, type ObservedShapes } from "./shapes";
 
 /**
  * Running a flow's dolphin test suites, for the editor's Testing tab.
@@ -176,6 +177,16 @@ export interface TestRunOutcome {
   logs: string[];
   /** Why the run could not be made at all, or its report not read. */
   error?: string;
+  /**
+   * The message shapes the run saw, by block address — present only when the caller
+   * asked for them with {@link TestRunArgs.learnShapes}.
+   *
+   * Keys and type tags, never a value. The traces they are reduced from hold real
+   * bodies, and they are read and discarded inside this function, before the staged
+   * directory goes — so nothing carrying a scalar from the run ever leaves here. See
+   * exec/shapes.ts.
+   */
+  shapes?: Record<string, ObservedShapes>;
 }
 
 /** One suite to run: the caller's name for it, and the YAML. */
@@ -197,6 +208,14 @@ export interface TestRunArgs {
   suites: TestSuiteInput[];
   /** Extra environment for dolphin (and so for every case). */
   env?: Record<string, string>;
+  /**
+   * Run the cases under tracing and report the message shapes they produced.
+   *
+   * Off by default, and worth being deliberate about: tracing records two events per
+   * block per message and marshals the payload for each. A suite run is short, which
+   * is what makes this affordable at all — it is not something to leave on.
+   */
+  learnShapes?: boolean;
   /** Wall-clock budget for the whole run. */
   timeoutMs?: number;
   /** Cases at once; see {@link DEFAULT_PARALLEL}. */
@@ -325,6 +344,7 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
     });
     await Promise.all(staged.map(({ suite, path }) => writeConfig(path, suite.content)));
 
+    const tracesDir = args.learnShapes ? join(dir, "traces") : undefined;
     const result = await runDolphin(bin, octo, {
       dir,
       configPath,
@@ -333,7 +353,13 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
       env: args.env,
       timeoutMs: resolveTimeout(args.suites.length, args.timeoutMs),
       parallel: resolveParallel(args.parallel),
+      tracesDir,
     });
+
+    // Read and reduce before the finally below removes the directory. This is the
+    // only point at which the run's real bodies exist in this process, and they do
+    // not outlive the call.
+    const shapes = tracesDir ? await readShapes(tracesDir) : undefined;
 
     // dolphin reports a suite by its staged path, and carries the staged config path
     // alongside it. The caller has never heard of that directory — it is deleted before
@@ -347,6 +373,7 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
     const byPath = new Map(staged.map((s) => [s.path, s.suite.name]));
     return {
       ...result,
+      ...(shapes ? { shapes } : {}),
       suites: result.suites.map((s) => ({
         // A path we did not stage cannot happen — dolphin only ran what we gave it —
         // but falling back to the bare filename keeps a surprise legible instead of
@@ -359,6 +386,26 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * Read every case's trace and fold it into one set of shapes.
+ *
+ * A missing directory is not a failure: a run where no case got far enough to trace
+ * anything simply taught us nothing, and failing the run over it would turn a
+ * best-effort extra into a reason the tests did not report.
+ */
+async function readShapes(dir: string): Promise<Record<string, ObservedShapes> | undefined> {
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    // No case got far enough to trace anything. Nothing learned, nothing wrong.
+    return undefined;
+  }
+  return shapesFromTraces(
+    files.filter((name) => name.endsWith(".trace.jsonl")).map((name) => join(dir, name)),
+  );
 }
 
 /**
@@ -379,6 +426,7 @@ async function runDolphin(
     env?: Record<string, string>;
     timeoutMs: number;
     parallel: number;
+    tracesDir?: string;
   },
 ): Promise<RawRunOutcome> {
   const argv = [
@@ -390,6 +438,7 @@ async function runDolphin(
     opts.reportPath,
     "--parallel",
     String(opts.parallel),
+    ...(opts.tracesDir ? ["--traces-dir", opts.tracesDir] : []),
   ];
 
   const env: NodeJS.ProcessEnv = {

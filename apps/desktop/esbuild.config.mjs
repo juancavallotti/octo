@@ -10,7 +10,8 @@ import esbuild from "esbuild";
  * no runtime dependencies at all, which in turn is what keeps electron-builder from
  * having to resolve production deps across pnpm's symlink farm — the single most
  * common pnpm + electron-builder failure. Everything this app needs at runtime is
- * either in these two files, in Electron itself, or in extraResources.
+ * either in these bundles, in Electron itself, or in extraResources — electron-updater
+ * included, which is a devDependency for exactly this reason.
  *
  *   node esbuild.config.mjs          build once
  *   node esbuild.config.mjs --run    watch, and (re)start Electron on each build
@@ -19,9 +20,9 @@ import esbuild from "esbuild";
 const watch = process.argv.includes("--run");
 
 /**
- * The splash page is loaded from disk at runtime rather than inlined, so it has to
- * land beside the bundle. Copied on every build: it is two files, and a stale
- * splash is a confusing thing to debug.
+ * The splash and Settings pages are loaded from disk at runtime rather than inlined,
+ * so they have to land beside the bundle. Copied on every build: it is a handful of
+ * files, and a stale page is a confusing thing to debug.
  */
 function copyStatic() {
   cpSync("src/main/static", "dist/main/static", { recursive: true });
@@ -41,13 +42,19 @@ const common = {
 
 const builds = [
   { ...common, entryPoints: ["src/main/index.ts"], outfile: "dist/main/index.js" },
+  // Both preloads run in a sandboxed renderer: no source map comment, since the
+  // file is loaded through Electron's own loader and a dangling comment only
+  // produces a console warning.
   {
     ...common,
     entryPoints: ["src/preload/index.ts"],
     outfile: "dist/preload/index.js",
-    // The preload runs in a sandboxed renderer: no source map comment, since the
-    // file is loaded through Electron's own loader and a dangling comment only
-    // produces a console warning.
+    sourcemap: "inline",
+  },
+  {
+    ...common,
+    entryPoints: ["src/preload/settings.ts"],
+    outfile: "dist/preload/settings.js",
     sourcemap: "inline",
   },
 ];
@@ -62,8 +69,8 @@ if (!watch) {
 let child = null;
 let restartTimer = null;
 /**
- * Restarts are suppressed until the first pair of bundles is on disk. Both builds
- * fire onEnd during the initial pass, and the debounce below is shorter than the
+ * Restarts are suppressed until the first set of bundles is on disk. Every build
+ * fires onEnd during the initial pass, and the debounce below is shorter than the
  * gap between them — so without this, Electron could start against a half-written
  * dist/ and exit, taking the watch with it.
  */
@@ -90,9 +97,9 @@ async function restart() {
 }
 
 /**
- * Coalesce the two builds' completions into one restart. Without this, main and
- * preload finishing a few ms apart would start Electron twice — and the first of
- * those would race a preload file that is mid-write.
+ * Coalesce the builds' completions into one restart. Without this, the bundles
+ * finishing a few ms apart would start Electron once each — and the first of those
+ * would race a preload file that is mid-write.
  */
 function scheduleRestart() {
   if (!armed) return;
@@ -115,9 +122,9 @@ const notify = {
 const contexts = await Promise.all(
   builds.map((b) => esbuild.context({ ...b, plugins: [notify] })),
 );
-// Build both, THEN start Electron once, and only then let rebuilds restart it.
+// Build them all, THEN start Electron once, and only then let rebuilds restart it.
 // The onEnd hooks fire during this pass while `armed` is still false, so nothing
-// launches against a dist/ that is missing the slower of the two bundles.
+// launches against a dist/ that is missing the slowest of the bundles.
 await Promise.all(contexts.map((c) => c.rebuild()));
 copyStatic();
 await restart();

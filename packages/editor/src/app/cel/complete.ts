@@ -126,7 +126,7 @@ export interface CompletionResult {
 export function completionsAt(
   text: string,
   caret: number,
-  opts?: { explicit?: boolean; members?: MemberProvider },
+  opts?: { explicit?: boolean; members?: MemberProvider; roots?: CelEntry[] },
 ): CompletionResult {
   const query = tokenAt(text, caret);
   // No completions inside string contents.
@@ -155,7 +155,7 @@ export function completionsAt(
   }
   if (query.token === "" && !opts?.explicit) return { query, items: [] };
   const lower = query.token.toLowerCase();
-  const items = allCompletions().filter((e) =>
+  const items = allCompletions(opts?.roots).filter((e) =>
     e.name.toLowerCase().startsWith(lower),
   );
   return { query, items };

@@ -92,6 +92,8 @@ export type {
   TestTotals,
 } from "./app/run/testTransport";
 export type { DevEnvStore } from "./app/state/devEnvStore";
+/** Editor preferences, as a host supplies them to EditorRoot. */
+export type { EditorPrefs } from "./app/prefs/prefs";
 export {
   EditorMetaProvider,
   useEditorMeta,

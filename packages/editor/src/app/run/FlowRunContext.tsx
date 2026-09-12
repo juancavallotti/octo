@@ -207,10 +207,18 @@ export function FlowRunProvider({
           breakAt,
           ...(spyAddresses.length > 0 ? { spies: spyAddresses } : {}),
           ...(Object.keys(mocks).length > 0 ? { mocks } : {}),
+          // Every run is also a chance to learn what these messages look like. This is
+          // where most of the answer is: a source's synthesized payload, a call's real
+          // response — things no reading of the document could tell us, sitting in a
+          // run the user made for their own reasons.
+          learnShapes: true,
         });
         // Spies report even when the flow failed — what a block was carrying when things
         // went wrong is the most useful thing on the screen — so collect before judging.
         collect(outcome.spies);
+        // A failed run is as informative as a successful one here: the blocks that DID
+        // run carried real messages, and those are exactly the ones being debugged.
+        if (outcome.shapes) meta?.learn(outcome.shapes);
         record({
           id: newId(),
           flowName,
@@ -240,7 +248,7 @@ export function FlowRunProvider({
         }
       }
     },
-    [transport, integrationId, record, debugArgs, collect],
+    [transport, integrationId, record, debugArgs, collect, meta],
   );
 
   const remember = useCallback((flowId: string, input?: TestInput) => {

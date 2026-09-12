@@ -7,6 +7,7 @@ import { getSourceSpec, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import SettingsField from "./SettingsField";
 import ReferenceField from "./fields/ReferenceField";
+import { CelScopeProvider } from "../scope/ScopeContext";
 
 /**
  * Settings body for a flow's selected source: a header (icon, label, close), one
@@ -55,6 +56,9 @@ export default function SourceSettings({ flow }: { flow: FlowDoc }) {
         </button>
       </header>
 
+      {/* A source payload has no message yet: `now` and `settings` only (Go:
+          SourcePayloadVars). Offering `body` here suggests what cannot compile. */}
+      <CelScopeProvider site={{ kind: "source", flowId: flow.id }}>
       <div className="flex flex-col gap-4 overflow-y-auto p-4">
         {source.connector && (
           <div className="flex flex-col gap-1">
@@ -92,6 +96,7 @@ export default function SourceSettings({ flow }: { flow: FlowDoc }) {
           />
         ))}
       </div>
+      </CelScopeProvider>
     </>
   );
 }

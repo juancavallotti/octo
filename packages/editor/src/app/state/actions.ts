@@ -76,6 +76,10 @@ export enum EditorActionType {
   SELECT_COMPONENT = "SELECT_COMPONENT",
   /** Clear the palette highlight. */
   CLEAR_SELECTION = "CLEAR_SELECTION",
+  /** Step back to the previous document state. Handled by the history wrapper. */
+  UNDO = "UNDO",
+  /** Step forward again after an undo. Handled by the history wrapper. */
+  REDO = "REDO",
 }
 
 export interface AddBlockPayload {

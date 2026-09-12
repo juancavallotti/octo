@@ -141,3 +141,60 @@ describe("existing", () => {
     expect(existing(recents).map((v) => v.path)).toEqual([live]);
   });
 });
+
+/**
+ * Settings are validated on read for the same reason everything else here is: the
+ * file is user-editable, and a runtime path of the wrong type reaches spawn() as a
+ * non-string and fails the launch. A hand-edited mistake should cost the setting.
+ */
+describe("settings", () => {
+  const stored = (settings: unknown) => {
+    const dir = scratch();
+    writeFileSync(stateFile(dir), JSON.stringify({ recents: [], settings }), "utf8");
+    return read(dir).settings;
+  };
+
+  it("round-trips what was chosen", () => {
+    expect(stored({ runtime: { octo: "/opt/octo" }, autoUpdateCheck: false })).toEqual({
+      runtime: { octo: "/opt/octo" },
+      autoUpdateCheck: false,
+    });
+  });
+
+  it("drops a path that is not a string", () => {
+    expect(stored({ runtime: { octo: 7, dolphin: "/opt/dolphin" } })).toEqual({
+      runtime: { dolphin: "/opt/dolphin" },
+    });
+  });
+
+  it("drops an empty path rather than storing a meaningless override", () => {
+    expect(stored({ runtime: { octo: "" } })).toEqual({});
+  });
+
+  it("drops a runtime that is not an object", () => {
+    expect(stored({ runtime: "octo" })).toEqual({});
+  });
+
+  it("drops a non-boolean update flag", () => {
+    expect(stored({ autoUpdateCheck: "yes" })).toEqual({});
+  });
+
+  it("round-trips an editor preference", () => {
+    expect(stored({ editor: { autoLearn: true } })).toEqual({ editor: { autoLearn: true } });
+  });
+
+  it("drops an editor preference that is not a boolean", () => {
+    // The page turns an absent preference into its default, and the default for
+    // running the user's flows unasked is no. A string must not read as yes.
+    expect(stored({ editor: { autoLearn: "yes" } })).toEqual({});
+  });
+
+  it("drops an editor block that is not an object", () => {
+    expect(stored({ editor: true })).toEqual({});
+  });
+
+  it("is absent when there are no settings at all", () => {
+    expect(stored(undefined)).toBeUndefined();
+    expect(read(scratch()).settings).toBeUndefined();
+  });
+});

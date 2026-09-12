@@ -169,6 +169,27 @@ func (s *Service) Usage() string {
 // services.New so the active module can build its publisher.
 func Options() core.TraceOptions { return service.Options() }
 
+// Flags registers the tracing flags on a FlagSet that is not `octo run`'s.
+//
+// `octo run` gets them by iterating services.Hosted(), which is right for a command
+// that starts every hosted service. A one-shot `octo invoke` must not: the other
+// hosted service binds a port, and a command that runs one flow and exits has no
+// business listening on one. So invoke names the service it wants rather than taking
+// them all, and this is that name.
+func Flags(fs *flag.FlagSet) { service.Flags(fs) }
+
+// Attach turns tracing on for a command that does not start hosted services.
+//
+// It registers the listeners Start would, and nothing else — there is nothing else:
+// the publisher is built by the runtime-services module from Options, and the
+// listeners are guarded on core.Tracer() being installed. Calling it when tracing is
+// off is a no-op, which is what makes it safe to call unconditionally.
+func Attach() {
+	// Start ignores both arguments and returns no error when disabled; passing a nil
+	// health is what a command with no health endpoint has to give it.
+	_ = service.Start(context.Background(), nil)
+}
+
 // Options returns this service's resolved configuration.
 func (s *Service) Options() core.TraceOptions {
 	return core.TraceOptions{

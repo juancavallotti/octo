@@ -4,6 +4,7 @@ import { Workflow } from "lucide-react";
 import type { FlowDoc } from "../model/document";
 import { duplicateNames, flowNames, slugify } from "../model/identity";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { CelScopeProvider } from "../scope/ScopeContext";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -75,6 +76,8 @@ export default function FlowSettings({ flow }: { flow: FlowDoc }) {
         <span className="font-semibold tracking-tight truncate">Flow</span>
       </header>
 
+      {/* Flow-level CEL is about the flow's result, so it sees the scope at its end. */}
+      <CelScopeProvider site={{ kind: "flow-output", flowId: flow.id }}>
       <div className="flex flex-col gap-4 overflow-y-auto p-4">
         <div className="flex flex-col gap-1">
           <label
@@ -137,6 +140,7 @@ export default function FlowSettings({ flow }: { flow: FlowDoc }) {
           </div>
         )}
       </div>
+      </CelScopeProvider>
     </>
   );
 }

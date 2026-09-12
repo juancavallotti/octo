@@ -199,3 +199,38 @@ describe("fileMetaFor / withFileMeta", () => {
     expect(base.resources["other.yaml"]).toBeUndefined(); // the original is untouched
   });
 });
+
+/**
+ * The `observed` shapes round-trip through a committed file, so what the reader
+ * rebuilds has to mean the same thing the writer meant.
+ */
+describe("observed shapes", () => {
+  const read = (shape: unknown) => {
+    const raw = JSON.stringify({
+      version: 1,
+      resources: { "orders.yaml": { flows: { orders: { inputs: [], observed: { "orders.a": { out: { body: shape } } } } } } },
+    });
+    return fileMetaFor(parseEditorMeta(raw), "orders.yaml").flows.orders?.observed?.["orders.a"]?.out
+      ?.body;
+  };
+
+  it("keeps a map with no field list as one", () => {
+    // An object with no `f` is a map whose keys were withheld because they looked
+    // like data. Rebuilding it as `f: {}` would make it an empty object, which the
+    // merger is entitled to union real keys into — handing back exactly what the
+    // collapse was there to withhold.
+    expect(read({ t: "object" })).toEqual({ t: "object" });
+  });
+
+  it("keeps an object that genuinely had no keys apart from one", () => {
+    expect(read({ t: "object", f: {} })).toEqual({ t: "object", f: {} });
+  });
+
+  it("reads the fields of an object that has them", () => {
+    expect(read({ t: "object", f: { a: { t: "string" } } })).toEqual({
+      t: "object",
+      f: { a: { t: "string" } },
+    });
+  });
+});
+

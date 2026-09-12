@@ -132,4 +132,25 @@ describe("CelTester", () => {
     ).toBeInTheDocument();
     expect(evalCel).not.toHaveBeenCalled();
   });
+
+  it("keeps Cmd+Enter to itself, so Run does not also start the integration", async () => {
+    // The document-level Run shortcut deliberately fires from inside text fields (a
+    // Run key that needs focus elsewhere reads as broken). This tab is the one place
+    // that claims the same chord, so it is the one place that has to stop the event.
+    const evalCel = vi.fn(async () => ({ ok: true, result: null }));
+    renderTester(stubTransport({ evalCel }));
+    const seen = vi.fn();
+    document.addEventListener("keydown", seen);
+
+    const field = screen.getByPlaceholderText("CEL expression");
+    fireEvent.change(field, { target: { value: "1 + 1", selectionStart: 5 } });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Run/ })).not.toBeDisabled(),
+    );
+    fireEvent.keyDown(field, { key: "Enter", metaKey: true });
+
+    await waitFor(() => expect(evalCel).toHaveBeenCalled());
+    expect(seen).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", seen);
+  });
 });

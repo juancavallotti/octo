@@ -52,6 +52,12 @@ runtime. See [Running flows](/editor/running-flows).
 The left sidebar lists the flow blocks, grouped into collapsible sections with
 a filter box. Click or drag one to add it to the active flow.
 
+Press <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>/</kbd> to search the same list from
+anywhere without reaching for the sidebar: type part of a block's name or its
+runtime type, and <kbd>Enter</kbd> adds the first match. It lands in the flow the
+selected block is in, so a block selected inside a switch case or a fork branch
+adds to that branch.
+
 The palette is not hardcoded: it is generated from the runtime's capability
 schema (`octo schema`), so the editor always offers exactly what the bundled
 `octo` binary can run. See [How it works](/editor/how-it-works).
@@ -61,7 +67,8 @@ schema (`octo schema`), so the editor always offers exactly what the bundled
 The center canvas shows the integration: launchers along the top manage its
 connections, declared environment variables, and resources, and each flow is a
 board of source and block cards you reorder by drag and drop. Selecting a card
-opens it in the settings panel.
+opens it in the settings panel. <kbd>Delete</kbd> removes the selected card and
+<kbd>Escape</kbd> deselects.
 
 ### Settings panel
 
@@ -69,6 +76,44 @@ The right panel edits the selected connection, source, or block. Its forms are
 also driven by the capability schema: each setting renders the right field for
 its declared type, including CEL expression fields with completion and an
 inline expression tester.
+
+**Completion knows where you are.** A CEL field offers the variables that are
+actually in scope at that point in the flow, worked out from the blocks above it: a
+`set-variable` named `userId` upstream means `vars.` completes to `userId` in every
+block after it, and a block that replaces the message body means the keys of the old
+one stop being offered. Each suggestion says where it came from — *set by
+set-variable*, *seen in a test input* — and one that only some branches set is marked
+as not being on every path.
+
+Bodies are harder than variables — the runtime types a body as `dyn` — so the editor
+reads what you have already written down about them:
+
+- **Saved test inputs**, which are what the flow is run with.
+- **Mocks**, which say what a block returns. A mocked payment block whose body you
+  wrote out completes downstream of itself, without ever calling the real API.
+- **[Test suites](/testing/in-the-editor)**, which are the richest source: their
+  shared inputs, each case's input, what a case expects the flow to answer, the mocks
+  they stand blocks in with, and the messages a spy expectation names.
+
+All of that is authored rather than captured, so it costs no run and it is committed
+beside the flows — a fresh checkout has it.
+
+**Running your tests teaches it the rest.** Every suite run from the Testing tab is
+traced, and the message entering and leaving each block is recorded as a *shape* —
+its field names and their types. That is how `body.` learns what a REST call or an
+LLM actually answers, which nothing in the document could have said. The suite's own
+mocks mean nothing real is called, so this costs one test run you were going to make
+anyway.
+
+Only names and types are kept, never a value: the shapes are reduced on the server
+and the trace they came from is discarded there. Keys that look like data rather than
+field names — an object keyed by email address or id — collapse to "a map", because
+that is the one place where keeping "only the keys" would still keep the data. What
+is stored lands in `.octo/editor-meta.json`; the eraser beside a suite forgets it, and
+running the tests again learns it back.
+
+The editor never suggests a name it cannot justify from one of these sources: an
+empty menu means it does not know, which is more useful than a guess.
 
 ### Console
 
@@ -79,6 +124,38 @@ values for the flow's declared environment variables. It expands automatically
 when a run starts and can be resized or collapsed.
 
 ![The editor's tabbed console: Logs and Dev .env, with a run's test URL in the header](/screenshots/editor-console.png)
+
+### Keyboard
+
+| | |
+| --- | --- |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> | Run — the integration, or the suites on the Testing tab |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> | Run the current flow once |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>.</kbd> | Stop |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>/</kbd> | Add a component |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd> | Undo |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> | Redo |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>S</kbd> | Save |
+| <kbd>Delete</kbd> | Remove the selected card |
+| <kbd>Escape</kbd> | Deselect |
+| <kbd>Cmd/Ctrl</kbd> + <kbd>=</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom in, out, reset |
+| <kbd>!</kbd> | Zoom to fit |
+
+<kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> runs whatever the view is about, which is the
+same rule the RUN button follows: the integration on the canvas, every suite on the
+Testing tab. It never *stops* a run — a key labelled run that halts things is a
+surprise — so <kbd>Cmd/Ctrl</kbd> + <kbd>.</kbd> is the one that means stop.
+
+It runs with the caret anywhere, including in a setting you were just editing, since
+that is where the caret usually is when you want to run. The CEL tab is the one
+exception: there <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> evaluates the expression, and
+only that.
+
+Undo covers everything that changes the document — blocks, settings, connections,
+environment variables and resources — and not the view or the selection, so one
+press takes back one edit. Typing in a field is a single step rather than one per
+keystroke. Inside a text field the browser's own undo applies; step out of the
+field and <kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd> takes back the whole edit.
 
 ## Who it's for
 

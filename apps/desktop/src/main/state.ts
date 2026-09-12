@@ -17,11 +17,35 @@ export interface Vault {
   openedAt: number;
 }
 
+/**
+ * What the user chose in Settings, as opposed to what the app remembers on its own.
+ *
+ * `runtime` holds *paths*, not versions, and deliberately: the bundled binaries are
+ * the default and an override is a file the user pointed at. A future "download a
+ * version" source would fill these same fields in with a path under userData, so it
+ * needs no migration and no second notion of which runtime is in use.
+ */
+export interface DesktopSettings {
+  /** Overrides for the runtime binaries. Absent means the ones inside the app. */
+  runtime?: { octo?: string; dolphin?: string };
+  /** Check for a new version of Octo Desktop on launch. Absent means yes. */
+  autoUpdateCheck?: boolean;
+  /**
+   * Preferences the editor reads, as opposed to the ones the shell acts on itself.
+   *
+   * Grouped under their own key because that is what they are: the shell stores them
+   * and hands them to the page, and nothing in the main process changes behaviour
+   * because of them. Absent means every editor preference is at its default.
+   */
+  editor?: { autoLearn?: boolean };
+}
+
 export interface DesktopState {
   lastVault?: string;
   recents: Vault[];
   port?: number;
   window?: { x?: number; y?: number; width: number; height: number };
+  settings?: DesktopSettings;
 }
 
 /** How many folders to remember. Long enough to be useful, short enough to scan. */
@@ -60,10 +84,35 @@ export function read(dir: string): DesktopState {
       // reaches BrowserWindow as NaN or a string and throws at construction —
       // which is a launch failure caused by a remembered convenience.
       window: validWindow(state.window),
+      settings: validSettings(state.settings),
     };
   } catch {
     return { ...EMPTY };
   }
+}
+
+/**
+ * Settings, with every field checked.
+ *
+ * A path of the wrong type would reach spawn() as a non-string and fail the launch,
+ * and this file is user-editable — so a hand-edited mistake has to cost the setting,
+ * not the app. Whether the path *exists* is not checked here: the file is read at
+ * launch and the binary may live on a volume that is not mounted yet, so that
+ * question belongs to the moment the binary is used.
+ */
+function validSettings(s: DesktopSettings | undefined): DesktopSettings | undefined {
+  if (!s || typeof s !== "object") return undefined;
+  const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
+  const runtime = s.runtime && typeof s.runtime === "object" ? s.runtime : undefined;
+  const octo = str(runtime?.octo);
+  const dolphin = str(runtime?.dolphin);
+  const editor = s.editor && typeof s.editor === "object" ? s.editor : undefined;
+  const autoLearn = typeof editor?.autoLearn === "boolean" ? editor.autoLearn : undefined;
+  return {
+    ...(octo || dolphin ? { runtime: { ...(octo ? { octo } : {}), ...(dolphin ? { dolphin } : {}) } } : {}),
+    ...(typeof s.autoUpdateCheck === "boolean" ? { autoUpdateCheck: s.autoUpdateCheck } : {}),
+    ...(autoLearn !== undefined ? { editor: { autoLearn } } : {}),
+  };
 }
 
 /** Remembered window geometry, or undefined if it is not a usable rectangle. */

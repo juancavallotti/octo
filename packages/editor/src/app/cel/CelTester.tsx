@@ -169,6 +169,10 @@ export default function CelTester() {
   function onKeyDown(e: React.KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
+      // Stopped here, or the document-level Run shortcut starts the integration as
+      // well: this tab is the one place that claims Cmd+Enter for itself, so it is
+      // the one place that has to say so.
+      e.stopPropagation();
       void evaluate();
     }
   }

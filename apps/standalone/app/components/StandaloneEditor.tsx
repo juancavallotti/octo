@@ -17,6 +17,7 @@ import { localDiskFileSystem } from "@/app/providers/localDiskFileSystem";
 import McpCopyAction from "./McpCopyAction";
 import StandaloneFileMenu from "./StandaloneFileMenu";
 import StandaloneHeader from "./StandaloneHeader";
+import { useDesktopPrefs } from "./useDesktopPrefs";
 
 /**
  * Standalone wiring for the shared editor: the local-disk filesystem capability
@@ -51,6 +52,10 @@ export default function StandaloneEditor({
    * each: the definition may need the user's say-so before it replaces unsaved work,
    * while a suite or a mock written elsewhere should simply appear.
    */
+  // Set in the desktop shell's Settings window; null in a browser, where the editor
+  // falls back to its own defaults.
+  const prefs = useDesktopPrefs();
+
   const [reloadToken, setReloadToken] = useState(0);
   const [testsToken, setTestsToken] = useState(0);
   const [metaToken, setMetaToken] = useState(0);
@@ -77,6 +82,7 @@ export default function StandaloneEditor({
       metaToken={metaToken}
       tests={localTestSuiteStore}
       testsToken={testsToken}
+      prefs={prefs}
       header={<StandaloneHeader />}
       files={
         <DocumentRename placeholder="untitled-file" label="Rename file">

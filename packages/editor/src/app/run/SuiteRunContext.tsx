@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useEditorState } from "../state/editorState";
+import { useEditorMeta } from "../providers/EditorMetaProvider";
 import { useRun } from "./RunContext";
 import { useConsole } from "./console";
 import { toRunnableYaml } from "../model/runConfig";
@@ -59,6 +60,7 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
   const { state } = useEditorState();
   const run = useRun();
   const consoleTabs = useConsole();
+  const meta = useEditorMeta();
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<TestRunOutcome | null>(null);
   const [flows, setFlows] = useState<string[]>([]);
@@ -98,9 +100,15 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
           yaml: toRunnableYaml(state.document),
           integrationId: state.integration.id ?? undefined,
           suites: targets,
+          // Every suite run the editor makes is also a chance to learn what these
+          // messages look like. The cases were going to run anyway and their mocks
+          // mean nothing real is called, so the only cost is the tracing overhead of
+          // a run that is already short.
+          learnShapes: true,
         });
         if (generation.current !== runGeneration) return;
         setOutcome(resolved);
+        if (resolved.shapes) meta?.learn(resolved.shapes);
       } catch (e) {
         if (generation.current !== runGeneration) return;
         // The call could not be made at all: no runner, no session, a transport error.
@@ -113,7 +121,7 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
         setRunning(false);
       }
     },
-    [consoleTabs, run, state.document, state.integration.id],
+    [consoleTabs, run, state.document, state.integration.id, meta],
   );
 
   const value = useMemo<SuiteRunValue>(

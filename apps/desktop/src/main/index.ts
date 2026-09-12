@@ -5,6 +5,8 @@ import { logPath, recent } from "./log";
 import { buildMenu } from "./menu";
 import { choosePort, pinnedPort } from "./port";
 import { current, onServerCrash, start, stop } from "./server";
+import { openSettings } from "./settingsWindow";
+import { checkOnLaunch } from "./update";
 import { initialVault, rememberVault } from "./vault";
 import { confineTo, createWindow, mainWindow, splashHint } from "./window";
 
@@ -24,16 +26,24 @@ import { confineTo, createWindow, mainWindow, splashHint } from "./window";
 // so dev and packaged read the same state file instead of two different ones.
 app.setName("Octo");
 
-/** Report a failed start with the server's own last words, which usually say why. */
+/**
+ * Report a failed start with the server's own last words, which usually say why.
+ *
+ * Settings is offered rather than only Quit because one cause of this dialog is a
+ * runtime binary the user chose that does not run — and quitting is not a way out of
+ * that. Choosing it leaves the app up on the splash screen so the setting can be
+ * corrected, which restarts the server from there.
+ */
 async function reportStartFailure(err: unknown): Promise<void> {
   const detail = err instanceof Error ? err.message : String(err);
   const { response } = await dialog.showMessageBox({
     type: "error",
     message: "Octo could not start its editor server.",
     detail,
-    buttons: ["Quit", "Show Logs"],
+    buttons: ["Quit", "Show Logs", "Settings…"],
     defaultId: 0,
   });
+  if (response === 2) return openSettings();
   if (response === 1) shell.showItemInFolder(logPath());
   app.quit();
 }
@@ -51,6 +61,10 @@ async function boot(): Promise<void> {
     // Rebuilt after the server is up, because two of its items (the MCP URL, the
     // reveal-folder item) are only meaningful once there is a server and a folder.
     buildMenu();
+    // After the server is up, not before: the first thing a launch owes the user is
+    // their editor, and a dialog about a new version in front of a splash screen is
+    // an interruption of the thing they actually asked for.
+    checkOnLaunch();
 
     const win = mainWindow();
     if (!win) return;

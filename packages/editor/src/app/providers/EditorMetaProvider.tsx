@@ -13,11 +13,14 @@ import {
 import { newId } from "../model/document";
 import { useEditorState } from "../state/editorState";
 import { fileMetaFor, parseEditorMeta, serializeEditorMeta, withFileMeta } from "../meta/parse";
+import { byFlow, mergeObserved, pruneObserved } from "../meta/observed";
+import { blockIdAddresses } from "../run/address";
 import { flowIdNames, syncFlowNames } from "../meta/rename";
 import {
   emptyFlowMeta,
   emptyMeta,
   type BlockMock,
+  type ObservedEntry,
   type EditorMeta,
   type FlowMeta,
   type TestInput,
@@ -77,6 +80,25 @@ interface EditorMetaValue {
   spies(flowId: string): string[];
   /** Turn the spy on the block at `address` on or off. */
   setSpy(flowId: string, address: string, on: boolean): void;
+
+  /**
+   * Message shapes a traced run saw, for every flow in the document, by block address.
+   *
+   * Document-wide rather than per flow because an address is rooted at a flow name and
+   * the scope model looks one up by address alone — the same reason enabledMocks() is.
+   */
+  observed(): Record<string, ObservedEntry>;
+  /**
+   * Fold in what a traced run saw, merging with what earlier runs saw.
+   *
+   * Takes the whole run's shapes and files each address under the flow it is rooted
+   * at, rather than under the flow that was run: a suite can reach another flow
+   * through a flow-ref, and filing its blocks under the caller would re-root them on
+   * a rename of a flow they are not in.
+   */
+  learn(shapes: Record<string, ObservedEntry>): void;
+  /** Forget what has been learned about a flow. */
+  forgetObserved(flowId: string): void;
 
   /** Every enabled mock in the document — what a run is given. */
   enabledMocks(): BlockMock[];
@@ -268,6 +290,39 @@ export function EditorMetaProvider({
       // name, so a mock or spy on another flow's block is not noise: the flow being
       // invoked may reach it through a flow-ref, and if it doesn't, the address simply
       // never fires. Sending everything means what the canvas shows is what the run does.
+      observed() {
+        const file = fileMetaFor(meta, documentKey ?? "");
+        return Object.values(file.flows).reduce<Record<string, ObservedEntry>>(
+          (all, entry) => ({ ...all, ...(entry.observed ?? {}) }),
+          {},
+        );
+      },
+      learn(shapes) {
+        const live = new Set(blockIdAddresses(doc).values());
+        for (const [flowName, forFlow] of byFlow(shapes)) {
+          // An address naming a flow this document does not have cannot be filed —
+          // edit() addresses a flow by client id. Dropping it beats inventing an entry
+          // under a name nothing will look up.
+          const flow = doc.flows.find((f) => f.name === flowName);
+          if (!flow) continue;
+          edit(flow.id, (entry) => ({
+            ...entry,
+            // Merged rather than replaced: a run exercises the cases it was given, and
+            // the next one may take a branch this one did not. Forgetting what the last
+            // run saw would make the menu depend on which case ran most recently.
+            //
+            // Pruned on the way in, which is the only moment this is written and so
+            // the only moment it can shrink: a renamed block changes its address and
+            // nothing re-roots it, so the entry it left behind would otherwise stay
+            // for the life of the project.
+            observed: pruneObserved(mergeObserved(entry.observed, forFlow), live),
+          }));
+        }
+      },
+      forgetObserved(flowId) {
+        edit(flowId, ({ observed: _dropped, ...rest }) => rest);
+      },
+
       enabledMocks() {
         const file = fileMetaFor(meta, documentKey ?? "");
         return Object.values(file.flows)
@@ -279,7 +334,7 @@ export function EditorMetaProvider({
         return [...new Set(Object.values(file.flows).flatMap((e) => e.spies ?? []))];
       },
     }),
-    [meta, documentKey, canPersist, edit, entryOf],
+    [meta, documentKey, canPersist, edit, entryOf, doc],
   );
 
   return (
