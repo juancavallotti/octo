@@ -1,8 +1,9 @@
 import type { BlockNode } from "../model/document";
 import { getBlockSpec } from "../schema";
 import type { BlockSpec, FieldSpec } from "../schema/types";
+import { shapeOfExpression } from "./cel";
 import { DYN, field, objectOf } from "./shape";
-import type { Contribution, Field, ValueShape } from "./types";
+import type { Contribution, Field, Scope, ValueShape } from "./types";
 
 /**
  * What one block is known to add to, or take from, the message.
@@ -78,10 +79,29 @@ function varsFromConvention(block: BlockNode, spec: BlockSpec): Record<string, F
  * Each returns only what it knows; the conventional pass still runs and is merged in,
  * so an entry here says what is *extra*, not what is instead.
  */
-const SPECIAL: Record<string, (block: BlockNode, spec: BlockSpec) => Contribution> = {
-  // Its `name` is the variable, which the convention already reads. Listed so the
-  // rot alarm does not have to special-case it.
-  "set-variable": () => ({}),
+/** A block setting read as a CEL expression, or undefined when it says nothing. */
+function fromExpression(
+  block: BlockNode,
+  setting: string,
+  scope: Scope | undefined,
+  note: string,
+): Field | undefined {
+  const raw = block.settings[setting];
+  if (typeof raw !== "string") return undefined;
+  const shape = shapeOfExpression(raw, scope);
+  return shape ? field(shape, "inferred", note) : undefined;
+}
+
+const SPECIAL: Record<string, (block: BlockNode, spec: BlockSpec, scope?: Scope) => Contribution> = {
+  // The convention already reads `name` as the variable. What it cannot do is say
+  // what that variable HOLDS, which `value` often states plainly — a map literal, or
+  // a path to something already in scope.
+  "set-variable": (block, _spec, scope) => {
+    const name = block.settings.name;
+    if (typeof name !== "string" || !name) return {};
+    const known = fromExpression(block, "value", scope, `set by set-variable "${name}"`);
+    return known ? { setVars: { [name]: known } } : {};
+  },
 
   "delete-variable": (block) => {
     const name = block.settings.name;
@@ -92,36 +112,53 @@ const SPECIAL: Record<string, (block: BlockNode, spec: BlockSpec) => Contributio
   rest: () => ({ body: "opaque" }),
   "rest-dynamic": () => ({ body: "opaque" }),
 
-  "set-payload": () => ({ body: "opaque" }),
+  // A set-payload's `value` is the body. When it is a literal it names every key
+  // outright, which is the single most introspectable thing in a flow — calling it
+  // opaque was leaving the easiest answer on the table.
+  "set-payload": (block, _spec, scope) => {
+    if (block.settings.rawBody === true) {
+      return { body: { kind: "shape", shape: { kind: "string" } } };
+    }
+    const known = fromExpression(block, "value", scope, "built by set-payload");
+    return known ? { body: { kind: "shape", shape: known.shape } } : { body: "opaque" };
+  },
   "template-resource": () => ({ body: "opaque" }),
 
   // An ordered list of {setBody} / {setVar, value} steps — see TransformListEditor.
-  "multi-transform": (block) => {
+  // Each step's expression is read the same way set-variable's and set-payload's are.
+  "multi-transform": (block, _spec, scope) => {
     const steps = Array.isArray(block.settings.transforms) ? block.settings.transforms : [];
     const setVars: Record<string, Field> = {};
     let body: Contribution["body"];
     for (const raw of steps) {
-      const step = raw as { setBody?: unknown; setVar?: unknown };
+      const step = raw as { setBody?: unknown; setVar?: unknown; value?: unknown };
       if (typeof step.setVar === "string" && step.setVar) {
-        setVars[step.setVar] = field(DYN, "inferred", "set by multi-transform");
-      } else if (step.setBody !== undefined) {
-        body = "opaque";
+        const shape =
+          typeof step.value === "string" ? shapeOfExpression(step.value, scope) : undefined;
+        setVars[step.setVar] = field(shape ?? DYN, "inferred", "set by multi-transform");
+      } else if (typeof step.setBody === "string") {
+        const shape = shapeOfExpression(step.setBody, scope);
+        body = shape ? { kind: "shape", shape } : "opaque";
       }
     }
     return { setVars, ...(body ? { body } : {}) };
   },
 
-  // The sub-flow runs on a copy; only these two settings carry anything back.
+  // The sub-flow runs on a copy; only these two settings carry anything back. Both
+  // hold CEL, evaluated against the ENRICHED message rather than this scope — so the
+  // expressions are read as literals only, and a path in one is left unresolved.
   enrich: (block) => {
     const setVars: Record<string, Field> = {};
     const vars = block.settings.setVars;
     if (vars && typeof vars === "object") {
-      for (const name of Object.keys(vars as Record<string, unknown>)) {
-        setVars[name] = field(DYN, "inferred", "set by enrich");
+      for (const [name, expression] of Object.entries(vars as Record<string, unknown>)) {
+        const shape = typeof expression === "string" ? shapeOfExpression(expression) : undefined;
+        setVars[name] = field(shape ?? DYN, "inferred", "set by enrich");
       }
     }
-    const body = block.settings.setBody ? ("opaque" as const) : undefined;
-    return { setVars, ...(body ? { body } : {}) };
+    if (typeof block.settings.setBody !== "string") return { setVars };
+    const shape = shapeOfExpression(block.settings.setBody);
+    return { setVars, body: shape ? { kind: "shape", shape } : "opaque" };
   },
 
   // `as` names a variable, but only inside the body slot — see walk.ts, which seeds
@@ -139,13 +176,17 @@ const SPECIAL: Record<string, (block: BlockNode, spec: BlockSpec) => Contributio
 /** Every block type the special table handles, for the rot alarm to exempt. */
 export const SPECIAL_TYPES = new Set(Object.keys(SPECIAL));
 
-export function contributionOf(block: BlockNode): Contribution {
+/**
+ * `scope` is what the block RECEIVES, so an expression naming a path can be resolved
+ * against it. Omitted, path resolution is simply unavailable and literals still work.
+ */
+export function contributionOf(block: BlockNode, scope?: Scope): Contribution {
   const spec = getBlockSpec(block.type);
   // A block type the schema has never heard of could do anything at all.
   if (!spec) return { body: "opaque" };
 
   const conventional = varsFromConvention(block, spec);
-  const special = SPECIAL[block.type]?.(block, spec) ?? {};
+  const special = SPECIAL[block.type]?.(block, spec, scope) ?? {};
   const intoBody = spec.fields.some(
     (f) => f.type === "string" && BODY_OR_VAR.has(f.name) && !value(block, f) && !SLOT_SCOPED[block.type]?.has(f.name),
   );

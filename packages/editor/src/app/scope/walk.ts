@@ -39,13 +39,17 @@ export interface ScopeIndex {
 
 /** Apply one block's contribution, returning the scope the NEXT block receives. */
 function advance(scope: Scope, block: BlockNode): Scope {
-  const contribution = contributionOf(block);
+  const contribution = contributionOf(block, scope);
   const roots = { ...scope.roots };
 
   if (contribution.body === "opaque") {
     // The block replaced the body with something we cannot describe. Keeping the old
     // keys would be worse than knowing nothing: they are now confidently wrong.
     roots.body = field(DYN, "declared", `replaced by ${block.type}`);
+  } else if (typeof contribution.body === "object") {
+    // It replaced the body with something it stated outright — a map literal, or a
+    // path to something already in scope.
+    roots.body = field(contribution.body.shape, "inferred", `built by ${block.type}`);
   }
 
   const vars = roots.vars;

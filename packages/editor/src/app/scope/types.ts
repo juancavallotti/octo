@@ -63,10 +63,10 @@ export interface Contribution {
   /** Variables it removes. */
   deleteVars?: string[];
   /**
-   * What becomes of the body. "keep" leaves it alone; "opaque" means the block
-   * replaced it with something we cannot describe, which erases what we knew.
+   * What becomes of the body: left alone, replaced by something we cannot describe
+   * (which erases what we knew), or replaced by something we can.
    */
-  body?: "keep" | "opaque";
+  body?: "keep" | "opaque" | { kind: "shape"; shape: ValueShape };
 }
 
 /** Which CEL expression is being edited, and therefore which scope applies. */

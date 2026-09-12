@@ -26,6 +26,7 @@ beforeEach(() => {
   setCapabilities({
     blocks: [
       spec("set-variable", [{ name: "name" }, { name: "value", type: "cel" }]),
+      spec("set-payload", [{ name: "value", type: "cel" }, { name: "rawBody", type: "boolean" }]),
       spec("delete-variable", [{ name: "name" }]),
       spec("log"),
       spec("rest", [{ name: "statusVar", default: "statusCode" }]),
@@ -277,5 +278,65 @@ describe("evidence about a block", () => {
     const index = buildIndex({ doc: document, evidence });
     const members = membersFor(scopeAt(index, { kind: "flow-output", flowId: "flow-1" }));
     expect((members(["body"]) ?? []).map((e) => e.name)).toContain("receiptUrl");
+  });
+});
+
+describe("bodies the flow states outright", () => {
+  it("reads the keys a set-payload literal names", () => {
+    // The most introspectable thing in a flow, and the case that used to come back
+    // "opaque": the expression IS the body, written out.
+    const set = block("set-payload", { value: '{"receiptUrl": "https://x", "total": 42}' });
+    const after = block("log");
+    const members = membersFor(
+      scopeAt(buildIndex({ doc: doc([flow([set, after])]) }), { kind: "block", blockId: after.id }),
+    );
+    expect((members(["body"]) ?? []).map((e) => e.name)).toEqual(
+      expect.arrayContaining(["receiptUrl", "total"]),
+    );
+  });
+
+  it("does not offer it to the block that builds it", () => {
+    const set = block("set-payload", { value: '{"receiptUrl": "https://x"}' });
+    const members = membersFor(
+      scopeAt(buildIndex({ doc: doc([flow([set])]) }), { kind: "block", blockId: set.id }),
+    );
+    expect((members(["body"]) ?? []).map((e) => e.name)).not.toContain("receiptUrl");
+  });
+
+  it("falls back to knowing nothing when the expression is not a literal", () => {
+    const set = block("set-payload", { value: "toJson(body)" });
+    const after = block("log");
+    const index = buildIndex({
+      doc: doc([flow([set, after])]),
+      evidence: evidenceWithInputs([{ id: "i", name: "one", data: '{"orderId":"a"}' }]),
+    });
+    const members = membersFor(scopeAt(index, { kind: "block", blockId: after.id }));
+    // And it forgets the old body rather than keeping keys that are now wrong.
+    expect((members(["body"]) ?? []).map((e) => e.name)).not.toContain("orderId");
+  });
+
+  it("types a variable from the literal a set-variable assigns", () => {
+    const set = block("set-variable", { name: "receipt", value: '{"url": "https://x"}' });
+    const after = block("log");
+    const members = membersFor(
+      scopeAt(buildIndex({ doc: doc([flow([set, after])]) }), { kind: "block", blockId: after.id }),
+    );
+    expect((members(["vars", "receipt"]) ?? []).map((e) => e.name)).toContain("url");
+  });
+
+  it("follows a variable assigned from a path already in scope", () => {
+    // `vars.copy` is whatever `body.user` was — which the test input described.
+    const set = block("set-variable", { name: "copy", value: "body.user" });
+    const after = block("log");
+    const index = buildIndex({
+      doc: doc([flow([set, after])]),
+      evidence: evidenceWithInputs([
+        { id: "i", name: "one", data: '{"user":{"id":"u","email":"e"}}' },
+      ]),
+    });
+    const members = membersFor(scopeAt(index, { kind: "block", blockId: after.id }));
+    expect((members(["vars", "copy"]) ?? []).map((e) => e.name)).toEqual(
+      expect.arrayContaining(["email", "id"]),
+    );
   });
 });
