@@ -249,6 +249,10 @@ jobs:
       # model has not been told about — which would otherwise show up as a
       # completion menu quietly missing names the flow actually has.
       - run: node scripts/check-scope-contributions.mjs
+      # Fails when a block the editor is willing to run BY ITSELF (to learn what a
+      # flow's messages look like) disappears or grows a connector — the cost of
+      # being wrong there is a real call the user never asked to make.
+      - run: node scripts/check-pure-blocks.mjs
       # The downloadable platform API contract is a COPY of the one embedded in
       # the binary, so unlike the drift tests beside it in Go, only a diff can
       # tell whether it is current.

@@ -30,6 +30,14 @@ export interface DesktopSettings {
   runtime?: { octo?: string; dolphin?: string };
   /** Check for a new version of Octo Desktop on launch. Absent means yes. */
   autoUpdateCheck?: boolean;
+  /**
+   * Preferences the editor reads, as opposed to the ones the shell acts on itself.
+   *
+   * Grouped under their own key because that is what they are: the shell stores them
+   * and hands them to the page, and nothing in the main process changes behaviour
+   * because of them. Absent means every editor preference is at its default.
+   */
+  editor?: { autoLearn?: boolean };
 }
 
 export interface DesktopState {
@@ -98,9 +106,12 @@ function validSettings(s: DesktopSettings | undefined): DesktopSettings | undefi
   const runtime = s.runtime && typeof s.runtime === "object" ? s.runtime : undefined;
   const octo = str(runtime?.octo);
   const dolphin = str(runtime?.dolphin);
+  const editor = s.editor && typeof s.editor === "object" ? s.editor : undefined;
+  const autoLearn = typeof editor?.autoLearn === "boolean" ? editor.autoLearn : undefined;
   return {
     ...(octo || dolphin ? { runtime: { ...(octo ? { octo } : {}), ...(dolphin ? { dolphin } : {}) } } : {}),
     ...(typeof s.autoUpdateCheck === "boolean" ? { autoUpdateCheck: s.autoUpdateCheck } : {}),
+    ...(autoLearn !== undefined ? { editor: { autoLearn } } : {}),
   };
 }
 

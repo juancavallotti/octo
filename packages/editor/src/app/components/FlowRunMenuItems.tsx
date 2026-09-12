@@ -7,6 +7,7 @@ import { useFlowRun } from "../run/FlowRunContext";
 import { useEditorState } from "../state/editorState";
 import { useEditorMeta } from "../providers/EditorMetaProvider";
 import type { SourceNode } from "../model/document";
+import { sourcePayloadExpression } from "../model/sourcePayload";
 import type { TestInput } from "../meta/types";
 import FlowRunScenarios from "./FlowRunScenarios";
 
@@ -177,6 +178,5 @@ export default function FlowRunMenuItems({
  */
 function cronPayloadOf(source: SourceNode | undefined): string | null {
   if (!source || (source.connector !== "cron" && source.type !== "cron")) return null;
-  const payload = source.settings?.payload;
-  return typeof payload === "string" && payload.trim() !== "" ? payload : null;
+  return sourcePayloadExpression(source);
 }

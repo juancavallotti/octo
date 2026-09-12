@@ -94,6 +94,17 @@ If Octo cannot start its editor server, the error dialog offers Settings. That i
 the way back from a runtime binary that does not run.
 </Callout>
 
+**Editor.** *Execute flows automatically to enhance auto completion* lets the editor
+run the flow you are working on by itself, in the background, and read the message
+shapes out of the run — so CEL completion knows what `body.order` holds before you
+have run anything. It is off until you turn it on.
+
+Only flows that do nothing observable outside Octo are ever run this way. A flow that
+calls an API, sends a message, writes to storage or runs a program is left alone until
+you run it yourself; so is a flow holding a block Octo has not been told about. Nothing
+from these runs is shown — they leave no entry in the run history — and nothing from
+them is stored but field names and their types, in `.octo/editor-meta.json`.
+
 **Updates.** Octo checks for a new version at startup and reports one if it finds it;
 turn that off in Settings if you would rather not. **Check for Updates…** in the Octo
 menu asks at any time, and says so when you are already up to date. An update is

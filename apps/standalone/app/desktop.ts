@@ -24,6 +24,11 @@ export interface VaultRef {
   name: string;
 }
 
+/** How the person using the editor has said it should behave; set in the shell's Settings. */
+export interface EditorPrefsView {
+  autoLearn: boolean;
+}
+
 export interface DesktopBridge {
   platform: string;
   mcpUrl(): Promise<string | null>;
@@ -33,6 +38,8 @@ export interface DesktopBridge {
   switchVault(path: string): Promise<boolean>;
   revealVault(): Promise<void>;
   copyMcpUrl(): Promise<void>;
+  prefs(): Promise<EditorPrefsView>;
+  onPrefsChanged(listener: (prefs: EditorPrefsView) => void): () => void;
 }
 
 /** The bridge, or null when this is a browser rather than the desktop shell. */

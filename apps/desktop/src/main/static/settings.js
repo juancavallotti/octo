@@ -60,6 +60,7 @@ function draw(view) {
   const list = el("binaries");
   list.replaceChildren(...view.binaries.map(binaryRow));
   el("auto").checked = view.autoUpdateCheck;
+  el("autoLearn").checked = view.autoLearn;
   el("appVersion").textContent = `Octo ${view.appVersion}`;
   el("check").disabled = !view.canUpdate;
   el("check").title = view.canUpdate ? "" : "Updates are only available in a packaged build.";
@@ -71,6 +72,7 @@ async function render(promise) {
 }
 
 el("auto").onchange = (e) => render(api.setAutoUpdateCheck(e.target.checked));
+el("autoLearn").onchange = (e) => render(api.setAutoLearn(e.target.checked));
 el("check").onclick = () => api.checkForUpdates();
 el("close").onclick = () => api.close();
 

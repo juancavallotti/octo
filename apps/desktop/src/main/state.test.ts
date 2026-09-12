@@ -179,6 +179,20 @@ describe("settings", () => {
     expect(stored({ autoUpdateCheck: "yes" })).toEqual({});
   });
 
+  it("round-trips an editor preference", () => {
+    expect(stored({ editor: { autoLearn: true } })).toEqual({ editor: { autoLearn: true } });
+  });
+
+  it("drops an editor preference that is not a boolean", () => {
+    // The page turns an absent preference into its default, and the default for
+    // running the user's flows unasked is no. A string must not read as yes.
+    expect(stored({ editor: { autoLearn: "yes" } })).toEqual({});
+  });
+
+  it("drops an editor block that is not an object", () => {
+    expect(stored({ editor: true })).toEqual({});
+  });
+
   it("is absent when there are no settings at all", () => {
     expect(stored(undefined)).toBeUndefined();
     expect(read(scratch()).settings).toBeUndefined();

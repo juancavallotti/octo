@@ -1,5 +1,5 @@
 import type { EditorDocument, FlowDoc } from "../model/document";
-import { getSourceSpec } from "../schema";
+import { sourcePayloadExpression } from "../model/sourcePayload";
 import { shapeOfExpression } from "./cel";
 import type { MessageShape } from "./evidence";
 import { DYN, field, merge, objectOf } from "./shape";
@@ -47,13 +47,8 @@ function envShape(doc: EditorDocument): ValueShape {
  * It is why a cron flow can complete `body.time` before anything has ever been run.
  */
 function sourceBody(flow: FlowDoc | null): ValueShape | undefined {
-  const source = flow?.source;
-  if (!source?.connector || !source.type) return undefined;
-  const spec = getSourceSpec(source.connector, source.type);
-  const field = spec?.fields.find((f) => f.type === "cel" && f.name === "payload");
-  if (!field) return undefined;
-  const expression = source.settings[field.name];
-  return typeof expression === "string" ? shapeOfExpression(expression) : undefined;
+  const expression = sourcePayloadExpression(flow?.source);
+  return expression ? shapeOfExpression(expression) : undefined;
 }
 
 /** The variables an HTTP source is configured to set on every message it produces. */

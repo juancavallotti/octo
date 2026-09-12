@@ -10,6 +10,7 @@ import {
   settingsWebContentsId,
 } from "./settingsWindow";
 import { canUpdate, checkForUpdates } from "./update";
+import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
 
 /**
@@ -66,11 +67,35 @@ function handleSettings(channel: string, fn: Handler): void {
   guarded(channel, fromSettings, fn);
 }
 
+/**
+ * The editor preferences the page reads, with every default applied here rather than
+ * in the page: the stored file may predate a preference, and the shell is the one that
+ * knows what its absence should mean.
+ *
+ * `autoLearn` defaults to false, unlike `autoUpdateCheck` — the editor running the
+ * user's flows by itself is a thing to be asked for, not a thing to be opted out of.
+ */
+function editorPrefs() {
+  return { autoLearn: settings().editor?.autoLearn === true };
+}
+
+/**
+ * Tell the open editor its preferences changed.
+ *
+ * Pushed rather than polled because the two windows are both open at once: a checkbox
+ * ticked in Settings should take effect in the editor behind it, and asking the user to
+ * reload the page for a checkbox would be a strange thing to ask.
+ */
+function publishPrefs(): void {
+  mainWindow()?.webContents.send("octo:prefs:changed", editorPrefs());
+}
+
 /** The Settings window's whole view of the world, rebuilt after every change. */
 async function settingsView() {
   return {
     binaries: await Promise.all([binaryStatus("octo"), binaryStatus("dolphin")]),
     autoUpdateCheck: settings().autoUpdateCheck !== false,
+    autoLearn: editorPrefs().autoLearn,
     appVersion: app.getVersion(),
     canUpdate: canUpdate(),
   };
@@ -99,6 +124,9 @@ export function registerIpc(): void {
   handle("octo:vault:recents", () =>
     recents().map((v) => ({ path: v.path, name: path.basename(v.path) })),
   );
+  // Read-only, and the only settings channel the editor page may touch: it says how
+  // the editor should behave, not what the shell should execute.
+  handle("octo:prefs:get", () => editorPrefs());
   handle("octo:vault:pick", () => pickVault());
   handle("octo:vault:reveal", () => revealVault());
   handle("octo:vault:switch", (_event, target) => {
@@ -124,6 +152,11 @@ export function registerIpc(): void {
   });
   handleSettings("octo:settings:autoUpdate", (_event, enabled) => {
     updateSettings({ autoUpdateCheck: enabled !== false });
+    return settingsView();
+  });
+  handleSettings("octo:settings:autoLearn", (_event, enabled) => {
+    updateSettings({ editor: { autoLearn: enabled === true } });
+    publishPrefs();
     return settingsView();
   });
   handleSettings("octo:settings:checkUpdate", () => checkForUpdates(false));

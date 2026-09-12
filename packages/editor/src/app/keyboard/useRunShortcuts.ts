@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { rootFlowIdOf } from "../model/document";
 import { useTestSuites } from "../providers/TestSuiteProvider";
 import { useFlowRun } from "../run/FlowRunContext";
 import { useRun } from "../run/RunContext";
 import { useSuiteRun } from "../run/SuiteRunContext";
+import { currentFlowId } from "../state/currentFlow";
 import { useEditorState } from "../state/editorState";
 import { planRunAll } from "../suite/runAll";
 import { isTypingTarget } from "./typing";
@@ -101,18 +101,3 @@ export function useRunShortcuts(): void {
   }, []);
 }
 
-/**
- * Which flow Shift+Enter runs: the one the selection is in, else the one last
- * clicked, else the only one there is.
- *
- * A document with several flows and nothing selected has no answer, and guessing the
- * first would run something the user was not looking at.
- */
-function currentFlowId(state: ReturnType<typeof useEditorState>["state"]): string | null {
-  const doc = state.document;
-  const selected = state.selectedBlockId ? rootFlowIdOf(doc, state.selectedBlockId) : null;
-  if (selected) return selected;
-  if (state.selectedSourceFlowId) return state.selectedSourceFlowId;
-  if (state.activeFlowId) return state.activeFlowId;
-  return doc.flows.length === 1 ? doc.flows[0].id : null;
-}

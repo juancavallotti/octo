@@ -21,6 +21,8 @@ export interface BinaryStatusView {
 export interface SettingsView {
   binaries: BinaryStatusView[];
   autoUpdateCheck: boolean;
+  /** Whether the editor may run flows by itself to improve its CEL completion. */
+  autoLearn: boolean;
   appVersion: string;
   /** False on a build that cannot update itself (an unpackaged dev run). */
   canUpdate: boolean;
@@ -33,6 +35,7 @@ export interface OctoSettingsBridge {
   /** Open the file picker for a binary, and apply what was chosen. */
   pickBinary(name: "octo" | "dolphin"): Promise<SettingsView>;
   setAutoUpdateCheck(enabled: boolean): Promise<SettingsView>;
+  setAutoLearn(enabled: boolean): Promise<SettingsView>;
   checkForUpdates(): Promise<void>;
   close(): Promise<void>;
 }
@@ -42,6 +45,7 @@ const bridge: OctoSettingsBridge = {
   setBinary: (name, file) => ipcRenderer.invoke("octo:settings:setBinary", name, file),
   pickBinary: (name) => ipcRenderer.invoke("octo:settings:pickBinary", name),
   setAutoUpdateCheck: (enabled) => ipcRenderer.invoke("octo:settings:autoUpdate", enabled),
+  setAutoLearn: (enabled) => ipcRenderer.invoke("octo:settings:autoLearn", enabled),
   checkForUpdates: () => ipcRenderer.invoke("octo:settings:checkUpdate"),
   close: () => ipcRenderer.invoke("octo:settings:close"),
 };

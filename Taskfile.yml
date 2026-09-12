@@ -220,6 +220,12 @@ tasks:
       - task: runtime:build
       - node scripts/check-scope-contributions.mjs
 
+  editor:pure:check:
+    desc: Fail if the blocks the editor runs unasked drift from the runtime registry
+    cmds:
+      - task: runtime:build
+      - node scripts/check-pure-blocks.mjs
+
   lint-strict:
     desc: Verify lint configuration is present
     cmds:

@@ -14,6 +14,12 @@ import { contextBridge, ipcRenderer } from "electron";
  * affordances the shell provides.
  */
 
+/** How the person using the editor has said it should behave. Set in Settings. */
+export interface EditorPrefsView {
+  /** Run flows in the background to learn what their messages look like. */
+  autoLearn: boolean;
+}
+
 export interface OctoDesktopBridge {
   /** Marks this as the desktop shell; the editor gates its UI on this object existing. */
   readonly platform: NodeJS.Platform;
@@ -31,6 +37,13 @@ export interface OctoDesktopBridge {
   revealVault(): Promise<void>;
   /** Copy the MCP endpoint URL to the clipboard. */
   copyMcpUrl(): Promise<void>;
+  /** The editor preferences, as Settings last left them. */
+  prefs(): Promise<EditorPrefsView>;
+  /**
+   * Hear about a preference changing in the Settings window, which is open beside this
+   * page rather than instead of it. Returns the unsubscribe.
+   */
+  onPrefsChanged(listener: (prefs: EditorPrefsView) => void): () => void;
 }
 
 const bridge: OctoDesktopBridge = {
@@ -42,6 +55,14 @@ const bridge: OctoDesktopBridge = {
   switchVault: (path: string) => ipcRenderer.invoke("octo:vault:switch", path),
   revealVault: () => ipcRenderer.invoke("octo:vault:reveal"),
   copyMcpUrl: () => ipcRenderer.invoke("octo:mcp:copy"),
+  prefs: () => ipcRenderer.invoke("octo:prefs:get"),
+  onPrefsChanged: (listener) => {
+    // The event object is deliberately not passed on: it carries the sender, and the
+    // page has no business with it. Only the payload crosses the bridge.
+    const handler = (_event: unknown, prefs: EditorPrefsView) => listener(prefs);
+    ipcRenderer.on("octo:prefs:changed", handler);
+    return () => ipcRenderer.off("octo:prefs:changed", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("octoDesktop", bridge);
