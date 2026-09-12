@@ -87,9 +87,9 @@ There are no per-integration permissions yet. The `platform:` prefix is there to
 
 The UI reflects the same split the servers enforce, and reflects it only — every decision with a consequence is made on the server, and nothing here is a control.
 
-- **Controls are disabled, with a title saying which role is missing.** Deploy, roll out, scale and undeploy want Operator; creating, importing, duplicating, deleting and saving an integration want Developer or Operator. They stay visible because they sit on pages anybody signed in may read, and a header that quietly loses its buttons reads as a broken page rather than as a permission not held.
+- **Controls are disabled, with a title saying what is missing.** Deploy, roll out, scale and undeploy want Operator or Admin; creating, importing, duplicating, deleting and saving an integration want Developer, Operator or Admin. Either way write access is wanted as well as the role — `AUTH_WRITE_ROLES` can take it away from somebody who holds the role, so the title names both rather than sending them to look for a role they already have. They stay visible because they sit on pages anybody signed in may read, and a header that quietly loses its buttons reads as a broken page rather than as a permission not held.
 - **Sections are hidden.** Secrets is administrators only, reads included, so the tab and the dashboard shortcut are left out for everybody else rather than shown leading to a refusal.
-- **The editor opens read-only.** Somebody without Developer or Operator can open an integration, read it, and browse its resources; Save is disabled and says why.
+- **The editor opens read-only.** Somebody without Developer, Operator or Admin can open an integration, read it, and browse its resources; Save is disabled and says why.
 
 ## API keys
 

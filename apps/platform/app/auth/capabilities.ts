@@ -34,8 +34,8 @@ export interface Capabilities {
  * already have would send them looking in the wrong place.
  */
 export const CAPABILITY_REASONS: Record<keyof Capabilities, string> = {
-  build: "Needs the Developer or Operator role, and write access on this installation",
-  deploy: "Needs the Operator role, and write access on this installation",
+  build: "Needs the Developer, Operator or Admin role, and write access on this installation",
+  deploy: "Needs the Operator or Admin role, and write access on this installation",
   administer: "Needs the Admin role",
 };
 
