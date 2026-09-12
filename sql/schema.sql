@@ -1230,10 +1230,11 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles (role);
 --
 -- The private half is encrypted at rest under KV_ENCRYPTION_KEY -- the key the
 -- orchestrator already holds for the KV store, so this adds no knob an operator can
--- get wrong. It is not a defence against someone who can read this table: they can
--- write user_roles and make themselves an admin without ever touching a key. What it
--- buys is that a database backup, or a dump handed to somebody to debug, is not a
--- signing key.
+-- get wrong. It is not a defence against someone who can reach this database: with
+-- write access they make themselves an admin through user_roles without ever
+-- touching a key, and reading the keys buys them nothing they cannot do more
+-- directly. What it buys is that a database backup, or a dump handed to somebody to
+-- debug, is not a signing key.
 CREATE TABLE IF NOT EXISTS iam_signing_keys (
     kid          varchar PRIMARY KEY,
     algorithm    varchar NOT NULL,
