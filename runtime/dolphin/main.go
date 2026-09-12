@@ -88,6 +88,7 @@ Usage:
 Test flags:
   --config <path>   the flows to test against, when they are not the ones beside the suite
   --env-file <path> a .env file every case runs with
+  --traces-dir <path>   run every case with tracing and write one .trace.jsonl per case
   --junit <path>    write a JUnit XML report to this file
   --report-json <path>  write a machine-readable JSON report to this file
   --parallel <n>    how many cases to run at once (default: one per CPU)
@@ -127,6 +128,18 @@ Environment:
   A suite's env: wins over --env-file, which wins over what you have exported. That order
   is deliberate: a test that quietly used your real API key because it was in your shell
   is a test that passes on your machine, bills you for it, and fails in CI.
+
+Traces:
+
+  --traces-dir runs every case under octo invoke --traces, writing one JSON Lines
+  file per case. Each records the message entering and leaving every block, by
+  address — which is what a suite is uniquely good for: the cases already say how to
+  exercise the flow, so running them is how you find out what its messages actually
+  look like without calling anything in production.
+
+  Bodies and variables are captured by default and can carry credentials and personal
+  data. Set OCTO_TRACING_BODIES=false / OCTO_TRACING_VARS=false to record the
+  sequence only.
 
 The octo binary:
   dolphin drives the real octo CLI. It looks for it in this order, and stops at the

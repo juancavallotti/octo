@@ -39,6 +39,7 @@ refuses fails the run immediately.
 | --- | --- | --- |
 | `--config <path>` | the flows beside the suite | The flows to test against. |
 | `--env-file <path>` | none | A `.env` file every case runs with. A missing file is a hard error. |
+| `--traces-dir <path>` | none | Run every case under [tracing](/runtime/tracing) and write one `.trace.jsonl` per case. |
 | `--junit <path>` | none | Write a JUnit XML report. |
 | `--report-json <path>` | none | Write a machine-readable JSON report. |
 | `--parallel <n>` | one per CPU | How many cases to run at once. |
@@ -46,6 +47,27 @@ refuses fails the run immediately.
 | `-v` | off | Name every case, and let octo's logs through. |
 
 Flags accept one or two dashes.
+
+### Tracing a suite
+
+`--traces-dir` runs each case with [tracing](/runtime/tracing) on and writes its
+trace beside the others:
+
+```bash
+dolphin test ./flows --traces-dir ./traces
+```
+
+Each file records the message entering and leaving every block, by address. A suite
+is the ideal thing to trace: the cases already say how to exercise the flow, and the
+mocks they carry mean nothing real is called — so it is a way to see the true shape
+of a flow's messages without touching production.
+
+One file per case rather than one per run, because cases run in parallel and two
+processes appending to one file would interleave into neither.
+
+Bodies and variables are captured by default and can carry credentials and personal
+data. Set `OCTO_TRACING_BODIES=false` and `OCTO_TRACING_VARS=false` to record the
+sequence only.
 
 ### Finding octo
 

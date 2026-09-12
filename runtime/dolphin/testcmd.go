@@ -31,6 +31,7 @@ type testFlags struct {
 	envFile    string
 	junit      string
 	reportJSON string
+	tracesDir  string
 	parallel   int
 	failFast   bool
 	verbose    bool
@@ -80,10 +81,11 @@ func testCommand(args []string) error {
 	started := time.Now()
 	results := runner.Run(ctx, runner.Config{
 		Options: runner.Options{
-			Octo:    octo,
-			WorkDir: workDir,
-			Verbose: flags.verbose,
-			EnvFile: flags.envFile,
+			Octo:      octo,
+			WorkDir:   workDir,
+			Verbose:   flags.verbose,
+			EnvFile:   flags.envFile,
+			TracesDir: flags.tracesDir,
 		},
 		Parallel: flags.parallel,
 		FailFast: flags.failFast,
@@ -185,6 +187,8 @@ func parseTestFlags(args []string) (testFlags, error) {
 		"the flows to test against, when they are not the ones beside the suite")
 	fs.StringVar(&flags.envFile, "env-file", "",
 		"a .env file every case runs with (a suite's own env: block overrides it)")
+	fs.StringVar(&flags.tracesDir, "traces-dir", "",
+		"run each case with tracing and write its trace here (one .trace.jsonl per case)")
 	fs.StringVar(&flags.junit, "junit", "", "write a JUnit XML report to this file")
 	fs.StringVar(&flags.reportJSON, "report-json", "",
 		"write a machine-readable JSON report to this file")

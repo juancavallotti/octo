@@ -42,6 +42,31 @@ jq -c '{seq,kind,traceId,flow,path,durationNs}' /tmp/run.jsonl
 
 A run that did not ask for traces creates no file and logs nothing.
 
+### Tracing one flow, and a whole test suite
+
+The same flags work on `octo invoke`, which runs a single flow and exits:
+
+```bash
+octo invoke --config app.yaml --flow orders --data '{"orderId":"A-1"}' \
+  --traces --traces-file /tmp/orders.jsonl
+```
+
+And `dolphin` will run a whole suite that way, one file per case:
+
+```bash
+dolphin test orders_test.yaml --traces-dir ./traces
+```
+
+That is the cheapest way to find out what a flow's messages actually look like:
+the cases already say how to exercise it, and the mocks they carry mean nothing
+real is called. Each case's trace lands at `<suite>.<n>.trace.jsonl` beside the
+others.
+
+<Callout type="warn">
+Bodies and variables are captured by default and can carry credentials and personal
+data. `OCTO_TRACING_BODIES=false OCTO_TRACING_VARS=false` records the sequence only.
+</Callout>
+
 ## What a trace looks like
 
 One HTTP request through a flow that delegates to two others, one fire-and-forget

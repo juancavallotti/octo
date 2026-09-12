@@ -57,6 +57,12 @@ const debugConfigMode = 0o600
 const (
 	debugConfigExt = ".yaml"
 	envelopeExt    = ".outcome.json"
+	traceExt       = ".trace.jsonl"
+
+	// traceDirPerm is the mode the traces directory is created with. Owner and group
+	// only: a trace carries message bodies, which is the same material the file it
+	// holds is warned about carrying.
+	traceDirPerm = 0o750
 )
 
 // errorField is how slog renders the error on octo's last log line before it exits. It
@@ -86,6 +92,10 @@ type Outcome struct {
 	Stderr string
 	// Elapsed is how long the child took.
 	Elapsed time.Duration
+	// TracePath is where this case's trace was written, empty unless one was asked
+	// for. Reported rather than read: what a trace is worth reading FOR differs by
+	// caller, and dolphin's own job is the verdict.
+	TracePath string
 }
 
 // envelope is `octo invoke --envelope`'s output. It mirrors the CLI's debugOutcome —
@@ -129,6 +139,14 @@ type Options struct {
 	// EnvFile is a .env file every case runs with, under the suite's own env: block.
 	// It is passed to octo, which already reads it, rather than parsed here.
 	EnvFile string
+	// TracesDir turns tracing on and says where each case's trace file goes. Empty
+	// leaves tracing off, which is the default and the only sane one: a trace records
+	// two events per block per message, with payloads, and a suite run is not the
+	// moment to pay for that unless it was asked for.
+	//
+	// One file per case rather than one per run, because cases may run in parallel and
+	// two processes appending JSON lines to one file interleave them into neither.
+	TracesDir string
 }
 
 // invoke executes one case and reports what octo said.
@@ -146,8 +164,15 @@ func invoke(ctx context.Context, opts Options, target suite.Target, index int, c
 	}
 
 	envelopePath := caseFile(opts.WorkDir, target, index, envelopeExt)
-	args := invokeArgs(target, configPath, envelopePath, timeout)
-	outcome := Outcome{Command: shellCommand(opts.Octo, args)}
+	tracePath := ""
+	if opts.TracesDir != "" {
+		if err := os.MkdirAll(opts.TracesDir, traceDirPerm); err != nil {
+			return Outcome{}, fmt.Errorf("create traces dir: %w", err)
+		}
+		tracePath = caseFile(opts.TracesDir, target, index, traceExt)
+	}
+	args := invokeArgs(target, configPath, envelopePath, tracePath, timeout)
+	outcome := Outcome{Command: shellCommand(opts.Octo, args), TracePath: tracePath}
 
 	// The child gets longer than the flow does, so that a timeout is reported by octo —
 	// which knows it was the flow that ran long — rather than by dolphin killing a
@@ -299,8 +324,8 @@ func caseFile(dir string, target suite.Target, index int, ext string) string {
 }
 
 // invokeArgs is the octo invocation for a case.
-func invokeArgs(target suite.Target, configPath, envelopePath string, timeout time.Duration) []string {
-	return []string{
+func invokeArgs(target suite.Target, configPath, envelopePath, tracePath string, timeout time.Duration) []string {
+	args := []string{
 		"invoke",
 		"--config", target.Config,
 		"--flow", target.File.Flow,
@@ -312,6 +337,10 @@ func invokeArgs(target suite.Target, configPath, envelopePath string, timeout ti
 		// to a file keeps it clear of the flow's own output, which shares stdout.
 		"--envelope-out", envelopePath,
 	}
+	if tracePath != "" {
+		args = append(args, "--traces", "--traces-file", tracePath)
+	}
+	return args
 }
 
 // childEnv is the environment octo runs in.

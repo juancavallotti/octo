@@ -21,6 +21,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/core/runtime"
 	"github.com/juancavallotti/octo/runtime/services"
+	"github.com/juancavallotti/octo/runtime/services/tracing"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -49,12 +50,21 @@ func invokeCommand(args []string) error {
 	svc, err := services.New(ctx, services.Options{
 		ResourceRoot: configDir(flags.configPath),
 		StorageDir:   flags.storageDir,
+		// Where traces go is the module's business, exactly as it is for `run`.
+		Tracing: tracing.Options(),
 	})
 	if err != nil {
 		return fmt.Errorf("init runtime services: %w", err)
 	}
+	// Closing drains and closes the trace sink, so the deferred close is what makes
+	// the trace file complete — an invoke that exited without it would leave the last
+	// records of the run buffered and lost.
 	defer func() { _ = svc.Close() }()
 	teeDefaultLoggerToSink(svc)
+	// Before any flow runs: core.Tracer() is the no-op until this line, and the
+	// listeners Attach registers are guarded on it.
+	core.SetTracer(svc.Traces())
+	tracing.Attach()
 
 	req, err := buildInvokeRequest(flags, svc)
 	if err != nil {
@@ -245,6 +255,11 @@ func parseInvokeFlags(args []string) (invokeFlags, error) {
 		"always print the outcome envelope, and report a flow failure in it rather than exiting non-zero")
 	fs.StringVar(&flags.envelopeOut, "envelope-out", "",
 		"write the outcome envelope to this file instead of stdout (implies --envelope)")
+	// Tracing by name rather than by iterating services.Hosted(): the other hosted
+	// service binds a port, and a command that runs one flow and exits must not.
+	// Registering the flags is also what applies their OCTO_TRACING* environment
+	// defaults, which is how a caller that spawns this process turns tracing on.
+	tracing.Flags(fs)
 
 	if err := fs.Parse(args); err != nil {
 		return invokeFlags{}, fmt.Errorf("parse invoke flags: %w", err)

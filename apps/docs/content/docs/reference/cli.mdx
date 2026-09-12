@@ -170,6 +170,8 @@ octo invoke --config orders.yaml --flow orders --data '{"orderId": 42}' | jq '.b
 | `--run-debug-config` | path | (none) | A file holding the whole run. See [Debug config](#debug-config-file). |
 | `--envelope` | bool | `false` | Always print the [outcome envelope](#the-outcome-envelope), reporting a flow failure in it rather than exiting non-zero. |
 | `--envelope-out` | string | (none) | Write the envelope to this file instead of stdout (implies `--envelope`). Use it when [the flow itself prints](#envelope-out-path-when-the-flow-itself-prints). |
+| `--traces` | bool | `false` | Record a [trace](/runtime/tracing) of the run: the message entering and leaving every block. |
+| `--traces-file` | path | `octo-trace-<time>-<pid>.jsonl` | Where the trace is written. The other `--traces-*` flags apply too. |
 
 The body can also arrive on stdin. `--data` and a pipe are interchangeable:
 
