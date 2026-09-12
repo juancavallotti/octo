@@ -3,13 +3,15 @@
 import { useState } from "react";
 import { ArrowUp, Check, Copy, ExternalLink, Tag, Waypoints } from "lucide-react";
 import type { DeploymentStatus } from "@/app/model/orchestrator";
+import type { DeploymentAccess } from "@/app/model/orchestratorTypes";
+import { AccessPill, RunnerPill } from "./PrivilegePills";
 import { bareHost } from "./podStats";
 import { needsUpgrade } from "@/app/lib/runtimeRelease";
 
 /**
  * The presentational pieces a deployment row is assembled from: its status badge,
- * the version, runtime and tracing pills, a copy-to-clipboard button, and a
- * labelled address line.
+ * the version, runtime, tracing, access and runner pills, a copy-to-clipboard
+ * button, and a labelled address line.
  *
  * None of them knows what a deployment is — they take a status, a string, a
  * label — which is why they sit apart from the row that arranges them. The two
@@ -107,9 +109,14 @@ export function TracedPill() {
 }
 
 /**
- * The row of pills describing what a deployment is running: its version, the
- * runtime carrying it, and whether it is traced. Renders nothing when it has none
- * of them, so a card with nothing to say does not grow an empty line.
+ * The row of pills describing what a deployment is: the version it was cut from,
+ * the runtime carrying it, whether it is traced, which image its pods are, and
+ * what its own token opens on the platform. Renders nothing when it has none of
+ * them, so a card with nothing to say does not grow an empty line.
+ *
+ * The last two are the privileged ones, and they come last for that reason: a
+ * reader scanning a column of deployments sees the ordinary facts in the same
+ * place every time, and an amber pill at the end of the line is the exception.
  */
 export function DeploymentPills({
   tag,
@@ -117,6 +124,8 @@ export function DeploymentPills({
   runtimeVersion,
   runtimeImage,
   currentRuntime,
+  access,
+  runner,
   className = "",
 }: {
   tag?: string;
@@ -126,9 +135,16 @@ export function DeploymentPills({
   runtimeImage?: string;
   /** The runtime this install deploys now; "" when it has no way of knowing. */
   currentRuntime?: string;
+  /** What this deployment's own token opens on the platform; usually nothing. */
+  access?: DeploymentAccess[];
+  /** Which image the pods are; only "agentic" says anything worth a pill. */
+  runner?: string;
   className?: string;
 }) {
-  if (!tag && !tracing && !runtimeVersion) return null;
+  const agentic = runner === "agentic";
+  if (!tag && !tracing && !runtimeVersion && !access?.length && !agentic) {
+    return null;
+  }
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
       {tag && <VersionPill tag={tag} />}
@@ -142,6 +158,8 @@ export function DeploymentPills({
         />
       )}
       {tracing && <TracedPill />}
+      {agentic && <RunnerPill />}
+      {access?.map((grant) => <AccessPill key={grant} grant={grant} />)}
     </div>
   );
 }

@@ -24,10 +24,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/juancavallotti/octo/iam/internal/auth"
+	"github.com/juancavallotti/octo/iam/internal/authz"
 	"github.com/juancavallotti/octo/iam/internal/db"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
 	"github.com/juancavallotti/octo/iam/internal/signing"
@@ -114,10 +116,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 	}
 
 	userSvc := user.NewService(user.NewRepo(database.Pool()))
-	user.NewHandler(userSvc).Register(mux)
-	slog.Info("user routes registered",
-		"endpoints", "GET /roles, GET /users, GET /users/{id}, "+
-			"PUT/DELETE /users/{id}/roles/{role}")
+	userHandler := user.NewHandler(userSvc)
 
 	// The signing keyset. It needs no configuration beyond the issuer it stamps:
 	// the keypair is generated on demand, stored, shared by every replica through
@@ -152,6 +151,19 @@ func newServer(database *db.DB) (http.Handler, error) {
 		return mux, nil
 	}
 	signing.NewHandler(signingSvc).Register(mux)
+
+	// The management routes, mounted only now that there is something to check a
+	// token with. Registered after the keyset rather than beside the bootstrap
+	// above, and that ordering is the point: an install with no keyset cannot
+	// authenticate anybody, and the alternative to not serving these would be
+	// serving the user directory and the role grants to whoever asked.
+	userHandler.Register(mux,
+		authz.Require(signingSvc),
+		authz.Require(signingSvc, string(user.RoleAdmin)))
+	slog.Info("user management routes registered",
+		"endpoints", "GET /roles, POST/GET /users, GET/PUT/DELETE /users/{id}, "+
+			"PUT/DELETE /users/{id}/roles/{role}")
+
 	slog.Info("signing routes registered",
 		"issuer", signingSvc.Issuer(), "audience", signingSvc.Audience(),
 		"tokenTtl", signingSvc.TokenTTL(),
@@ -163,7 +175,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 	auth.NewHandler(newAuthService(userSvc, signingSvc)).Register(mux)
 	slog.Info("auth routes registered",
 		"oidcIssuer", os.Getenv("OIDC_ISSUER"),
-		"endpoints", "POST /auth")
+		"endpoints", "POST /auth, POST /auth/refresh, POST /auth/machine")
 
 	return mux, nil
 }
@@ -176,6 +188,12 @@ func newServer(database *db.DB) (http.Handler, error) {
 // on purpose: one install has one identity provider, and giving iam a second pair
 // of variables would be a way for the two halves to end up pointed at different
 // ones.
+//
+// IAM_ACCEPTED_AUDIENCES widens what the exchange will take beyond the editor's
+// own client id, because one install presents more than one face to the provider:
+// the `/mcp` resource identifier is the other one. It is named for the platform
+// rather than for MCP — this service has no business knowing what MCP is, only
+// which audiences are this install.
 func newAuthService(users *user.Service, signer *signing.Service) *auth.Service {
 	issuer, clientID := os.Getenv("OIDC_ISSUER"), os.Getenv("OIDC_CLIENT_ID")
 	if issuer == "" || clientID == "" {
@@ -186,7 +204,8 @@ func newAuthService(users *user.Service, signer *signing.Service) *auth.Service 
 			"oidcIssuer", issuer != "", "oidcClientId", clientID != "")
 		return nil
 	}
-	svc, err := auth.NewService(auth.NewVerifier(issuer, clientID), users, signer)
+	audiences := acceptedAudiences(clientID, os.Getenv("IAM_ACCEPTED_AUDIENCES"))
+	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer)
 	if err != nil {
 		// Unreachable given the guard above, and reported rather than ignored so it
 		// cannot become a silent nil if the constructor grows another requirement.
@@ -194,6 +213,20 @@ func newAuthService(users *user.Service, signer *signing.Service) *auth.Service 
 		return nil
 	}
 	return svc
+}
+
+// acceptedAudiences is the client id plus whatever else this install answers for,
+// comma-separated. The client id is always in the set and never has to be
+// repeated: forgetting it would break sign-in, which is the one thing the
+// exchange must never be one typo away from.
+func acceptedAudiences(clientID, extra string) []string {
+	audiences := []string{clientID}
+	for _, aud := range strings.Split(extra, ",") {
+		if aud = strings.TrimSpace(aud); aud != "" && aud != clientID {
+			audiences = append(audiences, aud)
+		}
+	}
+	return audiences
 }
 
 // healthz answers the liveness probe. It reports as soon as the process is

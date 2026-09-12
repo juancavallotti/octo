@@ -86,12 +86,10 @@ resource "random_password" "postgres" {
 }
 
 # Auth.js session secret for the editor. Generated here too (state, not Secret
-# Manager); rotating it would log everyone out, so it is kept in state. Always
-# created (not gated on SSO): a Cloud Build deploy has no terraform.tfvars, so gating on
-# oidc_enabled_eff would let count drop to 0 and destroy the secret — the chart then
-# comes up without AUTH_SECRET and Auth.js throws MissingSecret. Keeping it
-# unconditional pins the value in the shared release state across every deploy; it is
-# only passed to the chart when SSO is enabled (see auth_secret below).
+# Manager); rotating it would log everyone out, so it is kept in state. Every
+# install needs one — the editor has no unauthenticated mode — and pinning it in
+# the shared release state is what keeps a Cloud Build deploy, which has no
+# terraform.tfvars, from minting a different one and signing everybody out.
 resource "random_password" "auth_secret" {
   length  = 32
   special = false
@@ -194,7 +192,6 @@ locals {
   oidc_read   = !local.oidc_provided && local.oidc_exists
   oidc_stored = local.oidc_read ? jsondecode(data.google_storage_bucket_object_content.oidc[0].content) : null
 
-  oidc_enabled_eff   = local.oidc_provided ? var.oidc_enabled : try(local.oidc_stored.enabled, false)
   oidc_issuer_eff    = local.oidc_provided ? var.oidc_issuer : try(local.oidc_stored.issuer, var.oidc_issuer)
   oidc_client_id_eff = local.oidc_provided ? var.oidc_client_id : try(local.oidc_stored.client_id, "")
   # The one field that can be set on its own. It is a label on a button, not a
@@ -207,26 +204,23 @@ locals {
   : (local.oidc_provided ? "" : try(local.oidc_stored.provider_name, "")))
   oidc_client_secret_eff = local.oidc_provided ? var.oidc_client_secret : try(local.oidc_stored.client_secret, "")
   oidc_write_roles_eff   = local.oidc_provided ? var.oidc_write_roles : try(local.oidc_stored.write_roles, "")
-  oidc_roles_claim_eff   = local.oidc_provided ? var.oidc_roles_claim : try(local.oidc_stored.roles_claim, "")
 }
 
 # Persisted OIDC config so a Cloud Build deploy (which has no terraform.tfvars) can read
-# the creds back. Gated on oidc_enabled_eff — NOT oidc_provided — and written from
-# the effective locals, so a CI apply that resolved these from this very file keeps
-# count=1 and rewrites identical content (idempotent) instead of destroying the seed.
-# It is only removed when SSO is genuinely turned off (oidc_enabled_eff = false).
+# the creds back. Gated on the effective client id — NOT oidc_provided — so a CI
+# apply that resolved these from this very file keeps count=1 and rewrites
+# identical content (idempotent) instead of destroying the seed. There is no
+# "SSO off" for it to be removed by any more; it goes when the credentials do.
 resource "google_storage_bucket_object" "oidc" {
-  count  = local.oidc_enabled_eff ? 1 : 0
+  count  = local.oidc_client_id_eff != "" ? 1 : 0
   bucket = local.state_bucket
   name   = "release/oidc.json"
   content = jsonencode({
-    enabled       = local.oidc_enabled_eff
     issuer        = local.oidc_issuer_eff
     client_id     = local.oidc_client_id_eff
     provider_name = local.oidc_provider_name_eff
     client_secret = local.oidc_client_secret_eff
     write_roles   = local.oidc_write_roles_eff
-    roles_claim   = local.oidc_roles_claim_eff
   })
 }
 
@@ -310,16 +304,15 @@ module "secrets" {
   create_postgres_secret   = true
   create_kv_secret         = true
   create_dev_runs_secret   = true
-  create_auth_secret       = local.oidc_enabled_eff
+  create_auth_secret       = true
   create_embeddings_secret = local.embeddings_enabled_eff
 
   postgres_password   = random_password.postgres.result
   kv_encryption_key   = random_bytes.kv_encryption_key.base64
   dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
 
-  # The session secret is generated unconditionally above so that turning SSO on
-  # later does not invalidate everyone's cookies; create_auth_secret decides
-  # whether it reaches the cluster at all.
+  # The session secret is generated above and held in this root's state, so that
+  # a later apply does not invalidate everyone's cookies.
   auth_secret        = random_password.auth_secret.result
   oidc_client_secret = local.oidc_client_secret_eff
 
@@ -373,13 +366,11 @@ module "octo" {
   # seeds oidc.json in the bucket); Cloud Build reads them back from there. The
   # session secret is generated above. All land in the release state, not Secret
   # Manager — and reach the chart as the Secret module.secrets put them in.
-  oidc_enabled         = local.oidc_enabled_eff
   oidc_issuer          = local.oidc_issuer_eff
   oidc_client_id       = local.oidc_client_id_eff
   oidc_provider_name   = local.oidc_provider_name_eff
   auth_existing_secret = try(module.secrets.auth.name, "")
   oidc_write_roles     = local.oidc_write_roles_eff
-  oidc_roles_claim     = local.oidc_roles_claim_eff
 
   # KV secret-namespace encryption key and the dev-run hostname/identity HMAC key,
   # both generated above, held in this root's state, and read by the chart from

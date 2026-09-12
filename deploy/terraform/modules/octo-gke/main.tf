@@ -174,9 +174,9 @@ resource "kubernetes_secret_v1" "db" {
 # ciphertext goes with the cluster — and both are stable across applies because
 # they live in this root's state.
 
-# Auth.js session secret. Created unconditionally so that turning SSO on later is
-# an in-place update rather than a new secret; only passed to the chart when SSO
-# is actually enabled, which is the only case where the editor reads it.
+# Auth.js session secret. Every install needs one — the editor has no
+# unauthenticated mode — and holding it in this root's state is what keeps a
+# later apply from minting a different one and signing everybody out.
 resource "random_password" "auth_secret" {
   length  = 32
   special = false
@@ -230,16 +230,15 @@ module "secrets" {
   create_postgres_secret   = !var.external_database
   create_kv_secret         = true
   create_dev_runs_secret   = true
-  create_auth_secret       = var.oidc_enabled
+  create_auth_secret       = true
   create_embeddings_secret = nonsensitive(var.embeddings_enabled && var.embeddings_api_key != "")
 
   postgres_password   = var.external_database ? "" : random_password.postgres[0].result
   kv_encryption_key   = random_bytes.kv_encryption_key.base64
   dev_run_hash_secret = random_bytes.dev_run_hash_secret.base64
 
-  # The session secret is generated unconditionally above so that turning SSO on
-  # later does not invalidate everyone's cookies; create_auth_secret decides whether
-  # it reaches the cluster at all.
+  # The session secret is generated above and held in this root's state, so that
+  # a later apply does not invalidate everyone's cookies.
   auth_secret        = random_password.auth_secret.result
   oidc_client_secret = var.oidc_client_secret
 
@@ -292,13 +291,11 @@ module "octo" {
   embeddings_dimensions      = var.embeddings_dimensions
   embeddings_existing_secret = try(module.secrets.embeddings.name, "")
 
-  oidc_enabled         = var.oidc_enabled
   oidc_issuer          = var.oidc_issuer
   oidc_client_id       = var.oidc_client_id
   oidc_provider_name   = var.oidc_provider_name
   auth_existing_secret = try(module.secrets.auth.name, "")
   oidc_write_roles     = var.oidc_write_roles
-  oidc_roles_claim     = var.oidc_roles_claim
 
   kv_existing_secret       = module.secrets.kv.name
   dev_runs_existing_secret = module.secrets.dev_runs.name

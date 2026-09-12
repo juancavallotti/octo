@@ -33,6 +33,7 @@ import (
 	alertsource "github.com/juancavallotti/octo/observability/internal/alerting/source"
 	alertstore "github.com/juancavallotti/octo/observability/internal/alerting/store"
 	"github.com/juancavallotti/octo/observability/internal/api"
+	"github.com/juancavallotti/octo/observability/internal/authz"
 	"github.com/juancavallotti/octo/observability/internal/cost"
 	"github.com/juancavallotti/octo/observability/internal/db"
 	"github.com/juancavallotti/octo/observability/internal/fold"
@@ -432,7 +433,24 @@ func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) htt
 				"POST /alerts/preview, GET /alerts/evaluations, GET /alerts/incidents, "+
 				"POST /alerts/incidents/{id}/ack")
 	}
-	return mux
+	return guard(mux)
+}
+
+// guard wraps the API in the authorization policy, when this install has an iam
+// to verify tokens against.
+//
+// Without one it returns the mux untouched and says so, which is the same
+// decision newServer makes for every other absent dependency: a service that
+// cannot verify a token must not start refusing every request, because there is
+// no way for a caller to fix that from the outside.
+func guard(mux http.Handler) http.Handler {
+	issuer := os.Getenv("IAM_URL")
+	if issuer == "" {
+		slog.Warn("IAM_URL is unset, so the API authorizes nothing and serves every caller")
+		return mux
+	}
+	slog.Info("api authorization enabled", "iam", issuer)
+	return authz.Wrap(authz.NewVerifier(issuer), mux)
 }
 
 // databasePool returns the connection pool, or nil when this process is running

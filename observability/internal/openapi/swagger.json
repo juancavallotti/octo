@@ -1160,10 +1160,17 @@
                 },
                 "type": "object"
             }
+        },
+        "securitySchemes": {
+            "Bearer": {
+                "in": "header",
+                "name": "Authorization",
+                "type": "apiKey"
+            }
         }
     },
     "info": {
-        "description": "The platform's observability surface: stored log events and traces as\nshipped by deployed runtimes, the pod stats the stats sidecar collects,\nthe retention policy over what is kept, and a report on how full the\ntwo stores underneath are.\n\nThis is an in-cluster service and performs no authentication of its own.\nIt is ClusterIP in the chart and the platform BFF is the authorization\nboundary in front of it. Every query route is a read; the three\nretention routes are the exception, and one of them deletes stored\ntelemetry — so anything that can reach this address can erase it as\nwell as read it. Keep it internal.",
+        "description": "The platform's observability surface: stored log events and traces as\nshipped by deployed runtimes, the pod stats the stats sidecar collects,\nthe retention policy over what is kept, and a report on how full the\ntwo stores underneath are.\n\nEvery route requires a bearer token minted by this platform's iam\nservice, except the health and description endpoints. What a route\nrequires of the caller depends on the roles the token carries: the\nstored history and the alerting view are open to anyone signed in,\nwhile what this installation watches for, how long it keeps what it\nstores, and what that storage costs are administrators only.\n\nAn installation with no iam configured authorizes nothing and serves\nevery caller, which is what a local run is.",
         "license": {
             "name": "Elastic License 2.0",
             "url": "https://www.elastic.co/licensing/elastic-license"

@@ -982,7 +982,7 @@ tasks:
           # dev-run hash secret (dev runs are on by default, so it is required
           # everywhere the feature is not turned off). Supplied here the way a real
           # install must; profiles that set their own land on the same values.
-          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest --set auth.oidc.issuer=https://id.example.com --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=rendertest --set auth.secret=rendertest"
           # lint, not template, is what covers NOTES.txt: `helm template` skips the
           # file entirely, and lint renders it along with everything else.
           if ! helm lint helm $required "$@" >"$out" 2>&1; then echo "FAILED (lint)"; cat "$out"; return 1; fi
@@ -1001,7 +1001,7 @@ tasks:
         check_fails() {
           name="$1"; want="$2"; shift 2
           printf '  %-22s ' "$name"
-          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest --set auth.oidc.issuer=https://id.example.com --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=rendertest --set auth.secret=rendertest"
           if render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
             echo "FAILED (rendered, but should not have)"; return 1
           fi
@@ -1015,7 +1015,7 @@ tasks:
         check_absent() {
           name="$1"; absent="$2"; shift 2
           printf '  %-22s ' "$name"
-          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest --set auth.oidc.issuer=https://id.example.com --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=rendertest --set auth.secret=rendertest"
           if ! render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
             echo "FAILED (did not render)"; echo "$render" | tail -3; return 1
           fi
@@ -1033,7 +1033,7 @@ tasks:
           while [ "$1" != "--" ]; do wants="$wants|$1"; shift; done
           shift
           printf '  %-22s ' "$name"
-          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest --set auth.oidc.issuer=https://id.example.com --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=rendertest --set auth.secret=rendertest"
           if ! render="$(helm template octo helm --namespace octo $required "$@" 2>&1)"; then
             echo "FAILED (did not render)"; echo "$render" | tail -3; return 1
           fi
@@ -1120,9 +1120,6 @@ tasks:
         check pg-existing-secret \
           --set postgres.auth.password= --set postgres.auth.existingSecret=db-creds \
           --set postgres.auth.existingSecretPasswordKey=password
-        check oidc \
-          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
-          --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=shh --set auth.secret=shh
         # The same SSO install with both credentials in a Secret the operator owns.
         # Three separate assertions, and none of them follows from a render that
         # merely succeeds: the editor must reference that Secret, the chart must
@@ -1131,8 +1128,7 @@ tasks:
         # them elsewhere, since Helm keeps every value it is given.
         check_contains auth-existing-secret \
           "name: my-auth" "key: client" "key: session" -- \
-          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
-          --set auth.oidc.clientId=octo \
+          --set auth.oidc.clientSecret= --set auth.secret= \
           --set auth.existingSecret=my-auth \
           --set auth.existingSecretClientSecretKey=client \
           --set auth.existingSecretAuthSecretKey=session
@@ -1153,14 +1149,12 @@ tasks:
           "serviceAccountName: octo-observability" -- \
           --set observability.rbac.create=false
         check_absent auth-existing-no-chart-secret "oidc-client-secret: " \
-          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
-          --set auth.oidc.clientId=octo --set auth.existingSecret=my-auth
+          --set auth.oidc.clientSecret= --set auth.secret= --set auth.existingSecret=my-auth
         # And the key names left to default, which is what a Secret created the way
         # the values file documents produces.
         check_contains auth-existing-default-keys \
           "key: oidc-client-secret" "key: auth-secret" -- \
-          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
-          --set auth.oidc.clientId=octo --set auth.existingSecret=my-auth
+          --set auth.oidc.clientSecret= --set auth.secret= --set auth.existingSecret=my-auth
         check wildcard-tls \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns \
           --set orchestrator.baseDomain=apps.example.com
@@ -1275,18 +1269,22 @@ tasks:
         check_fails embeddings-no-key  "embeddings.apiKey is required" \
           --set embeddings.enabled=true
         check_fails auth-both-sources  "clear the inline values" \
-          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
-          --set auth.oidc.clientId=octo --set auth.secret=shh \
           --set auth.existingSecret=my-auth
-        # SSO on with neither source. Auth.js throws MissingSecret on the first
-        # sign-in rather than at startup, so without this guard the install looks
-        # healthy until somebody tries to log in.
+        # Neither source for a credential. Auth.js throws MissingSecret on the
+        # first sign-in rather than at startup, so without this guard the install
+        # looks healthy until somebody tries to log in.
         check_fails auth-no-secret     "auth.secret is required" \
-          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
-          --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=shh
+          --set auth.secret=
         check_fails auth-no-client-secret "auth.oidc.clientSecret is required" \
-          --set auth.oidc.enabled=true --set auth.oidc.issuer=https://id.example.com \
-          --set auth.oidc.clientId=octo --set auth.secret=shh
+          --set auth.oidc.clientSecret=
+        # And the settings that have no credential behind them at all. Signing in
+        # is the only way into the editor, so an install without an identity
+        # provider is one nobody can use — it must be refused here rather than
+        # come up serving a welcome page and nothing else.
+        check_fails auth-no-issuer     "auth.oidc.issuer is required" \
+          --set auth.oidc.issuer=
+        check_fails auth-no-client-id  "auth.oidc.clientId is required" \
+          --set auth.oidc.clientId=
         # Retention turned off: the CronJob vanishes entirely. It is the only
         # CronJob the chart has, and the flag's whole job is to remove it, so
         # nothing that asserts a successful render could catch this regressing.

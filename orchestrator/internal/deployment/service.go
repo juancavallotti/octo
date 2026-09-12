@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/caller"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
@@ -104,7 +105,15 @@ type Service struct {
 	snapshots    snapshotStore
 	resources    resourceStore
 	kube         kubeClient
+	identities   identityMinter
 	cleaners     []storeCleaner
+}
+
+// identityMinter lends a deployment a platform identity of its own. Declared here
+// in the consumer and one method wide; *iam.Client satisfies it.
+type identityMinter interface {
+	Configured() bool
+	MintMachine(ctx context.Context, callerToken, deployment string, access []string) (string, error)
 }
 
 // Option customizes a Service at construction.
@@ -115,6 +124,13 @@ type Option func(*Service)
 // stores (e.g. the KV store and the secret store).
 func WithStoreCleaner(c storeCleaner) Option {
 	return func(s *Service) { s.cleaners = append(s.cleaners, c) }
+}
+
+// WithIdentities wires the minter that gives each deployment its own token.
+// Without it, deployments are created with no identity — which is what an install
+// with no iam configured has, and what every install had before there was one.
+func WithIdentities(m identityMinter) Option {
+	return func(s *Service) { s.identities = m }
 }
 
 // WithSnapshots wires the snapshot store, switching the service into tagged-deploy
@@ -141,6 +157,35 @@ func NewService(repo repository, integrations integrationStore, kube kubeClient,
 		opt(s)
 	}
 	return s
+}
+
+// identityFor mints the token a deployment presents to this API, on the
+// authority of whoever is deploying it.
+//
+// Where there is an iam to mint from, a deployment gets an identity or the
+// operation fails. Carrying on without one would create pods refused by this
+// same API on every call they make — and on a rollout it would be worse than
+// that, because a deployment whose token cannot be minted has its existing one
+// withdrawn, so a moment's trouble at iam would strip a working deployment of a
+// credential it already had.
+//
+// Where there is no iam, a deployment has no identity and nothing asks it for
+// one. That is the whole of the empty case: never a fallback to a credential of
+// this service's own, and never one belonging to somebody who is not the caller.
+func (s *Service) identityFor(ctx context.Context, deploymentID string, access []string) (string, error) {
+	if s.identities == nil || !s.identities.Configured() {
+		return "", nil
+	}
+	token := caller.Token(ctx)
+	if token == "" {
+		return "", fmt.Errorf(
+			"this deployment needs an identity and the request carried no credential to mint it with")
+	}
+	minted, err := s.identities.MintMachine(ctx, token, deploymentID, access)
+	if err != nil {
+		return "", fmt.Errorf("lend the deployment an identity: %w", err)
+	}
+	return minted, nil
 }
 
 // resolveRunner turns a settings value into the runner the workload will use,
@@ -315,8 +360,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// The platform-access grants are persisted for the same reason as the env
 	// bindings: they are what the next rollout starts from, and what a future access
 	// model reads to decide whether a call was ever meant to be allowed.
-	persisted.OrchestratorAPI = settings.OrchestratorAPI
-	persisted.ObservabilityAPI = settings.ObservabilityAPI
+	persisted.Access = settings.Access
 	// The runner is persisted for a reason worth naming, because this literal is a
 	// field-by-field copy rather than a re-marshal of the request: a rollout reads
 	// the stored row, so a runner that is not written here reaches the cluster on
@@ -356,22 +400,32 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	}
 
 	spec := kube.Spec{
-		ID:               dep.ID,
-		IntegrationID:    integrationID,
-		Name:             it.Name,
-		Version:          snapTag,
-		SnapshotID:       snapID,
-		Definition:       definition,
-		Replicas:         int32(replicas),
-		Slug:             slug,
-		Port:             port,
-		Env:              literalEnv,
-		SecretEnv:        secretEnv,
-		Expose:           external,
-		Subdomain:        subdomain,
-		Tracing:          settings.Tracing,
-		ObservabilityAPI: settings.ObservabilityAPI,
-		Runner:           runner,
+		ID:            dep.ID,
+		IntegrationID: integrationID,
+		Name:          it.Name,
+		Version:       snapTag,
+		SnapshotID:    snapID,
+		Definition:    definition,
+		Replicas:      int32(replicas),
+		Slug:          slug,
+		Port:          port,
+		Env:           literalEnv,
+		SecretEnv:     secretEnv,
+		Expose:        external,
+		Subdomain:     subdomain,
+		Tracing:       settings.Tracing,
+		Runner:        runner,
+	}
+	if spec.Token, err = s.identityFor(ctx, dep.ID, settings.Access); err != nil {
+		// The row is already written, and nothing has been created in the cluster
+		// yet. Left behind it is a deployment that does not exist holding a slug
+		// nothing can take — the same reason the Apply failure below rolls back,
+		// arriving one step earlier.
+		if delErr := s.repo.Delete(ctx, dep.ID); delErr != nil {
+			slog.Error("deployment rollback: delete row after an identity could not be minted",
+				"id", dep.ID, "error", delErr)
+		}
+		return Deployment{}, err
 	}
 	if err := s.kube.Apply(ctx, spec); err != nil {
 		// Roll back: remove any partially created resources and the row so the
@@ -829,22 +883,26 @@ func (s *Service) Rollout(
 	// the existing Service's targetPort — tags of one integration normally share a
 	// port, so this edge is left for a future enhancement.
 	spec := kube.Spec{
-		ID:               dep.ID,
-		IntegrationID:    dep.IntegrationID,
-		Name:             meta.Name,
-		Version:          snap.Tag,
-		SnapshotID:       snap.ID,
-		Definition:       snap.Definition,
-		Replicas:         int32(replicas),
-		Slug:             meta.Slug,
-		Port:             port,
-		Env:              literalEnv,
-		SecretEnv:        secretEnv,
-		Expose:           settings.External(),
-		Subdomain:        settings.Subdomain,
-		Tracing:          settings.Tracing,
-		ObservabilityAPI: settings.ObservabilityAPI,
-		Runner:           resolvedRunner,
+		ID:            dep.ID,
+		IntegrationID: dep.IntegrationID,
+		Name:          meta.Name,
+		Version:       snap.Tag,
+		SnapshotID:    snap.ID,
+		Definition:    snap.Definition,
+		Replicas:      int32(replicas),
+		Slug:          meta.Slug,
+		Port:          port,
+		Env:           literalEnv,
+		SecretEnv:     secretEnv,
+		Expose:        settings.External(),
+		Subdomain:     settings.Subdomain,
+		Tracing:       settings.Tracing,
+		Runner:        resolvedRunner,
+	}
+	// Re-minted rather than carried over: a rollout is a fresh authorisation by
+	// whoever is performing it, and the pods are replaced anyway.
+	if spec.Token, err = s.identityFor(ctx, dep.ID, settings.Access); err != nil {
+		return Deployment{}, err
 	}
 	if err := s.kube.Rollout(ctx, spec); err != nil {
 		return Deployment{}, err
@@ -892,6 +950,20 @@ func (s *Service) Rollout(
 }
 
 // Get returns a deployment with its status refreshed from the cluster.
+// IntegrationOf answers which integration a deployment belongs to, reading the
+// row and nothing else.
+//
+// Separate from Get because Get refreshes the deployment against the cluster,
+// and this one sits in front of an authorization check on a hot path — the
+// runtime asks for its frozen resources whenever a pod starts.
+func (s *Service) IntegrationOf(ctx context.Context, deploymentID string) (string, error) {
+	dep, err := s.repo.Get(ctx, deploymentID)
+	if err != nil {
+		return "", err
+	}
+	return dep.IntegrationID, nil
+}
+
 func (s *Service) Get(ctx context.Context, id string) (Deployment, error) {
 	dep, err := s.repo.Get(ctx, id)
 	if err != nil {

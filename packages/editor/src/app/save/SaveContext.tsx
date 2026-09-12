@@ -42,8 +42,13 @@ export interface SaveController {
    */
   save: (opts?: { force?: boolean }) => Promise<void>;
   busy: boolean;
-  /** Nothing to save: an empty document, or no changes since the last save. */
+  /**
+   * Nothing to save: an empty document, no changes since the last save, or a
+   * backend that declines writes.
+   */
   blocked: boolean;
+  /** Why the backend declines writes, when it does. */
+  readOnly?: string;
   /** The document is empty (nothing worth persisting yet). */
   empty: boolean;
   /** The current document/name matches what was last saved. */
@@ -92,10 +97,11 @@ export function SaveProvider({
     doc.flows.every((f) => !f.source && f.process.length === 0) &&
     doc.connectors.length === 0 &&
     doc.env.length === 0;
-  const blocked = empty || saved;
+  const readOnly = fs?.readOnly;
+  const blocked = empty || saved || Boolean(readOnly);
 
   const save = useCallback(async ({ force = false } = {}) => {
-    if (!fs || busy || saved) return;
+    if (!fs || fs.readOnly || busy || saved) return;
     if (empty && !force) return;
     setBusy(true);
     setError(null);
@@ -153,7 +159,7 @@ export function SaveProvider({
 
   // No filesystem capability => no save controller (Save/Enter render/do nothing).
   const value: SaveController | null = fs
-    ? { save, busy, blocked, empty, saved, error }
+    ? { save, busy, blocked, empty, saved, error, readOnly }
     : null;
 
   return <SaveContext.Provider value={value}>{children}</SaveContext.Provider>;

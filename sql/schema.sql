@@ -326,20 +326,49 @@ SET value = jsonb_build_object('version', 1, 'updated', CURRENT_DATE::text)
 -- a NULL comparison would silently skip the bump and leave that row unrepaired.
 WHERE COALESCE((site_settings.value->>'version')::int, 0) < 1;
 
--- users records each authenticated principal. Identity comes from the OIDC
--- provider; on first sign-in the platform bootstraps a row keyed by the stable
--- `subject` (the OIDC `sub`) and keeps email/name in sync on subsequent logins.
--- The generated `id` is the durable handle other tables (api_keys) reference, so
--- it survives IdP email changes. The local-dev (no-SSO) session uses a sentinel
--- subject so `task dev` still resolves to a real user row.
+-- users records each principal this platform admits. The generated `id` is the
+-- durable handle other tables reference.
+--
+-- Two keys, and the difference between them is the whole provisioning story.
+-- `email` is what an administrator provisions by, because it is the only thing
+-- they know about a colleague before that colleague has ever arrived; it is
+-- unique case-insensitively, since providers treat addresses that way and two
+-- rows differing only in case would make "who is this address" unanswerable.
+-- `subject` is the OIDC `sub`, which nobody types: it is NULL until the first
+-- sign-in writes it, and from then on it is what every sign-in keys on, so a
+-- changed address at the provider is a refresh rather than a new person.
+--
+-- `last_login_at` is NULL for somebody provisioned who has not arrived yet,
+-- which is a different thing from having arrived at the moment the row was
+-- written.
 CREATE TABLE IF NOT EXISTS users (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    subject       varchar UNIQUE NOT NULL,
+    subject       varchar UNIQUE,
     email         varchar NOT NULL,
     name          varchar NOT NULL DEFAULT '',
     created_at    timestamptz NOT NULL DEFAULT now(),
-    last_login_at timestamptz NOT NULL DEFAULT now()
+    last_login_at timestamptz
 );
+
+-- Two accounts on one address was possible before an address identified a
+-- person, so an installation upgrading into this index may hold a pair. Checked
+-- first and reported as itself: a unique violation from CREATE INDEX names one
+-- duplicate and gives no way to find the rest.
+DO $$
+DECLARE duplicates int;
+BEGIN
+    SELECT count(*) INTO duplicates FROM (
+        SELECT lower(email) FROM users GROUP BY lower(email) HAVING count(*) > 1
+    ) d;
+    IF duplicates > 0 THEN
+        -- The count and not the addresses. This message lands in migration, CI
+        -- and deployment logs, which are read by more people and kept longer
+        -- than the table it would be quoting from.
+        RAISE EXCEPTION '% address(es) are on more than one account. An address now identifies one person here; find them with: SELECT lower(email), count(*) FROM users GROUP BY 1 HAVING count(*) > 1; then remove or correct the duplicates and upgrade again.', duplicates;
+    END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key ON users (lower(email));
 
 -- api_keys are per-user bearer tokens used to authenticate machine clients (the
 -- platform MCP endpoint). The plaintext token is shown to the user exactly once at
@@ -1189,10 +1218,10 @@ CREATE INDEX IF NOT EXISTS idx_alert_evaluations_incident
     WHERE incident_id IS NOT NULL;
 
 -- user_roles records what a principal is allowed to do. Roles used to be whatever
--- the identity provider's id token claimed (AUTH_ROLES_CLAIM in the editor), which
--- meant no role could be granted without editing the provider, and the platform's
--- whole authorization vocabulary was one setting naming who may write. They are
--- rows now, owned by the iam service.
+-- the identity provider's id token claimed, which meant no role could be granted
+-- without editing the provider, and the platform's whole authorization vocabulary
+-- was one setting naming who may write. They are rows now, owned by the iam
+-- service, and the claim that used to carry them is gone.
 --
 -- `role` is a plain varchar and not an enum. The catalogue is expected to grow into
 -- a finer set than the four coarse platform:* roles it starts with, and a Postgres
@@ -1222,29 +1251,95 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles (role);
 -- self-rotating key costs nothing and a chart value would be one more thing an
 -- operator can get wrong.
 --
--- Two horizons, and they are not the same date. `retire_after` is when the key
--- stops signing; `expires_at` is when it stops being published. The gap between
--- them is at least one token lifetime, so a token minted a moment before rotation
--- can still be verified for the whole of its life. Rows past expires_at are
--- deleted by the next rotation, so nothing sweeps in the background.
+-- One horizon: `retire_after`, when the key stops signing. It goes on verifying
+-- what it signed for good, and is never deleted — a deployment's token can be
+-- renewed however long ago it expired, so dropping the key that signed it would
+-- strand the pod holding it. The set grows by one key per rotation.
 --
--- The private key is stored as it is, not encrypted. Encrypting it would need a
--- key to hold, which is precisely the operator-visible knob this design does
--- without, and the protection would be thin: anyone who can read this table can
--- write user_roles and make themselves an admin.
+-- The private half is encrypted at rest under KV_ENCRYPTION_KEY -- the key the
+-- orchestrator already holds for the KV store, so this adds no knob an operator can
+-- get wrong. It is not a defence against someone who can reach this database: with
+-- write access they make themselves an admin through user_roles without ever
+-- touching a key, and reading the keys buys them nothing they cannot do more
+-- directly. What it buys is that a database backup, or a dump handed to somebody to
+-- debug, is not a signing key.
 CREATE TABLE IF NOT EXISTS iam_signing_keys (
     kid          varchar PRIMARY KEY,
     algorithm    varchar NOT NULL,
     private_key  bytea NOT NULL,        -- PKCS#8 DER
     public_key   bytea NOT NULL,        -- PKIX DER
     created_at   timestamptz NOT NULL DEFAULT now(),
-    retire_after timestamptz NOT NULL,
-    expires_at   timestamptz NOT NULL
+    retire_after timestamptz NOT NULL
 );
 
--- The two reads this table gets: "which key signs now" (the newest that has not
--- retired) and "which keys still verify" (everything unexpired, for the JWKS).
+-- One read needs an index: "which key signs now", the newest that has not
+-- retired. The other read is "which keys verify", which is all of them — a key
+-- goes on verifying what it signed for good, because a deployment's token is
+-- renewable however long ago it expired and dropping its key would end that.
 CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_retire_after
     ON iam_signing_keys (retire_after DESC);
-CREATE INDEX IF NOT EXISTS idx_iam_signing_keys_expires_at
-    ON iam_signing_keys (expires_at);
+
+-- db_version 2: everybody who already had an account becomes an administrator.
+--
+-- Before this, roles were whatever claim the identity provider put in the id
+-- token, and user_roles held at most the one row EnsureFirstAdmin wrote. Sign-in
+-- now reads roles from this table instead, so without a backfill every existing
+-- installation would come up with exactly one administrator and everybody else
+-- holding nothing.
+--
+-- Granting admin to all of them is the deliberately permissive choice: it leaves
+-- an upgraded installation working exactly as it did, and trimming it back is the
+-- operator's first job once the user administration screen exists. The
+-- alternative — guessing at who should keep what from a claim we are in the
+-- middle of abandoning — would lock people out on the strength of a guess.
+--
+-- Guarded on the version rather than written to be idempotent by repetition. The
+-- obvious spelling (INSERT … SELECT id FROM users … ON CONFLICT DO NOTHING) is
+-- idempotent in the sense that it inserts nothing new, but the Job re-runs on
+-- every deploy, so it would re-grant admin to anybody an administrator had since
+-- demoted. The version check makes the whole thing happen exactly once.
+--
+-- The grant and the version bump are in one DO block, so they are one statement
+-- and therefore one transaction. Written as two, a Job that died between them
+-- would leave the grant applied and the version unbumped, and the next deploy
+-- would re-grant — which is the very thing the guard is here to prevent, arriving
+-- by a different road.
+DO $$
+BEGIN
+    IF COALESCE((SELECT (value->>'version')::int FROM site_settings WHERE key = 'db_version'), 0) < 2 THEN
+        INSERT INTO user_roles (user_id, role)
+        SELECT id, 'platform:admin' FROM users
+        ON CONFLICT (user_id, role) DO NOTHING;
+
+        INSERT INTO site_settings (key, value)
+        VALUES ('db_version', jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text))
+        ON CONFLICT (key) DO UPDATE
+        SET value = jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text);
+    END IF;
+END $$;
+
+-- db_version 3: an address identifies a person here, and a subject is discovered.
+--
+-- Provisioning used to take the OIDC subject, which an administrator had to read
+-- out of their provider's console before they could let a colleague in. Now they
+-- provision an address and the first sign-in writes the subject onto that row.
+-- Three column changes follow, and an existing installation needs all of them:
+-- `subject` becomes nullable (a provisioned person has none yet),
+-- `last_login_at` becomes nullable (they have not arrived), and `email` gains
+-- the case-insensitive unique index that makes an address an identity.
+--
+-- The index itself is created beside the table, behind the duplicate check that
+-- has to run before it on either path.
+DO $$
+BEGIN
+    IF COALESCE((SELECT (value->>'version')::int FROM site_settings WHERE key = 'db_version'), 0) < 3 THEN
+        ALTER TABLE users ALTER COLUMN subject DROP NOT NULL;
+        ALTER TABLE users ALTER COLUMN last_login_at DROP NOT NULL;
+        ALTER TABLE users ALTER COLUMN last_login_at DROP DEFAULT;
+
+        INSERT INTO site_settings (key, value)
+        VALUES ('db_version', jsonb_build_object('version', 3, 'updated', CURRENT_DATE::text))
+        ON CONFLICT (key) DO UPDATE
+        SET value = jsonb_build_object('version', 3, 'updated', CURRENT_DATE::text);
+    END IF;
+END $$;

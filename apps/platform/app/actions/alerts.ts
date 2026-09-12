@@ -12,8 +12,8 @@
  *
  * The acting user is resolved here, from the session, through the same gate that
  * resolves it everywhere else — the durable orchestrator user id rather than
- * whatever the session object happens to carry, which is what makes it work with
- * SSO off. It is never taken from client input. Attribution rather than
+ * whatever the session object happens to carry. It is never taken from client
+ * input. Attribution rather than
  * authorization, but taking it from the request would let one user's change be
  * recorded against another.
  */

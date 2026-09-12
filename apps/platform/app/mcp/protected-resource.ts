@@ -7,8 +7,8 @@
  * `resource` identifier and point at the configured OIDC provider as the authorization
  * server, so an MCP client can discover its `registration_endpoint` and run the flow.
  *
- * Returns 404 when OAuth isn't configured (local dev with SSO off), matching the
- * "no auth server to advertise" state.
+ * Returns 404 when this install has no public origin to name itself by (no
+ * AUTH_URL and no MCP_RESOURCE_URL), matching the "nothing to advertise" state.
  */
 
 import {

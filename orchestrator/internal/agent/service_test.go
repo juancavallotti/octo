@@ -750,22 +750,33 @@ func TestInstallDeploysInternalOnly(t *testing.T) {
 	}
 }
 
-// The agent asks for the platform-access grants the same way any integration does.
-// Observability is the one that does something: it is what puts OBSERVABILITY_URL in his pod,
-// and without it his observability tools answer that they were not granted rather than that
-// there is nothing stored.
-func TestInstallAsksForThePlatformAccessGrants(t *testing.T) {
+// He is installed able to do the job he is installed for.
+//
+// The grants change nothing about a conversation: his tools spend the token of
+// whoever is chatting, so what he may do there is what that person may do. They
+// are for the unattended path, where nobody is chatting and his own token is the
+// run's only credential — and without them that path is inert rather than merely
+// narrow, because platform:runtime appears in no rule on either API and every
+// call an alert-woken triage makes is refused.
+func TestInstallLendsTheAgentWhatUnattendedTriageNeeds(t *testing.T) {
 	h := newHarness(t, true)
 
 	if _, err := h.svc.Install(context.Background(), ""); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	got := h.deployments.deployed[0]
-	if !got.ObservabilityAPI {
-		t.Error("want the observability grant; without it he cannot read stored logs or traces")
+	got := h.deployments.deployed[0].Access
+	want := map[string]bool{deployment.AccessDeveloper: false, deployment.AccessOperator: false}
+	for _, a := range got {
+		if _, known := want[a]; !known {
+			t.Errorf("access includes %q, which is not one of the two grants", a)
+			continue
+		}
+		want[a] = true
 	}
-	if !got.OrchestratorAPI {
-		t.Error("want the orchestrator grant declared; he drives that API on every turn")
+	for grant, present := range want {
+		if !present {
+			t.Errorf("access = %v, missing %q — unattended triage cannot act without it", got, grant)
+		}
 	}
 }
 

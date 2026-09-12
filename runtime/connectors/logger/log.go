@@ -58,7 +58,7 @@ type processor struct {
 	message *expr.Program
 	logger  *slog.Logger
 	full    bool
-	env     map[string]any
+	env     expr.Env
 }
 
 // newLog builds a log processor, resolving its logger and compiling the optional

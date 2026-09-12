@@ -451,6 +451,14 @@
             },
             "deployment.Settings": {
                 "properties": {
+                    "access": {
+                        "description": "Access is what this deployment's own token opens beyond the stores every pod\nowns — its key/value namespace, its objects, its agent memory.\n\nA set, and empty for almost every deployment. \"developer\" adds integrations,\nresources, snapshots and dev runs; \"operator\" adds deployments. They are\nindependent because they are different jobs, and something that builds\nintegrations and operates them is one thing that does both.\n\nThis is the credential an integration with no person behind it has — one\nwoken by a queue message or a webhook, where there is no caller's token to\nborrow — so it is the whole of what such a flow may do.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "env": {
                         "additionalProperties": {
                             "$ref": "#/components/schemas/deployment.EnvBinding"
@@ -461,14 +469,6 @@
                     "expose": {
                         "description": "Expose opts the deployment into an external HTTP endpoint. \"external\"\npublishes a {subdomain}.{baseDomain} Ingress with TLS; empty = internal only.",
                         "type": "string"
-                    },
-                    "observabilityApi": {
-                        "description": "ObservabilityAPI grants this deployment's flows the address of the\nobservability service's API, injected as OBSERVABILITY_URL. Unlike the\norchestrator's, that address is in no pod otherwise, so this switch is the\nwhole of the access.\n\nOff by default: stored logs and traces span every deployment on the install,\nso an integration that can read them can read its neighbours' — which is a\nthing to ask for rather than to receive by default.",
-                        "type": "boolean"
-                    },
-                    "orchestratorApi": {
-                        "description": "OrchestratorAPI declares that this deployment's flows call the orchestrator's\nown API — the platform agent being the first, but any integration that reads\nits own installation is another.\n\nIt grants nothing today: ORCHESTRATOR_URL is already in every runtime pod,\nbecause the k8s services module needs it for the KV store and leader election,\nand taking it away would break both. What this records is the *intent*, which\nis what a future access model gates on — a deployment that never declared it\nhas no business calling the API, and saying so now means the enforcement point\narrives with the declarations already in place rather than needing every\nexisting deployment reclassified.",
-                        "type": "boolean"
                     },
                     "replicas": {
                         "description": "Replicas is the desired runtime replica count; \u003c1 is normalized to 1. The\nper-deployment Service load-balances across them for internal callers.",
@@ -533,6 +533,14 @@
             },
             "deployment.deploymentResponse": {
                 "properties": {
+                    "access": {
+                        "description": "Access is what this deployment's own token opens on the platform beyond its\nown stores, and Runner which image its pods are. Both are reported because\nboth are things a reader of a deployment has to be able to see without\nopening a dialog: a running pod that may rewrite anyone's integration, or one\ncarrying a shell, is not a fact that should live only in the deploy form that\nasked for it. Omitted when the deployment has neither, which is almost all of\nthem.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "createdAt": {
                         "type": "string"
                     },
@@ -579,6 +587,9 @@
                     },
                     "replicas": {
                         "type": "integer"
+                    },
+                    "runner": {
+                        "type": "string"
                     },
                     "runtimeImage": {
                         "description": "RuntimeImage is the octo runtime image the pods are actually running, and\nRuntimeVersion its tag on its own — which runtime a misbehaving deployment is\non is the first thing asked when troubleshooting one, and a deployment that\nwas never rolled over keeps running whatever image it was created with.\nOmitted when the cluster reports no image (an undeployed or unreachable\nworkload).",
@@ -1352,40 +1363,6 @@
                 },
                 "type": "object"
             },
-            "user.bootstrapRequest": {
-                "properties": {
-                    "email": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "subject": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "user.userResponse": {
-                "properties": {
-                    "createdAt": {
-                        "type": "string"
-                    },
-                    "email": {
-                        "type": "string"
-                    },
-                    "id": {
-                        "type": "string"
-                    },
-                    "lastLoginAt": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "websearch.settingsResponse": {
                 "properties": {
                     "configured": {
@@ -1416,10 +1393,17 @@
                 },
                 "type": "object"
             }
+        },
+        "securitySchemes": {
+            "Bearer": {
+                "in": "header",
+                "name": "Authorization",
+                "type": "apiKey"
+            }
         }
     },
     "info": {
-        "description": "The control plane behind the Octo platform: integrations and their\nresources, version tags, deployments, cluster secrets, the\ndeployment-scoped key-value store, users and API keys, and the\nsite-wide settings.\n\nThe orchestrator is an in-cluster service and performs no\nauthentication of its own. Callers reach it over the cluster network\nand the platform BFF is the authorization boundary in front of it.\nIdentity, where a route needs it, is passed as a parameter (an actor\nid, a user id in the path) rather than proven by a credential.",
+        "description": "The control plane behind the Octo platform: integrations and their\nresources, version tags, deployments, cluster secrets, the\ndeployment-scoped key-value store, users and API keys, and the\nsite-wide settings.\n\nEvery route requires a bearer token minted by this platform's iam\nservice, except the health and description endpoints. What a route\nrequires of the caller depends on the roles the token carries: most\nreads are open to anyone signed in, building and deploying need the\ncorresponding role, and the installation's own settings and secrets\nare administrators only. A deployed integration presents a token of\nits own, which reaches its key-value store, its objects and its agent\nmemory and nothing else.\n\nAn installation with no iam configured authorizes nothing and serves\nevery caller, which is what a local run is.",
         "license": {
             "name": "Elastic License 2.0",
             "url": "https://www.elastic.co/licensing/elastic-license"
@@ -6788,98 +6772,6 @@
                 "summary": "Read one frozen resource",
                 "tags": [
                     "snapshots"
-                ]
-            }
-        },
-        "/users/bootstrap": {
-            "post": {
-                "description": "Called on sign-in. Creates the user on first sight and returns the same durable id\non every later call, so the platform has one identity to attribute writes to\nregardless of what the identity provider changes about the account.",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/user.bootstrapRequest",
-                                        "summary": "body",
-                                        "description": "Subject, email and display name"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Subject, email and display name",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/user.userResponse"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    }
-                },
-                "summary": "Resolve a signed-in identity to an octo user",
-                "tags": [
-                    "users"
-                ]
-            }
-        },
-        "/users/{id}": {
-            "get": {
-                "parameters": [
-                    {
-                        "description": "User id",
-                        "in": "path",
-                        "name": "id",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/user.userResponse"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "summary": "Get a user",
-                "tags": [
-                    "users"
                 ]
             }
         },

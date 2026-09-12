@@ -49,7 +49,7 @@ type retrieveProcessor struct {
 	page        *expr.Program
 	resultVar   string
 	failOnError bool
-	env         map[string]any
+	env         expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

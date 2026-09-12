@@ -23,8 +23,9 @@ export interface Integration {
   lastUpdated: string;
   /**
    * Attribution: the ids of the creating and last-editing users, with those
-   * users resolved to email/name for display. All optional — a row may have no
-   * known actor (local no-SSO, MCP writes) or the user may since be gone.
+   * users resolved to email/name for display. All optional — a row written
+   * before attribution existed has no actor, and one whose user has since been
+   * deleted keeps the row and loses the name.
    */
   createdBy?: string;
   updatedBy?: string;
@@ -160,6 +161,11 @@ export interface Deployment {
    * over, so a cluster commonly runs several at once. */
   runtimeImage?: string;
   runtimeVersion?: string;
+  /** What this deployment's own token opens on the platform. See {@link DEPLOYMENT_ACCESS}. */
+  access?: DeploymentAccess[];
+  /** Which image its pods are: "" or "standard" for the default, "agentic" for the
+   * heavier runner carrying a shell. */
+  runner?: string;
 }
 
 /** How one declared env var is filled at deploy: a literal value or a secret ref. */
@@ -185,17 +191,44 @@ export interface DeploymentInput {
   /** Run the pods with the runtime tracer on. Off by default; it costs throughput. */
   tracing?: boolean;
   /**
-   * Declares that this deployment's flows call the orchestrator's own API. Grants
-   * nothing today — ORCHESTRATOR_URL is already in every pod for the runtime's KV
-   * store — but it is the declaration a future access model gates on.
+   * What this deployment's own token opens beyond the stores every pod owns. See
+   * {@link DEPLOYMENT_ACCESS}. Absent or empty opens nothing more.
    */
-  orchestratorApi?: boolean;
-  /**
-   * Grants this deployment the observability service's address as OBSERVABILITY_URL. Off by
-   * default: stored logs and traces span every deployment on the installation.
-   */
-  observabilityApi?: boolean;
+  access?: DeploymentAccess[];
 }
+
+/**
+ * One thing a deployment's own token opens beyond its own stores.
+ *
+ * A running integration presents a token of its own, and what it may do is what
+ * that token carries. For an integration woken by a queue message or a webhook
+ * there is nobody else's credential to borrow, so this is the whole of what it
+ * may reach.
+ *
+ * A set rather than a ladder: building integrations and operating deployments
+ * are different jobs, and something can do both, either, or neither.
+ */
+export type DeploymentAccess = "developer" | "operator";
+
+/** The grants, with what each one is for. */
+export const DEPLOYMENT_ACCESS: {
+  value: DeploymentAccess;
+  label: string;
+  detail: string;
+}[] = [
+  {
+    value: "developer",
+    label: "Builds integrations",
+    detail:
+      "Reads and writes integrations, their resources, versions and dev runs — across the whole installation, not just its own. For an integration that builds or tests others.",
+  },
+  {
+    value: "operator",
+    label: "Operates deployments",
+    detail:
+      "Deploys, rolls out, scales and removes deployments — anyone else's included. For an integration that runs this platform.",
+  },
+];
 
 /** An environment variable an integration declares, for the modal to prompt on. */
 export interface DeployEnvVar {

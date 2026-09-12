@@ -19,6 +19,11 @@
 # encrypted in site_settings, and is decrypted by the one service that owns it.
 - name: ORCHESTRATOR_URL
   value: {{ include "octo.orchestrator.url" . | quote }}
+{{- /* Where the tokens this API accepts are signed. Set, this service verifies
+       every caller against iam's published keys and applies its policy; unset,
+       it authorizes nothing and serves whatever reaches it. */}}
+- name: IAM_URL
+  value: {{ include "octo.iam.url" . | quote }}
 {{ include "octo.database.env" . }}
 {{- if .Values.nats.enabled }}
 # In-cluster NATS broker carrying the two subjects this service consumes as a

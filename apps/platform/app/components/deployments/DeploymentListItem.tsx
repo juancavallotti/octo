@@ -86,7 +86,12 @@ export default function DeploymentListItem({
       className="flex h-full flex-col rounded-xl border border-black/10 bg-white/40 p-4 dark:border-white/10 dark:bg-zinc-900/30"
       title={d.id}
     >
-      {/* Identity */}
+      {/* Identity. The pills sit on their own line beneath rather than beside the
+          name, the same arrangement the integration page's row uses and for the
+          same reason: the status badge and the name have bounded widths, and the
+          pills are a variable number of variable-width labels. Inline, a
+          deployment wearing a version, a runtime, Traced, a runner and two access
+          grants pushed the name out of its own card. */}
       <div className="flex items-center gap-2">
         <span
           className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
@@ -98,15 +103,17 @@ export default function DeploymentListItem({
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {d.integrationName}
         </h3>
-        <DeploymentPills
-          tag={d.tag}
-          tracing={d.tracing}
-          runtimeVersion={d.runtimeVersion}
-          runtimeImage={d.runtimeImage}
-          currentRuntime={currentRuntime}
-          className="shrink-0"
-        />
       </div>
+      <DeploymentPills
+        tag={d.tag}
+        tracing={d.tracing}
+        runtimeVersion={d.runtimeVersion}
+        runtimeImage={d.runtimeImage}
+        currentRuntime={currentRuntime}
+        access={d.access}
+        runner={d.runner}
+        className="mt-2"
+      />
 
       {/* Scale and age */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">

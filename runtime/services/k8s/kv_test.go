@@ -60,7 +60,7 @@ func newTestClient(t *testing.T, srv *kvServer) *httpStore {
 	t.Helper()
 	ts := httptest.NewServer(srv.handler())
 	t.Cleanup(ts.Close)
-	return newHTTPStore(ts.URL, "dep-123", "")
+	return newHTTPStore(ts.URL, "dep-123", nil)
 }
 
 func TestKVGetMissing(t *testing.T) {
@@ -102,7 +102,7 @@ func TestSecretsRouteToEncryptedNamespace(t *testing.T) {
 	srv := &kvServer{}
 	ts := httptest.NewServer(srv.handler())
 	t.Cleanup(ts.Close)
-	store := newHTTPStore(ts.URL, "dep-123", "")
+	store := newHTTPStore(ts.URL, "dep-123", nil)
 	secrets := core.NewSecretStore(store)
 	if _, err := secrets.Set(context.Background(), core.NamespaceSystem, "token", []byte("s"), 0); err != nil {
 		t.Fatalf("Set: %v", err)
@@ -157,7 +157,7 @@ func TestKVTokenAuth(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(ts.Close)
-	c := newHTTPStore(ts.URL, "dep-123", "tok-abc")
+	c := newHTTPStore(ts.URL, "dep-123", staticCredential("tok-abc"))
 	if _, _, err := c.Get(context.Background(), core.NamespaceUser, "k"); err != nil {
 		t.Fatalf("Get: %v", err)
 	}

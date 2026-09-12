@@ -25,9 +25,7 @@ export async function createResource(
   name: string,
   content: string,
 ): Promise<ActionResult<Resource>> {
-  // Attribute the write to the acting user, the same way the integration
-  // actions do (undefined for the local no-SSO session, which has no id — the
-  // orchestrator then records no author).
+  // Attribute the write to the acting user.
   return withWrite((session) =>
     client.createResource(integrationId, kind, name, content, session.user.id),
   );

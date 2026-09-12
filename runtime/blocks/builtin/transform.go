@@ -65,7 +65,7 @@ type transformStep struct {
 // before each so later expressions observe the edits made by earlier ones.
 type multiTransform struct {
 	steps []transformStep
-	env   map[string]any
+	env   expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

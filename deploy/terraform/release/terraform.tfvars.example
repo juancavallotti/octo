@@ -25,8 +25,9 @@ chart_version = "0.8.7"
 domain      = "octo.example.com"
 apps_domain = "apps.example.com"
 
-# --- SSO / OIDC (optional) ---
-# Gate the editor behind single sign-on. The client secret is kept in this root's
+# --- SSO / OIDC (required) ---
+# Signing in is how anybody reaches the editor; there is no open mode, and the
+# chart refuses to render without these three. The client secret is kept in this root's
 # Terraform state (the state bucket), and the Auth.js session secret is generated
 # automatically — no Secret Manager. Register the redirect URI
 # https://{domain}/api/auth/callback/oidc on the IdP.
@@ -34,13 +35,11 @@ apps_domain = "apps.example.com"
 # A local `task deploy` also seeds these into release/oidc.json in the state bucket
 # so the Cloud Build deploy step (which never sees this gitignored file) reads them
 # back; re-run `task deploy` once after changing any oidc_* value.
-# oidc_enabled       = true
-# oidc_client_id     = "xxxxxxxxxxxxxxxxxxxxxxxx"
-# oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-# oidc_issuer        = "https://idp.example.com" # your OIDC provider
+oidc_client_id     = "xxxxxxxxxxxxxxxxxxxxxxxx"
+oidc_client_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+oidc_issuer        = "https://idp.example.com" # your OIDC provider
 # oidc_provider_name = "eetr auth"               # sign-in button label; empty = "OIDC"
-# oidc_write_roles   = ""                        # e.g. "admin,operator"; empty = any signed-in user
-# oidc_roles_claim   = ""                        # override if the IdP uses a non-"roles" claim
+# oidc_write_roles   = ""  # e.g. "platform:admin,platform:operator"; empty = every role but platform:monitor
 
 # --- Embeddings (optional) ---
 # Deploy the embedding server so searching agent memory ranks by MEANING rather

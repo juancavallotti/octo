@@ -20,8 +20,8 @@ import { OIDC_ISSUER, trimSlashes } from "@/oidc.config";
 /**
  * The authorization server we trust — the provider's issuer, reused as-is from
  * the editor's OIDC config so the two can never disagree. Access tokens must
- * carry `iss` equal to this. Empty when SSO is unconfigured (local dev), in
- * which case MCP OAuth is effectively disabled.
+ * carry `iss` equal to this. Empty only on a misconfigured install, which is one
+ * nobody can sign in to either — see oidc.config.ts.
  */
 export const MCP_ISSUER = OIDC_ISSUER;
 
@@ -48,5 +48,5 @@ export const MCP_RESOURCE =
 export const RESOURCE_METADATA_PATH =
   "/.well-known/oauth-protected-resource/mcp";
 
-/** Whether MCP OAuth is configured (issuer + resource both known). */
+/** Whether MCP OAuth can be advertised (issuer + resource both known). */
 export const mcpOauthEnabled = (): boolean => !!MCP_ISSUER && !!MCP_RESOURCE;

@@ -39,4 +39,14 @@ describe("SaveButton", () => {
       screen.getByRole("button", { name: /save/i }),
     ).toBeInTheDocument();
   });
+
+  // A backend that declines writes still loads: the control stays, disabled,
+  // carrying that backend's own sentence — rather than vanishing and leaving a
+  // header that reads as broken.
+  it("disables the control and shows why when the backend declines writes", () => {
+    renderWith({ ...fakeFs, readOnly: "Needs the Developer or Operator role" });
+    const button = screen.getByRole("button", { name: /save/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "Needs the Developer or Operator role");
+  });
 });

@@ -3,25 +3,33 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MANAGEMENT_SECTIONS } from "@/app/components/integrations/views";
+import { useRoles } from "@/app/auth/RolesContext";
 
 /**
  * The platform's section switcher: a segmented control of links across the
  * top-level routes (Dashboard, Integrations, Deployments, …), highlighting the one
  * matching the current path. Rendered in the shared AppHeader on every signed-in
  * page so the bar stays put as you move between sections.
+ *
+ * A section whose capability the caller lacks is left out rather than shown
+ * refusing. Hiding is right here and disabling is right on a control: a control
+ * belongs to a page the caller legitimately reads, and a tab that only leads to a
+ * refusal does not.
  */
 export default function ManagementNav() {
   const pathname = usePathname();
+  const { can } = useRoles();
+  const sections = MANAGEMENT_SECTIONS.filter((s) => !s.requires || can[s.requires]);
   // Highlight the single best (longest) matching section, so the Dashboard tab
   // ("/platform") isn't lit on every subroute it prefixes.
-  const activeHref = MANAGEMENT_SECTIONS.reduce<string | null>((best, s) => {
+  const activeHref = sections.reduce<string | null>((best, s) => {
     const match = pathname === s.href || pathname.startsWith(`${s.href}/`);
     if (!match) return best;
     return best === null || s.href.length > best.length ? s.href : best;
   }, null);
   return (
     <nav className="flex shrink-0 items-center gap-0.5 rounded-md bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
-      {MANAGEMENT_SECTIONS.map((s) => {
+      {sections.map((s) => {
         const active = s.href === activeHref;
         const Icon = s.icon;
         return (

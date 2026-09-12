@@ -21,13 +21,23 @@
 //	@description				deployment-scoped key-value store, users and API keys, and the
 //	@description				site-wide settings.
 //	@description
-//	@description				The orchestrator is an in-cluster service and performs no
-//	@description				authentication of its own. Callers reach it over the cluster network
-//	@description				and the platform BFF is the authorization boundary in front of it.
-//	@description				Identity, where a route needs it, is passed as a parameter (an actor
-//	@description				id, a user id in the path) rather than proven by a credential.
+//	@description				Every route requires a bearer token minted by this platform's iam
+//	@description				service, except the health and description endpoints. What a route
+//	@description				requires of the caller depends on the roles the token carries: most
+//	@description				reads are open to anyone signed in, building and deploying need the
+//	@description				corresponding role, and the installation's own settings and secrets
+//	@description				are administrators only. A deployed integration presents a token of
+//	@description				its own, which reaches its key-value store, its objects and its agent
+//	@description				memory and nothing else.
+//	@description
+//	@description				An installation with no iam configured authorizes nothing and serves
+//	@description				every caller, which is what a local run is.
 //	@license.name				Elastic License 2.0
 //	@license.url				https://www.elastic.co/licensing/elastic-license
 //	@externalDocs.description	Octo documentation
 //	@externalDocs.url			https://octopaas.dev/docs
+//
+//	@securityDefinitions.apikey	Bearer
+//	@in							header
+//	@name						Authorization
 package openapi

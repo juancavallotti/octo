@@ -14,6 +14,7 @@ import {
 import AppHeader from "@/app/components/AppHeader";
 import ManagementNav from "@/app/components/ManagementNav";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
+import { useRoles } from "@/app/auth/RolesContext";
 import { listAllDeployments } from "@/app/model/orchestrator";
 import {
   DeploymentTile,
@@ -38,6 +39,7 @@ export default function Dashboard({
   mcpUrl?: string;
 }) {
   const { available, ready } = useOrchestrator();
+  const { can } = useRoles();
   const [deployments, setDeployments] = useState<DeployedTile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -99,25 +101,29 @@ export default function Dashboard({
 
           {/* Shortcuts */}
           <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <ShortcutTile
-              href="/platform/new"
-              icon={Plus}
-              title="New integration"
-              subtitle="Start from a blank canvas"
-              accent
-            />
+            {can.build && (
+              <ShortcutTile
+                href="/platform/new"
+                icon={Plus}
+                title="New integration"
+                subtitle="Start from a blank canvas"
+                accent
+              />
+            )}
             <ShortcutTile
               href="/platform/integrations"
               icon={LayoutGrid}
               title="Integrations"
               subtitle="Browse, organize, deploy"
             />
-            <ShortcutTile
-              href="/platform/secrets"
-              icon={KeyRound}
-              title="Secrets"
-              subtitle="Manage deploy-time secrets"
-            />
+            {can.administer && (
+              <ShortcutTile
+                href="/platform/secrets"
+                icon={KeyRound}
+                title="Secrets"
+                subtitle="Manage deploy-time secrets"
+              />
+            )}
             <ShortcutTile
               href="/platform/queues"
               icon={Network}

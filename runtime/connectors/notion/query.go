@@ -67,7 +67,7 @@ type queryProcessor struct {
 	pageSize    int
 	resultVar   string
 	failOnError bool
-	env         map[string]any
+	env         expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

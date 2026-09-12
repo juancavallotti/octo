@@ -26,6 +26,7 @@ import {
 import { useDeploymentMetrics } from "./useDeploymentMetrics";
 import { useDeploymentCatalogue } from "./useDeploymentCatalogue";
 import { useLiveClock } from "./useLiveClock";
+import Callout from "@/app/components/ui/Callout";
 
 /**
  * One deployment's CPU and memory, from the rolling week its pods keep in Redis.
@@ -132,9 +133,9 @@ export default function MetricsMonitor({
       </div>
 
       {series?.truncated && (
-        <p className="text-xs text-amber-600 dark:text-amber-500">
-          Only the most recently seen pods were read, so this is part of the picture.
-        </p>
+        <Callout>
+          <p>Only the most recently seen pods were read, so this is part of the picture.</p>
+        </Callout>
       )}
 
       {series?.warnings.map((warning) => (

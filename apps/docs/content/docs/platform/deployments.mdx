@@ -62,28 +62,68 @@ Captured bodies and variables are stored as they arrived and are readable by any
 
 ## Platform access
 
-For integrations that read the installation they run on, such as the [platform agent](/platform/agent), the deploy and rollout dialogs carry two grants under **Advanced**, both off by default.
+Every deployed integration presents a platform token of its own, and what it may do is what that token carries. Every one of them reaches the stores its pod owns — its [key-value namespace](/platform/kv-and-storage), its objects, its agent memory. The deploy and rollout dialogs carry two independent grants under **Advanced**, both off by default, saying what it reaches besides.
 
-| Grant | What it does |
+| Grant | What the token additionally opens |
 | --- | --- |
-| **Needs access to the orchestrator API** | Declares that this deployment's flows call the [orchestrator API](/platform/api-reference) |
-| **Needs access to the observability API** | Injects `OBSERVABILITY_URL`, the address of the [observability API](/platform/observability-api-reference): stored logs, traces and pod stats |
+| **Builds integrations** | Integrations, their resources, versions and dev runs — across the whole installation, not just its own |
+| **Operates deployments** | Deploying, rolling out, scaling and removing deployments — anyone else's included |
 
-An integration that needs both, and a reason to grant them, is the alert-triage agent in [Agentic self-healing](/guides/agentic-self-healing).
-
-**The observability grant supplies the address.** `OBSERVABILITY_URL` is in no pod unless this box is ticked, and it is orchestrator-managed: a definition cannot declare it and a deploy cannot bind it.
+Two checkboxes and not a choice: building integrations and operating them are different jobs, and one integration can do both, either, or neither.
 
 <Callout type="warn">
-Stored logs and traces span **every** deployment on the installation, not just the one being granted. An integration that can read them can read its neighbours' captured request bodies. Grant it only to integrations you would trust with the Traces view itself.
+Neither grant is scoped to the deployment's own integration. **Builds integrations** reads and writes *every* integration here, and **Operates deployments** acts on *every* deployment. Grant either only to an integration you would trust with the corresponding role on your own account.
 </Callout>
 
-<Callout type="warn">
-**This is not a network boundary.** The [observability API](/platform/observability-api-reference) performs no authentication and is reachable from anywhere on the cluster network, so a flow author can point a connector at the service's address directly. Until the API gains authentication, treat the grant as a declaration, the same footing as the orchestrator one below.
-</Callout>
+### The token an unattended flow uses
 
-**The orchestrator grant is a declaration.** `ORCHESTRATOR_URL` is already in every runtime pod, because the runtime's k8s services module needs it for the [KV store](/platform/kv-and-storage) and leader election. Access control over the orchestrator API is expected to arrive as RBAC gating on this declaration, so declare it now for the integrations that genuinely call the API.
+This matters most where there is nobody to borrow a credential from. A flow woken by a queue message, a webhook or a Slack event has no person behind it and never will — so the deployment's own token is not a fallback, it is the only credential that flow has.
 
-Both grants are stored on the deployment and, like tracing, are carried through a rollout that does not mention them.
+It is available to the flow as **`env.PLATFORM_TOKEN`**, and the runtime keeps it valid. You do not have to obtain it, refresh it, or notice when it changes:
+
+```yaml
+connectors:
+  - name: octo
+    type: http-client
+    settings:
+      baseURL: ${ORCHESTRATOR_URL}
+```
+
+```yaml
+- type: rest
+  settings:
+    connector: octo
+    method: GET
+    path: /integrations
+    headers:
+      Authorization: '"Bearer " + env.PLATFORM_TOKEN'
+```
+
+Two things to know about how you reference it:
+
+- **Read it through an expression, as `env.PLATFORM_TOKEN`.** That is what gets you the token that is valid *now*.
+- **Not as `${PLATFORM_TOKEN}`.** That spelling is substituted once when the definition is loaded, so it would freeze whatever was valid at startup — and start failing an hour later, silently.
+
+On a runtime that has no platform identity — the editor's Run, `dolphin`, a local `octo run` — the variable is an ordinary environment variable and is simply unset unless you set it, so the same definition loads and tests everywhere.
+
+**Who may grant it.** The token is minted on the authority of whoever is deploying, and iam refuses to lend a deployment more than that person could do themselves. It never inherits: an administrator's deployment is not an administrator, and the grants are what somebody ticked on purpose.
+
+**Renewal keeps what was granted.** A deployment's token is renewed as what it was minted as, not as what its owner may do now. Taking somebody's operator role away does not quietly change what their running integrations reach — stopping one is what deleting the deployment is for.
+
+**Addresses are not access.** `ORCHESTRATOR_URL` and `OBSERVABILITY_URL` are in every runtime pod. Neither is a boundary: both APIs authorize the token they are presented, and anything on the cluster network could dial either address regardless.
+
+### Shared responsibility
+
+**Octo's side.** The token exists, is scoped to the grants above and nothing more, is renewable however long ago it expired, and is kept valid without your flow doing anything. It is mounted rather than passed in the pod's spec, and it is never written into a log line.
+
+**Your side.** What the flow does with it. `env.PLATFORM_TOKEN` is a string like any other once your definition has it, and a flow can put a string anywhere:
+
+- **Do not copy it into a message variable.** A traced deployment records variables, and [traces](/platform/traces) are readable by anyone signed in to this platform. A token in a variable is a token handed to everybody with an account.
+- **Do not send it anywhere but this installation.** It is a bearer credential: whoever holds it is your deployment, with its grants, until it expires.
+- **Do not log it**, including by logging a whole message that carries it.
+- **Treat the grants as the blast radius of your definition.** An integration with **Operates deployments** that can be made to act on attacker-chosen input can remove somebody else's deployment. Narrow what the flow will act on, not just what it can reach.
+
+Access is stored on the deployment and, like tracing, is carried through a rollout that does not mention it.
 
 ## Runners
 

@@ -7,5 +7,3 @@ import { authConfig } from "./auth.config";
  * middleware. `AUTH_SECRET` is read from the environment automatically.
  */
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
-
-export { authEnabled } from "./auth.config";

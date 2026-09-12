@@ -242,36 +242,32 @@ resource "helm_release" "octo" {
   }
 
   # --- OIDC SSO ---
-  # When enabled the editor mounts OIDC_* / AUTH_SECRET. The issuer and client id
-  # are not credentials and travel as plain values; the client secret and the
-  # session secret are read from a Secret the caller created, named below.
-  set {
-    name  = "auth.oidc.enabled"
-    value = var.oidc_enabled
-  }
-
+  # The editor mounts OIDC_* / AUTH_SECRET, and there is no install that does not:
+  # signing in is how anybody reaches it, so the chart refuses to render without
+  # these. The issuer and client id are not credentials and travel as plain
+  # values; the client secret and the session secret are read from a Secret the
+  # caller created, named below.
   dynamic "set" {
-    for_each = var.oidc_enabled ? merge(
+    for_each = merge(
       {
         "auth.oidc.issuer"   = var.oidc_issuer
         "auth.oidc.clientId" = var.oidc_client_id
       },
       var.oidc_provider_name != "" ? { "auth.oidc.providerName" = var.oidc_provider_name } : {},
       var.oidc_write_roles != "" ? { "auth.writeRoles" = var.oidc_write_roles } : {},
-      var.oidc_roles_claim != "" ? { "auth.rolesClaim" = var.oidc_roles_claim } : {},
-    ) : {}
+    )
     content {
       name  = set.key
       value = set.value
     }
   }
 
-  # The two credentials, by reference. Emitted only when SSO is on AND a Secret was
-  # named: the chart requires both values when auth.oidc.enabled is true, so a root
-  # that enables SSO without creating the Secret gets that error by name rather
-  # than an editor that renders a sign-in button and fails at the provider.
+  # The two credentials, by reference. Emitted only when a Secret was named: the
+  # chart requires both values, so a root that installs without creating the
+  # Secret gets that error by name rather than an editor that renders a sign-in
+  # button and fails at the provider.
   dynamic "set" {
-    for_each = var.oidc_enabled && var.auth_existing_secret != "" ? {
+    for_each = var.auth_existing_secret != "" ? {
       "auth.existingSecret"                = var.auth_existing_secret
       "auth.existingSecretClientSecretKey" = var.auth_existing_secret_client_secret_key
       "auth.existingSecretAuthSecretKey"   = var.auth_existing_secret_auth_secret_key

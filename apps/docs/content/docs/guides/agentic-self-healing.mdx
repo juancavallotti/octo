@@ -129,7 +129,7 @@ The sample is [`samples/alert-triage-slack/config.yaml`](https://github.com/juan
 
 A user integration cannot call Dr. Octo's specialist flows: `flow-ref` reaches flows in the same integration only. So this agent holds its own tools, and they are narrower than his.
 
-**Connectors.** Two `http-client` connectors give the agent its boundaries: `octo` for the orchestrator's API and `observability` for stored logs and traces. Their base URLs come from the two [platform access grants](/platform/deployments#platform-access), which inject `ORCHESTRATOR_URL` and `OBSERVABILITY_URL` into the pod. Tick both under **Advanced** when you deploy.
+**Connectors.** Two `http-client` connectors give the agent its boundaries: `octo` for the orchestrator's API and `observability` for stored logs and traces. Their base URLs come from `ORCHESTRATOR_URL` and `OBSERVABILITY_URL`, which are in every runtime pod. Reaching either takes a token that opens it, so tick both [platform access](/platform/deployments#platform-access) grants under **Advanced** when you deploy — `octo_change` sends `POST`, `PUT`, `PATCH` and `DELETE` under `/deployments`, and the agent reads integrations to work out what it is looking at. The token itself is `env.PLATFORM_TOKEN`, which matters here more than anywhere: this agent is woken by an alert, so there is no person whose credential it could borrow.
 
 ```yaml
 connectors:

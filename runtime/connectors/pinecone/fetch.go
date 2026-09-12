@@ -45,7 +45,7 @@ type fetchProcessor struct {
 	ids       *expr.Program
 	namespace *expr.Program
 	resultVar string
-	env       map[string]any
+	env       expr.Env
 }
 
 // newFetch builds a fetch processor, resolving its pinecone connector and

@@ -101,9 +101,10 @@ it runs on every deploy — on a version tag Cloud Build applies it for you, or 
 Both roots keep state in the same versioned GCS bucket, one prefix each, so Cloud
 Build and your laptop share it. The bucket name comes from `backend.hcl` at init
 time, because a backend block cannot reference variables. The `release/` state holds
-the generated secrets (the Postgres password, and — with SSO — the OIDC client secret
-and Auth.js session secret), and the fetched kubeconfig holds cluster-admin
-credentials — both are gitignored. Keep your state bucket locked down.
+the Postgres password and the Auth.js session secret, which it generates, and the
+OIDC client secret, which you supply and it persists. The fetched kubeconfig holds
+cluster-admin credentials — both are gitignored. Keep your state bucket locked
+down.
 
 ---
 
@@ -272,12 +273,11 @@ Per-deploy values (`image_tag`, `chart_version`) come from the command line inst
 | `chart_version` | – (required) | must match the published `helm/Chart.yaml`; derived by Cloud Build / `task deploy` |
 | `cluster_issuer` | `letsencrypt-prod` | cert-manager issuer |
 | `kubeconfig` | `../infra/kubeconfig.yaml` | from `task deploy:kubeconfig` |
-| `oidc_enabled` | `false` | gate the editor behind OIDC SSO |
-| `oidc_client_id` | `""` | IdP client id (non-secret) |
-| `oidc_client_secret` | `""` | IdP client secret (kept in release state, not Secret Manager) |
-| `oidc_issuer` | `""` | OIDC issuer URL of your identity provider |
+| `oidc_client_id` | `""` | IdP client id (non-secret). Required — the chart refuses to render without it |
+| `oidc_client_secret` | `""` | IdP client secret (kept in release state, not Secret Manager). Required |
+| `oidc_issuer` | `""` | OIDC issuer URL of your identity provider. Required |
 | `oidc_provider_name` | `""` | name on the sign-in button; empty renders `OIDC`. The one OIDC value a Cloud Build deploy can set on its own (`_OIDC_PROVIDER_NAME`), since it is a label rather than a credential |
-| `oidc_write_roles` | `""` | roles allowed to write; empty = any signed-in user |
+| `oidc_write_roles` | `""` | roles allowed to write; empty = every role but `platform:monitor` |
 | `oidc_roles_claim` | `""` | id-token claim for roles (Auth.js default `roles`) |
 
 ### Where the credentials live
@@ -322,18 +322,20 @@ the apply swaps chart values for references and rolls the Deployments once.
 Revisions written before the change still hold what they were given; `helm
 history` and a truncated `--history-max` are how to retire them.
 
-### Editor SSO (OIDC, optional)
+### Editor SSO (OIDC)
 
+Signing in is how anybody reaches the editor: there is no open mode, and an apply
+without these fails at the chart rather than producing an editor nobody can use.
 Any OIDC provider that speaks the authorization-code flow will do — Octo ships none
-and privileges none. Set `oidc_enabled = true` plus `oidc_client_id` / `oidc_client_secret` in `release/terraform.tfvars`.
+and privileges none. Set `oidc_client_id` / `oidc_client_secret` / `oidc_issuer` in
+`release/terraform.tfvars`.
 The `release` root consumes these directly (this setup uses no Secret Manager — all
 generated credentials live in the bucket-backed release state) and generates the
 Auth.js session secret. Both are installed into the cluster as the `octo-auth-creds`
 Secret and named to the chart through `auth.existingSecret`, so neither is a Helm
 value; the editor gets `OIDC_ISSUER`, `OIDC_CLIENT_ID` (plain),
 `OIDC_CLIENT_SECRET`, `AUTH_SECRET` (from that Secret), plus `AUTH_URL` and
-`AUTH_TRUST_HOST`. Auth turns on automatically once those are present; with
-`oidc_enabled = false` the editor stays open.
+`AUTH_TRUST_HOST`.
 
 The client secret and session secret live in the release Terraform state (the GCS
 bucket), consistent with the Postgres password — keep the state bucket locked down.

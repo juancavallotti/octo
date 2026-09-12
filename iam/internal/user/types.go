@@ -1,33 +1,34 @@
 // Package user is the iam service's feature module for platform principals and
-// the roles granted to them. Identity originates at the OIDC provider; iam
-// bootstraps a row on first sign-in (keyed by the stable `subject`) and keeps
-// email/name in sync on later logins. The generated `id` is the durable handle
-// every other table references — api_keys, integrations.created_by — so it
-// survives the identity provider changing an account's email.
+// the roles granted to them.
 //
-// It shares the `users` table with the orchestrator's own user module, which
-// still serves POST /users/bootstrap while the platform is pointed at it. Both
-// write the same idempotent upsert keyed on `subject`, so the two paths converge
-// on one row. The orchestrator's copy goes away in the change that moves the
-// platform onto POST /auth.
+// Two keys, and the difference between them is the provisioning story. An
+// administrator provisions somebody by **address**, because that is the only
+// thing they know about a colleague who has never been here. The OIDC
+// **subject** is discovered: it is empty until the first sign-in writes it onto
+// the row waiting for that address, and from then on it is what every sign-in
+// keys on — so the provider changing somebody's address is a refresh rather
+// than a new person. The generated id is the durable handle other tables
+// reference and outlives both.
 //
-// The module follows the same repository/service/handler shape as the
-// orchestrator's feature modules.
+// There is one way in: POST /auth, which verifies the provider's token.
 package user
 
 import (
 	"time"
 )
 
-// User is a platform principal. IDs are UUIDs in canonical text form; Subject is
-// the OIDC `sub`.
+// User is a platform principal. IDs are UUIDs in canonical text form.
 type User struct {
-	ID          string
-	Subject     string
-	Email       string
-	Name        string
-	CreatedAt   time.Time
-	LastLoginAt time.Time
+	ID string
+	// Subject is the OIDC `sub`, empty for somebody provisioned who has not
+	// signed in yet.
+	Subject   string
+	Email     string
+	Name      string
+	CreatedAt time.Time
+	// LastLoginAt is nil for somebody who has never arrived, which is a different
+	// thing from having arrived when the row was written.
+	LastLoginAt *time.Time
 	// Roles is what this user has been granted. It is populated by the reads that
 	// join user_roles and is empty — not nil-versus-empty meaningful — for a user
 	// who has been granted nothing.

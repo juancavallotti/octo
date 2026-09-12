@@ -54,7 +54,7 @@ type insertProcessor struct {
 	document  *expr.Program
 	unordered bool
 	resultVar string
-	env       map[string]any
+	env       expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

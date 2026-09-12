@@ -56,7 +56,7 @@ type dispatch struct {
 	subject    *expr.Program
 	awaitReply bool
 	timeout    time.Duration
-	env        map[string]any
+	env        expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

@@ -27,12 +27,10 @@ type Key struct {
 	Private   []byte
 	Public    []byte
 	CreatedAt time.Time
-	// RetireAfter is when this key stops signing new tokens.
+	// RetireAfter is when this key stops signing new tokens. It goes on verifying
+	// them for good: a machine token is renewable however long ago it expired, and
+	// dropping the key that signed it would make that false.
 	RetireAfter time.Time
-	// ExpiresAt is when it stops being published in the JWKS, and so when the last
-	// token it signed can no longer be verified. It is always at least one token
-	// lifetime after RetireAfter.
-	ExpiresAt time.Time
 }
 
 // Token is a minted platform token: the compact JWS and the moment it stops being

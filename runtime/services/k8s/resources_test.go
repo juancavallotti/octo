@@ -25,7 +25,7 @@ func TestHTTPResourceLoaderLoad(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	loader := newHTTPResourceLoader(srv.URL, "snap-1", "tok")
+	loader := newHTTPResourceLoader(srv.URL, "snap-1", staticCredential("tok"))
 	defer loader.close()
 
 	t.Run("returns the frozen bytes and shapes the request", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestHTTPResourceLoaderNoToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	loader := newHTTPResourceLoader(srv.URL, "snap-1", "")
+	loader := newHTTPResourceLoader(srv.URL, "snap-1", nil)
 	defer loader.close()
 	_, _ = loader.Load(context.Background(), core.ResourceKindEnv, "x")
 	if gotAuth != "" {

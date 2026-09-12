@@ -42,9 +42,13 @@ All control-plane components run in one namespace (`octo-dev` by default) and ar
 
 ### Platform app (`apps/platform`)
 
-A Next.js App Router application that serves the visual editor and every platform view. It is also the **backend-for-frontend**: the browser never calls the orchestrator directly. Server actions and route handlers under `app/api` proxy every call using the server-only `ORCHESTRATOR_URL`, so the orchestrator needs no CORS, no public exposure, and no authentication of its own.
+A Next.js App Router application that serves the visual editor and every platform view. It is also the **backend-for-frontend**: the browser never calls the orchestrator directly. Server actions and route handlers under `app/api` proxy every call using the server-only `ORCHESTRATOR_URL`, so the orchestrator needs no CORS and no public exposure. It does authenticate: every proxied call carries the caller's own platform token, and the orchestrator checks it and the roles on it before serving the route.
 
-Authentication is Auth.js (NextAuth) with an OIDC provider and JWT sessions. There is no database adapter, so the same config backs both the route handlers and the request proxy (`proxy.ts`), which redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with a 401. One application endpoint bypasses the session gate because it carries its own authentication: `/mcp` (bearer tokens). The welcome page, `/api/auth*` and two static images are exempt as well. See [Users and API Keys](/platform/users-and-api-keys).
+Authentication is Auth.js (NextAuth) with an OIDC provider and JWT sessions. There is no database adapter, so the same config backs both the route handlers and the request proxy (`proxy.ts`), which redirects unauthenticated browser navigations to sign-in and answers unauthenticated `/api/*` calls with a 401.
+
+One application endpoint bypasses the session gate because it carries its own authentication: `/mcp` (bearer tokens). The welcome page, `/api/auth*` and two static images are exempt as well.
+
+At sign-in the provider's token is traded with the [iam service](#iam-iam) for a platform token carrying the caller's octo user id and their roles; `/mcp` trades its caller's bearer for one the same way. It rides on the encrypted session cookie and is deliberately kept off the session object the browser can read, since that object is served at `/api/auth/session`. The proxy is what renews it: `auth()` called from a server component discards the cookies a renewal produces, and only the proxy's wrapper writes them back. See [Users and API Keys](/platform/users-and-api-keys).
 
 The platform app holds **no per-run state**, which is what lets it scale past one replica. Pressing **Run** in the editor asks the orchestrator for a [dev run](/platform/dev-runs), a pod of its own with its own hostname, so a status call, a log stream, and a Stop all work whichever replica answers them. The MCP endpoint's run tools go to the same place, keyed the same way, so an agent and a human editing one integration share a run. The one-shot debug operations (invoking a single flow, evaluating a CEL expression, running test suites) still spawn a short-lived child of this pod from the YAML in the request and finish inside it.
 
@@ -58,7 +62,6 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 | folder | `POST/GET /folders`, `GET/PUT/DELETE /folders/{id}`, member routes | database |
 | snapshot | `POST/GET /integrations/{id}/snapshots`, `DELETE /snapshots/{id}`, frozen-resource reads | database |
 | resource | `POST/GET /integrations/{id}/resources`, `GET/PUT/DELETE .../resources/{resourceId}` | database |
-| user | `POST /users/bootstrap`, `GET /users/{id}` | database |
 | apikey | `POST/GET /users/{userId}/apikeys`, `DELETE .../apikeys/{id}`, `POST /apikeys/verify` | database |
 | kv | `GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}` + object browser routes | database |
 | deployment | `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
@@ -71,7 +74,19 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 
 The wiring degrades gracefully. Without `DATABASE_URL`, only `/healthz`, the OpenAPI routes (which describe the build rather than what it is connected to) and a degraded `/db-version` serve. Outside a cluster the deployment and secret routes stay disabled while everything database-backed still works.
 
-The orchestrator trusts the platform app as its authentication boundary: the acting user's id is forwarded in request bodies (`actorId`) from the authenticated session, not verified as a credential. Keep the orchestrator internal (ClusterIP); the chart does.
+The orchestrator verifies the caller's platform token on every route but the health and description endpoints, and applies a role policy to it. The acting user's id is still forwarded in request bodies (`actorId`) for attribution, and is still not a credential — what authorizes the call is the token. Keep the orchestrator internal (ClusterIP) anyway; the chart does.
+
+### iam (`iam/`)
+
+A small Go service (port `8093`) that owns identity and authorization for the platform. It is the only component that talks to an identity provider: it verifies the token somebody arrives with, resolves them to a `users` row and its roles, and mints a token this platform signed. That token is verifiable against the keys iam publishes at `/.well-known/jwks.json`, so a service that checks it needs to understand nothing about OIDC. Both the platform app and the orchestrator verify tokens against those keys.
+
+It signs ES256 and generates, stores and rotates its own keys — there is no signing key for an operator to set. The private halves live in `iam_signing_keys` encrypted under `KV_ENCRYPTION_KEY`, the same key the orchestrator uses for the KV store.
+
+`POST /auth` is the exchange and `POST /auth/refresh` renews the result, re-reading roles from the database so a revocation lands within a token lifetime. It also owns the `users` table and the routes that administer it — those require a platform token carrying `platform:admin`, checked by iam itself and not only by the app in front of it.
+
+ClusterIP only, and it publishes no OpenAPI: it is not a surface to expose or to hand to an agent as a tool.
+
+The orchestrator's `{userId}` path segments are ids iam issued; it serves no `/users` collection of its own.
 
 ### Postgres
 

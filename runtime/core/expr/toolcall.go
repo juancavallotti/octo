@@ -32,7 +32,7 @@ func CompileToolCall(res core.ResourceLoader, expression string) (*Program, erro
 // condition reading a field of nothing fails loudly rather than quietly deciding
 // no authorization was needed.
 func ToolCallActivation(
-	msg *types.Message, env map[string]any, name, id string, input any,
+	msg *types.Message, env Env, name, id string, input any,
 ) map[string]any {
 	activation := MessageActivation(msg, env)
 	activation["tool"] = map[string]any{"name": name, "id": id}

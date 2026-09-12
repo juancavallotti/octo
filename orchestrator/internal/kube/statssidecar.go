@@ -131,6 +131,7 @@ func (c *Client) statsSidecarContainer(spec Spec) corev1.Container {
 			TimeoutSeconds:      probeTimeoutSeconds,
 			FailureThreshold:    statsLivenessFailureThresh,
 		},
+		SecurityContext: restricted(),
 	}
 }
 

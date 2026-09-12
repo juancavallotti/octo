@@ -3,10 +3,12 @@ package snapshot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/authz"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 )
 
@@ -16,6 +18,31 @@ const requestTimeout = 5 * time.Second
 // Handler serves the snapshot REST endpoints.
 type Handler struct {
 	svc *Service
+	// deployments answers which integration a deployment belongs to, for the
+	// ownership check on the resource routes. Nil where deployments are not served
+	// at all, which is every install with no cluster.
+	deployments deploymentOwner
+}
+
+// deploymentOwner is the one question the resource routes ask about a
+// deployment. Declared here and satisfied by *deployment.Service, so this
+// package does not depend on that one.
+type deploymentOwner interface {
+	IntegrationOf(ctx context.Context, deploymentID string) (string, error)
+}
+
+// ErrForeignSnapshot is returned when a deployment asks for resources belonging
+// to an integration that is not its own.
+var ErrForeignSnapshot = errors.New("this deployment may not read that integration's resources")
+
+// RestrictToOwnIntegration makes the resource routes refuse a pod reaching for
+// another integration's frozen files.
+//
+// Wired separately from construction because deployments are only served where
+// there is a cluster, and these routes are served everywhere — a snapshot can be
+// cut on an install that cannot deploy anything.
+func (h *Handler) RestrictToOwnIntegration(d deploymentOwner) {
+	h.deployments = d
 }
 
 // NewHandler returns a Handler backed by svc.
@@ -167,6 +194,10 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
+	if err := h.mayRead(ctx, r.PathValue("id")); err != nil {
+		h.writeError(w, err)
+		return
+	}
 	items, err := h.svc.ListResources(ctx, r.PathValue("id"))
 	if err != nil {
 		h.writeError(w, err)
@@ -206,6 +237,10 @@ func (h *Handler) resourceContent(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
+	if err := h.mayRead(ctx, r.PathValue("id")); err != nil {
+		h.writeError(w, err)
+		return
+	}
 	content, found, err := h.svc.ResourceContent(ctx, r.PathValue("id"), kind, name)
 	if err != nil {
 		h.writeError(w, err)
@@ -233,10 +268,61 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "snapshot not found")
+	case errors.Is(err, ErrForeignSnapshot):
+		httpx.WriteError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ErrSnapshotInUse):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
 	default:
 		slog.Error("snapshot handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 	}
+}
+
+// mayRead refuses a deployment reaching for another integration's frozen
+// resources.
+//
+// Only a token that is nothing but a pod is constrained. platform:runtime opens
+// these routes to every deployment without anybody granting it — it is what the
+// runtime needs to load its own definition — so without this, one pod's mounted
+// credential reads every integration's frozen files. A deployment that also
+// holds a person's role got it from an access grant somebody ticked on purpose,
+// and that grant is installation-wide by definition; narrowing it here would
+// take back what was deliberately given.
+//
+// Scoped to the integration rather than to the exact snapshot, deliberately. A
+// rollout moves the deployment to a new snapshot while the old pods are still
+// serving, and those pods load resources lazily — an exact match would refuse a
+// pod its own files for the length of every rollout. What matters is that the
+// files belong to the integration this pod is running, and that is stable across
+// version changes.
+func (h *Handler) mayRead(ctx context.Context, snapshotID string) error {
+	principal, ok := authz.FromContext(ctx)
+	if !ok || principal.Deployment == "" {
+		// A person, or an install with enforcement off. Governed by roles alone.
+		return nil
+	}
+	if principal.Has(authz.RoleAdmin, authz.RoleOperator, authz.RoleDeveloper, authz.RoleMonitor) {
+		return nil
+	}
+	if h.deployments == nil {
+		// A machine token naming a deployment, on an install that serves no
+		// deployments. Nothing should be able to produce that, so it is refused
+		// rather than waved through.
+		return ErrForeignSnapshot
+	}
+
+	mine, err := h.deployments.IntegrationOf(ctx, principal.Deployment)
+	if err != nil {
+		return fmt.Errorf("resolve the caller's integration: %w", err)
+	}
+	snap, err := h.svc.Get(ctx, snapshotID)
+	if err != nil {
+		return err
+	}
+	if snap.IntegrationID != mine {
+		slog.Warn("a deployment reached for another integration's resources",
+			"deployment", principal.Deployment, "snapshot", snapshotID)
+		return ErrForeignSnapshot
+	}
+	return nil
 }

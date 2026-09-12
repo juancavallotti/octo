@@ -26,8 +26,7 @@ export async function getIntegration(
 export async function createIntegration(
   input: IntegrationInput,
 ): Promise<ActionResult<Integration>> {
-  // Attribute the create to the acting user (undefined for the local no-SSO
-  // session, which has no id — the orchestrator then records no creator).
+  // Attribute the create to the acting user.
   return withWrite((session) =>
     client.createIntegration(input, session.user.id),
   );

@@ -19,10 +19,9 @@ import {
   requireSession,
   writeRoles,
 } from "@/app/auth/guard";
-import { authEnabled } from "@/auth";
+import { PLATFORM_ADMIN } from "@/app/auth/roles";
 import type { Session } from "next-auth";
 import type { ActionResult } from "@octo/http";
-import * as client from "./_client";
 
 /**
  * Authorize `roles`, returning the authenticated session on success or an error
@@ -62,27 +61,34 @@ export async function withWrite<T>(
   return "session" in g ? fn(g.session) : g;
 }
 
-// Stable identity for the local (no-SSO) dev session, which has no OIDC subject.
-// Bootstrapping it on demand gives `task dev` a real user row to own keys and dev runs.
-const LOCAL_SUBJECT = "local-dev";
-const LOCAL_EMAIL = "local@localhost";
-const LOCAL_NAME = "Local Dev";
+/**
+ * Run `fn` only for an administrator — the gate on everything the admin section
+ * does, reads included.
+ *
+ * This is the check that matters, and not the one in the admin layout. Every one
+ * of these actions is a POST endpoint in its own right, reachable by anyone who
+ * knows its id whether or not a page ever rendered for them, so a layout that
+ * declines to draw the page protects nothing on its own. The layout is there so
+ * an administrator's colleague sees an honest refusal instead of a screen of
+ * failed requests.
+ *
+ * Unlike withWrite it does not read AUTH_WRITE_ROLES: which roles may write is an
+ * operator's decision, and who may change the installation's own settings is not.
+ */
+export async function withAdmin<T>(
+  fn: (session: Session) => Promise<ActionResult<T>>,
+): Promise<ActionResult<T>> {
+  const g = await gate([PLATFORM_ADMIN]);
+  return "session" in g ? fn(g.session) : g;
+}
 
 /**
- * The caller's durable orchestrator user id. With SSO it is on the session, put there
- * when the user was bootstrapped at sign-in. In local dev there is no IdP, so a stable
- * sentinel user is bootstrapped on demand and its id used — which is why this can reach
- * the orchestrator at all.
+ * The caller's durable user id, from the session.
  *
- * Throws AuthError when no user can be resolved, which the gates below turn into an
- * error result so an action never throws across the boundary.
+ * Throws AuthError when the session carries none, which the gates below turn into
+ * an error result so an action never throws across the boundary.
  */
-async function userIdOf(session: Session): Promise<string> {
-  if (!authEnabled) {
-    const res = await client.bootstrapUser(LOCAL_SUBJECT, LOCAL_EMAIL, LOCAL_NAME);
-    if (!res.ok) throw new AuthError(res.error);
-    return res.data.id;
-  }
+function userIdOf(session: Session): string {
   const id = session.user.id;
   if (!id) throw new AuthError("user not provisioned");
   return id;
@@ -97,7 +103,7 @@ async function gateUser<T>(
   if (!("session" in g)) return g;
   let userId: string;
   try {
-    userId = await userIdOf(g.session);
+    userId = userIdOf(g.session);
   } catch (err) {
     if (err instanceof AuthError) return { ok: false, error: err.message };
     throw err;
@@ -114,6 +120,17 @@ export function withUser<T>(
   fn: (userId: string, session: Session) => Promise<ActionResult<T>>,
 ): Promise<ActionResult<T>> {
   return gateUser([], fn);
+}
+
+/**
+ * {@link withAdmin}, for an admin operation the orchestrator attributes to whoever
+ * performed it — installing or rolling out the platform agent, which it records
+ * an actor for.
+ */
+export function withAdminUser<T>(
+  fn: (userId: string, session: Session) => Promise<ActionResult<T>>,
+): Promise<ActionResult<T>> {
+  return gateUser([PLATFORM_ADMIN], fn);
 }
 
 /** {@link withUser}, for an operation that also spends cluster resources. */
@@ -144,5 +161,5 @@ export async function currentUserId(): Promise<string> {
  */
 export async function currentWriteUserId(): Promise<{ id: string; name: string }> {
   const session = await requireRole(...writeRoles);
-  return { id: await userIdOf(session), name: session.user?.name ?? "" };
+  return { id: userIdOf(session), name: session.user?.name ?? "" };
 }

@@ -478,25 +478,32 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
-	// Dr. Octo is the reference consumer of both platform-access grants, so he asks
-	// for them the same way any integration does rather than through a private path.
-	// Observability is what puts OBSERVABILITY_URL in his pod; the orchestrator one grants
-	// nothing today and is the declaration a future access model reads — an agent
-	// that drives the whole API is precisely the deployment that should carry it.
+	// He is deployed able to do the job he is installed for.
+	//
+	// When somebody is chatting, his tools spend that person's token, so what he
+	// may do is what they may do and these grants change nothing. They are for the
+	// other path: an alert waking the troubleshooter, where there is nobody to
+	// borrow from and his own token is the only credential the run has.
+	//
+	// Without them that path is not merely limited, it is inert — platform:runtime
+	// is in no rule on either API, so every call an unattended triage makes is
+	// refused, including the reads. Installing an agent whose advertised job is to
+	// investigate and repair, in a state where it can do neither, is a worse
+	// default than granting what the job needs and letting an administrator take it
+	// back on the deployment.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
 		Replicas:   1,
 		SnapshotID: snap.ID,
 		Tracing:    next.Tracing,
 		Env:        bindings,
+		Access:     []string{deployment.AccessDeveloper, deployment.AccessOperator},
 		// The runner he needs, asked for the same way any integration asks. It is not
 		// a size preference: his tools run the standalone octo, dolphin and curl, and
 		// none of those exist in the distroless image every other deployment uses —
 		// his flow would not even load there, because a `cli-run` allow list is
 		// resolved when the flow is built. blocked() refuses the install up front
 		// when this installation has no such image, so reaching here means it does.
-		Runner:           agenticRunner,
-		OrchestratorAPI:  true,
-		ObservabilityAPI: true,
+		Runner: agenticRunner,
 	})
 	if err != nil {
 		return cur, fmt.Errorf("deploy version %q: %w", snap.Tag, err)

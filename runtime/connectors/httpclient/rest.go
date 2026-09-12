@@ -111,7 +111,7 @@ type processor struct {
 	bodyType    string
 	failOnError bool
 	statusVar   string
-	env         map[string]any
+	env         expr.Env
 }
 
 // newREST builds a rest processor, resolving its connector and compiling the

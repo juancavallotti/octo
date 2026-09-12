@@ -1,15 +1,16 @@
 import Image from "next/image";
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, BookOpen } from "lucide-react";
-import { auth, authEnabled, signIn } from "@/auth";
+import { BookOpen } from "lucide-react";
+import { auth, signIn } from "@/auth";
 import {
+  missingAuthConfig,
   OIDC_PROVIDER_ID,
   OIDC_PROVIDER_LOGO,
   OIDC_PROVIDER_NAME,
 } from "@/oidc.config";
 import CopyCommand from "./CopyCommand";
 import ProviderLogo from "./ProviderLogo";
+import NotConfigured from "./NotConfigured";
 
 const DOCS_URL = "https://juancavallotti.github.io/octo/";
 const STANDALONE_DOCKER = 'docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo';
@@ -21,13 +22,12 @@ export const metadata = {
 /**
  * The public welcome page (`/`). Three states:
  *
- *  - SSO on + signed in  → bounce straight to the dashboard.
- *  - SSO on + signed out → branded landing with a "Sign in with {provider}"
- *    action that starts the OIDC flow and returns to the dashboard (or the deep
- *    link the middleware captured as `callbackUrl`). The provider's name and mark
- *    come from the operator's OIDC config, since Octo does not ship an IdP.
- *  - SSO off (local dev) → an "Open Octo" link straight into the platform, since
- *    there is no identity provider to sign in against.
+ *  - Signed in → bounce straight to the dashboard.
+ *  - Signed out → branded landing with a "Sign in with {provider}" action that
+ *    starts the OIDC flow and returns to the dashboard (or the deep link the
+ *    middleware captured as `callbackUrl`). The provider's name and mark come
+ *    from the operator's OIDC config, since Octo does not ship an IdP.
+ *  - Missing OIDC settings → their names, in place of the button.
  *
  * This page is also configured as Auth.js's `signIn` page, so every "please sign
  * in" path lands here.
@@ -38,9 +38,10 @@ export default async function WelcomePage({
   searchParams: Promise<{ callbackUrl?: string }>;
 }) {
   const { callbackUrl } = await searchParams;
-  const target = callbackUrl || "/platform";
+  const target = withinThisSite(callbackUrl) ? callbackUrl : "/platform";
+  const missing = missingAuthConfig();
 
-  if (authEnabled) {
+  if (missing.length === 0) {
     const session = await auth();
     if (session?.user) redirect(target);
   }
@@ -64,7 +65,7 @@ export default async function WelcomePage({
           </p>
         </div>
 
-        {authEnabled ? (
+        {missing.length === 0 ? (
           <form
             action={async () => {
               "use server";
@@ -83,13 +84,7 @@ export default async function WelcomePage({
             </button>
           </form>
         ) : (
-          <Link
-            href={target}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            Open Octo
-            <ArrowRight size={15} />
-          </Link>
+          <NotConfigured missing={missing} />
         )}
 
         <a
@@ -114,5 +109,24 @@ export default async function WelcomePage({
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Whether a callbackUrl names somewhere on this site.
+ *
+ * This value arrives in the query string, and a signed-in visitor is redirected
+ * straight to it — so without this, a link to `/?callbackUrl=https://elsewhere`
+ * is a redirect off this site wearing this site's address, which is the shape
+ * every credential-phishing link wants. The sign-in path is checked by Auth.js;
+ * this one had nothing checking it.
+ *
+ * A single leading slash and no second one: `//evil.example` is a URL to another
+ * host, not a path, and a backslash is treated as a slash by enough browsers to
+ * be worth refusing too.
+ */
+function withinThisSite(url: string | undefined): url is string {
+  return (
+    !!url && url.startsWith("/") && !url.startsWith("//") && !url.startsWith("/\\")
   );
 }

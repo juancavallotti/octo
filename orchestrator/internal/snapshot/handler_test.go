@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/authz"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 )
 
@@ -151,5 +152,97 @@ func TestHandlerFrozenResources(t *testing.T) {
 	}
 	if rec := do(mux, "GET", "/snapshots/snap-1/resources/content?kind=env", ""); rec.Code != http.StatusBadRequest {
 		t.Errorf("no name: status = %d, want 400", rec.Code)
+	}
+}
+
+// --- a pod reading frozen resources -----------------------------------------
+
+// stubOwner answers which integration a deployment belongs to.
+type stubOwner map[string]string
+
+func (s stubOwner) IntegrationOf(_ context.Context, deploymentID string) (string, error) {
+	return s[deploymentID], nil
+}
+
+// asDeployment drives a request carrying a machine token's principal, the way
+// the authz middleware puts one on the context.
+func asDeployment(mux *http.ServeMux, path, deployment string, roles ...string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("GET", path, nil)
+	req = req.WithContext(authz.NewContext(req.Context(), authz.Principal{
+		Subject:    "user-1",
+		Roles:      append([]string{authz.RoleRuntime}, roles...),
+		Deployment: deployment,
+	}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// resourcesFor stands a handler up holding one snapshot per integration, and
+// returns the two snapshot ids.
+func resourcesFor(t *testing.T) (*http.ServeMux, string, string) {
+	t.Helper()
+	repo := newMemRepo()
+	mux := http.NewServeMux()
+	h := NewHandler(NewService(repo, fakeIntegrations{it: integration.Integration{Definition: "yaml"}}))
+	h.Register(mux)
+	// dep-1 runs int-1; dep-2 runs int-2.
+	h.RestrictToOwnIntegration(stubOwner{"dep-1": "int-1", "dep-2": "int-2"})
+
+	mine, err := repo.Create(context.Background(), "int-1", "v1")
+	if err != nil {
+		t.Fatalf("create mine: %v", err)
+	}
+	theirs, err := repo.Create(context.Background(), "int-2", "v1")
+	if err != nil {
+		t.Fatalf("create theirs: %v", err)
+	}
+	return mux, mine.ID, theirs.ID
+}
+
+// platform:runtime opens these routes to every deployment without anybody
+// granting it — it is how a pod loads its own definition. So the deployment on
+// the token is what says which files "its own" means.
+func TestAPodReadsItsOwnIntegrationsResourcesAndNoOthers(t *testing.T) {
+	mux, mine, theirs := resourcesFor(t)
+
+	if rec := asDeployment(mux, "/snapshots/"+mine+"/resources", "dep-1"); rec.Code != http.StatusOK {
+		t.Errorf("a pod was refused its own resources: %d (%s)", rec.Code, rec.Body)
+	}
+	if rec := asDeployment(mux, "/snapshots/"+theirs+"/resources", "dep-1"); rec.Code != http.StatusForbidden {
+		t.Errorf("dep-1 read int-2's resources: %d, want 403", rec.Code)
+	}
+	// The content route is the one the runtime actually calls, so it is checked
+	// in its own right rather than assumed to follow the listing.
+	content := "/snapshots/" + theirs + "/resources/content?kind=env&name=.env"
+	if rec := asDeployment(mux, content, "dep-1"); rec.Code != http.StatusForbidden {
+		t.Errorf("dep-1 read int-2's resource content: %d, want 403", rec.Code)
+	}
+}
+
+// A deployment granted "builds integrations" holds a developer's role, and that
+// grant is installation-wide by definition. Narrowing it here would take back
+// what somebody ticked a box to give.
+func TestAGrantedDeploymentStillReadsEveryIntegration(t *testing.T) {
+	mux, _, theirs := resourcesFor(t)
+
+	rec := asDeployment(mux, "/snapshots/"+theirs+"/resources", "dep-1", authz.RoleDeveloper)
+	if rec.Code != http.StatusOK {
+		t.Errorf("a deployment granted developer was refused: %d (%s)", rec.Code, rec.Body)
+	}
+}
+
+// A person's token names no deployment, and nothing here applies to it.
+func TestAPersonReadsAnySnapshotsResources(t *testing.T) {
+	mux, _, theirs := resourcesFor(t)
+
+	req := httptest.NewRequest("GET", "/snapshots/"+theirs+"/resources", nil)
+	req = req.WithContext(authz.NewContext(req.Context(), authz.Principal{
+		Subject: "user-1", Roles: []string{authz.RoleDeveloper},
+	}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("a developer was refused a snapshot's resources: %d", rec.Code)
 	}
 }

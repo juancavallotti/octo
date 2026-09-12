@@ -43,7 +43,6 @@
 - name: IAM_KEY_LIFETIME
   value: {{ . | quote }}
 {{- end }}
-{{- if .Values.auth.oidc.enabled }}
 {{- /*
   The identity provider whose sign-in tokens this service exchanges. The SAME two
   values the editor is configured with, and read from the same place on purpose:
@@ -55,8 +54,20 @@
   provider and is not given one.
 */}}
 - name: OIDC_ISSUER
-  value: {{ .Values.auth.oidc.issuer | quote }}
+  value: {{ required "auth.oidc.issuer is required — it is the identity provider whose tokens iam exchanges." .Values.auth.oidc.issuer | quote }}
 - name: OIDC_CLIENT_ID
-  value: {{ .Values.auth.oidc.clientId | quote }}
-{{- end }}
+  value: {{ required "auth.oidc.clientId is required — it is the audience iam accepts on a sign-in token." .Values.auth.oidc.clientId | quote }}
+{{- /*
+  The other audience this install answers to. A person signing in to the editor
+  arrives with a token minted for the client id above; an MCP client arrives with
+  one minted for the /mcp resource identifier. Both are this install, and the
+  exchange has to accept both or MCP callers cannot get a platform token at all.
+
+  Rendered by the same helper the platform is given, because the two values must
+  match exactly: this is an audience check, and a mismatch is either a refused
+  sign-in or — far worse, were it widened carelessly — an accepted token that was
+  minted for somebody else's application.
+*/}}
+- name: IAM_ACCEPTED_AUDIENCES
+  value: {{ include "octo.mcp.resource" . | quote }}
 {{- end }}

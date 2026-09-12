@@ -24,8 +24,8 @@ The first request without a token gets a `401` whose `WWW-Authenticate` header
 points at `/.well-known/oauth-protected-resource/mcp` (RFC 9728); the client
 discovers the authorization server there, signs you in, and retries with a
 bearer access token, the handshake described in
-[Secure an MCP Server with OAuth](/ai/mcp-auth). An `octo_…` API key sent as
-the bearer is also accepted.
+[Secure an MCP Server with OAuth](/ai/mcp-auth). That handshake is the only way
+in: `/mcp` verifies access tokens the identity provider minted, and nothing else.
 
 One-shot calls (`invoke_flow`, `evaluate_cel`, `run_tests`) are isolated per
 MCP session, so concurrent clients never step on each other. A long-running

@@ -107,12 +107,6 @@ variable "cloudsql_tier" {
 # minted per cluster by ../modules/octo-gke and held in this root's state, because
 # neither has anything to stay consistent with across a destroy/recreate cycle.
 
-variable "oidc_enabled" {
-  type        = bool
-  description = "Require OIDC single sign-on to reach the editor. Off by default, which suits a cluster that exists for an afternoon — but it means anyone who can resolve the hostname gets in, so turn it on for anything left standing on a public domain. Needs oidc_client_id and oidc_client_secret."
-  default     = false
-}
-
 variable "oidc_issuer" {
   type        = string
   description = "OIDC issuer URL of your identity provider (OIDC_ISSUER) — the base its .well-known/openid-configuration hangs off. Any OIDC provider works."
@@ -141,12 +135,6 @@ variable "oidc_client_secret" {
 variable "oidc_write_roles" {
   type        = string
   description = "Comma-separated roles allowed to perform writes (e.g. \"admin,operator\"). Empty lets any signed-in user write."
-  default     = ""
-}
-
-variable "oidc_roles_claim" {
-  type        = string
-  description = "id-token claim carrying roles. Empty uses the Auth.js default, \"roles\"."
   default     = ""
 }
 

@@ -9,11 +9,11 @@
  * orchestrator's own probes and carry no credentials.
  */
 
-import { withRead } from "./_auth";
+import { withAdmin } from "./_auth";
 import * as client from "./client/health";
 import type { ActionResult } from "./_client";
 import type { HealthReport } from "./client/health";
 
 export async function getHealth(): Promise<ActionResult<HealthReport>> {
-  return withRead(() => client.getHealth());
+  return withAdmin(() => client.getHealth());
 }

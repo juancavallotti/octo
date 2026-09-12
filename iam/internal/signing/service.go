@@ -30,12 +30,6 @@ const (
 	// setting: a second would have to be verifiable everywhere the first is, for
 	// no gain that anyone has asked for.
 	signingAlgorithm = string(jose.ES256)
-
-	// gracePeriod is how much longer than one token lifetime a retired key stays
-	// published. Without it a token minted in the last instant before rotation
-	// would expire exactly as its key stopped verifying, which is a race decided
-	// by clock skew between two machines.
-	gracePeriod = time.Hour
 )
 
 // repository is the persistence surface the service needs. Declared in the
@@ -158,6 +152,108 @@ func (s *Service) Mint(ctx context.Context, subject string, private any) (Token,
 	return Token{Value: value, ExpiresAt: expiry}, nil
 }
 
+// Verify checks a token this service minted and returns its registered claims.
+//
+// It exists for the refresh: the platform holds a token that is about to expire,
+// or has just expired, and wants a fresh one without sending the person back to
+// the identity provider. Verifying our own signature is how we know the caller
+// once held a real session, and the subject is how we find whose it was.
+//
+// Every check is strict, expiry included: another issuer, another audience, or a
+// signature no published key verifies is not our token and never becomes one.
+//
+// A token that fails only the expiry check comes back with its claims populated
+// and an error carrying ErrExpired, so a caller entitled to renew an expired
+// token can tell it from a forged one — see auth.Service.Refresh, where a machine
+// token is exactly that.
+//
+// private, when non-nil, is unmarshalled from the same verified payload — the
+// mirror of Mint's argument of the same name, so what one side stamps the other
+// reads back through the same door. Passing nil asks for the registered claims
+// alone.
+func (s *Service) Verify(ctx context.Context, raw string, private any) (jwt.Claims, error) {
+	parsed, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
+	if err != nil {
+		return jwt.Claims{}, fmt.Errorf("%w: %w", ErrNotOurToken, err)
+	}
+
+	keys, err := s.repo.Verifiers(ctx, s.now())
+	if err != nil {
+		return jwt.Claims{}, err
+	}
+
+	var claims jwt.Claims
+	if err := s.claimsFromAnyKey(parsed, keys, &claims, private); err != nil {
+		return jwt.Claims{}, err
+	}
+
+	// Checked here rather than through jwt.Claims.ValidateWithLeeway, which cannot
+	// do this job. It validates both horizons against a single instant, so moving
+	// that instant back far enough to forgive an expiry also moves it behind a
+	// fresh token's not-before and makes a token minted a second ago read as "not
+	// valid yet" — and its `Expected.Time` falls back to time.Now() when left
+	// zero, which is the real clock rather than this service's, so it would refuse
+	// an expired token before the window below was ever consulted and the whole
+	// refresh grace would be dead code. Four explicit comparisons against s.now()
+	// and no such surprises.
+	if claims.Issuer != s.cfg.Issuer {
+		return jwt.Claims{}, fmt.Errorf("%w: another issuer", ErrNotOurToken)
+	}
+	if !claims.Audience.Contains(s.cfg.Audience) {
+		return jwt.Claims{}, fmt.Errorf("%w: another audience", ErrNotOurToken)
+	}
+
+	now := s.now()
+	if claims.NotBefore != nil && now.Add(clockSkew).Before(claims.NotBefore.Time()) {
+		return jwt.Claims{}, fmt.Errorf("%w: the token is not valid yet", ErrNotOurToken)
+	}
+	if claims.IssuedAt != nil && now.Add(clockSkew).Before(claims.IssuedAt.Time()) {
+		return jwt.Claims{}, fmt.Errorf("%w: the token was issued in the future", ErrNotOurToken)
+	}
+	if claims.Expiry == nil {
+		return jwt.Claims{}, fmt.Errorf("%w: the token has no expiry", ErrNotOurToken)
+	}
+	// The only horizon the window moves. A token that died inside it still reads
+	// as live here and nowhere else.
+	if deadline := claims.Expiry.Time().Add(clockSkew); now.After(deadline) {
+		// The claims come back populated alongside the error, and the error carries
+		// ErrExpired as well as ErrNotOurToken. A caller that treats every error the
+		// same refuses the token, which is the safe reading; one that is entitled to
+		// forgive an expiry — see auth.Service.Refresh and machine tokens — can tell
+		// this apart from a bad signature without parsing the token itself.
+		return claims, fmt.Errorf("%w: the token expired at %s: %w",
+			ErrNotOurToken, claims.Expiry.Time().UTC(), ErrExpired)
+	}
+	return claims, nil
+}
+
+// claimsFromAnyKey extracts the claims using whichever published key verifies the
+// signature.
+//
+// Every unexpired key is tried rather than the one the `kid` header names,
+// because the header is the token's own claim about itself and this is the check
+// that decides whether to believe the token at all. Retired keys are in the set
+// on purpose: they stopped signing, but what they signed is still inside its
+// lifetime, which is exactly the token a refresh arrives holding.
+func (s *Service) claimsFromAnyKey(
+	parsed *jwt.JSONWebToken, keys []Key, into *jwt.Claims, private any,
+) error {
+	dests := []any{into}
+	if private != nil {
+		dests = append(dests, private)
+	}
+	for _, k := range keys {
+		pub, err := x509.ParsePKIXPublicKey(k.Public)
+		if err != nil {
+			return fmt.Errorf("signing: parse stored public key %s: %w", k.KID, err)
+		}
+		if err := parsed.Claims(pub, dests...); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: no published key verifies the signature", ErrNotOurToken)
+}
+
 // clockSkew is how far back a token's not-before is stamped, and the tolerance a
 // verifier should allow. Two machines in one cluster are not perfectly in step,
 // and a token rejected for being from the future is the least diagnosable
@@ -244,7 +340,6 @@ func (s *Service) generate(now time.Time) (Key, error) {
 		// One token lifetime past retirement, plus a margin: the last token this
 		// key signs is minted an instant before retireAfter and lives a full TTL
 		// beyond that.
-		ExpiresAt: retireAfter.Add(s.cfg.TokenTTL + gracePeriod),
 	}, nil
 }
 

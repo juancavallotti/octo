@@ -54,6 +54,13 @@
        variable rather than deploying an agent that half works. */}}
 - name: OBSERVABILITY_URL
   value: {{ include "octo.observability.url" . | quote }}
+{{- /* Where a deployment's identity is minted, and where its pods renew it. The
+       orchestrator asks iam for a token per deployment on the authority of
+       whoever deployed it, then hands the pods this same address so they can
+       trade it in as it ages. One value, because both halves have to mean the
+       same service. */}}
+- name: IAM_URL
+  value: {{ include "octo.iam.url" . | quote }}
 {{- if .Values.embeddings.enabled }}
 {{- /* The embedding server. The orchestrator uses it directly — the backfill
        sweep and the query side of a semantic search both run next to the vectors

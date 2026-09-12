@@ -155,10 +155,27 @@ A separate test compares the routes registered in the source against the routes 
 
 ## Authentication
 
-There is none, on the same terms as the orchestrator. The service is `ClusterIP` in the chart and trusts its callers; the platform BFF is the authorization boundary in front of it.
+Every route needs a bearer token minted by this installation's [iam service](/platform/users-and-api-keys), except `/healthz` and the two description endpoints. The service fetches iam's published keys through discovery and verifies the signature, the issuer, the audience and both time claims itself.
+
+What a route requires depends on the [roles](/platform/users-and-api-keys#roles) the token carries:
+
+| Routes | Read | Write |
+| --- | --- | --- |
+| `/logs`, `/traces`, `/stats` | any people role | — |
+| `/alerts/incidents/{id}/ack` | any people role | any people role |
+| `/alerts/watches`, `/alerts/preview` | any people role | `platform:admin` |
+| `/settings/retention`, `/settings/storage`, `/retention/run` | `platform:admin` | `platform:admin` |
+
+"Any people role" is `platform:admin`, `platform:operator`, `platform:developer` or `platform:monitor` — the four a person can be granted. `platform:runtime`, which is what a deployment's own token carries and no person ever holds, is in none of these rules, so such a token reads nothing here.
+
+Anything matching no rule is `platform:admin`, so a route added without a thought about access fails closed.
+
+A refusal is `401` when the token is missing or bad and `403` when it is good and does not carry enough. A `503` means the service could not reach iam to decide — deliberately not `403`, because a caller told they are forbidden goes and changes permissions that were never the problem.
 
 <Callout type="warn">
-Anything that can reach the service's address can read every stored log line and trace payload on the install, including whatever your flows logged. It can also **change the retention policy and delete that history**, with no confirmation and nothing to undo it, and create an alert watch that emails an address of its choosing. Keep it internal.
+Reading stored traces means reading the request bodies of everything traced on this installation, not just your own deployments. The policy above admits every role to that read, because a monitor who cannot see what they are monitoring has no job. Grant `platform:monitor` on those terms.
 </Callout>
 
-The browser never reaches any of this directly. The platform's server actions do, and they gate every call behind a session, with writes additionally behind `AUTH_WRITE_ROLES`. That variable [defaults to empty, meaning any signed-in user](/platform/admin-settings). Set it.
+An installation with `IAM_URL` unset authorizes nothing and serves every caller, which is what a local run is. In the chart it is always set.
+
+The browser never reaches any of this directly. The platform's server actions do, presenting the signed-in person's own token, so what a person can read here is what they can read in the UI.

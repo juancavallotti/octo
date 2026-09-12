@@ -51,6 +51,15 @@ export interface FolderCapability {
 
 /** What the editor needs to load and persist documents. */
 export interface FileSystemCapability {
+  /**
+   * Why this backend will not accept a save, when it will not — a sentence for
+   * the control that offers one. Absent means writable.
+   *
+   * Documents still load and read: a backend that declines writes is not the
+   * same as no capability at all, which hides the load and save controls
+   * together.
+   */
+  readOnly?: string;
   load(id: string): Promise<StoredDocument>;
   /** Create when `id` is null, update otherwise; returns the stored record. */
   save(id: string | null, input: SaveInput): Promise<StoredDocument>;

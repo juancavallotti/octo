@@ -136,9 +136,9 @@ export default function IntegrationDetail({
     ? integration.lastUpdated
     : updated.toLocaleString();
 
-  // Prefer the actor's email, fall back to their name, then to an em dash when the
-  // integration has no known creator/editor (local no-SSO, MCP writes, or a
-  // since-removed user).
+  // Prefer the actor's email, fall back to their name, then to an em dash when
+  // the integration has no known creator/editor — a row that predates
+  // attribution, or a user who has since been removed.
   const createdByLabel =
     integration.createdByEmail ?? integration.createdByName ?? "—";
   const updatedByLabel =

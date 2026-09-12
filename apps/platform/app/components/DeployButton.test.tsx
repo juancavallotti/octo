@@ -29,6 +29,17 @@ vi.mock("@/app/model/orchestrator", () => ({
 vi.mock("@/app/model/secrets", () => ({ listSecrets: () => Promise.resolve([]) }));
 
 import DeployButton from "./DeployButton";
+import { RolesProvider } from "@/app/auth/RolesContext";
+import { PLATFORM_DEVELOPER, PLATFORM_OPERATOR } from "@/app/auth/roles";
+
+/** The control is for whoever may deploy, so that is who these cases are. */
+function renderAsOperator() {
+  render(
+    <RolesProvider roles={[PLATFORM_OPERATOR]} mayWrite>
+      <DeployButton getIntegrationId={() => "int-1"} />
+    </RolesProvider>,
+  );
+}
 
 const DEPLOYMENT = {
   id: "dep-1",
@@ -65,7 +76,7 @@ describe("DeployButton (editor)", () => {
 
   it("opens the rollout dialog and upgrades the chosen deployment", async () => {
     listDeployments.mockResolvedValue([DEPLOYMENT]);
-    render(<DeployButton getIntegrationId={() => "int-1"} />);
+    renderAsOperator();
 
     await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -91,12 +102,28 @@ describe("DeployButton (editor)", () => {
 
   it("opens the first-deploy modal when nothing is live", async () => {
     listDeployments.mockResolvedValue([]);
-    render(<DeployButton getIntegrationId={() => "int-1"} />);
+    renderAsOperator();
 
     await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
 
     // The first-deploy modal (Current mode) shows the Scale field; no rollout happens.
     expect(await screen.findByText("Scale")).toBeInTheDocument();
     expect(rolloutDeployment).not.toHaveBeenCalled();
+  });
+});
+
+// The courtesy, not the control: the orchestrator refuses a developer's rollout
+// whatever this button does. It is here so a developer is not offered one.
+describe("what a developer is offered", () => {
+  it("disables the button and says which role is missing", async () => {
+    render(
+      <RolesProvider roles={[PLATFORM_DEVELOPER]} mayWrite>
+        <DeployButton getIntegrationId={() => "int-1"} />
+      </RolesProvider>,
+    );
+
+    const button = screen.getByRole("button", { name: /deploy/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringMatching(/Operator/));
   });
 });

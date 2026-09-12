@@ -55,7 +55,7 @@ type deleteProcessor struct {
 	many      bool
 	deleteAll bool
 	resultVar string
-	env       map[string]any
+	env       expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

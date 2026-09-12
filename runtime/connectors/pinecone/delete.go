@@ -60,7 +60,7 @@ type deleteProcessor struct {
 	ids       *expr.Program
 	filter    *expr.Program
 	namespace *expr.Program
-	env       map[string]any
+	env       expr.Env
 }
 
 // newDelete builds a delete processor, resolving its pinecone connector,

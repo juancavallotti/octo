@@ -7,6 +7,11 @@
  * It is the only place in the folder that knows about HTTP. The sibling modules
  * are lists of typed operations; none of them names a verb, a path shape, or the
  * server-only ORCHESTRATOR_URL.
+ *
+ * It is also the only place that attaches the caller's credential, for the same
+ * reason: one place knows how to reach the orchestrator, so one place knows how
+ * to speak to it as somebody. The operations keep their signatures — a token in a
+ * hundred function signatures is a token in a hundred places it could be logged.
  */
 
 import {
@@ -15,7 +20,9 @@ import {
   requestStream,
   sendBytes,
   type ActionResult,
+  type RequestOptions,
 } from "@octo/http";
+import { callerToken } from "@/app/auth/callerToken";
 
 export type { ActionResult } from "@octo/http";
 
@@ -39,14 +46,14 @@ export function baseUrl(): string {
  * functions below, never a verb. Returns an error result when the orchestrator is
  * unconfigured (mirroring the route proxy's 503).
  */
-export function call<T>(
+export async function call<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<ActionResult<T>> {
   const base = baseUrl();
-  if (!base) return Promise.resolve(unconfigured());
-  return requestJson<T>(method, `${base}${path}`, body);
+  if (!base) return unconfigured();
+  return requestJson<T>(method, `${base}${path}`, body, await authorized());
 }
 
 /**
@@ -54,14 +61,41 @@ export function call<T>(
  * — today only the dev-run log follow. Internal, like {@link call}, and reporting the
  * same error result when the orchestrator is unconfigured.
  */
-export function callStream(
+export async function callStream(
   method: string,
   path: string,
   signal?: AbortSignal,
 ): Promise<ActionResult<ReadableStream<Uint8Array>>> {
   const base = baseUrl();
-  if (!base) return Promise.resolve(unconfigured());
-  return requestStream(method, `${base}${path}`, { signal });
+  if (!base) return unconfigured();
+  return requestStream(method, `${base}${path}`, {
+    ...(await authorized()),
+    signal,
+  });
+}
+
+/**
+ * Issue one orchestrator request and hand back the raw Response.
+ *
+ * For the proxies: a route handler that streams the orchestrator's answer
+ * straight to the browser needs the headers and the body untouched, which the
+ * helpers above deliberately do not give it. It exists so those routes do not
+ * have to build a URL and attach a credential themselves — the two things this
+ * module is here to be the only place for.
+ *
+ * Null when the orchestrator is unconfigured, which the caller reports as a 503.
+ */
+export async function callRaw(
+  path: string,
+  init?: RequestInit,
+): Promise<Response | null> {
+  const base = baseUrl();
+  if (!base) return null;
+  const auth = await authorized();
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), ...(auth?.headers ?? {}) },
+  });
 }
 
 /**
@@ -70,28 +104,34 @@ export function callStream(
  * {@link call}, and reporting the same error result when the orchestrator is
  * unconfigured.
  */
-export function callBytes(
+export async function callBytes(
   method: string,
   path: string,
 ): Promise<ActionResult<Uint8Array>> {
   const base = baseUrl();
-  if (!base) return Promise.resolve(unconfigured());
-  return requestBytes(method, `${base}${path}`);
+  if (!base) return unconfigured();
+  return requestBytes(method, `${base}${path}`, await authorized());
 }
 
 /**
  * Issue one orchestrator request whose *body* is an opaque document and whose
  * reply is JSON — the bundle uploads. Internal, like {@link call}.
  */
-export function callWithBytes<T>(
+export async function callWithBytes<T>(
   method: string,
   path: string,
   body: Uint8Array,
   contentType: string,
 ): Promise<ActionResult<T>> {
   const base = baseUrl();
-  if (!base) return Promise.resolve(unconfigured());
-  return sendBytes<T>(method, `${base}${path}`, body, contentType);
+  if (!base) return unconfigured();
+  return sendBytes<T>(
+    method,
+    `${base}${path}`,
+    body,
+    contentType,
+    await authorized(),
+  );
 }
 
 /** The error result every call reports when ORCHESTRATOR_URL is unset. */
@@ -100,4 +140,17 @@ function unconfigured(): { ok: false; error: string } {
     ok: false,
     error: "orchestrator not configured (ORCHESTRATOR_URL unset)",
   };
+}
+
+/**
+ * The caller's credential, as request options.
+ *
+ * Absent when there is none — an install with no identity provider, or a call
+ * made outside any request. That is not an error here: the orchestrator decides
+ * what it will do without one, and an install that is not enforcing will do it
+ * happily.
+ */
+async function authorized(): Promise<RequestOptions | undefined> {
+  const token = await callerToken();
+  return token ? { headers: { Authorization: `Bearer ${token}` } } : undefined;
 }

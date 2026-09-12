@@ -23,14 +23,21 @@
 //	@description				the retention policy over what is kept, and a report on how full the
 //	@description				two stores underneath are.
 //	@description
-//	@description				This is an in-cluster service and performs no authentication of its own.
-//	@description				It is ClusterIP in the chart and the platform BFF is the authorization
-//	@description				boundary in front of it. Every query route is a read; the three
-//	@description				retention routes are the exception, and one of them deletes stored
-//	@description				telemetry — so anything that can reach this address can erase it as
-//	@description				well as read it. Keep it internal.
+//	@description				Every route requires a bearer token minted by this platform's iam
+//	@description				service, except the health and description endpoints. What a route
+//	@description				requires of the caller depends on the roles the token carries: the
+//	@description				stored history and the alerting view are open to anyone signed in,
+//	@description				while what this installation watches for, how long it keeps what it
+//	@description				stores, and what that storage costs are administrators only.
+//	@description
+//	@description				An installation with no iam configured authorizes nothing and serves
+//	@description				every caller, which is what a local run is.
 //	@license.name				Elastic License 2.0
 //	@license.url				https://www.elastic.co/licensing/elastic-license
 //	@externalDocs.description	Octo documentation
 //	@externalDocs.url			https://octopaas.dev/docs
+//
+//	@securityDefinitions.apikey	Bearer
+//	@in							header
+//	@name						Authorization
 package openapi

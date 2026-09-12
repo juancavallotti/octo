@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
 	"github.com/juancavallotti/octo/runtime/services"
 	"github.com/nats-io/nats.go"
 	"k8s.io/client-go/kubernetes"
@@ -35,13 +36,53 @@ const (
 	envDeploymentVer  = "OCTO_DEPLOYMENT_VERSION" // optional tag/version, stamped onto shipped logs
 	envSnapshotID     = "OCTO_SNAPSHOT_ID"        // optional snapshot the resources were frozen under; enables the loader
 	envOrchestrator   = "ORCHESTRATOR_URL"
-	envOrchestrToken  = "ORCHESTRATOR_TOKEN" // optional bearer token for the KV API
-	envNATSURL        = "NATS_URL"           // NATS broker URL backing the queues
-	envRedisURL       = "REDIS_URL"          // optional Redis backing the volatile KV tier
+	// The credential this pod presents to the orchestrator. A deployment gets the
+	// file: the orchestrator mints a token for it and mounts it, and a file can be
+	// replaced without a restart and is not visible in the pod's spec to everyone
+	// who can describe it. The variable is what a local run can set instead.
+	envOrchestrTokenFile = "ORCHESTRATOR_TOKEN_FILE"
+	envOrchestrToken     = "ORCHESTRATOR_TOKEN"
+	// Where the pod renews its own token, since a short-lived one outlives neither
+	// the pod nor the work it is doing. Absent, whatever was mounted stands until
+	// it expires.
+	envIAMURL = "IAM_URL"
+	// The variable a flow reads to present this deployment's own identity. Not set
+	// in the pod's environment by anybody: it is served from the credential above,
+	// so that what an expression reads is the token that is valid now.
+	envPlatformToken = "PLATFORM_TOKEN"
+	envNATSURL       = "NATS_URL"  // NATS broker URL backing the queues
+	envRedisURL      = "REDIS_URL" // optional Redis backing the volatile KV tier
 )
 
 func init() {
 	services.Register(Module, New)
+}
+
+// podCredential builds this pod's platform credential from the environment and
+// renews it once, so that what the pod presents is a token it obtained rather
+// than one written before it started. start leaves a daemon behind to keep it
+// that way.
+//
+// It then publishes the credential as `env.PLATFORM_TOKEN`, which is how a flow
+// spends it. The variable is the whole interface: an integration triggered by a
+// queue message or a webhook has no person behind it and no token of anybody
+// else's to borrow, so this is the only credential it has — and because it is
+// read through the seam rather than copied at load, what an expression gets is
+// the current one rather than whatever was valid when the pod started.
+//
+// Registered only here. A runtime built without this provider has no such
+// variable and does the ordinary lookup, so the same definition loads in the
+// editor and runs under dolphin — and an operator running Octo elsewhere can set
+// PLATFORM_TOKEN themselves and have it mean what it says.
+func podCredential(ctx context.Context) *credential {
+	cred := newCredential(credentialConfig{
+		Seed:   os.Getenv(envOrchestrTokenFile),
+		Inline: os.Getenv(envOrchestrToken),
+		IAMURL: os.Getenv(envIAMURL),
+	})
+	cred.start(ctx)
+	expr.RegisterEnvValue(envPlatformToken, cred.get)
+	return cred
 }
 
 // Services is the Kubernetes runtime-services provider.
@@ -64,7 +105,7 @@ type Services struct {
 // first use.
 //
 //nolint:ireturn // satisfies services.Factory (returns core.RuntimeServices)
-func New(_ context.Context, opts services.Options) (core.RuntimeServices, error) {
+func New(ctx context.Context, opts services.Options) (core.RuntimeServices, error) {
 	identity := os.Getenv(envPodName)
 	namespace := os.Getenv(envPodNamespace)
 	deploymentID := os.Getenv(envDeploymentID)
@@ -94,6 +135,8 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 		return nil, fmt.Errorf("k8s: connect nats %q: %w", natsURL, err)
 	}
 
+	cred := podCredential(ctx)
+
 	volatile := volatileStore(deploymentID)
 
 	// A tagged deploy carries the snapshot its definition and resources were frozen
@@ -101,19 +144,19 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 	// An untagged deploy has no snapshot, so resources stay no-op (nothing to load).
 	var resources core.ResourceLoader = core.NoopResourceLoader{}
 	if snapshotID := os.Getenv(envSnapshotID); snapshotID != "" {
-		resources = newHTTPResourceLoader(orchestrator, snapshotID, os.Getenv(envOrchestrToken))
+		resources = newHTTPResourceLoader(orchestrator, snapshotID, cred)
 	}
 
 	slog.Info("k8s runtime services initialized",
 		"identity", identity, "namespace", namespace, "deployment", deploymentID,
 		"orchestrator", orchestrator, "nats", natsURL, "volatileKV", volatile != nil,
-		"snapshot", os.Getenv(envSnapshotID) != "")
+		"snapshot", os.Getenv(envSnapshotID) != "", "credential", cred.String())
 
 	return &Services{
 		le:     newLeaderElection(cs.CoordinationV1(), namespace, identity, deploymentID),
 		leases: newLeases(cs.CoordinationV1(), namespace, identity, deploymentID, time.Now),
 		kv: &tieredStore{
-			persistent: newHTTPStore(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
+			persistent: newHTTPStore(orchestrator, deploymentID, cred),
 			volatile:   volatile,
 		},
 		q:       newNATSQueues(conn, deploymentID),
@@ -123,7 +166,7 @@ func New(_ context.Context, opts services.Options) (core.RuntimeServices, error)
 		traces: newTracePublisher(conn, opts.Tracing, deploymentID,
 			os.Getenv(envDeploymentName), os.Getenv(envDeploymentVer)),
 		resources: resources,
-		memory:    newAgentMemory(orchestrator, deploymentID, os.Getenv(envOrchestrToken)),
+		memory:    newAgentMemory(orchestrator, deploymentID, cred),
 	}, nil
 }
 

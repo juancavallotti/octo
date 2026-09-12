@@ -127,7 +127,7 @@ type mcpRouter struct {
 	templates  []mcpResource
 	prompts    []mcpPrompt
 	registry   *expr.TemplateRegistry
-	env        map[string]any
+	env        expr.Env
 }
 
 // decodeMCPRouter reads and checks an mcp-router's settings.

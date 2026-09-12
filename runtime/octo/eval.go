@@ -62,16 +62,17 @@ func evalCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	// A non-nil env map keeps env.NAME a missing-key error rather than a null-deref,
-	// matching how a real run materializes its resolved env (see expr.EnvActivation).
-	env := map[string]any{}
+	// Built through expr.EnvActivation, exactly as a real run builds it: env.NAME
+	// stays a missing-key error rather than a null-deref, and a name some services
+	// provider maintains resolves here the way it would there.
+	supplied := map[string]string{}
 	if *envJSON != "" {
-		if err := json.Unmarshal([]byte(*envJSON), &env); err != nil {
+		if err := json.Unmarshal([]byte(*envJSON), &supplied); err != nil {
 			return fmt.Errorf("parse -env JSON: %w", err)
 		}
 	}
 
-	out, err := json.Marshal(evalExpression(*expression, msg, env))
+	out, err := json.Marshal(evalExpression(*expression, msg, expr.EnvActivation(supplied)))
 	if err != nil {
 		return fmt.Errorf("marshal eval outcome: %w", err)
 	}
@@ -85,7 +86,7 @@ func evalCommand(args []string) error {
 // and exits 0. A nil resource loader is passed: CompileMessage substitutes a no-op
 // loader, so standalone evaluation has no integration resources (templateResource is
 // unavailable) — expressions over body/vars/env/eventID/correlationID/now still work.
-func evalExpression(expression string, msg *types.Message, env map[string]any) evalOutcome {
+func evalExpression(expression string, msg *types.Message, env expr.Env) evalOutcome {
 	program, err := expr.CompileMessage(nil, expression)
 	if err != nil {
 		return evalOutcome{OK: false, Error: err.Error()}

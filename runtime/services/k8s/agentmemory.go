@@ -29,7 +29,7 @@ import (
 type agentMemory struct {
 	baseURL      string
 	deploymentID string
-	token        string
+	cred         *credential
 	http         *http.Client
 
 	// unavailable latches when the orchestrator does not serve these routes, so a
@@ -48,11 +48,11 @@ const (
 )
 
 // newAgentMemory returns the store for a deployment.
-func newAgentMemory(baseURL, deploymentID, token string) *agentMemory {
+func newAgentMemory(baseURL, deploymentID string, cred *credential) *agentMemory {
 	return &agentMemory{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		deploymentID: deploymentID,
-		token:        token,
+		cred:         cred,
 		http:         &http.Client{Timeout: memorySearchTimeout},
 	}
 }
@@ -428,9 +428,7 @@ func (c *agentMemory) do(
 	for name, value := range headers {
 		req.Header.Set(name, value)
 	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	c.cred.authorize(req)
 	resp, err := c.http.Do(req) //nolint:bodyclose // the caller closes it; cancel rides along
 	if err != nil {
 		cancel()

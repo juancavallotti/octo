@@ -25,7 +25,7 @@ vi.mock("@/app/auth/guard", () => ({
 vi.mock("@/app/actions/client/agentUrl", () => ({
   resolveAgentUrl: () => Promise.resolve({ ok: true, url: "http://dr-octo.local" }),
   forgetAgentUrl: () => {},
-  orchestratorUrl: () => "http://orchestrator.local",
+  orchestratorConfigured: () => true,
 }));
 
 const { POST } = await import("./route");

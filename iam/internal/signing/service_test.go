@@ -51,13 +51,8 @@ func (m *memRepo) Verifiers(_ context.Context, now time.Time) ([]Key, error) {
 	if err := m.fail(); err != nil {
 		return nil, err
 	}
-	out := make([]Key, 0, len(m.keys))
-	for _, k := range m.keys {
-		if k.ExpiresAt.After(now) {
-			out = append(out, k)
-		}
-	}
-	return out, nil
+	// Every key, however old: a key goes on verifying what it signed for good.
+	return append([]Key(nil), m.keys...), nil
 }
 
 func (m *memRepo) Rotate(ctx context.Context, now time.Time, generate func() (Key, error)) (Key, error) {
@@ -74,22 +69,17 @@ func (m *memRepo) Rotate(ctx context.Context, now time.Time, generate func() (Ke
 		return Key{}, err
 	}
 	m.rotations++
-	kept := make([]Key, 0, len(m.keys)+1)
-	for _, k := range m.keys {
-		if k.ExpiresAt.After(now) {
-			kept = append(kept, k)
-		}
-	}
-	m.keys = append(kept, fresh)
+	m.keys = append(m.keys, fresh)
 	return fresh, nil
 }
 
 // privateClaims is what the auth package will merge in — modelled here so the
 // merge is covered without this package depending on it.
 type privateClaims struct {
-	Email string   `json:"email"`
-	Name  string   `json:"name"`
-	Roles []string `json:"roles"`
+	Email      string   `json:"email"`
+	Name       string   `json:"name"`
+	Roles      []string `json:"roles"`
+	Deployment string   `json:"deployment,omitempty"`
 }
 
 func newTestService(t *testing.T, cfg Config) (*Service, *memRepo) {
@@ -250,9 +240,10 @@ func TestATokenSurvivesTheRotationThatRetiresItsKey(t *testing.T) {
 	}
 }
 
-// Once every token a key could have signed has expired, the key must leave the
-// set — otherwise it accumulates forever and the JWKS grows without bound.
-func TestAnExpiredKeyIsDroppedFromTheJWKS(t *testing.T) {
+// A retired key goes on verifying for good. A machine token is renewable however
+// long ago it expired, and a key that left the set would make that false for
+// every pod seeded before the last rotation.
+func TestARetiredKeyKeepsVerifying(t *testing.T) {
 	svc, _ := newTestService(t, Config{TokenTTL: time.Hour, KeyLifetime: 24 * time.Hour})
 	ctx := context.Background()
 
@@ -264,10 +255,9 @@ func TestAnExpiredKeyIsDroppedFromTheJWKS(t *testing.T) {
 	}
 	firstKID := kidOf(t, tok.Value)
 
-	// Retirement plus the token lifetime plus the grace period, and a minute more.
-	svc.now = func() time.Time {
-		return start.Add(24*time.Hour + time.Hour + gracePeriod + time.Minute)
-	}
+	// Long past retirement, and past anything a grace window would once have
+	// forgiven.
+	svc.now = func() time.Time { return start.Add(90 * 24 * time.Hour) }
 	if _, err := svc.Mint(ctx, "user-1", privateClaims{}); err != nil {
 		t.Fatalf("Mint(much later): %v", err)
 	}
@@ -276,11 +266,11 @@ func TestAnExpiredKeyIsDroppedFromTheJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("JWKS: %v", err)
 	}
-	if len(set.Key(firstKID)) != 0 {
-		t.Errorf("the expired key %q is still published", firstKID)
+	if len(set.Key(firstKID)) != 1 {
+		t.Errorf("the retired key %q is no longer published", firstKID)
 	}
-	if len(set.Keys) != 1 {
-		t.Errorf("JWKS holds %d keys, want just the current one", len(set.Keys))
+	if len(set.Keys) != 2 {
+		t.Errorf("JWKS holds %d keys, want the retired one and the current one", len(set.Keys))
 	}
 }
 
@@ -426,5 +416,196 @@ func TestNewServiceNormalizesTheIssuer(t *testing.T) {
 	// A slash-only issuer is still no issuer.
 	if _, err := NewService(&memRepo{}, Config{Issuer: "///", Audience: "octo"}); err == nil {
 		t.Error("NewService(\"///\") returned no error")
+	}
+}
+
+// --- Verify ----------------------------------------------------------------
+
+// The ordinary case a proactive re-mint takes: the token is still valid and no
+// window is needed.
+func TestVerifyAcceptsAValidToken(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	token, err := svc.Mint(ctx, "user-1", privateClaims{Email: "a@example.com"})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	claims, err := svc.Verify(ctx, token.Value, nil)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if claims.Subject != "user-1" {
+		t.Errorf("sub = %q, want user-1", claims.Subject)
+	}
+}
+
+// An expired token comes back refused, but with its claims and an error saying
+// which check it failed. That is what lets the refresh renew a machine token
+// however old it is without also forgiving a forged one.
+func TestVerifyReportsAnExpiryWithTheClaimsIntact(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{Deployment: "dep-1"})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + time.Minute) }
+	var private privateClaims
+	claims, err := svc.Verify(ctx, token.Value, &private)
+	if !errors.Is(err, ErrExpired) {
+		t.Errorf("Verify() of an expired token = %v, want ErrExpired", err)
+	}
+	if !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify() error = %v, want it to carry ErrNotOurToken too", err)
+	}
+	if claims.Subject != "user-1" {
+		t.Errorf("sub = %q, want the claims populated alongside the error", claims.Subject)
+	}
+	if private.Deployment != "dep-1" {
+		t.Errorf("deployment = %q, want the private claims populated too", private.Deployment)
+	}
+}
+
+// And an expired token is still refused.
+func TestVerifyRejectsAnExpiredToken(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + 11*time.Minute) }
+	if _, err := svc.Verify(ctx, token.Value, nil); !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify() error = %v, want ErrNotOurToken", err)
+	}
+}
+
+// A window of zero must not quietly become a window of some: an expired token is
+// simply expired for every caller but the refresh.
+func TestVerifyWithNoWindowRejectsAnExpiredToken(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	svc.now = func() time.Time { return start.Add(svc.TokenTTL() + time.Minute) }
+	if _, err := svc.Verify(ctx, token.Value, nil); !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify() error = %v, want ErrNotOurToken", err)
+	}
+}
+
+// The window widens expiry and nothing else. Everything that says "this is not
+// our token" still says it, however recently the token was minted.
+func TestVerifyRejectsTokensThatAreNotOurs(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	other, _ := newTestService(t, Config{Issuer: "http://elsewhere.test", Audience: "someone-else"})
+	ctx := context.Background()
+
+	foreign, err := other.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	// Minted by a service with its own keyset, so both the signature and the
+	// issuer are wrong — which is what a token from anywhere else looks like.
+	if _, err := svc.Verify(ctx, foreign.Value, nil); !errors.Is(err, ErrNotOurToken) {
+		t.Errorf("Verify(another issuer's token) error = %v, want ErrNotOurToken", err)
+	}
+	for _, garbage := range []string{"", "not-a-token", "a.b.c"} {
+		if _, err := svc.Verify(ctx, garbage, nil); !errors.Is(err, ErrNotOurToken) {
+			t.Errorf("Verify(%q) error = %v, want ErrNotOurToken", garbage, err)
+		}
+	}
+}
+
+// A token minted just before a rotation must stay refreshable through it: the
+// retired key is still published for exactly this reason.
+func TestVerifyAcceptsATokenSignedByARetiredKey(t *testing.T) {
+	svc, _ := newTestService(t, Config{TokenTTL: time.Hour, KeyLifetime: 2 * time.Hour})
+	ctx := context.Background()
+
+	start := time.Now()
+	svc.now = func() time.Time { return start }
+	if _, err := svc.Mint(ctx, "warm-the-keyset", privateClaims{}); err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	// Minted ninety minutes into a key that retires at two hours, so the token
+	// outlives the key that signed it — the case this is about.
+	svc.now = func() time.Time { return start.Add(90 * time.Minute) }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint before retirement: %v", err)
+	}
+
+	// Past retirement, so this mint rotates to a new key.
+	svc.now = func() time.Time { return start.Add(2*time.Hour + time.Minute) }
+	if _, err := svc.Mint(ctx, "user-2", privateClaims{}); err != nil {
+		t.Fatalf("Mint after rotation: %v", err)
+	}
+
+	// The token has half an hour left and is signed by a key that no longer signs.
+	svc.now = func() time.Time { return start.Add(2*time.Hour + 10*time.Minute) }
+	if _, err := svc.Verify(ctx, token.Value, nil); err != nil {
+		t.Errorf("Verify() of a token signed by the retired key: %v", err)
+	}
+}
+
+// Mint stamps `nbf` a little in the past for clock skew, and a token minted a
+// second ago must not read as "not valid yet" — which is how this broke the
+// first time, when both horizons were validated against one shifted instant.
+func TestVerifyAcceptsABrandNewToken(t *testing.T) {
+	svc, _ := newTestService(t, Config{})
+	ctx := context.Background()
+
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	if _, err := svc.Verify(ctx, token.Value, nil); err != nil {
+		t.Errorf("Verify() of a freshly minted token with an hour of grace: %v", err)
+	}
+}
+
+// The regression test for the bug the fake clock hid.
+//
+// Every other case here moves svc.now forward, which leaves the token unexpired
+// by the real clock. That hid a bug once: the expiry was being validated against
+// time.Now() rather than this service's clock, so the check under test never ran.
+// This one mints in the past instead, so the token is genuinely dead by the wall
+// clock, exactly as it would be in production.
+func TestVerifyRefusesAnExpiryAgainstTheRealClock(t *testing.T) {
+	svc, _ := newTestService(t, Config{TokenTTL: time.Hour, KeyLifetime: 24 * time.Hour})
+	ctx := context.Background()
+
+	// Minted two hours ago, so it expired an hour ago by any clock.
+	svc.now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
+	token, err := svc.Mint(ctx, "user-1", privateClaims{})
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	svc.now = time.Now
+	claims, err := svc.Verify(ctx, token.Value, nil)
+	if !errors.Is(err, ErrExpired) {
+		t.Errorf("Verify() of a genuinely expired token = %v, want ErrExpired", err)
+	}
+	if claims.Subject != "user-1" {
+		t.Errorf("sub = %q, want the claims populated so a machine token can renew", claims.Subject)
 	}
 }

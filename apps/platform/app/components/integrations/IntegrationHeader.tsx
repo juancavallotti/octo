@@ -3,6 +3,8 @@
 import { type RefObject } from "react";
 import Link from "next/link";
 import { Copy, Pencil, Rocket, Trash2, Upload } from "lucide-react";
+import { useRoles } from "@/app/auth/RolesContext";
+import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import type { Integration, Snapshot } from "@/app/model/orchestrator";
 import DownloadMenu from "./DownloadMenu";
 import HeaderName from "./HeaderName";
@@ -60,6 +62,11 @@ export default function IntegrationHeader({
   onCopy: () => void;
   onDelete: () => void;
 }) {
+  const { can } = useRoles();
+  // Disabled rather than hidden. This header sits on a page anybody signed in may
+  // read, and a row of controls that quietly disappears reads as a broken page.
+  const denied = can.build ? undefined : CAPABILITY_REASONS.build;
+
   return (
     <header className="flex items-center gap-2 px-4 py-3">
       {/* The icon is the trigger, so choosing one costs the header no extra
@@ -83,7 +90,8 @@ export default function IntegrationHeader({
       <button
         type="button"
         onClick={onDeploy}
-        disabled={busy}
+        disabled={busy || !can.deploy}
+        title={can.deploy ? undefined : CAPABILITY_REASONS.deploy}
         className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
       >
         <Rocket size={14} />
@@ -114,9 +122,9 @@ export default function IntegrationHeader({
       <button
         type="button"
         onClick={onCopy}
-        disabled={busy}
+        disabled={busy || !can.build}
         aria-label="Duplicate integration"
-        title="Duplicate integration"
+        title={denied ?? "Duplicate integration"}
         className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-zinc-200"
       >
         <Copy size={16} />
@@ -161,9 +169,9 @@ export default function IntegrationHeader({
           <button
             type="button"
             onClick={() => replaceInput.current?.click()}
-            disabled={busy}
+            disabled={busy || !can.build}
             aria-label="Replace from bundle"
-            title="Replace from bundle"
+            title={denied ?? "Replace from bundle"}
             className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-black/[0.06] hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-zinc-200"
           >
             <Upload size={16} />
@@ -173,8 +181,9 @@ export default function IntegrationHeader({
       <button
         type="button"
         onClick={onDelete}
-        disabled={busy}
+        disabled={busy || !can.build}
         aria-label="Delete integration"
+        title={denied ?? "Delete integration"}
         className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
       >
         <Trash2 size={16} />

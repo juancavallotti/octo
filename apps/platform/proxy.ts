@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest, ProxyConfig } from "next/server";
-import { auth, authEnabled } from "@/auth";
+import { auth } from "@/auth";
 import { hostSet, isIntegrationHost } from "@/app/gateway-error/hostGuard";
 
 /**
@@ -12,12 +12,9 @@ type RoutedRequest = Pick<NextRequest, "headers" | "nextUrl">;
 
 /**
  * Next.js proxy (formerly "middleware"): gates the whole editor behind an
- * authenticated session when SSO is configured. Browser navigations without a
- * session are redirected to the sign-in page; unauthenticated `/api/*` calls get a
- * 401. When SSO is not configured (local `task dev`), this is a no-op and the app
- * behaves exactly as before.
- *
- * Per-route role checks live in the route handlers via withAuth (app/auth/guard.ts).
+ * authenticated session. Browser navigations without a session are redirected to
+ * the sign-in page; unauthenticated `/api/*` calls get a 401. Role checks are not
+ * made here — see app/auth/guard.ts.
  */
 
 /** Where the gateway's error page lives; see app/gateway-error/route.ts. */
@@ -96,12 +93,7 @@ function errorPageOnly(req: RoutedRequest): NextResponse {
   return NextResponse.rewrite(url);
 }
 
-// The integration-host guard applies whether or not SSO is configured: it is about
-// which hostname a request arrived on, not about who sent it.
-export default authEnabled
-  ? gate
-  : (req: NextRequest) =>
-      onIntegrationHost(req) ? errorPageOnly(req) : NextResponse.next();
+export default gate;
 
 export const config: ProxyConfig = {
   // Run on everything except Next internals and static files (which have a dot).

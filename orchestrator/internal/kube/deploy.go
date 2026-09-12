@@ -32,6 +32,14 @@ const (
 	// message that reached for a file.
 	workspaceVolume    = "workspace"
 	workspaceMountPath = "/workspace"
+
+	// The pod's own platform token, mounted from a Secret of its own rather than
+	// injected as an environment variable: an env var is in the pod's spec for
+	// anyone who can describe it, is inherited by every process the container
+	// starts, and cannot be replaced without a restart. A file is none of those.
+	tokenVolume    = "platform-token"
+	tokenMountPath = "/var/run/octo"
+	tokenFileName  = "token"
 	// runtimePort is the default port the Service/Ingress target when a deployment
 	// declares no HTTP_PORT (Spec.Port == 0). An integration that declares
 	// HTTP_PORT overrides it; the Service simply has no endpoints if the runtime
@@ -95,6 +103,9 @@ const (
 	// tracing, and unlike tracing it is a grant: the definition's author asks for it,
 	// but whoever deploys decides.
 	envObservability = "OBSERVABILITY_URL"
+	// Where the runtime reads its own token, and where it renews it.
+	envTokenFile = "ORCHESTRATOR_TOKEN_FILE"
+	envIAMURL    = "IAM_URL"
 
 	// envEmbeddings is the embedding server's in-cluster address. Injected into
 	// every pod when the installation has one, because an embedding grants access
@@ -118,16 +129,13 @@ type Spec struct {
 	Expose        bool              // when true, also publish an external Ingress
 	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
 	Tracing       bool              // when true, run the pods with the runtime's tracer on
-	// ObservabilityAPI grants the pods the observability service's address, injected
-	// as OBSERVABILITY_URL. Nothing else puts it in a pod, so this flag is the whole of the
-	// grant. The orchestrator's own API needs no counterpart here: ORCHESTRATOR_URL
-	// is already injected for the runtime services module, and the declaration that
-	// a deployment calls that API lives on the deployment record for a future access
-	// model to read.
-	ObservabilityAPI bool
 	// Runner selects the image these pods run. The zero value is RunnerStandard, so
 	// a deployment written before runners existed keeps exactly the pod it had.
 	Runner Runner
+	// Token is the platform token this deployment presents to the orchestrator,
+	// mounted as a Secret. Empty mounts nothing and injects nothing, which is what
+	// an install with no iam configured gets.
+	Token string
 }
 
 // agentic reports whether this deployment runs the agentic runner, which is the
@@ -163,6 +171,12 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 		Data:       map[string]string{configFileName: spec.Definition},
 	}, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("kube: create configmap: %w", err)
+	}
+
+	// Before the Deployment: a pod whose Secret does not exist yet stays pending
+	// on the mount, and there is no reason to make it wait.
+	if err := c.putToken(ctx, spec, labels); err != nil {
+		return err
 	}
 
 	deps := c.clientset.AppsV1().Deployments(c.namespace)
@@ -284,6 +298,10 @@ func (c *Client) Rollout(ctx context.Context, spec Spec) error {
 		return fmt.Errorf("kube: rollout update configmap: %w", err)
 	}
 
+	if err := c.putToken(ctx, spec, labels); err != nil {
+		return err
+	}
+
 	deps := c.clientset.AppsV1().Deployments(c.namespace)
 	existing, err := deps.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -372,8 +390,9 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 						ReadinessProbe:  readinessProbe(),
 						// Empty for every runner but the agentic one, which is the only
 						// deployment this orchestrator sizes. See Client.agenticResources.
-						Resources:    c.containerResources(spec),
-						VolumeMounts: c.volumeMounts(spec),
+						Resources:       c.containerResources(spec),
+						VolumeMounts:    c.volumeMounts(spec),
+						SecurityContext: restricted(),
 					}},
 					Volumes: c.volumes(name, spec),
 				},
@@ -439,6 +458,13 @@ func (c *Client) volumeMounts(spec Spec) []corev1.VolumeMount {
 			MountPath: workspaceMountPath,
 		})
 	}
+	if spec.Token != "" {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      tokenVolume,
+			MountPath: tokenMountPath,
+			ReadOnly:  true,
+		})
+	}
 	return mounts
 }
 
@@ -474,7 +500,83 @@ func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
 			},
 		})
 	}
+	if spec.Token != "" {
+		// Readable by everyone in the pod, because the only reader is not root and
+		// the file is. Secret volume files are owned by root:root, and these images
+		// run as 65532 — so 0400 hides the token from the one process that needs
+		// it, and does so silently. It costs nothing: what can read this mount is
+		// what is inside this pod either way.
+		mode := int32(0o444)
+		volumes = append(volumes, corev1.Volume{
+			Name: tokenVolume,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tokenSecretName(spec.ID),
+					DefaultMode: &mode,
+				},
+			},
+		})
+	}
 	return volumes
+}
+
+// putToken writes the deployment's token into a Secret of its own, creating it
+// or replacing what is there.
+//
+// A deployment with no token has no Secret, and one it had is removed: a token
+// left behind on disk after the grant that produced it went away would go on
+// working, since a machine token renews at any age.
+func (c *Client) putToken(ctx context.Context, spec Spec, labels map[string]string) error {
+	secrets := c.clientset.CoreV1().Secrets(c.namespace)
+	name := tokenSecretName(spec.ID)
+
+	if spec.Token == "" {
+		if err := secrets.Delete(ctx, name, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
+			return fmt.Errorf("kube: delete token secret: %w", err)
+		}
+		return nil
+	}
+
+	desired := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
+		Type:       corev1.SecretTypeOpaque,
+		StringData: map[string]string{tokenFileName: spec.Token},
+	}
+	_, err := secrets.Create(ctx, desired, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("kube: create token secret: %w", err)
+	}
+	// Updated through the object the server currently holds rather than through
+	// `desired`, which carries no resourceVersion. An update is a replacement of a
+	// specific revision, and the fake clientset these are tested against does not
+	// enforce that — so a rollout against a real API server is where a blind
+	// replacement would first be seen to fail.
+	current, err := secrets.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: read token secret before replacing it: %w", err)
+	}
+	current.Labels = labels
+	current.Type = corev1.SecretTypeOpaque
+	// Both halves: StringData is what we write, and Data is what the server
+	// answered with. Leaving the old Data in place would have the server merge a
+	// stale token back in under the same key.
+	current.Data = nil
+	current.StringData = map[string]string{tokenFileName: spec.Token}
+	if _, err := secrets.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kube: update token secret: %w", err)
+	}
+	return nil
+}
+
+// tokenSecretName is the Secret holding one deployment's token. Suffixed rather
+// than sharing the name its ConfigMap and Deployment use, so that reading the
+// Secrets in this namespace is a question about credentials and not about every
+// object a deployment owns.
+func tokenSecretName(deploymentID string) string {
+	return resourceName(deploymentID) + "-token"
 }
 
 // pullSecretRefs converts the configured Secret names into the reference list a
@@ -550,17 +652,20 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// OBSERVABILITY_URL is the orchestrator's to set, so it is dropped from the user's
 	// bindings wherever it came from. The deployment service already refuses a
 	// binding that targets it, and this is the same rule at the layer that actually
-	// builds the pod — so a caller assembling a Spec directly cannot hand a
-	// deployment the address that its own record says it was never granted.
+	// builds the pod — so a caller assembling a Spec directly cannot name that
+	// address itself.
 	env := append(c.runtimeServicesEnv(spec), without(containerEnv(spec), envObservability)...)
 	if spec.Tracing {
 		env = append(env, corev1.EnvVar{Name: envTracing, Value: "true"})
 	}
-	// The grant and the address are both required. A deployment that asked for
-	// observability on an orchestrator that has no observability address gets nothing,
-	// rather than an empty OBSERVABILITY_URL that turns every query into a confusing failure
-	// inside the flow.
-	if spec.ObservabilityAPI && c.runtimeServices.ObservabilityURL != "" {
+	// Every pod learns where the observability service is, and reaching it is
+	// another matter: that API authorizes the token it is presented, and a
+	// deployment's token opens nothing there unless it was minted to. An address
+	// was never a boundary — anything on the cluster network could dial it — so
+	// withholding it only ever hid a service from the deployments that had asked
+	// to use it. Absent when this orchestrator has no such address, rather than
+	// empty, which turns every query into a confusing failure inside the flow.
+	if c.runtimeServices.ObservabilityURL != "" {
 		env = append(env, corev1.EnvVar{Name: envObservability, Value: c.runtimeServices.ObservabilityURL})
 	}
 	// The stats sidecar scrapes this runtime's /metrics, which the runtime does
@@ -570,6 +675,14 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// OCTO_METRICS among its own env.
 	if c.statsSidecarEnabled() {
 		env = append(env, corev1.EnvVar{Name: envMetrics, Value: "true"})
+	}
+	// Where the mounted token is, and where the pod renews it. Both or neither: a
+	// pod told where its token lives but not where to renew it would present the
+	// same one until it expired.
+	if spec.Token != "" && c.runtimeServices.IAMURL != "" {
+		env = append(env,
+			corev1.EnvVar{Name: envTokenFile, Value: tokenMountPath + "/" + tokenFileName},
+			corev1.EnvVar{Name: envIAMURL, Value: c.runtimeServices.IAMURL})
 	}
 	if len(env) == 0 {
 		return nil
@@ -729,6 +842,10 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 	}
 	if err := c.clientset.CoreV1().ConfigMaps(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete configmap: %w", err))
+	}
+	if err := c.clientset.CoreV1().Secrets(c.namespace).Delete(
+		ctx, tokenSecretName(deploymentID), del); ignoreNotFound(err) != nil {
+		errs = append(errs, fmt.Errorf("delete token secret: %w", err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("kube: delete %s: %w", name, errors.Join(errs...))

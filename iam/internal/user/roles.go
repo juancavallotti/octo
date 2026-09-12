@@ -34,6 +34,16 @@ const (
 	RoleDeveloper Role = "platform:developer"
 	// RoleOperator can create and manage deployments.
 	RoleOperator Role = "platform:operator"
+
+	// RoleRuntime is what a deployed integration's own token carries, and the one
+	// role no person is ever granted. It is deliberately absent from allRoles
+	// below, so ValidRole refuses it and no grant can ever write it: it is not
+	// something an administrator chooses for somebody, it is what a pod is.
+	//
+	// A machine holding it may reach the few routes a running integration needs —
+	// its key/value store, its frozen resources, its agent memory — and nothing
+	// else, whoever it was minted on behalf of.
+	RoleRuntime Role = "platform:runtime"
 )
 
 // allRoles is the catalogue in presentation order. Unexported and copied by

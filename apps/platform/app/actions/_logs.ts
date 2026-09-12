@@ -9,9 +9,9 @@
  * shaping are internal; callers see only {@link LogPage}.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
+import type { ActionResult } from "@octo/http";
 import type { LogEntry, LogFilters, LogPage } from "@/app/model/logs";
-import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
+import { observabilityCall } from "./_observability";
 
 /** One stored log row as the service emits it (snake_case). */
 interface RawLog {
@@ -66,13 +66,12 @@ function toEntry(r: RawLog): LogEntry {
  * result when the observability service is unconfigured or unreachable.
  */
 export async function getLogs(f: LogFilters): Promise<ActionResult<LogPage>> {
-  const base = observabilityBaseUrl();
-  if (!base) {
-    return observabilityUnconfigured("log query");
-  }
   const qs = queryString(f);
-  const url = qs ? `${base}/logs?${qs}` : `${base}/logs`;
-  const res = await requestJson<RawPage>("GET", url);
+  const res = await observabilityCall<RawPage>(
+    "log query",
+    "GET",
+    qs ? `/logs?${qs}` : "/logs",
+  );
   if (!res.ok) return res;
   return {
     ok: true,

@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/juancavallotti/octo/iam/internal/authz"
 )
 
 // newTestServer wires the real Service and Handler over the in-memory repository,
@@ -16,8 +19,23 @@ func newTestServer(t *testing.T) (*http.ServeMux, *Service, *memRepo) {
 	repo := newMemRepo()
 	svc := NewService(repo)
 	mux := http.NewServeMux()
-	NewHandler(svc).Register(mux)
+	handler := NewHandler(svc)
+	// A stand-in caller rather than a real token: what a guard admits is the authz
+	// package's business and is tested there. What these cover is routing, status
+	// mapping and the wire shape, which need a principal on the request and not a
+	// keyset behind it.
+	handler.Register(mux, asTestCaller, asTestCaller)
 	return mux, svc, repo
+}
+
+// testCaller is the subject every grant in these tests is attributed to.
+const testCaller = "00000000-0000-0000-0000-00000000ca11"
+
+func asTestCaller(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(
+			authz.NewContext(r.Context(), authz.Principal{Subject: testCaller})))
+	})
 }
 
 func do(t *testing.T, mux *http.ServeMux, method, path string) *httptest.ResponseRecorder {
@@ -65,7 +83,7 @@ func TestCatalogueListsEveryRoleWithADescription(t *testing.T) {
 
 // The OIDC subject identifies the account at the identity provider and nothing
 // outside this service has a use for it, so it must not ride along on a read.
-func TestUserResponseDoesNotLeakTheOIDCSubject(t *testing.T) {
+func TestUserResponseCarriesTheSubjectForDebugging(t *testing.T) {
 	mux, svc, _ := newTestServer(t)
 	u, err := svc.SignIn(context.Background(), "provider|abc123", "first@example.com", "First")
 	if err != nil {
@@ -81,11 +99,37 @@ func TestUserResponseDoesNotLeakTheOIDCSubject(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if _, present := raw["subject"]; present {
-		t.Errorf("response carries the OIDC subject: %s", rec.Body.String())
+	// It is the answer to "why is this person not getting in": whether their row
+	// has been claimed, and by which account at the provider. Nothing outside
+	// this service addresses a user by it.
+	if got := raw["subject"]; got != "provider|abc123" {
+		t.Errorf("subject = %v, want the one the provider presented", got)
 	}
 	if got := raw["id"]; got != u.ID {
 		t.Errorf("id = %v, want %q", got, u.ID)
+	}
+}
+
+// Somebody provisioned who has not arrived has no subject, and the field says so
+// with an empty string rather than going missing — a reader of this list is
+// asking exactly that question.
+func TestAProvisionedUserReportsNoSubject(t *testing.T) {
+	mux, svc, _ := newTestServer(t)
+	u, err := svc.Create(context.Background(), "waiting@example.com", "Waiting", nil, nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rec := do(t, mux, http.MethodGet, "/users/"+u.ID)
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := raw["subject"]; got != "" {
+		t.Errorf("subject = %v, want it empty", got)
+	}
+	if raw["lastLoginAt"] != nil {
+		t.Errorf("lastLoginAt = %v, want null", raw["lastLoginAt"])
 	}
 }
 
@@ -96,6 +140,11 @@ func TestRolesSerializeAsAnEmptyArrayNotNull(t *testing.T) {
 	ctx := context.Background()
 	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
 		t.Fatalf("SignIn(first): %v", err)
+	}
+	// Provisioned first: after the first user, this platform is an allowlist and
+	// signing in is not by itself a way to get an account.
+	if _, err := svc.Create(ctx, "second@example.com", "Second", nil, nil); err != nil {
+		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
 	if err != nil {
@@ -117,6 +166,11 @@ func TestGrantAndRevokeReturnTheUpdatedUser(t *testing.T) {
 	ctx := context.Background()
 	if _, err := svc.SignIn(ctx, "sub-1", "first@example.com", "First"); err != nil {
 		t.Fatalf("SignIn(first): %v", err)
+	}
+	// Provisioned first: after the first user, this platform is an allowlist and
+	// signing in is not by itself a way to get an account.
+	if _, err := svc.Create(ctx, "second@example.com", "Second", nil, nil); err != nil {
+		t.Fatalf("Create(second): %v", err)
 	}
 	second, err := svc.SignIn(ctx, "sub-2", "second@example.com", "Second")
 	if err != nil {
@@ -161,8 +215,10 @@ func TestHandlerStatusMapping(t *testing.T) {
 			http.StatusNotFound},
 		{"role outside the catalogue", http.MethodPut, "/users/" + u.ID + "/roles/platform:root",
 			http.StatusBadRequest},
+		// A conflict rather than a bad request: the request is perfectly formed,
+		// and what refuses it is the state of the platform.
 		{"revoking the last admin", http.MethodDelete, "/users/" + u.ID + "/roles/" + string(RoleAdmin),
-			http.StatusBadRequest},
+			http.StatusConflict},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,8 +231,9 @@ func TestHandlerStatusMapping(t *testing.T) {
 	}
 }
 
-// An empty install must answer with [] rather than null, for the same reason an
-// unroled user must.
+// An empty install must answer with an empty array rather than null, for the
+// same reason an unroled user must — and with no cursor, because there is no
+// next page to ask for.
 func TestListIsAnEmptyArrayOnAFreshInstall(t *testing.T) {
 	mux, _, _ := newTestServer(t)
 
@@ -184,7 +241,36 @@ func TestListIsAnEmptyArrayOnAFreshInstall(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /users = %d, want 200", rec.Code)
 	}
-	if got := rec.Body.String(); got != "[]\n" {
-		t.Errorf("GET /users body = %q, want an empty array", got)
+	if got := rec.Body.String(); got != "{\"items\":[]}\n" {
+		t.Errorf("GET /users body = %q, want an empty page", got)
+	}
+}
+
+// createUser posts a user and returns them, for the cases that need somebody to
+// act on.
+func createUser(t *testing.T, mux *http.ServeMux, email string) Response {
+	t.Helper()
+	body := `{"email":"` + email + `","name":""}`
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /users = %d (%s), want 201", rec.Code, rec.Body.String())
+	}
+	return decode[Response](t, rec)
+}
+
+// The note this replaced said grants were recorded with nobody behind them,
+// because there was nobody to record. There is now, and it has to reach the row.
+func TestGrantIsAttributedToTheCaller(t *testing.T) {
+	mux, _, repo := newTestServer(t)
+	created := createUser(t, mux, "a@example.com")
+
+	rec := do(t, mux, http.MethodPut, "/users/"+created.ID+"/roles/"+string(RoleMonitor))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT role = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if got := repo.grantedBy[created.ID+"|"+string(RoleMonitor)]; got == nil || *got != testCaller {
+		t.Errorf("granted_by = %v, want the caller %q", got, testCaller)
 	}
 }

@@ -134,7 +134,7 @@ type ifBlock struct {
 	condition *expr.Program
 	then      core.MessageProcessor
 	els       core.MessageProcessor
-	env       map[string]any
+	env       expr.Env
 }
 
 // switchCase pairs a compiled boolean guard with the flow to run when it is the
@@ -150,7 +150,7 @@ type switchCase struct {
 type switchBlock struct {
 	cases []switchCase
 	def   core.MessageProcessor
-	env   map[string]any
+	env   expr.Env
 }
 
 // foreachBlock is a composite that runs its body once per element of the array
@@ -165,7 +165,7 @@ type foreachBlock struct {
 	as      string
 	body    core.MessageProcessor
 	mapMode bool
-	env     map[string]any
+	env     expr.Env
 }
 
 // enrichScope is a composite that runs its body flow on an isolated scope of the
@@ -177,7 +177,7 @@ type enrichScope struct {
 	body    core.MessageProcessor
 	setBody *expr.Program            // nil leaves the incoming body unchanged
 	setVars map[string]*expr.Program // variable name -> expression
-	env     map[string]any
+	env     expr.Env
 }
 
 // Process runs the body on a scope, then applies the enrichment expressions

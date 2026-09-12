@@ -64,6 +64,10 @@ type RuntimeServices struct {
 	// only into deployments that were granted the observability API, so an empty
 	// value here disables the grant everywhere rather than degrading every pod.
 	ObservabilityURL string
+	// IAMURL is where a pod renews its own platform token, injected only into
+	// deployments that were given one. Empty leaves a mounted token to stand until
+	// it expires, which is why the two travel together.
+	IAMURL string
 	// EmbeddingsURL is the embedding server: text in, vectors out. Empty omits it,
 	// which is what an installation with no embedding server has.
 	//

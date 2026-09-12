@@ -3,7 +3,8 @@ export const dynamic = "force-dynamic";
 
 import { currentWriteUserId } from "@/app/actions/_auth";
 import { AuthError, ForbiddenError } from "@/app/auth/guard";
-import { resolveAgentUrl, forgetAgentUrl, orchestratorUrl } from "@/app/actions/client/agentUrl";
+import { resolveAgentUrl, forgetAgentUrl, orchestratorConfigured } from "@/app/actions/client/agentUrl";
+import { callerToken } from "@/app/auth/callerToken";
 
 /**
  * POST /api/agent/chat — the browser's end of a conversation with Dr. Octo.
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     throw e;
   }
 
-  if (!orchestratorUrl()) {
+  if (!orchestratorConfigured()) {
     return Response.json(
       { error: "orchestrator not configured (ORCHESTRATOR_URL unset)" },
       { status: 503 },
@@ -90,6 +91,19 @@ export async function POST(req: Request) {
   // let "false" or 0.0 end a run — a stop is the one instruction here that
   // destroys work, so it takes the value it was specified with and no other.
   if (body.stop === true) headers["X-Agent-Stop"] = "1";
+
+  // The caller's own credential, so that what the agent's tools reach is what
+  // this person may reach. Set here from the session rather than accepted from
+  // the browser, for the same reason the identity and the stop are: what the
+  // client says is a request, and what reaches the agent is this route's
+  // decision.
+  //
+  // Absent when there is none, and the agent's tools then have nothing to
+  // present — which the orchestrator answers with a 401. That is the right
+  // failure: the alternative is an agent acting with whatever standing its own
+  // pod happens to have, on behalf of somebody who does not have it.
+  const token = await callerToken();
+  if (token) headers["X-Agent-Caller-Token"] = token;
 
   // An authorization, read with the same strictness and for a sharper reason: this
   // is the one instruction that lets something happen rather than stopping it. An

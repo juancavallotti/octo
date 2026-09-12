@@ -24,8 +24,10 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/agentmemory"
 	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
+	"github.com/juancavallotti/octo/orchestrator/internal/authz"
 	"github.com/juancavallotti/octo/orchestrator/internal/bundle"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
+	"github.com/juancavallotti/octo/orchestrator/internal/caller"
 	cryptox "github.com/juancavallotti/octo/orchestrator/internal/crypto"
 	"github.com/juancavallotti/octo/orchestrator/internal/db"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
@@ -35,6 +37,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	"github.com/juancavallotti/octo/orchestrator/internal/health"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
+	"github.com/juancavallotti/octo/orchestrator/internal/iam"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/kv"
@@ -45,7 +48,6 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
-	"github.com/juancavallotti/octo/orchestrator/internal/user"
 	"github.com/juancavallotti/octo/orchestrator/internal/websearch"
 	"github.com/redis/go-redis/v9"
 	corev1 "k8s.io/api/core/v1"
@@ -466,6 +468,9 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		// the chart bound this orchestrator's own REDIS_URL to — a managed Redis
 		// URL carries a password, and a password written into every integration
 		// Deployment would be readable by anyone who can read workloads.
+		// Where a deployment's pods renew their own token. Empty leaves a mounted
+		// token to stand until it expires, so it travels with the mint below.
+		IAMURL:   os.Getenv("IAM_URL"),
 		RedisURL: os.Getenv("REDIS_URL"),
 		RedisSecret: kube.SecretKeyRef{
 			Name: os.Getenv("REDIS_URL_SECRET_NAME"),
@@ -622,7 +627,8 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// is registered outside the deployment/kube gate below — tags can be created
 		// and managed even where deploys are unavailable.
 		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc)
-		snapshot.NewHandler(snapshotSvc).Register(mux)
+		snapshotHandler := snapshot.NewHandler(snapshotSvc)
+		snapshotHandler.Register(mux)
 		slog.Info("snapshot routes registered",
 			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}, "+
 				"GET /snapshots/{id}/resources, GET /snapshots/{id}/resources/content")
@@ -646,13 +652,11 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"endpoints", "GET /integrations/{id}/bundle, GET /snapshots/{id}/bundle, "+
 				"POST /integrations/bundle, PUT /integrations/{id}/bundle")
 
-		// Users and their API keys need only the database (identity comes from the
-		// platform's OIDC layer, which bootstraps a user on first sign-in). Registered
-		// outside the kube gate so authentication works wherever the DB is reachable.
-		user.NewHandler(user.NewService(user.NewRepo(database.Pool()))).Register(mux)
-		slog.Info("user routes registered",
-			"endpoints", "POST /users/bootstrap, GET /users/{id}")
-
+		// API keys need only the database, so they are registered outside the kube
+		// gate. Users themselves are not here: they belong to the iam service, which
+		// owns the identity this platform authorizes on. The `{userId}` in these
+		// paths is an id iam issued, and the orchestrator serves no /users
+		// collection of its own.
 		apikey.NewHandler(apikey.NewService(apikey.NewRepo(database.Pool()))).Register(mux)
 		slog.Info("apikey routes registered",
 			"endpoints", "POST/GET /users/{userId}/apikeys, "+
@@ -779,11 +783,19 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			deploymentRepo := deployment.NewRepo(database.Pool())
 			deploymentSvc := deployment.NewService(deploymentRepo, integrationSvc, kubeClient,
 				deployment.WithStoreCleaner(kvSvc),
+				// Each deployment gets a token of its own, minted on the authority of
+				// whoever deployed it. Unconfigured, they get none — which is every
+				// install that has not turned iam on.
+				deployment.WithIdentities(iam.New(os.Getenv("IAM_URL"))),
 				// Enforce tagged deploys: a deploy must reference a snapshot and ships
 				// its frozen definition.
 				deployment.WithSnapshots(snapshotSvc),
 				// Report working-copy .env keys for the Current deploy case.
 				deployment.WithResources(resourceSvc))
+			// A pod may read the frozen resources of its own integration and no
+			// other. Wired here because it needs the deployment service, which
+			// exists only where there is a cluster to deploy to.
+			snapshotHandler.RestrictToOwnIntegration(deploymentSvc)
 			// Publish deployment status to NATS for cross-node fan-out; the BFF
 			// subscribes and serves the SSE. A noop publisher when NATS_URL is unset
 			// (local/standalone) leaves clients on the list-polling fallback.
@@ -908,7 +920,28 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	)).Register(mux)
 	slog.Info("health routes registered", "endpoints", "GET /settings/health")
 
-	return mux, nil
+	// Every request carries whatever credential it arrived with, for the two
+	// things that need it: minting a deployment's identity on the caller's
+	// authority, and the guard below. Reading a header authenticates nobody — see
+	// internal/caller.
+	return caller.Middleware(guard(mux)), nil
+}
+
+// guard wraps the API in the authorization policy, when this install has an iam
+// to verify tokens against.
+//
+// Without one it returns the mux untouched and says so, which is the same
+// decision newServer makes for every other absent dependency: an orchestrator
+// that cannot verify a token must not start refusing every request, because
+// there is no way for a caller to fix that from the outside.
+func guard(mux http.Handler) http.Handler {
+	issuer := os.Getenv("IAM_URL")
+	if issuer == "" {
+		slog.Warn("IAM_URL is unset, so the API authorizes nothing and serves every caller")
+		return mux
+	}
+	slog.Info("api authorization enabled", "iam", issuer)
+	return authz.Wrap(authz.NewVerifier(issuer), mux)
 }
 
 // embeddingsProbe checks the embedding server, or nil when there is none.

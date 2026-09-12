@@ -9,8 +9,8 @@
  * address and the wire shaping are internal; callers see only the model's types.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
-import { observabilityBaseUrl, observabilityUnconfigured } from "./_observability";
+import type { ActionResult } from "@octo/http";
+import { observabilityCall } from "./_observability";
 import type {
   TraceAppsPage,
   TraceDetail,
@@ -32,11 +32,7 @@ import {
 /** GET `path?query` against the observability service, or an error result when
  * it is unconfigured. Path segments are already encoded by the caller. */
 async function get<T>(path: string, query = ""): Promise<ActionResult<T>> {
-  const base = observabilityBaseUrl();
-  if (!base) {
-    return observabilityUnconfigured("trace query");
-  }
-  return requestJson<T>("GET", query ? `${base}${path}?${query}` : `${base}${path}`);
+  return observabilityCall<T>("trace query", "GET", query ? `${path}?${query}` : path);
 }
 
 /** Build the `/traces` query string from the filters, omitting empty axes. */

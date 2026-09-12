@@ -64,7 +64,7 @@ type lookupProcessor struct {
 	arg         *expr.Program
 	resultVar   string
 	failOnError bool
-	env         map[string]any
+	env         expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

@@ -67,7 +67,7 @@ type findProcessor struct {
 	skip       int64
 	single     bool
 	resultVar  string
-	env        map[string]any
+	env        expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

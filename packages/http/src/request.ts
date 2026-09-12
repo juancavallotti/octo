@@ -1,4 +1,4 @@
-import type { ActionResult } from "./result";
+import type { ActionResult, RequestOptions } from "./result";
 
 /**
  * Pull an `{ error }` message out of a parsed failure body, falling back to the status.
@@ -16,6 +16,30 @@ function errorMessage(body: unknown, status: number): string {
 }
 
 /**
+ * The error result for a non-2xx, carrying the status alongside the message.
+ *
+ * The status is what lets a caller tell "the far end refused this credential"
+ * from "the far end is not answering", which reads the same in a message and
+ * calls for opposite responses: one signs somebody out, the other must not.
+ */
+async function failure<T>(res: Response): Promise<ActionResult<T>> {
+  const body: unknown = await res.json().catch(() => null);
+  return { ok: false, error: errorMessage(body, res.status), status: res.status };
+}
+
+/** Merge caller-supplied headers over the ones a primitive set for itself. */
+function withHeaders(
+  init: RequestInit,
+  opts?: RequestOptions,
+): RequestInit {
+  if (opts?.signal) init.signal = opts.signal;
+  if (opts?.headers) {
+    init.headers = { ...(init.headers as Record<string, string> | undefined), ...opts.headers };
+  }
+  return init;
+}
+
+/**
  * Perform `method url` (JSON-encoding `body` when present) and adapt the response
  * to an {@link ActionResult}, unwrapping a `{ error }` envelope on failure. Never
  * throws: a network error becomes an error result.
@@ -27,6 +51,7 @@ export async function requestJson<T>(
   method: string,
   url: string,
   body?: unknown,
+  opts?: RequestOptions,
 ): Promise<ActionResult<T>> {
   const init: RequestInit = { method };
   if (body !== undefined) {
@@ -36,14 +61,13 @@ export async function requestJson<T>(
 
   let res: Response;
   try {
-    res = await fetch(url, init);
+    res = await fetch(url, withHeaders(init, opts));
   } catch (err) {
     return { ok: false, error: `request failed: ${(err as Error).message}` };
   }
 
   if (!res.ok) {
-    const errorBody: unknown = await res.json().catch(() => null);
-    return { ok: false, error: errorMessage(errorBody, res.status) };
+    return failure(res);
   }
   // 204 No Content carries no body.
   if (res.status === 204) return { ok: true, data: undefined as T };
@@ -73,18 +97,17 @@ export async function requestJson<T>(
 export async function requestStream(
   method: string,
   url: string,
-  opts?: { signal?: AbortSignal },
+  opts?: RequestOptions,
 ): Promise<ActionResult<ReadableStream<Uint8Array>>> {
   let res: Response;
   try {
-    res = await fetch(url, { method, signal: opts?.signal });
+    res = await fetch(url, withHeaders({ method }, opts));
   } catch (err) {
     return { ok: false, error: `request failed: ${(err as Error).message}` };
   }
 
   if (!res.ok) {
-    const errorBody: unknown = await res.json().catch(() => null);
-    return { ok: false, error: errorMessage(errorBody, res.status) };
+    return failure(res);
   }
   if (!res.body) {
     // A 2xx with no body at all (a 204, a HEAD). Reported as an error rather than
@@ -100,9 +123,13 @@ export async function requestStream(
  * the body. For liveness/health probes whose response may not be JSON. Never
  * throws — a network error is reported as `false`.
  */
-export async function requestOk(method: string, url: string): Promise<boolean> {
+export async function requestOk(
+  method: string,
+  url: string,
+  opts?: RequestOptions,
+): Promise<boolean> {
   try {
-    const res = await fetch(url, { method });
+    const res = await fetch(url, withHeaders({ method }, opts));
     return res.ok;
   } catch {
     return false;
@@ -125,17 +152,17 @@ export async function requestOk(method: string, url: string): Promise<boolean> {
 export async function requestBytes(
   method: string,
   url: string,
+  opts?: RequestOptions,
 ): Promise<ActionResult<Uint8Array>> {
   let res: Response;
   try {
-    res = await fetch(url, { method });
+    res = await fetch(url, withHeaders({ method }, opts));
   } catch (err) {
     return { ok: false, error: `request failed: ${(err as Error).message}` };
   }
 
   if (!res.ok) {
-    const errorBody: unknown = await res.json().catch(() => null);
-    return { ok: false, error: errorMessage(errorBody, res.status) };
+    return failure(res);
   }
   try {
     return { ok: true, data: new Uint8Array(await res.arrayBuffer()) };
@@ -155,23 +182,23 @@ export async function sendBytes<T>(
   url: string,
   body: Uint8Array,
   contentType: string,
+  opts?: RequestOptions,
 ): Promise<ActionResult<T>> {
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(url, withHeaders({
       method,
       headers: { "Content-Type": contentType },
       // A fresh ArrayBuffer, so a view over a larger pooled buffer (which is what
       // Node's Buffer hands out) cannot send bytes that are not the caller's.
       body: body.slice().buffer as ArrayBuffer,
-    });
+    }, opts));
   } catch (err) {
     return { ok: false, error: `request failed: ${(err as Error).message}` };
   }
 
   if (!res.ok) {
-    const errorBody: unknown = await res.json().catch(() => null);
-    return { ok: false, error: errorMessage(errorBody, res.status) };
+    return failure(res);
   }
   if (res.status === 204) return { ok: true, data: undefined as T };
   try {

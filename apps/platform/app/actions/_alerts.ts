@@ -13,11 +13,8 @@
  * only the types in `app/model/alerts.ts`.
  */
 
-import { requestJson, type ActionResult } from "@octo/http";
-import {
-  observabilityBaseUrl,
-  observabilityUnconfigured,
-} from "./_observability";
+import type { ActionResult } from "@octo/http";
+import { observabilityCall } from "./_observability";
 import type {
   Evaluation,
   EvaluationPage,
@@ -45,19 +42,13 @@ import {
   type RawPreview,
 } from "./_alertsHistoryWire";
 
-function unconfigured<T>(): ActionResult<T> {
-  return observabilityUnconfigured("alerting");
-}
-
 /** Issue a request against the observability service. */
-async function call<T>(
+function call<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<ActionResult<T>> {
-  const base = observabilityBaseUrl();
-  if (!base) return unconfigured();
-  return requestJson<T>(method, `${base}${path}`, body);
+  return observabilityCall<T>("alerting", method, path, body);
 }
 
 /** Build a query string, dropping every parameter that was not supplied. */

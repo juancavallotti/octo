@@ -10,7 +10,7 @@ import (
 // the result is not a bool. It is the one evaluator every guard in the runtime
 // shares — an if's condition, a switch's case, a validate rule, a mock case — so
 // "must evaluate to a bool" is worded once.
-func EvalCondition(program *Program, msg *types.Message, env map[string]any) (bool, error) {
+func EvalCondition(program *Program, msg *types.Message, env Env) (bool, error) {
 	value, err := program.Eval(MessageActivation(msg, env))
 	if err != nil {
 		return false, err

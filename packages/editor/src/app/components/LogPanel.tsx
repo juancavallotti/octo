@@ -16,6 +16,7 @@ import DevEnvPanel from "./DevEnvPanel";
 import ConsoleTabs from "./console/ConsoleTabs";
 import LogsTab from "./console/LogsTab";
 import ProblemsTab from "./console/ProblemsTab";
+import { useSave } from "../save/SaveContext";
 import ResultsTab from "./console/ResultsTab";
 import TestsTab from "./console/TestsTab";
 
@@ -94,6 +95,10 @@ export default function LogPanel({
     ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
     : 0;
   const issues = run?.validation.issues ?? [];
+  // A save that failed is a problem with the document in front of you, and it
+  // belongs where the other ones are rather than as a line of red in the toolbar
+  // that has nowhere to go and nothing to click.
+  const saveError = useSave()?.error ?? "";
   // Pressing Run should surface the log stream. Snap on the false→true transition only,
   // so the user can switch away freely while a run continues.
   const prevRunning = useRef(running);
@@ -102,12 +107,22 @@ export default function LogPanel({
     prevRunning.current = running;
   }, [running, openTo]);
 
-  if (!run || !run.available) return null;
+  // A save failure belongs under Problems, and Problems lives in this panel —
+  // but the panel is gated on a run controller, and the two are independent: a
+  // host can provide saving and no way to run. Without this the whole panel goes
+  // with the controller and a failed save is silent, since the button that
+  // triggered it stopped showing the reason when it moved here.
+  if (!run || !run.available) {
+    return saveError ? <SaveFailure error={saveError} /> : null;
+  }
   const { version, testUrl, clearLogs } = run;
 
   // The last run's failure, shown under the validation issues: a document can be
   // perfectly valid and still fail the moment it actually runs.
-  const runErrors = results[0]?.error ? [results[0].error] : [];
+  const runErrors = [
+    ...(saveError ? [`Could not save: ${saveError}`] : []),
+    ...(results[0]?.error ? [results[0].error] : []),
+  ];
 
   function startResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -170,7 +185,7 @@ export default function LogPanel({
           active={tab}
           running={running}
           counts={{
-            problems: issues.length,
+            problems: issues.length + (saveError ? 1 : 0),
             results: results.length,
             tests: testFailures,
           }}
@@ -281,6 +296,22 @@ export default function LogPanel({
       {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "cel" && <CelTester />}
       {!collapsed && tab === "env" && <DevEnvPanel />}
+    </section>
+  );
+}
+
+/**
+ * The save error on its own, for a host with no run controller: the panel it
+ * normally appears in is not rendered there, and a save that failed silently is
+ * worse than an unstyled strip.
+ */
+function SaveFailure({ error }: { error: string }) {
+  return (
+    <section
+      role="alert"
+      className="shrink-0 border-t border-black/10 bg-zinc-50 px-3 py-2 text-xs text-red-600 dark:border-white/10 dark:bg-zinc-900 dark:text-red-400"
+    >
+      Could not save: {error}
     </section>
   );
 }

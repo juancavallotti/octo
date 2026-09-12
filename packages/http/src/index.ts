@@ -9,7 +9,7 @@
  * URL and build their own typed, domain-oriented client on top.
  */
 
-export type { ActionResult } from "./result";
+export type { ActionResult, RequestOptions } from "./result";
 export {
   requestBytes,
   requestJson,

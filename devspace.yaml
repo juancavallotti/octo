@@ -49,7 +49,10 @@ vars:
   EMBEDDINGS_DIMENSIONS:
     source: env
     default: "1536"
-  # --- Single sign-on for the editor -----------------------------------------
+  # --- Single sign-on for the editor (required) ------------------------------
+  #
+  # Not optional: the chart refuses to render without them, and the editor has no
+  # unauthenticated mode to fall back to. Set them in the repo root .env.
   #
   # These used to live in apps/platform/.env, which was the wrong place twice
   # over. That file is inside the platform's build context and its DevSpace sync
@@ -80,13 +83,6 @@ vars:
   AUTH_URL:
     source: env
     default: ""
-  # Derived from the issuer for the same reason EMBEDDINGS_ENABLED is derived from
-  # the key: "enabled with no issuer" renders a chart whose secret template
-  # refuses, and there is no useful way to hold those two apart.
-  OIDC_ENABLED:
-    command: sh
-    args: ["-c", 'test -n "$OIDC_ISSUER" && echo true || echo false']
-
   # Derived from the key rather than set on its own, so there is one knob and no
   # way to hold it wrong — "enabled with no key" renders a chart the secret
   # template refuses, and "a key that does nothing" is worse than either.
@@ -116,14 +112,13 @@ deployments:
       # An empty key leaves embeddings.enabled false and the chart renders no
       # embedding server at all.
       values:
-        # Empty strings leave auth.oidc.enabled false, and the chart then renders
-        # no auth Secret and no OIDC env at all — the ordinary local setup, where
-        # the editor is open and every request runs as a local user.
+        # Every one of these is required: the chart refuses to render without an
+        # identity provider, because there is no mode in which this platform runs
+        # without one. Put them in the repo root .env — see the block above.
         auth:
           url: "${AUTH_URL}"
           secret: "${AUTH_SECRET}"
           oidc:
-            enabled: ${OIDC_ENABLED}
             issuer: "${OIDC_ISSUER}"
             clientId: "${OIDC_CLIENT_ID}"
             clientSecret: "${OIDC_CLIENT_SECRET}"

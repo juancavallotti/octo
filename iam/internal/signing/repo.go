@@ -14,7 +14,7 @@ import (
 
 const (
 	// keyColumns is the canonical column list (and order) scanKey expects.
-	keyColumns = "kid, algorithm, private_key, public_key, created_at, retire_after, expires_at"
+	keyColumns = "kid, algorithm, private_key, public_key, created_at, retire_after"
 
 	// rotateLockKey keys the advisory lock held while a new key is generated.
 	// Advisory locks share one namespace per database, so what matters is only
@@ -70,8 +70,7 @@ func (r *Repo) Current(ctx context.Context, now time.Time) (Key, error) {
 func (r *Repo) Verifiers(ctx context.Context, now time.Time) ([]Key, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+keyColumns+` FROM iam_signing_keys
-		  WHERE expires_at > $1
-		  ORDER BY created_at DESC`, now)
+		  ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("signing repo: verifiers: %w", err)
 	}
@@ -136,22 +135,12 @@ func (r *Repo) Rotate(ctx context.Context, now time.Time, generate func() (Key, 
 	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO iam_signing_keys
-		   (kid, algorithm, private_key, public_key, retire_after, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		   (kid, algorithm, private_key, public_key, retire_after)
+		 VALUES ($1, $2, $3, $4, $5)`,
 		fresh.KID, fresh.Algorithm, sealed, fresh.Public,
-		fresh.RetireAfter, fresh.ExpiresAt)
+		fresh.RetireAfter)
 	if err != nil {
 		return Key{}, fmt.Errorf("signing repo: rotate: insert: %w", err)
-	}
-
-	// Swept here rather than on a ticker: rotation is the only moment the set
-	// changes, so it is the only moment anything can have become droppable, and a
-	// background goroutine for a once-a-month event would be a second mechanism
-	// to reason about.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM iam_signing_keys WHERE expires_at <= $1`, now,
-	); err != nil {
-		return Key{}, fmt.Errorf("signing repo: rotate: sweep: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -175,7 +164,7 @@ func (r *Repo) scanKey(row pgx.Row) (Key, error) {
 	)
 	err := row.Scan(
 		&k.KID, &k.Algorithm, &sealed, &k.Public,
-		&k.CreatedAt, &k.RetireAfter, &k.ExpiresAt,
+		&k.CreatedAt, &k.RetireAfter,
 	)
 	if err != nil {
 		return Key{}, err

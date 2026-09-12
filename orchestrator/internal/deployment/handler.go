@@ -95,6 +95,15 @@ type deploymentResponse struct {
 	// workload).
 	RuntimeImage   string `json:"runtimeImage,omitempty"`
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// Access is what this deployment's own token opens on the platform beyond its
+	// own stores, and Runner which image its pods are. Both are reported because
+	// both are things a reader of a deployment has to be able to see without
+	// opening a dialog: a running pod that may rewrite anyone's integration, or one
+	// carrying a shell, is not a fact that should live only in the deploy form that
+	// asked for it. Omitted when the deployment has neither, which is almost all of
+	// them.
+	Access []string `json:"access,omitempty"`
+	Runner string   `json:"runner,omitempty"`
 }
 
 // imageTag is the tag part of a container image reference, or "" when the
@@ -153,6 +162,8 @@ func toResponse(d Deployment) deploymentResponse {
 		ExternalURL:     meta.ExternalURL,
 		LastUpdated:     d.LastUpdated,
 		Tracing:         settings.Tracing,
+		Access:          settings.Access,
+		Runner:          settings.Runner,
 	}
 	// What the pods report wins over what was recorded at deploy time: during a
 	// rollout, or while a new image will not pull, the recorded image is already

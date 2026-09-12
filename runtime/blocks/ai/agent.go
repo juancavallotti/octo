@@ -593,7 +593,7 @@ type aiAgent struct {
 	// applies whether or not memory is on: a stateless agent can still talk itself
 	// past the model's window inside one run.
 	contextMaxTokens int
-	env              map[string]any
+	env              expr.Env
 	// events is the observer path, nil when the block declares none. streaming says
 	// the block asked to report its output as it arrives, which the builder only
 	// accepts when the connector has a streaming half to do it with.

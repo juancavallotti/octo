@@ -69,7 +69,7 @@ type setPayload struct {
 	value       *expr.Program
 	rawBody     bool
 	contentType string
-	env         map[string]any
+	env         expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface
@@ -126,7 +126,7 @@ type setVariableSettings struct {
 type setVariable struct {
 	name  string
 	value *expr.Program
-	env   map[string]any
+	env   expr.Env
 }
 
 //nolint:ireturn // a BlockFactory returns the MessageProcessor interface

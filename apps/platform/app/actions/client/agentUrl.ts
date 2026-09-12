@@ -15,6 +15,8 @@
  * orchestrator now.
  */
 
+import { baseUrl, callRaw } from "./http";
+
 /** How long a resolved address is trusted. Short enough that an uninstall is noticed. */
 const TTL_MS = 30_000;
 
@@ -38,8 +40,8 @@ interface Resolved {
 let cached: Resolved | null = null;
 
 /** The orchestrator base URL with any trailing slash trimmed, or "" when unset. */
-export function orchestratorUrl(): string {
-  return (process.env.ORCHESTRATOR_URL ?? "").replace(/\/+$/, "");
+export function orchestratorConfigured(): boolean {
+  return baseUrl() !== "";
 }
 
 /** The agent's status, as much of it as these routes care about. */
@@ -63,14 +65,12 @@ export type ResolveResult =
  * which wants the state and not just the address.
  */
 export async function fetchAgentStatus(): Promise<AgentReachability | null> {
-  const base = orchestratorUrl();
-  if (!base) return null;
   try {
-    const res = await fetch(`${base}/settings/agent`, {
+    const res = await callRaw("/settings/agent", {
       cache: "no-store",
       signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     return (await res.json()) as AgentReachability;
   } catch {
     return null;

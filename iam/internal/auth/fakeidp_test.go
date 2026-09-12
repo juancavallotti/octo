@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,11 @@ type fakeIDP struct {
 	// that a warm verifier stops asking.
 	mu          sync.Mutex
 	discoveries int
+
+	// userinfo is what GET /userinfo answers with. Nil means the provider has no
+	// profile to give, which is how a provider without the endpoint behaves as far
+	// as the verifier can tell.
+	userinfo map[string]any
 }
 
 func (f *fakeIDP) discoveryCount() int {
@@ -61,6 +67,7 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 			"authorization_endpoint":                idp.Issuer() + "/authorize",
 			"token_endpoint":                        idp.Issuer() + "/token",
 			"jwks_uri":                              idp.Issuer() + "/jwks",
+			"userinfo_endpoint":                     idp.Issuer() + "/userinfo",
 			"response_types_supported":              []string{"code"},
 			"subject_types_supported":               []string{"public"},
 			"id_token_signing_alg_values_supported": []string{"RS256"},
@@ -70,6 +77,25 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 		writeJSON(w, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
 			Key: key.Public(), KeyID: idp.kid, Algorithm: string(jose.RS256), Use: "sig",
 		}}})
+	})
+
+	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, r *http.Request) {
+		idp.mu.Lock()
+		claims := idp.userinfo
+		idp.mu.Unlock()
+		if claims == nil {
+			http.Error(w, "no userinfo here", http.StatusNotFound)
+			return
+		}
+		// A real userinfo endpoint answers to a credential and not to anybody who
+		// asks. Checked here so the test proves the verifier actually presents the
+		// caller's token, rather than passing whether or not it sent one.
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, "a bearer token is required", http.StatusUnauthorized)
+			return
+		}
+		writeJSON(w, claims)
 	})
 
 	idp.server = httptest.NewServer(mux)

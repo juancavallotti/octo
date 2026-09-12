@@ -57,7 +57,7 @@ type upsertProcessor struct {
 	vectors   *expr.Program
 	namespace *expr.Program
 	resultVar string
-	env       map[string]any
+	env       expr.Env
 }
 
 // newUpsert builds an upsert processor, resolving its pinecone connector and
