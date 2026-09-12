@@ -19,13 +19,21 @@ export function useDesktopPrefs(): Partial<EditorPrefs> | null {
 
   useEffect(() => {
     const bridge = desktopBridge();
-    if (!bridge) return;
+    // Checked at runtime, not just in the type: `desktopBridge()` is a cast over
+    // whatever the preload happened to expose, so a shell older than these methods
+    // reaches here typed as if it had them. Calling one then throws synchronously —
+    // before the `.catch` is attached, and before the cleanup is registered — and takes
+    // the page down over a preference. A shell that cannot answer keeps the defaults.
+    if (typeof bridge?.prefs !== "function" || typeof bridge.onPrefsChanged !== "function") {
+      return;
+    }
     let live = true;
-    // A shell too old to answer leaves the defaults in place rather than failing the
-    // page: preferences are a convenience, and the editor works without them.
-    void bridge.prefs().then((p) => {
-      if (live) setPrefs(p);
-    }).catch(() => {});
+    void bridge
+      .prefs()
+      .then((p) => {
+        if (live) setPrefs(p);
+      })
+      .catch(() => {});
     const stop = bridge.onPrefsChanged((p) => setPrefs(p));
     return () => {
       live = false;

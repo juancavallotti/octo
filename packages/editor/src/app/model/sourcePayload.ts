@@ -16,8 +16,13 @@ import type { SourceNode } from "./document";
  * the background shape-learner uses it as the input for a flow that has no saved one.
  */
 export function sourcePayloadExpression(source: SourceNode | undefined): string | null {
-  if (!source?.connector || !source.type) return null;
-  const spec = getSourceSpec(source.connector, source.type);
+  if (!source?.connector) return null;
+  // A source may name its connector and leave `type` out — the runtime resolves a
+  // config-less connector by type on demand, so `cron:` with no type IS the cron
+  // source, and sourceFromRuntime preserves the omission rather than filling it in.
+  // Falling back to the connector name can only ever find a spec that exists: a wrong
+  // guess finds none and we answer null exactly as before.
+  const spec = getSourceSpec(source.connector, source.type ?? source.connector);
   const field = spec?.fields.find((f) => f.type === "cel" && f.name === "payload");
   if (!field) return null;
   const expression = source.settings[field.name];

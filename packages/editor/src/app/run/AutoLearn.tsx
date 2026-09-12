@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toRunnableYaml } from "../model/runConfig";
 import { sourcePayloadExpression } from "../model/sourcePayload";
 import { useEditorPrefs } from "../prefs/prefs";
@@ -56,6 +56,15 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
   const ranRef = useRef<string | null>(null);
   /** One background run at a time, whatever the user does while it is in flight. */
   const busyRef = useRef(false);
+  /**
+   * Bumped when a run settles, so the effect reconsiders the document as it stands now.
+   *
+   * Without it, an edit made WHILE a run is in flight is dropped: its timer fires, sees
+   * `busyRef`, and returns, and nothing reschedules it. A run that came back with
+   * shapes happens to re-render (meta changed) and recovers by accident; one that came
+   * back with none does not, and learning then waits for an unrelated edit.
+   */
+  const [settled, setSettled] = useState(0);
 
   useEffect(() => {
     if (!autoLearn || !meta || !flowId) return;
@@ -72,7 +81,10 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
     const input = meta.inputs(flowId)[0];
     const payload = input ? null : sourcePayloadExpression(flow.source);
     const yaml = toRunnableYaml(doc);
-    const signature = [flow.name, input?.id ?? "", yaml].join(SEP);
+    // The input's CONTENT, not just its id: editing a saved input in place keeps its
+    // id, so keying on the id alone means the flow is never re-run and completion goes
+    // on offering shapes learned from the body the user just replaced.
+    const signature = [flow.name, input?.id ?? "", input?.data ?? "", input?.vars ?? "", yaml].join(SEP);
     if (ranRef.current === signature) return;
 
     const timer = setTimeout(() => {
@@ -106,10 +118,13 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
         })
         .finally(() => {
           busyRef.current = false;
+          // Reconsider the document as it stands now — it may have moved on while this
+          // run was in flight.
+          setSettled((n) => n + 1);
         });
     }, SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [autoLearn, meta, doc, flowId, transport, integrationId]);
+  }, [autoLearn, meta, doc, flowId, transport, integrationId, settled]);
 
   return null;
 }
