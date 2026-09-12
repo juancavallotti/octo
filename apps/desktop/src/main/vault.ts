@@ -175,9 +175,12 @@ export function switchTo(vaultPath: string): Promise<boolean> {
  * app up rather than merely record a preference for next time.
  */
 export function reopenCurrent(): Promise<boolean> {
-  const vault = current()?.vault ?? read(stateDir()).lastVault ?? null;
-  if (!vault) return Promise.resolve(false);
   return serialize(async () => {
+    // Resolved inside the queue, not before it. A folder switch may already be waiting
+    // its turn, and reading the folder out here would restart the runtime onto the one
+    // the user just left — undoing the switch a moment after it finished.
+    const vault = current()?.vault ?? read(stateDir()).lastVault ?? null;
+    if (!vault) return false;
     const ok = await confirmIfRunning(
       "Changing the runtime restarts the editor server, which stops them.",
       "Restart",
