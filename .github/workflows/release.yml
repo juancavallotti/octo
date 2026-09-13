@@ -605,6 +605,14 @@ jobs:
       # archives. Names are version-free (Octo_mac_arm64.dmg), matching the CLI
       # archives, so the docs can link to a release asset without every release
       # breaking the link.
+      #
+      # The dmg is what a person downloads; everything beside it is what an
+      # installed copy reads. electron-updater asks the release for latest-mac.yml
+      # first — without it "Check for Updates" fails with a 404 and no build ever
+      # updates itself — then for the zip that manifest names for the running
+      # architecture, then for that zip's blockmap so it transfers only the changed
+      # blocks. The manifest already points at these exact names, so the whole set
+      # ships together or the release is one no one can update from.
       - name: Attach the app to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -613,9 +621,20 @@ jobs:
           set -euo pipefail
           cd apps/desktop/dist/release
           ls -la
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            Octo_mac_arm64.dmg Octo_mac_x64.dmg
-          echo "uploaded the macOS app to $TAG"
+          assets="Octo_mac_arm64.dmg Octo_mac_x64.dmg latest-mac.yml"
+          for arch in arm64 x64; do
+            assets="$assets Octo_mac_$arch.zip Octo_mac_$arch.zip.blockmap"
+          done
+          # A missing piece here is the one failure that still produces a release
+          # that looks complete, so it is worth stopping over rather than warning.
+          for asset in $assets; do
+            [ -f "$asset" ] || {
+              echo "::error::$asset is missing from the packaged output — electron-updater needs it to deliver an update"
+              exit 1
+            }
+          done
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber $assets
+          echo "uploaded the macOS app and its update manifest to $TAG"
 
   publish-cli:
     needs: release-check

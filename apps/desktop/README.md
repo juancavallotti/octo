@@ -72,6 +72,12 @@ from the octo and dolphin archives that same release published rather than from 
 second compile. The names carry no version so the README and the docs can link to
 `releases/latest/download/<name>` and never break.
 
+Beside them go `latest-mac.yml`, both `Octo_mac_<arch>.zip`, and their blockmaps —
+the set an installed copy reads to update itself, described under **Updates** below.
+The job fails rather than uploads if any of them is missing from the packaged
+output, because a release without them looks complete and can never be updated
+from.
+
 Signing and notarization are opt-in on the repository secrets being present, so a
 fork still gets a green job and an ad-hoc signed build — enough to launch on the
 machine that built it, not enough to clear Gatekeeper on a download.
