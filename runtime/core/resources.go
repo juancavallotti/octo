@@ -25,12 +25,8 @@ const (
 var ErrResourceNotFound = errors.New("resource: not found")
 
 // ResourceLoader reads resources into the runtime by id. The runtime only ever
-// reads: creating, listing, and writing resource files is host-side (done from
-// outside the runtime against disk or the orchestrator), so those operations are
-// deliberately not on this interface.
-//
-// The active implementation is chosen at startup: the standalone module resolves
-// an id to a file under the config directory; the k8s module is a no-op for now.
+// reads: creating, listing and writing a resource happens outside it, so those
+// operations are deliberately not on this interface.
 type ResourceLoader interface {
 	// Load returns the bytes for the resource id of the given kind, or
 	// ErrResourceNotFound when it does not exist.

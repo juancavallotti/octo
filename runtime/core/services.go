@@ -18,8 +18,8 @@ var ErrNoKV = errors.New("kv: no store configured")
 
 // Leadership is a handle to an ongoing campaign for a leader-election key. Its
 // IsLeader reports whether this replica currently holds leadership; Close stops
-// campaigning and releases the key (best-effort). A connector typically acquires
-// one per unit of exclusive work and gates that work on IsLeader.
+// campaigning and releases the key (best-effort). A holder acquires one per unit
+// of exclusive work and gates that work on IsLeader.
 type Leadership interface {
 	// IsLeader reports whether this replica currently holds the key. It is safe to
 	// call concurrently and cheap (it reads cached state, it does not block on the
@@ -29,20 +29,19 @@ type Leadership interface {
 	Close() error
 }
 
-// LeaderElection lets a connector run work on exactly one replica across a cluster.
-// Acquire starts campaigning for key in the background and returns a Leadership
-// handle whose IsLeader tracks the current status. In the standalone module every
-// Acquire is immediately and permanently the leader (a single process).
+// LeaderElection runs work on exactly one replica across a cluster. Acquire starts
+// campaigning for key in the background and returns a Leadership handle whose
+// IsLeader tracks the current status. Where there is nothing to elect, every
+// Acquire is immediately and permanently the leader.
 type LeaderElection interface {
 	//nolint:ireturn // returns the Leadership interface the caller gates work on
 	Acquire(ctx context.Context, key string) (Leadership, error)
 }
 
 // Preset KV namespaces. Keys never cross namespaces, so these partition the single
-// store by owner and by secrecy. The "_secrets" namespaces hold sensitive values
-// the backend encrypts at rest (the k8s module); the SecretStore writes there so
-// secrets share the KV table but never collide with plain keys. More may be added
-// over time.
+// store by owner and by secrecy. The "_secrets" namespaces hold sensitive values a
+// backend encrypts at rest; the SecretStore writes there, so secrets share the KV
+// store but never collide with plain keys.
 const (
 	// NamespaceSystem holds internal runtime and connector state that
 	// user-configured blocks must not read or tamper with.
@@ -61,11 +60,11 @@ const (
 	NamespaceUserVolatile = "user_volatile"
 )
 
-// SecretNamespaceSuffix marks the namespaces whose values the backend encrypts at
+// SecretNamespaceSuffix marks the namespaces whose values a backend encrypts at
 // rest. VolatileNamespaceSuffix marks the namespaces a backend is allowed to drop.
-// Both are suffixes rather than a flag on the call because a namespace is already
-// the store's unit of partitioning: a backend routes on the name it was given, and
-// nothing else about the API has to change to gain a tier.
+// Both are suffixes because a namespace is already the store's unit of
+// partitioning: a backend routes on the name it was given, and nothing else about
+// the API changes to gain a tier.
 const (
 	SecretNamespaceSuffix   = "_secrets"
 	VolatileNamespaceSuffix = "_volatile"
@@ -87,12 +86,10 @@ type Entry struct {
 // namespace), keeping internal state out of reach.
 //
 // A namespace also picks a durability tier. A persistent namespace is backed by
-// storage that survives a restart: the orchestrator's database in the k8s module, a
-// serialized file in the standalone one. A volatile namespace (see
-// VolatileNamespace) makes no durability promise at all — its values live in Redis
-// in the k8s module and in process memory in the standalone one, and either may
-// drop them on a restart or under memory pressure. So volatile is for state whose
-// loss costs a recompute, never for state whose loss costs correctness.
+// storage that survives a restart. A volatile namespace (see VolatileNamespace)
+// makes no durability promise at all: a backend may drop its values on a restart
+// or under memory pressure. So volatile is for state whose loss costs a recompute,
+// never for state whose loss costs correctness.
 //
 // Writes use optimistic concurrency: expectedVersion 0 creates the key (and fails
 // if it already exists), while a positive expectedVersion must equal the stored
@@ -117,11 +114,9 @@ type KV interface {
 // them to their secret counterparts.
 //
 // A secret counterpart is never a volatile namespace — a volatile namespace must
-// not be handed to a SecretStore, because the volatile backends neither encrypt nor
-// promise to keep what they are given. How durable the secret counterpart actually
-// is remains the backend's decision, and the two differ: the k8s module encrypts
-// secrets into the orchestrator's database, while the standalone module keeps them
-// in process memory, having no key to encrypt them with.
+// not be handed to a SecretStore, because a volatile backend neither encrypts nor
+// promises to keep what it is given. How durable a secret actually is, and whether
+// it can be encrypted at all, remains the backend's decision.
 type SecretStore interface {
 	// Get returns the (decrypted) entry for key in namespace; ok is false when absent.
 	Get(ctx context.Context, namespace, key string) (entry Entry, ok bool, err error)
@@ -133,8 +128,8 @@ type SecretStore interface {
 
 // NewSecretStore returns a SecretStore backed by kv: it maps each logical namespace
 // to its secret counterpart (system -> system_secrets, user -> user_secrets) so
-// secrets live in the same store as KV under dedicated namespaces the backend
-// encrypts. Every module builds its SecretStore this way over its own KV.
+// secrets live in the same store as KV under dedicated namespaces a backend
+// encrypts.
 //
 //nolint:ireturn // returns the SecretStore interface intentionally
 func NewSecretStore(kv KV) SecretStore { return secretStore{kv: kv} }
@@ -156,9 +151,9 @@ func (s secretStore) Delete(ctx context.Context, namespace, key string, expected
 	return s.kv.Delete(ctx, secretNamespace(namespace), key, expectedVersion)
 }
 
-// secretNamespace maps a logical namespace to the secret namespace whose values the
-// backend encrypts. The known namespaces map to their named constants; any other
-// gets a "_secrets" suffix, which the backend also recognizes.
+// secretNamespace maps a logical namespace to its secret counterpart. The known
+// namespaces map to their named constants; any other gets a "_secrets" suffix,
+// which a backend recognizes just the same.
 func secretNamespace(namespace string) string {
 	switch namespace {
 	case NamespaceSystem:
@@ -170,19 +165,18 @@ func secretNamespace(namespace string) string {
 	}
 }
 
-// IsSecretNamespace reports whether a namespace holds secrets. Backends need this
-// to decide what to encrypt — and, in the standalone module, what to keep out of a
-// file altogether.
+// IsSecretNamespace reports whether a namespace holds secrets. A backend decides
+// from it what to encrypt, or what to withhold from storage it cannot encrypt.
 func IsSecretNamespace(namespace string) bool {
 	return strings.HasSuffix(namespace, SecretNamespaceSuffix)
 }
 
-// VolatileNamespace maps a logical namespace to its volatile counterpart, the way
-// secretNamespace maps it to its secret one. A caller that wants the volatile tier
-// names the namespace it gets back; nothing else about the call changes.
+// VolatileNamespace maps a logical namespace to its volatile counterpart. A caller
+// that wants the volatile tier names the namespace it gets back; nothing else about
+// the call changes.
 //
 // It must never be composed with the secret store: a secret is exactly the kind of
-// value whose loss is not survivable, and the volatile backends do not encrypt.
+// value whose loss is not survivable, and a volatile backend does not encrypt.
 func VolatileNamespace(namespace string) string {
 	switch namespace {
 	case NamespaceSystem:
@@ -201,18 +195,14 @@ func IsVolatileNamespace(namespace string) bool {
 
 // RuntimeServices is the set of generally-available services wired into the runtime
 // execution context. The active implementation is chosen at startup by the
-// RUNTIME_SERVICES_MODULE environment variable (standalone or k8s). Close releases
-// the implementation's resources; the process owner (the CLI) owns its lifecycle,
-// not an individual Service generation.
+// RUNTIME_SERVICES_MODULE environment variable. Close releases the
+// implementation's resources, and belongs to whoever built it.
 //
 //nolint:interfacebloat // one accessor per platform capability (KV, queues, topics, ...)
 type RuntimeServices interface {
 	//nolint:ireturn // returns the LeaderElection interface a connector depends on
 	LeaderElection() LeaderElection
-	// Leases returns the module's fail-fast claims on a name. It is an accessor
-	// rather than an optional side interface because every module has one: a map
-	// under a mutex in the standalone module, a coordination Lease object in the
-	// k8s one. See the Leases doc comment for why this is not LeaderElection.
+	// Leases returns fail-fast claims on a name. It is never nil.
 	//
 	//nolint:ireturn // returns the Leases interface a caller depends on
 	Leases() Leases
@@ -226,21 +216,14 @@ type RuntimeServices interface {
 	Topics() Topics
 	//nolint:ireturn // returns the ResourceLoader interface blocks and env loading depend on
 	Resources() ResourceLoader
-	// AgentMemory returns where this module keeps what an agent remembers: a file
-	// tree in the standalone module, the orchestrator's database in the k8s one.
-	// It is an accessor rather than an optional side interface for the same reason
-	// Queues and Traces are — no module can reasonably lack somewhere to put it,
-	// only somewhere different. It is never nil: a module without an
-	// implementation returns NoopAgentMemory, whose Enabled reports false.
+	// AgentMemory returns where what an agent remembers is kept. It is never nil:
+	// an implementation that has nowhere to put it returns NoopAgentMemory, whose
+	// Enabled reports false.
 	//
 	//nolint:ireturn // returns the AgentMemory interface the engine depends on
 	AgentMemory() AgentMemory
-	// Traces returns where this module publishes trace records: a file for the
-	// standalone module, a broker subject for the k8s one. It is an accessor
-	// rather than an optional side interface (cf. LogShipper) because every
-	// module has somewhere to put them — what differs is where, exactly as it
-	// does for Queues and KV. It is never nil: a module with tracing disabled
-	// returns NoopTracer.
+	// Traces returns where trace records are published. It is never nil: an
+	// implementation with tracing disabled returns NoopTracer.
 	//
 	//nolint:ireturn // returns the TracePublisher interface emitters depend on
 	Traces() TracePublisher
@@ -282,9 +265,8 @@ func (noopRuntimeServices) AgentMemory() AgentMemory { return NoopAgentMemory() 
 func (noopRuntimeServices) Close() error { return nil }
 
 // NoopLeaderElection returns a leader election that grants leadership
-// unconditionally — the single-process semantics the standalone module wants,
-// where there is nothing to coordinate. It is also the fallback the no-op services
-// expose.
+// unconditionally — the single-process reading, where there is nothing to
+// coordinate. It is also what the no-op services expose.
 //
 //nolint:ireturn // returns the LeaderElection interface intentionally
 func NoopLeaderElection() LeaderElection { return noopLeaderElection{} }
@@ -304,9 +286,9 @@ type alwaysLeader struct{}
 func (alwaysLeader) IsLeader() bool { return true }
 func (alwaysLeader) Close() error   { return nil }
 
-// NoopKV returns a KV with no storage: reads miss and writes return ErrNoKV. A
-// module whose backend does not offer a key-value store uses it so callers get the
-// same degraded behavior everywhere instead of a nil store.
+// NoopKV returns a KV with no storage: reads miss and writes return ErrNoKV. An
+// implementation with no key-value store behind it returns this, so a caller gets
+// the same degraded behavior everywhere instead of a nil store.
 //
 //nolint:ireturn // returns the KV interface intentionally
 func NoopKV() KV { return noopKV{} }

@@ -19,9 +19,8 @@ import (
 // Rather than teach flow authors a second way to read a value, such a variable is
 // still spelled `env.NAME`. What differs is underneath: a provider registered for
 // that name is asked when the lookup happens. A runtime with no provider for the
-// name does the plain lookup, so on a platform where somebody simply sets the
-// variable it behaves like any other — which is what lets one definition load in
-// the editor, run under dolphin, and work in the cluster.
+// name does the plain lookup, so where somebody simply sets the variable it
+// behaves like any other, and one flow definition runs unchanged either way.
 //
 // The resolution is in the *map*, not in the value it returns. A value that
 // resolved itself later would be a type of its own wherever it landed, and CEL

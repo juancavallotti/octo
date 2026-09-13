@@ -25,10 +25,9 @@ type callResult struct {
 // a direct invocation through the flow-event bus. It implements core.FlowCaller.
 //
 // Registration is driven by the implicit source: a flow without an external
-// source registers its input channel under the flow name, and callers (the CLI
-// and the flow-ref block) look it up to push messages in. Result correlation
-// mirrors the HTTP connector: a single bus subscription resolves terminal events
-// to parked callers keyed by the message EventID.
+// source registers its input channel under the flow name, and a caller looks it up
+// to push messages in. Result correlation is a single bus subscription resolving
+// terminal events to parked callers keyed by the message EventID.
 type flowRegistry struct {
 	mu          sync.RWMutex
 	chans       map[string]chan<- *types.Message

@@ -9,8 +9,7 @@ import (
 // implicitSource is the entry point for a flow that has no external source. It
 // owns no resources: Start registers the flow's input channel under the flow name
 // in the registry (making the flow callable by name) and Stop deregisters it. It
-// never emits on its own — messages arrive only from direct invocation (the CLI)
-// or a flow-ref block.
+// never emits on its own — messages arrive only from a direct invocation.
 type implicitSource struct {
 	name     string
 	out      chan<- *types.Message

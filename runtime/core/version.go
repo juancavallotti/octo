@@ -3,10 +3,8 @@ package core
 // Version is the octo release version as the *runtime* knows it, for the parts
 // of the runtime that have to report what they are.
 //
-// It is declared here rather than reused from the CLI because runtime/octo is
-// package main: the engine cannot import it. The mcp-router is the first caller —
-// an MCP server's initialize response carries a serverInfo.version, and a
-// hardcoded one is a lie in every deployment.
+// It is declared here because the binary's own version lives in package main,
+// which nothing in the runtime can import.
 //
 // release-please keeps this in sync with the published release via the
 // extra-files updater in release-please-config.json; the trailing annotation

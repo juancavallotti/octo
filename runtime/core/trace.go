@@ -36,9 +36,8 @@ type TracePublisher interface {
 	Publish(event types.TraceEvent)
 }
 
-// TraceSink is where a runtime-services module writes the records the publisher
-// drains. It is the one part of tracing that differs per module: the standalone
-// module writes a file, the k8s module publishes to a subject.
+// TraceSink is where the publisher's drain writes the records it dequeues. It is
+// the one part of tracing an implementation supplies for itself.
 //
 // Every method is called only from the publisher's single drain goroutine, so an
 // implementation needs no locking of its own.
@@ -55,22 +54,21 @@ type TraceSink interface {
 	Close() error
 }
 
-// TraceOptions is the runtime's tracing configuration, resolved from the `octo
-// run` flags and their environment defaults and handed to the services module at
-// construction.
+// TraceOptions is the runtime's tracing configuration, handed to the services
+// implementation at construction.
 //
-// A module reads what applies to it and ignores the rest — the standalone module
-// uses File, the k8s module publishes to a subject and has none — in the same way
-// both already treat services.Options.ResourceRoot. Bodies, Vars and MaxPayload
-// are not read by a module at all: they configure what the listeners capture, and
-// travel here so the whole feature has one configuration value rather than two.
+// An implementation reads what applies to it and ignores the rest; one that
+// publishes rather than writes has no use for File. Bodies, Vars and MaxPayload
+// are not read by an implementation at all — they configure what the listeners
+// capture, and travel here so the feature has one configuration value rather than
+// two.
 type TraceOptions struct {
-	// Enabled is the master switch. When false a module returns NoopTracer and
-	// must not do any setup that has a side effect — notably, it must not create
-	// an output file.
+	// Enabled is the master switch. When false the implementation returns
+	// NoopTracer and must not do any setup that has a side effect — notably, it
+	// must not create an output file.
 	Enabled bool
-	// File is the requested output path for a module that writes one. Empty
-	// lets the module choose its own default.
+	// File is the requested output path for an implementation that writes one.
+	// Empty lets it choose its own default.
 	File string
 	// Buffer is how many records the publisher queues before it starts dropping.
 	// Zero means defaultTraceBuffer.
@@ -84,9 +82,9 @@ type TraceOptions struct {
 	MaxPayload int
 }
 
-// noopTracer keeps nothing. It is what Tracer answers with until a real
-// publisher is installed, and what a module returns when tracing is off, so no
-// caller ever has to nil-check.
+// noopTracer keeps nothing. It is what Tracer answers with until a real publisher
+// is installed, and what is returned when tracing is off, so no caller ever has to
+// nil-check.
 type noopTracer struct{}
 
 func (noopTracer) Enabled() bool              { return false }
@@ -95,8 +93,8 @@ func (noopTracer) Publish(_ types.TraceEvent) {}
 // noopTracerInstance is shared: it holds nothing, so one is enough.
 var noopTracerInstance TracePublisher = noopTracer{}
 
-// NoopTracer returns the publisher that keeps nothing. A module whose tracing is
-// disabled returns this rather than nil.
+// NoopTracer returns the publisher that keeps nothing, which is what an
+// implementation with tracing disabled returns rather than nil.
 //
 //nolint:ireturn // returns the TracePublisher interface intentionally
 func NoopTracer() TracePublisher { return noopTracerInstance }
@@ -109,9 +107,7 @@ type tracerRef struct {
 	publisher TracePublisher
 }
 
-// installedTracer is the process-wide publisher. It is a package-level var
-// rather than an init(), which the module-manifest lint reserves for loadable
-// modules.
+// installedTracer is the process-wide publisher.
 var installedTracer = func() *atomic.Pointer[tracerRef] {
 	p := &atomic.Pointer[tracerRef]{}
 	p.Store(&tracerRef{publisher: noopTracerInstance})
@@ -128,10 +124,9 @@ func Tracer() TracePublisher {
 	return installedTracer.Load().publisher
 }
 
-// SetTracer installs the process-wide publisher, normally the one the active
-// runtime-services module built (RuntimeServices.Traces). A nil publisher
-// re-installs the no-op, so tracing can be turned off without leaving a dangling
-// reference.
+// SetTracer installs the process-wide publisher, normally RuntimeServices.Traces.
+// A nil publisher re-installs the no-op, so tracing can be turned off without
+// leaving a dangling reference.
 func SetTracer(publisher TracePublisher) {
 	if publisher == nil {
 		publisher = noopTracerInstance
@@ -139,13 +134,12 @@ func SetTracer(publisher TracePublisher) {
 	installedTracer.Store(&tracerRef{publisher: publisher})
 }
 
-// BufferedTracer is the driver every module shares: a queue, a goroutine that
-// drains it into the module's sink, and the accounting that makes a loss
-// visible. A module supplies the sink and nothing else.
+// BufferedTracer is the shared driver: a queue, a goroutine that drains it into a
+// sink, and the accounting that makes a loss visible. An implementation supplies
+// the sink and nothing else.
 //
-// It is exported because a module holds the concrete type to Close it — the
-// TracePublisher interface it satisfies is deliberately just the two methods the
-// hot path needs.
+// It is exported because closing it needs the concrete type — the TracePublisher
+// interface it satisfies is just the two methods the hot path needs.
 type BufferedTracer struct {
 	sink TraceSink
 
@@ -180,12 +174,10 @@ type BufferedTracer struct {
 // NewBufferedTracer returns a publisher that queues records and drains them into
 // sink on a goroutine of its own.
 //
-// The queue belongs to the tracer rather than to the runtime deliberately. The
-// block-event dispatcher used to own one and had it removed (see blockevents.go):
-// with every flow worker producing and one goroutine consuming, no buffer size
-// makes the consumer keep up with sustained load, so what a buffer really sets is
-// how long saturation takes to start dropping. That trade is the tracer's to make
-// and to report, not something to impose on every listener in the process.
+// The queue belongs to the tracer, not to the runtime: with every flow worker
+// producing and one goroutine consuming, a buffer size only sets how long
+// saturation takes to start dropping, and that is a trade the tracer makes and
+// reports for itself rather than one imposed on every listener in the process.
 func NewBufferedTracer(sink TraceSink, opts TraceOptions) *BufferedTracer {
 	size := opts.Buffer
 	if size <= 0 {

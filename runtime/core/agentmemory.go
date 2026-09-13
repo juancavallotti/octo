@@ -15,9 +15,7 @@
 //     was learned in. It is not a transcript dump.
 //
 // All three are addressed by a MemoryRef: an agent, a conversation thread, and
-// (for user memory) a person. What integration or deployment those belong to is
-// the store's business, not the caller's — exactly as a KV key never carries the
-// deployment it is scoped to. See the MemoryRef doc comment.
+// (for user memory) a person.
 package core
 
 import (
@@ -31,14 +29,9 @@ import (
 // named error rather than a silent success.
 var ErrMemoryDisabled = errors.New("agent memory: no store configured")
 
-// MemoryRef names what a memory operation is about.
-//
-// It carries no integration or deployment identity, and that is deliberate: the
-// runtime has none to give. A pod knows its deployment id and nothing else, and
-// standalone has no notion of an integration at all — so scoping memory to the
-// integration it belongs to is the store's job, resolved where that relation is
-// actually known. This is the same arrangement KV already has, where httpStore
-// holds the deployment id and no caller ever passes one.
+// MemoryRef names what a memory operation is about. It carries no tenancy or
+// deployment identity: scoping memory to whatever owns it is the store's job,
+// resolved where that relation is known, exactly as it is for a KV key.
 //
 // AgentID names the logical agent. ThreadKey names one conversation with it.
 // UserID names the person on the other side, and is empty for an agent that
@@ -78,9 +71,8 @@ type Turn struct {
 	Tokens int
 	Attrs  []byte
 	// CreatedAt is set by the store when a turn is appended, and IGNORED on the way
-	// in. A turn is recorded at the moment it completes, so the append is the event
-	// and the store is the only thing that knows when it happened — which keeps the
-	// two implementations agreeing without a clock travelling over the wire.
+	// in. The append is the event, so the store is the only thing that knows when it
+	// happened, and no clock travels over the wire.
 	CreatedAt time.Time
 }
 
@@ -149,11 +141,9 @@ const (
 // MemoryCapabilities says what a store can do beyond the interface's guarantees.
 //
 // Semantic reports whether Search ranks by embedding similarity rather than by
-// text matching. It is a property of the value rather than a side interface on
-// RuntimeServices because it is not fixed at startup: a platform gains semantic
-// search the moment an operator configures an embedding provider, and loses it
-// again when they clear the key. Search works either way — only what it is good
-// at changes, and only a UI has any reason to say which happened.
+// text matching. It is read per call rather than fixed at startup, because a store
+// can gain or lose embeddings while it is running. Search works either way; only
+// how well it ranks changes.
 type MemoryCapabilities struct {
 	Semantic bool
 }
@@ -165,12 +155,7 @@ type Page struct {
 	Limit  int
 }
 
-// AgentMemory is the deployment's store for everything an agent remembers.
-//
-// It is an accessor on RuntimeServices rather than an optional side interface
-// because no module can reasonably lack it: a directory is as complete an answer
-// for a single process as a table is for a cluster, the same relationship Traces
-// has to a file versus a subject. What differs is where, not whether.
+// AgentMemory is the store for everything an agent remembers.
 //
 // Writes to a versioned object take the version the caller last read and return
 // ErrVersionConflict when it no longer matches, so a concurrent update is never
@@ -178,10 +163,7 @@ type Page struct {
 // conversation commute, so demanding a version would make two writers fight over
 // a log that has no conflict to detect.
 //
-// One method per operation across three stores. Splitting it would give a caller
-// three interfaces to hold and every provider three types to wire, for one store.
-//
-//nolint:interfacebloat // one method per operation; see above
+//nolint:interfacebloat // one method per operation over the three stores
 type AgentMemory interface {
 	// Enabled reports whether this store can hold anything. A disabled store reads
 	// empty and its writes return ErrMemoryDisabled.
@@ -229,23 +211,17 @@ type AgentMemory interface {
 // noopAgentMemory is the store for a runtime with nowhere to keep memory. It
 // reads empty and its writes fail with ErrMemoryDisabled.
 //
-// It reports Enabled() == false, and callers are expected to branch on that
-// rather than to write and handle the error: the engine takes an entirely
-// separate path for a runtime without a memory store, keeping its pre-memory
-// behaviour intact. That is why this differs from noopKV, which fails loudly on
-// every write with no way to ask first — a KV write silently vanishing is a
-// correctness bug, whereas an agent with no memory store is a supported
-// deployment.
+// It reports Enabled() == false, and a caller is expected to branch on that rather
+// than to write and handle the error: an agent with nowhere to remember anything
+// is a supported configuration, not a failure.
 type noopAgentMemory struct{}
 
 func (noopAgentMemory) Enabled() bool                    { return false }
 func (noopAgentMemory) Capabilities() MemoryCapabilities { return MemoryCapabilities{} }
 
-// The deletes report success where the writes report ErrMemoryDisabled, and the
-// asymmetry is deliberate. A write that vanishes is a lie; a delete against a
-// store that has never held anything has achieved exactly what the caller asked
-// for. Erasure is the one operation that must not report false success — and with
-// no store, there is no copy left behind to be wrong about.
+// The deletes report success where the writes report ErrMemoryDisabled: a write
+// that vanishes is a lie, whereas a delete against a store that has never held
+// anything has achieved exactly what the caller asked for.
 func (noopAgentMemory) DeleteThread(context.Context, MemoryRef) error         { return nil }
 func (noopAgentMemory) DeleteMemory(context.Context, MemoryRef, string) error { return nil }
 
@@ -285,12 +261,11 @@ func (noopAgentMemory) Search(context.Context, MemoryQuery) ([]MemoryHit, error)
 	return nil, nil
 }
 
-// noopMemory is the shared instance every module without a store returns.
+// noopMemory is the shared instance returned when there is no store.
 var noopMemory AgentMemory = noopAgentMemory{}
 
-// NoopAgentMemory returns the store for a runtime that keeps no agent memory. It
-// is what a provider returns before it has an implementation, and what the no-op
-// services expose.
+// NoopAgentMemory returns the store for a runtime that keeps no agent memory, and
+// is what the no-op services expose.
 //
 //nolint:ireturn // returns the AgentMemory interface intentionally
 func NoopAgentMemory() AgentMemory { return noopMemory }

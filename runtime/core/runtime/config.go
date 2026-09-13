@@ -24,8 +24,7 @@ const TestFileSuffix = "_test"
 // directory, every *.yaml/*.yml file in it is parsed and merged into one config
 // (see MergeConfigs), skipping test files (see IsTestFile); otherwise the single
 // file is parsed. loader supplies the declared env resources (resources.env)
-// combined into the environment; it is the runtime-services resource loader
-// (rooted at the config directory in the standalone module).
+// combined into the environment.
 func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 	info, err := os.Stat(path)
 	if err != nil {

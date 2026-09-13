@@ -6,15 +6,15 @@ import (
 	"log/slog"
 )
 
-// LogShipper is an optional capability a RuntimeServices module may implement to
-// ship log records to a central destination (e.g. a NATS subject) in addition to
-// the process's normal output. Callers type-assert the active RuntimeServices to
+// LogShipper is an optional capability a RuntimeServices implementation may
+// provide to ship log records to a central destination in addition to the
+// process's normal output. Callers type-assert the active RuntimeServices to
 // LogShipper and, when the assertion holds and LogSink returns a non-nil handler,
-// tee their slog handler through it. The standalone module ships nothing, so
-// LogSink may return nil and callers MUST nil-check before wiring it.
+// tee their slog handler through it. LogSink may return nil, so callers MUST
+// nil-check before wiring it.
 type LogShipper interface {
 	// LogSink returns a handler that forwards records to the central sink, or nil
-	// when this module ships no logs.
+	// when no logs are shipped.
 	LogSink() slog.Handler
 }
 

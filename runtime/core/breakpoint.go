@@ -7,9 +7,8 @@ import (
 )
 
 // Breakpoint collects the message a flow was carrying when execution reached an
-// addressed block. It is the debug seam behind the CLI's `invoke --break-at`: the
-// runtime wraps the addressed block in an implicit breakpoint block, which runs the
-// block, records the resulting message here, and halts the flow.
+// addressed block: the runtime wraps that block in an implicit breakpoint block,
+// which runs it, records the resulting message here, and halts the flow.
 //
 // It is a collector rather than a return value because a block can sit inside a
 // composite that discards its sub-flow's message — a fork branch runs on a clone,
