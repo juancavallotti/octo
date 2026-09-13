@@ -20,12 +20,8 @@ import { fromStoredCase, mockCaseSchema, toStoredCase } from "../mocks";
 import { guard, jsonResult } from "../result";
 
 /**
- * The flow-meta tools: the editor's saved test inputs, block mocks and spies.
- *
- * This is what turns a debugging session into something that outlives it. An agent that
- * has just worked out which block to stand in for, and with what, can leave the setup in
- * the editor instead of describing it in prose — the user opens the canvas and finds the
- * mocks already placed, the inputs already saved, and the ▶ menu ready to run.
+ * The flow-meta tools: the editor's saved test inputs, block mocks and spies, written
+ * where the canvas will find them rather than described back to the user in prose.
  *
  * `list_block_addresses` is registered whether or not the host keeps a meta file: it is
  * what makes every address-taking tool usable, `invoke_flow`'s `spies` and `mocks`
@@ -34,15 +30,13 @@ import { guard, jsonResult } from "../result";
  * Two things these tools are strict about:
  *
  *   **An address is refused, never invented.** A mock keyed by an address no block
- *   answers to looks placed and never fires. The editor fixes this by naming the block —
- *   but that is an edit to the user's definition, and a metadata write that quietly
- *   rewrites the thing it describes is a surprise. So the error names the valid
- *   addresses and the remedy, and writes nothing.
+ *   answers to looks placed and never fires, and naming the block instead would be a
+ *   metadata write editing the definition it describes. The error names the valid
+ *   addresses and writes nothing.
  *
  *   **Values in, values out.** A mock's `body` and `vars` are given and returned as
- *   values here even though the file holds them as JSON text (see ../mocks). The suite
- *   tools hold values throughout, so an agent moving between the two never has to think
- *   about which is which.
+ *   values here even though the file holds them as JSON text (see ../mocks), so an agent
+ *   never has to think about which is which.
  */
 export function registerMetaTools(server: McpServer, config: OctoMcpConfig): void {
   const { store, metaStore } = config;
@@ -290,12 +284,11 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
  * spy address that named it.
  *
  * A block address opens with the flow's name — `orders.charge`, `orders[error].notify` —
- * so renaming the flow invalidates the key AND everything filed under it. Leaving them
- * behind is worse than never having written them: the file still lists the mocks, the
- * canvas still draws the badges, and not one of them fires again.
+ * so renaming the flow invalidates the key and everything filed under it, leaving mocks
+ * listed and drawn that will never fire again.
  *
- * The rules live in the editor (`renameFlow`), which is also what the canvas takes when
- * a user renames a flow there — so an agent's rename and a user's leave the same file.
+ * The rules live in the editor's own `renameFlow`, so a rename made here and one made on
+ * the canvas leave the same file.
  */
 export async function renameFlowMeta(
   metaStore: MetaStore,
@@ -321,13 +314,9 @@ async function addressesOf(store: IntegrationStore, id: string): Promise<string[
 }
 
 /**
- * Refuse an address no block answers to, saying which ones do.
- *
- * The alternative — writing it anyway — produces a mock that looks placed in the file
- * and on the canvas and silently never fires, which is the failure this whole seam
- * exists to avoid. Renaming the block to make the address work is not on the table
- * either: it is an edit to the user's definition, made by a tool they asked for a
- * metadata write.
+ * Refuse an address no block answers to, saying which ones do. Writing it anyway would
+ * produce a mock that looks placed and never fires, and naming the block to make the
+ * address work would be a metadata write editing the definition.
  */
 function requireAddress(address: string, valid: string[]): void {
   if (valid.includes(address)) return;

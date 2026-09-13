@@ -15,17 +15,15 @@ import { shapesFromTraces, type ObservedShapes } from "./shapes";
 /**
  * Running a flow's dolphin test suites, for the editor's Testing tab.
  *
- * This is the fourth consumer of the debug seam (see docs/debug-seam.md) and the only
- * one that does not spawn `octo` itself: a test case *is* a debug config plus
- * assertions, and dolphin already knows how to turn one into the other. Re-implementing
- * the assertions in TypeScript would make two sources of truth for what "the flow did
- * what it said" means, and they would drift.
+ * A consumer of the debug seam (see docs/debug-seam.md), and the only one that does not
+ * spawn `octo` itself: a test case is a debug config plus assertions, and dolphin already
+ * turns one into the other. Re-implementing the assertions here would make two sources of
+ * truth for what "the flow did what it said" means.
  *
- * Kept away from the long-running runner deliberately, and now structurally: that module
- * owns long-lived processes — a session map, a log buffer, an allocated port, a reaper —
- * and a test run has none of them, being one short-lived child that writes a file and
- * exits. The only things borrowed from over there are where to put the staged files and
- * how to write a config atomically, both of which are now shared through staging.ts.
+ * Apart from the long-running runner, which owns a session map, a log buffer, a port and
+ * a reaper; a test run is one short-lived child that writes a file and exits. The two
+ * share only where to stage files and how to write a config atomically, through
+ * staging.ts.
  */
 
 /** Default wall-clock budget per suite. Generous: N cases, one process each. */
@@ -60,13 +58,10 @@ export function resolveTimeout(suites: number, requested?: number): number {
 }
 
 /**
- * How many cases dolphin may run at once.
- *
- * One, deliberately. A connector that is not a flow *source* is started in every child
- * (see runtime/dolphin/internal/runner/run.go), so a suite over a config with a database
- * connector opens that database once per case — and an editor run often points at a
- * developer's real dev database. An interactive run is also small, and reporting its
- * cases in a stable order is worth more here than shaving a second off the clock.
+ * How many cases dolphin may run at once: one. Every case starts the config's non-source
+ * connectors, so a config with a database connector opens that database once per case,
+ * and an interactive run is small enough that a stable case order is worth more than the
+ * clock.
  */
 const DEFAULT_PARALLEL = 1;
 
@@ -127,11 +122,8 @@ export interface TestCaseResult {
   /**
    * Present for every case that ran.
    *
-   * Note what is deliberately NOT here: dolphin's `reproduce` command. It names the
-   * staged config and the per-case debug config, both of which live in a directory this
-   * function deletes on its way out — so it is a command that cannot be run, handed to
-   * someone who would reasonably try. The failures and the outcome are what a caller
-   * can actually act on.
+   * Not dolphin's `reproduce` command: it names files in a directory this function
+   * deletes on its way out, so it is a command that cannot be run.
    */
   outcome?: TestCaseOutcome;
 }
@@ -230,12 +222,9 @@ function noTotals(): TestTotals {
 }
 
 /**
- * Split a captured stream into non-empty lines.
- *
- * Deliberately not child.ts's `splitLines`, and named apart from it so the two cannot be
- * confused: this one drops blank lines anywhere, because dolphin's console report is
- * paragraphed and its blank lines are layout. A runner's slog stderr has no such
- * formatting, so there dropping them would be dropping output.
+ * Split a captured stream into non-empty lines. Named apart from child.ts's
+ * `splitLines` because it answers a different question: dolphin's console report is
+ * paragraphed, so its blank lines are layout rather than output.
  */
 function nonEmptyLines(text: string): string[] {
   return text.split("\n").filter((l) => l.trim() !== "");
@@ -245,14 +234,10 @@ function nonEmptyLines(text: string): string[] {
  * One case, rebuilt with only the fields this module publishes.
  *
  * Copied field by field rather than spread, because dolphin's report carries things a
- * caller must not receive — chiefly `reproduce`, which embeds the absolute path of the
- * staged config and the per-case debug config. Both live in a directory deleted on the
- * way out of {@link test}, so it is a command that cannot be run, and it would carry a
- * server's filesystem layout into a browser.
- *
- * The cost is that a field added to dolphin's report does not reach a caller until it is
- * added here too. That is the right default for a typed boundary: what crosses it should
- * be a decision, not whatever the subprocess happened to print.
+ * caller must not receive — chiefly `reproduce`, which embeds absolute paths into a
+ * directory {@link test} deletes. A field added to dolphin's report therefore reaches a
+ * caller only when it is added here too: what crosses this boundary is a decision, not
+ * whatever the subprocess printed.
  */
 function publicCase(c: TestCaseResult): TestCaseResult {
   return {
@@ -295,13 +280,11 @@ function suiteFileName(base: string, collision: number): string {
  * The staged directory holds the config, the suites and any declared resources, and is
  * removed when the run ends.
  *
- * **The dev `.env` is deliberately NOT injected**, unlike `invoke`. The whole value of
- * the Testing tab writing a real `_test.yaml` is that `dolphin test` in a terminal gives
- * the same verdict; injecting a resource the config never declared would make the
- * editor's run and the CLI's run disagree, and would let a test quietly authenticate
- * with a developer's real credentials. A suite says what environment it needs in its own
- * `env:` block — fake by construction, reviewable, and committed with the test. A flow
- * that will not load without a variable fails here exactly as it would in CI, naming it.
+ * **The dev `.env` is NOT injected**, unlike `invoke`: a suite is a committed file, and
+ * `dolphin test` in a terminal has to give the same verdict. Injecting a resource the
+ * config never declared would make the two disagree and let a test authenticate with real
+ * credentials. A suite declares what it needs in its own `env:` block, and a flow that
+ * will not load without a variable fails here exactly as it would in CI.
  */
 export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcome> {
   // dolphin first: it is the binary this operation is about, so a host with neither
@@ -329,11 +312,9 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
 
     const reportPath = join(dir, "report.json");
     // Stage each suite to a filename unique across the whole run. A per-base counter is
-    // not enough: its "-N" suffix can collide with another suite whose slug already ends
-    // in that suffix — suites "x", "x" and "x-1" would put the second "x" and the "x-1"
-    // on the same x-1_test.yaml. Two suites on one path means Promise.all's writes race,
-    // a suite's YAML is lost, and dolphin (which dedupes targets by path) silently runs
-    // one fewer than asked. Keep incrementing the suffix until the name is free.
+    // not enough: its "-N" suffix can collide with a suite whose slug already ends that
+    // way, and two suites on one path race their writes and run one fewer than asked.
+    // Keep incrementing the suffix until the name is free.
     const usedNames = new Set<string>();
     const staged = args.suites.map((s, i) => {
       const base = suiteBaseName(s.name, i);
@@ -361,15 +342,12 @@ export async function test(ns: string, args: TestRunArgs): Promise<TestRunOutcom
     // not outlive the call.
     const shapes = tracesDir ? await readShapes(tracesDir) : undefined;
 
-    // dolphin reports a suite by its staged path, and carries the staged config path
-    // alongside it. The caller has never heard of that directory — it is deleted before
-    // this function returns — so each suite is REBUILT with only the declared fields
-    // rather than spread, which would carry those paths out untyped and into a browser.
+    // Each suite is rebuilt with only the declared fields rather than spread, so the
+    // staged paths dolphin reports never leave this function.
     //
-    // Matched by PATH, not by position: dolphin sorts its targets by suite path so a run
-    // reports its files in the same order every time (see discover.go's dedupe), which
-    // is not the order they were given in. Zipping the two lists silently mislabels
-    // every suite whose name does not happen to sort the same way.
+    // Matched by PATH, not by position: dolphin sorts its targets by suite path, which is
+    // not the order they were given in, so zipping the two lists would mislabel every
+    // suite whose name does not sort the same way.
     const byPath = new Map(staged.map((s) => [s.path, s.suite.name]));
     return {
       ...result,
@@ -447,20 +425,15 @@ async function runDolphin(
     LOG_LEVEL: "error",
     // The caller's extra environment for dolphin (and so for every case).
     ...(opts.env ?? {}),
-    // Pinned AFTER the caller's env: these two are invariants, not preferences, so a
-    // caller-supplied value must not be able to defeat them.
+    // Pinned AFTER the caller's env: these two are invariants, not preferences.
     //
-    // Pin the octo dolphin drives to the one this host runs. $OCTO_PATH is a hard
-    // override in dolphin (runtime/dolphin/octobin.go), so this makes "tested against
-    // some other octo on the PATH" structurally impossible rather than merely unlikely —
-    // and it must stay impossible even for a caller that passes its own OCTO_PATH.
+    // $OCTO_PATH is a hard override in dolphin, so pinning it makes "tested against some
+    // other octo on the PATH" impossible rather than merely unlikely.
     OCTO_PATH: octo,
-    // dolphin mkdtemps a per-case working directory and KEEPS it whenever anything
-    // failed, so the reproduce command it prints still resolves. In a CLI that is a
-    // courtesy; in a long-lived server it is an unbounded /tmp leak, one directory per
-    // failing run, forever. Pointing TMPDIR at the staged dir makes it get swept with
-    // everything else — at the cost of the reproduce path, which we do not offer anyway.
-    // A caller must not be able to redirect it back out and re-open the leak.
+    // dolphin keeps its per-case working directory whenever anything failed, so the
+    // reproduce command it prints still resolves — which in a long-lived process is one
+    // leaked directory per failing run. Pointing TMPDIR at the staged dir has it swept
+    // with everything else, and a caller must not be able to redirect it back out.
     TMPDIR: opts.dir,
   };
 

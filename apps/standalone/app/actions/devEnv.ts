@@ -1,11 +1,10 @@
 "use server";
 
 /**
- * Server actions backing the editor's Dev .env panel (standalone). Dev-env values
- * live as the `.env.dev` resource on local disk (OCTO_FS_DIR) — the same file the
- * standalone runtime loads and run-host stages — rather than in the browser.
- * Standalone resource storage is flat and shared across flows, so there is one
- * `.env.dev`; the integration id the editor passes is ignored.
+ * Server actions backing the editor's Dev .env panel. The values live as the `.env.dev`
+ * resource on local disk (OCTO_FS_DIR), the same file the runtime loads and a run
+ * stages, rather than in the browser. Storage is flat and shared across flows, so there
+ * is one `.env.dev` and the integration id is ignored.
  */
 
 import type { ActionResult } from "@octo/http";

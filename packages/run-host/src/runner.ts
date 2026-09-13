@@ -1,31 +1,25 @@
 import type { ResourceProvider } from "./resources";
 
 /**
- * The port for "the app the editor is running": start it, stop it, ask after it, make it
- * pick up a change, read its logs.
+ * The port for the app being run: start it, stop it, ask after it, make it pick up a
+ * change, read its logs.
  *
- * There are two backends, and **neither of them is here**. A local one spawns
- * `octo run --watch` as a child of the host process and pushes each edit into the file it
- * watches; a remote one asks the orchestrator for a dev-run pod whose sidecar pulls the
- * saved definition itself. Each lives in the app that runs that way
- * (`apps/standalone/app/run/localRunner.ts`, `apps/platform/app/run/remoteRunner.ts`),
- * because an implementation shared by one caller is not shared code — it is a dependency
- * pointing the wrong way. What belongs to both is this interface, and everything the editor
- * does regardless of which it got: the debounce, the log dedupe, the validation gating.
+ * The interface only — no implementation. A backend may run the app as a child of the
+ * host process, taking each edit as it is pushed, or somewhere else entirely, pulling the
+ * saved definition itself; either way it belongs to the host that runs that way, and this
+ * package holds what every host shares regardless.
  *
- * The one-shot operations (`invoke`, `evalCel`, `test`) are deliberately NOT here, and they
- * DO stay in this package. They spawn a child, wait for it, and return — no port, no
- * buffer, no process — so they need no backend selected, and both hosts run them the same
- * way, locally, which is what makes them genuinely shared.
+ * The one-shot operations (`invoke`, `evalCel`, `test`) are not part of this port and do
+ * stay in this package: they spawn a child, wait for it, and return — no port, no buffer,
+ * no long-lived process — so they need no backend chosen.
  */
 
 /**
  * One line of a run's output.
  *
- * Declared beside the port that yields it rather than with any buffer that holds one: a
- * local backend's lines come from a ring buffer in its own heap, a remote backend's from a
- * pod's log stream, and the only thing they have in common is this shape. `seq` is
- * monotonic within a stream and doubles as the SSE event id, so a client can order lines
+ * Declared beside the port that yields it rather than with any buffer that holds one:
+ * backends differ in where the lines come from and agree only on this shape. `seq` is
+ * monotonic within a stream and doubles as an SSE event id, so a client can order lines
  * and drop what a reconnect replays.
  */
 export interface LogLine {
@@ -39,14 +33,14 @@ export interface LogLine {
  * reads the one it keys on — so a caller does not have to know which backend it got.
  */
 export interface RunKey {
-  /** The per-browser namespace slug (see namespace.ts). The local runner's whole key. */
+  /** The per-browser namespace slug (see namespace.ts). A local runner's whole key. */
   namespace: string;
-  /** The open integration, when it is saved. A dev run is keyed by it; absent for a draft. */
+  /** The open integration, when it is saved; absent for a draft. */
   integrationId?: string;
   /**
-   * The user the run belongs to, as the orchestrator knows them. The local runner has no
-   * use for it — a child process of this replica is already scoped to whoever reached it
-   * — while a dev run is owned by it and cannot be addressed without one.
+   * The user the run belongs to. A local runner has no use for it — a child process is
+   * already scoped to whoever reached it — while a backend that runs elsewhere may own
+   * its runs per user and be unable to address one without it.
    */
   userId?: string;
 }
@@ -56,10 +50,9 @@ export interface StartArgs {
   /**
    * The rendered config to run.
    *
-   * Meaningful only to a **pushing** backend. The local runner writes this to the file
-   * `octo` watches; a dev run's sidecar pulls the saved definition from the orchestrator
-   * and ignores it, which is the visible edge of the push/pull difference: on platform
-   * the running app reflects what was SAVED, not what is in the editor's buffer.
+   * Meaningful only to a **pushing** backend, which writes it to the file `octo` watches.
+   * A pulling backend fetches the saved definition itself and ignores this, so its running
+   * app reflects what was saved rather than what is in a caller's buffer.
    */
   yaml: string;
   /** The editor's "Dev .env" values, injected into the child's environment. Local only. */
@@ -93,10 +86,8 @@ export interface LogStreamOptions {
  * Point-in-time state of the app a backend is running.
  *
  * Only what a backend can actually answer. Whether the host has an `octo` binary, and
- * which version, is deliberately NOT here (see {@link Binaries}): that is a fact about
- * the host, and on a host whose app runs elsewhere the two come apart — it can be unable
- * to start an app while still running every one-shot perfectly well. The app composes the
- * editor's snapshot from both halves.
+ * which version, is not here (see {@link Binaries}): that is a fact about the host, and
+ * on a host whose app runs elsewhere the two come apart.
  */
 export interface RunState {
   running: boolean;
@@ -105,29 +96,23 @@ export interface RunState {
    * connector that pins its own port or host is out of reach. */
   exposable: boolean;
   /**
-   * The listen port of a local networked run, null otherwise — including for every dev
-   * run, which owns its own network namespace and so listens on a platform constant that
-   * nothing has to negotiate or record.
+   * The listen port of a local networked run, null otherwise — including for a backend
+   * whose run owns its own network namespace and so needs no port negotiated here.
    */
   port: number | null;
   /**
    * Where to reach the running networked integration, or null when it serves no HTTP.
    *
-   * App-relative for a local runner (a BFF path that proxies to the child's port), and
-   * absolute for a dev run (its own public host). Both are valid inputs to
-   * `new URL(value, origin)`, which is how a client turns either into something to link
-   * to — an absolute value ignores the base.
+   * Relative when the host itself proxies to the run, absolute when the run answers on
+   * a host of its own. Both are valid inputs to `new URL(value, origin)`, which is how a
+   * client turns either into something to link to.
    */
   testUrl: string | null;
   /**
    * Whether this backend reloads the running app when the integration is SAVED, rather
-   * than from the buffer the editor pushes.
-   *
-   * True for a dev run, whose sidecar pulls the stored definition; false for a local
-   * child process, which runs whatever YAML it was last handed. The editor reads it to
-   * decide whether to debounce-push edits at all — pushing a buffer that nothing will
-   * read would be worse than not pushing, because the RUN panel would imply the running
-   * app had changed.
+   * than from the buffer a caller pushes. True for a backend that pulls the stored
+   * definition itself; false for one that runs whatever YAML it was last handed. A
+   * caller reads it to decide whether pushing edits is worth anything at all.
    */
   reloadsOnSave: boolean;
   /**

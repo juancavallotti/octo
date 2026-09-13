@@ -2,14 +2,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 /**
- * Probes and caches the runtime's generated capability schema (`octo schema`).
- * Modelled on version.ts: the runner owns the schema (it's generated from the Go
- * block/connector metadata), so we ask the bundled `octo` binary for it once and
- * cache the parsed JSON. The cache lives on `globalThis` (like the version probe
- * and the session) so it survives Next's dev HMR module reloads.
+ * Probes and caches the runtime's generated capability schema (`octo schema`). The
+ * runner owns the schema, so the binary is asked once and the parsed JSON cached on
+ * `globalThis`, where it survives dev HMR module reloads.
  *
- * Returns null when no binary is configured or the probe fails — the caller then
- * falls back to the editor's bundled `capabilities.json`.
+ * Returns null when no binary is configured or the probe fails, leaving the caller to
+ * fall back to its bundled schema.
  */
 
 const execFileAsync = promisify(execFile);
@@ -29,12 +27,9 @@ export function cachedSchema(): unknown | null {
  * Idempotent: subsequent calls return the cached value. Resolves to null when no
  * binary is configured or the probe fails.
  *
- * A *failed* probe is deliberately not cached. Configuring a binary is a statement
- * of intent, and the usual reason the exec fails is that the binary is not there
- * *yet* — a dev server started while `task build` is still linking it. Caching that
- * null would leave the process schema-blind for its whole life: an empty palette, and
- * a validator that calls every block type unknown, until someone thinks to restart it.
- * Retrying costs one exec on a path that is already broken.
+ * A *failed* probe is not cached: the usual reason the exec fails is that the binary is
+ * not there yet, and caching that null would leave the process schema-blind — an empty
+ * palette, every block type unknown — for the rest of its life.
  */
 export async function probeSchema(): Promise<unknown | null> {
   if (store.__octoRuntimeSchema !== undefined) return store.__octoRuntimeSchema;

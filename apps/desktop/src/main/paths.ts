@@ -4,18 +4,10 @@ import path from "node:path";
 import { helperExecutable } from "./helper";
 
 /**
- * Where the app's three moving parts live, in both of the modes this app runs in.
- *
- * Packaged, everything is under `process.resourcesPath`, staged there by
- * electron-builder's extraResources. In development, the repo is the source of
- * truth: the server is staged into apps/desktop/build/server by `task desktop:stage`,
- * and the binaries are the repo's own bin/, which is what `task runtime:build`
- * fills and what the root Taskfile already points OCTO_BIN_PATH at. So a developer
- * who has run `task dev` once already has everything this app needs.
- *
- * One module for all of it because the dev/packaged fork is the thing worth having
- * in one place: it is invisible in testing (dev always works, packaged always
- * breaks) and every path in the app has to make the same choice the same way.
+ * Where the app's moving parts live, in both modes it runs in. Packaged, they are
+ * under `process.resourcesPath`, staged there by electron-builder's extraResources;
+ * unpackaged, they come from the checkout — the server from
+ * `task desktop:stage`, the binaries from the repo's own bin/.
  */
 
 /** The repo root, when running unpackaged from the checkout. */
@@ -50,10 +42,8 @@ export function binDir(): string {
 /**
  * A bundled binary's absolute path, with the platform's executable suffix.
  *
- * "Bundled" is the distinction that matters: this is where the binary that shipped
- * inside the app lives, and it is not necessarily the one that runs. What the user
- * chose in Settings is settings.ts's answer — see `binary()` there, which is what
- * callers want.
+ * The binary that shipped inside the app, which is not necessarily the one that
+ * runs: a user can choose another in Settings — see `binary()` in settings.ts.
  */
 export function bundledBinary(name: RuntimeBinary): string {
   return path.join(binDir(), process.platform === "win32" ? `${name}.exe` : name);
@@ -67,11 +57,9 @@ export function stateDir(): string {
 }
 
 /**
- * Where runs are staged. Under userData rather than anywhere in the bundle: the
- * bundle is read-only and code-signed, and writing into it would invalidate the
- * signature. Deliberately not inside the vault either — a rendered run config
- * inlines resolved env values, and those must not land in the user's folder where
- * they would be one `git add .` from being committed.
+ * Where runs are staged: under userData, because the bundle is read-only and
+ * code-signed, and outside the vault, because a rendered run config inlines
+ * resolved env values that must not land in a folder the user commits.
  */
 export function runDir(): string {
   return path.join(app.getPath("userData"), "runs");
@@ -79,12 +67,8 @@ export function runDir(): string {
 
 /**
  * The executable to spawn the editor server on — see helper.ts for why this is not
- * simply `process.execPath`.
- *
- * Falls back to `process.execPath` when the helper is not where it should be. A
- * missing helper means a bundle we do not recognise, and the cost of the two answers
- * is wildly asymmetric: the wrong-but-present one costs a stray dock icon, and a path
- * that does not exist costs the app starting at all.
+ * simply `process.execPath`. Falls back to `process.execPath` when the helper is
+ * missing: a stray dock icon costs less than an app that cannot start.
  */
 export function nodeExecutable(): string {
   if (!app.isPackaged || process.platform !== "darwin") return process.execPath;

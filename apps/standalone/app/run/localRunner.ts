@@ -41,18 +41,13 @@ import {
  *
  * Runs are keyed by a per-user namespace slug (see namespace.ts) so concurrent editor
  * users don't disturb one another: each namespace owns an independent process, config
- * file, and log buffer. The session records themselves — and the lock that keeps the
- * operations below from interleaving — live in `session.ts`; this module is the half
- * that spawns and kills.
+ * file, and log buffer. The session records — and the lock that keeps the operations
+ * below from interleaving — live in `session.ts`; this module is the half that spawns
+ * and kills.
  *
- * **Why this lives in the app and not in @octo/run-host.** Everything here is inherently
- * process-local — a child handle, a port from a pool this process owns, a log buffer in
- * this heap — and only one host can use it: an app served by several replicas with no
- * session affinity would start a run on one and find nothing on the next. So it is not
- * shared code that happens to sit in a package; it is *this app's* answer to a question
- * the platform answers differently (`apps/platform/app/run/remoteRunner.ts`, a pod the
- * orchestrator owns). What the two share is the interface and the staging, binary and
- * one-shot helpers they both genuinely use.
+ * Everything here is process-local: a child handle, a port from a pool this process
+ * owns, a log buffer in this heap. It is this app's implementation of the interface,
+ * not shared code, and it is usable only by the process the children belong to.
  */
 
 /**
@@ -103,26 +98,21 @@ async function startImpl(
   const exposable = isExposable(yaml);
   let adminPort: number;
   try {
-    // A networked integration (one that serves an HTTP source) gets a real port from
-    // the pool, injected as HTTP_PORT so the BFF can proxy to it — which works whether
-    // the document declares HTTP_PORT or leaves the connector to read it. HTTP_HOST is
-    // the loopback because only the same-pod proxy needs to reach it. Internal-only
-    // runs get no port and stay unexposed.
+    // A run serving an HTTP source gets a real port from the pool, injected as
+    // HTTP_PORT and proxied to; HTTP_HOST stays on the loopback, since only this host
+    // reaches it. Internal-only runs get no port and stay unexposed.
     s.exposable = exposable;
     s.port = exposable ? allocatePort() : null;
 
-    // Every run — networked or not — also gets an admin port for the runtime's
-    // observability service, which is on by default and otherwise binds the same
-    // fixed :39999 in every run on this host: the first run would take it and every
-    // later one would come up without probes or metrics. Loopback, because only this
-    // host reaches it.
+    // Every run also gets an admin port for the runtime's observability service,
+    // which otherwise binds the same fixed :39999 in every run on this host and leaves
+    // all but the first without probes.
     adminPort = allocateAdminPort();
     s.adminPort = adminPort;
   } catch (err) {
-    // An exhausted pool ends this start, so roll the whole thing back: stop()
-    // returns whichever port was taken and removes the config and staged resources
-    // (env files hold secrets) instead of leaving them for whoever calls stop next.
-    // Repeated failed starts would otherwise eat the pool a port at a time.
+    // An exhausted pool ends this start, so roll the whole thing back: stop() returns
+    // whichever port was taken and removes the config and staged resources, which hold
+    // secrets. Repeated failed starts would otherwise eat the pool a port at a time.
     await stopImpl(ns);
     throw err;
   }

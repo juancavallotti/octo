@@ -17,11 +17,9 @@ import { registerPrompts } from "./prompts";
 import { OCTO_ICON_DATA_URI } from "./icon";
 
 /**
- * The Octo MCP server version reported to clients in the `initialize` handshake.
- * release-please keeps this in sync with the published release; the trailing
- * annotation marks the line it rewrites (this file is listed under `extra-files`
- * in release-please-config.json). Hosts share it so every deployment reports the
- * same octo release — override per host via {@link OctoMcpServerInfo.version}.
+ * The Octo MCP server version reported to clients in the `initialize` handshake. The
+ * trailing annotation marks the line release automation rewrites. Every host reports the
+ * same release unless it overrides {@link OctoMcpServerInfo.version}.
  */
 export const OCTO_MCP_VERSION = "0.11.2"; // x-release-please-version
 
@@ -57,9 +55,9 @@ const DEFAULT_SERVER_INFO: OctoMcpServerInfo = {
 /** Knobs for the MCP route handler beyond the backend {@link OctoMcpConfig}. */
 export interface OctoMcpHandlerOptions {
   /**
-   * The run host driving the run-control tools. Required, with no fallback: the two hosts
-   * run an app in different ways, so defaulting to either would silently give the other
-   * the wrong runner. See {@link RunHostPort}.
+   * The run host driving the run-control tools. Required, with no fallback: hosts run an
+   * app in different ways, and a default would silently give one of them the wrong
+   * runner. See {@link RunHostPort}.
    */
   runHost: RunHostPort;
   /**
@@ -74,19 +72,19 @@ export interface OctoMcpHandlerOptions {
   /** Max request duration in seconds. @default 60 */
   maxDuration?: number;
   /**
-   * Identity reported during the MCP `initialize` handshake. Falls back to the
-   * generic {@link DEFAULT_SERVER_INFO}; hosts should pass their own so clients
-   * can tell deployments apart (e.g. `octo-platform` vs `octo-standalone`).
+   * Identity reported during the MCP `initialize` handshake. Falls back to the generic
+   * {@link DEFAULT_SERVER_INFO}; a host should pass its own so clients can tell one
+   * deployment from another.
    */
   serverInfo?: Partial<OctoMcpServerInfo>;
 }
 
 /**
- * Build the Next route handler exposing the Octo integration MCP server. The same
- * factory serves both hosts — each supplies its own {@link OctoMcpConfig} (store,
- * validator, runtime schema) and its own {@link RunHostPort}; the namespace resolver is
- * created once here so a run stays bound to its MCP session across requests. SSE is
- * disabled (the spec deprecates it); only the streamable HTTP transport is served.
+ * Build the route handler exposing the Octo integration MCP server. A host supplies its
+ * own {@link OctoMcpConfig} — store, validator, runtime schema — and its own
+ * {@link RunHostPort}; the namespace resolver is created once here, so a run stays bound
+ * to its MCP session across requests. Only the streamable HTTP transport is served; the
+ * spec deprecates SSE.
  */
 export function createOctoMcpHandler(
   config: OctoMcpConfig,

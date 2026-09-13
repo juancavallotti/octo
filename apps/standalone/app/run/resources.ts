@@ -1,11 +1,9 @@
 /**
- * Standalone resource provider for editor/MCP runs. The standalone runtime reads
- * an integration's resources (env files, templates) as plain files; here we resolve
- * the names a run declares directly from the flows directory (OCTO_FS_DIR) so
- * @octo/run-host can stage them into the run's namespace dir. Unlike the flow
- * store (which only handles single-segment `*.yaml` filenames), resources are
- * path-like — `.env.dev`, `templates/welcome.tmpl` — so this has its own resolver
- * that permits subpaths and dotfiles while still refusing to escape the root.
+ * Resource provider for editor and MCP runs: resolves the names a run declares
+ * directly from the flows directory (OCTO_FS_DIR), so they can be staged into the
+ * run's namespace dir. Resources are path-like — `.env.dev`,
+ * `templates/welcome.tmpl` — so this has its own resolver, permitting subpaths and
+ * dotfiles while still refusing to escape the root.
  */
 
 import { readFile } from "node:fs/promises";

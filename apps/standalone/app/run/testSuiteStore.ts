@@ -7,13 +7,12 @@ import {
 import { unwrap } from "../actions/result";
 
 /**
- * The standalone test-suite store: `<flow>_test.yaml` files under the flows directory,
- * shared by every document there the way `.env.dev` is — which is why the integration id
- * is not passed to the actions.
+ * The test-suite store: `<flow>_test.yaml` files under the flows directory, shared by
+ * every document there, so the integration id never reaches the actions.
  *
- * Editing needs a saved document. Not because the storage is keyed by it, but because a
- * suite that cannot be committed beside a flow file that does not exist yet is not the
- * artifact the tab promises; until then suites live for the session.
+ * Editing needs a saved document — not because the storage is keyed by it, but because
+ * a suite is meant to sit beside a flow file that exists. Until then suites live for
+ * the session.
  */
 export const localTestSuiteStore: TestSuiteStore = {
   async list() {

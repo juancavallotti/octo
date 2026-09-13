@@ -12,11 +12,9 @@ import * as resources from "../api/fs/resourceStore";
 import * as suites from "../api/fs/testSuiteStore";
 
 /**
- * The standalone host's {@link IntegrationStore}: a thin shim over the local disk
- * store the editor's filesystem capability already uses. "Integrations" here are
- * the `*.yaml` flow files under the store root; the MCP layer treats their id,
- * name, and definition uniformly. `update` renames on disk when a new name's slug
- * differs (matching the editor's save), otherwise overwrites in place.
+ * This host's {@link IntegrationStore}: a shim over the local disk store. Integrations
+ * here are the `*.yaml` flow files under the store root. `update` renames on disk when
+ * a new name's slug differs, otherwise overwrites in place.
  */
 
 /**
@@ -59,12 +57,10 @@ function toRecord(
 }
 
 /**
- * The standalone host's {@link ResourceStore}: a thin shim over the flat local-disk
- * resource store the editor's Resources tab already uses. Storage is shared across
- * flows (no per-integration partition on disk), so the integration id is echoed but
- * not used to locate files, and a resource's path-like name doubles as its id (kind
- * is inferred from the name). `update` renames when the name changes, then rewrites
- * content — matching the editor's move-then-save.
+ * This host's {@link ResourceStore}: a shim over the flat local-disk resource store.
+ * Storage is shared across flows, so the integration id is echoed but never used to
+ * locate a file, and a resource's path-like name doubles as its id. `update` renames
+ * when the name changes, then rewrites content.
  */
 export const fsResourceStore: ResourceStore = {
   list: async (integrationId) =>
@@ -101,38 +97,31 @@ export const fsResourceStore: ResourceStore = {
 };
 
 /**
- * The editor-meta file name, mirroring the editor's own EDITOR_META_RESOURCE and the
- * `editorMeta` server action — the store an agent writes through has to be the same file
- * the canvas reads, or the mocks it places will not be there when the user looks.
+ * The editor-meta file name, mirroring the editor's own EDITOR_META_RESOURCE: a write
+ * through this store must land in the file the canvas reads.
  */
 const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
 
 /**
- * The standalone host's {@link MetaStore}: `.octo/editor-meta.json` under the flows
- * directory, beside the flows it describes.
- *
- * Storage here is flat and shared across every flow file, so the integration id names no
- * file — one document describes the whole directory. It is still keyed by that id
- * *inside* the file, which is why the id is passed through untouched rather than dropped.
+ * This host's {@link MetaStore}: `.octo/editor-meta.json` under the flows directory,
+ * beside the flows it describes. Storage is flat, so the integration id names no file —
+ * one document describes the whole directory — but the id still keys entries inside it,
+ * so it is passed through untouched.
  */
 export const fsMetaStore: MetaStore = {
   load: async () => (await resources.readResource(EDITOR_META_RESOURCE)) ?? "",
   save: async (integrationId, content) => {
     await resources.writeResource(EDITOR_META_RESOURCE, content);
-    // An editor with this document open is showing the mocks and spies this file
-    // holds. Without the announcement they stay as they were until a reload, and an
-    // agent that placed one would look to the user like it did nothing.
+    // A subscriber showing this document's mocks and spies would otherwise keep the
+    // ones it loaded until a reload.
     publish({ type: "integration.meta-updated", id: integrationId });
   },
 };
 
 /**
- * The standalone host's {@link SuiteStore}: the `*_test.yaml` files sitting beside the
- * flows, which is what makes them worth writing — `dolphin test` in a terminal and CI
- * both run the very file an agent authored here.
- *
- * Flat and shared across documents like the rest of the local store, so the integration
- * id names no directory: a flow name identifies its suite within the root.
+ * This host's {@link SuiteStore}: the `*_test.yaml` files sitting beside the flows, the
+ * same files `dolphin test` runs from a terminal. Flat and shared across documents like
+ * the rest of the local store, so a flow name identifies its suite within the root.
  */
 export const fsSuiteStore: SuiteStore = {
   list: () => suites.listSuites(),

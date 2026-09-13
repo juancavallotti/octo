@@ -6,16 +6,10 @@ import { WorkspacePicker } from "@octo/editor";
 import { desktopBridge, type VaultRef } from "../desktop";
 
 /**
- * Which folder the desktop shell is serving, and how to change it.
- *
- * Desktop only. Choosing a folder is a shell capability — only Electron can open a
- * native picker or restart itself on another directory — and in a browser the chip
- * was a dead label for something the user could not act on. `task dev` and the
- * Docker image are configured by whoever started them, not from in here.
- *
- * The chip and its menu are the shared WorkspacePicker; the platform shows the same
- * control over its integrations. Only the two shell-specific parts live here: the
- * recents list, and "Open folder…".
+ * Which folder is being served, and how to change it. Rendered only when a shell is
+ * hosting the page: choosing a folder needs a native picker and a restart, neither of
+ * which a browser can do, and a plain browser's folder is chosen by whoever started
+ * the server.
  */
 export default function VaultChip() {
   const bridge = desktopBridge();
@@ -36,8 +30,8 @@ export default function VaultChip() {
     };
   }, [bridge]);
 
-  // Nothing to show until the shell answers — which also keeps the first client
-  // render identical to the server's, so hydration has nothing to disagree about.
+  // Nothing to show until the bridge answers, which also keeps the first client
+  // render identical to the server's.
   if (!bridge || !vault) return null;
 
   return (
@@ -45,8 +39,7 @@ export default function VaultChip() {
       label="Project folder"
       current={vault.name}
       currentHint={vault.path}
-      // Refreshed when the menu opens rather than once, so a folder opened via the
-      // app menu shows up without a reload.
+      // Refreshed when the menu opens, so a folder opened elsewhere shows up here.
       onOpen={() => {
         bridge
           .recents()

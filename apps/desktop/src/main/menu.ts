@@ -7,11 +7,8 @@ import { checkForUpdates } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
 
 /**
- * The application menu — and, for now, the only way to change folders.
- *
- * Building it as a function called on every change rather than mutating items in
- * place: the recents submenu is the only dynamic part, and a menu rebuilt from
- * current state cannot drift from it.
+ * The application menu, rebuilt from current state on every change rather than
+ * mutated in place, so its dynamic parts cannot drift from what they describe.
  */
 
 function recentsSubmenu(): MenuItemConstructorOptions[] {
@@ -55,9 +52,7 @@ export function buildMenu(): void {
             { type: "separator" },
             {
               label: "Copy MCP Endpoint URL",
-              // The one thing an agent needs to attach to this editor. It lives in
-              // the app menu rather than being merely discoverable, because a URL
-              // you cannot copy is a URL you have to retype from a screenshot.
+              // The one thing an agent needs to attach to this editor.
               enabled: mcpUrl() !== null,
               click: copyMcpUrl,
             },

@@ -4,15 +4,9 @@ import { settings } from "./settings";
 import { mainWindow } from "./window";
 
 /**
- * Checking for a new Octo Desktop.
- *
- * electron-updater against the GitHub release, which electron-builder already
- * publishes to — the zip target beside the dmg exists for exactly this, because a
- * dmg alone cannot deliver an update.
- *
- * Bundled by esbuild rather than declared as a runtime dependency, which is what
- * keeps apps/desktop free of a production dependency tree for electron-builder to
- * resolve across pnpm's symlink farm. See esbuild.config.mjs.
+ * Checking for a new Octo Desktop: electron-updater against the GitHub release the
+ * build publishes to. The zip target beside the dmg is what carries the update; a dmg
+ * alone cannot deliver one.
  */
 
 /** Whether this build can update itself at all. An unpackaged dev run cannot. */
@@ -25,8 +19,7 @@ let configured = false;
 function configure(): void {
   if (configured) return;
   configured = true;
-  // Downloading is the user's decision, made in the dialog below. A packaged app
-  // that quietly replaced itself would be a surprise the first time it happened.
+  // Downloading is the user's decision, made in the dialog below.
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 }
@@ -38,11 +31,8 @@ async function report(message: string, detail?: string): Promise<void> {
 }
 
 /**
- * Look for an update and say what was found.
- *
- * `silent` is the launch check, which only speaks when there is news. The menu item
- * passes false and therefore reports "up to date" as well: a check that is silent on
- * success is a check nobody believes they ran.
+ * Look for an update and say what was found. `silent` speaks only when there is
+ * news; a check the user asked for reports "up to date" as well.
  */
 export async function checkForUpdates(silent: boolean): Promise<void> {
   if (!canUpdate()) {
@@ -76,8 +66,7 @@ export async function checkForUpdates(silent: boolean): Promise<void> {
     await autoUpdater.downloadUpdate();
     await report(`Octo ${version} is ready.`, "It will be installed when you quit Octo.");
   } catch (err) {
-    // A failed check must never be fatal — the user has a working app and no
-    // network, or GitHub is down. Only say so when they asked.
+    // A failed check is never fatal, and only worth saying when it was asked for.
     if (!silent) {
       await report("Could not check for updates.", err instanceof Error ? err.message : String(err));
     }

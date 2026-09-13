@@ -9,12 +9,10 @@ import {
 import { unwrap } from "../actions/result";
 
 /**
- * The standalone resource store: the editor's Resources tab reads and writes
- * resource files on local disk (OCTO_FS_DIR) through server actions. Storage is
- * flat and shared across flows, so a resource's path-like name is its id — there
- * is no per-integration partition. Files that exist on disk but the open flow
- * doesn't declare surface as "not in project" in the tab and are never mutated
- * unless the user includes them.
+ * The local-disk resource store, backed by server actions over OCTO_FS_DIR. Storage is
+ * flat and shared across flows, so a resource's path-like name is its id. Files on disk
+ * that the open flow does not declare are reported as such and never mutated unless
+ * they are included.
  */
 export const localDiskResourceStore: ResourceStore = {
   async list() {

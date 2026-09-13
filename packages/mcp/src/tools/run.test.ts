@@ -264,9 +264,8 @@ describe("run tools", () => {
     expect(text(res)).toContain("OCTO_BIN_PATH");
   });
 
-  // The finding this guards: a REMOTE runner (the platform's, backed by the orchestrator)
-  // starts a run with no local octo at all. Gating on binaries().available — the local
-  // one-shot binary — would wrongly reject it and break platform dev runs.
+  // A host whose runner is elsewhere starts a run with no local octo at all, so gating
+  // on binaries().available — the local one-shot binary — would wrongly reject it.
   it("run starts on a remote host that has no local binary", async () => {
     const { host } = stubRunHost({ available: false }); // no startError: start() succeeds
     const client = await connect(config(), host);
@@ -333,8 +332,8 @@ describe("run tools", () => {
     });
   });
 
-  // An unauthenticated host (the standalone app) has no caller to name, and keys on the
-  // session alone — so the absence has to travel rather than being invented.
+  // An unauthenticated host has no caller to name and keys on the session alone, so the
+  // absence has to travel rather than being invented.
   it("leaves the caller out when the host has no auth", async () => {
     const { host, calls } = stubRunHost();
     const client = await connect(config(), host);

@@ -79,8 +79,7 @@ describe("mergeShape", () => {
   });
 
   it("stays collapsed once either side was a bare map", () => {
-    // As the name says. This used to assert the opposite — that the union won — which
-    // made a merge the way back to the keys the collapse existed to hide.
+    // A merge must not be the way back to the keys the collapse exists to hide.
     expect(mergeShape({ t: "object" }, shapeOf({ a: 1 }))).toEqual({ t: "object" });
   });
 });

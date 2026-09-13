@@ -4,14 +4,14 @@ import { dirname, normalize, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 /**
- * Resource staging for editor/MCP dev runs. A run's config may declare resources
- * (env files + templates under a top-level `resources:` section) that the Go
- * runtime loads relative to the config file's own directory. The editor and MCP
- * spawn `octo` through this package, writing the config into a per-namespace dir —
- * so the platform's resources have to be materialized into that same dir before
- * the runner starts. The host supplies a {@link ResourceProvider}; this module
- * parses the declared names, resolves them, and writes the bytes safely under the
- * run dir, mirroring the standalone runtime loader's path containment.
+ * Resource staging for editor and MCP runs. A run's config may declare resources — env
+ * files and templates under a top-level `resources:` section — which the runtime loads
+ * relative to the config file's own directory. The config is written into a per-namespace
+ * dir, so those files have to be materialized into the same dir before the run starts.
+ *
+ * The host supplies a {@link ResourceProvider}; this module parses the declared names,
+ * resolves them, and writes the bytes safely under the run dir, mirroring the runtime
+ * loader's own path containment.
  */
 
 /** A single resolved resource: its declared (path-like) name and its bytes. */
@@ -22,19 +22,17 @@ export interface ResourceFile {
 }
 
 /**
- * Resolves the resource files a run's config declares. Given the names parsed
- * from the config, returns those the host can supply; names it can't resolve are
- * simply omitted (the runtime reports missing templates itself at load, and skips
- * missing env resources silently). Implemented per host: the standalone app reads
- * the filesystem, the platform fetches from the orchestrator.
+ * Resolves the resource files a run's config declares. Given the names parsed from the
+ * config, returns those the host can supply; names it cannot resolve are omitted — the
+ * runtime reports a missing template at load and skips a missing env resource silently.
+ * Implemented by the host, from wherever it keeps them.
  */
 export type ResourceProvider = (names: string[]) => Promise<ResourceFile[]>;
 
 /**
- * The dev-env resource. An integration's dev credentials live here (in the host's
- * resource store) instead of the browser, so an editor or MCP run reads them from
- * the store rather than from caller-supplied env. run-host always requests it and
- * declares it in the run config, so a run picks it up transparently.
+ * The dev-env resource. An integration's dev credentials live in the host's resource
+ * store rather than in a caller's environment, and this is always requested and declared
+ * in the run config, so a run picks it up without being asked to.
  */
 export const DEV_ENV_RESOURCE = ".env.dev";
 

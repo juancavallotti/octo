@@ -1,17 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 /**
- * The only channel between the editor page and the shell.
- *
- * Everything here is a *request to the shell about the shell* — which folder is
- * open, which folders were open before, what the MCP URL is. Nothing here touches
- * the vault's contents: the editor already reads and writes those through the
- * server it is loaded from, and giving the renderer a second, privileged path to
- * the same files would be a way to get two answers to one question.
- *
- * The editor reads this behind a `typeof window.octoDesktop !== "undefined"`
- * guard, so the same app served from Docker or `task dev` simply doesn't show the
- * affordances the shell provides.
+ * The only channel between the page and the shell. Everything here is a request to
+ * the shell about the shell — which folder is open, which were open before, what the
+ * MCP URL is. Nothing here reaches the folder's contents; the page already has the
+ * server it was loaded from for that.
  */
 
 /** How the person using the editor has said it should behave. Set in Settings. */
@@ -39,10 +32,7 @@ export interface OctoDesktopBridge {
   copyMcpUrl(): Promise<void>;
   /** The editor preferences, as Settings last left them. */
   prefs(): Promise<EditorPrefsView>;
-  /**
-   * Hear about a preference changing in the Settings window, which is open beside this
-   * page rather than instead of it. Returns the unsubscribe.
-   */
+  /** Hear about a preference changing while this page is open. Returns the unsubscribe. */
   onPrefsChanged(listener: (prefs: EditorPrefsView) => void): () => void;
 }
 
@@ -57,8 +47,7 @@ const bridge: OctoDesktopBridge = {
   copyMcpUrl: () => ipcRenderer.invoke("octo:mcp:copy"),
   prefs: () => ipcRenderer.invoke("octo:prefs:get"),
   onPrefsChanged: (listener) => {
-    // The event object is deliberately not passed on: it carries the sender, and the
-    // page has no business with it. Only the payload crosses the bridge.
+    // The event object carries the sender, so only the payload crosses the bridge.
     const handler = (_event: unknown, prefs: EditorPrefsView) => listener(prefs);
     ipcRenderer.on("octo:prefs:changed", handler);
     return () => ipcRenderer.off("octo:prefs:changed", handler);
@@ -68,17 +57,9 @@ const bridge: OctoDesktopBridge = {
 contextBridge.exposeInMainWorld("octoDesktop", bridge);
 
 /**
- * Tell the page it is being shown by the desktop shell, before it renders.
- *
- * The window hides the macOS title bar and draws the page under it, so the app's
- * header has to leave room for the traffic lights and stand in as the window's
- * drag handle. Both are one CSS rule keyed on this class
- * (`.octo-desktop header` in apps/standalone/app/globals.css) — styling belongs to
- * the app, and the fact that a shell is present belongs to the shell.
- *
- * Set from the preload rather than from the main process after load, because the
- * preload runs before the document does: there is no frame where the header is
- * drawn without the padding.
+ * Tell the page it is being shown by the desktop shell, so it can leave room for the
+ * traffic lights the hidden title bar puts over it. Set from the preload, which runs
+ * before the document, so there is no frame drawn without that room.
  */
 document.addEventListener("DOMContentLoaded", () => {
   document.documentElement.classList.add("octo-desktop");

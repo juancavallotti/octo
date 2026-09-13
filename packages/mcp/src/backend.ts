@@ -1,10 +1,9 @@
 /**
- * The backend port the MCP server is parameterized over. The two hosts store
- * integrations differently — the platform behind the orchestrator REST API, the
- * standalone app on local disk — so the reusable tool/resource/prompt layer
- * depends only on these injected capabilities, never on a concrete store. A host
- * supplies an {@link OctoMcpConfig}; run control is handled inside the package via
- * `@octo/run-host`, keyed by a per-MCP-session namespace.
+ * The backend port the MCP server is parameterized over. A host may keep integrations
+ * behind a network API or on local disk, so the tool, resource and prompt layer depends
+ * only on these injected capabilities and never on a concrete store. A host supplies an
+ * {@link OctoMcpConfig}; run control is handled inside the package, keyed by a
+ * per-MCP-session namespace.
  */
 
 import type { ResourceProvider } from "@octo/run-host";
@@ -18,10 +17,9 @@ export interface IntegrationRecord {
 }
 
 /**
- * CRUD over the host's integration store. Mirrors the host's existing data layer
- * (orchestrator client on platform, disk store on standalone) — the adapter is a
- * thin shim. `update` renames when `name` is given and its slug changes (the host
- * decides), returning the possibly-new record.
+ * CRUD over the host's integration store, which the host adapts from whatever data
+ * layer it already has. `update` renames when `name` is given and its slug changes —
+ * the host decides — and returns the possibly-new record.
  */
 export interface IntegrationStore {
   list(): Promise<{ id: string; name: string }[]>;
@@ -50,11 +48,9 @@ export interface ResourceRecord {
 }
 
 /**
- * CRUD over one integration's resources, keyed by integration id (stateless — the
- * MCP layer holds no resource state). A thin, full-replace shim mirroring the
- * host's existing resource layer (nested `/integrations/{id}/resources` routes on
- * the platform, the flat disk store on standalone): `update` replaces the whole
- * record, so the tool layer fills any omitted `kind`/`name` from `get` first.
+ * CRUD over one integration's resources, keyed by integration id and stateless — this
+ * layer holds no resource state. Full-replace: `update` writes the whole record, so the
+ * tool layer fills any omitted `kind`/`name` from `get` first.
  */
 export interface ResourceStore {
   list(integrationId: string): Promise<ResourceRecord[]>;
@@ -80,12 +76,10 @@ export interface ResourceStore {
  * `.octo/editor-meta.json`, which holds the test inputs, block mocks and spies the
  * canvas shows.
  *
- * Raw content in both directions, exactly as the editor's own capability moves it: the
- * host decides where the file lives, and every bit of parsing stays in one place
- * (`@octo/editor/runtime`), so an agent's writes and the editor's reads cannot disagree
- * about the format.
+ * Raw content in both directions: the host decides where the file lives, and all the
+ * parsing stays in one place, so a write and a read cannot disagree about the format.
  *
- * The file is design-time and *undeclared*: no config references it, so a deployed
+ * The file is design-time and undeclared — no config references it — so a deployed
  * runtime never pulls it and losing it costs only the debug setup.
  */
 export interface MetaStore {
@@ -146,11 +140,10 @@ export interface OctoMcpConfig {
    * validation). Used by `can_start_integration` before a run is attempted, and by
    * every mutating flow tool before it saves.
    *
-   * May be async: validation is only as good as the capability catalogue behind it,
-   * and a host generates that catalogue from the `octo` binary (see
-   * {@link OctoMcpConfig.runtimeSchema}) — an async probe. A host that validates
-   * against the editor's *bundled* fallback catalogue instead will find it empty and
-   * report every block type unknown.
+   * May be async: validation is only as good as the capability catalogue behind it, and
+   * that catalogue comes from an async probe of the `octo` binary (see
+   * {@link OctoMcpConfig.runtimeSchema}). Validating against the bundled fallback instead
+   * reports every block type unknown.
    */
   validate(definition: string): ValidationOutcome | Promise<ValidationOutcome>;
   /**
@@ -163,13 +156,12 @@ export interface OctoMcpConfig {
    */
   runtimeSchema: RuntimeSchemaSource;
   /**
-   * Resolve the resources (env files, templates) a run's config declares, so
-   * `@octo/run-host` can stage them for `run_integration`/`invoke_flow` — letting
-   * a run read its credentials from the host's resource store instead of the
-   * caller. Given the integration id (absent for an inline `invoke_flow`
-   * definition), returns a provider bound to it, or undefined when the host can't
-   * supply resources for it (e.g. the platform with no id). Omit the whole
-   * capability on a host without resources.
+   * Resolve the resources (env files, templates) a run's config declares, so they can be
+   * staged for `run_integration`/`invoke_flow` and a run reads its credentials from the
+   * host's resource store rather than from the caller. Given the integration id — absent
+   * for an inline `invoke_flow` definition — returns a provider bound to it, or undefined
+   * when the host cannot supply resources for it. Omit the capability entirely on a host
+   * with no resources.
    */
   resources?: (integrationId?: string) => ResourceProvider | undefined;
   /**
@@ -200,8 +192,8 @@ export interface OctoMcpConfig {
    * itself.
    *
    * Only for a host that proxies to a run inside itself, which is the only kind that
-   * reports a path. A host whose runs have hostnames of their own reports an absolute URL
-   * and needs no origin — see `buildTestUrl`, which is why this is optional.
+   * reports a path; a host whose runs have hostnames of their own needs no origin. See
+   * `buildTestUrl`.
    */
   baseUrl?: string;
   /**

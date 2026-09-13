@@ -143,9 +143,8 @@ describe("standalone flow store", () => {
 });
 
 /**
- * These two are exported for the filesystem watcher, which must agree with the store
- * about which files exist — the watcher used to answer the question itself and left
- * every `.yml` flow silently stale.
+ * These two are exported so nothing else answers "is this a file we serve?" for
+ * itself: a second copy of the rule that missed `.yml` would leave those flows stale.
  */
 describe("filename rules shared with the watcher", () => {
   it("accepts both spellings of the extension", () => {

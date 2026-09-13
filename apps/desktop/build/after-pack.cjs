@@ -4,14 +4,9 @@ const path = require("node:path");
 /**
  * Copy the staged Next server into the packaged app.
  *
- * This is a hook rather than an `extraResources` entry for one blunt reason:
- * electron-builder excludes `node_modules` from extraResources and no filter
- * re-includes it. The copy silently succeeds, the app packages and signs cleanly,
- * and then cannot start its own server — which is exactly the kind of failure
- * worth spending a hook to avoid.
- *
- * afterPack runs before code signing, so everything copied here is signed with
- * the rest of the bundle.
+ * A hook rather than an `extraResources` entry because electron-builder excludes
+ * `node_modules` from extraResources and no filter re-includes it. afterPack runs
+ * before code signing, so everything copied here is signed with the bundle.
  */
 exports.default = async function afterPack(context) {
   const resources = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources");

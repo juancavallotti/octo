@@ -1,12 +1,10 @@
 /**
- * Octo's MCP server icon, inlined so every host (platform, standalone, and any
- * future one) advertises Octo's own brand mark in the `initialize` handshake
- * instead of leaving MCP clients to fall back to scraping the host app's favicon.
- * A `data:` URI needs no public origin, so it works for the locally-run standalone
- * app too, and it satisfies the MCP icon spec's same-origin/HTTPS-or-data rule with
- * no fetch at all.
+ * Octo's MCP server icon, inlined so every host advertises Octo's own brand mark in the
+ * `initialize` handshake rather than leaving clients to scrape a favicon. A `data:` URI
+ * needs no public origin, so a host reachable only on a loopback address works too, and
+ * it satisfies the MCP icon spec's same-origin/HTTPS-or-data rule with no fetch at all.
  *
- * Regenerate from `apps/platform/public/octo-logo.png` (the canonical logo) with:
+ * Regenerate from the canonical logo with:
  *   sips -c 1256 1256 octo-logo.png --out /tmp/icon.png && sips -z 256 256 /tmp/icon.png
  *   zopflipng -y /tmp/icon.png assets/octo-icon-256.png
  *   base64 -i assets/octo-icon-256.png

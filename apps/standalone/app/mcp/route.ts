@@ -18,11 +18,10 @@ import {
 } from "./store-adapter";
 
 /**
- * GET/POST/DELETE /mcp — the standalone app's Model Context Protocol endpoint
- * (streamable HTTP). It's barebones and unauthenticated, like the rest of the
- * standalone app (local-only); the platform will mount the same handler behind an
- * API key. Integrations come from the local disk store, definitions are validated
- * with the editor's pre-flight, and the runtime catalogue is served as a resource.
+ * GET/POST/DELETE /mcp — this app's Model Context Protocol endpoint (streamable
+ * HTTP), unauthenticated like the rest of it. Integrations come from the local disk
+ * store, definitions are validated with the editor's pre-flight, and the runtime
+ * catalogue is served as a resource.
  */
 
 export const runtime = "nodejs";
@@ -31,16 +30,13 @@ export const dynamic = "force-dynamic";
 /**
  * Inject the runner's capability catalogue into the editor's schema registry.
  *
- * This route is a host of `@octo/editor` just as the editor page is, and it owes the
- * same injection: `validateDocument` checks block and connector types against the
- * *active* catalogue, and the bundled one is an empty fallback. Skip this and every
- * validation reports "unknown block type" for perfectly good YAML — which would make
- * the flow tools refuse every edit, since they validate before they save.
+ * This route hosts `@octo/editor` and owes it the same injection any host does:
+ * `validateDocument` checks types against the active catalogue, and the bundled one is
+ * an empty fallback, so without this every validation reports "unknown block type" for
+ * good YAML.
  *
- * Cheap to call on every request: `probeSchema` caches the parsed schema, and
- * `setCapabilities` is an idempotent assignment. Deliberately not memoized here — a
- * probe that failed because the binary was still building must be free to succeed
- * later.
+ * Cheap on every request — the probe caches and the assignment is idempotent — and not
+ * memoized here, so a probe that failed once is free to succeed later.
  */
 async function primeCapabilities(): Promise<unknown> {
   const schema = await probeSchema();

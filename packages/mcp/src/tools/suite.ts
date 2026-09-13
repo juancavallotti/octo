@@ -20,21 +20,16 @@ import { mockSpecSchema } from "../mocks";
 import { errorResult, guard, jsonResult, textResult } from "../result";
 
 /**
- * The test-authoring tools: write a flow's dolphin suite, and run it.
+ * The test-authoring tools: write a flow's dolphin suite, and run it. Writing without
+ * running produces a plausible-looking file; `run_tests` is what makes the rest worth
+ * having.
  *
- * `run_tests` is what makes the rest worth having. An agent that can write a test but
- * not run it has produced a plausible-looking file; one that can run it hands over
- * something it has watched pass. That is the difference between a transcript and a
- * durable artifact, which is the whole point of the issue these tools close.
- *
- * A suite is a REAL file — `<flow>_test.yaml`, committed, run by CI and by `dolphin test`
- * in a terminal, and shown in the editor's Testing tab. It is not the editor's meta file
- * next door: that one is scratch nobody else reads.
+ * A suite is a real file — `<flow>_test.yaml`, committed, run by CI and by `dolphin test`
+ * in a terminal — not editor scratch.
  *
  * **Values throughout.** A suite holds bodies and variables as values, and so do these
- * schemas — no JSON-in-a-string anywhere, unlike the flow-meta tools, whose file stores
- * them as text. The descriptions say so on both sides, because an agent that has used one
- * will assume the other.
+ * schemas: no JSON-in-a-string anywhere, unlike the flow-meta tools, whose file stores
+ * them as text. Both sides say so in their descriptions.
  */
 export function registerSuiteTools(
   server: McpServer,

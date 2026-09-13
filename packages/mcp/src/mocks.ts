@@ -4,16 +4,14 @@ import type { MockCase } from "@octo/editor/runtime";
 /**
  * How a mocked block is described to an agent, and the one conversion that goes with it.
  *
- * Shared by the run tools (which send a mock to the runner) and the meta tools (which
- * save one for the editor), because they describe the same thing and an agent that has
- * used one will assume the other. Two schemas would eventually disagree about the rules
- * below, which are the ones the runtime enforces and nothing else teaches.
+ * Shared by the run tools, which send a mock to the runner, and the meta tools, which
+ * save one for the editor: they describe the same thing, and two schemas would drift
+ * apart on the rules below, which only the runtime enforces.
  *
  * **Values here, text in the file.** The runner takes a mock's `body` and `vars` as
- * values, and so does this schema — asking an agent for a *string of JSON* invites silent
- * double-escaping. The editor's meta file holds them as JSON text instead, because the
- * editor edits them in a box and half-written text has to survive a re-render. So a saved
- * mock is converted on the way in and back on the way out, and only here.
+ * values, and so does this schema — asking for a string of JSON invites double-escaping.
+ * The editor's meta file holds them as JSON text, because half-written text has to
+ * survive a re-render, so a saved mock is converted on the way in and out, only here.
  */
 export const mockCaseSchema = z.object({
   when: z

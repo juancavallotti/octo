@@ -3,13 +3,8 @@ import path from "node:path";
 
 /**
  * The shell's memory between launches: which folder was open, which ones came
- * before, and any port the user pinned.
- *
- * Hand-rolled rather than electron-store, because the whole feature is "read a
- * small JSON file, write it back atomically" and a dependency for that is a
- * dependency to keep, audit and package. Atomic because the alternative — a
- * truncating write interrupted by a quit — loses the user's recents list at
- * exactly the moment they would notice.
+ * before, and any port the user pinned. Written atomically, because a truncating
+ * write interrupted by a quit loses the lot.
  */
 
 export interface Vault {
@@ -19,11 +14,8 @@ export interface Vault {
 
 /**
  * What the user chose in Settings, as opposed to what the app remembers on its own.
- *
- * `runtime` holds *paths*, not versions, and deliberately: the bundled binaries are
- * the default and an override is a file the user pointed at. A future "download a
- * version" source would fill these same fields in with a path under userData, so it
- * needs no migration and no second notion of which runtime is in use.
+ * `runtime` holds paths, not versions: the bundled binaries are the default and an
+ * override is a file on disk.
  */
 export interface DesktopSettings {
   /** Overrides for the runtime binaries. Absent means the ones inside the app. */
@@ -31,11 +23,8 @@ export interface DesktopSettings {
   /** Check for a new version of Octo Desktop on launch. Absent means yes. */
   autoUpdateCheck?: boolean;
   /**
-   * Preferences the editor reads, as opposed to the ones the shell acts on itself.
-   *
-   * Grouped under their own key because that is what they are: the shell stores them
-   * and hands them to the page, and nothing in the main process changes behaviour
-   * because of them. Absent means every editor preference is at its default.
+   * Preferences the shell only stores and hands to the page; nothing in the main
+   * process acts on them. Absent means every one of them is at its default.
    */
   editor?: { autoLearn?: boolean };
 }
@@ -58,12 +47,9 @@ export function stateFile(dir: string): string {
 }
 
 /**
- * Read the stored state, or the empty state.
- *
- * Any failure — missing, unreadable, truncated, or valid JSON of the wrong shape
- * — resolves to the empty state rather than an error. This file is a convenience;
- * losing it costs the user a folder picker they would otherwise have skipped, and
- * refusing to launch over it would be wildly out of proportion.
+ * Read the stored state. Any failure — missing, unreadable, truncated, or valid
+ * JSON of the wrong shape — gives the empty state rather than an error: this file is
+ * a convenience and must never cost a launch.
  */
 export function read(dir: string): DesktopState {
   try {
@@ -79,10 +65,8 @@ export function read(dir: string): DesktopState {
           )
         : [],
       port: typeof state.port === "number" ? state.port : undefined,
-      // Validated like everything else here rather than passed through: this file
-      // is user-editable and survives upgrades, so a `window` of the wrong shape
-      // reaches BrowserWindow as NaN or a string and throws at construction —
-      // which is a launch failure caused by a remembered convenience.
+      // Validated rather than passed through: this file is user-editable, and a
+      // `window` of the wrong shape throws at BrowserWindow construction.
       window: validWindow(state.window),
       settings: validSettings(state.settings),
     };
@@ -92,13 +76,9 @@ export function read(dir: string): DesktopState {
 }
 
 /**
- * Settings, with every field checked.
- *
- * A path of the wrong type would reach spawn() as a non-string and fail the launch,
- * and this file is user-editable — so a hand-edited mistake has to cost the setting,
- * not the app. Whether the path *exists* is not checked here: the file is read at
- * launch and the binary may live on a volume that is not mounted yet, so that
- * question belongs to the moment the binary is used.
+ * Settings, with every field checked, so a hand-edited mistake costs the setting
+ * rather than the launch. Whether a path exists is not checked: the volume holding
+ * it may not be mounted yet, so that question belongs to the moment of use.
  */
 function validSettings(s: DesktopSettings | undefined): DesktopSettings | undefined {
   if (!s || typeof s !== "object") return undefined;
@@ -148,12 +128,8 @@ export function remember(state: DesktopState, vaultPath: string, now = Date.now(
 }
 
 /**
- * Drop remembered folders that are no longer there.
- *
- * A folder can be renamed, moved or unmounted between launches, and a menu that
- * offers one is a menu with a dead entry. Deliberately applied on read for the
- * menu rather than written back: an external drive that is merely unplugged today
- * should still be in the list when it is plugged back in.
+ * Drop remembered folders that are no longer there. Filtered on read rather than
+ * written back, so a folder on an unplugged drive returns with it.
  */
 export function existing(recents: Vault[]): Vault[] {
   return recents.filter((v) => existsSync(v.path));

@@ -1,29 +1,25 @@
 import YAML from "yaml";
 
 /**
- * Port allocation for namespaced editor runs. Two things a run needs a real,
- * unique port for:
+ * Port allocation for namespaced editor runs, which share one host and so need two
+ * unique ports each:
  *
- * - **HTTP.** A networked integration (one that serves an HTTP source) needs a listen
- *   port this app can proxy to; with many concurrent users we hand each run one from
- *   a pool starting at 40000 and inject it as HTTP_PORT when spawning `octo` —
- *   mirroring how the orchestrator overrides the declared port in production.
- * - **The admin port.** The runtime's observability service (probes and metrics)
- *   is on by default and binds a fixed `:39999`, which every run would fight over:
- *   in production one run owns its pod, but here they share a host. So each run
- *   also gets an admin port, injected as OCTO_OBSERVABILITY_ADDR, and several runs
- *   can be monitored at once instead of the second one starting without probes.
+ * - **HTTP.** A run serving an HTTP source gets a listen port from a pool and has it
+ *   injected as HTTP_PORT, which is also the port this app proxies to.
+ * - **The admin port.** The runtime's observability service binds a fixed `:39999`
+ *   unless told otherwise, so each run is given its own and handed it as
+ *   OCTO_OBSERVABILITY_ADDR; without it the second concurrent run starts with no
+ *   probes.
  *
  * The two live in separate ranges rather than one pool, so a run's admin port can
- * never be handed to another run's HTTP listener (and a port in a log line says
- * which of the two it is).
+ * never be handed to another run's HTTP listener, and a port in a log line says which
+ * of the two it is.
  */
 
 /**
- * First HTTP port handed out. The pool is local to this process, which is what confines it
- * to this app: a second replica would hand out the same numbers for different runs and know
- * nothing of the first's. That is the property that made a shared local runner untenable
- * on the platform, and it is stated here because this is where it is decided.
+ * First HTTP port handed out. The pool lives in this process's memory, so a second
+ * replica would hand out the same numbers knowing nothing of the first's: this app
+ * runs as one process per vault.
  */
 const BASE_PORT = 40000;
 /** Inclusive top of the HTTP pool — 1000 concurrent networked runs per editor pod. */
@@ -147,17 +143,12 @@ interface FlowDecl {
 }
 
 /**
- * isExposable reports whether a run serves HTTP on the port this host hands it — the
- * same question the orchestrator's resolveRuntimeEnv answers in production, and it
- * must stay the same question: the two disagreeing means the editor promises a test
- * URL the platform will not publish, or the reverse.
+ * isExposable reports whether a run serves HTTP on the port this host hands it.
  *
- * It is NOT "does the document declare HTTP_PORT". This host does not read the port so
- * much as choose it: it allocates one from a pool, injects it, and proxies to what it
- * injected. So the only thing that matters is whether the listener takes that value —
- * see {@link wiresInjectedPort}, which is also where every way of failing to is
- * written down. A declaration nothing reads is not an endpoint, and an HTTP source
- * with no declaration at all is wired perfectly well.
+ * Not "does the document declare HTTP_PORT": the port is chosen here, injected, and
+ * proxied to, so the only question is whether the listener takes that value — see
+ * {@link wiresInjectedPort}. A declaration nothing reads is not an endpoint, and an
+ * HTTP source with no declaration at all is wired perfectly well.
  *
  * A malformed document is treated as internal-only; the runtime validates the full
  * document at load time.
@@ -170,10 +161,8 @@ export function isExposable(yaml: string): boolean {
     return false;
   }
   // A cast is not a parse: `env:` written as a mapping types as an array here and is
-  // not one at runtime. Iterating it would throw out of isExposable and fail the run
-  // start outright, and skipping it quietly would call a document exposable that the
-  // orchestrator's unmarshal rejects. Neither is an answer, so a document that is not
-  // shaped like a run document is internal-only, same as one that does not parse.
+  // not one at runtime. A document that is not shaped like a run document is
+  // internal-only, same as one that does not parse.
   const env = sequence<EnvDecl>(decl.env);
   const connectors = sequence<ConnectorDecl>(decl.connectors);
   const flows = sequence<FlowDecl>(decl.flows);
@@ -197,13 +186,13 @@ function sequence<T>(value: unknown): T[] | null {
 /**
  * wiresInjectedPort reports whether the injected address reaches a listener that
  * serves routes. Every way for that to fail — a connector pinning its own port, one
- * reading a different variable, one whose `${HTTP_PORT}` is undeclared (a load error),
- * a pinned non-loopback host, an ambiguous binding, two connectors racing for the same
- * injected port, or simply no HTTP source at all — is a run this host would proxy into
- * a void. The rules it mirrors are the runtime's own: settings beat the environment
- * (resolvePort/resolveHost) and a source resolves its connector by explicit binding,
- * then by a lone configured instance of the type, then by starting one on demand
- * (connectorSet.resolveConnector).
+ * reading a different variable, one whose `${HTTP_PORT}` is undeclared, a pinned
+ * non-loopback host, an ambiguous binding, two connectors racing for the same port,
+ * or no HTTP source at all — is a run this host would proxy into a void.
+ *
+ * It follows the runtime's own resolution rules: settings beat the environment, and a
+ * source resolves its connector by explicit binding, then by a lone configured
+ * instance of the type, then by starting one on demand.
  */
 function wiresInjectedPort(
   connectors: ConnectorDecl[],

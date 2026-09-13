@@ -3,17 +3,10 @@ import path from "node:path";
 import { mainWindow } from "./window";
 
 /**
- * The Settings window.
- *
- * A local page in its own window rather than a screen inside the editor, because of
- * what it configures: which runtime binary to use, and whether to check for updates.
- * Both have to be reachable when the editor server has *failed to start* — which is
- * exactly when a wrong binary needs correcting — and the editor is served by that
- * server. A settings screen you can only reach when everything already works is not
- * a settings screen.
- *
- * It follows the splash page's precedent: a static file next to the bundle, loaded
- * over file:// with its own preload. No framework, no build step of its own.
+ * The Settings window: a static page beside the bundle, loaded over file:// with its
+ * own preload. It has to be reachable when the editor server has failed to start,
+ * which is exactly when a wrong runtime binary needs correcting — so it cannot be a
+ * screen that server renders.
  */
 
 let win: BrowserWindow | null = null;
@@ -37,14 +30,12 @@ export function openSettings(): void {
   win = new BrowserWindow({
     width: 620,
     height: 560,
-    // Not resizable in width: the form is a single column and a 2000px-wide
-    // settings window is nobody's idea of one.
+    // Not resizable in width: the form is a single column.
     minWidth: 620,
     maxWidth: 620,
     minHeight: 420,
     title: "Settings",
-    // A panel over the app rather than a second app window: no menu bar of its own,
-    // and on macOS it hides with the app.
+    // A panel over the app rather than a second app window.
     parent: mainWindow() ?? undefined,
     show: false,
     webPreferences: {
@@ -71,8 +62,7 @@ export async function pickBinaryFile(title: string): Promise<string | null> {
   const options = {
     title,
     message: title,
-    // No extension filter: a Go binary has none on macOS and Linux, and `.exe` on
-    // Windows — a filter would hide the file it is meant to help find.
+    // No extension filter: the binaries have no extension off Windows.
     properties: ["openFile"] as const,
     buttonLabel: "Use This",
   };

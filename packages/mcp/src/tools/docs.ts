@@ -12,17 +12,12 @@ import {
 } from "../cel";
 
 /**
- * Documentation tools: serve the runtime schema and the worked examples on demand,
- * one element at a time, as **tools** rather than resources. Some MCP clients
- * (notably Claude Desktop) only surface tools, not resources/prompts, so an author
- * there is blind to the `octo://runtime/schema` + `octo://examples` resources.
- * These tools expose the same catalogues focusedly — `getSchema()` lists the block
- * and connector types, `getSchema(elementName)` returns one full spec, and the
- * example pair mirrors it — so the client never has to pull (or the model wade
- * through) the whole schema blob to author a single block. The resources stay
- * registered too (see resource.ts) for clients that do consume them.
- * `getCelFunctions` similarly serves the CEL variables/functions in scope for
- * message expressions (which have no resource equivalent at all).
+ * Documentation tools: the runtime schema, the worked examples and the CEL catalogue,
+ * served one element at a time as **tools** rather than resources, because some MCP
+ * clients surface only tools. `getSchema()` lists the block and connector types,
+ * `getSchema(elementName)` returns one full spec, and the example pair mirrors it, so
+ * nothing has to pull the whole schema to author a single block. The equivalent resources
+ * stay registered too (see resource.ts).
  */
 export function registerDocsTools(
   server: McpServer,

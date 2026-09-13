@@ -1,10 +1,9 @@
 /**
  * @octo/mcp — a reusable Model Context Protocol server exposing Octo integration
- * authoring and run control. Hosts (the platform and the standalone app) mount it
- * at `/mcp` by supplying an {@link OctoMcpConfig} (their integration store, a
- * validator, and the runtime schema); this package owns the tools, the
- * runtime-schema resource, the authoring prompts, and the per-session run host
- * wiring. Node-only — never import from a browser bundle.
+ * authoring and run control. A host mounts it by supplying an {@link OctoMcpConfig}:
+ * its integration store, a validator, and the runtime schema. This package owns the
+ * tools, the runtime-schema resource, the authoring prompts, and the per-session run
+ * host wiring. Node-only — never import from a browser bundle.
  */
 
 export type {

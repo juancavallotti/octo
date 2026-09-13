@@ -1,20 +1,14 @@
 /**
- * @octo/run-host — what the two hosts of the editor's RUN feature genuinely share.
- * The package is shaped by what that turns out to be, and by what it is not:
+ * @octo/run-host — what every host of the editor's RUN feature shares:
  *
  *  - **The app-runner port** (`runner.ts`) — the long-running app's interface, with no
- *    implementation. The two backends are a child process of the host and a dev-run pod
- *    somewhere else, and each belongs to the app that runs that way. A shared interface
- *    with app-owned implementations is the point; a shared implementation that one app
- *    ignores would be a dependency pointing the wrong way.
+ *    implementation. A backend belongs to the host that runs that way.
  *  - **The one-shots** (`exec/`) — `invoke`, `evalCel` and `test`: spawn a child, wait,
- *    report. Both hosts run them identically and locally, which is what makes them
- *    shared rather than merely co-located.
+ *    report. Every host runs them the same way, locally.
  *  - **The pieces both of those need**: staging a config and its resources, finding the
  *    binaries, the runtime's capability schema, and the run namespace.
  *
- * Apps wrap these in their own thin Next route handlers and server actions (adding
- * auth where needed). Node-only — never import from a browser bundle.
+ * Node-only — never import from a browser bundle.
  */
 
 export {

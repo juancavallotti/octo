@@ -20,12 +20,10 @@ import StandaloneHeader from "./StandaloneHeader";
 import { useDesktopPrefs } from "./useDesktopPrefs";
 
 /**
- * Standalone wiring for the shared editor: the local-disk filesystem capability
- * (load/save `*.yaml` flows under OCTO_FS_DIR) and the local run transport (the
- * bundled `octo` binary via @octo/run-host). `file` is the open flow id, taken
- * from the `?file=` query so the editor loads it on mount. `capabilities` is the
- * runtime-generated schema the server probed (null when no runner is configured);
- * it's injected before the editor renders so the palette derives from it.
+ * This app's wiring for the shared editor: the local-disk filesystem capability and
+ * the local run transport. `file` is the open flow id, taken from the `?file=` query.
+ * `capabilities` is the runtime schema the server probed — null when no runner is
+ * configured — injected before the editor renders so the palette derives from it.
  */
 export default function StandaloneEditor({
   file,
@@ -52,8 +50,7 @@ export default function StandaloneEditor({
    * each: the definition may need the user's say-so before it replaces unsaved work,
    * while a suite or a mock written elsewhere should simply appear.
    */
-  // Set in the desktop shell's Settings window; null in a browser, where the editor
-  // falls back to its own defaults.
+  // Null when nothing is hosting the page, where the editor uses its own defaults.
   const prefs = useDesktopPrefs();
 
   const [reloadToken, setReloadToken] = useState(0);

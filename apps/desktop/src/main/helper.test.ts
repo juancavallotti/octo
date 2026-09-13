@@ -3,10 +3,8 @@ import { describe, expect, it } from "vitest";
 import { helperExecutable } from "./helper";
 
 /**
- * The layout of a packaged .app is the contract here, and it is not one this code
- * can discover at run time on a developer's machine: the path is only ever exercised
- * in a signed bundle, where getting it wrong means the app starts, shows a splash,
- * and never comes up.
+ * The layout of a packaged .app is the contract, and it is only ever exercised in a
+ * signed bundle — so it is pinned here rather than discovered at run time.
  */
 describe("helperExecutable", () => {
   const resources = "/Applications/Octo.app/Contents/Resources";

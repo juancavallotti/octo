@@ -12,11 +12,9 @@ import type { LogLine } from "@octo/run-host";
 const MAX_LOG_LINES = 5000;
 
 /**
- * Cap on an unterminated line held while its newline is awaited. A runner that writes
- * megabytes with no "\n" — a stray binary stream, a runaway stack trace — would
- * otherwise grow this buffer without bound and take the host down. Past the cap we
- * flush what we have as a line and carry on, so the held buffer never outgrows one
- * line's worth. 1 MiB of UTF-16 code units is far above any real log line.
+ * Cap on an unterminated line held while its newline is awaited: output with no "\n"
+ * in it would otherwise grow this buffer without bound. Past the cap what is held is
+ * flushed as a line. 1 MiB of UTF-16 code units is far above any real log line.
  */
 const MAX_LINE_CHARS = 1 << 20;
 

@@ -27,9 +27,8 @@ export function octoBin(): string {
 }
 
 /**
- * The `dolphin` binary. A separate variable from the runner's, deliberately: the two are
- * different binaries and either can be missing on its own, which is what lets a host run
- * flows while reporting the Testing tab's run controls as unavailable.
+ * The `dolphin` binary, under a variable of its own: either binary can be missing
+ * without the other, and a host may run flows while reporting testing as unavailable.
  */
 export function dolphinBin(): string {
   const bin = process.env.DOLPHIN_BIN_PATH;
@@ -59,10 +58,9 @@ export function terminate(proc: ChildProcess): () => void {
 /**
  * Split captured output into lines, dropping a trailing empty line and CRs.
  *
- * Note what this does NOT do: drop blank lines in the middle. A runner's stderr is slog
- * output and a blank line in it is something it printed — the test runner wants the
- * opposite (see nonEmptyLines in exec/test.ts), and the two are deliberately not the
- * same function.
+ * Blank lines in the middle are kept: a runner's stderr is structured log output, and a
+ * blank line in it is something it printed. `nonEmptyLines` in exec/test.ts answers the
+ * other question and is deliberately a different function.
  */
 export function splitLines(text: string): string[] {
   if (text === "") return [];

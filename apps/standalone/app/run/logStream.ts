@@ -4,19 +4,12 @@ import type { LogLine, LogStreamOptions } from "@octo/run-host";
 /**
  * Replay a namespace's log buffer and then follow it, as one stream.
  *
- * It sits apart from the runner because it touches none of what the runner owns:
- * no child process, no ports, no config file — only the buffer a session already
- * holds. What it does own is the handover from replay to live, which is the part
- * with a correctness argument worth keeping in one place.
+ * Apart from the runner because it touches none of what the runner owns: no child
+ * process, no ports, no config file — only the buffer a session already holds.
  *
- * The subscription is taken BEFORE the snapshot, deliberately. Both happen in one tick
- * today, so nothing can arrive between them — but ordering it this way means that if
- * anything ever does, the line is delivered twice rather than lost, and the sequence
- * cursor below drops the duplicate. A dropped log line is invisible; a repeated one is
- * not.
- *
- * The cursor does double duty: it honours `fromSeq` so an SSE reconnect does not replay
- * what the client already showed, and it makes that handover safe.
+ * The subscription is taken BEFORE the snapshot, so a line arriving between the two is
+ * delivered twice rather than lost and the sequence cursor drops the duplicate. That
+ * cursor also honours `fromSeq`, so a reconnect does not replay what the caller has.
  */
 export async function* followLogs(
   ns: string,

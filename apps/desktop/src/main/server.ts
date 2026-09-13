@@ -6,30 +6,22 @@ import { nodeExecutable, runDir, serverDir, serverEntry } from "./paths";
 import { binary } from "./settings";
 
 /**
- * The editor server as a child process.
+ * The editor server as a child process: the stock Next standalone build, spawned
+ * with its documented environment contract (OCTO_FS_DIR, OCTO_BIN_PATH,
+ * DOLPHIN_BIN_PATH, OCTO_RUN_DIR) and nothing built specially for this shell.
  *
- * It is the *same* Next standalone server the Docker image runs, spawned with the
- * same environment contract (OCTO_FS_DIR, OCTO_BIN_PATH, DOLPHIN_BIN_PATH,
- * OCTO_RUN_DIR). That equivalence is the point of the whole design: there is no
- * desktop build of the editor to keep in step, and a bug reproduced in Docker is
- * the same bug here.
- *
- * It runs on Electron's own Node (ELECTRON_RUN_AS_NODE), which is why nothing
- * bundles a second Node binary — one fewer thing to ship, sign, and keep aligned
- * with the Next version. *Which* of Electron's executables it runs on is not a
- * detail: see nodeExecutable() in paths.ts.
+ * It runs on Electron's own Node (ELECTRON_RUN_AS_NODE), so nothing here ships a
+ * second Node binary. Which of Electron's executables it runs on is not a detail:
+ * see nodeExecutable() in paths.ts.
  */
 
 /** How long to wait for the server to answer /api/health before giving up. */
 const READY_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 100;
 /**
- * Ceiling on a single health probe.
- *
- * Without one, a server that accepts the connection and then never answers parks
- * the poll loop inside the await forever: the 30s deadline is only re-checked
- * between probes, so it never fires and the user sits on the splash screen with no
- * error and no way forward.
+ * Ceiling on a single health probe. The readiness deadline is only re-checked
+ * between probes, so an unbounded probe against a connection that never answers
+ * parks the poll loop forever.
  */
 const PROBE_TIMEOUT_MS = 2000;
 
@@ -48,12 +40,9 @@ let running: RunningServer | null = null;
 /** Set while stop() is in flight, so the exit handler knows this death was ours. */
 let stopping = false;
 /**
- * Whether the current child ever reached readiness.
- *
- * A child that dies before it is ready is start()'s failure to report, not a crash:
- * without this, a server that exited during startup told the user twice — once via
- * the crash dialog (which quits the app) and once via start()'s own error — and the
- * quit made vault.ts's "fall back to the previous folder" recovery unreachable.
+ * Whether the current child ever reached readiness. A child that dies before it is
+ * ready is start()'s failure to report, not a crash, so it must not also fire the
+ * crash notification.
  */
 let wasReady = false;
 /** Notified when the server dies on its own — a crash, not a stop. */
@@ -67,16 +56,15 @@ export function onServerCrash(fn: () => void): void {
   onCrash = fn;
 }
 
-/** The environment the child runs with — the Docker image's contract, verbatim. */
+/** The environment the child runs with — the server's documented contract. */
 function childEnv(vault: string, port: number): NodeJS.ProcessEnv {
   return {
     ...process.env,
     // Run the Electron binary as plain Node rather than as an app.
     ELECTRON_RUN_AS_NODE: "1",
     NODE_ENV: "production",
-    // Loopback only. This server has no auth by design (it is the standalone
-    // app), so binding it to anything reachable off-box would publish the user's
-    // filesystem to their network.
+    // Loopback only: this server has no auth, so anything reachable off-box would
+    // publish the user's filesystem to their network.
     HOSTNAME: "127.0.0.1",
     PORT: String(port),
     // A packaged desktop app must not phone home on the user's behalf.
@@ -102,12 +90,9 @@ async function healthy(url: string): Promise<boolean> {
 }
 
 /**
- * Poll until the server answers, it dies, or the ceiling is reached.
- *
- * Probing /api/health rather than / is deliberate: / renders the editor page,
- * which probes the runtime's capability schema by exec'ing `octo schema`. That
- * would make readiness depend on the runner working, so a missing binary would
- * present as a server that never came up.
+ * Poll until the server answers, it dies, or the ceiling is reached. Probes
+ * /api/health rather than /, which renders a page that execs the runtime binary and
+ * would make readiness depend on it.
  */
 async function waitForReady(url: string): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -136,8 +121,7 @@ export async function start(vault: string, port: number): Promise<RunningServer>
     env: childEnv(vault, port),
     stdio: ["ignore", "pipe", "pipe"],
     // Its own process group, so stopping the server also reaps any `octo` it
-    // spawned. Next converts SIGTERM into process.exit, which does run the app's
-    // own kill hook — this is the belt to that braces.
+    // spawned.
     detached: process.platform !== "win32",
   });
 
@@ -154,9 +138,8 @@ export async function start(vault: string, port: number): Promise<RunningServer>
     if (crashed) onCrash?.();
   });
 
-  // Read before the await: the exit handler sets `child` to null, and TypeScript
-  // cannot see that assignment — so reading child.pid afterwards is a null
-  // dereference on any server that answers once and dies immediately.
+  // Read before the await: the exit handler sets `child` to null, so reading
+  // child.pid afterwards faults on a server that dies immediately.
   const pid = child.pid ?? -1;
 
   try {

@@ -2,35 +2,17 @@
  * Reading and rewriting ONE flow inside an integration's definition, leaving every other
  * byte of the file exactly as it was.
  *
- * An integration is one YAML file holding many flows, and the only way to change one used
- * to be `update_integration`, which overwrites the whole thing. That makes an agent
- * editing a single flow reproduce every other flow, every connector, and every comment
- * from memory — and quietly lose whatever it got wrong. These functions exist so it
- * doesn't have to.
- *
- * ## Why this is a textual splice, and not an AST rewrite
- *
- * The obvious implementation — parse to a `Document`, swap one item of the `flows`
- * sequence, stringify — **does not work**, and it fails in a way that is easy to miss
- * because it only shows up on real files.
- *
- * Stringifying a document re-serializes *every* node from the AST, not just the one that
- * changed. The AST does not remember how a scalar was written, so the printer re-decides:
- * long single-quoted CEL expressions get folded at the line width, and folded block
- * scalars (`prompt: >`) get flattened onto one line. Those rewrites land on flows the
- * caller never touched. A tool whose entire purpose is "stop clobbering the parts you
- * weren't asked to touch" cannot be built on a printer that clobbers them — the damage
- * would surface as a noisy diff in the user's repo, attributed to an edit they never made.
+ * It is a textual splice rather than an AST rewrite, and that is load-bearing:
+ * stringifying a parsed document re-serializes every node, not just the changed one. The
+ * AST does not remember how a scalar was written, so the printer re-decides — long
+ * single-quoted expressions fold at the line width, folded block scalars flatten onto one
+ * line — and those rewrites land on flows the caller never touched.
  *
  * So the document is parsed only to *locate* the flow. Each node carries a `range` into
- * the source text, and the edit is then done on the string: take the bytes before the
- * flow, the bytes after it, and put the new flow between them. Everything outside that
- * range is not re-printed — it is the same bytes it always was. Comments above a flow,
- * the blank lines between flows, and the formatting of every other flow are preserved not
- * by effort but by construction.
- *
- * The flow being written is likewise inserted verbatim, so a block scalar or a comment the
- * caller wrote in it survives into the file too.
+ * the source text, and the edit happens on the string: the bytes before the flow, the new
+ * flow, the bytes after it. Everything outside that range is never re-printed, so
+ * comments, blank lines and the formatting of every other flow survive by construction —
+ * as does the flow being written, which is inserted verbatim.
  */
 
 import { isMap, isSeq, parseDocument, type Document, type YAMLMap, type YAMLSeq } from "yaml";
@@ -111,16 +93,13 @@ function spanOf(src: string, item: unknown): Span {
 /**
  * Extend a span backwards over the comment block written directly above the flow.
  *
- * A flow's span starts at its `- ` bullet, so the doc comment above it sits *outside* —
- * which is what {@link updateFlow} wants (the comment still describes the flow, which is
- * still there) and what {@link deleteFlow} does not: left behind, the comment does not
- * merely litter, it slides down onto the next flow and captions the wrong one.
+ * A flow's span starts at its `- ` bullet, so the comment above it sits outside — which
+ * suits {@link updateFlow} and not {@link deleteFlow}, where a comment left behind slides
+ * onto the next flow and captions the wrong one.
  *
- * The parser cannot settle who owns the comment — a block above the *first* flow is
- * attached to the sequence, not to the flow, because from `flows:` it is equally readable
- * as a caption for the list. So we use the rule a human reads the file by: a comment butted
- * against the flow belongs to it, and a blank line ends the block. That leaves a file- or
- * list-level note (set apart by a blank line, as such notes are) exactly where it was.
+ * The parser cannot settle who owns it: a block above the first flow attaches to the
+ * sequence. So this uses the rule a reader uses — a comment butted against the flow
+ * belongs to it, and a blank line ends the block, leaving a list-level note where it was.
  */
 function commentStart(src: string, start: number): number {
   let at = start;
@@ -241,10 +220,9 @@ export function addFlow(definition: string, flowYaml: string): string {
  * Replace the flow named `name`, in place. Everything else in the file — the other flows,
  * the connectors, the comments, the blank lines — is left byte for byte as it was.
  *
- * The replacement may carry a different `name`, which renames the flow where it sits. That
- * is deliberate: a rename is a normal edit, and forcing it through delete+add would move
- * the flow to the end of the file for no reason. A rename onto a name another flow already
- * holds is still refused.
+ * The replacement may carry a different `name`, renaming the flow where it sits rather
+ * than moving it to the end of the file. A rename onto a name another flow holds is
+ * refused.
  */
 export function updateFlow(definition: string, name: string, flowYaml: string): string {
   const { src, seq } = parse(definition);

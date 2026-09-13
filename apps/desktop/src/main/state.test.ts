@@ -5,11 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { EMPTY, MAX_RECENTS, existing, read, remember, stateFile, write } from "./state";
 
 /**
- * Two things are worth pinning here. First, that a damaged state file degrades to
- * "no memory" rather than to a crash — this file is a convenience, and refusing to
- * launch over it would be wildly out of proportion. Second, the recents ordering,
- * which is the kind of small logic that is easy to get subtly wrong (a duplicate
- * that does not move to the top, a cap applied before the dedupe).
+ * Two things worth pinning: a damaged state file degrades to "no memory" rather than
+ * a crash, and the recents ordering — dedupe before cap, most recent first.
  */
 
 const dirs: string[] = [];
@@ -75,8 +72,8 @@ describe("read: window geometry", () => {
   });
 
   it("drops anything BrowserWindow would choke on", () => {
-    // This file survives upgrades and can be hand-edited, so a bad value here
-    // would otherwise be a launch failure caused by a remembered convenience.
+    // Hand-editable, so a bad value must cost the remembered geometry, not the
+    // launch.
     for (const bad of [
       { width: "1440", height: 900 },
       { width: 1440 },
@@ -143,9 +140,8 @@ describe("existing", () => {
 });
 
 /**
- * Settings are validated on read for the same reason everything else here is: the
- * file is user-editable, and a runtime path of the wrong type reaches spawn() as a
- * non-string and fails the launch. A hand-edited mistake should cost the setting.
+ * Settings are validated on read: a runtime path of the wrong type would reach
+ * spawn() as a non-string, and a hand-edited mistake should cost the setting.
  */
 describe("settings", () => {
   const stored = (settings: unknown) => {
@@ -184,8 +180,8 @@ describe("settings", () => {
   });
 
   it("drops an editor preference that is not a boolean", () => {
-    // The page turns an absent preference into its default, and the default for
-    // running the user's flows unasked is no. A string must not read as yes.
+    // Absent means the default, which for running flows unasked is no; a string
+    // must not read as yes.
     expect(stored({ editor: { autoLearn: "yes" } })).toEqual({});
   });
 

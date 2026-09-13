@@ -6,16 +6,14 @@ import type { LogLine, RunState } from "@octo/run-host";
 /**
  * What a local run *is*, and how you read one.
  *
- * This is the half of the local runner that holds no processes: the session record,
- * the `globalThis` store that survives Next's dev HMR reloads, the per-namespace
- * lock that serialises the operations which do spawn and kill, and the read-only
- * accessors. `localRunner.ts` owns the other half — starting, syncing and stopping —
- * and is the only module that mutates a session's process fields.
+ * The half of the local runner that holds no processes: the session record, the
+ * `globalThis` store that survives dev HMR reloads, the per-namespace lock that
+ * serialises the operations which do spawn and kill, and the read-only accessors.
+ * `localRunner.ts` owns the other half and is the only module that mutates a session's
+ * process fields.
  *
- * The split is along that line deliberately. Everything here is safe to call from
- * anywhere at any time: the reaper sweeps the map, the reverse proxy asks for a
- * port, the SSE route tails a buffer. None of them should have to reason about a
- * start that is halfway through.
+ * Everything here is safe to call from anywhere at any time, so no reader has to reason
+ * about a start that is halfway through.
  */
 
 export interface Session {
@@ -65,15 +63,12 @@ function locks(): Map<string, Promise<unknown>> {
 
 /**
  * Run `fn` with exclusive access to a namespace: start, stop and sync all mutate the
- * same child process, the same pooled ports and the same config file, so they must not
- * interleave. A double-clicked Run fires two starts at once; without this the second
- * start's teardown runs before the first has recorded its child — both `octo` processes
- * spawn, and the one whose `s.proc` is overwritten is orphaned with its ports never
- * released (its exit handler sees `s.proc !== proc` and frees nothing). Each call chains
- * onto the namespace's previous one and runs no matter how that one settled.
+ * same child process, the same pooled ports and the same config file, so two of them
+ * interleaving orphans a process with its ports never released. Each call chains onto
+ * the namespace's previous one and runs no matter how that one settled.
  *
- * Read-only calls (status, snapshot, logs) intentionally stay off the lock: a slow start
- * must not block a status poll or a log tail, and none of them mutate the run.
+ * Read-only calls (status, snapshot, logs) stay off the lock: none of them mutate the
+ * run, and a slow start must not block a status poll or a log tail.
  */
 export function withNamespaceLock<T>(ns: string, fn: () => Promise<T>): Promise<T> {
   const map = locks();

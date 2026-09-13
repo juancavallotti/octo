@@ -151,12 +151,10 @@ export interface InvokeResult {
    * message is what it reports, and a caller after the body reads `.body` of the parsed
    * envelope.
    *
-   * This means the same thing whatever debug features the run used. Under `--spies` the
-   * runner prints a {@link DebugOutcome} on stdout *instead of* the result message, so
-   * this is re-derived from the envelope's `result` rather than left as the raw envelope
-   * text — otherwise turning on a spy, which is meant to be read-only, would change what
-   * every existing reader of `output` sees. It is empty for a `breakAt` run, which
-   * reports its snapshot in `breakpoint` and never produces a result.
+   * It means the same thing whatever debug features the run used: under `--spies` the
+   * runner prints a {@link DebugOutcome} instead of the result message, so this is
+   * re-derived from the envelope's `result` and a read-only spy changes nothing a reader
+   * sees. Empty for a `breakAt` run, which reports its snapshot in `breakpoint`.
    */
   output: string;
   /** The runner's stderr, split into lines (its slog output). */
@@ -222,13 +220,9 @@ export async function invoke(
     /** Runner log level. Applied as LOG_LEVEL, which `env` can still override. */
     logLevel?: LogLevel;
     /**
-     * Trace the run and report the message shapes it saw.
-     *
-     * A one-shot invoke is the cheapest true answer there is to "what do this flow's
-     * messages look like" — it is one flow, one message, already mocked however the
-     * canvas says. Most of what a scope model cannot work out by reading the document
-     * (what a source synthesizes, what a REST call returned) is sitting in the run the
-     * user just made.
+     * Trace the run and report the message shapes it saw. A one-shot invoke is the
+     * cheapest true answer to "what do this flow's messages look like": one flow, one
+     * message, mocked as the caller asked.
      */
     learnShapes?: boolean;
   },
@@ -375,11 +369,10 @@ export async function invoke(
  * one. The runner prints it as a single JSON line, but slog output can only reach
  * stderr, so the last non-blank stdout line is the envelope.
  *
- * Identifying it takes both keys, not just one. A breakpoint envelope always carries a
- * boolean `reached`; a **spies-only** envelope deliberately omits it (so it cannot be
- * read as a breakpoint that never fired) and carries a `spies` array instead. A plain
- * result message — `{event_id, variables, body}` — carries neither, which is what keeps
- * a mocks-only run from being mistaken for an envelope.
+ * Identifying it takes both keys. A breakpoint envelope always carries a boolean
+ * `reached`; a spies-only envelope omits it — so it cannot read as a breakpoint that
+ * never fired — and carries a `spies` array instead. A plain result message carries
+ * neither.
  */
 function parseDebugOutcome(stdout: string): DebugOutcome | undefined {
   const line = splitLines(stdout)

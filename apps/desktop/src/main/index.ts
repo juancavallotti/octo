@@ -11,28 +11,20 @@ import { initialVault, rememberVault } from "./vault";
 import { confineTo, createWindow, mainWindow, splashHint } from "./window";
 
 /**
- * Octo Desktop — the standalone editor, as an app that opens a folder.
- *
- * The whole design in one line: this process owns the *shell* (window, menus,
- * which folder is open, where the binaries are) and spawns the existing Next
- * standalone server as a child to own everything else. Nothing about the editor
- * is reimplemented here, which is why the app is this small.
+ * Octo Desktop — the editor as an app that opens a folder. This process owns the
+ * shell (window, menus, which folder is open, where the binaries are) and spawns the
+ * Next standalone server as a child to own everything else.
  */
 
-// Before anything reads a path. Electron keys userData and logs on the app name,
-// which it takes from package.json "name" — that is "desktop", the workspace
-// package, and it would put the user's state in ~/Library/Application Support/desktop.
-// productName is what a packaged build uses; setName makes an unpackaged run agree,
-// so dev and packaged read the same state file instead of two different ones.
+// Before anything reads a path: Electron keys userData and logs on the app name, and
+// the package name would put the user's state under "desktop". Setting it here makes
+// an unpackaged run agree with a packaged one's productName.
 app.setName("Octo");
 
 /**
  * Report a failed start with the server's own last words, which usually say why.
- *
- * Settings is offered rather than only Quit because one cause of this dialog is a
- * runtime binary the user chose that does not run — and quitting is not a way out of
- * that. Choosing it leaves the app up on the splash screen so the setting can be
- * corrected, which restarts the server from there.
+ * Offers Settings as well as Quit: one cause is a chosen runtime binary that does not
+ * run, and correcting that setting restarts the server from the splash screen.
  */
 async function reportStartFailure(err: unknown): Promise<void> {
   const detail = err instanceof Error ? err.message : String(err);
@@ -58,31 +50,27 @@ async function boot(): Promise<void> {
     const server = await start(vault, port);
     rememberVault(vault);
     publish(server);
-    // Rebuilt after the server is up, because two of its items (the MCP URL, the
-    // reveal-folder item) are only meaningful once there is a server and a folder.
+    // Rebuilt after the server is up: the MCP URL and reveal-folder items are only
+    // meaningful once there is a server and a folder.
     buildMenu();
-    // After the server is up, not before: the first thing a launch owes the user is
-    // their editor, and a dialog about a new version in front of a splash screen is
-    // an interruption of the thing they actually asked for.
+    // After the server is up, so an update dialog never lands in front of a splash
+    // screen.
     checkOnLaunch();
 
     const win = mainWindow();
     if (!win) return;
     confineTo(win, server.url);
-    // Loading over http://127.0.0.1 rather than a custom protocol is required,
-    // not stylistic: the editor saves through Next Server Actions, whose CSRF
-    // check compares Origin against Host. An app:// origin fails that check and
-    // every save with it.
+    // http://127.0.0.1 rather than a custom protocol: Server Actions check Origin
+    // against Host, and an app:// origin fails that check and every save with it.
     await win.loadURL(server.url);
   } catch (err) {
     await reportStartFailure(err);
   }
 }
 
-// One instance, because there is one server on one deterministic port and one
-// vault open at a time. A second instance would either fight for the port or
-// silently serve a different folder from the same URL an agent is configured
-// against.
+// One instance: there is one server on one deterministic port and one folder open
+// at a time, and a second would fight for the port or serve a different folder from
+// the same URL.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -109,26 +97,22 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
-    // Before choosing a port: a previous instance that was force-quit may still
-    // be holding it, and walking past our own ghost would silently move the MCP
-    // URL out from under every agent configured against it.
+    // Before choosing a port: a force-quit instance may still be holding it, and
+    // walking past our own ghost moves the MCP URL.
     reapOrphan();
     registerIpc();
-    // A menu before the server is up, so the window is never menu-less; rebuilt
-    // once it is (and after every vault change, from vault.ts).
+    // A menu before the server is up, so the window is never menu-less.
     buildMenu();
     return boot();
   });
 
   app.on("activate", () => {
     // Dock click with no window: macOS convention is to make one. The server
-    // outlives the window (see window-all-closed), so this reattaches to the
-    // running one rather than booting a second — start() would throw.
+    // outlives the window, so this reattaches to the running one rather than
+    // booting a second — start() would throw.
     if (mainWindow()) return;
-    // Ask what state we are in BEFORE making a window: boot() makes its own, and
-    // createWindow() reassigns the module-level handle without closing the old
-    // one — so creating first left two windows up, the orphan stuck on the splash
-    // forever because mainWindow() only ever returned the newer.
+    // Asked before making a window: boot() makes its own, and createWindow()
+    // reassigns the module-level handle without closing what it replaces.
     const server = current();
     if (!server) return void boot();
     const win = createWindow();
@@ -136,9 +120,8 @@ if (!app.requestSingleInstanceLock()) {
     void win.loadURL(server.url);
   });
 
-  // Quitting is the only thing that stops the server, so it must actually finish
-  // before the process goes away — otherwise the next launch races a port that is
-  // still held.
+  // Quitting is the only thing that stops the server, so it must finish before the
+  // process goes away, or the next launch races a port that is still held.
   let shuttingDown = false;
   app.on("before-quit", (event) => {
     if (shuttingDown) return;

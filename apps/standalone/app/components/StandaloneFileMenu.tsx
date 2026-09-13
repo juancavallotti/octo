@@ -13,17 +13,10 @@ import {
 } from "@octo/editor";
 
 /**
- * Open/new menu for the standalone editor. Lists the `*.yaml` flows in the local
- * store (via the filesystem capability) and links to `/?file=<id>` to open one.
- * The currently-open file comes from editor state (the id the Save button records
- * after a save), not the URL, so a freshly-saved flow shows up immediately; before
- * the first save there is no id, and the trigger says so.
- * "New flow" clears the editor to a blank document. Renders nothing without a
- * filesystem capability.
- *
- * It sits at the right of the document bar (EditorRoot's `files` slot), wrapped in
- * DocumentRename — which owns the pencil and swaps this switcher for a name field —
- * so it wears the bar's own trigger look and its menu hangs off the right edge.
+ * Open/new menu: lists the `*.yaml` flows in the local store and links to
+ * `/?file=<id>` to open one. The open file comes from editor state rather than the
+ * URL, so a freshly-saved flow shows up immediately; an unsaved draft has no id, and
+ * the trigger says so. Renders nothing without a filesystem capability.
  */
 export default function StandaloneFileMenu() {
   const fs = useFileSystem();
@@ -76,9 +69,7 @@ export default function StandaloneFileMenu() {
         className={BAR_BUTTON}
       >
         <FolderOpen size={15} className="shrink-0 text-zinc-400" />
-        {/* An unsaved draft has no id, and "Open" named the menu rather than what
-            is in the editor. The bar's job here is to say which file you are
-            looking at, and a draft is a file that does not have a name yet. */}
+        {/* The trigger names the open file, and a draft is one without a name yet. */}
         <span
           className={`max-w-[12rem] truncate ${current ? "" : "text-zinc-400 dark:text-zinc-500"}`}
         >

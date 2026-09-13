@@ -12,11 +12,10 @@ import { errorResult, guard, jsonResult, textResult } from "../result";
  * a test URL), stop it, and read its logs. Run host I/O is injected as a
  * {@link RunHostPort} so these are testable without spawning a real `octo` process.
  *
- * The three tools that address a long-running app all take the integration's `id`, and
- * that is not redundant with the session: a host that runs the app beside itself keys on
- * the session, while one that runs it elsewhere keys on (user, integration) and has
- * nothing else to find it by. It costs a caller nothing — you cannot have a run without
- * having called `run_integration` with that id.
+ * The three tools that address a long-running app all take the integration's `id`, which
+ * is not redundant with the session: a host running the app beside itself keys on the
+ * session, one running it elsewhere keys on (user, integration) and has nothing else to
+ * find it by.
  */
 export function registerRunTools(
   server: McpServer,
@@ -32,7 +31,7 @@ export function registerRunTools(
    *
    * The user comes off the verified bearer token (`AuthInfo.extra`), never from the
    * arguments — a host that scopes runs per user must not let one client name another's.
-   * An unauthenticated host (the standalone app) has none, and keys on the session alone.
+   * An unauthenticated host has none and keys on the session alone.
    */
   const runKeyOf = (
     extra: { sessionId?: string; authInfo?: { extra?: Record<string, unknown> } },
@@ -84,19 +83,14 @@ export function registerRunTools(
       guard(async () => {
         const rec = await store.get(id);
         const key = runKeyOf(extra, id);
-        // No local-binary pre-gate here, unlike the one-shots below. Starting the
-        // long-running app is the runner's job, and the runner is not always the local
-        // octo: a host whose runner is remote (the platform's, backed by the orchestrator)
-        // starts a run with no local binary at all, so gating on binaries().available —
-        // which only answers whether the LOCAL one-shot binary is present — would reject a
-        // perfectly capable host. The runner is the authority: a local one reports a
-        // missing binary by throwing from start() (which guard() surfaces as the error
-        // result), and a remote one just starts.
+        // No local-binary pre-gate here, unlike the one-shots below: a host whose runner
+        // is elsewhere starts a run with no local binary at all, and binaries().available
+        // only answers for the local one-shot binary. The runner is the authority — a
+        // local one throws from start(), which guard() surfaces as an error result.
         //
-        // We don't gate the run on `can_start_integration`'s validation either: that check
-        // is a best-effort pre-flight that can flag valid runtime YAML (e.g. the
-        // processors/ref pattern). The runtime is the real judge — its load errors stream
-        // to `get_run_logs`.
+        // Nor is the run gated on `can_start_integration`: that check is a best-effort
+        // pre-flight that can flag valid runtime YAML. The runtime is the real judge, and
+        // its load errors stream to `get_run_logs`.
         let parsedEnv: Record<string, string> | undefined;
         if (env !== undefined) {
           const sane = parseEnv(env);
@@ -212,7 +206,7 @@ export function registerRunTools(
           logLevel,
           timeoutMs,
           // `id` is undefined for an inline definition; the host decides what that
-          // yields (the platform: no resources; standalone: its shared files).
+          // yields.
           resources: config.resources?.(id),
         });
         return jsonResult({

@@ -116,13 +116,10 @@ export function registerIntegrationTools(
 
   /**
    * Write one flow back, having spliced it into the integration's definition. Every
-   * mutating flow tool ends here, so they all get the same two properties: the rest of
-   * the file is untouched (the splice is an AST edit — see ../flows.ts), and a splice
-   * that would produce a config the runtime cannot load is refused rather than saved.
-   *
-   * Validating here rather than in the caller is what makes the guarantee worth having:
-   * these tools exist to let an agent edit a flow without holding the whole file in its
-   * head, which means it also cannot see what it just broke elsewhere.
+   * mutating flow tool ends here, so all of them get the same two properties: the rest of
+   * the file is untouched (see ../flows.ts), and a splice producing a config the runtime
+   * cannot load is refused rather than saved. The validation belongs here because a
+   * caller editing one flow cannot see what it broke elsewhere.
    */
   async function writeSpliced(id: string, definition: string) {
     const { valid, errors } = await config.validate(definition);
@@ -178,16 +175,12 @@ export function registerIntegrationTools(
 
   /**
    * Carry the editor's bookkeeping across a rename, once the definition is safely saved.
+   * A block address opens with its flow's name, so a rename orphans the meta entry and
+   * every mock and spy address in it, leaving them listed and firing for nothing.
    *
-   * A block address opens with its flow's name, so a rename orphans the meta entry AND
-   * every mock and spy address inside it. Skipping this would not lose them visibly — it
-   * would leave them listed in the file and drawn on the canvas, firing for nothing,
-   * which is the one outcome worse than dropping them.
-   *
-   * The definition is already written by the time this runs, so a meta store that fails
-   * must not turn a successful edit into an error the agent might undo. It reports as a
-   * second content block instead: the rename happened, this part did not, here is what
-   * to do about it.
+   * The definition is already written by the time this runs, so a failing meta store must
+   * not turn a successful edit into an error a caller might undo: it reports as a second
+   * content block saying what did not happen.
    */
   async function withRenamedMeta(
     id: string,

@@ -1,22 +1,19 @@
 /**
  * Local-disk store for dolphin test suites: the `*_test.yaml` files sitting directly in
- * the flows root (OCTO_FS_DIR), beside the flows they test. This is the third of the
- * three modules that share that root, and the partition is exact:
+ * the flows root (OCTO_FS_DIR), beside the flows they test. The third of the three
+ * modules sharing that root, and the partition is exact:
  *
  *   store.ts             top-level `*.yaml` that are NOT test files — the flows
  *   testSuiteStore.ts    top-level `*_test.yaml` — this module
  *   resourceStore.ts     everything else: subpaths, dotfiles, `.octo/`
  *
- * These are real, committable files, not editor bookkeeping — that is the whole point of
- * the Testing tab. `octo run` skips them when it loads the directory as a config
- * (runtime/core/runtime/config.go), and `dolphin test <dir>` picks up every one of them,
- * so a suite written here gives the same verdict from a terminal as it does in the tab.
+ * These are real, committable files: `octo run` skips them when it loads the directory
+ * as a config, and `dolphin test <dir>` picks up every one, so a suite written here
+ * gives the same verdict from a terminal.
  *
- * Storage is flat and shared across documents, as `.env.dev` and the resources are: the
- * root is one octo config directory. So the integration id is not a partition key here,
- * and `listSuites` returns every suite in the root. That is safe because the runtime
- * already requires flow names to be unique across a merged config, so the flow a suite
- * names identifies it unambiguously within the directory.
+ * Storage is flat and shared across documents — the root is one octo config directory
+ * — so `listSuites` returns every suite in it. Flow names are unique across a merged
+ * config, so the flow a suite names identifies it unambiguously.
  */
 
 import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";

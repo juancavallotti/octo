@@ -3,11 +3,9 @@ import { loadDevEnv, saveDevEnv } from "../actions/devEnv";
 import { unwrap } from "../actions/result";
 
 /**
- * The standalone dev-env store: the editor's Dev .env panel reads and writes the
- * `.env.dev` resource through server actions backed by the local flows dir. The
- * file is shared across flows (standalone has no per-integration partition), so
- * the integration id is ignored and editing is always available — including for
- * an unsaved draft.
+ * The dev-env store: reads and writes the `.env.dev` resource through server actions
+ * over the local flows dir. One file is shared across flows, so the integration id is
+ * ignored and editing works even for an unsaved draft.
  */
 export const localDevEnvStore: DevEnvStore = {
   async load() {

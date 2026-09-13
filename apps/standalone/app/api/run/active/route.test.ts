@@ -3,11 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GET } from "./route";
 
 /**
- * The desktop shell asks this before it switches folders, which stops every run.
- * The distinction that matters is between a session that merely *exists* (the map
- * keeps a record per browser tab, with a log buffer, long after the run ended) and
- * one that is actually holding a process. Counting the former would warn the user
- * about work that finished an hour ago, and they would learn to click through it.
+ * The distinction that matters is between a session that merely exists — the map keeps
+ * a record per browser tab, with its log buffer, long after the run ended — and one
+ * that is actually holding a process. Only the latter counts as running.
  */
 type Store = { __octoRunSessions?: Map<string, unknown> };
 
