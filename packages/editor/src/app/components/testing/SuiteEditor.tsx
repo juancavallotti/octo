@@ -51,10 +51,9 @@ export default function SuiteEditor({
   const suiteRun = useSuiteRun();
   const meta = useEditorMeta();
   const { state } = useEditorState();
-  // Running a suite records the message shapes it saw, which is what makes CEL
-  // completion know what a REST call actually returns. Offering to forget them is
-  // the counterpart: they describe what happened on some run, and a flow that has
-  // changed since should not keep completing to what it used to answer.
+  // Running a suite records the message shapes it saw, which is what tells CEL completion
+  // what a REST call returns. Forgetting them is the counterpart: they describe some past
+  // run, and a flow that has changed since should not keep completing to it.
   const flowId = state.document.flows.find((f) => f.name === flow)?.id ?? null;
   const learned = Object.keys(meta?.observed() ?? {}).some(
     (address) => flowOfAddress(address) === flow,

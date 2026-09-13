@@ -13,19 +13,13 @@ import { planRunAll, type SkippedSuite } from "../suite/runAll";
  * Run every suite this document has, from the header. It is what the RUN control becomes
  * on the Testing tab — see RunBar.
  *
- * Running the whole set is the ordinary thing to want there. Starting the integration is
- * not: nothing on that tab is about a live runner, and a button that did it would be a
- * button nobody meant to press.
- *
  * Which suites those are is {@link planRunAll}'s decision, and it holds back the ones
  * dolphin would refuse — it loads every named file before running any case, so one bad
- * suite would take the whole run down and report nothing about the good ones. What was
- * held back is named in the tooltip before the run and in the console after it, because a
- * green tally that quietly covered three suites is worse than a red one.
+ * suite would take the whole run down. What was held back is named in the tooltip before
+ * the run and in the console after it, so a green tally cannot quietly cover a suite that
+ * never ran.
  *
- * Like the open suite's Run button, this stays VISIBLE when it cannot run and explains
- * itself instead of disappearing: someone who has just written tests needs to learn why
- * they cannot run them.
+ * It stays VISIBLE when it cannot run and explains itself instead of disappearing.
  */
 
 /** Flow names to list in the tooltip before it stops being a help and starts being a wall. */

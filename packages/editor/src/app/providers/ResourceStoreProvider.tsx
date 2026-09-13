@@ -10,11 +10,9 @@ import { createContext, useContext, type ReactNode } from "react";
  * (`kind: "template"`). Names are path-like and may contain `/`; a resource is
  * addressed by its uuid, never by a path segment.
  *
- * The platform backs this with the orchestrator (via the resource server actions);
- * a standalone app could back it with local disk. Editor components read it through
- * {@link useResourceStore}; when it is null the Resources tab is hidden — the store
- * is the source of truth for content, distinct from the document's declared
- * `resources:` references (which serialize into the YAML).
+ * Editor components read it through {@link useResourceStore}; when it is null the
+ * Resources tab is hidden. The store is the source of truth for content, distinct from
+ * the document's declared `resources:` references (which serialize into the YAML).
  */
 
 /** A stored resource: name-keyed content plus its runtime kind and uuid. */

@@ -15,21 +15,17 @@ import type { RunTransport } from "./transport";
  * knows what its messages look like before the user has run anything.
  *
  * The knowledge this produces cannot be had by reading the document: what a block leaves
- * behind depends on how it is configured, and the only thing that answers that reliably
- * is having run it. Every run the user makes already teaches the editor (FlowRunContext
- * asks for shapes on all of them); this makes the editor ask on its own, for the flows
- * where asking is free.
+ * behind depends on how it is configured, and only running it answers that reliably.
  *
- * Three things keep it unobtrusive, and all three are deliberate:
+ * Three things keep it unobtrusive:
  *
  *  - **It is opt-in** (`prefs.autoLearn`), because "the editor runs your flows" is a
  *    sentence the user should have agreed to.
  *  - **It is invisible.** It calls the transport directly rather than going through
  *    FlowRunProvider's `run`, so it records no history entry, opens no console tab and
- *    spins no block. A run nobody asked for has no business in the list of runs they made.
+ *    spins no block.
  *  - **It is silent about failure.** A background run that cannot complete teaches
- *    nothing, which is the state we were already in; reporting it would mean interrupting
- *    the user about a run they did not start.
+ *    nothing, and reporting it would interrupt the user about a run they did not start.
  */
 
 /** How long the document must sit still before a background run is worth making. */
@@ -58,11 +54,8 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
   const busyRef = useRef(false);
   /**
    * Bumped when a run settles, so the effect reconsiders the document as it stands now.
-   *
    * Without it, an edit made WHILE a run is in flight is dropped: its timer fires, sees
-   * `busyRef`, and returns, and nothing reschedules it. A run that came back with
-   * shapes happens to re-render (meta changed) and recovers by accident; one that came
-   * back with none does not, and learning then waits for an unrelated edit.
+   * `busyRef`, returns, and nothing reschedules it.
    */
   const [settled, setSettled] = useState(0);
 
@@ -93,8 +86,7 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
       // Marked as run before the call rather than after: a flow that fails must not be
       // retried on every keystroke, and a failure is as final as a success here.
       ranRef.current = signature;
-      // The payload is CEL (it may read `now`), so it is evaluated the same way the ▶
-      // menu's "as the cron source would send it" evaluates it — through the runner,
+      // The payload is CEL (it may read `now`), so it is evaluated through the runner
       // rather than by this bundle pretending to know what CEL means.
       void derive(payload, transport)
         .then((data) =>
@@ -114,7 +106,7 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
           if (outcome.shapes) meta.learn(outcome.shapes);
         })
         .catch(() => {
-          // Deliberately silent — see the header.
+          // Silent — see the header.
         })
         .finally(() => {
           busyRef.current = false;

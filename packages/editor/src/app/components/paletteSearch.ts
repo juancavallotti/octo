@@ -8,10 +8,9 @@ import type { PaletteComponent } from "./palette";
  * different problem: you type what you remember of a name, and the first result has to
  * be the one you meant, because Enter takes it without your reading the list.
  *
- * So: subsequence matching (typing "ai-a" finds "AI Agent"), ranked by how tight and
- * how early the match is. Deliberately not a general fuzzy library — the corpus is a
- * few dozen short labels from the capability schema, and a scoring rule small enough
- * to read is one that can be argued with.
+ * So: subsequence matching (typing "ai-a" finds "AI Agent"), ranked by how tight and how
+ * early the match is. Not a general fuzzy library — the corpus is a few dozen short
+ * labels from the capability schema.
  */
 
 export interface RankedComponent extends PaletteComponent {

@@ -14,20 +14,11 @@ import { useEditorState } from "../state/editorState";
 
 /**
  * The test-suite capability: the dolphin suites that test this document's flows, one
- * per flow, kept wherever the host keeps them.
+ * per flow. The store moves raw strings; all the parsing stays as pure code here.
  *
- * Shaped like the editor-meta capability next door, and for the same reason — the host
- * moves raw strings and decides where they live, while all the parsing stays as pure
- * code in this package. What it is NOT is the same kind of file:
- *
- *   `.octo/editor-meta.json`  design-time scratch. Undeclared, never shipped, and
- *                             losing it costs you the inputs and mocks you saved.
- *   `<flow>_test.yaml`        a real artifact. It is committed, CI runs it, and
- *                             `dolphin test` in a terminal gives the same verdict the
- *                             Testing tab does.
- *
- * That difference is the whole point of the tab, and it is why suites are not folded
- * into the meta file: a test you cannot commit is a test you cannot rely on.
+ * A `<flow>_test.yaml` is a real artifact rather than editor scratch — it is committed,
+ * and `dolphin test` gives the same verdict this does — which is why suites are kept in
+ * their own files rather than folded into `.octo/editor-meta.json`.
  *
  * Suites are keyed by FLOW NAME, not by the flow's client id — which is minted fresh on
  * every parse and cannot survive a reload — and not by the document either, because
@@ -44,11 +35,7 @@ export interface TestSuiteFile {
   content: string;
 }
 
-/**
- * Where the suites live, decoupled from the host that stores them. The standalone app
- * writes them to disk beside the flows (so a terminal can run them); the platform keeps
- * them with the integration.
- */
+/** Where the suites live, decoupled from whatever stores them. */
 export interface TestSuiteStore {
   /** Every suite stored against this document. */
   list(integrationId: string | null): Promise<TestSuiteFile[]>;
@@ -88,9 +75,8 @@ export function TestSuiteProvider({
 }: {
   store: TestSuiteStore | null;
   /**
-   * Bumped by the host when something else wrote a suite for this document — an MCP
-   * agent, today. Without it the tab shows what it read on mount until the user
-   * navigates away and back, so an agent that wrote a test looks like it did nothing.
+   * Bumped when something else wrote a suite for this document. Without it the tab shows
+   * what it read on mount until the user navigates away and back.
    */
   reloadToken?: string | number;
   children: ReactNode;
@@ -116,12 +102,9 @@ export function TestSuiteProvider({
   const canPersist = !!store && !!documentKey && store.canEdit(documentKey);
 
   /**
-   * Re-read every suite, keeping any the user is midway through editing.
-   *
-   * Keeping them is the whole difference between a refresh and a clobber. The token is
-   * news from elsewhere, not permission to discard what someone is typing — and a
-   * pending edit is about to be written anyway, so taking the stored copy would undo it
-   * and then save the undo.
+   * Re-read every suite, keeping any the user is midway through editing: a pending edit
+   * is about to be written anyway, so taking the stored copy would undo it and then save
+   * the undo.
    */
   const refresh = useCallback(async () => {
     const seq = ++listSeq.current;
@@ -173,9 +156,9 @@ export function TestSuiteProvider({
     };
   }, [refresh, store, documentKey]);
 
-  // Re-list when the host says something else wrote a suite. `loaded` is deliberately
-  // left alone: the tab has content on screen, and blanking it to an empty state on the
-  // way to the same content plus one would be a worse answer than the stale one.
+  // Re-list when the reload token says something else wrote a suite. `loaded` is left
+  // alone: blanking content on screen to an empty state on the way to the same content
+  // plus one is a worse answer than the stale one.
   const seenToken = useRef(reloadToken);
   useEffect(() => {
     if (reloadToken === seenToken.current) return;

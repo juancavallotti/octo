@@ -7,15 +7,11 @@ import { Check, FolderOpen, Search } from "lucide-react";
  * "What am I working on, and what else could I be working on" — the chip at the
  * left of the header, next to the mark, and the menu it opens.
  *
- * One component, two meanings. In the desktop shell the items are folders and
- * picking one switches the folder being served; in the platform they are
- * integrations and picking one opens it. The shapes are identical — a current
- * thing, a list of others, pick to switch — so the difference is what a host
- * passes in, not a second component to keep in step with this one.
+ * The items are whatever the caller is switching between — folders, integrations — and
+ * the shape is the same either way: a current thing, a list of others, pick to switch.
  *
- * `action` is the row above the list (the shell's "Open folder…"). A host that has
- * no such thing — the platform cannot open a folder — passes nothing and the row
- * is not there.
+ * `action` is the optional row above the list (e.g. "Open folder…"); pass nothing and
+ * the row is not there.
  */
 
 export interface PickerItem {

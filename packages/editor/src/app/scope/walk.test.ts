@@ -304,8 +304,7 @@ describe("evidence about a block", () => {
 
 describe("bodies the flow states outright", () => {
   it("reads the keys a set-payload literal names", () => {
-    // The most introspectable thing in a flow, and the case that used to come back
-    // "opaque": the expression IS the body, written out.
+    // The most introspectable thing in a flow: the expression IS the body, written out.
     const set = block("set-payload", { value: '{"receiptUrl": "https://x", "total": 42}' });
     const after = block("log");
     const members = membersFor(

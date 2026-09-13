@@ -13,21 +13,12 @@ import { isTypingTarget } from "./typing";
 /**
  * Cmd/Ctrl+Enter runs. Cmd/Ctrl+. stops.
  *
- * Not the IDE convention, deliberately. `Cmd+R` (Xcode, JetBrains) and `F5` (VS Code,
- * Visual Studio) are both *reload* in a browser tab, and this editor is served in one
- * — taking reload away from someone would be worse than not having the shortcut. The
- * convention this tool actually belongs to is the one where you execute the thing in
- * front of you: Postman, SQL clients, notebooks, and the CEL tab next door, which has
- * bound Cmd+Enter to "run this expression" since it was written.
+ * Not the IDE convention: `Cmd+R` and `F5` are both *reload* in a browser tab, and this
+ * editor is served in one.
  *
- * So Enter runs *whatever the view is about*, which is the same rule the RUN control
- * follows (see RunBar): the integration on the canvas, the suites on the Testing tab.
- * With Shift it runs one flow once — the inner loop, and more often what is wanted
- * than starting the whole integration.
- *
- * Run never stops. A key labelled "run" that halts a running integration because it
- * was already running is a surprise, and `Cmd+.` — Xcode's, and unclaimed by any
- * browser — is the one that means stop.
+ * Enter runs *whatever the view is about*, the same rule the RUN control follows: the
+ * integration on the canvas, the suites on the Testing tab. With Shift it runs one flow
+ * once. Run never stops — `Cmd+.` is the one that means stop.
  */
 export function useRunShortcuts(): void {
   const { state } = useEditorState();

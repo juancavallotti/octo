@@ -14,10 +14,9 @@ import FlowRunScenarios from "./FlowRunScenarios";
 /**
  * The ▶ menu's body: every way there is to run this flow, in one scroll region.
  *
- * Split out of FlowRunMenu, which now owns only the button and the popover it opens. The
- * two lists here come from different places and are kept apart on purpose — a saved test
- * input is scratch (`.octo/editor-meta.json`, lost with the workspace), a scenario is a
- * committed test case — but they answer the same question, so they are one menu.
+ * The two lists come from different places and are kept apart — a saved test input is
+ * scratch (`.octo/editor-meta.json`, lost with the workspace), a scenario is a committed
+ * test case — but they answer the same question, so they are one menu.
  */
 export default function FlowRunMenuItems({
   flowId,

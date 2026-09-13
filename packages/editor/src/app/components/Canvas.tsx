@@ -12,8 +12,7 @@ import { useSelectionShortcuts } from "../keyboard/useSelectionShortcuts";
  * Canvas is the main flow-editing area: a scrollable dot-grid surface that hosts
  * all the file's flows stacked vertically (FlowBoard). The zoom control is pinned
  * to the bottom-right as an overlay outside the scroll area, so it stays put as the
- * flows scroll. The document-level launchers used to hang in the opposite corner;
- * they live in DocumentBar now.
+ * flows scroll.
  *
  * Zoom is CSS `zoom` on a layer inside the scroller, not `transform: scale`. That
  * choice carries the whole feature: `zoom` affects layout, so the scrollable area

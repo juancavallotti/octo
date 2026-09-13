@@ -29,10 +29,7 @@ export interface ScopeIndex {
   sources: Map<string, Scope>;
   /**
    * The scope with no position, and the fallback for a site the index does not know.
-   *
-   * Held on the index rather than recomputed from the document at lookup time so that
-   * resolving a site needs nothing but the index — which is what lets a CEL field ask
-   * for its scope without also reaching for the editor's state.
+   * Held on the index so that resolving a site needs nothing but the index.
    */
   document: Scope;
 }

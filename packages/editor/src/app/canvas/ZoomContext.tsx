@@ -19,16 +19,12 @@ import { clampZoom, nextStep, prevStep } from "./zoom";
  * NodeShell divides a drag translate by it, and the drag overlay is rendered
  * outside the zoomed surface and has to be scaled to match.
  *
- * It is mounted at EditorRoot rather than at EditorBody on purpose. EditorBody
- * returns early for the YAML, Resources and Testing views, so a provider there
- * would unmount every time someone looked at the YAML and hand them back a
- * canvas at 100% — losing a setting they chose because a flow is too big to read
- * at 100%.
+ * It is mounted at EditorRoot rather than at EditorBody: EditorBody returns early for
+ * the YAML, Resources and Testing views, so a provider there would unmount whenever
+ * someone looked at the YAML and hand back a canvas at 100%.
  *
- * It is not in the editor reducer either: that reducer holds the document and
- * what is selected in it, and zoom is neither. It is also not persisted, which
- * keeps the preview route's screenshots byte-stable without the harness having
- * to know this exists.
+ * It is not in the editor reducer either — that holds the document and what is selected
+ * in it, and zoom is neither — and it is not persisted.
  */
 export interface CanvasZoom {
   zoom: number;

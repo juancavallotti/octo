@@ -22,16 +22,11 @@ import type { RunSetup } from "../suite/promote";
 import type { MockSpec, RunTransport, SpyRecord, SpyTrace } from "./transport";
 
 /**
- * Running ONE flow, and what came back.
- *
- * This is deliberately separate from RunContext, which owns the long-lived runner: that
- * one is a single streaming process you start and stop, while these are one-shot, can
- * overlap, and leave a history worth keeping. Sharing a provider would have tangled two
- * unrelated lifecycles.
+ * Running ONE flow, and what came back. Separate from RunContext, which owns the
+ * long-lived runner: these runs are one-shot, can overlap, and leave a history.
  *
  * The results here are flow *output* — the message a run produced, or the message it
- * was carrying at a breakpoint. Log lines are not results and do not appear; a manual
- * run is spawned at error level, so what little it prints is a problem, not output.
+ * was carrying at a breakpoint. Log lines are not results and do not appear.
  */
 
 /** How many runs to keep. Old results are interesting; ancient ones are not. */
@@ -41,14 +36,10 @@ const MAX_RESULTS = 50;
  * What one run stands in for and what it watches, REPLACING what the canvas has set up
  * rather than adding to it.
  *
- * Replacement is not a preference, it is dolphin's rule (`File.MocksFor`): a test case is
- * a complete statement of the world it runs in, so a caller that hands one over is saying
- * "these mocks, no others". Merging the canvas's mocks in would give the ▶ menu a
- * different run than `dolphin test` does from the same case — the same scenario, two
- * verdicts, and nothing on screen to explain the difference.
- *
- * An override that omits a field still replaces it: `{ mocks }` with no `spies` runs with
- * no spies, not with the canvas's.
+ * Replacement is dolphin's rule (`File.MocksFor`): a test case is a complete statement of
+ * the world it runs in, so a caller that hands one over is saying "these mocks, no
+ * others". An override that omits a field still replaces it: `{ mocks }` with no `spies`
+ * runs with no spies, not with the canvas's.
  */
 export interface RunOverrides {
   mocks?: Record<string, MockSpec>;
@@ -63,13 +54,9 @@ interface FlowRunValue {
   /** True while any run is in flight. */
   busy: boolean;
   /**
-   * What each spied block has seen, by address — ACROSS runs, not just the last one.
-   *
-   * A spy is something you leave on while you iterate, and the interesting thing is
-   * usually how the message differs between one run and the next. Resetting per run would
-   * throw away the comparison the user turned the spy on to make, so records accumulate
-   * until they clear them. (It is also the shape live spying will feed, when a running
-   * flow starts pushing records in rather than a one-shot invoke returning them.)
+   * What each spied block has seen, by address — ACROSS runs, not just the last one, so
+   * a user iterating can compare one run against the next. Records accumulate until
+   * cleared.
    */
   spyRecords(address: string): SpyRecord[];
   /** Forget what a spy has collected — or, with no address, what all of them have. */
@@ -142,11 +129,8 @@ export function FlowRunProvider({
 
   /**
    * The mocks and spies every run is made under, as the canvas currently shows them.
-   *
-   * Both are sent on EVERY run — a whole-flow run and a run-to-here alike. A mock the user
-   * placed is a statement about what the flow does, not about one invocation of it, and a
-   * run-to-here that quietly ignored it would call the real payment API the user thought
-   * they had stubbed out.
+   * Both are sent on EVERY run — a whole-flow run and a run-to-here alike — because a
+   * mock is a statement about what the flow does, not about one invocation of it.
    */
   const debugArgs = useCallback(() => {
     const mocks = toMockSpecs(meta?.enabledMocks() ?? []);
@@ -175,8 +159,7 @@ export function FlowRunProvider({
 
       // A mock deletes the subtree it replaces, so a spy or breakpoint inside one can
       // never fire and the runtime rejects the run outright. Catch it before spending a
-      // run on it, and say what actually happened — the runner's own error would name a
-      // block that "does not exist", which reads like a typo.
+      // run on it, and say what actually happened.
       const observers = [...spyAddresses, ...(breakAt ? [breakAt] : [])];
       const conflict = debugConflict(Object.keys(mocks), observers);
       if (conflict) {
@@ -207,17 +190,16 @@ export function FlowRunProvider({
           breakAt,
           ...(spyAddresses.length > 0 ? { spies: spyAddresses } : {}),
           ...(Object.keys(mocks).length > 0 ? { mocks } : {}),
-          // Every run is also a chance to learn what these messages look like. This is
-          // where most of the answer is: a source's synthesized payload, a call's real
-          // response — things no reading of the document could tell us, sitting in a
-          // run the user made for their own reasons.
+          // Every run is also a chance to learn what these messages look like: a source's
+          // synthesized payload, a call's real response — things no reading of the
+          // document could tell us.
           learnShapes: true,
         });
         // Spies report even when the flow failed — what a block was carrying when things
         // went wrong is the most useful thing on the screen — so collect before judging.
         collect(outcome.spies);
-        // A failed run is as informative as a successful one here: the blocks that DID
-        // run carried real messages, and those are exactly the ones being debugged.
+        // A failed run is as informative as a successful one: the blocks that DID run
+        // carried real messages.
         if (outcome.shapes) meta?.learn(outcome.shapes);
         record({
           id: newId(),
@@ -259,10 +241,9 @@ export function FlowRunProvider({
     async (flowId: string, input?: TestInput, overrides?: RunOverrides) => {
       const flow = doc.flows.find((f) => f.id === flowId);
       if (!flow) return;
-      // An overridden run is NOT remembered for run-to-here. Only a third of it could be
-      // — the input — and a later run-to-here would then send a test case's body through
-      // the canvas's mocks: neither the scenario nor the setup on screen, with the case's
-      // name on the result to say it was the former.
+      // An overridden run is NOT remembered for run-to-here: only its input could be, and
+      // a later run-to-here would then send a test case's body through the canvas's
+      // mocks — neither the scenario nor the setup on screen.
       if (!overrides) remember(flowId, input);
       await run({ runDoc: doc, flowName: flow.name, input, overrides });
     },

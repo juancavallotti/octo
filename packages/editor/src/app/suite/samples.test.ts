@@ -12,9 +12,8 @@ import { serializeSuite } from "./serialize";
  * binaries. If the editor's parser reports an issue on one of them, the parser is wrong
  * — dolphin loads them all.
  *
- * This is deliberately coupled to the repo layout. The alternative is a fixture copied
- * into this package, which would be a snapshot of the format taken on the day it was
- * written and would never notice the format moving.
+ * Coupled to the repo layout on purpose: a fixture copied into this package would be a
+ * snapshot of the format taken on the day it was written.
  */
 const SAMPLES = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),

@@ -12,16 +12,14 @@ import type { FileMeta, FlowMeta } from "./types";
  * place, so the same id carries the old name and then the new one. That is enough to
  * detect a rename by diffing two id→name maps taken at different moments.
  *
- * The nice property of doing it this way is what happens on a *reload*, where every id
- * is new: the two maps then share no ids at all, so no id qualifies as "renamed" and
- * the sync is a structural no-op. The mechanism cannot misfire on the very case that
- * makes ids untrustworthy.
+ * On a *reload* every id is new, so the two maps share no ids, no id qualifies as
+ * "renamed", and the sync is a structural no-op — the mechanism cannot misfire on the
+ * case that makes ids untrustworthy.
  *
  * A rename moves more than the key. Mocks and spies are addressed by the runtime's block
  * path, whose FIRST SEGMENT is the flow's name — `orders.charge`, `orders[error].notify`
- * — so renaming the flow invalidates every address inside its entry too. Moving the key
- * and leaving the addresses would be worse than doing nothing: the mocks would look
- * present in the file and on the canvas, and silently never fire.
+ * — so renaming the flow invalidates every address inside its entry too, and a mock left
+ * behind would look present and silently never fire.
  */
 
 /** The name of each top-level flow, by client id. Sub-flows have no saved inputs. */
@@ -36,11 +34,8 @@ export function flowIdNames(doc: EditorDocument): Map<string, string> {
  * optionally carrying its chain — `orders.charge`, `orders[error].notify` — so only that
  * first segment moves; everything below it names blocks, which the rename did not touch.
  *
- * An address not rooted at `before` is returned as it was.
- *
- * Exported because the editor is not the only thing that renames a flow: an MCP agent's
- * `update_flow` does too, and a second implementation of this rule would be a second
- * chance to get it wrong — silently, since a stale address still *looks* like a mock.
+ * An address not rooted at `before` is returned as it was. Exported so a rename made
+ * anywhere follows this one rule; a stale address still *looks* like a mock.
  */
 export function readdress(address: string, before: string, after: string): string {
   if (address === before) return after;
@@ -78,14 +73,11 @@ function readdressEntry(entry: FlowMeta, before: string, after: string): FlowMet
 /**
  * Move one flow's entry to its new name and re-root every address that named it.
  *
- * The whole rename, by name alone — which is how anything other than the editor's
- * reducer knows about one. An agent that renames a flow through MCP has two names and no
- * client ids, and this is the same code path {@link syncFlowNames} takes, so the file
- * comes out the same whichever end asked for it.
+ * The whole rename, by name alone, for a caller that has two names and no client ids.
+ * {@link syncFlowNames} takes the same path, so the file comes out the same either way.
  *
  * A rename onto a name already in use is refused: two flows cannot share one in a valid
- * document, and merging their entries would be worse than leaving the stale key for the
- * (invalid) document to resolve.
+ * document, and merging their entries would be worse than leaving the stale key.
  *
  * The addresses are re-rooted across EVERY entry, not just the renamed flow's — an
  * address names a block by a path starting at a flow, and it means that flow wherever the

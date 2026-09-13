@@ -5,12 +5,10 @@ import { createContext, useContext, type ReactNode } from "react";
 /**
  * The editor's dev-env capability: reads and writes the *values* of a run's
  * declared environment variables — the credentials that satisfy the document's
- * `${NAME}` variables when a local runner is spawned. These are stored as the
- * integration's `.env.dev` resource in the host's backend (the standalone app's
- * flows dir, the platform's orchestrator DB), NOT in the browser — so the
- * credentials never live client-side and an MCP run can read them from the store.
- * The store moves the raw `.env.dev` content; the Dev .env panel parses it into
- * per-variable values with the dotenv helpers here.
+ * `${NAME}` variables when a local runner is spawned. They are stored as the
+ * integration's `.env.dev` resource, NOT in the browser, so the credentials never live
+ * client-side. The store moves the raw `.env.dev` content; the Dev .env panel parses it
+ * into per-variable values with the dotenv helpers here.
  *
  * Editor components read it through {@link useDevEnvStore}; when it is null the
  * Dev .env panel shows nothing to edit.
@@ -26,9 +24,8 @@ export interface DevEnvStore {
   /** Persist the integration's `.env.dev` content. */
   save(integrationId: string | null, content: string): Promise<void>;
   /**
-   * Whether dev env can be edited for the given integration. The platform can't
-   * persist a resource for an unsaved draft (no id yet); standalone shares a
-   * single file, so it always can.
+   * Whether dev env can be edited for the given integration. False where there is
+   * nothing to key the resource by, such as an unsaved draft.
    */
   canEdit(integrationId: string | null): boolean;
 }

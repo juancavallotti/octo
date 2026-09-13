@@ -5,31 +5,16 @@ import type { BlockNode, EditorDocument, FlowDoc } from "../model/document";
  *
  * `octo invoke`'s three debug features — `--break-at`, `--spies`, `--mocks` — all address
  * a block the same way: a path, `<flow>[<chain>].<block>[<branch>]…`, in which each block
- * is selected by its name, else its type (see runtime/core/runtime/address.go). The
- * canvas, meanwhile, knows a block only by its client id. This module bridges the two.
+ * is selected by its name, else its type. The canvas knows a block only by its client id.
  *
- * ## Two kinds of address, and why there have to be two
- *
- * The runtime's selector is not unique in general: two unnamed `log` blocks in one chain
- * both answer to "log", and the runner rejects the address rather than guess. What to do
- * about that depends on how long the address has to live.
- *
- * **A breakpoint is thrown away with the run.** So {@link planBreakpoint} exploits the
- * fact that the YAML we invoke is generated and discarded: it returns a *clone* of the
- * document in which the blocks along the path carry synthetic names where their natural
- * ones would not do. The saved document is never touched, and the user never has to name
- * anything to run to a block.
- *
- * **A mock or a spy outlives the run**, in `.octo/editor-meta.json`, and has to be found
- * again on the next reload — when every client id is new. So it is keyed by
- * {@link naturalAddress}, which invents nothing: it returns null for a block whose label
- * would be ambiguous. Placing a mock or spy on such a block first gives it a real name
- * ({@link namesNeededFor}) — a visible edit to the document, and the price of an address
- * that still means something tomorrow.
- *
- * A synthetic name and a real one never collide over the same block: a block carrying a
- * mock or spy has been named, so its natural label is unique and `ensureAddressable`
- * leaves it exactly as it found it.
+ * That selector is not unique in general: two unnamed `log` blocks in one chain both
+ * answer to "log", and the runner rejects the address rather than guess. There are two
+ * addresses because there are two lifetimes. {@link planBreakpoint} serves a run that is
+ * thrown away, so it returns a *clone* carrying synthetic names where natural ones would
+ * not do, and the saved document is never touched. A mock or a spy outlives the run and
+ * has to be found again when every client id is new, so it is keyed by
+ * {@link naturalAddress}, which invents nothing and returns null for an ambiguous label;
+ * {@link namesNeededFor} is the real rename that buys one.
  */
 
 /** Branch slots every composite spells the same way; the runtime names them identically. */
@@ -44,7 +29,7 @@ const RESERVED_SLOTS = new Set([
   "buildResponse",
 ]);
 
-/** The prefix of a synthetic name. Deliberately unlikely to collide with a real one. */
+/** The prefix of a synthetic name, unlikely to collide with a real one. */
 const SYNTHETIC_PREFIX = "__bp_";
 
 export interface BreakpointPlan {
@@ -132,12 +117,11 @@ function findSteps(chain: BlockNode[], blockId: string): Step[] | null {
  * The bracket token selecting one branch of a composite, or null when this branch
  * cannot be addressed unambiguously.
  *
- * The composites whose branches are a list (a fork's branches, a switch's cases, an
- * ai-router's routes, an ai-agent's tools) are addressed by the member's own name, or
- * by its index. We prefer the index whenever the name won't do — unlike a block, a
- * sub-flow's name is not ours to rewrite: an ai-router route and an ai-agent tool are
- * *chosen by the model* from their names, so renaming one would change what the flow
- * does.
+ * Composites whose branches are a list (a fork's branches, a switch's cases, an
+ * ai-router's routes, an ai-agent's tools) are addressed by the member's own name, else
+ * its index. A sub-flow's name is never rewritten to disambiguate: an ai-router route
+ * and an ai-agent tool are *chosen by the model* from their names, so renaming one would
+ * change what the flow does.
  */
 function branchToken(branch: NonNullable<Step["branch"]>): string | null {
   if (RESERVED_SLOTS.has(branch.slot)) return branch.slot;
@@ -249,9 +233,8 @@ function isAddressable(chain: BlockNode[], block: BlockNode): boolean {
  *
  * Null when any block on the path is ambiguous (a sibling answers to the same label) or
  * carries a character the address parser would choke on, and null when the branch or the
- * flow name cannot be addressed at all. This is what a mock or a spy is keyed by, so it
- * must be derivable from the saved document alone: a key that depended on a name we
- * invented at run time would not survive the reload it exists to survive.
+ * flow name cannot be addressed at all. Derivable from the saved document alone, so it
+ * survives a reload.
  */
 export function naturalAddress(doc: EditorDocument, blockId: string): string | null {
   const found = locate(doc, blockId);
@@ -316,17 +299,13 @@ function freshLabel(chain: BlockNode[], block: BlockNode): string {
 }
 
 /**
- * The renames that would give a block a durable address — the price of putting a mock or
- * a spy on it.
+ * The renames that would give a block a durable address.
  *
- * An empty list means it already has one: place the mock and touch nothing. A non-empty
- * list is a real edit to the saved document, which the caller applies before reading the
- * address back; it can span several blocks, because an ambiguous *composite* on the path
- * makes everything under it ambiguous too.
- *
- * Null means no naming can help — the branch or the flow name is the problem, not the
- * block's label — and the caller should not offer the affordance at all, exactly as
- * run-to-here already hides itself in that case.
+ * An empty list means it already has one. A non-empty list is a real edit to the saved
+ * document, which the caller applies before reading the address back; it can span several
+ * blocks, because an ambiguous *composite* on the path makes everything under it
+ * ambiguous too. Null means no naming can help — the branch or the flow name is the
+ * problem, not the block's label.
  */
 export function namesNeededFor(doc: EditorDocument, blockId: string): BlockRename[] | null {
   const found = locate(doc, blockId);

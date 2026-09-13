@@ -16,9 +16,8 @@ const DEFAULT_WIDTH = 340;
 /**
  * Docked settings panel on the right edge. It shows the selected block's
  * settings, or — when no block is selected — the active flow's settings, both
- * driven by the editor document. The panel width is locally adjustable by
- * dragging its left divider (plain pointer events — kept out of the canvas
- * DndContext on purpose).
+ * driven by the editor document. The panel width is locally adjustable by dragging its
+ * left divider, on plain pointer events kept out of the canvas DndContext.
  */
 export default function SettingsPanel() {
   const { state } = useEditorState();

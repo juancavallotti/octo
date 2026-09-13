@@ -34,17 +34,11 @@ function rootFlowIdOf(doc: EditorDocument, blockId: string): string | null {
  * Everything the mock and spy affordances on a node need, in one place: the block's
  * address, whether it is mocked or spied, and how to change that.
  *
- * ## Naming, and why it happens here
- *
  * A mock and a spy are keyed by the block's address, which has to survive being written
  * to a file and read back tomorrow. A block whose label a sibling shares has no such
- * address (see address.ts), so *placing* a mock or spy on one first gives it a real
- * name — a visible edit to the document, made by {@link ensureAddress} on the way.
- *
- * Doing it at placement rather than at run time is what makes the key trustworthy: by the
- * time anything is saved under an address, that address is already in the document
- * everyone can see, and the user can rename it to something better if they don't like
- * what we picked.
+ * address (see address.ts), so *placing* a mock or spy on one first gives it a real name
+ * — a visible edit to the document, made by {@link ensureAddress} on the way, and one the
+ * user can then rename to something better.
  */
 export interface BlockDebug {
   /**
@@ -54,9 +48,8 @@ export interface BlockDebug {
   address: string | null;
   /**
    * Whether this block can carry a mock or a spy at all. False when no name could make it
-   * addressable — an unaddressable branch, a flow whose name breaks the grammar — in which
-   * case the affordances hide themselves rather than offer something that cannot work,
-   * exactly as run-to-here already does.
+   * addressable — an unaddressable branch, a flow whose name breaks the grammar — in
+   * which case the affordances should hide rather than offer what cannot work.
    */
   supported: boolean;
   /** The mock on this block, enabled or not. */

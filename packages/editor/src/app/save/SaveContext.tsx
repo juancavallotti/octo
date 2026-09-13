@@ -35,10 +35,8 @@ export interface SaveController {
   /**
    * Persist the current document; a no-op while busy or when nothing changed.
    *
-   * `force` overrides only the "nothing worth persisting yet" guard, for a caller
-   * that means the file itself: naming a brand-new flow is the user asking for a
-   * file on disk, and refusing because they have not drawn anything yet leaves the
-   * name they typed with nowhere to live.
+   * `force` overrides only the "nothing worth persisting yet" guard, for a caller that
+   * means the file itself: naming a brand-new flow is a request for a file on disk.
    */
   save: (opts?: { force?: boolean }) => Promise<void>;
   busy: boolean;

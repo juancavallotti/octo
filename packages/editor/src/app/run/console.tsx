@@ -11,17 +11,13 @@ import {
 import { useRun } from "./RunContext";
 
 /**
- * Who owns the bottom console's tab and collapsed state.
+ * Who owns the bottom console's tab and collapsed state. It sits above the panel
+ * because a flow run has to be able to say "show the results" from somewhere else
+ * entirely.
  *
- * LogPanel used to hold both in local state, which was fine while the only thing that
- * opened the panel was a run starting. Now a flow run has to be able to say "show the
- * results" (or "show the problems"), and it happens somewhere else entirely — so the
- * state moves up here, where both can reach it.
- *
- * The collapse rule is deliberately kept as it was: `collapsed` is *derived* from
- * whether a runner is live, until the user overrides it with the toggle. So pressing
- * Run opens the panel without anyone writing state, and once the user has an opinion,
- * it sticks.
+ * `collapsed` is *derived* from whether a runner is live, until the user overrides it
+ * with the toggle. So pressing Run opens the panel without anyone writing state, and
+ * once the user has an opinion, it sticks.
  */
 
 export type ConsoleTab =

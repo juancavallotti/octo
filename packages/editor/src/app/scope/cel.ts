@@ -10,9 +10,8 @@ import type { Scope, ValueShape } from "./types";
  * `set-variable` whose value is a path — `vars.incident.watchName` — has whatever
  * that path already had.
  *
- * Everything else returns undefined. This is deliberately not a CEL parser: a
- * ternary, a function call, a concatenation are all "we do not know", and saying so
- * is cheaper and more honest than a parser that is wrong in ways nobody can predict.
+ * Everything else returns undefined. This is not a CEL parser: a ternary, a function
+ * call, a concatenation are all "we do not know".
  */
 
 /** A cursor over the expression, so the readers below can stay small. */

@@ -15,11 +15,9 @@ const CODE =
  * text lives here, and only a value that parses is lifted. While it does not, the model
  * keeps whatever it last had and the field says why nothing is being saved.
  *
- * The draft is seeded once and deliberately never re-seeded from `value`. Re-seeding
- * would fight the typist: the parent stores a value, so what comes back has been through
- * JSON.stringify and is reformatted. Switching to another case remounts the field
- * instead — the detail pane is keyed on the case — which is the only moment the draft
- * should change out from under it.
+ * The draft is seeded once and never re-seeded from `value`: what comes back from the
+ * parent has been through JSON.stringify and is reformatted, so re-seeding would fight
+ * the typist. Switching to another case remounts the field instead.
  *
  * Empty text means the field is ABSENT, which is not the same as `null`: `body: null`
  * asserts the flow returned a null body, while no `body` asserts nothing about it.

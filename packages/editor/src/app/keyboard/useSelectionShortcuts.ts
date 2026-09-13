@@ -12,10 +12,9 @@ import { isTypingTarget } from "./typing";
  * one answer and Delete has one meaning — which is why this reads as a chain rather
  * than a switch over some selection kind.
  *
- * Bound in the bubble phase deliberately. A popover and the CEL completion menu both
- * stop Escape from propagating while they are open (see components/ui/Popover.tsx and
- * cel/useCelCompletion.ts), so the first Escape closes the thing in front of the user
- * and never reaches here. Capturing would take that away from them.
+ * Bound in the bubble phase: a popover and the CEL completion menu both stop Escape from
+ * propagating while they are open, so the first Escape closes the thing in front of the
+ * user and never reaches here.
  */
 export function useSelectionShortcuts(): void {
   const { state, dispatch } = useEditorState();

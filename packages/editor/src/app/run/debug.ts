@@ -4,16 +4,14 @@ import type { MockCaseSpec, MockSpec } from "./transport";
 /**
  * Turning the mocks the editor saved into the mocks the runner takes.
  *
- * The two disagree on one thing, deliberately. In the meta file a case's `body` and `vars`
- * are JSON *text*, because that is what a form edits and what survives a half-finished
- * edit; the runner wants JSON *values*. This is where the one becomes the other.
+ * The two disagree on one thing: in the meta file a case's `body` and `vars` are JSON
+ * *text*, because that is what a form edits and what survives a half-finished edit, while
+ * the runner wants JSON *values*.
  *
- * Everything here is forgiving, and that is the point: the meta file is hand-editable and
- * a mock is built a field at a time, so a spec passing through a half-written case is
- * normal rather than exceptional. A case the runner would reject is dropped here instead —
- * the runtime validates the whole set at the edge and fails the *run* if anything is
- * malformed, which would mean a user with one broken case could not exercise their flow at
- * all. Dropping it costs them that case; passing it on costs them the run.
+ * Everything here is forgiving, because a mock is built a field at a time and a spec
+ * passing through a half-written case is normal. A case the runner would reject is
+ * dropped here: the runtime fails the whole *run* over one malformed case, so dropping
+ * it costs that case and passing it on costs the run.
  */
 
 /** Parse a JSON field, or undefined when it is absent or does not parse. */

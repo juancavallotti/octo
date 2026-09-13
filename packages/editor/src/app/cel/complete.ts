@@ -12,11 +12,9 @@ import {
  * `{{ }}` template completion. It works purely on a string + caret offset, so it is
  * trivially unit-testable and carries no React/DOM state.
  *
- * This is the deliberately basic pass of issue #125: it completes the in-scope
- * variables and the catalogued functions by name prefix. It does NOT do
- * member/type-aware completion (`body.<field>`) — that is the metadata-driven
- * follow-up — so a member access after `.` yields no suggestions rather than
- * wrongly offering top-level names.
+ * It completes the in-scope variables and the catalogued functions by name prefix, and
+ * does NOT do member/type-aware completion (`body.<field>`): a member access after `.`
+ * yields no suggestions rather than wrongly offering top-level names.
  */
 
 const IDENT_CHAR = /[A-Za-z0-9_]/;

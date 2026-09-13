@@ -2,17 +2,13 @@
  * The rules dolphin enforces on a suite, checked here so the Testing tab can say what is
  * wrong before a run instead of surfacing it as an opaque failure.
  *
- * Everything in here mirrors `File.validate` in runtime/dolphin/internal/suite. Two
- * properties matter:
+ * Everything in here mirrors dolphin's own file validation. Two properties matter:
  *
  *   - These are LOAD errors, not test failures. dolphin refuses the whole file, so one
- *     unnamed case takes every other case in it down. That is why they are reported as
+ *     unnamed case takes every other case in it down — which is why they are reported as
  *     you type rather than when you run.
- *   - Unknown keys are among them. dolphin decodes with KnownFields(true), because a
- *     typo'd key that was silently ignored would look exactly like a test that passes: a
- *     misspelled `spys:` watches nothing, asserts nothing, and goes green — worse than
- *     having no test at all. So the editor must be just as strict, or it will happily
- *     author a file dolphin rejects.
+ *   - Unknown keys are among them: dolphin decodes with KnownFields(true), so a
+ *     misspelled `spys:` is a refusal rather than a test that silently watches nothing.
  */
 
 import { isSharedInput, outcomeOf, isEmptyExpect, isValidDuration } from "./types";

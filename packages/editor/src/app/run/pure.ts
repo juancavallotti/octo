@@ -4,36 +4,26 @@ import type { BlockNode, EditorDocument, FlowDoc } from "../model/document";
  * Whether a flow can be run without anybody noticing — the gate on the editor
  * running flows by itself to learn what their messages look like.
  *
- * A run the user asked for may do whatever the flow says: that is the point of
- * pressing ▶. A run the *editor* decided to make is a different thing entirely, and
- * the only honest rule is that it must be unobservable outside the process. Calling
- * a REST endpoint is not slow, it is somebody else's database; sending a Slack
- * message twice because a background run fired is not a performance problem.
+ * A run the user asked for may do whatever the flow says. A run the *editor* decided to
+ * make must be unobservable outside the process: calling a REST endpoint is somebody
+ * else's database, and sending a Slack message twice is not a performance problem.
  *
- * So this is an allow-list, not a deny-list, and that direction is the whole design:
- * a block type nobody has vouched for — including every block added after this file
- * was written — makes its flow ineligible. The cost of being wrong in that direction
- * is that the editor learns nothing until the user runs the flow themselves, which is
- * exactly where we were before.
- *
- * The long-term fix is for the runtime to say so itself: `octo schema` knows which
- * blocks touch the world and this file is a hand-mirror of that knowledge, kept
- * honest only by scripts/check-scope-contributions.mjs. Until then, err closed.
+ * So this is an allow-list, and the direction is the design: a block type nobody has
+ * vouched for — including every block added after this file was written — makes its flow
+ * ineligible. The cost of being wrong that way is that the editor learns nothing until
+ * the user runs the flow themselves. Err closed.
  */
 
 /**
  * Block types that transform the message and nothing else.
  *
  * Every entry has been checked against its runtime implementation for two things: it
- * reaches no network, and it leaves nothing behind that a later run could read. That
- * second one is why `object-write`, `object-delete`, `cache-scope` and
- * `invalidate-cache` are absent though they never leave the machine — they mutate the
- * runtime store, and a background run that quietly rewrote a cached value would be a
- * bug nobody would think to look for here.
+ * reaches no network, and it leaves nothing behind that a later run could read. The
+ * second is why `object-write`, `object-delete`, `cache-scope` and `invalidate-cache`
+ * are absent though they never leave the machine — they mutate the runtime store.
  *
- * `log` is the one entry that binds a connector. A logger is a sink for the run's own
- * diagnostics — the worst a background run can do through it is write lines nobody
- * asked for, and the runner's log level already keeps those down.
+ * `log` is the one entry that binds a connector: the worst a background run can do
+ * through it is write lines nobody asked for.
  */
 export const PURE_BLOCKS: ReadonlySet<string> = new Set([
   // Data
@@ -88,9 +78,9 @@ function blockIsPure(block: BlockNode, doc: EditorDocument, seen: Set<string>): 
 }
 
 function flowIsPure(flow: FlowDoc, doc: EditorDocument, seen: Set<string>): boolean {
-  // Re-entering a flow already on the stack means a cycle; refuse rather than
-  // recurse. Refusing is also right for the diamond case (two flow-refs to one pure
-  // flow), which is rare enough not to be worth a second visited set to get right.
+  // Re-entering a flow already on the stack means a cycle; refuse rather than recurse.
+  // The diamond case (two flow-refs to one pure flow) is refused too, which is rare
+  // enough not to be worth a second visited set.
   if (seen.has(flow.id)) return false;
   seen.add(flow.id);
   const chains = [flow.process, ...(flow.error ? [flow.error.process] : [])];
@@ -102,9 +92,8 @@ function flowIsPure(flow: FlowDoc, doc: EditorDocument, seen: Set<string>): bool
 /**
  * Whether the editor may run this flow on its own.
  *
- * The flow's *source* is not considered: an editor-made run invokes the flow
- * directly and no source ever fires, so a flow fed by an HTTP endpoint or a queue is
- * as eligible as any other. What it does once it has the message is the only question.
+ * The flow's *source* is not considered: an editor-made run invokes the flow directly
+ * and no source ever fires. What it does once it has the message is the only question.
  */
 export function isPureFlow(doc: EditorDocument, flowId: string): boolean {
   const flow = doc.flows.find((f) => f.id === flowId);

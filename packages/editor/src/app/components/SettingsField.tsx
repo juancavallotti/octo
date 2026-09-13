@@ -32,9 +32,8 @@ const canUseEnv = (field: FieldSpec) =>
 /**
  * Renders one block setting as a labelled, controlled input chosen by the
  * field's schema type. The parent (SettingsPanel) owns the value and persists
- * changes via `onChange`. Slot fields (flow/flow-list/case-list) are never passed
- * here — they're edited on the canvas. Collection editors (string-list,
- * string-map) arrive in a later change; for now they show a placeholder.
+ * changes via `onChange`. Slot fields (flow/flow-list/case-list) are never passed here —
+ * they're edited on the canvas.
  */
 export default function SettingsField({
   field,

@@ -30,8 +30,7 @@ export { default as LayoutToggles } from "./app/components/LayoutToggles";
 // when it is not being edited.
 export { default as DocumentRename } from "./app/components/DocumentRename";
 export { default as CopyMcpUrlButton } from "./app/components/CopyMcpUrlButton";
-// The header's "what am I working on" chip: folders in the desktop shell,
-// integrations in the platform.
+// The header's "what am I working on" chip.
 export {
   default as WorkspacePicker,
   type PickerItem,
@@ -132,14 +131,12 @@ export {
 } from "./app/model/validate";
 export * from "./app/model/document";
 
-// Capability schema helpers (icon registry + connector/source specs) are exposed
-// on the server-safe `@octo/editor/runtime` subpath, so a host can badge an
-// integration by its source/connector type without importing the React editor.
-// The injection seam, though, lives here on the main entry: a host injects the
-// runtime-generated schema (falling back to the bundled one) before first render.
+// Capability schema helpers (icon registry + connector/source specs) are exposed on the
+// server-safe `@octo/editor/runtime` subpath, so they can be used without importing the
+// React editor. The injection seam lives here: the runtime-generated schema must be set
+// before first render.
 export { setCapabilities, getCapabilities } from "./app/schema";
-// The MCP brand mark, exported for hosts that surface an MCP endpoint of their
-// own (the platform dashboard) rather than a block icon.
+// The MCP brand mark, for surfacing an MCP endpoint rather than a block icon.
 export { McpIcon } from "./app/schema/mcp-icon";
 export { DrOctoIcon } from "./app/schema/dr-octo-icon";
 export type { Capabilities } from "./app/schema/types";

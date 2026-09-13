@@ -8,19 +8,15 @@ import type { Contribution, Field, Scope, ValueShape } from "./types";
 /**
  * What one block is known to add to, or take from, the message.
  *
- * Resolved in two tiers, and the first one is why this file is short. The runtime
- * already names variable-declaring settings by a convention — `resultVar`,
- * `statusVar`, `existsVar`, `claimsVar`, `as`, `name` — so most of the catalogue can
- * be read straight out of `octo schema` with no entry here at all. What remains is
- * the handful of blocks whose effect on the message is not expressible as "this
- * setting names a variable".
+ * Resolved in two tiers. The runtime names variable-declaring settings by a convention
+ * — `resultVar`, `statusVar`, `existsVar`, `claimsVar`, `as`, `name` — so most of the
+ * catalogue reads straight out of `octo schema` with no entry here. The table below is
+ * the remainder: blocks whose effect on the message is not expressible as "this setting
+ * names a variable".
  *
- * This is a second hand-mirror of Go, which is the same debt `cel/catalog.ts`
- * documents, and it decays the same way. The mitigation is the rot alarm in
- * scripts/check-scope-contributions.mjs, which reads the real catalogue from
- * `bin/octo schema` in CI: a new block with a variable-naming setting that neither
- * tier accounts for fails that check. It cannot live in a unit test here, because the
- * bundled capabilities.json is an empty fallback and the suite would pass vacuously.
+ * Hand-maintained, and guarded by scripts/check-scope-contributions.mjs, which reads the
+ * real catalogue from `bin/octo schema` in CI: a new block with a variable-naming
+ * setting that neither tier accounts for fails that check.
  */
 
 /** Settings whose value is the NAME of a variable the block sets. */
@@ -29,14 +25,9 @@ const VAR_NAMING = /(^as$)|(^name$)|(Var$)/;
 /**
  * Settings that choose between a variable and the body.
  *
- * The runtime states the contract on the field itself — "when set, store the response
- * here and leave the body; when empty, the response becomes the body" (see
- * `ResultVar` in runtime/connectors/parallel/search.go, `As` in
- * runtime/blocks/builtin/object.go). Left empty, the block replaces the body, and
- * what the editor knew about the old one is now wrong.
- *
- * This is the rule that earns the conventional tier its keep: it covers two dozen
- * blocks that would otherwise each need an entry.
+ * The runtime's contract on such a field is "when set, store the response here and leave
+ * the body; when empty, the response becomes the body". Left empty, the block replaces
+ * the body, and what the editor knew about the old one is now wrong.
  */
 const BODY_OR_VAR = new Set(["resultVar", "as"]);
 

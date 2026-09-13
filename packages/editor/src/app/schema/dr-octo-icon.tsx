@@ -2,20 +2,12 @@ import { forwardRef } from "react";
 import type { LucideProps } from "lucide-react";
 
 /**
- * Dr. Octo's mark: the octopus-headed doctor the platform's agent is named for.
+ * Dr. Octo's mark: the octopus-headed doctor the agent is named for. Typed as a
+ * LucideProps icon (size, className, forwarded ref), and registered beside the other
+ * brand marks so the integration icon picker offers it.
  *
- * Drawn rather than borrowed — lucide's generic robot said "an AI is here",
- * which is the one thing about this agent that needs no saying, and said nothing
- * about which one. Typed as a LucideProps icon (size, className, forwarded ref)
- * so it drops in wherever the robot stood.
- *
- * It lives here, beside the other brand marks, because the icon registry is what
- * the integration icon picker offers: an octopus that only the agent's own chat
- * button could use would not be choosable for the integration that IS the agent.
- *
- * Strokes use `currentColor` at the same 12/256 weight as the source drawing, so
- * it inherits its colour and reads correctly on the sky-600 launcher and in a
- * grey nav row alike.
+ * Strokes use `currentColor` at the same 12/256 weight as the source drawing, so it
+ * inherits its colour and reads correctly on any ground.
  */
 export const DrOctoIcon = forwardRef<SVGSVGElement, LucideProps>(
   ({ size = 24, className, ...props }, ref) => (

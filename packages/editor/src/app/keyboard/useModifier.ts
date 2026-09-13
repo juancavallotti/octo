@@ -5,11 +5,8 @@ import { useEffect, useState } from "react";
 /**
  * How to write the command modifier in a tooltip: `⌘` on a Mac, `Ctrl+` elsewhere.
  *
- * Resolved after mount rather than during render, because the answer is the browser's
- * and the server has no browser. Rendering the Mac symbol on the server would be a
- * guess; rendering the non-Mac one and then correcting it during render would be a
- * hydration mismatch on exactly the platform most of these users are on. Starting at
- * the neutral answer and updating in an effect is neither.
+ * Resolved after mount rather than during render: the answer is the browser's, and
+ * correcting it during render would be a hydration mismatch.
  */
 export function useModifier(): string {
   const [modifier, setModifier] = useState("Ctrl+");
