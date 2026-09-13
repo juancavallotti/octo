@@ -2,20 +2,14 @@
 // message: every flow it entered, every block it passed through, every model turn
 // an agent took on its behalf, and the source that admitted it.
 //
-// It answers the question neither of the existing observation seams can. Metrics
-// are aggregates whose labels come from the config and never from message data,
-// so they can say a flow is failing but never which message failed or where.
-// Spies record everything about one block, but only under `octo invoke`, so they
-// say nothing about production. A trace is the missing middle: per-message, on
-// live traffic, and joined end to end by an id that survives every boundary a
-// message crosses.
+// A trace is per-message and joined end to end by an id that survives every
+// boundary the message crosses, which is what an aggregate cannot be: a metric
+// says a flow is failing, never which message failed or where.
 //
 // It is a hosted service, so it owns flags rather than YAML. What it does not own
-// is the transport: where records go is the runtime-services module's business —
-// a file for the standalone module, a NATS subject for the k8s one — reached
-// through core.RuntimeServices.Traces like queues and the object store. This
-// package holds the flags, the two listeners, and the capture policy, and
-// nothing that knows what a file or a broker is.
+// is the transport: where records go is reached through
+// core.RuntimeServices.Traces. This package holds the flags, the two listeners
+// and the capture policy, and nothing that knows what a file or a broker is.
 //
 // Tracing is a development and debugging tool. It is off by default and says so
 // loudly when turned on: see the warning in Start.
@@ -66,10 +60,9 @@ const (
 	envBuffer     = "OCTO_TRACING_BUFFER"
 )
 
-// service is the registered instance. It is a package var so the CLI can read the
-// resolved flags back out of it (see Options) to build the runtime services the
-// publisher lives in — the one thing a hosted service cannot hand over through
-// the HostedService interface, because the interface predates anything needing it.
+// service is the registered instance. It is a package var so the resolved flags
+// can be read back out of it (see Options) to build the runtime services the
+// publisher lives in, which the HostedService interface has no way to hand over.
 var service = New()
 
 func init() {
@@ -165,8 +158,8 @@ func (s *Service) Usage() string {
   environment, not from a .env file.`
 }
 
-// Options returns the resolved configuration, for the CLI to hand to
-// services.New so the active module can build its publisher.
+// Options returns the resolved configuration, to hand to services.New so the
+// active module can build its publisher.
 func Options() core.TraceOptions { return service.Options() }
 
 // Flags registers the tracing flags on a FlagSet that is not `octo run`'s.
@@ -246,11 +239,11 @@ func (s *Service) warn() {
 // each invocation, one on the block dispatcher for what happened inside it.
 //
 // Neither has an unsubscribe, so registration happens once for the life of the
-// process and the sync.Once enforces it rather than leaving it to how the CLI
-// happens to call Start. A second registration would not fail or warn — it would
-// quietly write every record twice, which is the kind of wrong that survives a
-// long way. That is also why the listener re-checks core.Tracer().Enabled()
-// rather than trusting that registration implies recording.
+// process and the sync.Once enforces it rather than trusting the caller to invoke
+// Start once. A second registration would not fail or warn — it would quietly
+// write every record twice. That is also why the listener re-checks
+// core.Tracer().Enabled() rather than trusting that registration implies
+// recording.
 func (s *Service) watch() {
 	s.watching.Do(func() {
 		core.DefaultEventBus().Subscribe(s.onFlowEvent)

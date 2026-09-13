@@ -4,11 +4,9 @@
 // implements.
 //
 // It is a consumer-defined interface: this repo defines the contract and
-// publishes it as an OpenAPI document, and the operator implements it against
-// whatever their platform already has. On Cloud Run that is usually Firestore,
-// Secret Manager and Pub/Sub behind a second service; on Kubernetes it is a
-// central service the runtime pods call, or a sidecar container on loopback.
-// Whatever is behind it, the runtime sees one URL.
+// publishes it as an OpenAPI document, and whoever deploys the runtime implements
+// that contract against whatever their platform already has. Whatever is behind
+// it, the runtime sees one URL.
 //
 // The contract is negotiated rather than assumed. At startup the module fetches a
 // discovery document naming which features the server implements and how each is
@@ -72,9 +70,8 @@ type Services struct {
 // New builds the provider: it reads the environment, negotiates the contract, and
 // resolves every capability to a concrete implementation.
 //
-// Unlike the k8s module it uses its context, because discovery is a network call
-// that can outlive a caller's patience and the CLI's shutdown signal has to be
-// able to reach it.
+// It uses its context: discovery is a network call that can outlive a caller's
+// patience, and a shutdown signal has to be able to reach it.
 //
 //nolint:ireturn // satisfies services.Factory (returns core.RuntimeServices)
 func New(ctx context.Context, opts services.Options) (core.RuntimeServices, error) {

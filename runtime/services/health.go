@@ -8,10 +8,10 @@ import "sync/atomic"
 type State string
 
 const (
-	// StateStarting is the state a process begins in: the CLI has parsed its flags
-	// and the hosted services are up, but connectors and flows are not. A readiness
-	// probe answering during this window is the point of having one — the process is
-	// alive and refusing traffic on purpose.
+	// StateStarting is the state a process begins in: flags are parsed and the
+	// hosted services are up, but connectors and flows are not. A readiness probe
+	// answering during this window is the point of having one — the process is alive
+	// and refusing traffic on purpose.
 	StateStarting State = "starting"
 	// StateReady means every connector and flow of the current generation started.
 	// Sources are bound, so the runtime is accepting traffic.
@@ -28,9 +28,8 @@ const (
 	StateStopped State = "stopped"
 )
 
-// Health is the runtime's readiness gate: the CLI writes it as the lifecycle
-// advances, and a hosted service reads it to answer probes. It is safe for
-// concurrent use.
+// Health is the runtime's readiness gate: it is written as the lifecycle advances
+// and read by a hosted service to answer probes. It is safe for concurrent use.
 //
 // There is no liveness gate, deliberately. Liveness asks whether the process is
 // wedged, and a dedicated server answering at all is the answer — a gate could

@@ -1,25 +1,17 @@
 // Package servicestest holds the executable contract for the runtime service
 // interfaces that have more than one implementation.
 //
-// Three modules implement core.KV and core.Leases — in a map, in an orchestrator
-// database, and behind somebody else's HTTP API — and those two interfaces carry
-// the subtlest rules in the whole surface. Version 0 creates and conflicts if the
-// key is already there. A positive version must match. Deleting something absent
-// succeeds. Acquire never blocks, and a claim whose renewal stops landing closes
-// its Done channel. Each of those is a sentence that is easy to agree with and
-// easy to implement differently, and three sets of hand-written tests is exactly
-// the arrangement where one implementation quietly disagrees.
+// core.KV and core.Leases carry the subtlest rules in the whole surface. Version 0
+// creates and conflicts if the key is already there. A positive version must
+// match. Deleting something absent succeeds. Acquire never blocks, and a claim
+// whose renewal stops landing closes its Done channel. Each is a sentence that is
+// easy to agree with and easy to implement differently, so the suite runs against
+// every implementation rather than trusting each one's own tests.
 //
-// It matters most for the api module, whose correctness depends on a third party
-// implementing the contract we published. Writing the contract down as Go that
-// runs is worth more there than it would have been with two in-tree modules.
-//
-// Deliberately scoped to these two. Queues and topics legitimately differ across
-// modules — at-most-once in-process against at-least-once with acknowledgement —
-// so a shared suite would have to be parameterized by capability before it could
-// be honest, and one full of "if module ==" is worse than none. Agent memory has
-// twelve methods and two of the three modules decline two of them. Those become
-// suites when the real common subset is visible rather than guessed.
+// It is deliberately scoped to those two. Queues, topics and agent memory differ
+// legitimately between implementations, and a suite parameterized by capability
+// until it is honest is worse than no suite at all. They earn one when a real
+// common subset is visible rather than guessed.
 package servicestest
 
 import (

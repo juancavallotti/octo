@@ -9,24 +9,17 @@ import (
 // Command is the third thing a runtime service may contribute: a subcommand on
 // the CLI.
 //
-// It exists for the same reason HostedService.Flags does. A service that is not
+// It exists for the same reason HostedService.Flags does: a service that is not
 // declared in any config still has things to say to the person running the
-// binary, and the only way it can say them is through the CLI — so a module
-// brings its flags, its help, and (here) its commands with it, rather than
-// package main growing a build-tagged case for each.
+// binary, so it brings its flags, its help and its commands with it rather than
+// package main growing a case for each.
 //
 // Unlike a provider, a command is NOT module-selected: it is available whenever
-// its package is compiled in, whatever RUNTIME_SERVICES_MODULE says. That is
-// deliberate. `octo verify-platform-api` is a thing you run to find out whether a
-// server is ready, before you would ever set the variable that selects the
-// module — requiring the selection first would make it useless exactly when it is
-// needed.
+// its package is compiled in, whatever RUNTIME_SERVICES_MODULE says. A command
+// that reports whether a server is ready has to run before anyone would set the
+// variable selecting that server's module.
 //
-// What it buys is that a capability appears in a binary if and only if that
-// binary can act on it. The platform API contract is the worked example: printing
-// it from a build with no api provider would invite somebody to implement an
-// interface that binary cannot talk to, and they would find out only after
-// writing a server.
+// So a capability appears in a binary if and only if that binary can act on it.
 type Command interface {
 	// Name is the subcommand as typed, e.g. "openapi".
 	Name() string
@@ -69,7 +62,7 @@ func RegisterCommand(cmd Command) {
 
 // LookupCommand returns the command registered under name.
 //
-//nolint:ireturn // returns the Command interface the CLI dispatches through
+//nolint:ireturn // returns the Command interface the caller dispatches through
 func LookupCommand(name string) (Command, bool) {
 	commandMu.Lock()
 	defer commandMu.Unlock()
@@ -91,7 +84,7 @@ func CommandNames() []string {
 }
 
 // CommandUsage returns every registered command's help section, in name order so
-// the page is stable, for appending to the CLI's usage page.
+// the page is stable, for appending to the binary's usage page.
 func CommandUsage() string {
 	var b strings.Builder
 	for _, name := range CommandNames() {
