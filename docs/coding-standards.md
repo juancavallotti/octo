@@ -83,13 +83,9 @@ Two habits follow. Delete a comment rather than update it when the code beneath
 now says the same thing. And never narrate the change itself ("now uses…", "no
 longer…"): the code is the current state, and git holds the previous one.
 
-**The comments already in this repository are not the model.** Most of them predate
-this rule and break it: long headers narrating deployment modes, module history and
-alternatives that were considered and dropped. Until this paragraph is removed, read
-them as debt rather than as precedent — do not mimic the shape of a neighbouring
-comment merely because it is there, and trim what you find in a file you are already
-editing. Opportunistic, not a campaign: a file you touch should come out shorter
-than it went in.
+The repository has been swept once against this rule, module by module. What is
+left is the model: read a neighbouring comment as precedent again. A file you
+touch should still come out no longer than it went in.
 
 ## File size and organization
 
