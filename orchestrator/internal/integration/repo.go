@@ -188,12 +188,10 @@ func (r *Repo) Update(ctx context.Context, id, name, definition, actorID string)
 	return it, nil
 }
 
-// SetIcon records an integration's chosen icon, or clears it back to derived
-// when icon is "". It is its own write rather than a field on Update because
-// every caller of Update passes a whole integration — the editor's save, a
-// bundle replace, the agent's republish — and none of them know about icons. A
-// field there would have them clear a user's choice each time they saved
-// something unrelated.
+// SetIcon records an integration's chosen icon, or clears it back to derived when
+// icon is "". It is its own write rather than a field on Update because every caller
+// of Update passes a whole integration and none of them know about icons — a field
+// there would clear the choice on every unrelated save.
 func (r *Repo) SetIcon(ctx context.Context, id, icon, actorID string) (Integration, error) {
 	row := r.pool.QueryRow(ctx,
 		`WITH i AS (

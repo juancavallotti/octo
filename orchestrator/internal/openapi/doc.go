@@ -7,9 +7,7 @@
 // module — only of the task that regenerates the artifact. CI regenerates and fails
 // on a diff, so the committed spec and the annotations cannot drift apart.
 //
-// It exists because a description of this API is the difference between a client
-// that has to be told every route and one that can look them up — the platform
-// agent being the first such client, but not the only conceivable one.
+// It exists so a client can look the routes up rather than be told them.
 //
 // The general API annotations live here rather than in main.go so that file stays
 // about wiring.

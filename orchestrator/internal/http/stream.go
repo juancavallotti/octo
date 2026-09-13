@@ -14,15 +14,13 @@ const streamChunk = 4096
 // StreamText copies stream to the client as chunked plain text, flushing each chunk
 // so lines arrive as they are produced.
 //
-// This is the shape of every log tail the orchestrator serves, and it is shared
-// because four of its details are easy to get subtly wrong and would drift between
-// copies: the header is flushed up front (a follow stream can sit idle before its
-// first line, and net/http or a proxy would otherwise withhold the 200 until then,
-// leaving the client unable to tell "connected, waiting" from "hung"), every chunk
-// is flushed (or a tail is held indefinitely), a failed write ends the copy silently
-// (the client hung up, which is how a follow stream normally ends), and io.EOF and a
-// cancelled request are both normal endings while anything else is logged under
-// label.
+// Four details here are easy to get subtly wrong, which is why they live in one
+// place: the header is flushed up front (a follow stream can sit idle before its
+// first line, and net/http or a proxy would otherwise withhold the 200, leaving the
+// client unable to tell "connected, waiting" from "hung"), every chunk is flushed (or
+// a tail is held indefinitely), a failed write ends the copy silently (the client
+// hung up, which is how a follow stream normally ends), and io.EOF and a cancelled
+// request are both normal endings while anything else is logged under label.
 //
 // It writes the status line itself, so the caller must not have written one, and it
 // does not close stream, because the caller owns it.

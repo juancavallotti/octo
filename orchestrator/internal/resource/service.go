@@ -146,12 +146,10 @@ func validate(kind, name string) (string, string, error) {
 
 // validateRole refuses a resource whose path would make it something else.
 //
-// A file's role follows from its path, and a root-level .yaml is a flow file to
-// the runtime no matter what the API that wrote it called it. Storing one as a
-// resource would be a claim the runtime contradicts the moment it loads the
-// folder, so it is refused where the claim is made. Everything resources are
-// actually used for today — .env files, templates/, .octo/ — is nested or a
-// dotfile and lands nowhere near this.
+// A file's role follows from its path, and a root-level .yaml is a flow file no
+// matter what the API that wrote it called it — so storing one as a resource is a
+// claim the loader contradicts, and it is refused where the claim is made. What
+// resources are used for — .env files, templates/, .octo/ — is nested or a dotfile.
 func validateRole(name string) error {
 	if role := projectfile.Classify(name); role != projectfile.RoleResource {
 		return fmt.Errorf("%w: %q would be a %s file, not a resource — nest it or rename it",

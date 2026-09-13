@@ -51,9 +51,9 @@ func (s *httpSidecar) Reload(ctx context.Context, baseURL, token string) error {
 // when it last pulled, what the runtime's admin port says — as the opaque JSON the
 // sidecar produced.
 //
-// Opaque on purpose. Re-declaring the sidecar's status schema here would create two
-// copies of it in two modules that version independently, and the orchestrator
-// interprets none of it: this travels through to the editor's diagnostics view.
+// Opaque on purpose: re-declaring the sidecar's status schema here would put two
+// copies of it in two modules that version independently, and none of it is
+// interpreted on the way through.
 func (s *httpSidecar) Status(ctx context.Context, baseURL, token string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, statusTimeout)
 	defer cancel()

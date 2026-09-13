@@ -43,9 +43,8 @@ type Service struct {
 type Option func(*Service)
 
 // WithReloadNotifier wires a notifier that is told, after a successful write, which
-// integration changed. This is the reload trigger for dev runs, and it lives here —
-// at the write — rather than in the editor, so that every writer is covered at once:
-// the editor's save, the integrations list, MCP's update_flow, any API-key client.
+// integration changed. This is the reload trigger for dev runs, and it lives at the
+// write so that every writer is covered at once.
 func WithReloadNotifier(n reloadNotifier) Option {
 	return func(s *Service) { s.notifier = n }
 }

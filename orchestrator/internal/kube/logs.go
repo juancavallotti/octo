@@ -13,10 +13,9 @@ import (
 // buffer and ends. tail, when > 0, limits the initial replay to the last N lines
 // so a long-running pod doesn't dump its whole history on connect.
 //
-// container names which container to read; empty means the pod's only one, which is
-// the case for a deployment. A dev-run pod has two — the runtime and the sidecar
-// that owns its workspace — and Kubernetes rejects an ambiguous request, so that
-// caller names the runtime.
+// container names which container to read; empty means the pod's only one. A pod with
+// more than one makes an unnamed request ambiguous, which Kubernetes rejects, so such
+// a caller names the container it wants.
 //
 // The returned ReadCloser is the raw log byte stream (plain text, newline
 // separated); the caller owns closing it. Pod names come from Status().Pods.

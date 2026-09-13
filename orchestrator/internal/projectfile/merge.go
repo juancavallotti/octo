@@ -36,21 +36,17 @@ var ErrMerge = errors.New("config files conflict")
 // Merge folds an integration's config files into the single definition the rest
 // of the orchestrator still speaks in.
 //
-// The rules are runtime.MergeConfigs': connectors, processors and flows
-// concatenate with duplicate names rejected, env declarations concatenate with
-// the first winning, declared resources de-duplicate, and the service identity
-// may come from exactly one file.
+// The rules: connectors, processors and flows concatenate with duplicate names
+// rejected, env declarations concatenate with the first winning, declared resources
+// de-duplicate, and the service identity may come from exactly one file.
 //
-// One file is returned verbatim. That is the case every integration is in
-// today, and it matters that it stays byte-for-byte — a round trip through the
-// YAML encoder would reflow comments and block scalars that a user wrote by
-// hand, and nobody asked us to reformat their config to read it back.
+// One file is returned verbatim, and it matters that it stays byte-for-byte: a round
+// trip through the YAML encoder would reflow comments and block scalars somebody
+// wrote by hand.
 //
-// The claim worth re-checking when either side moves: loading this output with
-// runtime.LoadConfig must produce the same types.Config as pointing LoadConfig
-// at the folder. That was verified against the real loader before this landed,
-// and it is the only statement here the unit tests below cannot make on their
-// own — they live on the wrong side of the module boundary to import it.
+// The claim to re-check when either side moves: loading this output must produce the
+// same config as loading the folder it came from. The tests below live on the wrong
+// side of the module boundary to state it.
 func Merge(files []File) (string, error) {
 	sorted := make([]File, len(files))
 	copy(sorted, files)

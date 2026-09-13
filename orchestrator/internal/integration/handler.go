@@ -33,10 +33,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /integrations/{id}", h.delete)
 }
 
-// integrationRequest is the create/update payload. ActorID is the acting user's
-// id, forwarded by the BFF from the authenticated session (empty when unknown);
-// the orchestrator trusts the BFF as the auth boundary, so it is a body field
-// rather than a verified credential.
+// integrationRequest is the create/update payload. ActorID is the acting user's id,
+// empty when unknown: it is attribution carried in the body, not a verified
+// credential.
 type integrationRequest struct {
 	Name       string `json:"name"`
 	Definition string `json:"definition"`
@@ -147,8 +146,8 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 // iconRequest is the payload for choosing an integration's icon.
 type iconRequest struct {
-	// Icon is a name from the editor's icon registry, or "" to go back to
-	// deriving one from the definition.
+	// Icon is a chosen icon name, or "" to go back to deriving one from the
+	// definition.
 	Icon    string `json:"icon"`
 	ActorID string `json:"actorId"`
 }

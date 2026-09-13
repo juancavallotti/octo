@@ -24,13 +24,11 @@ type endpoint struct {
 // object that makes {subdomain}.{baseDomain} reach its Service — and withdraws
 // it again on undeploy.
 //
-// It is an interface because there are exactly two ways a cluster does this and
-// they differ in kind, not in fields: an Ingress, or a Gateway API HTTPRoute
-// attached to a Gateway the cluster owner runs. Everything else about a
-// deployment is identical either way, so the difference is confined to one
-// implementation each rather than spread as a mode check across Apply, Delete
-// and the config. There will not be a third: those are the two APIs Kubernetes
-// has for ingress traffic.
+// It is an interface because there are exactly two ways a cluster does this and they
+// differ in kind, not in fields: an Ingress, or a Gateway API HTTPRoute attached to a
+// Gateway the cluster owner runs. Everything else about a deployment is identical
+// either way, so the difference stays in one implementation each rather than becoming
+// a mode check across Apply, Delete and the config.
 type endpointPublisher interface {
 	// publish creates the endpoint object. It is called only for deployments that
 	// asked to be exposed, and only when a base domain is configured.
@@ -48,11 +46,10 @@ type endpointPublisher interface {
 // ingressPublisher publishes endpoints as networking.k8s.io Ingresses. It is the
 // default, and the only one that works on a cluster with no Gateway API CRDs.
 //
-// Everything it needs beyond the endpoint itself is cluster configuration the
-// Ingress has no other way to express — which controller should claim the
-// object, where its certificate comes from, and whatever controller-specific
-// annotations the deployment target requires. That list is the reason the
-// Gateway API path exists: none of it is part of the route there.
+// Everything it needs beyond the endpoint itself is cluster configuration the Ingress
+// has no other way to express: which controller claims the object, where its
+// certificate comes from, and whatever controller-specific annotations the target
+// requires. None of that is part of a route in the Gateway API path.
 type ingressPublisher struct {
 	clientset kubernetes.Interface
 	namespace string

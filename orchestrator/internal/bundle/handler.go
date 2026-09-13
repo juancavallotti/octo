@@ -26,10 +26,9 @@ const (
 	maxUploadBytes = 8 << 20 // 8 MiB
 	// archiveContentType is what a bundle is served as and uploaded as.
 	archiveContentType = "application/zip"
-	// nameQueryParam names an import whose archive carries no manifest; the BFF
-	// passes the uploaded file's stem. actorQueryParam carries the acting user, the
-	// way the JSON routes carry it in the body — an upload's body is the archive, so
-	// there is nowhere else for it to go.
+	// nameQueryParam names an import whose archive carries no manifest.
+	// actorQueryParam carries the acting user, which the JSON routes carry in the
+	// body — an upload's body is the archive, so there is nowhere else for it to go.
 	nameQueryParam  = "name"
 	actorQueryParam = "actorId"
 )

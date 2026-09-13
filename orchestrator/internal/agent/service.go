@@ -66,21 +66,18 @@ type (
 		Delete(ctx context.Context, name string, force bool) error
 	}
 
-	// credentials is llm.Service. Reveal is the read path that exists for exactly
-	// this consumer and is on no route — and it decrypts, so only install and
-	// rollout call it. Get and EncryptionAvailable answer "is one configured?"
-	// without ever materialising the key, which is what a polled status page needs.
+	// credentials is llm.Service. Reveal decrypts, so only install and rollout call
+	// it; Get and EncryptionAvailable answer "is one configured?" without ever
+	// materialising the key.
 	credentials interface {
 		Get(ctx context.Context) (llm.Settings, error)
 		EncryptionAvailable() bool
 		Reveal(ctx context.Context) (llm.Credentials, error)
 	}
 
-	// webSearch is websearch.Service. Only Reveal, because unlike the LLM
-	// credential nothing about this one is reported: it blocks no install and
-	// changes no status, so the status page has nothing to ask it. An
-	// unconfigured install returns the empty string rather than an error, which
-	// is what makes "no key" an ordinary path here rather than a special case.
+	// webSearch is websearch.Service. Only Reveal, because this credential blocks
+	// no install and changes no status. An unconfigured install returns the empty
+	// string rather than an error, which keeps "no key" an ordinary path.
 	webSearch interface {
 		Reveal(ctx context.Context) (string, error)
 	}
@@ -95,15 +92,14 @@ type Service struct {
 	deployments  deployer
 	secrets      secrets
 	credentials  credentials
-	// webSearch is nil on an orchestrator that never wired it — the same shape as
-	// deployer above, and for the same reason: absence is the absence of a call.
-	// Nil binds the sentinel, which is exactly what an unconfigured key does.
+	// webSearch is nil where it was never wired. Nil binds the sentinel, which is
+	// exactly what an unconfigured key does.
 	webSearch webSearch
 
-	// orchestratorURL is bound on the deployment as ORCHESTRATOR_URL. The
-	// orchestrator injects the same value into every pod, but the deploy-time check
-	// for required variables sees only bindings, so a required declaration with no
-	// binding is refused before the pod exists.
+	// orchestratorURL is bound on the deployment as ORCHESTRATOR_URL. The same value
+	// is injected into every pod, but the deploy-time check for required variables
+	// sees only bindings, so a required declaration with no binding is refused before
+	// the pod exists.
 	orchestratorURL string
 }
 
@@ -112,11 +108,10 @@ type Option func(*Service)
 
 // WithCluster supplies the half of the service that needs Kubernetes.
 //
-// An option rather than two more parameters, precisely so that "no cluster" is the
-// absence of a call rather than two nils passed in. A nil *deployment.Service handed
-// to an interface parameter is a non-nil interface holding a nil pointer, so the
-// nil check inside would silently pass and the failure would arrive later as a
-// panic — which is exactly the shape of bug the check exists to prevent.
+// An option rather than two more parameters, so that "no cluster" is the absence of
+// a call rather than two nils passed in: a nil *deployment.Service in an interface
+// parameter is a non-nil interface holding a nil pointer, and the nil checks inside
+// would pass.
 func WithCluster(deployments deployer, secrets secrets) Option {
 	return func(s *Service) {
 		s.deployments = deployments
@@ -126,9 +121,8 @@ func WithCluster(deployments deployer, secrets secrets) Option {
 
 // WithWebSearch supplies the site's web search credential.
 //
-// An option because the agent installs and runs without one: what it changes is
-// whether his web_search tool has a key behind it, not whether he exists. Left
-// out, the binding is the sentinel and the tool reports itself unavailable.
+// An option because the agent installs and runs without one: left out, the binding
+// is the sentinel and the web_search tool reports itself unavailable.
 func WithWebSearch(ws webSearch) Option {
 	return func(s *Service) {
 		s.webSearch = ws
@@ -214,10 +208,8 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if errors.Is(err, deployment.ErrNotFound) {
 		// A deployment removed underneath us is not an error to report — it is the
 		// install being back at "not running". So say that completely: the id and the
-		// address describe something that no longer exists, and a caller that believed
-		// them offered a roll-out of nothing while hiding Deploy behind it. State said
-		// "installed, not running" and these two said otherwise, which is one read
-		// model with two answers.
+		// address describe something that is gone, and leaving them set would let a
+		// caller offer a roll-out of nothing.
 		slog.Warn("agent status: deployment is gone", "deploymentId", cur.DeploymentID)
 		out.DeploymentID = ""
 		out.InternalURL = ""
@@ -264,11 +256,9 @@ func (s *Service) blocked(ctx context.Context) string {
 		// would fail at the point it reads it.
 		return BlockedEncryption
 	}
-	// He is not merely nicer on the agentic runner, he requires it. His definition
-	// names the standalone octo, dolphin and curl in `cli-run` allow lists, and an
-	// allow-list entry is resolved when the flow is BUILT — so on any other image
-	// the config does not load at all and the pod crash-loops. Reporting it here
-	// turns that into a sentence on the admin page before anyone presses Install.
+	// He requires the agentic runner: his definition names the standalone octo,
+	// dolphin and curl in `cli-run` allow lists, and an allow-list entry is resolved
+	// when the flow is BUILT, so on any other image the config does not load at all.
 	if !s.deployments.RunnerAvailable(agenticRunner) {
 		return BlockedAgenticRunner
 	}
@@ -278,11 +268,9 @@ func (s *Service) blocked(ctx context.Context) string {
 // edited reports whether the installed integration still matches the bundle it was
 // installed from.
 //
-// It compares against the *live* rows rather than the last snapshot, because that
-// is what a roll-out would overwrite: snapshotting freezes the working copy, so a
-// roll-out necessarily publishes whatever is in the integration now. Someone
-// changing the agent is supported and expected — this exists so the roll-out can
-// say what it is about to replace.
+// It compares against the *live* rows rather than the last snapshot, because that is
+// what a roll-out would overwrite: snapshotting freezes the working copy, so a
+// roll-out publishes whatever is in the integration now.
 func (s *Service) edited(ctx context.Context, cur stored) bool {
 	if cur.IntegrationID == "" || cur.InstalledDigest == "" {
 		return false
@@ -329,16 +317,11 @@ func (s *Service) Install(ctx context.Context, actorID string) (Status, error) {
 		return Status{}, ErrClusterUnavailable
 	}
 
-	// Two writes, deliberately, because the integration is created through a
-	// different connection than the one holding this row — so it commits whether or
-	// not the rest of the install does.
-	//
-	// Recording the id first makes that survivable. If the deploy then fails on a
-	// transient API-server error, the settings roll back to a row that already knows
-	// which integration is ours, and the next attempt reuses it. Doing it all under
-	// one lock instead would roll the id back and leave an integration nobody owns,
-	// after which every install fails on the unique name and the operator is told to
-	// rename something the installer itself created.
+	// Two writes, because the integration is created through a different connection
+	// than the one holding this row and commits whether or not the rest does.
+	// Recording the id first makes that survivable: a later failure rolls back to a
+	// row that already knows which integration is ours, and the next attempt reuses
+	// it rather than failing on the unique name.
 	if err := s.repo.Mutate(ctx, func(cur stored) (stored, error) {
 		return s.ensureIntegration(ctx, cur, actorID)
 	}); err != nil {
@@ -363,15 +346,11 @@ func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID str
 		case !errors.Is(err, integration.ErrNotFound):
 			return cur, err
 		}
-		// The record points at an integration that no longer exists — deleted from
-		// the integrations page, or a purge that failed after removing it and left
-		// the record behind. Every later Install then failed on a missing
-		// integration, and every later purge failed trying to delete it again, so
-		// the install was unrecoverable through the UI that created it.
-		//
-		// Recreating is what the operator asked for. The snapshot and digest go with
-		// the id: they describe versions of an integration that is gone, and keeping
-		// them would have the next publish reference a row that no longer exists.
+		// The record points at an integration that no longer exists — deleted, or a
+		// purge that failed after removing it. Recreating it is what was asked for,
+		// and the snapshot and digest go with the id: they describe versions of an
+		// integration that is gone, so keeping them would have the next publish
+		// reference a row that no longer exists.
 		slog.Warn("agent install: the recorded integration is gone, creating it again",
 			"integrationId", cur.IntegrationID)
 		cur.IntegrationID = ""
@@ -388,13 +367,12 @@ func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID str
 	if errors.Is(err, integration.ErrNameTaken) {
 		// An earlier attempt created it and did not get as far as recording it — the
 		// narrow window where even the two-step write above loses. Adopting it beats
-		// telling the operator to rename an integration the installer itself made.
+		// refusing to install over an integration the installer itself made.
 		//
-		// But only if it is recognisably ours. An integration a user happens to have
-		// named "Dr. Octo" is theirs, and adopting it would snapshot and deploy their
-		// work and then replace it on the next roll-out — with Edited in the status
-		// as the only warning, after the fact. So the definition has to declare the
-		// agent's own service name, which nothing but this bundle does.
+		// But only if it is recognisably ours: an integration a user happens to have
+		// given the same name is theirs, and adopting it would snapshot, deploy and
+		// then replace their work. So the definition has to declare the agent's own
+		// service name, which nothing but this bundle does.
 		adopted, findErr := s.findByName(ctx, agentapp.Name)
 		switch {
 		case findErr != nil:
@@ -412,13 +390,9 @@ func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID str
 
 	next := cur
 	next.IntegrationID = it.ID
-	// Tracing on from the first deploy, which is the opposite of the default for
-	// anything a user builds — and right for exactly the reasons the general default
-	// is off. That default is about throughput, and a chat agent answering a handful
-	// of questions has none to lose. What he does have is the ability to deploy, and
-	// a diet of text other people wrote, so "what did he actually do, and was he
-	// told to" is a question worth being able to answer about every run rather than
-	// only the ones after somebody thought to switch it on.
+	// Tracing on from the first deploy: the usual default is off for throughput, and
+	// an agent answering a handful of questions has none to lose, while "what did he
+	// do, and was he told to" is worth being able to answer about every run.
 	//
 	// Only on the first install. Turning it off afterwards is a decision, and a later
 	// redeploy must not quietly undo it.
@@ -455,11 +429,9 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 		return cur, err
 	}
 
-	// Each step names itself in its error. An install is half a dozen operations
-	// against the database, the cluster's Secret and the Kubernetes API, and any of
-	// them can fail for reasons outside this package — so "which step" is the first
-	// thing anyone reading the failure needs, and the only party that knows it is
-	// the code that took the step.
+	// Each step names itself in its error: an install is half a dozen operations
+	// against the database, the cluster's Secret and the Kubernetes API, and only the
+	// code taking a step knows which one failed.
 	next := cur
 	if err := s.syncResources(ctx, next.IntegrationID, actorID); err != nil {
 		return cur, fmt.Errorf("write the agent's skills as resources: %w", err)
@@ -480,29 +452,19 @@ func (s *Service) install(ctx context.Context, cur stored, actorID string) (stor
 
 	// He is deployed able to do the job he is installed for.
 	//
-	// When somebody is chatting, his tools spend that person's token, so what he
-	// may do is what they may do and these grants change nothing. They are for the
-	// other path: an alert waking the troubleshooter, where there is nobody to
-	// borrow from and his own token is the only credential the run has.
-	//
-	// Without them that path is not merely limited, it is inert — platform:runtime
-	// is in no rule on either API, so every call an unattended triage makes is
-	// refused, including the reads. Installing an agent whose advertised job is to
-	// investigate and repair, in a state where it can do neither, is a worse
-	// default than granting what the job needs and letting an administrator take it
-	// back on the deployment.
+	// While somebody is chatting, his tools spend that person's token and these
+	// grants change nothing. They are for the unattended path, where his own token is
+	// the only credential the run has: platform:runtime is in no rule on either API,
+	// so without them every call an unattended triage makes is refused, reads
+	// included. An administrator can take the grants back on the deployment.
 	dep, err := s.deployments.Deploy(ctx, next.IntegrationID, deployment.Settings{
 		Replicas:   1,
 		SnapshotID: snap.ID,
 		Tracing:    next.Tracing,
 		Env:        bindings,
 		Access:     []string{deployment.AccessDeveloper, deployment.AccessOperator},
-		// The runner he needs, asked for the same way any integration asks. It is not
-		// a size preference: his tools run the standalone octo, dolphin and curl, and
-		// none of those exist in the distroless image every other deployment uses —
-		// his flow would not even load there, because a `cli-run` allow list is
-		// resolved when the flow is built. blocked() refuses the install up front
-		// when this installation has no such image, so reaching here means it does.
+		// The runner he needs, asked for the same way any integration asks; see
+		// blocked(), which refuses the install up front when there is no such image.
 		Runner: agenticRunner,
 	})
 	if err != nil {
@@ -565,11 +527,10 @@ func (s *Service) syncResources(ctx context.Context, integrationID, actorID stri
 		}
 	}
 
-	// A skill the bundle no longer ships has to go, or it stays on the integration
-	// for ever: liveDigest counts it (it still matches the skills/ prefix) while the
-	// bundle digest does not, so the agent would report as permanently edited and no
-	// roll-out would clear it. Only the bundle's own resources are considered — a
-	// template a user added is theirs.
+	// A skill the bundle stopped shipping has to go, or liveDigest keeps counting it
+	// (it still matches the skills/ prefix) while the bundle digest does not, and the
+	// agent reports as permanently edited. Only the bundle's own resources are
+	// considered — a template somebody else added is theirs.
 	for name, item := range byName {
 		if _, shipped := skills[name]; shipped || !agentapp.IsSkill(name) {
 			continue
@@ -592,24 +553,15 @@ func (s *Service) syncResources(ctx context.Context, integrationID, actorID stri
 // makes it worth reading — but the two only move together in a released binary. A
 // build made between releases can carry a changed bundle under a version that is
 // already published, and reusing that tag would deploy the older snapshot while the
-// row recorded the newer digest: a roll-out that reported success and changed
-// nothing. So the release's tag is used only when this bundle is provably the one
-// behind it, and anything else is published beside it under a build tag.
+// row recorded the newer digest. So the release's tag is used only when this bundle
+// is provably the one behind it, and anything else is published beside it under a
+// build tag.
 //
-// "Provably" used to mean the settings row rather than the snapshot, and that was
-// wrong in a way that wedged installations. The row records the digest of the
-// BUNDLE, while what gets published is a snapshot of the LIVE definition — and on
-// an install that adopted an existing integration those are different documents.
-// Once they disagreed, this function's shortcut kept returning the stale snapshot,
-// so every later roll-out republished the definition and then deployed the old one:
-// a no-op that reported success, and one that uninstall/reinstall could not clear
-// because an install must not overwrite a definition either.
-//
-// So reuse is decided on CONTENT. A snapshot of exactly the definition about to be
-// published is that publication, whatever it is tagged and whatever the row
-// remembers; anything else gets a new one. The digest is still what names the tag,
-// and the row is still what "update available" reads — it is simply no longer
-// trusted to answer a question the data can answer itself.
+// Reuse is decided on CONTENT rather than on the settings row: a snapshot of exactly
+// the definition about to be published *is* that publication, whatever it is tagged;
+// anything else gets a new one. The row records the digest of the BUNDLE while what
+// is published is a snapshot of the LIVE definition, and on an install that adopted
+// an existing integration the two are different documents.
 func (s *Service) publishBundle(ctx context.Context, cur stored, digest string) (snapshot.Snapshot, error) {
 	// What Create will actually freeze: the integration as it stands now. A roll-out
 	// has just republished the bundle over it, so this is the bundle; an install has
@@ -632,18 +584,14 @@ func (s *Service) publishBundle(ctx context.Context, cur stored, digest string) 
 		taken[snap.Tag] = true
 	}
 
-	// Nothing published holds this definition, so it needs a version of its own
-	// under the first free tag. The release's tag first; then one derived from the
-	// digest, for a build made between releases that carries changed content under a
-	// version already published. A suffix past that is not expected — it means both
-	// names are held by other content — but a loop that cannot fail beats a publish
-	// that silently reuses the wrong snapshot, which is the bug this replaced.
-	// ErrTagExists is tolerated rather than returned, because the check above and
-	// the write below are not one atomic step: an operator cutting a version by hand
-	// in between takes a tag this loop just read as free. Skipping to the next
-	// candidate costs nothing and turns a lost race into a version with a different
-	// name, where returning would fail an install for a reason that had already
-	// stopped being true.
+	// Nothing published holds this definition, so it needs a version of its own under
+	// the first free tag: the release's tag, then one derived from the digest, then a
+	// suffix for the unexpected case where both names are held by other content.
+	//
+	// ErrTagExists is tolerated rather than returned, because the check above and the
+	// write below are not one atomic step — a version cut by hand in between takes a
+	// tag this loop just read as free, and skipping to the next candidate turns a
+	// lost race into a version with a different name.
 	for _, tag := range candidateTags(digest) {
 		if taken[tag] {
 			continue
@@ -765,18 +713,16 @@ func (s *Service) webSearchKey(ctx context.Context) (deployment.EnvBinding, erro
 		return unconfigured, nil
 	}
 	if key == "" {
-		// Nothing is stored, so nothing should be left in the cluster either. Without
-		// this, an installation that configured a key and later removed it kept the
-		// old one as a platform secret until the agent was purged — a live credential
-		// with nothing owning it and no page reporting it.
+		// Nothing is stored, so nothing should be left in the cluster either: a key
+		// configured and later removed would otherwise survive as a live credential
+		// with nothing owning it.
 		//
 		// force, because the deployment about to be replaced still references it. Not
 		// found is the ordinary case: most installations never stored one.
 		if err := s.secrets.Delete(ctx, webSearchKeySecret, true); err != nil &&
 			!errors.Is(err, secret.ErrNotFound) {
-			// Not fatal. The binding below is the sentinel either way, so the agent
-			// cannot search — what is left is a stale secret, which is worth an
-			// operator's attention rather than a refused roll-out.
+			// Not fatal: the binding below is the sentinel either way, so what is left
+			// is a stale secret rather than a working credential.
 			slog.Error("could not remove the stored web search key secret",
 				"secret", webSearchKeySecret, "error", err)
 		}
@@ -792,10 +738,9 @@ func (s *Service) webSearchKey(ctx context.Context) (deployment.EnvBinding, erro
 // Rollout publishes the bundle this binary carries and rolls the deployment onto
 // it.
 //
-// Snapshotting freezes the integration's *working copy*, so this necessarily
-// publishes whatever is in the integration now — which means a roll-out replaces
-// local edits with the shipped agent. That is why Status reports Edited: so the
-// choice is made knowingly rather than discovered afterwards.
+// Snapshotting freezes the integration's *working copy*, so this publishes whatever
+// is in the integration now: a roll-out replaces local edits with the shipped agent,
+// which is what Status reports as Edited beforehand.
 func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 	if s.deployments == nil || s.secrets == nil {
 		return Status{}, ErrClusterUnavailable
@@ -811,15 +756,12 @@ func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
 		}
 		if !running {
 			// Nothing is running, so there is no rolling update to do — but the
-			// definition still has to be republished, or an operator who asked for
-			// the shipped agent would get their own edits frozen into the new tag.
-			// Install alone does not do that, deliberately: it must not overwrite a
-			// definition on a plain retry.
+			// definition still has to be republished, or asking for the shipped agent
+			// would freeze the local edits into the new tag instead. Install alone does
+			// not republish: it must not overwrite a definition on a plain retry.
 			//
-			// The recorded deployment may also be gone rather than absent: undeploying
-			// the agent through the ordinary deployments path leaves this row pointing
-			// at nothing, and it is also what a redeploy races against. Deploying a new
-			// one is what the operator asked for either way, so the two cases are one.
+			// The recorded deployment may be gone rather than absent, and a fresh
+			// deploy is the right answer to both, so the two cases are one.
 			if err := s.republish(ctx, cur.IntegrationID, actorID); err != nil {
 				return cur, err
 			}
@@ -846,13 +788,11 @@ func (s *Service) hasRunningDeployment(ctx context.Context, cur stored) (bool, e
 // can read, deploy or copy back.
 //
 // Compared against the bundle rather than against the installed digest: what matters
-// is whether republishing is about to change anything, not whether the change was
-// made since the last install. When they match there is nothing to lose and no tag
-// is created, which is what keeps a plain redeploy from minting a version per press.
+// is whether republishing is about to change anything. When they match no tag is
+// created, so a plain redeploy does not mint a version per press.
 //
-// A failure here fails the roll-out. Preserving the edits is the promise the
-// confirmation makes, and continuing past a failed snapshot would break it at
-// exactly the moment it mattered.
+// A failure here fails the roll-out, because continuing past a failed snapshot would
+// discard exactly the edits this exists to keep.
 func (s *Service) preserveEdits(ctx context.Context, integrationID, bundleDigest string) error {
 	live, err := s.liveDigest(ctx, integrationID)
 	if err != nil {
@@ -871,11 +811,9 @@ func (s *Service) preserveEdits(ctx context.Context, integrationID, bundleDigest
 
 // deploymentExists reports whether the recorded deployment is still there.
 //
-// Only ErrNotFound counts as gone. Every other failure is propagated, because the
-// caller uses this to choose between rolling the deployment out and creating a new
-// one — and answering "not there" to a timeout would create a second agent beside
-// a first that is running perfectly well. "I could not tell" and "it is not there"
-// are different answers, and only one of them is safe to guess.
+// Only ErrNotFound counts as gone; every other failure is propagated. The answer
+// chooses between rolling the deployment out and creating a new one, so answering
+// "not there" to a timeout would build a second agent beside a healthy first.
 func (s *Service) deploymentExists(ctx context.Context, deploymentID string) (bool, error) {
 	switch _, err := s.deployments.Get(ctx, deploymentID); {
 	case errors.Is(err, deployment.ErrNotFound):
@@ -935,12 +873,9 @@ func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stor
 
 	// The env is re-resolved and passed explicitly, so a roll-out also picks up a
 	// provider or model changed in the LLM settings since the install. Tracing is
-	// nil: it is the deployment's own setting and SetTracing is what changes it.
-	// The runner is stated rather than inherited, and this is the line that carries
-	// an existing installation across the release that introduced it: his deployment
-	// predates runners, so the stored row says nothing, and the bundle being rolled
-	// out cannot run anywhere else. Left to preserve, the roll-out would replace a
-	// working agent with a crash-looping one.
+	// nil: it is the deployment's own setting and SetTracing is what changes it. The
+	// runner is stated rather than inherited, because a deployment whose row names
+	// none would otherwise be preserved onto an image the bundle cannot run on.
 	runner := agenticRunner
 	dep, err := s.deployments.Rollout(ctx, cur.DeploymentID, snap.ID, bindings, nil, &runner)
 	if err != nil {
@@ -961,11 +896,10 @@ func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stor
 	return next, nil
 }
 
-// SetTracing turns the runtime's tracer on or off for the agent's pods.
+// SetTracing turns tracing on or off for the agent's pods.
 //
-// It is a roll-out because the runtime reads OCTO_TRACING when it starts, so the
-// setting only reaches it by replacing the pods. Nothing else changes: the same
-// tag, the same env.
+// It is a roll-out because OCTO_TRACING is read at pod startup, so the setting only
+// reaches it by replacing the pods. Nothing else changes: same tag, same env.
 func (s *Service) SetTracing(ctx context.Context, on bool) (Status, error) {
 	if s.deployments == nil {
 		return Status{}, ErrClusterUnavailable
@@ -994,14 +928,12 @@ func (s *Service) SetTracing(ctx context.Context, on bool) (Status, error) {
 // SetMaxIterations overrides how many tool-calling turns one of the agent's runs
 // may take, or clears the override with zero.
 //
-// It is a roll-out for the same reason SetTracing is: the value reaches the
-// runtime as an environment variable read at startup, so it only takes effect by
-// replacing the pods. Unlike SetTracing it also travels in the env bindings, which
-// is why this passes them and the tracing toggle passes nil.
+// It is a roll-out for the same reason SetTracing is: the value is an environment
+// variable read at pod startup. Unlike SetTracing it travels in the env bindings,
+// which is why this passes them and the tracing toggle passes nil.
 //
-// Zero is not "no turns" — it is "no override", and the definition's own default
-// applies again. That is the only way back to the shipped value once one has been
-// set, so it has to be expressible.
+// Zero is not "no turns" but "no override", and is the only way back to the
+// definition's own default once one has been set.
 func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status, error) {
 	if s.deployments == nil {
 		return Status{}, ErrClusterUnavailable
@@ -1023,16 +955,14 @@ func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status,
 		next.MaxIterations = iterations
 
 		// Resolved from next, so the roll-out carries the new value. Clearing an
-		// override drops the binding entirely rather than sending a zero, which the
-		// runtime would read as "unset" anyway — but only after the deployment had
-		// stored a variable that means nothing.
+		// override drops the binding entirely rather than storing a zero that means
+		// nothing.
 		bindings, err := s.envBindings(ctx, next)
 		if err != nil {
 			return cur, err
 		}
-		// The runner is stated for the same reason Rollout states it: an installation
-		// older than runners has nothing in its row, and preserving that would move
-		// the agent onto an image his flow cannot even load from.
+		// The runner is stated for the same reason Rollout states it: a row that names
+		// none would otherwise be preserved onto an image the flow cannot load from.
 		runner := agenticRunner
 		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
 			return cur, err
@@ -1049,14 +979,12 @@ func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status,
 // SetDeploymentSettings applies the settings that live on the agent's pods, in
 // one rollout.
 //
-// Both of these reach the runtime as environment variables read at startup, so
-// each one alone has to replace the pods — and setting them one after the other
-// replaces them twice. That was tolerable while each had its own button and the
-// second rollout was something you asked for; it is not tolerable behind a single
-// Save, where one click would roll the agent, wait, and roll it again.
+// Both are environment variables read at pod startup, so each alone has to replace
+// the pods — applying them together is what keeps one save from rolling the agent
+// twice.
 //
-// Nil means "leave this one alone", which is what lets the caller send only what
-// actually changed. Both nil is a no-op rather than a pointless rollout.
+// Nil means "leave this one alone", which lets a caller send only what changed. Both
+// nil is a no-op rather than a pointless rollout.
 func (s *Service) SetDeploymentSettings(
 	ctx context.Context, iterations *int, autoFix *bool,
 ) (Status, error) {
@@ -1108,15 +1036,12 @@ func (s *Service) SetDeploymentSettings(
 // SetAutoFix decides whether the troubleshooter may change this installation, or
 // may only look at it and report.
 //
-// A roll-out for the same reason SetMaxIterations is: the value reaches the
-// runtime as an environment variable read at startup, so it takes effect by
-// replacing the pods, and it travels in the env bindings.
+// A roll-out for the same reason SetMaxIterations is: the value is an environment
+// variable read at pod startup, and it travels in the env bindings.
 //
-// It is deliberately its own call rather than a field on some general update.
-// Turning this on changes what an alert at four in the morning can do to a
-// production installation — from sending an email to rolling out a definition —
-// and that deserves to be a thing somebody did, on purpose, with its own audit
-// point, rather than a value that arrived alongside four others.
+// It is its own call rather than a field on a general update because turning it on
+// changes what an unattended alert may do to a live installation — from sending an
+// email to rolling out a definition — which is worth its own audit point.
 func (s *Service) SetAutoFix(ctx context.Context, on bool) (Status, error) {
 	if s.deployments == nil {
 		return Status{}, ErrClusterUnavailable
@@ -1153,17 +1078,12 @@ func (s *Service) SetAutoFix(ctx context.Context, on bool) (Status, error) {
 // Repair clears a stored deployment id whose deployment no longer exists, and
 // reports whether it had to.
 //
-// Status already masks this case — it blanks the id and the address in what it
-// returns — but it never writes the correction back, so every read rediscovers
-// the same gone deployment and logs the same warning. That was tolerable while
-// nothing else looked at the row; it is not once the reconciler is deleting the
-// deployment rows this one points at, because the pointer would outlive them
-// indefinitely.
+// Status masks this case in what it returns but never writes the correction back,
+// so without this the pointer outlives the deployment rows the reconciler deletes.
 //
-// The refusals are the interesting half. A missing id is nothing to repair, and
-// an unreadable deployment is this orchestrator failing to look rather than the
-// deployment being absent — clearing on that would offer Deploy against an agent
-// that is running fine, and pressing it would build a second one.
+// The refusals are the interesting half: a missing id is nothing to repair, and an
+// unreadable deployment is a failure to look rather than an absent deployment —
+// clearing on that would offer a deploy against an agent that is running fine.
 func (s *Service) Repair(ctx context.Context) (bool, error) {
 	if s.deployments == nil {
 		return false, nil
@@ -1223,10 +1143,8 @@ func (s *Service) Uninstall(ctx context.Context, purge bool) error {
 		}
 
 		if purge {
-			// Already gone is the outcome this asks for, not a failure. Treating it as
-			// one is what left a half-purged install stuck: the integration was
-			// deleted, the record survived, and every retry failed on the same
-			// missing row it was trying to forget.
+			// Already gone is the outcome this asks for, not a failure: treating it as
+			// one leaves a half-purged install that every retry fails to finish.
 			if err := s.integrations.Delete(ctx, cur.IntegrationID); err != nil &&
 				!errors.Is(err, integration.ErrNotFound) {
 				return cur, err
@@ -1237,18 +1155,13 @@ func (s *Service) Uninstall(ctx context.Context, purge bool) error {
 			// has just been removed and the reference may still be visible.
 			if s.secrets != nil {
 				for _, name := range []string{llmKeySecret, webSearchKeySecret} {
-					// Already gone is the outcome this asks for. It is also the
-					// ordinary case for the web search key, which most installs
-					// never configure.
+					// Already gone is the outcome this asks for, and the ordinary case
+					// for the web search key, which most installs never configure.
 					if err := s.secrets.Delete(ctx, name, true); err != nil &&
 						!errors.Is(err, secret.ErrNotFound) {
 						// Not fatal: the install is gone either way, and failing here
 						// would leave the record describing an agent that no longer
 						// exists. Logged loudly because it is a credential.
-						//
-						// The web search secret is very often absent — most installs
-						// never configure one — so this is also the ordinary path and
-						// not only the failure path.
 						slog.Error("agent purge could not remove a key secret",
 							"secret", name, "error", err)
 					}
@@ -1269,11 +1182,8 @@ func (s *Service) Uninstall(ctx context.Context, purge bool) error {
 // ConnectorTypeFor maps a site LLM provider to the runtime connector that talks to
 // it.
 //
-// The provider names mirror core.Provider* in runtime/core/llm.go and the connector
-// types mirror the connector packages, neither of which the orchestrator can import
-// — the runtime is a separate Go module. Taking on that dependency to share eight
-// strings would be the wrong trade; if a fifth provider appears there, it is added
-// here too, and an unmapped one is refused rather than guessed at.
+// The connector type names are not importable from here, so they are written out.
+// A provider with no mapping is refused rather than guessed at.
 func ConnectorTypeFor(provider string) (string, bool) {
 	switch provider {
 	case llm.ProviderAnthropic:

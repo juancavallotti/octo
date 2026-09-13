@@ -50,10 +50,8 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // the resources that matched each other. A duplicate (integration_id, tag)
 // surfaces as ErrTagExists; an unknown integration as ErrIntegrationNotFound.
 //
-// definition is no longer passed in and no longer stored. It used to be copied
-// from a column while the resources were copied from a table, which left two
-// mechanisms that could in principle disagree about when they ran. Now one
-// INSERT ... SELECT freezes everything at one instant.
+// The definition is not passed in: one INSERT ... SELECT freezes it together with
+// the resources, at one instant and by one mechanism.
 func (r *Repo) Create(ctx context.Context, integrationID, tag string) (Snapshot, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

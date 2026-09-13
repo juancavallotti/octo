@@ -119,16 +119,13 @@ func (s *Service) Reconcile(ctx context.Context) (int, error) {
 	// deleted and recreated. An empty key list renders both the same way, and acting
 	// on that would drop every catalogue row in one pass.
 	//
-	// That is not a survivable mistake here. This sweep only ever removes names,
-	// never adds them back — deliberately, since re-adding would mean the catalogue
-	// following whatever the cluster happens to hold — so a catalogue wiped in a
-	// five-second window stays wiped, with the values still present and no longer
-	// reachable through the UI.
+	// That is not survivable: this sweep only ever removes names and never adds them
+	// back, so a catalogue wiped in a five-second window stays wiped, with the values
+	// still present and no longer reachable by name.
 	//
-	// Which is why existence and the key set arrive from one read. Asking twice
-	// would reopen the very window this guard exists to close: the Secret present
-	// on the first call, deleted before the second, and the resulting empty list
-	// read as "every name was removed".
+	// Which is why existence and the key set arrive from one read. Asking twice would
+	// reopen the window this guard closes — the Secret present on the first call,
+	// deleted before the second, and the empty list read as "every name was removed".
 	names, exists, err := s.kube.StoredSecretNames(ctx)
 	if err != nil {
 		// Reported rather than repaired, for the same reason the deployment sweep

@@ -25,16 +25,10 @@ type Pending struct {
 
 // PendingCount reports how many stored items are still waiting for a vector.
 //
-// Only the pending half is counted, and that is a deliberate omission rather than
-// a missing feature. "How many are embedded" cannot be answered from an index —
-// `embedding IS NOT NULL` matches most of the table, so Postgres reads all of it —
-// and the earlier version of this asked for both halves of both tables in one
-// statement, which EXPLAIN showed as four sequential scans on every load of the
-// memory page. What it bought was a progress bar.
-//
-// This is two counts against the partial indexes that already exist for the
-// backfill sweep, so it stays cheap as the store grows: the rows it touches are
-// exactly the rows still queued, which trend towards none.
+// Only the pending half is counted. "How many are embedded" cannot be answered from
+// an index — `embedding IS NOT NULL` matches most of the table, so Postgres reads all
+// of it. These two counts hit the partial indexes the backfill sweep already needs,
+// so they touch only the rows still queued, which trend towards none.
 func (r *Repo) PendingCount(ctx context.Context) (int, error) {
 	var pending int
 	row := r.pool.QueryRow(ctx,
@@ -209,11 +203,8 @@ func (r *Repo) SearchVector(
 
 // ClearEmbeddings discards every stored vector.
 //
-// It is what a change of embedding space costs. Vectors carry no record of which
-// model produced them — deliberately, because a store holding two models' vectors
-// is not searchable either way and ranking only the matching subset would silently
-// halve the results rather than fail — so the only way to keep the store coherent
-// across a model change is to have exactly one space in it at a time.
+// It is what a change of embedding space costs: vectors carry no record of which
+// model produced them, so coherence means exactly one space in the store at a time.
 //
 // The rows are not deleted, only their vectors: the text is still there, still
 // searchable by keyword, and the sweep rebuilds the vectors from it.

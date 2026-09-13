@@ -10,11 +10,9 @@ import (
 )
 
 const (
-	// devEnvResource is the resource an integration's dev credentials live in. It
-	// mirrors run-host's DEV_ENV_RESOURCE (packages/run-host/src/resources.ts): the
-	// editor's Dev .env panel already saves it through the ordinary resource API, so
-	// it arrives in the bundle like any other env file and only its *declaration*
-	// has to be arranged for.
+	// devEnvResource is the resource an integration's dev credentials live in. It is
+	// written through the ordinary resource API, so it arrives in the bundle like any
+	// other env file and only its *declaration* has to be arranged for.
 	devEnvResource = ".env.dev"
 	// resourcesKey and envKey are the definition path the dev-env resource is
 	// declared at: resources.env[].
@@ -72,14 +70,12 @@ func generationOf(b Bundle) string {
 // not already last is moved to the end rather than left where the author put it.
 //
 // It edits the parsed *node tree* rather than round-tripping through a map, which
-// keeps comments, key order and scalar styles intact. That matters more here than it
-// did for the local runner: a definition is full of CEL expressions whose quoting a
-// re-render could legitimately change, and a definition the developer cannot
-// recognise in a log or an error message is a definition they cannot debug.
+// keeps comments, key order and scalar styles intact: a definition is full of CEL
+// expressions whose quoting a re-render could legitimately change, and one nobody
+// recognises in a log is one nobody can debug.
 //
-// A malformed definition is returned untouched. The runtime validates the whole
-// document at load time and reports it far better than this could — and a dev run
-// whose YAML does not parse has a more pressing problem than its env precedence.
+// A malformed definition is returned untouched — the whole document is validated at
+// load time, and reported better there than it could be here.
 func injectDevEnvResource(definition string) string {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(definition), &doc); err != nil {

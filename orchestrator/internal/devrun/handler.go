@@ -41,15 +41,13 @@ func NewHandler(svc *Service) *Handler {
 // The routes fall into two groups that differ in *who authorises them*, and they are
 // addressed differently for exactly that reason:
 //
-//   - A user's routes carry ?userId=. The caller is the platform BFF, which holds the
-//     session and states whose behalf it is acting on — the same arrangement as
-//     /users/{userId}/apikeys — and every one of these operations is confined to that
-//     user's own runs. The user is a scope rather than part of the address, because a
-//     dev run is addressed by its derived id.
-//   - The sidecar's two routes carry a bearer token instead. A pod is not a user, its
-//     token authorises exactly one run, and these two paths are frozen by the
-//     sidecar's own client (sidecars/dev/internal/bundle) — so they are flat, and
-//     nesting them under a user would be both wrong and a wire break.
+//   - A user's routes carry ?userId=, the same arrangement as /users/{userId}/apikeys,
+//     and every one of them is confined to that user's own runs. The user is a scope
+//     rather than part of the address, because a dev run is addressed by its derived
+//     id.
+//   - The sidecar's two routes carry a bearer token instead. A pod is not a user and
+//     its token authorises exactly one run, so those paths are flat: nesting them
+//     under a user would be both wrong and a wire break.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /devruns", h.ensure)
 	mux.HandleFunc("GET /devruns", h.list)
@@ -128,9 +126,8 @@ func toResponse(run DevRun) devRunResponse {
 		Sidecar:       run.Sidecar,
 	}
 	// A run created moments ago has no phase, because the informer that would compute
-	// one has not seen the workload yet. Passing "" through would make the editor
-	// render an unknown badge for the first second of every Run; pending is both
-	// friendlier and true.
+	// one has not seen the workload yet. Pending is both truer and more useful than
+	// an empty status for the first second of every run.
 	if resp.Status == "" {
 		resp.Status = kube.StatusPending
 	}
@@ -190,8 +187,8 @@ func (h *Handler) ensure(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// list answers "what am I running?", and with ?integrationId= the editor's
-// Run-vs-Attach question. Both are one label lookup against the informer cache.
+// list answers "what am I running?", and with ?integrationId= whether this one is
+// already running. Both are one label lookup against the informer cache.
 //
 //	@Summary	List dev runs
 //	@Tags		devruns
@@ -218,12 +215,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 // status reports one dev run: the cluster's account of it, with the sidecar's own view
 // folded in when the sidecar answered promptly.
 //
-// One route rather than the two the design sketched — cluster status here, sidecar
-// status beside it — because the sidecar half is what distinguishes "my save reached the
-// pod" from "my save is still in Postgres", and a caller that has to make two requests
-// to learn that will make the one that cannot answer it. The sidecar is asked with a
-// short timeout and simply left out when it does not reply, which is the normal state
-// while a pod is still starting.
+// One route rather than two, because the sidecar half is what distinguishes a save
+// that reached the pod from one that is still only stored, and a caller that has to
+// make two requests to learn that will make the one that cannot answer it. The sidecar
+// is asked with a short timeout and left out when it does not reply, which is the
+// normal state while a pod is still starting.
 //
 //	@Summary	Get a dev run
 //	@Tags		devruns

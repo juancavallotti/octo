@@ -1,23 +1,12 @@
 // Package embedding turns text into vectors by asking the embedding server for
 // them.
 //
-// It holds no credentials and knows no providers. Both used to live here — a
-// provider switch with one HTTP client per API, and an encrypted key in
-// site_settings behind an admin page — and both were the wrong home for two
-// separate reasons.
+// It holds no credentials and knows no providers: the embedding server owns both,
+// and holds the key in exactly one pod.
 //
-// The provider code was a second implementation. The runtime already knows how
-// to call OpenAI, Gemini and OpenRouter embeddings endpoints, and how to bill
-// the call: that is the `ai-embed` block and its connectors. A Go copy of it in
-// the orchestrator was the same knowledge written twice, with its own switch to
-// keep in step as providers change.
-//
-// The settings page was worse. Changing the model is not something an operator
-// may do — vectors carry no record of which model produced them, so a store
-// holding two models' cannot be ranked coherently — and a control that must
-// never be touched has no business behind a Save button. It is deploy-time
-// configuration, so it is configuration of the deployment: chart values on the
-// embedding server, which holds the key in exactly one pod.
+// The model is deploy-time configuration rather than a setting, because vectors
+// carry no record of which model produced them, so a store holding two models' worth
+// cannot be ranked coherently.
 //
 // What is left here is the client: one URL, one POST.
 package embedding
@@ -39,9 +28,8 @@ import (
 // sweep would rather wait than retry a batch the provider is already working on.
 const requestTimeout = 60 * time.Second
 
-// statusTimeout bounds the health probe, which does no provider work at all and
-// so has no reason to be slow. Short enough that an admin page waiting on it
-// does not itself become the thing that feels broken.
+// statusTimeout bounds the health probe, which does no provider work at all and so
+// has no reason to be slow.
 const statusTimeout = 3 * time.Second
 
 // maxErrorBody caps how much of a failing response is quoted back. Enough for a
@@ -77,11 +65,9 @@ func FromEnv() *Client {
 
 // Configured reports whether this installation has an embedding server.
 //
-// It takes a context and ignores it, satisfying agentmemory.Embedder — whose
-// signature has one because the answer used to require a database read of an
-// encrypted settings row. It is now a field, which is the point: an address
-// supplied at startup cannot go stale between a sweep tick and a search the way
-// a mutable setting could.
+// It takes a context and ignores it, satisfying agentmemory.Embedder. The answer is
+// a field read: an address supplied at startup cannot go stale between a sweep tick
+// and a search.
 func (c *Client) Configured(context.Context) bool { return c.url != "" }
 
 // Embed turns each text into a vector, in the same order.

@@ -9,19 +9,14 @@ import (
 // Reconcile is the sweep that puts the database and the cluster back into
 // agreement about what is deployed.
 //
-// It exists because nothing else ever asked. Deployment status is refreshed on
-// read, and `refresh` falls back to the *cached* value whenever the cluster read
-// fails or there is no cluster at all — so a row that said "running" when the
-// cluster went away says "running" forever, and the deployments page lists
-// workloads that have not existed since the cluster was rebuilt. The other
-// direction was worse: nothing in the codebase ever listed the workloads this
-// orchestrator manages, so a Deployment left behind by a failed rollback was
-// invisible to the platform entirely and ran until somebody noticed the pod.
+// Nothing else asks. Status is refreshed on read and falls back to the *cached*
+// value whenever the cluster read fails, so a row that said "running" when the
+// cluster went away says "running" forever; and a workload left behind by a failed
+// rollback is named by no row at all, so nothing would ever list it.
 //
 // What it does not do is guess. Every branch below is reached only from a cluster
-// listing that succeeded, because "I could not see the cluster" and "the cluster
-// is empty" are the same empty map, and one of them is an instruction to delete
-// everything.
+// listing that succeeded, because "I could not see the cluster" and "the cluster is
+// empty" are the same empty map, and one of them means delete everything.
 
 const (
 	// reconcileGrace is how recently a row may have been touched and still be left
@@ -132,14 +127,12 @@ func (s *Service) Reconcile(ctx context.Context) (Reconciled, error) {
 // removeOrphanedRow deletes a deployment whose workload is gone, along with the
 // resources Undeploy would have cleaned up.
 //
-// It repeats Undeploy's cleanup rather than calling it, and the difference is the
-// one line that matters: Undeploy deletes the workload first and aborts if that
-// fails, which is right when a user pressed Remove and wrong here — the workload
-// is already gone, and its absence is the whole reason this is running.
+// It repeats Undeploy's cleanup rather than calling it, because Undeploy deletes the
+// workload first and aborts if that fails — right for a requested removal, wrong here
+// where the workload's absence is the reason this is running.
 //
-// Everything after the row is best-effort and logged, exactly as Undeploy treats
-// it. The row is what the UI reads; a stranded internal Service or a few KV rows
-// are invisible and cost nothing but space.
+// Everything after the row is best-effort and logged, exactly as Undeploy treats it:
+// a stranded internal Service or a few KV rows cost nothing but space.
 func (s *Service) removeOrphanedRow(ctx context.Context, row Deployment) bool {
 	if err := s.repo.Delete(ctx, row.ID); err != nil {
 		slog.Error("deployment reconcile: delete orphaned row", "deploymentId", row.ID, "error", err)

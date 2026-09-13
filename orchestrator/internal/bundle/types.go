@@ -3,13 +3,11 @@
 // every resource it refers to, so an integration can leave the platform and come
 // back — or move between installs — as a single file.
 //
-// The archive is laid out the way the runtime already expects to find these files
-// on disk: the definition YAML at the root, each resource written at its
-// path-like name relative to it (`.env.dev`, `templates/welcome.tmpl`). Unzipping
-// a bundle therefore produces a directory a local `octo` can run. What that
-// layout cannot express — the integration's display name, and each resource's
-// kind, which is a stored property rather than something a filename guarantees —
-// lives in a small manifest beside them.
+// The archive is laid out the way these files are expected on disk: the definition
+// YAML at the root, each resource at its path-like name relative to it (`.env.dev`,
+// `templates/welcome.tmpl`), so unzipping one produces a runnable directory. What
+// that layout cannot express — the display name, and each resource's kind — lives in
+// a small manifest beside them.
 package bundle
 
 import "strings"
@@ -26,8 +24,7 @@ const (
 	// name slugifies to nothing, or when the slug collides with a resource.
 	defaultDefinitionName = "integration.yaml"
 	// envPrefix is the filename convention that marks an env resource, used only
-	// when reading a manifest-less archive. It mirrors the editor's `guessKind`
-	// and the standalone loader's convention.
+	// when reading a manifest-less archive.
 	envPrefix = ".env"
 )
 
@@ -77,10 +74,9 @@ type manifestEntry struct {
 	Kind string `json:"kind"`
 }
 
-// guessKind infers a resource's kind from its name the way the editor and the
-// standalone loader do: a `.env`-convention file is env, everything else is a
-// template. Used only for archives without a manifest — a bundle this
-// orchestrator wrote always states the kind outright.
+// guessKind infers a resource's kind from its name: a `.env`-convention file is env,
+// everything else is a template. Used only for archives without a manifest — a bundle
+// this orchestrator wrote always states the kind outright.
 //
 // The name may be a path, so only the last segment decides.
 func guessKind(name string) string {

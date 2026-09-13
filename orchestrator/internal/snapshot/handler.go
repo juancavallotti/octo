@@ -281,20 +281,17 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 // mayRead refuses a deployment reaching for another integration's frozen
 // resources.
 //
-// Only a token that is nothing but a pod is constrained. platform:runtime opens
-// these routes to every deployment without anybody granting it — it is what the
-// runtime needs to load its own definition — so without this, one pod's mounted
-// credential reads every integration's frozen files. A deployment that also
-// holds a person's role got it from an access grant somebody ticked on purpose,
-// and that grant is installation-wide by definition; narrowing it here would
-// take back what was deliberately given.
+// Only a token that is nothing but a pod is constrained. platform:runtime opens these
+// routes to every deployment without anybody granting it — it is how a pod loads its
+// own definition — so without this, one pod's mounted credential reads every
+// integration's frozen files. A deployment that also holds a person's role got it
+// from an access grant somebody ticked on purpose, and that grant is
+// installation-wide by definition.
 //
-// Scoped to the integration rather than to the exact snapshot, deliberately. A
-// rollout moves the deployment to a new snapshot while the old pods are still
-// serving, and those pods load resources lazily — an exact match would refuse a
-// pod its own files for the length of every rollout. What matters is that the
-// files belong to the integration this pod is running, and that is stable across
-// version changes.
+// Scoped to the integration rather than to the exact snapshot: a rollout moves the
+// deployment to a new snapshot while the old pods are still serving and loading
+// resources lazily, so an exact match would refuse a pod its own files for the length
+// of every rollout.
 func (h *Handler) mayRead(ctx context.Context, snapshotID string) error {
 	principal, ok := authz.FromContext(ctx)
 	if !ok || principal.Deployment == "" {

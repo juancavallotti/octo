@@ -1,16 +1,14 @@
-// Package kv is the orchestrator's deployment-scoped, versioned key/value store. It
-// backs the runtime's k8s services module: values are namespaced and use optimistic
-// concurrency. Most values are stored as-is; values in a secret namespace (one with
-// a "_secrets" suffix, e.g. system_secrets / user_secrets) are encrypted at rest
-// with AES-GCM, so the secret store shares this one table without plain KV traffic
-// paying any encryption cost. Reads transparently decrypt.
+// Package kv is the deployment-scoped, versioned key/value store. Values are
+// namespaced and use optimistic concurrency. Most are stored as-is; values in a
+// secret namespace (one with a "_secrets" suffix, e.g. system_secrets / user_secrets)
+// are encrypted at rest with AES-GCM, so the secret store shares this one table
+// without plain KV traffic paying any encryption cost. Reads transparently decrypt.
 //
 // A namespace also names a durability tier. A "_volatile" suffix (user_volatile,
 // system_volatile) marks state whose loss is survivable — a memoized cache body
-// rather than an in-flight aggregation — and routes to Redis instead of Postgres,
-// so it costs neither a row nor a transaction and may be evicted under memory
-// pressure. Runtime pods write those keys straight to Redis; what reaches this
-// package for them is the object browser and undeploy cleanup. See redisrepo.go.
+// rather than an in-flight aggregation — and routes to Redis instead of Postgres, so
+// it costs neither a row nor a transaction and may be evicted under memory pressure.
+// See redisrepo.go.
 package kv
 
 import (
@@ -58,10 +56,8 @@ type Service struct {
 // volatile for volatile ones.
 //
 // A nil volatile is not an error: volatile namespaces then land in repo alongside
-// persistent ones. That is a worse deal — a database row for a value that expires
-// in a minute — but not a broken one, and refusing writes because an optional
-// dependency is absent would take the platform down over the one tier whose whole
-// promise is that losing it is survivable. Pass NewRedisRepo(nil) for that.
+// persistent ones. That is a worse deal — a database row for a value that expires in
+// a minute — but not a broken one. Pass NewRedisRepo(nil) for that.
 //
 // cipher may be nil to run without encryption configured, in which case reads and
 // writes in a secret namespace fail with ErrEncryptionDisabled while plain
@@ -114,12 +110,10 @@ func isVolatile(namespace string) bool {
 	return strings.HasSuffix(namespace, volatileNamespaceSuffix)
 }
 
-// checkTiers rejects the one namespace combination that must never exist. A secret
-// is the definition of a value whose loss is not survivable, and the volatile
-// backends neither promise to keep it nor encrypt it — so "user_secrets_volatile"
-// would be a credential in a store that is allowed to evict it and holds it in the
-// clear. Nothing in the runtime composes the two; this is what keeps a hand-written
-// API call from doing so.
+// checkTiers rejects the one namespace combination that must never exist: a secret is
+// a value whose loss is not survivable, and the volatile backends neither promise to
+// keep it nor encrypt it, so "user_secrets_volatile" would be a credential in a store
+// that is allowed to evict it and holds it in the clear.
 //
 // The suffixes have to be checked one level deep rather than only at the end,
 // because composing them puts one suffix behind the other: "user_secrets_volatile"

@@ -17,9 +17,8 @@ import "time"
 type Integration struct {
 	ID   string
 	Name string
-	// Icon is an intentionally chosen icon name from the editor's registry, or ""
-	// to let the UI derive one from the definition. Stored, unlike Definition:
-	// the whole point is that it is a choice rather than something inferred.
+	// Icon is a deliberately chosen icon name, or "" to leave it derived from the
+	// definition. Stored because it is a choice rather than something inferred.
 	Icon        string
 	Definition  string
 	LastUpdated time.Time

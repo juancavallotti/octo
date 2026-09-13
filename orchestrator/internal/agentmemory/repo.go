@@ -535,16 +535,14 @@ func (r *Repo) DeleteForIntegration(ctx context.Context, integrationID string) e
 // splitSearchTerms divides a search box's text into the terms that must be found
 // and the terms that must not.
 //
-// Both halves stay in websearch syntax and are handed back to
-// websearch_to_tsquery separately, so quoting, stemming and stop words behave
-// exactly as they would have — this only decides which terms end up on which side
-// of the `&&`. Positive terms are joined with websearch's own OR, because the
-// point of the split is that a turn matching any of them is worth ranking.
+// Both halves stay in websearch syntax and go back through websearch_to_tsquery
+// separately, so quoting, stemming and stop words behave unchanged; this only
+// decides which side of the `&&` a term lands on. Positive terms are joined with
+// websearch's own OR, so a turn matching any of them is ranked.
 //
-// A leading `-` marks an exclusion, which is websearch's own syntax; it is kept
-// on the term so that the negative half parses as a negation rather than as a
-// requirement. `-"roll out"` is one exclusion, not a stray dash and a phrase, so
-// quotes are tracked while scanning.
+// A leading `-` marks an exclusion and is kept on the term, so the negative half
+// parses as a negation. `-"roll out"` is one exclusion, not a stray dash and a
+// phrase, so quotes are tracked while scanning.
 func splitSearchTerms(text string) (positive, negative string) {
 	var pos, neg []string
 	for _, term := range searchTerms(text) {
@@ -610,20 +608,14 @@ func (r *Repo) SearchText(ctx context.Context, integrationID string, q Query) ([
 	}
 	// The terms are OR'd, not AND'd, and ts_rank does the rest.
 	//
-	// websearch_to_tsquery ANDs bare words, which is right for a search box and
-	// wrong for this: an agent asking "deployment rollout problems" wants the turns
-	// about deployments and rollouts, ranked, not nothing because no single turn
-	// contains all three. Verified on a live store — that exact query matched two
-	// obviously relevant turns and returned neither.
+	// websearch_to_tsquery ANDs bare words, which is right for a search box and wrong
+	// here: "deployment rollout problems" wants the turns about deployments and
+	// rollouts, ranked, not nothing because no single turn contains all three.
 	//
-	// Relaxing the joins is done by splitting the QUERY TEXT and letting Postgres
-	// combine two tsqueries with `&&`, rather than by rewriting the serialized
-	// tsquery. Rewriting it is what the first version did, and it inverted
-	// negations: `-march refund` parses to `!'march' & 'refund'`, so turning `&`
-	// into `|` produced "does not say march OR says refund" — which matches almost
-	// every document in the store. A lookahead guarded the mirror case and missed
-	// this one, which is the tell that the operator text was the wrong thing to be
-	// editing.
+	// The joins are relaxed by splitting the QUERY TEXT and letting Postgres combine
+	// two tsqueries with `&&`, never by rewriting a serialized tsquery — `-march
+	// refund` parses to `!'march' & 'refund'`, so swapping `&` for `|` there would
+	// invert the negation.
 	//
 	// So: positive terms are OR'd against each other, exclusions stay AND'd against
 	// the lot, and `&&` does the parenthesising. Quoted phrases survive because each

@@ -10,14 +10,14 @@ import (
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 )
 
-// userNamespace is the default namespace the object browser serves when a request
-// names none, and userVolatileNamespace is its volatile counterpart. Both are
-// advertised by the namespaces route whether or not they hold anything yet, so the
-// browser's picker offers the two tiers a flow can write to rather than only the
-// ones something happens to have written already. The handler serves any namespace named via ?namespace=, including the
-// encrypted secret ones — but only their key metadata (list) and deletion (cleanup):
-// it never reads or writes a secret value, so plaintext/ciphertext never reaches the
-// platform's plain object API.
+// userNamespace is the default namespace served when a request names none, and
+// userVolatileNamespace is its volatile counterpart. Both are advertised by the
+// namespaces route whether or not they hold anything yet, so the two writable tiers
+// are always offered rather than only the ones something has written to.
+//
+// Any namespace may be named via ?namespace=, the encrypted secret ones included —
+// but for those only key metadata (list) and deletion (cleanup): a secret value is
+// never read or written here.
 const (
 	userNamespace         = "user"
 	userVolatileNamespace = userNamespace + volatileNamespaceSuffix

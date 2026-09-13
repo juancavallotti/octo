@@ -10,12 +10,10 @@ import (
 
 // Cursors are keyset, not offset.
 //
-// An offset would be wrong here in a way that shows up constantly rather than
-// rarely: the thread listing is ordered by last activity, and writing to a
-// conversation is exactly what moves it to the top. So between two pages of an
-// offset listing, an active conversation shifts everything down and the caller
-// silently skips a row. A keyset cursor names where it stopped instead, and the
-// listing index is ordered to match.
+// The thread listing is ordered by last activity, and writing to a conversation is
+// what moves it to the top — so between two pages of an offset listing, an active
+// conversation shifts everything down and a row is silently skipped. A keyset cursor
+// names where it stopped instead, and the listing index is ordered to match.
 //
 // The encoding is opaque on purpose — base64 of an internal pair — so callers
 // treat it as a token to hand back rather than something to construct.

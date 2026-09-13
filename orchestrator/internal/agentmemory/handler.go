@@ -22,16 +22,15 @@ const (
 	// because nothing should be able to make the orchestrator read without bound.
 	maxPayloadBytes = 32 << 20
 	// headerVersion carries the object version in both directions, matching the kv
-	// routes so the runtime's client is the same shape either way.
+	// routes.
 	headerVersion = "X-Object-Version"
 )
 
 // Handler serves both route families.
 //
-// They are split by who is asking, not by what they do. The runtime addresses a
-// DEPLOYMENT — the only identity a pod has, and one it already authenticates
-// with — and the platform addresses an INTEGRATION, which is what an operator is
-// looking at and what the memory belongs to. Underneath they are the same
+// They are split by how the memory is addressed, not by what they do: one family
+// names a DEPLOYMENT, the identity a pod authenticates with, and the other names an
+// INTEGRATION, which is what the memory belongs to. Underneath they are the same
 // service; the difference is one resolution step and which surface is read-only.
 type Handler struct {
 	svc *Service
@@ -50,8 +49,7 @@ func NewHandler(svc *Service) *Handler {
 // one the test cannot see — and its whole job is catching a route that was added
 // without being described.
 func (h *Handler) Register(mux *http.ServeMux) {
-	// Runtime-facing, deployment-scoped: the only identity a pod has, and the one
-	// it already authenticates with.
+	// Deployment-scoped: the identity a pod authenticates with.
 	mux.HandleFunc("GET /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/working", h.getWorking)
 	mux.HandleFunc("PUT /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/working", h.putWorking)
 	mux.HandleFunc("POST /deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/turns", h.postTurns)
@@ -63,8 +61,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /deployments/{id}/agent-memory/{agentId}/users/{userId}/memories/{name}", h.deleteRuntimeMemory)
 	mux.HandleFunc("POST /deployments/{id}/agent-memory/{agentId}/search", h.postRuntimeSearch)
 
-	// Platform-facing, integration-scoped: what the chat panel and the admin
-	// viewer read, and what the memory actually belongs to.
+	// Integration-scoped: read-only, addressed by what the memory belongs to.
 	mux.HandleFunc("GET /integrations/{id}/agent-memory/agents", h.listAgents)
 	mux.HandleFunc("GET /integrations/{id}/agent-memory/{agentId}/threads", h.listThreads)
 	mux.HandleFunc("GET /integrations/{id}/agent-memory/{agentId}/threads/{threadKey}", h.readThread)
@@ -90,18 +87,15 @@ func (h *Handler) runtimeRef(w http.ResponseWriter, r *http.Request, ctx context
 
 // runtimeUser reads who a runtime write is on behalf of.
 //
-// The user-memory routes address a person in the path, because there the person
-// IS the resource. The thread routes do not: a conversation is addressed by its
-// thread key, and putting the user in the path too would give one conversation
-// two URLs and let a second write under a different user mint a duplicate of it.
-// So on those routes the user arrives as a query parameter — an attribute of the
-// write rather than part of the address — and the path value wins wherever there
-// is one.
+// The user-memory routes address a person in the path, because there the person IS
+// the resource. The thread routes do not: a conversation is addressed by its thread
+// key, and a user in the path too would give one conversation two URLs. So there the
+// user is a query parameter — an attribute of the write rather than part of the
+// address — and a path value wins wherever there is one.
 //
-// It has to arrive somehow. Without it every conversation was stored attributed
-// to nobody, and the platform lists a person's conversations BY that attribution,
-// so an agent recorded a full history that its own chat panel then showed as
-// empty.
+// It must still arrive on every write that has one: a conversation is attributed to
+// the person named on its first write, and one stored with nobody named is one
+// nothing can list back by user.
 func runtimeUser(r *http.Request) string {
 	if user := r.PathValue("userId"); user != "" {
 		return user
@@ -560,28 +554,24 @@ func (h *Handler) readThread(w http.ResponseWriter, r *http.Request) {
 
 // workingResponse is the live context, described rather than handed over raw.
 //
-// The payload is the RUNTIME's serialized transcript and this package has never
-// parsed it — Working.Payload is []byte on purpose, so the engine can change the
-// format without a migration here. So the wire type says what the store knows
-// (how big, how far in, how many tokens, when) and passes the bytes along as text
-// for a viewer to make what it can of.
+// The payload is a serialized transcript this package never parses — Working.Payload
+// is []byte on purpose, so its format can change without a migration here. The wire
+// type says what the store knows (how big, how far in, how many tokens, when) and
+// passes the bytes along as text.
 //
-// Text and not base64: in practice the runtime writes JSON, and a viewer whose
-// whole job is showing an operator what the agent is carrying should not have to
-// decode a wrapper to do it. Non-UTF-8 payloads are described and withheld rather
-// than mangled, which is the honest answer for a format this route does not own.
+// Text and not base64, so a reader does not have to unwrap what is in practice JSON.
+// A non-UTF-8 payload is described and withheld rather than mangled, which is the
+// honest answer for a format this route does not own.
 type workingResponse struct {
 	Working
-	// Found distinguishes "this conversation carries no live context" from "there
-	// is one and here it is". A conversation that ended cleanly has its transcript
-	// and nothing to resume from, which is ordinary rather than an error — so this
-	// route answers 200 either way and says which, rather than making every caller
-	// treat a 404 as a success it has to recognize.
+	// Found distinguishes "this conversation carries no live context" from "there is
+	// one and here it is". A conversation that ended cleanly has nothing to resume
+	// from, which is ordinary, so the route answers 200 either way and says which.
 	Found bool `json:"found"`
 	// Bytes is the payload's real size, which is meaningful even when the payload
 	// itself is not served.
 	Bytes int `json:"bytes"`
-	// Payload is the runtime's transcript verbatim. Empty when it is not text.
+	// Payload is the stored transcript verbatim. Empty when it is not text.
 	Payload string `json:"payload,omitempty"`
 	// Readable says which of those two happened, so a viewer can tell an empty
 	// working memory from one it was not given.

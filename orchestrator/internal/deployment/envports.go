@@ -140,17 +140,15 @@ func Exposable(definition string) bool {
 // orchestrator supplies into the pod, and whether the integration is externally
 // exposable.
 //
-// Exposability is not "does it declare HTTP_PORT". The orchestrator does not read
-// the port so much as CHOOSE it — it injects HTTP_PORT and points a Service at what
-// it injected — so the only question that matters is whether the listener will take
-// that value (wiresInjectedPort). A declaration that nothing reads leaves a pod
-// serving a port the Service does not target; an HTTP source with no declaration at
-// all is wired perfectly well, because the http connector reads HTTP_PORT itself.
+// Exposability is not "does it declare HTTP_PORT": the port is CHOSEN here — injected
+// as HTTP_PORT with a Service pointed at it — so what matters is whether the listener
+// takes that value (wiresInjectedPort). A declaration nothing reads leaves a pod
+// serving a port the Service does not target, while an HTTP source with no
+// declaration at all is wired perfectly well.
 //
-// The port injected is the declared default when there is a usable one — a definition
-// that names a port should see that port in its pod — and the runtime's own default
-// otherwise. A malformed definition resolves to the zero, internal-only result rather
-// than an error: the runtime validates the full document at load time.
+// The injected port is the declared default when there is a usable one, and the
+// generic default otherwise. A malformed definition resolves to the zero,
+// internal-only result rather than an error: the document is validated at load.
 func resolveRuntimeEnv(definition string) (port int, env map[string]string, exposable bool) {
 	var decl envDecl
 	if err := yaml.Unmarshal([]byte(definition), &decl); err != nil {
@@ -181,10 +179,9 @@ func resolveRuntimeEnv(definition string) (port int, env map[string]string, expo
 // httpConnectorType is the runtime type of the connector that owns an HTTP
 // listener, both as a connector's declared `type` and as the `type` of the
 // sources it exposes. A source names it in one of three ways, all of which end up
-// at the same connector (runtime connectorSet.resolveConnector): binding a
-// configured instance by name, naming the type itself where an instance name goes
-// (the editor's fallback), or leaving the binding empty and letting the source
-// type resolve it.
+// at the same connector: binding a configured instance by name, naming the type
+// itself where an instance name goes, or leaving the binding empty and letting the
+// source type resolve it.
 const httpConnectorType = "http"
 
 // defaultImplicitPort mirrors the port the http connector falls back to when nothing
@@ -238,7 +235,7 @@ type httpDecl struct {
 //     the same injected port and the second one's Start fails on "address already in
 //     use", taking the whole run down with it.
 //
-// What is left is the shape the platform can wire: one HTTP source, reached through a
+// What is left is the shape that can be wired: one HTTP source, reached through a
 // connector whose address is the environment's to decide.
 func wiresInjectedPort(definition string, declared map[string]bool) bool {
 	var decl httpDecl

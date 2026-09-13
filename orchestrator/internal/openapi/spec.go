@@ -20,10 +20,9 @@ func Spec() []byte { return spec }
 // with components.schemas pruned to the schemas those operations can actually
 // reach.
 //
-// Pruning the schemas is the point. The whole document is tens of kilobytes and
-// most of it is type definitions, so a caller asking about deployments and being
-// handed every schema in the orchestrator has not been helped much. Reachability is
-// computed transitively, because a kept schema's own fields reference others.
+// Pruning the schemas is the point: most of the document is type definitions, so a
+// caller asking about deployments and handed every schema has not been helped.
+// Reachability is transitive, because a kept schema's fields reference others.
 //
 // An empty tag and path return the document unchanged. A filter matching nothing
 // returns a document with no paths rather than an error: "no operation is tagged

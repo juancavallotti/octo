@@ -52,12 +52,10 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 // Update saves the settings. A save that says nothing about the API key keeps the
 // stored one, so changing the model does not destroy the credentials.
 //
-// Changing the *provider* is the exception, and it has to be. A key authenticates
-// against one provider, so carrying an Anthropic key forward onto OpenAI leaves the
-// settings reporting a configured key that cannot work — and, now that something
-// consumes them, hands that key to a connector that will be refused by the API on
-// its first call. Supplying no key while switching provider therefore clears it,
-// and the form asks for a matching one.
+// Changing the *provider* is the exception: a key authenticates against one provider,
+// so carrying one forward onto another leaves the settings reporting a configured key
+// that is refused on its first call. Supplying no key while switching provider
+// therefore clears it.
 func (s *Service) Update(ctx context.Context, u Update) (Settings, error) {
 	if err := validateUpdate(u); err != nil {
 		return Settings{}, err

@@ -369,12 +369,10 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 					// Empty when runtime services are not wired; an empty name leaves the
 					// pod on the namespace's default ServiceAccount.
 					ServiceAccountName: c.runtimeServices.ServiceAccount,
-					// Nil unless the runtime image needs credentials. Without this an
-					// install that mirrors the images into a private registry comes up
-					// perfectly — the chart puts pull secrets on its own workloads — and
-					// then every integration deployed from that healthy editor sits in
-					// ErrImagePull, which reads as a broken deploy rather than a missing
-					// credential.
+					// Nil unless the runtime image needs credentials. Without it, an
+					// install that mirrors the images into a private registry leaves
+					// every deployment in ErrImagePull, which reads as a broken deploy
+					// rather than a missing credential.
 					ImagePullSecrets: c.pullSecretRefs(),
 					// The stats sidecar, when the installation has one. A native
 					// sidecar, so it is an init container that never exits; see
@@ -426,11 +424,9 @@ func (c *Client) statsSidecarContainers(spec Spec) []corev1.Container {
 // containerResources sizes the runtime container: the configured requests and
 // limits for the agentic runner, and nothing at all for every other deployment.
 //
-// Nothing at all is not an oversight, it is the status quo — no integration pod
-// has ever carried resources — and changing that for every deployment at once
-// would silently reschedule an entire installation. The agentic runner is
-// different because it is the one whose whole purpose is to run other programs,
-// which is exactly the workload an unbounded container is dangerous for.
+// Sizing every deployment instead would reschedule an entire installation at once.
+// The agentic runner is the exception because its purpose is running other programs,
+// which is the workload an unbounded container is dangerous for.
 func (c *Client) containerResources(spec Spec) corev1.ResourceRequirements {
 	if !spec.agentic() {
 		return corev1.ResourceRequirements{}
@@ -441,11 +437,8 @@ func (c *Client) containerResources(spec Spec) corev1.ResourceRequirements {
 // volumeMounts is the container's mounts: the integration ConfigMap always, and
 // the workspace on the agentic runner.
 //
-// The ConfigMap is read-only and the workspace is not, which is the whole
-// difference between them. One is the definition the platform handed this pod;
-// the other is the pod's own scratch space, and a read-only mount of it would be
-// a lie about who owns the directory — the same reasoning devrun.go gives for
-// its own workspace.
+// The ConfigMap is read-only and the workspace is not: one is the definition handed
+// to the pod, the other is the pod's own scratch space.
 func (c *Client) volumeMounts(spec Spec) []corev1.VolumeMount {
 	mounts := []corev1.VolumeMount{{
 		Name:      "integration",
@@ -471,17 +464,14 @@ func (c *Client) volumeMounts(spec Spec) []corev1.VolumeMount {
 // volumes backs those mounts: the per-deployment ConfigMap, and — on the agentic
 // runner — an emptyDir for the workspace.
 //
-// emptyDir and not a PersistentVolumeClaim, for the reason devrun.go gives about
-// its own workspace: nothing of durable value lives there. What the agent is
-// asked to keep goes back through the orchestrator API, and its memory is already
-// the KV store, so a volume that outlived the pod would only be a stale copy of
-// something with a better home. It also keeps this a workload like any other — a
-// ReadWriteOnce claim would force strategy: Recreate and a single replica, and
-// would need a claim lifecycle on every deploy, rollout and delete.
+// emptyDir and not a PersistentVolumeClaim: nothing of durable value lives there,
+// since anything worth keeping is written back through the API. It also keeps this a
+// workload like any other — a ReadWriteOnce claim would force strategy: Recreate and
+// a single replica, plus a claim lifecycle on every deploy, rollout and delete.
 //
 // SizeLimit is what makes it safe to hand a shell: without it the workspace is
-// bounded only by the node's disk, and one runaway command evicts every pod on
-// the node rather than only this one.
+// bounded only by the node's disk, and one runaway command evicts every pod on the
+// node rather than only this one.
 func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
 	volumes := []corev1.Volume{{
 		Name: "integration",
@@ -523,9 +513,9 @@ func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
 // putToken writes the deployment's token into a Secret of its own, creating it
 // or replacing what is there.
 //
-// A deployment with no token has no Secret, and one it had is removed: a token
-// left behind on disk after the grant that produced it went away would go on
-// working, since a machine token renews at any age.
+// A deployment with no token has no Secret, and one it had is removed: a token left
+// behind after the grant that produced it went away would go on working, since a
+// machine token renews at any age.
 func (c *Client) putToken(ctx context.Context, spec Spec, labels map[string]string) error {
 	secrets := c.clientset.CoreV1().Secrets(c.namespace)
 	name := tokenSecretName(spec.ID)
@@ -594,14 +584,12 @@ func (c *Client) pullSecretRefs() []corev1.LocalObjectReference {
 	return refs
 }
 
-// readinessProbe gates traffic on the runtime actually serving: /readyz answers
-// 200 only once every connector and flow of the current generation has started,
-// and 503 while it is starting, reloading under --watch, or draining. It is
-// checked often and gives up quickly, so a rolling update does not send requests
-// to a pod that is not ready and an unready pod leaves the Service promptly.
+// readinessProbe gates traffic on the pod actually serving: /readyz answers 200 only
+// once every connector and flow of the current generation has started. It is checked
+// often and gives up quickly, so an unready pod leaves the Service promptly.
 //
-// It has no initial delay: answering during startup is the whole point, and the
-// admin server binds before connectors do.
+// No initial delay: answering during startup is the point, and the admin server binds
+// before connectors do.
 func readinessProbe() *corev1.Probe {
 	return &corev1.Probe{
 		ProbeHandler:     httpProbe(readinessPath),
@@ -642,12 +630,10 @@ func httpProbe(path string) corev1.ProbeHandler {
 // identical specs. When no group has entries the result is nil, matching a bare
 // workload.
 //
-// The switches go last on purpose. An integration written before either setting
-// existed could declare OCTO_TRACING or OBSERVABILITY_URL among its own env vars and bind it
-// per deployment; Kubernetes resolves a duplicated name to the last entry, so the
-// setting wins over such a binding rather than being silently overridden by it.
-// Nothing at all is emitted when a switch is off, so those integrations keep
-// working as they did.
+// The switches go last on purpose: an integration may declare OCTO_TRACING or
+// OBSERVABILITY_URL among its own env vars, and Kubernetes resolves a duplicated name
+// to the last entry, so the switch wins over such a binding. Nothing is emitted when
+// a switch is off.
 func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// OBSERVABILITY_URL is the orchestrator's to set, so it is dropped from the user's
 	// bindings wherever it came from. The deployment service already refuses a
@@ -658,13 +644,10 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	if spec.Tracing {
 		env = append(env, corev1.EnvVar{Name: envTracing, Value: "true"})
 	}
-	// Every pod learns where the observability service is, and reaching it is
-	// another matter: that API authorizes the token it is presented, and a
-	// deployment's token opens nothing there unless it was minted to. An address
-	// was never a boundary — anything on the cluster network could dial it — so
-	// withholding it only ever hid a service from the deployments that had asked
-	// to use it. Absent when this orchestrator has no such address, rather than
-	// empty, which turns every query into a confusing failure inside the flow.
+	// Every pod learns where the observability service is; reaching it is another
+	// matter, since that API authorizes the token it is presented and an address was
+	// never a boundary. Absent when there is no such address, rather than empty,
+	// which would turn every query into a confusing failure inside the flow.
 	if c.runtimeServices.ObservabilityURL != "" {
 		env = append(env, corev1.EnvVar{Name: envObservability, Value: c.runtimeServices.ObservabilityURL})
 	}
@@ -701,13 +684,11 @@ func without(env []corev1.EnvVar, name string) []corev1.EnvVar {
 	return out
 }
 
-// runtimeServicesEnv builds the env the runtime's k8s services module reads:
-// the selected backend, the deployment id and orchestrator KV URL, the NATS broker
-// URL backing the queues, the Redis URL backing the volatile KV tier, plus
-// POD_NAME/POD_NAMESPACE from the downward API. It is empty unless a module is
-// configured, so deployments stay unchanged until the runtime-services env is wired
-// in. NATS_URL and REDIS_URL are emitted only when set, so a deploy without a
-// broker or without Redis injects nothing for them.
+// runtimeServicesEnv builds the runtime-services env: the selected backend, the
+// deployment id and orchestrator KV URL, the NATS broker URL backing the queues, the
+// Redis URL backing the volatile KV tier, plus POD_NAME/POD_NAMESPACE from the
+// downward API. It is empty unless a module is configured, and NATS_URL and REDIS_URL
+// are emitted only when set.
 func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 	if c.runtimeServices.Module == "" {
 		return nil
@@ -759,8 +740,7 @@ func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 // A secret reference wins over a literal: a managed Redis URL carries a password,
 // and a literal in the rendered Deployment is readable by anyone who can read
 // workloads. The bundled in-namespace Redis takes no credentials, so its URL is a
-// literal and there is nothing to hide — the same split the chart's octo.redis.env
-// helper makes for the platform's own pods.
+// literal and there is nothing to hide.
 func redisEnv(rs RuntimeServices) *corev1.EnvVar {
 	if rs.RedisSecret.set() {
 		return &corev1.EnvVar{Name: envRedisURL, ValueFrom: &corev1.EnvVarSource{

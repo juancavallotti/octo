@@ -1,16 +1,10 @@
 // Package health answers one question about each thing this installation depends
 // on: can the orchestrator reach it right now.
 //
-// It exists because the answer used to live only in pod logs. Every other admin
-// page configures something; this one reports, and what it reports is the first
-// thing anyone checks when the platform is behaving strangely — which of the four
-// processes underneath it is actually up.
-//
-// Deliberately shallow. A check here proves the orchestrator can complete one
-// round trip, not that the dependency is healthy in any deeper sense: Postgres
-// answering a ping says nothing about replication lag, and Redis answering one
-// says nothing about how full it is. A page that claimed more than that would be
-// worse than this one, because it would be believed.
+// Shallow by design: a check here proves one round trip completed, not that the
+// dependency is healthy in any deeper sense. Postgres answering a ping says nothing
+// about replication lag, and Redis answering one says nothing about how full it is —
+// a report claiming more than that would be believed.
 package health
 
 import (

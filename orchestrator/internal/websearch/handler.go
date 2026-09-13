@@ -118,8 +118,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, h.toResponse(settings))
 }
 
-// writeError maps domain errors to HTTP status codes. These strings reach the
-// operator verbatim — the BFF passes the error envelope straight through.
+// writeError maps domain errors to HTTP status codes. These strings are read
+// verbatim by whoever hit the route, so each says what to do about it.
 func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidAPIKey):

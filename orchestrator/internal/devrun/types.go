@@ -1,20 +1,17 @@
-// Package devrun is the orchestrator feature module for dev runs: the editor's
-// "Run" button, executed as a pod in the cluster rather than as a child process of
-// whichever platform replica happened to answer the request.
+// Package devrun runs an integration from its live definition as a pod of its own,
+// one per (user, integration).
 //
 // It is the one feature module with no repo.go, and that absence is the design.
 // There is no dev_runs table: a dev run's identity is *derived* from
 // (user, integration), its ownership is carried by labels, its last use by one
-// annotation, and its existence is its status. So the service's state seam is the
-// Kubernetes client rather than a repository, and the question "is something
-// running for this integration?" is a label lookup against an informer cache that
-// cannot disagree with what is actually running.
+// annotation, and its existence is its status. So the state seam is the Kubernetes
+// client rather than a repository, and "is something running for this integration?"
+// is a label lookup against an informer cache that cannot disagree with what is
+// actually running.
 //
-// The consequence worth stating up front: **nothing here remembers a stopped dev
-// run**, and nothing needs to. Stop deletes the workload; Run derives the same
-// uuid and the same public host from the same pair and brings it back. A table
-// would only have held a copy of what the cluster already knows, and copies of
-// cluster state are what drift when a node evicts a pod.
+// The consequence: **nothing here remembers a stopped dev run**. Stop deletes the
+// workload, and starting again derives the same uuid and the same public host from
+// the same pair. A table would only hold a copy of what the cluster already knows.
 package devrun
 
 import (
@@ -58,7 +55,7 @@ type DevRun struct {
 	IntegrationID string
 	// Host is the external hostname this run publishes, "" when it serves no HTTP.
 	Host string
-	// TestURL is Host as a URL, which is what the editor shows as the run's address.
+	// TestURL is Host as a URL: the run's address.
 	TestURL string
 	// LastActivity is when the run was last reloaded; zero when the annotation is
 	// absent, which the reaper reads as "use the creation time instead".
@@ -81,10 +78,8 @@ type DevRun struct {
 }
 
 // EnsureResult reports what Ensure did. Created distinguishes starting a run from
-// attaching to one that was already there, which the editor surfaces rather than
-// hiding: two tabs on the same integration deliberately share one pod, and a user
-// who clicks Run and silently lands on someone else's session — or their own from
-// another window — should be told.
+// attaching to one that was already there: two requests for the same pair share one
+// pod, and the difference is worth reporting rather than hiding.
 type EnsureResult struct {
 	DevRun
 	Created bool

@@ -32,13 +32,12 @@ func (f SecretField) Configured() bool {
 //	else — replace it
 //
 // Keeping the stored key is the zero-work path rather than a branch someone has to
-// remember to write, which is what makes "saving the settings form wiped my API
-// key" hard to introduce by accident.
+// remember, which is what makes "the save wiped my API key" hard to introduce.
 //
 // A non-empty key with no cipher is refused rather than stored in the clear: see
-// ErrEncryptionUnavailable. Note that this only affects a *changed* key — carrying
-// the existing one forward copies ciphertext bytes and needs no cipher at all, so
-// an install without an encryption key can still edit its other settings.
+// ErrEncryptionUnavailable. That affects only a *changed* key — carrying the existing
+// one forward copies ciphertext and needs no cipher — so an install without an
+// encryption key can still edit its other settings.
 func (f SecretField) Apply(supplied *string, c *cryptox.Cipher) (SecretField, error) {
 	if supplied == nil {
 		return f, nil
