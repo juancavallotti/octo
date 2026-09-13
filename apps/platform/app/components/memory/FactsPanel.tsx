@@ -5,18 +5,12 @@ import type { UserMemory } from "@/app/model/agentMemory";
 import { UserMemoryList } from "./UserMemoryList";
 
 /**
- * What the agent has chosen to keep about the people it talks to.
+ * What the agent has chosen to keep about the people it talks to, addressed by
+ * person rather than by conversation.
  *
- * Its own tab, addressed by person, because that is what a fact belongs to. It
- * used to appear only underneath an open conversation — which made sense (a
- * conversation names the person) and answered the wrong question: "what does this
- * agent know about Juan" is not a question about any one conversation, and
- * answering it meant opening conversations until you found one of theirs.
- *
- * The people offered are those on the conversations currently loaded. That is a
- * page of them rather than everyone the agent has ever spoken to — the listing is
- * cursor-paged and there is no separate route that enumerates people — so the
- * picker is described as who has been talked to recently rather than as a roster.
+ * The people offered are those on the conversations currently loaded — a page of
+ * them, since the listing is cursor-paged and nothing enumerates people — so the
+ * picker is described as who has been talked to recently, not as a roster.
  */
 export function FactsPanel({
   people,

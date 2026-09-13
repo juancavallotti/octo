@@ -1,16 +1,9 @@
 /**
  * What a conversation looks like once the frames have been folded together, and
- * the fold itself.
+ * the fold itself: given a turn and a frame, the next turn.
  *
- * Separate from the hook because it is the part with no React in it: given a turn
- * and a frame it returns the next turn, which is the whole of what the panel
- * renders and the easiest thing in this feature to test.
- *
- * A turn is an ordered log rather than a set of buckets. It used to hold one
- * reasoning string and one flat list of tools, which meant a run that thought,
- * called two tools, thought again and answered rendered as one block of reasoning
- * and one undifferentiated list — with the order, and so the story, gone. What the
- * agent did is a sequence, and this keeps it as one.
+ * A turn is an ordered log rather than a set of buckets — what the agent did is a
+ * sequence, and this keeps it as one.
  */
 
 import type { AgentEvent } from "./frames";
@@ -41,10 +34,9 @@ export interface ContextGauge {
  * One stretch of one kind of work. Segments are appended and never reordered, so
  * their position in the array is their position in time.
  *
- * `iter` is the agent's own turn counter, which rides on every frame. It is what
- * separates two rounds of tool calls with nothing in between: without it they read
- * as one long list, and the fact that the agent went back to the model — the
- * expensive part — is invisible.
+ * `iter` is the agent's own turn counter, riding on every frame. It is what
+ * separates two rounds of tool calls with nothing in between, which would
+ * otherwise read as one long list.
  */
 export type Segment =
   | { kind: "thinking"; iter: number; text: string }
@@ -56,15 +48,10 @@ export type Segment =
 /**
  * What became of a message sent while he was already working.
  *
- * Such a message is not answered by the request that carried it: the runtime hands
- * it to the run already in flight and stops the flow that brought it, so the POST
- * comes back empty and immediately whether or not anything was done with it. It is
- * folded into the conversation at the top of the run's next iteration, which can
- * be a whole model call away — long enough that a message shown as sent reads as a
- * message ignored.
- *
- * So it is shown as sent-but-not-yet-read until the run says otherwise, which it
- * does: injecting one emits a `signal`, and that frame is the acknowledgement.
+ * Such a message is not answered by the request that carried it: it is folded in
+ * at the top of the run's next iteration, which can be a whole model call away. So
+ * it counts as sent-but-not-yet-read until the run says otherwise, which it does
+ * by emitting a `signal` when it injects one.
  */
 export type Delivery = "pending" | "taken" | "missed";
 
@@ -93,14 +80,7 @@ const GUARDRAIL_NOTES: Record<string, string> = {
     "He ran out of steps before finishing. Try narrowing the question, or raise the turn limit under Admin, Platform agent.",
 };
 
-/**
- * Why an agent turn carries no answer: the conversation was already claimed.
- *
- * The runtime hands the message to the run that holds it and stops this flow with
- * an empty body, so the stream carries nothing at all. It happens whenever the
- * window could not know a run was in flight — a second tab, or this one after a
- * reload while the old run still holds the claim.
- */
+/** Why an agent turn carries no answer: the conversation was already claimed. */
 export const HANDED_OVER_NOTE =
   "He was already working on this conversation, so your message joined that run " +
   "rather than starting a new one. The answer is going to whoever is reading it.";
@@ -124,24 +104,15 @@ export function answerOf(turn: Turn): string {
 }
 
 /**
- * Fold a message the run has just read into the transcript, where it happened.
+ * Fold a message the run has just read into the transcript, where it happened:
+ * after everything the run had done when it arrived, and before everything it
+ * does because of it. The open agent turn is closed and a new one opened
+ * underneath, so what answers this message sits under it.
  *
- * A steered message is held at the bottom of the panel while it waits, because
- * until the run reads it, it is not part of the conversation. The moment it is,
- * it belongs in the middle of one: after everything the run had done when it
- * arrived, and before everything the run does because of it. So the agent's turn
- * is closed here and a new one opened underneath — which is what puts the
- * reasoning and the tool calls that answer this message under this message,
- * rather than appending them to the answer it interrupted.
- *
- * Matched on the text because that is all the two ends share: the message was
- * handed over through the runtime, and it comes back with no id of ours on it.
- * The oldest match wins, which is the order the run injects them in.
- *
- * A message that matches nothing is one this window never sent — a second tab, or
- * this one after a reload — and it is written in rather than dropped. It really
- * did join the conversation and really did shape what follows, and a reply that
- * changes direction with nothing to show for it reads as a model going strange.
+ * Matched on the text, which is all the two ends share — the message comes back
+ * carrying no id of ours. The oldest match wins, which is the order they are
+ * injected in. A message that matches nothing is written in rather than dropped:
+ * it really did shape what follows.
  *
  * @param currentId the agent turn the run is writing; it is closed
  * @param openedId  the agent turn the run continues in
@@ -149,8 +120,7 @@ export function answerOf(turn: Turn): string {
 export function takeIn(turns: Turn[], currentId: string, openedId: string, text: string): Turn[] {
   const said = text.trim();
   const at = turns.findIndex((turn) => turn.id === currentId);
-  // The run's own turn is always there — the caller made it. Nothing sane to do
-  // if it is not, so the message goes at the end and nothing is reordered.
+  // With no turn to split at, the message goes at the end and nothing is reordered.
   const head = at < 0 ? turns : turns.slice(0, at);
   const tail = at < 0 ? [] : turns.slice(at + 1);
   const closing = at < 0 ? undefined : turns[at];
@@ -169,9 +139,7 @@ export function takeIn(turns: Turn[], currentId: string, openedId: string, text:
     // read in the same iteration would otherwise leave an empty turn between them.
     ...(closing && hasContent(closing) ? [{ ...closing, streaming: false }] : []),
     read,
-    // The gauge rides across. It is a property of the conversation, not of the
-    // turn, and blanking it until the next model turn reports would read as the
-    // context having been lost along with the turn.
+    // The gauge rides across: it is a property of the conversation, not the turn.
     { ...newTurn(openedId, "agent"), streaming: true, context: closing?.context },
     ...tail.filter((_, i) => i !== waiting),
   ];
@@ -183,11 +151,8 @@ function hasContent(turn: Turn): boolean {
 }
 
 /**
- * Mark a message the run took responsibility for and never answered.
- *
- * Null means this window did not send it, and the caller falls back to saying so
- * in the transcript — unlike a message that was read, there is no conversation
- * position to give one that was not.
+ * Mark a message the run took responsibility for and never answered. Null when
+ * nothing pending matches the text, which leaves the caller nothing to place.
  */
 export function acknowledge(turns: Turn[], signal: string, text: string): Turn[] | null {
   const said = text.trim();
@@ -200,12 +165,9 @@ export function acknowledge(turns: Turn[], signal: string, text: string): Turn[]
 }
 
 /**
- * Settle whatever is still waiting once the run has ended.
- *
- * Nothing more is coming: an acknowledgement only arrives on the stream this run
- * owns, so a message still pending when it closes was never taken — the run was
- * stopped, or it failed, and either way the message is gone. Leaving it pending
- * would be a spinner that never resolves.
+ * Settle whatever is still waiting once the run has ended. An acknowledgement
+ * only arrives on the stream the run owns, so anything still pending when it
+ * closes was never taken.
  */
 export function settle(turns: Turn[]): Turn[] {
   return turns.map((turn) => (turn.delivery === "pending" ? { ...turn, delivery: "missed" } : turn));
@@ -231,27 +193,22 @@ export function reduce(turn: Turn, event: AgentEvent): Turn {
     case "tool_result":
       return withSegments(turn, closeTool(turn.segments, event));
 
-    // The gauge is exact — what the provider read plus what it produced — and it
-    // rides on every model turn, so it fills rather than only reporting an
-    // overflow after the fact.
+    // The gauge is exact: what the provider read plus what it produced.
     case "turn_end":
       return event.contextMaxTokens
         ? { ...turn, context: { used: event.contextTokens ?? 0, max: event.contextMaxTokens } }
         : turn;
 
-    // Bracketed rather than reported once, because a summarize is a real model
-    // call and can take seconds. Without the open segment those seconds look like
-    // a freeze.
+    // Bracketed rather than reported once: a summarize is a real model call and
+    // can take seconds, which without an open segment look like a freeze.
     case "compaction_start":
       return push(turn, { kind: "compaction", iter, strategy: event.strategy ?? "", done: false });
 
     case "compaction_end":
       return withSegments(turn, finishCompaction(turn.segments, event.dropped));
 
-    // Something that reached the run from outside it: a message handed over
-    // mid-answer, one it never got a turn to answer, or a person's answer to a
-    // gated call. The last belongs on the call rather than in the log — the chip
-    // asked the question, so the chip shows what was decided.
+    // Something that reached the run from outside it. An answer to a gated call
+    // belongs on the call that asked rather than in the log.
     case "signal":
       return event.signal === "authorize"
         ? withSegments(turn, settleAuthorization(turn.segments, event.authorizationId, event.allowed))
@@ -264,17 +221,15 @@ export function reduce(turn: Turn, event: AgentEvent): Turn {
         ? turn
         : push(turn, { kind: "text", iter, text: event.text });
 
-    // Naming the conversation says nothing about the turn it arrived on — the
-    // panel takes it (see readRun), and the transcript is left alone.
+    // Naming the conversation says nothing about the turn it arrived on.
     case "thread_title":
       return turn;
 
     case "error":
       return { ...turn, note: event.error };
 
-    // The reason is diagnostic and written for a log — "model refused",
-    // "exceeded max iterations". The *reply* to the user comes from the
-    // guardrail's own set-payload, and reaches the panel as the closing frame.
+    // The reason is diagnostic — "model refused", "exceeded max iterations" —
+    // so it is translated rather than shown.
     case "guardrail":
       return { ...turn, note: GUARDRAIL_NOTES[event.reason ?? ""] ?? "He stopped short of an answer." };
   }
@@ -328,9 +283,8 @@ function closeTool(
       done: true,
       failed: Boolean(event.isError),
       output: event.output,
-      // A result ends the question whatever happened. Still pending here means it
-      // was never allowed — the clock ran out, or the run ended — and a chip left
-      // asking would offer a button that answers nothing.
+      // A result ends the question whatever happened; still pending here means it
+      // was never allowed.
       authorization:
         r.authorization?.state === "pending"
           ? { ...r.authorization, state: "denied" as const }

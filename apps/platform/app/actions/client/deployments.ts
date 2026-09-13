@@ -28,9 +28,7 @@ export function listDeployments(
 
 /**
  * One deployment on its own, by id. The list endpoint is per-integration, and a
- * caller holding only a deployment id — anything reached by a link into a
- * deployment, rather than from the integration that owns it — has no integration
- * to list.
+ * caller holding only a deployment id has no integration to list.
  */
 export function getDeployment(id: string): Promise<ActionResult<Deployment>> {
   return call<Deployment>("GET", `/deployments/${enc(id)}`);
@@ -93,14 +91,14 @@ export function deleteDeployment(id: string): Promise<ActionResult<void>> {
 
 // --- Dev runs -------------------------------------------------------------
 // The editor's Run, executed as a pod the orchestrator owns rather than as a child of
-// whichever platform replica answered. That is the whole point of these calls: the BFF
-// holds no run state, so any replica can serve any of them.
+// whichever platform replica answered: the BFF holds no run state, so any replica can
+// serve any of them.
 //
 // Every call states whose behalf it acts on. The orchestrator has no session — this BFF
-// does, and has already authenticated the caller — so the user id travels as a scope,
-// the same arrangement as `/users/{userId}/apikeys`. It is a query parameter rather than
-// a path segment because a dev run is addressed by its own derived id; the user narrows
-// which runs are reachable, and an operation on somebody else's simply is not found.
+// does, and has already authenticated the caller — so the user id travels as a scope. It
+// is a query parameter rather than a path segment because a dev run is addressed by its
+// own derived id; the user narrows which runs are reachable, and an operation on
+// somebody else's simply is not found.
 
 /**
  * Start a dev run for (userId, integrationId), or attach to the one already running that
@@ -121,7 +119,7 @@ export function ensureDevRun(
  * This is also how "is anything running for me here?" is answered — there is no stored
  * row to consult, so an empty list is the complete answer, and a non-empty one carries
  * the run's live phase and address. One label lookup against the orchestrator's informer
- * cache, so it is cheap enough to be the reattach path on every editor mount.
+ * cache, so it is cheap enough to call often.
  */
 export function listDevRuns(
   userId: string,
@@ -135,9 +133,8 @@ export function listDevRuns(
 /**
  * Tell a dev run to pick up the integration's stored state now.
  *
- * Not the per-edit trigger: a save reaches the run from the orchestrator's own write
- * path, which is what makes every writer (the editor, MCP, an API-key client) cover it.
- * This is the explicit "reload now" a user asks for directly.
+ * Not the per-edit trigger — a save reaches the run from the orchestrator's own write
+ * path. This is the explicit "reload now" a user asks for directly.
  */
 export function reloadDevRun(
   userId: string,
@@ -160,11 +157,10 @@ export function deleteDevRun(
 /**
  * Open the dev run's runtime logs: plain text, one line per line.
  *
- * The one orchestrator call that is not JSON, and with `follow` it has to be — a follow
- * has no end, so a JSON client would buffer it forever. Without `follow` it is a bounded
- * document that ends on its own, which is what a caller reading logs rather than watching
- * them wants. `tail` bounds the history either way, because a run that has been up for an
- * hour should not send the hour first.
+ * With `follow` there is no end, so it cannot be read as a document — a JSON client
+ * would buffer it forever. Without `follow` it is bounded and ends on its own. `tail`
+ * bounds the history either way, because a run that has been up for an hour should not
+ * send the hour first.
  */
 export function openDevRunLogs(
   userId: string,

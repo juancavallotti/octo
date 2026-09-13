@@ -4,15 +4,10 @@
  * A suite is stored as an integration resource under `.octo/tests/`, with kind
  * `template` because that is what the orchestrator's resource model offers for a non-env
  * file. Being *undeclared* is what keeps it out of the way: a deployed runtime pulls only
- * the resources its config declares, so nothing ever asks for one of these, and the
- * Resources view already hides everything under `.octo/` — so the two tabs cannot fight
- * over the same file.
+ * the resources its config declares, so nothing ever asks for one of these.
  *
- * This module holds the storage rules with **no authorization of its own**, because it
- * has two callers that authorize differently: the editor's server actions, gated by the
- * signed-in session, and the MCP route, which has already checked a bearer API key by the
- * time it gets here. Two copies of "find the resource whose file declares this flow"
- * would be two chances to disagree about which file an edit lands on.
+ * This module holds the storage rules with **no authorization of its own** — every caller
+ * must have authorized before it gets here.
  */
 
 import { flowOfSuite, isSuiteFileName, suiteFileName } from "@octo/editor/runtime";

@@ -11,15 +11,10 @@ import * as integrationActions from "@/app/actions/integrations";
 import * as snapshotActions from "@/app/actions/snapshots";
 import { unwrap } from "./bff";
 
-// The type surface lives next door and is re-exported, so every existing
-// `@/app/model/orchestrator` import keeps working and callers need not care
-// which half a name comes from.
+// Re-exported so `@/app/model/orchestrator` is the single import for the type
+// surface, the byte-payload bundle calls and resource CRUD alike.
 export * from "./orchestratorTypes";
-// Bundles (and the frozen-resource read) live next door: they are the calls whose
-// payload is bytes rather than JSON, and they carry the base64 hop that goes with it.
 export * from "./bundles";
-// Resource CRUD is its own module for the same reason the file split exists at
-// all: one nameable concern per file.
 export * from "./resources";
 import type {
   DeployOptions,
@@ -71,7 +66,7 @@ export async function deleteIntegration(id: string): Promise<void> {
 
 // --- Deployments ----------------------------------------------------------
 // Backed by server actions in `app/actions/deployments.ts`. The live event stream
-// stays an SSE route (DeploymentsSection subscribes via EventSource).
+// stays an SSE route.
 
 /** List the deployments of an integration (status refreshed server-side on read). */
 export async function listDeployments(
@@ -93,8 +88,7 @@ export type DeploymentWithIntegration = Deployment & {
 /**
  * Aggregate every deployment across every integration into one flat, named list.
  * A per-integration failure contributes nothing rather than failing the whole
- * call, so one unreachable integration can't blank the view. Shared by the
- * dashboard, the deployments page, and the object browser's deployment picker.
+ * call, so one unreachable integration can't blank the view.
  */
 export async function listAllDeployments(): Promise<
   DeploymentWithIntegration[]
@@ -269,8 +263,7 @@ function folderIds(folders: Folder[]): string[] {
 /**
  * Find which folder an integration belongs to, or null when unfiled. Integrations
  * are single-membership but the integration record doesn't name its folder, so we
- * scan folder memberships. Used when opening an integration by its bookmarkable
- * URL, where the folder isn't otherwise known.
+ * scan folder memberships.
  */
 export async function findIntegrationFolderId(
   integrationId: string,

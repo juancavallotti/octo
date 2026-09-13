@@ -20,9 +20,7 @@ import type { RolloutSubmit } from "./RolloutModal";
  *
  * "How it stays live" is the part worth having in one place. The orchestrator
  * watches the cluster and pushes status over SSE; a polling fallback engages only
- * while that stream is erroring, and stops again the moment it reconnects. That
- * arrangement is three callbacks and an interval ref, and it has nothing to do
- * with what the panel looks like.
+ * while that stream is erroring, and stops again the moment it reconnects.
  */
 
 // Polling cadence used only as a fallback when the SSE stream is unavailable.
@@ -64,16 +62,13 @@ export function useDeployments({
   const confirm = useConfirm();
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [busy, setBusy] = useState(false);
-  // Separate error slots so they don't clobber each other: `error` is the inline
-  // scale/undeploy error; `deployError` shows in the Deploy modal; `rolloutError` in
-  // the Rollout modal.
   const [error, setError] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [rolloutError, setRolloutError] = useState<string | null>(null);
   // The deployment whose rollout dialog is open (change version and/or edit env).
   const [rolloutTarget, setRolloutTarget] = useState<Deployment | null>(null);
   // A then-chain (not an async body) so the effect's call doesn't setState
-  // synchronously — same shape as IntegrationsManager's refresh.
+  // synchronously.
   const refresh = useCallback(
     () =>
       listDeployments(integrationId).then(
@@ -138,10 +133,9 @@ export function useDeployments({
     [refresh],
   );
 
-  // Deploy from the modal: on success close it; on failure keep it open with the
-  // error so the user can correct and retry. When deploying Current the modal sends
-  // a newTag — cut that snapshot from the working copy first, then deploy it (and
-  // tell the parent so the pills/menu pick up the new tag).
+  // On success close the modal; on failure keep it open with the error so the user
+  // can correct and retry. A newTag means Current is being deployed: cut that
+  // snapshot from the working copy first, then deploy it.
   const deploy = useCallback(
     async (input: DeploySubmit) => {
       setBusy(true);
@@ -177,10 +171,9 @@ export function useDeployments({
   const scale = (d: Deployment, replicas: number) =>
     run(() => scaleDeployment(d.id, replicas));
 
-  // Roll a deployment over from its dialog: an existing tag deploys directly; a new
-  // tag is cut from the working copy first (then the pills/menu pick it up). The
-  // dialog's env replaces the deployment's stored bindings. Keep the modal open on
-  // failure so the operator can correct and retry.
+  // An existing tag rolls over directly; a new tag is cut from the working copy
+  // first. The submitted env replaces the deployment's stored bindings. The modal
+  // stays open on failure so the operator can correct and retry.
   const rollout = useCallback(
     async (input: RolloutSubmit) => {
       setBusy(true);

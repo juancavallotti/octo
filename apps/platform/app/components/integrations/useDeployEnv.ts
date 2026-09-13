@@ -19,14 +19,12 @@ function bindingsFromInput(
 }
 
 /**
- * Manages the deploy modal's environment-variable bindings: one binding per
- * variable the integration declares (seeded from its default), the cluster secret
- * names for the picker, whether every required variable is filled, and building the
- * wire payload. Keeps the modal itself focused on the dialog and its other fields.
+ * The deploy modal's environment-variable bindings: one binding per variable the
+ * integration declares (seeded from its default), the cluster secret names for the
+ * picker, whether every required variable is filled, and the wire payload.
  *
- * `initial` seeds the bindings from a deployment's existing env (the rollout "edit
- * existing" case). It is read once, at mount — the consuming modal is keyed by its
- * target so a change remounts with fresh seed rather than mutating in place.
+ * `initial` seeds the bindings from a deployment's existing env, read once at
+ * mount — remount to seed it again.
  */
 export function useDeployEnv(
   opts: DeployOptions | null,
@@ -34,8 +32,8 @@ export function useDeployEnv(
 ) {
   const envVars = opts?.envVars ?? [];
   // Vars an .env resource already supplies: a required one here is satisfied, so it
-  // neither blocks the deploy nor needs a value sent — but the operator can still
-  // override it below with an explicit value or secret.
+  // neither blocks the deploy nor needs a value sent — but an explicit value or
+  // secret below still overrides it.
   const providedByFile = new Set(opts?.envProvidedKeys ?? []);
   const [bindings, setBindings] = useState<Record<string, EnvBinding>>(() =>
     bindingsFromInput(initial),
@@ -56,18 +54,16 @@ export function useDeployEnv(
   }, []);
 
   // Bindings are lazy: an untouched variable has no entry and falls back to its
-  // declared default (see DeployEnvFields / the checks below), so there is no seed
-  // effect to keep in sync with the options.
+  // declared default, so there is no seed to keep in sync with the options.
   const setBinding = (name: string, patch: Partial<EnvBinding>) =>
     setBindings((prev) => ({
       ...prev,
       [name]: { ...(prev[name] ?? emptyBinding()), ...patch },
     }));
 
-  // Required variables not yet satisfied — a non-empty value (its default counts,
-  // since the payload sends that default explicitly, see build) or a chosen secret,
-  // or an .env resource that already supplies the key. Surfaced so the modal can
-  // name exactly what blocks the deploy.
+  // Required variables not yet satisfied — no non-empty value (its default counts,
+  // since `build` sends it explicitly), no chosen secret, and no .env resource
+  // supplying the key. Surfaced so the modal can name what blocks the deploy.
   const missingRequired = envVars
     .filter((ev) => ev.required)
     .filter((ev) => !providedByFile.has(ev.name))
@@ -79,18 +75,16 @@ export function useDeployEnv(
   const complete = missingRequired.length === 0;
 
   // Build the wire payload. Variables the user set are sent as typed. A required
-  // variable left untouched is sent with its declared default *explicitly* —
-  // unlike an optional one, the runtime does not apply a default to satisfy a
-  // required var, so it must travel as a real value (matching the orchestrator's
-  // deploy-time check). Optional untouched variables are omitted.
+  // variable left untouched is sent with its declared default *explicitly*: the
+  // runtime does not apply a default to satisfy a required var, so it must travel
+  // as a real value. Optional untouched variables are omitted.
   const build = (): Record<string, EnvBindingInput> => {
     const env: Record<string, EnvBindingInput> = {};
     for (const ev of envVars) {
       const b = bindings[ev.name];
       if (!b) {
-        // Force a required var's default only when nothing else supplies it. If an
-        // .env resource already provides the key, leave it unset so the file's value
-        // wins (an explicit binding below still overrides both).
+        // Force a required var's default only when nothing else supplies it, so an
+        // .env resource's value wins when it has one.
         if (ev.required && ev.default && !providedByFile.has(ev.name))
           env[ev.name] = { value: ev.default };
         continue;

@@ -4,14 +4,12 @@
  *
  *     serverAction (auth) → a client module → call() → requestJson() → fetch
  *
- * It is the only place in the folder that knows about HTTP. The sibling modules
- * are lists of typed operations; none of them names a verb, a path shape, or the
- * server-only ORCHESTRATOR_URL.
+ * It is the only place in the folder that knows about HTTP: none of the sibling
+ * modules names a verb, a path shape, or the server-only ORCHESTRATOR_URL.
  *
- * It is also the only place that attaches the caller's credential, for the same
- * reason: one place knows how to reach the orchestrator, so one place knows how
- * to speak to it as somebody. The operations keep their signatures — a token in a
- * hundred function signatures is a token in a hundred places it could be logged.
+ * It is also the only place that attaches the caller's credential. The operations
+ * keep their signatures — a token in a hundred function signatures is a token in a
+ * hundred places it could be logged.
  */
 
 import {
@@ -44,7 +42,7 @@ export function baseUrl(): string {
 /**
  * Issue one orchestrator request. Internal: the public API is the named domain
  * functions below, never a verb. Returns an error result when the orchestrator is
- * unconfigured (mirroring the route proxy's 503).
+ * unconfigured.
  */
 export async function call<T>(
   method: string,
@@ -77,13 +75,10 @@ export async function callStream(
 /**
  * Issue one orchestrator request and hand back the raw Response.
  *
- * For the proxies: a route handler that streams the orchestrator's answer
- * straight to the browser needs the headers and the body untouched, which the
- * helpers above deliberately do not give it. It exists so those routes do not
- * have to build a URL and attach a credential themselves — the two things this
- * module is here to be the only place for.
+ * For a caller that must pass the orchestrator's answer through untouched, headers
+ * and body both, and still not build a URL or attach a credential itself.
  *
- * Null when the orchestrator is unconfigured, which the caller reports as a 503.
+ * Null when the orchestrator is unconfigured.
  */
 export async function callRaw(
   path: string,

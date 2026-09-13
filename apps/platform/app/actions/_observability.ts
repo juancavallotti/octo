@@ -4,21 +4,13 @@
  *
  *     serverAction (auth) → a client module → observabilityCall() → requestJson()
  *
- * One service stores the logs, traces and pod stats the platform reads and owns
- * the retention policy over them, so one server-only address reaches all of the
- * clients beside this file (`_logs.ts`, `_traces.ts`, `_stats.ts`,
- * `_retention.ts`, `_storage.ts`, `_alerts.ts`). The platform talks to it
- * directly rather than through the orchestrator: it owns the tables, and it
- * serves its own in-cluster API.
- *
- * It is also the only place that attaches the caller's credential, for the same
- * reason: one place knows how to reach the service, so one place knows how to
- * speak to it as somebody. The clients keep their signatures — a token in a
+ * One service stores the logs, traces and pod stats and owns the retention policy
+ * over them, so one server-only address reaches every client beside this file. It
+ * is also the only place that attaches the caller's credential — a token in a
  * hundred function signatures is a token in a hundred places it could be logged.
  *
- * Unset means the feature is off rather than broken. Each call answers with an
- * error result naming the variable so the page can say what to set, instead of a
- * fetch against "" failing in a way that reads as an outage.
+ * Unset means the feature is off rather than broken: each call answers with an
+ * error result naming the variable.
  */
 
 import { requestJson, type ActionResult, type RequestOptions } from "@octo/http";
@@ -56,11 +48,9 @@ export async function observabilityCall<T>(
 }
 
 /**
- * The caller's credential, as request options.
- *
- * Absent when there is none — a call made outside any request. That is not an
- * error here: the service decides what it will do without one, and an install
- * that is not enforcing will do it happily.
+ * The caller's credential, as request options. Absent when there is none — a call
+ * made outside any request — which is not an error here: what to do without one is
+ * the service's decision.
  */
 async function authorized(): Promise<RequestOptions | undefined> {
   const token = await callerToken();

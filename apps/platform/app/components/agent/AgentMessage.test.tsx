@@ -51,10 +51,8 @@ describe("AgentMessage", () => {
     expect(container.querySelector("pre code")?.className).toContain("language-yaml");
   });
 
-  // The answer is generated from text other people wrote — integration definitions,
-  // resource contents, pod logs — so a model repeating a script tag back must render
-  // it as characters. react-markdown builds elements rather than HTML, and this is
-  // the test that says so out loud.
+  // The answer is generated from text other people wrote, so a model repeating a
+  // script tag back must render it as characters rather than as markup.
   it("escapes html in the answer instead of executing it", () => {
     const { container } = render(agentMessage('<script>alert(1)</script> and <img src=x onerror=y>'));
 
@@ -92,8 +90,7 @@ describe("AgentMessage", () => {
   });
 
   // The order is the story: he thought, looked something up, thought again about
-  // what he found, and then answered. Flattened into one block of reasoning and
-  // one list of tools — which is what this used to render — none of that survives.
+  // what he found, and then answered.
   it("renders segments in the order they happened", () => {
     const { container } = render(
       <AgentMessage
@@ -149,8 +146,7 @@ describe("AgentMessage", () => {
     expect(screen.getByText(/12 earlier messages/)).toBeTruthy();
   });
 
-  // A message accepted and never answered is the one case where something a person
-  // sent goes nowhere, so it must not be silent.
+  // A message accepted and never answered must not be silent.
   it("says when a message he took was never answered", () => {
     render(
       <AgentMessage
@@ -162,8 +158,7 @@ describe("AgentMessage", () => {
     expect(screen.getByText(/ran out of steps before answering/)).toBeTruthy();
   });
 
-  // The text is what makes that actionable, and a frame without one must not
-  // render empty quotes at somebody who is trying to work out what they lost.
+  // A frame carrying no text must not render empty quotes.
   it("says a message went unanswered even when the frame carried no text", () => {
     render(<AgentMessage turn={withSegments({ kind: "signal", iter: 8, signal: "unanswered" })} onAuthorize={async () => true} />);
 

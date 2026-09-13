@@ -17,10 +17,8 @@ import RolePicker from "./RolePicker";
  * Adding a person, and editing one. One dialog because they are one form: an
  * address, a name, and what that person may do.
  *
- * Roles live here and nowhere else. They used to be chips in the table, which
- * made granting one a single click on a list somebody was reading — the way an
- * administrator hands out `platform:admin` while meaning to scroll. A dialog is
- * the difference between a decision and a slip.
+ * Roles live here and nowhere else: a dialog is the difference between a decision
+ * and a slip on a list somebody was only reading.
  *
  * `person` absent means adding. Adding sends the roles with the create, so that
  * a person never exists here holding something nobody chose; editing sends the
@@ -54,7 +52,6 @@ export default function UserModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Close on Escape, mirroring the platform's other overlays.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onClose();

@@ -1,17 +1,12 @@
 "use server";
 
 /**
- * Server actions for the agent memory viewer.
+ * Server actions for the agent memory viewer. Read and delete only: there is no
+ * action to edit a curated memory.
  *
- * Read and delete only. There is deliberately no action to EDIT a curated
- * memory: an operator rewriting what an agent believes about a person, with no
- * audit trail and nothing in the conversation explaining it, is a feature that
- * should be asked for explicitly rather than fall out of a viewer.
- *
- * The reads are behind the write gate rather than the read one. What is here is a
- * transcript of people's conversations with an agent and a list of facts it has
- * kept about them — the same material the chat panel is gated on, for the same
- * reason.
+ * The reads sit behind the write gate rather than the read one — what is here is
+ * a transcript of people's conversations with an agent, and a list of facts it
+ * has kept about them.
  */
 
 import { withWrite } from "./_auth";
@@ -30,13 +25,9 @@ import type {
 import type { Integration } from "@/app/model/orchestrator";
 
 /**
- * Every integration, so the viewer can offer somewhere to look.
- *
- * Behind the write gate like everything else here, and not the read one. It is a
- * listing of every integration on the installation by name, reached from a page
- * whose whole purpose is reading people's conversations — admitting a reader to
- * the picker while refusing them everything it picks would be a gap rather than a
- * concession.
+ * Every integration, so the viewer can offer somewhere to look. Behind the write
+ * gate like everything else here: admitting a reader to the picker while refusing
+ * them everything it picks would be a gap rather than a concession.
  */
 export async function listMemoryIntegrations(): Promise<ActionResult<Integration[]>> {
   return withWrite(() => listIntegrationsClient());

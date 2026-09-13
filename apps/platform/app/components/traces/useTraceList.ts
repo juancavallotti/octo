@@ -6,8 +6,7 @@
  * only job is to hand back exactly what it was given. That matters because
  * traces tie: a burst of requests starts many inside the same millisecond, and a
  * cursor on the timestamp alone would either skip the rows that tie across a page
- * boundary or serve them twice, in a list where a missing trace is precisely the
- * thing someone is looking for.
+ * boundary or serve them twice.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -78,9 +77,8 @@ export function useTraceList(filters: TraceFilters | null): TraceList {
     if (!older || !filters || loadingMore) return;
     // Which query this page belongs to. The main effect drops a stale answer by
     // going out of scope; a paged one has to be checked against what is current
-    // when it lands, or clicking "Load older" and then switching app appends the
-    // previous app's traces under the new app's heading — and leaves a cursor
-    // that pages the wrong query from then on.
+    // when it lands, or a page requested before the filters changed appends under
+    // the new ones and leaves a cursor that pages the wrong query from then on.
     const pagedFor = wanted;
     setLoadingMore(true);
     listTraces({ ...filters, before: older, limit: PAGE_SIZE })
@@ -102,10 +100,8 @@ export function useTraceList(filters: TraceFilters | null): TraceList {
   }, [older, filters, loadingMore, wanted]);
 
   // What is in state belongs to whatever `loaded` names. When that is not what is
-  // wanted — a different app, changed filters — it is withheld rather than shown
-  // while the new query runs, so the previous app's traces never appear under the
-  // current one's heading. Paging does not change `wanted`, so appending an older
-  // page keeps the list visible.
+  // wanted, it is withheld rather than shown while the new query runs. Paging does
+  // not change `wanted`, so appending an older page keeps the list visible.
   const fresh = loaded === wanted;
   return {
     traces: fresh ? traces : [],
@@ -113,8 +109,7 @@ export function useTraceList(filters: TraceFilters | null): TraceList {
     loading: wanted !== null && !fresh,
     loadingMore,
     // Withheld on the same terms as the list: an error raised by the query that
-    // was on screen a moment ago is not a fact about the one loading now, and
-    // leaving it up would blame the new app for the old one's failure.
+    // was on screen a moment ago is not a fact about the one loading now.
     error: fresh ? error : null,
     loadMore,
   };

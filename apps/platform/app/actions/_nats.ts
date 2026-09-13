@@ -4,11 +4,10 @@
  *
  *     serverAction (auth) → this client (getQueueStats()) → requestJson() → fetch
  *
- * Unlike the orchestrator client, the platform talks to the broker's monitoring
- * HTTP service (port 8222) directly: it is in-cluster reachable and the data is a
- * read-only snapshot, so there is no reason to hop through the orchestrator. The
- * server-only `NATS_MONITOR_URL` and the snake_case→camelCase shaping are internal;
- * callers see only the curated {@link QueueStats}.
+ * The platform talks to the broker's monitoring HTTP service (port 8222) directly:
+ * it is in-cluster reachable and the data is a read-only snapshot. The server-only
+ * `NATS_MONITOR_URL` and the snake_case→camelCase shaping are internal; callers see
+ * only the curated {@link QueueStats}.
  */
 
 import { requestJson, type ActionResult } from "@octo/http";
@@ -41,8 +40,7 @@ interface Varz {
  *
  * `msgs` is the only per-subject counter the broker gives: everything else on a
  * connection (in/out messages and bytes, pending, subscription count) covers every
- * subject that client touches. Keeping that distinction is what stops two subjects
- * consumed by one client from reporting identical, meaningless numbers.
+ * subject that client touches.
  */
 interface SubDetail {
   subject: string;
@@ -69,12 +67,7 @@ interface Connz {
 // The platform scopes a deployment's own subjects as `octo.<deployment>.<kind>.<name>`,
 // where kind is `q` for a queue (competing consumers, queue-subscribed on that same
 // string) and `t` for a topic (broadcast). See runtime topics.go and queues.go.
-//
-// This used to match `q` alone, which was right when queues were the only scoped
-// subject there was. Topics arrived later and fell through to the raw-subject
-// fallback below, so every one of them showed in the view as its full internal
-// string — `octo.<uuid>.t.alerts` — with no deployment beside it, which is both
-// unreadable and the one presentation that leaks the scoping format at people.
+// Anything else falls through to the raw-subject fallback below.
 const SCOPED_SUBJECT_RE = /^octo\.([^.]+)\.([qt])\.(.+)$/;
 
 /** Skip NATS/JetStream internal subjects (reply inboxes, system, JS) as non-queues. */
@@ -123,10 +116,8 @@ function toConnections(c: Connz): QueueConnection[] {
  * Internal subjects (reply inboxes, system) are dropped — they aren't queues.
  * `connections` indexes the full connection objects by cid.
  *
- * A subscriber carries only what is true of this subject — the subscriptions that
- * client holds on it and the messages they were delivered. Its connection-wide
- * totals stay on the connection, listed once each: attaching them to a subject was
- * how two destinations consumed by one client came to report the same numbers.
+ * A subscriber carries only what is true of this subject; its connection-wide
+ * totals stay on the connection, listed once each.
  */
 function toDestinations(
   c: Connz,

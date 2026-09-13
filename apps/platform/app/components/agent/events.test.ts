@@ -100,8 +100,8 @@ describe("parseAgentEvent", () => {
     expect(parseAgentEvent('"a string"')).toBeNull();
   });
 
-  // Most of what a reasoning model produces. Dropping it is what made the panel
-  // look frozen for the five seconds before an answer began.
+  // Most of what a reasoning model produces; without it the panel looks frozen for the
+  // seconds before an answer begins.
   it("reads a thinking frame", () => {
     expect(parseAgentEvent('{"type":"thinking","text":"weighing it up","index":0}')).toEqual({
       type: "thinking",
@@ -110,10 +110,9 @@ describe("parseAgentEvent", () => {
     });
   });
 
-  // A frame can be well-formed JSON and still wrong in its fields, and each of
-  // these has a consequence downstream: "null" concatenated into the answer, a
-  // chip no result can close, and — for a non-string error — an object handed to
-  // React as a child, which takes the panel down.
+  // A frame can be well-formed JSON and still wrong in its fields: "null" concatenated
+  // into the answer, a chip no result can close, and an object handed to React as a
+  // child, which takes the panel down.
   it("refuses a frame whose fields are not what the panel will do with them", () => {
     expect(parseAgentEvent('{"type":"text","text":null}')).toBeNull();
     expect(parseAgentEvent('{"type":"text","text":42}')).toBeNull();
@@ -209,10 +208,6 @@ describe("parseNavigateEvent", () => {
     expect(parseNavigateEvent("not json")).toBeNull();
   });
 
-  // Four kinds the panel used to drop on the floor. Three of them were already on
-  // the wire and describe things a reader can see happening — the context filling
-  // up, the conversation being shortened, a message arriving mid-answer — and the
-  // fourth is the one case where something somebody sent goes unanswered.
   it("reads the context gauge off a finished turn", () => {
     expect(
       parseAgentEvent(
@@ -303,9 +298,8 @@ describe("parseNavigateEvent", () => {
     expect(event).toMatchObject({ iteration: 4 });
   });
 
-  // NaN and Infinity survive neither JSON nor arithmetic, but a hand-built frame
-  // can carry a string where a number belongs — and "12" tokens rendered into a
-  // gauge is a gauge that lies.
+  // A hand-built frame can carry a string where a number belongs, and "12" tokens
+  // rendered into a gauge is a gauge that lies.
   it("ignores a count that is not a number", () => {
     expect(
       parseAgentEvent(

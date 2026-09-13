@@ -4,17 +4,12 @@ import { useCallback, useMemo, useState } from "react";
 import { filterRanked } from "@octo/util";
 
 /**
- * The search field and cursor behind a ranked picker panel.
+ * The search field and cursor behind a ranked picker panel: ranking rather than
+ * filtering, a cursor that survives narrowing, and the keys someone expects to
+ * work in a list.
  *
- * Split out of {@link AppPicker} when a second thing wanted the same panel — the
- * agent's list of past conversations — because what makes that panel usable is
- * not its markup but this: ranking rather than filtering, a cursor that survives
- * narrowing, and the keys someone expects to work in a list. A second copy of it
- * would have been a second set of answers to those questions.
- *
- * It owns no open/closed state. Whether the panel is showing is the caller's
- * business — a toolbar control and an icon button in a header open one for
- * different reasons — and this only says what is in it and where the cursor sits.
+ * It owns no open/closed state — whether the panel is showing is the caller's
+ * business, and this only says what is in it and where the cursor sits.
  */
 export function usePickerSearch<T>({
   items,
@@ -37,9 +32,9 @@ export function usePickerSearch<T>({
     [items, query, toText],
   );
 
-  // Clamped as it is read, not corrected afterwards in an effect: narrowing the
-  // list must not leave a render pointing past the end of it, and the cursor is
-  // held rather than reset so retyping narrows *under* it.
+  // Clamped as it is read rather than corrected in an effect, so narrowing never
+  // leaves a render pointing past the end. The cursor is held rather than reset,
+  // so retyping narrows *under* it.
   const active = Math.min(cursor, Math.max(matches.length - 1, 0));
 
   const reset = useCallback(() => {

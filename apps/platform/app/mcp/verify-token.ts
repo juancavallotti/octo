@@ -2,25 +2,21 @@
  * Bearer-token verification for the `/mcp` resource server.
  *
  * One kind of bearer token is accepted: an **OAuth 2.1 access-token JWT**, which is
- * what MCP clients (Claude, ChatGPT) obtain by self-registering against the
- * operator's provider. It is verified against that provider's JWKS with
- * `iss`/`aud`/`exp` checks, and the `aud` must equal this server's RFC 8707 resource
- * identifier so a token minted for another resource can't be replayed here (MCP's
- * anti-passthrough rule).
+ * what MCP clients obtain by self-registering against the operator's provider. It is
+ * verified against that provider's JWKS with `iss`/`aud`/`exp` checks, and the `aud`
+ * must equal this server's RFC 8707 resource identifier so a token minted for another
+ * resource can't be replayed here (MCP's anti-passthrough rule).
  *
- * The token is then traded with iam for a platform token, which is what resolves
- * the caller to a durable octo user id and tells us their roles. Both, and the
- * platform token itself, are hung off {@link AuthInfo.extra} so the tools can
- * scope per-user work and carry the caller's own credential to the API.
+ * The token is then traded with iam for a platform token, which resolves the caller
+ * to a durable octo user id and their roles. Both, and the platform token itself, are
+ * hung off {@link AuthInfo.extra}.
  *
- * The signature check above is not made redundant by that exchange. iam checks
- * the same things, but MCP's anti-passthrough rule is about *this* resource
- * server refusing a token minted for somewhere else, and that check belongs
- * here.
+ * The signature check above is not made redundant by that exchange: iam checks the
+ * same things, but the anti-passthrough rule is about *this* resource server refusing
+ * a token minted for somewhere else.
  *
- * The default export {@link verifyMcpToken} is wired to the configured provider's
- * real JWKS and the orchestrator; {@link createMcpTokenVerifier} takes injectable
- * deps for tests.
+ * {@link verifyMcpToken} is wired to the configured provider's real JWKS;
+ * {@link createMcpTokenVerifier} takes injectable deps for tests.
  */
 
 import {
@@ -82,9 +78,7 @@ export function createMcpTokenVerifier(
    *
    * Cached per subject rather than per token because a client refreshes its
    * access token far more often than the platform token behind it expires, and an
-   * exchange is a round trip to iam plus one to the identity provider. The cached
-   * entry is dropped a minute before its expiry so nothing is ever handed a
-   * credential that dies mid-request.
+   * exchange is a round trip to iam plus one to the identity provider.
    */
   async function exchange(subject: string, token: string): Promise<Exchanged | undefined> {
     const cached = exchanged.get(subject);

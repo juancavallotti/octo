@@ -18,18 +18,14 @@ import type { WatchTarget } from "./target";
 /**
  * One condition: what to measure, and how to judge it.
  *
- * Source and metric are one picker rather than two. The second only ever meant
- * anything given the first, so choosing "Logs" and then discovering what logs can
- * measure was the wrong way round — the list of things you can measure is the
- * thing to read.
- *
- * The aggregate appears only when there is a choice to make. Most measures have
- * exactly one, and a dropdown with one option is a question with one answer.
+ * Source and metric are one picker rather than two: the second only ever meant
+ * anything given the first, and the list of things you can measure is the thing to
+ * read. The aggregate appears only when there is a choice to make — a dropdown
+ * with one option is a question with one answer.
  *
  * Changing the measure or the kind resets what depended on it. A spike's baseline
  * means nothing to a threshold, and carrying it across would save a definition
- * with a field nobody can see — refused by the service, naming a parameter that
- * is not on the form.
+ * with a field nobody can see, which the service refuses.
  */
 export function ConditionRow({
   condition,

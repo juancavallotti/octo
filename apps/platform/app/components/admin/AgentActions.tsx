@@ -6,11 +6,8 @@ import type { AgentStatus } from "@/app/model/agent";
 import { IconAction, PrimaryAction } from "./fields";
 
 /**
- * The buttons on the agent's status card.
- *
- * Split from the manager because the manager is the state machine — load, run,
- * refresh, confirm — and this is the table of which control that state offers.
- * Reading either one used to mean scrolling past the other.
+ * The buttons on the agent's status card: which control each state offers. The
+ * state machine behind them is the caller's.
  */
 export default function AgentActions({
   status,

@@ -17,24 +17,22 @@ type RoutedRequest = Pick<NextRequest, "headers" | "nextUrl">;
  * made here — see app/auth/guard.ts.
  */
 
-/** Where the gateway's error page lives; see app/gateway-error/route.ts. */
+/** Where the gateway's error page lives. */
 const ERROR_PATH = "/gateway-error";
 
 /**
  * onIntegrationHost reports whether this request came in on the integrations
  * wildcard rather than on the editor's own hostname.
  *
- * The guard exists because the chart points a catch-all route for `*.<baseDomain>`
- * at this service, so an unmatched hostname gets a real page instead of the
- * controller's bare text. That route rewrites the path, but the rewrite is a
- * different annotation on every ingress controller, and a wrong one would quietly
- * publish the editor's sign-in page on the integrations domain. So the app does
- * not rely on it: on one of those hostnames, the error page is the only thing that
- * answers.
+ * The chart points a catch-all route for `*.<baseDomain>` at this service, so an
+ * unmatched hostname gets a real page instead of the controller's bare text. That
+ * route rewrites the path, but the rewrite is a different annotation on every
+ * ingress controller, and a wrong one would quietly publish the editor's sign-in
+ * page on the integrations domain — so the app does not rely on it: on one of
+ * those hostnames, the error page is the only thing that answers.
  *
- * The decision itself lives in hostGuard.ts, pure and tested — it is wrong in two
- * directions and one of them locks everybody out of the platform. This reads the
- * environment the chart supplies and delegates.
+ * The decision itself lives in hostGuard.ts. This reads the environment the chart
+ * supplies and delegates.
  */
 function onIntegrationHost(req: RoutedRequest): boolean {
   return isIntegrationHost(
@@ -57,10 +55,6 @@ function isPublic(pathname: string): boolean {
     // token), so it must bypass the OIDC session gate — see app/mcp/route.ts.
     pathname === "/mcp" ||
     pathname.startsWith("/mcp/") ||
-    // There is deliberately no exemption for a running integration any more. Nothing
-    // runs in this pod for longer than a request: a run is a pod of its own, reached at
-    // its own hostname, so a webhook callback never passes through here to be redirected
-    // to sign-in in the first place.
     pathname === "/octo-logo.png" ||
     pathname === "/icon.png"
   );

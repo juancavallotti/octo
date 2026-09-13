@@ -3,8 +3,7 @@
  *
  * Two of them, and they are the same exchange from either end: one trades the
  * identity provider's token for a platform token, the other trades an expiring
- * platform token for a fresh one. Both answer with the same shape, so the
- * lifecycle in app/auth/octoToken.ts has one thing to parse.
+ * platform token for a fresh one. Both answer with the same shape.
  *
  * It builds its own URLs rather than going through `client/http.ts`, whose
  * `call()` is bound to ORCHESTRATOR_URL. Same layering, different service.
@@ -95,8 +94,7 @@ export function refreshOctoToken(octoToken: string): Promise<ActionResult<Platfo
 
 /**
  * Both endpoints take the same shape: the credential as a bearer, no body at all.
- * Internal, like the orchestrator client's `call()` — the public API above names
- * what is happening, not how.
+ * Internal — the public API above names what is happening, not how.
  */
 function post(path: string, bearer: string): Promise<ActionResult<PlatformToken>> {
   const base = iamBaseUrl();

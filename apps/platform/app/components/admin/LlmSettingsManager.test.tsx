@@ -31,8 +31,8 @@ const CONFIGURED = {
   encryptionAvailable: true,
 };
 
-// Rendered with the page's provider and its one Save, because that is where the
-// draft and the writing now live — this section renders fields and nothing else.
+// Rendered with the page's provider and its one Save, where the draft and the writing
+// live — this section renders fields and nothing else.
 function renderManager() {
   return render(
     <ConfirmProvider>
@@ -72,8 +72,7 @@ describe("LlmSettingsManager", () => {
     expect(screen.getByText(/9f2a/)).toBeTruthy();
   });
 
-  // Same headline behaviour as the email form: switching model or provider must not
-  // destroy the credentials sitting beside them.
+  // Switching model or provider must not destroy the credentials sitting beside them.
   it("omits apiKey entirely when none was typed", async () => {
     const user = userEvent.setup();
     renderManager();
@@ -81,8 +80,8 @@ describe("LlmSettingsManager", () => {
       expect(screen.getByDisplayValue("claude-sonnet-4-6")).toBeTruthy(),
     );
 
-    // Something has to change for there to be a save at all now — the page's one
-    // Save writes what differs, and an unchanged form differs in nothing.
+    // Something has to change for there to be a save at all: the page's one Save writes
+    // what differs, and an unchanged form differs in nothing.
     await user.type(screen.getByDisplayValue("claude-sonnet-4-6"), "-2");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -177,11 +176,8 @@ describe("LlmSettingsManager", () => {
     expect(save.disabled).toBe(true);
   });
 
-  // This used to guard against the form saving its own seeded defaults over what
-  // was stored, because it rendered a provider and model before the load
-  // resolved. That hazard is now structurally gone: the draft IS the load, and
-  // nothing is dirty until a person types. So the assertion is the stronger one —
-  // Save never offers itself for a form nobody has edited, loaded or not.
+  // The draft IS the load and nothing is dirty until a person types, so Save never
+  // offers itself for a form nobody has edited, loaded or not.
   it("never offers to save a form nobody has edited", async () => {
     let resolveLoad: (v: typeof CONFIGURED) => void = () => {};
     getLlmSettings.mockReturnValue(
@@ -265,7 +261,7 @@ describe("LlmSettingsManager", () => {
     expect(await screen.findByText(/invalid provider/)).toBeTruthy();
   });
 
-  // A stored provider we no longer offer would otherwise leave the select showing
+  // A stored provider that is not on offer would otherwise leave the select showing
   // something other than what a save would send.
   it("falls back when the stored provider is not one we offer", async () => {
     getLlmSettings.mockResolvedValue({ ...CONFIGURED, provider: "COHERE" });

@@ -22,15 +22,13 @@ describe("formatDuration", () => {
     expect(formatDuration(95_000_000_000)).toBe("1m 35s");
   });
 
-  // Rounding can carry a figure across the boundary that chose its unit, and the
-  // unit has to be chosen from the figure that will actually be shown. Before
-  // this, 999,999ns rendered as "1000µs" — a quantity with a shorter name.
+  // Rounding can carry a figure across the boundary that chose its unit, and the unit
+  // has to be chosen from the figure that will actually be shown.
   it("promotes a figure that rounds up into the next unit", () => {
     expect(formatDuration(999_499)).toBe("999µs");
     expect(formatDuration(999_999)).toBe("1ms");
     expect(formatDuration(999_999_999)).toBe("1s");
-    // Seconds roll over at 60, not at 1000, so this is the same bug on a
-    // non-decimal boundary: it used to read "60s".
+    // Seconds roll over at 60, not at 1000 — the same rule on a non-decimal boundary.
     expect(formatDuration(59_999_999_999)).toBe("1m 0s");
   });
 
@@ -89,8 +87,8 @@ describe("formatCost", () => {
     expect(formatCost(0.5)).toBe("$0.5000");
   });
 
-  // The same rule the units follow: which side of a dollar the figure falls on
-  // is decided after rounding. It used to read "$1.0000".
+  // The same rule the units follow: which side of a dollar the figure falls on is
+  // decided after rounding.
   it("drops to cents for a fraction that rounds up to a dollar", () => {
     expect(formatCost(0.99999)).toBe("$1.00");
     expect(formatCost(0.99994)).toBe("$0.9999");

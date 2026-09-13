@@ -23,10 +23,8 @@ import type {
 /**
  * One measurable thing: a source and a metric, offered together.
  *
- * Together rather than as two dropdowns because the second only ever means
- * anything given the first, and picking "Logs" and then finding out what logs
- * can measure is a worse way round than reading the list of things you can
- * measure.
+ * Together rather than as two dropdowns, because the second only ever means
+ * anything given the first.
  */
 export interface Measure {
   source: AlertSource;
@@ -189,10 +187,9 @@ export function defaultParams(
 /**
  * A new watch: one condition, and no actions.
  *
- * No action rather than a harmless-looking default. A watch that fires and tells
- * nobody is the easiest mistake to make here, and the way to stop somebody
- * making it is to leave the section visibly empty and say so — not to fill it
- * with something that looks configured and reaches no one.
+ * No action rather than a harmless-looking default: a watch that fires and tells
+ * nobody is the easiest mistake to make here, and an empty section says so where
+ * something that looks configured would not.
  */
 export function newWatch(): WatchInput {
   return {

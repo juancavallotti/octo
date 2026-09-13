@@ -11,17 +11,12 @@ import {
 import type { AlertCondition } from "@/app/model/alerts";
 
 /**
- * How a condition is judged, in durations.
+ * How a condition is judged, in durations — never in buckets, whose width lives
+ * on a different part of the form. "Over the last 5 minutes" stays true when the
+ * width changes, because the count is recomputed rather than the label.
  *
- * Never in buckets. "Window (buckets): 5" asked somebody to know a width that
- * lived on a different part of the form; "over the last 5 minutes" does not, and
- * it stays true when the width changes because the count is recomputed rather
- * than the label.
- *
- * Only the parameters worth an opinion are here. A spike has a dozen knobs and
- * most have defaults chosen so that a quiet app behaves — putting them all on
- * screen would suggest they all want tuning, when the honest advice is to leave
- * them and press Try it now. The rest are still settable over the API.
+ * Only the parameters worth an opinion are here; the rest keep their defaults and
+ * are still settable over the API.
  */
 export function ConditionParams({
   condition,
@@ -138,7 +133,7 @@ export function ConditionParams({
  *
  * The conversion is here rather than at save time so the select always reflects
  * what is stored: a watch whose width changed under it shows the span it now
- * covers, not the one somebody originally picked.
+ * covers.
  */
 function Span({
   label,
@@ -183,11 +178,8 @@ function Span({
 
 /**
  * Read a number out of a field, leaving it undefined while it is empty or
- * half-typed.
- *
- * Undefined rather than zero, because the service reads an absent parameter as
- * "use the default" and a zero as a value. Coercing "" to 0 mid-keystroke would
- * quietly set a threshold of zero on a field somebody was clearing.
+ * half-typed. Undefined rather than zero, because the service reads an absent
+ * parameter as "use the default" and a zero as a value.
  */
 function numeric(raw: string): number | undefined {
   const trimmed = raw.trim();

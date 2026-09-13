@@ -6,16 +6,10 @@
  * unwraps the ActionResult.
  *
  * Administrators only, and the reads matter as much as the writes here: these
- * settings hold the installation's SMTP credentials and its LLM API keys, so who
- * may look is the same question as who may change.
- *
- * The embedding status is the exception, and deliberately not gated. It is a
- * health fact with nothing configurable behind it — the provider, model and key
- * are chart values on that server — and the memory search page shows it to
- * whoever is looking at their own memories.
- *
- * The test send is a write, not a read: it spends an external resource and can
- * carry an API key out of the browser.
+ * settings hold the installation's SMTP credentials and its LLM API keys. The test
+ * send counts as a write — it spends an external resource and can carry an API key
+ * out of the browser. The embedding status is the one ungated call: a health fact
+ * with nothing configurable behind it.
  */
 
 import { withAdmin, withRead } from "./_auth";
@@ -72,9 +66,8 @@ export async function saveWebSearchSettings(
 }
 
 /**
- * The embedding server's status. A read, and the only embedding call there is:
- * the provider, model and key are chart values on that server, so there is
- * nothing here to write.
+ * The embedding server's status — the only embedding call there is: the provider,
+ * model and key are chart values on that server, so there is nothing here to write.
  */
 export async function getEmbeddingStatus(): Promise<
   ActionResult<EmbeddingStatus>

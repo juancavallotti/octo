@@ -9,10 +9,9 @@ const email: AlertAction = { id: "a_1", type: "email", params: {} };
 const topic: AlertAction = { id: "a_2", type: "topic", params: {} };
 
 describe("address fields", () => {
-  // The bug this exists for: parsing on every keystroke and rendering the parsed
-  // list back meant the separator vanished as it was typed — `filter(Boolean)`
-  // dropped the empty segment after the comma, the value re-rendered without it,
-  // and a second address could not be started at all.
+  // The separator has to survive being typed: parsing on every keystroke and
+  // rendering the parsed list back drops the empty segment after the comma, and
+  // a second address can never be started.
   it("lets a comma survive being typed", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -50,8 +49,8 @@ describe("address fields", () => {
     ]);
   });
 
-  // Params arrive from stored JSON with no runtime shape check. A non-array here
-  // used to reach `join` and take the whole editor down rather than render.
+  // Params arrive from stored JSON with no runtime shape check, so a non-array
+  // has to render rather than reach `join`.
   it("renders rather than throwing when a stored value is not a list", () => {
     const malformed: AlertAction = {
       id: "a_3",

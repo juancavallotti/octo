@@ -6,20 +6,16 @@ import type { WorkingMemory } from "@/app/model/agentMemory";
 /**
  * What the agent still carries, beside what it actually said.
  *
- * The transcript next to this one is kept uncompacted forever. Working memory is
- * not: it is pruned or summarized to stay inside the model's context window, so
- * it is the only place you can see what an agent has FORGOTTEN. A conversation
- * whose transcript runs to forty turns and whose working memory holds six is a
- * conversation where the model no longer knows how it started — and until this
- * panel existed there was no way to tell that from the outside, which made
- * "it doesn't remember what I told it" impossible to confirm or refute.
+ * A stored transcript is kept uncompacted forever. Working memory is not: it is
+ * pruned or summarized to stay inside the model's context window, so it is the
+ * only place you can see what an agent has FORGOTTEN. A conversation whose
+ * transcript runs to forty turns and whose working memory holds six is one where
+ * the model no longer knows how it started.
  *
- * The payload is the runtime's own serialized form. The orchestrator stores it
- * without parsing it — deliberately, so the engine can change the format without
- * a schema migration — so this decodes it BEST EFFORT: the shape it recognizes is
- * rendered as messages, and anything else falls back to the raw text with the
- * counts still shown. It is a viewer, not a parser, and it must not be the reason
- * the engine cannot change its format.
+ * The payload is the runtime's own serialized form, stored without being parsed so
+ * that the engine can change the format without a schema migration. This decodes
+ * it BEST EFFORT: the shape it recognizes is rendered as messages, and anything
+ * else falls back to the raw text with the counts still shown.
  */
 export function WorkingMemoryPanel({ working }: { working: WorkingMemory | null }) {
   const [raw, setRaw] = useState(false);
@@ -107,10 +103,9 @@ export function WorkingMemoryPanel({ working }: { working: WorkingMemory | null 
 /**
  * The panel's shell, and a labelled landmark.
  *
- * The label earns its place: this panel and the transcript beside it deliberately
- * show overlapping text — that is the comparison — so "which panel is this in" is
- * a real question for a screen reader and for a test, and neither should have to
- * answer it by position.
+ * The label earns its place: this panel and the transcript beside it show
+ * overlapping text — that is the comparison — so "which panel is this in" is a real
+ * question for a screen reader and for a test.
  */
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -135,16 +130,14 @@ interface Carried {
  * Read the runtime's envelope, or return null and let the caller show the raw
  * text.
  *
- * Null rather than a thrown error, and null for anything unrecognized rather
- * than a partial render: the format belongs to the engine, and a viewer that
- * guessed at a shape it did not recognize would show an operator something
- * confidently wrong about what an agent remembers. Falling back to the raw
- * payload is always truthful.
+ * Null rather than a thrown error, and null for anything unrecognized rather than
+ * a partial render: guessing at a shape would show an operator something
+ * confidently wrong about what an agent remembers, and the raw payload is always
+ * truthful.
  *
  * Both capitalizations are accepted because the envelope serializes Go structs
- * whose fields are exported, so `Role`/`Text` is what actually lands on disk —
- * while the wire types everywhere else in this app are lowercase. Taking both
- * costs one `??` and saves this from breaking on a tag change that means nothing.
+ * whose fields are exported, so `Role`/`Text` is what lands on disk, while the
+ * wire types elsewhere in this app are lowercase.
  */
 function decode(payload?: string): Carried[] | null {
   if (!payload) return null;
@@ -172,10 +165,9 @@ function decode(payload?: string): Carried[] | null {
 /**
  * The tool names on a call or result list.
  *
- * Worth pulling out rather than leaving as an empty line: a tool result carries
- * its content in a structured field and nothing in `Text`, so without this a
- * conversation full of tool round-trips renders as a column of blank entries —
- * and tool traffic is often most of what fills an agent's context.
+ * A tool result carries its content in a structured field and nothing in `Text`, so
+ * without this a conversation full of tool round-trips renders as a column of
+ * blank entries.
  */
 function toolNames(value: unknown): string[] {
   if (!Array.isArray(value)) return [];

@@ -1,19 +1,14 @@
 /**
  * The HTML the gateway serves when a request never reaches an integration.
  *
- * A hand-written string rather than a React page, deliberately. This renders when
- * something is already broken — a hostname that resolves to nothing, a deployment
- * that is down — and it is served to whoever typed the URL, not to a signed-in
- * operator. So it carries no JavaScript, no font or image request, and no CSS
- * file: one response, no dependencies, nothing else that can fail behind it. It is
- * also why the logo is a data URI rather than `/octo-logo.png` — a second request
- * from this page would be routed straight back here and come back as HTML, so a
- * linked logo would render as a broken image.
+ * A hand-written string rather than a React page. This renders when something is
+ * already broken — a hostname that resolves to nothing, a deployment that is down —
+ * so it carries no JavaScript, no font or image request, and no CSS file: one
+ * response, no dependencies, nothing else that can fail behind it. It is also why
+ * the logo is a data URI rather than `/octo-logo.png` — see logo.ts.
  *
- * It follows the platform's own not-found page in voice and proportion, and its
- * palette is the same one `globals.css` sets, written out because there is no
- * stylesheet in the loop. The mark is the real logo, inlined as a data URI for the
- * same reason — see logo.ts.
+ * Its palette is the one `globals.css` sets, written out because there is no
+ * stylesheet in the loop.
  */
 
 /** What each status means to the person who hit it, and what they can do next. */
@@ -68,8 +63,7 @@ export function explanationFor(status: number): Explanation {
  * escapeHTML makes a value safe to interpolate into the document.
  *
  * The hostname is attacker-controlled — anyone can send any Host header — so it is
- * escaped, and capped, before it goes anywhere near the page. Showing it is worth
- * this: a typo is invisible in prose and obvious when the address is on screen.
+ * escaped, and capped, before it goes anywhere near the page.
  */
 export function escapeHTML(value: string): string {
   return value.replace(

@@ -69,11 +69,9 @@ export default function MetricCard({
           nothing recorded
         </p>
       ) : steady ? (
-        // A line that never moved has no shape to show, and drawing one costs a
-        // reader a second working out that the flat line is the whole story.
-        // Some of these are constants by nature — a file-descriptor limit, a
-        // GOGC setting, a process start time — and charting a start time from
-        // any sensible axis produces a scale nobody can read.
+        // A line that never moved has no shape to show. Some of these are
+        // constants by nature — a file-descriptor limit, a GOGC setting, a
+        // process start time — and charting one produces a scale nobody reads.
         <p className="flex h-24 flex-col items-center justify-center gap-1">
           <span className="tabular-nums text-lg">
             {reading === null ? "—" : unit.format(reading)}
@@ -97,9 +95,9 @@ export default function MetricCard({
 
 /** A metric that is a fact rather than a measurement. */
 function InfoCard({ entry }: { entry: CataloguedMetric }) {
-  // Flattened across label sets, so the label name alone is not unique: two
-  // pods on different builds both report octo_build_info with a build_date, and
-  // React would see duplicate sibling keys. The set's index disambiguates them.
+  // Flattened across label sets, so the label name alone is not unique: two pods
+  // on different builds both report octo_build_info with a build_date. The set's
+  // index disambiguates them.
   const labels = entry.metric.series.flatMap((s, set) =>
     Object.entries(s.labels).map(([key, value]) => ({ set, key, value })),
   );
@@ -154,10 +152,9 @@ function current(columns: MiniSeries[]): number | null {
  * Whether nothing moved. Every finite reading of every series equal to that
  * series' first — a gap is not a change, since nothing was measured.
  *
- * One reading is not evidence of stability, so it is not called steady. That is
- * not a corner case here: the history tier at the short end of its range
- * routinely returns a single bucket, and claiming "unchanged over this window"
- * about one measurement asserts something nobody observed.
+ * A single reading is not evidence of stability, so it is not called steady:
+ * claiming "unchanged over this window" about one measurement asserts something
+ * nobody observed.
  */
 function isSteady(columns: MiniSeries[]): boolean {
   let compared = false;

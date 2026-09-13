@@ -6,14 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * A scroller that follows new content, and stops the moment you scroll away from
  * it.
  *
- * The panel used to jump to the bottom on every token, which is right while you
- * are reading the newest text and wrong the instant you are not: scrolling up to
- * re-read what a tool returned meant being dragged back down on the next token,
- * a few times a second. There was no way to read anything but the end of an
- * answer while one was arriving.
- *
- * So following is conditional on already being at the end. Leaving the bottom is
- * how you turn it off and returning is how you turn it back on, which needs no
+ * Following is conditional on already being at the end: leaving the bottom is how
+ * you turn it off and returning is how you turn it back on, which needs no
  * control and no explanation.
  */
 
@@ -58,11 +52,10 @@ export function useStickToBottom(dep: unknown): StickToBottom {
 
   // Read through a ref rather than depending on it: scrolling is a response to
   // new content, and taking `following` as a dependency would also scroll the
-  // moment it flips true — snapping the view down by the slack below when someone
-  // scrolled back to *near* the end, which they did not ask for.
-  // Mirrored in an effect rather than during render, as the callback ref in
-  // useAgentChat is: a render can be discarded, and this is what the next
-  // commit's scroll will read.
+  // moment it flips true — snapping the view down by the slack when someone
+  // scrolled back to *near* the end. Mirrored in an effect rather than during
+  // render, because a render can be discarded and the next commit's scroll
+  // reads this.
   const followingRef = useRef(following);
   useEffect(() => {
     followingRef.current = following;

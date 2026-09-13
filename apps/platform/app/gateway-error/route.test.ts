@@ -23,9 +23,9 @@ describe("gateway-error route", () => {
   });
 
   /**
-   * The case a real cluster surfaced: curl and most HTTP libraries send an
-   * accept-anything header, so a webhook POST to a dead endpoint used to get 12 KB
-   * of markup on every retry. A person arrives by navigation, which is a GET.
+   * curl and most HTTP libraries send an accept-anything header, so a webhook
+   * POST to a dead endpoint must not be answered with 12 KB of markup on every
+   * retry. A person arrives by navigation, which is a GET.
    */
   it("answers a webhook POST with JSON even when it accepts anything", async () => {
     const res = POST(req("POST", { accept: "*/*" }));

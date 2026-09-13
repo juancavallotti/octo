@@ -3,11 +3,9 @@ import type { AlertCondition, AlertScope } from "@/app/model/alerts";
 /**
  * What a watch is about.
  *
- * The service scopes each condition on its own, which is the right shape for it
- * to store: a watch genuinely may ask about two different things. But it is not
- * the question anybody starts from. Somebody opening this page has an app in mind
- * and wants to say something about it, so the editor asks once, at the top, and
- * writes the answer onto every condition.
+ * The service scopes each condition on its own, but that is not the question
+ * anybody starts from: somebody opening this page has an app in mind, so the
+ * editor asks once, at the top, and writes the answer onto every condition.
  *
  * The axes differ by source because the tables do:
  *
@@ -15,8 +13,7 @@ import type { AlertCondition, AlertScope } from "@/app/model/alerts";
  *   logs       appName       — the logs table has no integration column
  *   pod stats  deploymentId  — the Redis keys are per deployment; nothing else exists
  *
- * So "one app" is three different predicates underneath, which is exactly the
- * kind of thing a form should not make somebody assemble by hand.
+ * So "one app" is three different predicates underneath.
  */
 export interface WatchTarget {
   integrationId: string;
@@ -90,13 +87,10 @@ export function applyTarget(
 }
 
 /**
- * Fill in the target on any condition that has none.
- *
- * Two things produce one: adding a condition, and changing a condition's
- * measure — which clears the source-specific scope, because log levels mean
- * nothing to a pod-stat metric. Both would otherwise leave a condition measured
- * over the whole installation while the form says it is about one app, which is
- * a watch that fires for somebody else's traffic.
+ * Fill in the target on any condition that has none — a condition just added, or
+ * one whose measure changed, which clears the source-specific scope. Either would
+ * otherwise be measured over the whole installation while the form says it is
+ * about one app.
  *
  * Only where it is missing. A condition somebody deliberately scoped elsewhere
  * keeps it, which is what stops every keystroke normalising a definition written
@@ -122,9 +116,8 @@ export function fillTarget(
  * Read the target back off a stored watch.
  *
  * Best effort by design. A watch written over the API may scope its conditions
- * differently from one another, and there is no target that describes that
- * honestly — so this reports what it can find and the editor says when the
- * conditions disagree, rather than picking one and quietly rewriting the rest.
+ * differently from one another, and no target describes that honestly — so this
+ * reports what it can find rather than picking one and rewriting the rest.
  */
 export function targetOf(conditions: AlertCondition[]): WatchTarget {
   const target = { ...NO_TARGET };
@@ -144,16 +137,9 @@ export function targetOf(conditions: AlertCondition[]): WatchTarget {
  * arrangement, so the editor warns instead of silently normalising it.
  */
 export function targetsAgree(conditions: AlertCondition[]): boolean {
-  // Compared field by field, and only where a field is actually set.
-  //
-  // The whole tuple was compared, which made three conditions on ONE app look
-  // like three different apps: scopeFor writes a different field per source —
-  // integrationId for traces, appName for logs, deploymentId for pod stats — so
-  // a watch built entirely by this editor reported itself as mixed and warned
-  // that choosing an app would repoint conditions that already pointed there.
-  //
-  // Two conditions disagree only when both name the same axis and name it
-  // differently.
+  // Compared field by field, and only where a field is actually set: scopeFor
+  // writes a different field per source, so two conditions disagree only when
+  // both name the same axis and name it differently.
   const axes = ["integrationId", "deploymentId", "appName"] as const;
   return axes.every((axis) => {
     const values = new Set(

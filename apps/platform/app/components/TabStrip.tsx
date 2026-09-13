@@ -11,19 +11,12 @@ export interface TabDef<Id extends string> {
 }
 
 /**
- * A tablist with the keyboard model a tablist is expected to have.
- *
- * Extracted because the object store grew one and the memory viewer needed the
- * same thing, and the part worth sharing is not the markup — it is the behaviour
- * underneath it. Arrow keys move between tabs and wrap at both ends, Home and End
- * jump to the outer ones, and a roving tabIndex makes the whole strip a single Tab
- * stop: someone tabbing through the page steps over it rather than through it, and
- * moves inside it with the arrows. Focus follows selection, which is what makes an
- * automatic-activation tablist usable — the arrow both moves and reveals, with no
- * second keystroke.
- *
- * Written twice, that behaviour drifts, and the copy that drifts is the one nobody
- * is looking at.
+ * A tablist with the keyboard model a tablist is expected to have. Arrow keys move
+ * between tabs and wrap at both ends, Home and End jump to the outer ones, and a
+ * roving tabIndex makes the whole strip a single Tab stop: someone tabbing through
+ * the page steps over it rather than through it, and moves inside it with the
+ * arrows. Focus follows selection, which is what makes an automatic-activation
+ * tablist usable — the arrow both moves and reveals, with no second keystroke.
  *
  * The strip renders the buttons and nothing else. Panels stay with the caller,
  * because whether a panel is mounted when it is not selected is a decision about

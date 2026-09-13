@@ -19,23 +19,12 @@ import { SecondaryButton } from "./fields";
  *
  * The agent is deployed as an ordinary integration, so most of what an operator
  * might want here already exists elsewhere: logs and scaling are on the deployment,
- * the definition is in the editor. What is left is the lifecycle, which is this
- * section, and the two settings that are not deployment settings — tracing, and how
- * many turns one of his runs may take.
+ * the definition is in the editor. What is left here is the lifecycle — install,
+ * roll out, trace, remove — the actions that happen when clicked and have nothing
+ * to draft. The buttons live in AgentActions and the turn limit in AgentTurnLimit.
  *
- * It is the *second* section of the platform agent page: the models he needs are
- * configured above it, in the order they are needed, because an install is refused
- * outright until the LLM provider is set.
- *
- * The buttons live in AgentActions and the turn limit in AgentTurnLimit. What is
- * left here is the lifecycle: install, roll out, trace, remove — the actions that
- * happen when clicked and have nothing to draft.
- *
- * The turn limit and the troubleshooter's permission are NOT among them any more.
- * They are settings, they belong to the page's one draft, and they are written by
- * the page's one Save — together, so the pods are replaced once rather than twice.
- * Tracing stays an action because it is a switch somebody flips to look at
- * something, not a value they edit alongside others.
+ * Tracing is an action rather than a drafted setting because it is a switch
+ * somebody flips to look at something, not a value they edit alongside others.
  */
 export default function AgentSettingsManager() {
   const confirm = useConfirm();
@@ -57,10 +46,9 @@ export default function AgentSettingsManager() {
       title: status?.updateAvailable
         ? "Roll out the update?"
         : "Reinstall from stock?",
-      // The edited case used to read as a threat, which overstated it: the live
-      // definition is frozen as its own version before it is replaced, so the edits
-      // are recoverable rather than lost. Saying which version, and that it can be
-      // deployed again, is the difference between a warning and a dead end.
+      // The live definition is frozen as its own version before it is replaced, so
+      // the edits are recoverable. Saying which version, and that it can be deployed
+      // again, is the difference between a warning and a dead end.
       body: status?.edited
         ? "The current definition is frozen as its own version first — look for an agent-edited-… tag under Versions — and then replaced by the one shipped with this orchestrator. Your changes stop running, but you can read or deploy that version afterwards."
         : "The agent is published as a version and its pods replaced with the definition shipped by this orchestrator.",
@@ -102,10 +90,9 @@ export default function AgentSettingsManager() {
 
       {/*
         A finished load with no status is a failed one, whatever the other two
-        sources managed. The provider reads all three and reports failure only
-        when every one of them fails — right for the page, wrong for this
-        section, which has nothing to show and needs a way to ask again rather
-        than a "Loading…" that never resolves.
+        sources managed: the provider reports failure only when every one of them
+        fails, which leaves this section with nothing to show and no way to ask
+        again.
       */}
       {loading ? (
         <p className="mt-4 text-sm text-zinc-500">Loading…</p>
@@ -129,8 +116,7 @@ export default function AgentSettingsManager() {
             }
             // The turn limit is a property of this deployment, not of the section
             // around it, so it belongs inside the card with the buttons that
-            // change the same pods. It sat below as a page-level field, which read
-            // as a third setting unrelated to the agent above it.
+            // change the same pods.
             //
             // Keyed on what is in force so a successful apply remounts the field
             // seeded from what came back, rather than syncing it in an effect that

@@ -6,11 +6,9 @@ import { Check, Search } from "lucide-react";
 /**
  * The open half of {@link AppPicker}: a search field over a ranked list.
  *
- * Split out because the closed control and the open panel answer different
- * questions — one shows what is chosen, the other shows what could be — and only
- * this half has to think about a cursor, a scroll position, and what an empty
- * list means. It owns no state: the cursor lives with the keyboard handler that
- * moves it, one level up.
+ * It owns no state — the cursor lives with the keyboard handler that moves it,
+ * one level up — but it is what renders the cursor, the scroll position, and
+ * what an empty list means.
  */
 export function AppPickerPanel<T>({
   matches,
@@ -155,11 +153,8 @@ export function AppPickerPanel<T>({
 /**
  * The DOM id of one option.
  *
- * By position rather than by key, because this is where the id is minted and so
- * this is where its rules apply: `aria-activedescendant` holds a single ID
- * reference and an ID reference cannot contain whitespace, while a caller's key
- * is free to — traces keys a row by "<deployment> <version>". Callers should not
- * have to know that their key ends up in an attribute with a grammar.
+ * By position rather than by key: `aria-activedescendant` holds a single ID
+ * reference, which cannot contain whitespace, while a caller's key is free to.
  */
 function optionId(prefix: string, index: number): string {
   return `${prefix}-option-${index}`;

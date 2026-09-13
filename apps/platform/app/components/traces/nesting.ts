@@ -2,15 +2,13 @@
  * Deciding what ran inside what.
  *
  * Two sources of evidence, and they are not equal. A block's **address** says
- * structurally where it sits — `orders.fan[0].call` ran inside `orders.fan`, and
- * nothing about a clock can change that. The **clock** is what links things the
- * address cannot: a flow-ref's sub-invocation roots at its own flow name, so the
- * only thing joining it to the block that called it is that it happened inside it.
+ * structurally where it sits — `orders.fan[0].call` ran inside `orders.fan`. The
+ * **clock** links what the address cannot: a flow-ref's sub-invocation roots at
+ * its own flow name, so the only thing joining it to the block that called it is
+ * that it happened inside it.
  *
- * So the address is consulted first and the clock second, and when the two
- * disagree the address wins. A composite's own span covers its children, two
- * blocks share a microsecond, and a fork mints the same address on several
- * goroutines at once — the timestamps are approximate in ways the address is not.
+ * The address is consulted first and the clock second, and when the two disagree
+ * the address wins — the timestamps are approximate in ways the address is not.
  */
 
 import { ancestorPaths } from "./blockPath";
@@ -97,9 +95,8 @@ function pickHost(
   }
   if (others.length === 0) return undefined;
   // The address says this span belongs here and the clock says it does not. The
-  // address wins — it is structural — so the nearest invocation takes it, and the
-  // row lands under a parent it plausibly ran in rather than at the top of the
-  // chart with no parent at all.
+  // address wins, so the nearest invocation takes it and the row lands under a
+  // plausible parent rather than at the top of the chart.
   return others.reduce((best, c) =>
     Math.abs(c.start - node.start) < Math.abs(best.start - node.start) ? c : best,
   );
@@ -107,15 +104,12 @@ function pickHost(
 
 /**
  * Place every still-unplaced span under the innermost span enclosing it, by a
- * sweep rather than a scan of every pair — a trace is capped at 20 000 records,
- * and the quadratic version of this is what would make opening the pathological
- * trace a second incident.
+ * sweep rather than a scan of every pair — a trace is capped at 20 000 records.
  *
  * Sorting widest-first means a container is always visited before what it
  * contains. Two spans measured to the very same instant are ordered by sequence,
  * descending: a composite finishes after the block inside it, so of two
- * indistinguishable spans the one published later is the outer one. That is the
- * only evidence left when the clock has none.
+ * indistinguishable spans the one published later is the outer one.
  */
 function byContainment(
   nodes: WaterfallNode[],
@@ -129,11 +123,9 @@ function byContainment(
   for (const node of sorted) {
     while (open.length > 0 && !contains(open[open.length - 1], node)) open.pop();
     if (!parents.has(node)) {
-      // The innermost enclosing span this node is not *already* above. A span
-      // whose clock disagreed with its address can be measured wider than the
-      // composite it ran in, and so can enclose its own ancestor; adopting it
-      // there would make the tree a ring. Falling through to the next span out
-      // keeps the node in the chart, which dropping it to a root would not.
+      // The innermost enclosing span this node is not *already* above: a span
+      // measured wider than the composite it ran in can enclose its own
+      // ancestor, and adopting it there would make the tree a ring.
       for (let i = open.length - 1; i >= 0; i--) {
         if (reaches(open[i], node, parents)) continue;
         parents.set(node, open[i]);

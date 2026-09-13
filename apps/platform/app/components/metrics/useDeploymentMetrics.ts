@@ -20,9 +20,9 @@ import { reachFor, viewPreset, windowFor, type View } from "./range";
  * while a deployment with pods and no rows simply has nothing in this window, and
  * those two want different words on screen.
  *
- * Staleness is handled with the wanted/loaded idiom the trace hooks use: `loading`
- * is derived from a comparison rather than set and cleared, so a superseded
- * request cannot leave a spinner running when its replacement has already landed.
+ * `loading` is derived from a comparison of what is wanted with what is loaded
+ * rather than set and cleared, so a superseded request cannot leave a spinner
+ * running when its replacement has already landed.
  */
 
 export interface DeploymentMetrics {
@@ -30,8 +30,8 @@ export interface DeploymentMetrics {
   pods: StatsPod[];
   /**
    * How far back this view asked, deduced from the pods' own configuration.
-   * Exposed so the chart can size its axis and the grid can ask for the same
-   * window, rather than each deriving it and drifting.
+   * Exposed so every reader sizes to the same window rather than each deriving
+   * it and drifting.
    */
   askMs: number;
   loading: boolean;
@@ -50,11 +50,9 @@ export function useDeploymentMetrics(
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<string | null>(null);
 
-  // Deduced from the pods rather than assumed, and from this hook's own state
-  // rather than passed in: the pod list is not windowed, so it costs nothing to
-  // read it before knowing how far back to look. The first poll has no pods and
-  // falls back to the view's guess; every one after asks for exactly what the
-  // tier holds.
+  // Deduced from the pods rather than assumed: the pod list is not windowed, so it
+  // costs nothing to read it before knowing how far back to look. The first poll
+  // has no pods and falls back to the view's guess.
   const askMs = reachFor(view, pods);
 
   const wanted = `${deploymentId} ${view} ${askMs} ${now}`;
@@ -65,10 +63,8 @@ export function useDeploymentMetrics(
 
     void (async () => {
       try {
-        // Settled rather than all: the two calls answer different questions and
-        // fail independently. A pods request that fails should not throw away a
-        // series response that arrived — the chart is the point of the page, and
-        // the pod table is what explains an empty one.
+        // Settled rather than all: a pods request that fails should not throw
+        // away a series response that arrived.
         const [nextSeries, nextPods] = await Promise.allSettled([
           readStatsSeries(deploymentId, {
             metrics: [CPU_METRIC, MEM_METRIC],
@@ -89,9 +85,8 @@ export function useDeploymentMetrics(
         if (nextSeries.status === "fulfilled") setSeries(nextSeries.value);
         if (nextPods.status === "fulfilled") setPods(nextPods.value.items);
 
-        // Only a total failure is an error. One half landing is a better page
-        // than neither, and the half that did not is reported by what it would
-        // have filled being empty.
+        // Only a total failure is an error: the half that did not land is
+        // reported by what it would have filled being empty.
         const failure =
           nextSeries.status === "rejected"
             ? nextSeries.reason

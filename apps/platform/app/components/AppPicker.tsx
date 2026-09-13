@@ -7,32 +7,16 @@ import { AppPickerPanel } from "./AppPickerPanel";
 import { usePickerSearch } from "./usePickerSearch";
 
 /**
- * Choosing which app to look at, once, for every page that asks.
+ * Choosing which app to look at, once, for every page that asks: one control, in
+ * the toolbar, that opens a searchable list. Typing ranks rather than filters, so
+ * a dropped letter or a wrong key still finds the app instead of emptying the
+ * list.
  *
- * The platform had grown two answers to that question and neither was good. The
- * traces page spent a permanent column on a master list, which is a lot of the
- * window to give a choice someone makes once and then stops thinking about. The
- * object store and the memory viewer used a native `<select>`, which cannot be
- * searched — and a deployment list is exactly the kind of list where someone
- * knows the name and not the position — and then followed it with a *second*
- * `<select>` for whatever scoped the first, which reads as a form to fill in
- * rather than as a thing to point at.
- *
- * So: one control, in the toolbar, that opens a searchable list. Typing ranks
- * rather than filters, so a dropped letter or a wrong key still finds the app
- * instead of emptying the list.
- *
- * Two deliberate omissions. It holds no selection — the caller does, in whatever
- * it already uses (the traces path, the object store's query string, memory's
- * state), because where a selection lives is a decision about being linkable, not
- * about being picked. And it renders no rows of its own: `renderRow` gets the
- * whole row, because what identifies an app differs per page — a deployment and
- * its version and its cost here, an integration name there — and a picker that
- * flattened all of that to a label would lose the part someone chooses by.
- *
- * The second dropdown becomes {@link AppPickerProps.accessory}: still available,
- * no longer a gate. Where the second axis is really part of the app's identity —
- * a rollout's version — it belongs in the row instead, and traces does that.
+ * Two omissions. It holds no selection — the caller does, because where a
+ * selection lives is a decision about being linkable, not about being picked. And
+ * it renders no rows of its own: `renderRow` gets the whole row, because what
+ * identifies an app differs per page, and a picker that flattened all of that to a
+ * label would lose the part someone chooses by.
  */
 export interface AppPickerProps<T> {
   items: readonly T[];
@@ -48,10 +32,9 @@ export interface AppPickerProps<T> {
   /**
    * Leading slot in the toolbar, for a control the choice below depends on.
    *
-   * It is before the picker rather than after it because reading order is claim
-   * order: traces puts the window here, and the window is what the app list was
-   * counted over — offered afterwards it asks someone to choose from a list
-   * already narrowed by something they have not been shown yet.
+   * Before the picker rather than after it because reading order is claim order:
+   * offered afterwards, it asks someone to choose from a list already narrowed by
+   * something they have not been shown yet.
    */
   leading?: ReactNode;
   /** Trailing slot in the toolbar — where a second axis goes, if there is one. */
@@ -131,9 +114,9 @@ export function AppPicker<T>({
       {leading}
 
       {/* A basis rather than a bare flex-1: with a leading control beside it the
-          trigger was shrinking to a single letter of the app's name, and the
-          toolbar already wraps — a picker on its own line reads, a picker
-          crushed to "D." does not. */}
+          trigger shrinks to a single letter of the app's name, and the toolbar
+          already wraps — a picker on its own line reads, a picker crushed to
+          "D." does not. */}
       <div ref={root} className="relative min-w-0 max-w-md flex-1 basis-48">
         <button
           ref={trigger}
@@ -167,9 +150,8 @@ export function AppPicker<T>({
             label={label}
             placeholder={placeholder}
             // Loading wins over the caller's text: an empty list mid-fetch is
-            // not yet the empty list their message describes, and most of those
-            // messages name a cause ("tracing is off by default") that would be
-            // a guess before anything has arrived.
+            // not yet the empty list their message describes, and a message that
+            // names a cause would be a guess before anything has arrived.
             empty={loading ? "Loading…" : empty}
           />
         )}

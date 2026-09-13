@@ -27,15 +27,10 @@ import { useTraceList } from "./useTraceList";
  * The `/platform/traces` route: one app's traces on the left, chosen from the
  * picker above them, and the selected trace's waterfall filling the rest.
  *
- * The app list used to be a third pane of its own. It is a picker now because the
- * choice is made once and then stopped thinking about, while the waterfall it was
- * taking width from is the thing being read the whole time.
- *
  * The selection lives in the URL path and the filters in its query string, and
- * the manager lives in the route's *layout*, so moving between apps and traces
- * updates the path without remounting this — the same arrangement the
- * integrations manager uses, and the reason opening a trace does not re-fetch the
- * app list behind it.
+ * this lives in the route's *layout*, so moving between apps and traces updates
+ * the path without remounting — which is why opening a trace does not re-fetch
+ * the app list behind it.
  */
 export default function TracesManager({
   userMenu,
@@ -48,15 +43,9 @@ export default function TracesManager({
   const searchParams = useSearchParams();
   const selection = useMemo(() => parsePathname(pathname), [pathname]);
 
-  // The URL *is* the filters — not a copy kept in step with them.
-  //
-  // Holding them in state and mirroring them into the URL breaks the Back
-  // button: history restores the path and the query string, the restored path
-  // updates the selection, but the in-memory filters survive and get written
-  // straight back over the restored query. The reader can then never navigate
-  // back to an earlier filter state, in a view whose whole point is that it is
-  // bookmarkable. Reading them back on every navigation makes history the one
-  // source, and removes the mount-time navigation entirely.
+  // The URL *is* the filters — not a copy kept in step with them. Held in state
+  // and mirrored into the URL, in-memory filters would survive a Back and be
+  // written straight back over the restored query string.
   const filters = useMemo(
     () => readFilters(new URLSearchParams(searchParams.toString())),
     [searchParams],

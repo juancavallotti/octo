@@ -13,23 +13,16 @@ import { rowElementId, useTreegridKeys } from "./useTreegridKeys";
  * The chart: everything that happened on one trace, nested as it ran.
  *
  * Time is drawn at a constant density — a fixed number of pixels per second —
- * rather than stretched to whatever width was available. Stretching meant a
- * 100ms trace and a 30s trace were drawn identically: duration read as a ratio
- * between siblings and never as a quantity, and two traces could not be compared
- * by looking at them. Now a long execution is a long chart, and it scrolls.
- *
- * The one exception is a trace too short to fill the window, which fills it
- * anyway. That is a floor rather than a mode — see trackWidth — so there is no
- * threshold to cross and nothing that changes behaviour partway.
+ * so a long execution is a long chart, and it scrolls. The one exception is a
+ * trace too short to fill the window, which fills it anyway; that is a floor
+ * rather than a mode, see trackWidth.
  *
  * The viewport is state and the tree is not: zooming, panning and collapsing are
  * arithmetic over a value that was built once, so none of them refetch.
  *
- * There is no virtualization, here or anywhere else in this app. A trace with
- * thousands of spans is pathological — a runaway foreach, a loop nobody meant to
- * write — and it is exactly the trace someone opens to find out why. The cap is
- * what keeps opening it from being a second incident, and the notice above the
- * rows is what keeps it from looking complete when it is not.
+ * Nothing is virtualized. The row cap keeps a pathological trace from being a
+ * second incident, and the notice above the rows keeps it from looking complete
+ * when it is not.
  */
 
 export default function Waterfall({
@@ -45,9 +38,8 @@ export default function Waterfall({
     useChartViewport(waterfall.spanNs);
 
   // A different trace is a different chart: the viewport and what was folded
-  // away belong to the trace they were chosen on. That reset is done by keying
-  // this component on the trace (see TraceDetail) rather than by an effect that
-  // clears state after the fact — the state simply never carries over.
+  // away belong to the trace they were chosen on. The reset is done by keying
+  // this component on the trace, so the state simply never carries over.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
   const { rows, cut, collapsible } = useMemo(
@@ -64,9 +56,8 @@ export default function Waterfall({
   }, []);
 
   // Arrow keys walk and fold the tree, shifted arrows pan, Escape fits. Scoped
-  // to the chart rather than to the document: Escape belongs to whatever the
-  // reader is actually in, and a chart that claims it globally takes it from
-  // every dialog on the page.
+  // to the chart rather than to the document, or it would take Escape from every
+  // dialog on the page.
   const keys = useTreegridKeys(
     rows,
     (row) => onSelect(row.node),
@@ -75,9 +66,8 @@ export default function Waterfall({
     fit,
   );
 
-  // Keep the row the keyboard is on in view. The scroller belongs to the
-  // viewport, so the scrolling does too — see revealRow for why it must not move
-  // the chart along the trace while it does.
+  // Keep the row the keyboard is on in view — see revealRow for why it must not
+  // move the chart along the trace while it does.
   useEffect(() => {
     if (keys.activeId) revealRow(keys.activeId);
   }, [keys.activeId, revealRow]);

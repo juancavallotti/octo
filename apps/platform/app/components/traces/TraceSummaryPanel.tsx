@@ -10,10 +10,9 @@ import WorkSplit from "./WorkSplit";
 /**
  * What the trace adds up to.
  *
- * The split is deliberate. Every **aggregate** here — status, duration, tokens,
- * cost, models — comes from the stored rollup rather than being recomputed from
- * the records, so the number in the trace list and the number in this panel are
- * the same number instead of two implementations that agree until one changes.
+ * Every **aggregate** here — status, duration, tokens, cost, models — comes from
+ * the stored rollup rather than being recomputed from the records, so the number
+ * in the trace list and the number in this panel are the same number.
  *
  * The **I/O-vs-CPU breakdown** is the one thing computed here, because it needs
  * the interval arithmetic the waterfall just did, and because which blocks count
@@ -27,10 +26,8 @@ export default function TraceSummaryPanel({
   waterfall: Waterfall;
 }) {
   const breakdown = useMemo(() => workBreakdown(waterfall), [waterfall]);
-  // From the rollup, like every other aggregate here. Reading it off the chart
-  // would make this the one number in the panel that a truncated record set
-  // could quietly shrink, in the panel whose whole claim is that it does not
-  // recompute what the list already showed.
+  // From the rollup, like every other aggregate here: reading it off the chart
+  // would make this the one number a truncated record set could quietly shrink.
   const spanNs = (Date.parse(summary.endedAt) - Date.parse(summary.startedAt)) * 1e6;
   const cost = describeCost(summary.costUsd, summary.unpricedCalls, summary.llmCalls > 0);
 
@@ -74,11 +71,9 @@ export default function TraceSummaryPanel({
 
         {summary.llmCalls > 0 && (
           <>
-            {/* The models are on the surface rather than in the tooltip they
-                used to hide in. "Which model was this" is one of the first
-                questions asked of a trace that cost more than expected, and a
-                title attribute is invisible on touch and to a screen reader —
-                the same argument the token split is already split out for. */}
+            {/* "Which model was this" is one of the first questions asked of a
+                trace that cost more than expected, and a title attribute is
+                invisible on touch and to a screen reader. */}
             <Stat
               label="Model calls"
               detail={summary.models.join(" · ")}
@@ -117,15 +112,10 @@ export default function TraceSummaryPanel({
 /**
  * The token split, shown rather than hidden.
  *
- * It used to be a `title` on the total, which is to say it was invisible on a
- * touch device, absent from a screen reader, and undiscoverable everywhere else.
  * The decomposition is the number people actually reason about — a trace that is
  * mostly input is a prompt problem, one that is mostly output is a generation
- * problem — so it is on the page.
- *
- * The total keeps the position it had, because the trace list and the app list
- * still lead with a single figure and moving between them should not mean
- * re-finding it.
+ * problem — so it is on the page rather than in a `title` a touch device and a
+ * screen reader cannot reach. The total leads, as it does everywhere else.
  */
 function TokenStat({ summary }: { summary: TraceSummary }) {
   return (

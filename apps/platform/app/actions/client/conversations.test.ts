@@ -1,11 +1,8 @@
 /**
- * The conversations client: where a person's history is read from, and how it is
- * scoped.
- *
- * Both halves are load-bearing. The listing is scoped to the asker, because the
- * record is per person and a client that could choose the id could read anyone's
- * conversations. And the reads go to the orchestrator rather than to the agent's
- * own pod, which is what makes history survive a reinstall.
+ * The conversations client. The listing is scoped to the asker, because a client that
+ * could choose the id could read anyone's conversations; and the reads go to the
+ * orchestrator rather than the agent's own pod, which is what makes history survive a
+ * reinstall.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -83,13 +80,9 @@ describe("listConversations", () => {
   });
 
   /**
-   * A title is what a list shows, and a conversation with none still has to be
-   * pickable.
-   *
-   * An unnamed conversation is one the agent DECIDED not to name — a greeting, a
-   * test message — since a naming chain that fails falls back to the opening
-   * question instead. So it is labelled as untitled rather than by its key: a raw
-   * thread id tells a reader nothing and reads like the name failed.
+   * An unnamed conversation is one the agent DECIDED not to name — a naming chain that
+   * fails falls back to the opening question instead. So it is labelled untitled rather
+   * than by its key: a raw thread id tells a reader nothing and reads like a failure.
    */
   it("labels a conversation nothing has named rather than showing its id", async () => {
     vi.stubGlobal(
@@ -142,13 +135,9 @@ describe("readConversation", () => {
   });
 
   /**
-   * The panel drops the context it caused to be there.
-   *
-   * Dr. Octo's `input` expression appends the page and the route catalogue,
-   * because the model needs them. The runtime records the turn verbatim and
-   * should: memory stores what was sent and returns it as sent, and the operator's
-   * memory viewer shows exactly that. Trimming belongs to the surface that built
-   * the string — this module, which is already his.
+   * The panel drops the context it caused to be there. Memory stores what was sent and
+   * returns it as sent, so trimming belongs to the surface that built the string — this
+   * module, which is already Dr. Octo's.
    */
   it("drops the context Dr. Octo appends, leaving what was asked", async () => {
     vi.stubGlobal(
@@ -219,14 +208,10 @@ describe("readConversation", () => {
   });
 
   /**
-   * The round trip, which is the whole point of the mapping.
-   *
-   * The id a listing gives the panel is the id the panel hands back — to read a
-   * conversation, and to address the next message in it. When the listing handed
-   * back the STORED key instead, the agent composed a key out of an
-   * already-composed one and resuming a conversation quietly started a new one
-   * beside it: the transcript loaded, the reply arrived, and none of it went to
-   * the conversation on screen.
+   * The round trip, which is the whole point of the mapping: the id a listing gives the
+   * panel is the id the panel hands back, to read a conversation and to address the next
+   * message in it. Hand back the STORED key instead and the agent composes a key out of
+   * an already-composed one, so resuming quietly starts a conversation beside it.
    */
   it("reads back a conversation by the id the listing gave for it", async () => {
     vi.stubGlobal(

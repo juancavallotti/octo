@@ -19,10 +19,8 @@ import {
 /**
  * The platform host's {@link IntegrationStore}: a thin shim over the orchestrator
  * integration API, reached through the same typed client the server actions use.
- * The MCP route authenticates the caller itself (bearer API key), so it talks to
- * the client directly rather than through the OIDC-gated actions. Each call
- * unwraps the ActionResult — a thrown error becomes a clean MCP tool error via the
- * package's guard.
+ * Each call unwraps the ActionResult — a thrown error becomes a clean MCP tool
+ * error via the package's guard.
  */
 
 /** Unwrap an orchestrator result, throwing its error so the MCP tool layer reports it. */
@@ -112,12 +110,9 @@ export const orchestratorResourceStore: ResourceStore = {
 };
 
 /**
- * The editor-meta resource name, mirroring the editor's own EDITOR_META_RESOURCE and
- * `bffEditorMetaStore` — the store an agent writes through has to be the same file the
- * canvas reads, or the mocks it places will not be there when the user looks.
- *
- * Inlined rather than imported for the same reason the browser-side store inlines it:
- * this is the name, not a shape worth a dependency.
+ * The editor-meta resource name, mirroring the editor's own EDITOR_META_RESOURCE —
+ * the store an agent writes through has to be the same file the canvas reads, or the
+ * mocks it places will not be there when the user looks.
  */
 const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
 
@@ -143,8 +138,7 @@ export const orchestratorMetaStore: MetaStore = {
       ),
     );
     // An editor with this integration open is showing the mocks and spies this file
-    // holds. Without the announcement they stay as they were until a reload, and an
-    // agent that placed one would look to the user like it did nothing.
+    // holds; without the announcement they stay as they were until a reload.
     void publishIntegrationEvent({ type: "integration.meta-updated", id: integrationId });
   },
 };

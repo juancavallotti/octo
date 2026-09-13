@@ -7,12 +7,10 @@ import Callout from "@/app/components/ui/Callout";
  * The per-deployment tracing switch, shared by the deploy and rollout dialogs so
  * the two cannot describe the same setting differently.
  *
- * It is deliberately a plain checkbox rather than a prominent control: tracing is
- * a diagnostic you turn on for one deployment while you are looking at it, not a
- * feature to opt into by default. The warnings are shown only when it is on, where
- * they read as consequences rather than as a discouragement — and both are things
- * an operator has to know before leaving it on: it costs real throughput, and it
- * writes down message payloads anyone signed in can read.
+ * The warnings show only when it is on, where they read as consequences rather
+ * than discouragement — and both are things an operator has to know before
+ * leaving it on: it costs real throughput, and it writes down message payloads
+ * anyone signed in can read.
  */
 export default function TracingToggle({
   checked,

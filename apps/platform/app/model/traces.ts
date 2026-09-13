@@ -1,18 +1,17 @@
 /**
  * Browser-side client for the platform Traces view. Backed by the trace server
- * actions, which read the trace store's query API directly; this wrapper unwraps
- * the ActionResult so callers keep a value-or-throw contract. Read-only — stored
- * traces are never mutated from here.
+ * actions; this wrapper unwraps the ActionResult so callers keep a value-or-throw
+ * contract. Read-only.
  *
- * The shapes below mirror `observability/internal/repo/tracesquery.go`. Two of its rules
- * survive into these types and must survive into every consumer:
+ * The shapes below mirror `observability/internal/repo/tracesquery.go`, and two of
+ * its rules must survive into every consumer:
  *
  *  - A record's token counts and cost are `number | null`, and null is a fact:
  *    the provider reported no usage, or the model could not be priced. Zero is a
  *    different claim — that the call was free — and nothing here may make it.
- *  - A summary's `costUsd` is a plain number because it is a sum, but it is only
- *    the whole cost when `unpricedCalls` is 0. Otherwise it is a lower bound, and
- *    a reader shown the total without the count has been misled.
+ *  - A summary's `costUsd` is the whole cost only when `unpricedCalls` is 0.
+ *    Otherwise it is a lower bound, and a reader shown the total without the
+ *    count has been misled.
  */
 
 import * as traceActions from "@/app/actions/traces";
@@ -25,10 +24,9 @@ export type TraceStatus = "ok" | "dropped" | "failed";
  * Why a model call's cost is what it is. `""` marks a record that is not a model
  * call at all; the rest say how far pricing got.
  *
- * `reported` is the certain one — the provider said what it charged, so no rate
- * card was involved and nothing was estimated. `priced` is a complete figure
- * from a published rate. The remaining three each mean the number beside them is
- * partial, unknown, or absent.
+ * `reported` is the certain one — the provider said what it charged. `priced` is
+ * a complete figure from a published rate. The remaining three each mean the
+ * number beside them is partial, unknown, or absent.
  */
 export type CostStatus =
   | ""
@@ -211,9 +209,8 @@ export async function listTraces(
 
 /**
  * Fetch one trace and its records. Pass `bodies: false` to leave the captured
- * payloads — the whole weight of a trace — on the server; a waterfall needs every
- * record's shape and almost none of their contents, and {@link getTraceRecord}
- * fetches the one the reader actually opens.
+ * payloads — the whole weight of a trace — on the server, and use
+ * {@link getTraceRecord} for the one record whose contents are wanted.
  */
 export async function getTrace(
   traceId: string,

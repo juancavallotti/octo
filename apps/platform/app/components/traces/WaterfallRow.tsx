@@ -15,13 +15,13 @@ import { rowElementId } from "./useTreegridKeys";
  * axis-aligned rectangle with a text label, which is the one shape HTML beats
  * SVG at — labels get real text layout, truncation and tooltips for free, and
  * the rows keep ordinary DOM semantics, so a treegrid gives keyboard navigation
- * and screen-reader structure without any of it being reimplemented.
+ * and screen-reader structure for nothing.
  *
- * The name and the duration are pinned to the left edge. The track is as wide as
+ * The name and the duration are pinned to the left edge: the track is as wide as
  * the trace is long — tens of thousands of pixels on a slow one — and a duration
  * cell at the right end of that row would be a screenful of scrolling away from
- * the name it belongs to. Everything pinned has to be opaque, which means it has
- * to repaint the row's own hover and selected tints rather than covering them.
+ * the name it belongs to. Everything pinned has to be opaque, so it repaints the
+ * row's own hover and selected tints rather than covering them.
  */
 
 /** How much of the row is pinned: 16rem of name plus 5rem of duration. */
@@ -32,9 +32,9 @@ const CLASS_COLOR: Record<WorkClass, string> = {
   io: "bg-sky-500/70",
   cpu: "bg-emerald-500/70",
   control: "bg-zinc-400/50",
-  // Deliberately its own colour rather than borrowed from one of the others: an
-  // unclassified block is unknown, and a chart that quietly paints it as CPU is
-  // worse than one that admits it does not know.
+  // Its own colour rather than borrowed from one of the others: an unclassified
+  // block is unknown, and a chart that quietly paints it as CPU is worse than one
+  // that admits it does not know.
   unclassified: "bg-amber-500/60",
 };
 
@@ -70,9 +70,8 @@ function WaterfallRow({
   const failed = Boolean(node.record?.error) || node.kind === "flow.failed";
   // The pinned cell paints over the row's background, so it carries its own copy
   // of it. Hover is a group rule for the same reason.
-  // A tool call is a claim about *structure*, so it is marked structurally. The
-  // bar's colour already says where the time went, and overloading it would make
-  // "this waited on the network" and "this was a tool" the same statement.
+  // A tool call is a claim about *structure*, so it is marked structurally: the
+  // bar's colour already says where the time went.
   const tool = row.tool;
   const model = MODEL_KINDS.has(node.kind) ? node.record?.model : null;
   const tint = selected
@@ -192,9 +191,8 @@ function tooltip(
   workClass: WorkClass,
   tool: string | null,
 ): string {
-  // An inferred span has no measured duration — the cell shows "—" for exactly
-  // that reason, and a tooltip quoting a number here would contradict it with
-  // a figure derived from its children.
+  // An inferred span has no measured duration, so a tooltip quoting a number here
+  // would contradict the "—" with a figure derived from its children.
   const took = node.inferred
     ? "no outcome recorded; extent inferred from what ran inside it"
     : formatDuration(node.durationNs);

@@ -1,10 +1,7 @@
 /**
- * Whether the orchestrator can reach what this installation runs on.
- *
- * Deliberately shallow, and the page says so: a reachable dependency is one that
- * answered a single round trip, not one that is healthy in any deeper sense. The
- * report is what someone opens when the platform is behaving strangely and the
- * first question is which of the four processes underneath it is actually up.
+ * Whether the orchestrator can reach what this installation runs on. Shallow by
+ * definition: a reachable dependency is one that answered a single round trip,
+ * not one that is healthy in any deeper sense.
  */
 
 import type { ActionResult } from "@octo/http";
@@ -15,9 +12,8 @@ export interface Dependency {
   /** postgres | redis | nats | kubernetes */
   name: string;
   /**
-   * Whether this installation has the dependency at all. False is not a failure:
-   * an orchestrator with no cluster access is a supported way to run, and
-   * reporting it as down would send someone looking for a fault that is not there.
+   * Whether this installation has the dependency at all. False is not a failure —
+   * an orchestrator with no cluster access is a supported way to run.
    */
   configured: boolean;
   reachable: boolean;

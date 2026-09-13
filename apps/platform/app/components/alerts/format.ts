@@ -10,10 +10,9 @@ import type {
 /**
  * How alerting reads on screen: the words, the numbers and the class maps.
  *
- * Pure, and separate from the components for that reason. What a phase is called,
- * what an outcome's number means in its own unit, and — most of all — what a
- * decline reason means in English are the parts worth pinning with tests, and
- * none of them need a DOM.
+ * Pure, and separate from the components for that reason — what a phase is
+ * called, what an outcome's number means in its own unit and what a decline
+ * reason means in English are all testable without a DOM.
  */
 
 /** The badge for a watch's phase, in the level-badge idiom the log table uses. */
@@ -36,8 +35,7 @@ export const PHASE_LABEL: Record<AlertPhase, string> = {
 export const STATUS_CLASS: Record<AlertStatus, string> = {
   firing: "bg-red-500/10 text-red-600 dark:text-red-400",
   ok: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  // The two that matter most, and they are deliberately not green: "we could
-  // not look" must not read like "we looked and it was fine".
+  // Not green: "we could not look" must not read like "we looked and it was fine".
   insufficient: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   skipped: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
   error: "bg-red-500/10 text-red-600 dark:text-red-400",
@@ -52,10 +50,8 @@ export const SEVERITY_CLASS: Record<string, string> = {
 /**
  * Why a condition declined, in English.
  *
- * This is the answer to "why did this not fire when I thought it would", which
- * is the question asked after every alert somebody expected. The service records
- * a machine code precisely so this page can say it in words without the service
- * having to guess how a page will phrase it.
+ * This is the answer to "why did this not fire when I thought it would". The
+ * service records a machine code; the English is here.
  */
 const REASONS: Record<string, string> = {
   no_data: "nothing to measure in the window",

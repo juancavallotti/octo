@@ -189,8 +189,8 @@ describe("AppPicker", () => {
   });
 
   it("still goes forward on Tab and back on Shift+Tab", async () => {
-    // Cancelling the key and landing on the trigger made Tab walk *backwards*:
-    // the trigger comes before the field the key was pressed in.
+    // Landing on the trigger would make Tab walk *backwards*: the trigger comes before
+    // the field the key was pressed in.
     const user = userEvent.setup();
     renderPicker({ accessory: <button type="button">after</button> });
 

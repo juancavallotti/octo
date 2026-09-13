@@ -3,17 +3,14 @@
  *
  * Octo does not ship an identity provider and does not privilege one: any
  * standards-compliant OIDC provider works. Everything an operator can say about
- * theirs is an `OIDC_*` env var, and it is all read here — once — so the editor's
- * Auth.js config (auth.config.ts) and the `/mcp` resource server
- * (app/mcp/oauth-config.ts) cannot drift apart on which issuer they trust.
+ * theirs is an `OIDC_*` env var, and it is all read here, once.
  *
  * Only `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` are required;
  * everything else has a working default. {@link missingAuthConfig} reports which
  * of the required ones are unset.
  *
- * This module is deliberately dependency-free: it is imported by the edge-safe
- * auth config and by the lightweight `.well-known` metadata routes, neither of
- * which can afford to pull in `jose` or the orchestrator client.
+ * Dependency-free on purpose: nothing that imports it can afford to pull in `jose`
+ * or the orchestrator client.
  */
 
 /** Trim any trailing slashes so we can safely append a path. */
@@ -31,9 +28,9 @@ function env(name: string): string | undefined {
  * The Auth.js provider id, and with it the callback path
  * `{AUTH_URL}/api/auth/callback/oidc` that must be registered with the provider.
  *
- * Deliberately a constant and not a knob: it is not user-visible (that is
- * {@link OIDC_PROVIDER_NAME}), and making it configurable would only add a way
- * to silently invalidate the registered redirect URI.
+ * A constant and not a knob: it is not user-visible (that is
+ * {@link OIDC_PROVIDER_NAME}), and configuring it would only add a way to silently
+ * invalidate the registered redirect URI.
  */
 export const OIDC_PROVIDER_ID = "oidc";
 
@@ -80,16 +77,15 @@ function issuerOrigin(): string | undefined {
   try {
     return new URL(OIDC_ISSUER).origin;
   } catch {
-    // A malformed issuer is a configuration error, but it is auth.config.ts's to
-    // report at sign-in — not this module's to throw at import time.
+    // A malformed issuer is a configuration error, but not this module's to throw
+    // at import time.
     return undefined;
   }
 }
 
 /**
  * Logo shown next to the sign-in button. Defaults to the issuer's favicon, which
- * is right often enough to be worth trying and costs nothing when it 404s — the
- * button renders without it (see app/(public)/ProviderLogo.tsx).
+ * is right often enough to be worth trying and costs nothing when it 404s.
  */
 export const OIDC_PROVIDER_LOGO = (() => {
   const explicit = env("OIDC_PROVIDER_LOGO");

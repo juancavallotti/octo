@@ -5,8 +5,7 @@
  * Two shapes travel: a single YAML definition — an integration's `definition` is
  * already the runtime YAML, so exporting one is just offering that string as a
  * file — and a **bundle**, the zip the orchestrator builds from an integration
- * and every resource it owns. Everything here is naming and Blob plumbing; what
- * goes *in* a bundle is the orchestrator's business.
+ * and every resource it owns.
  */
 
 /** The content type the orchestrator serves and accepts a bundle as. */
@@ -24,11 +23,7 @@ export function slug(name: string): string {
   return s || "integration";
 }
 
-/**
- * Offer `blob` to the browser as a download named `filename`. Builds an object
- * URL and clicks a transient anchor, then revokes it — the one piece of DOM
- * plumbing every export here goes through.
- */
+/** Offer `blob` to the browser as a download named `filename`. */
 export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

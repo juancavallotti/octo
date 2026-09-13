@@ -46,15 +46,11 @@ export interface QueueConnection {
 }
 
 /**
- * One connection's consumption of one destination.
- *
- * Only what is true of *this subject*. NATS reports at two levels and only one of
- * them is per-subject: `msgs` is the subscription's own, while a connection's
- * counters cover every subject that client touches. The latter live on
- * QueueConnection and are listed once each, because a client subscribed to two
- * subjects has one set of them, not two — repeating them under every subject was
- * how two destinations came to show identical traffic. `cid` is what ties a row
- * here to the connection it belongs to.
+ * One connection's consumption of one destination — only what is true of *this
+ * subject*. NATS reports at two levels and only one of them is per-subject:
+ * `msgs` is the subscription's own, while a connection's counters cover every
+ * subject that client touches and live on QueueConnection instead. `cid` ties a
+ * row here to the connection it belongs to.
  */
 export interface QueueSubscriber {
   cid: number;
@@ -73,9 +69,7 @@ export interface QueueSubscriber {
  * from the broker's per-subscription detail. The platform scopes its queues as
  * `octo.<deployment>.<q|t>.<name>` — `q` for a queue, `t` for a topic — so for either
  * of those `name`/`deployment` carry the readable parts and `scope` says which it
- * is; other (non-internal) subjects pass through with `name` = the raw subject. The
- * consuming clients hang off `subscribers`, revealed when the destination is
- * expanded.
+ * is; other (non-internal) subjects pass through with `name` = the raw subject.
  */
 export interface QueueDestination {
   /** The raw NATS subject (and, for platform queues, the queue-group name). */
@@ -103,11 +97,8 @@ export interface QueueDestination {
 /**
  * A single monitoring snapshot, at the three levels the broker reports and in the
  * order they narrow: the whole server, then each open client, then each subject.
- *
- * They are separate fields rather than one merged shape because every counter
- * belongs to exactly one of the three, and a number shown at the wrong level is
- * read as disagreeing with the level above it — a client's `outMsgs` sitting under
- * a subject looks like the server's `outMsgs` failing to add up.
+ * Every counter belongs to exactly one of the three, and a number shown at the
+ * wrong level reads as disagreeing with the level above it.
  */
 export interface QueueStats {
   server: QueueServerStats;

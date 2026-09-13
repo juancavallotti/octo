@@ -10,16 +10,14 @@ import type { Points } from "./metrics";
  * CPU and memory over a short window, in the space of a word.
  *
  * It answers one question — is this moving — and nothing else, so it has no
- * axes, no grid, no legend and no tooltip. The numbers printed above it on the
- * card say to what; this says whether they are worth reading. Clicking it opens
- * the page that does have all of those.
+ * axes, no grid, no legend and no tooltip.
  *
  * The two lines are scaled **independently**, each to its own range within the
  * window, which is what the two hidden axes are for. Cores and bytes share no
  * scale, and with no axis drawn there is nothing to mislabel: the shape is the
- * whole message. It is also why the anchor-at-zero rule the real charts use is
- * deliberately not applied — a memory line varying by 2 MiB on a 120 MiB pod
- * would be a flat line at the top, which is true and says nothing.
+ * whole message. It is also why nothing is anchored at zero — a memory line
+ * varying by 2 MiB on a 120 MiB pod would be a flat line at the top, which is
+ * true and says nothing.
  */
 
 export default function Sparkline({

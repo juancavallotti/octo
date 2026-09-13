@@ -10,21 +10,13 @@ import { listStatsMetrics } from "@/app/model/stats";
  *
  * The second half is the point. `octo_flow_errors_total` is only created the
  * first time something fails, so the metric anybody most wants to alert on is
- * absent from the endpoint right up until the moment it would have fired. A
- * picker that offered only what has been scraped would make it impossible to
- * write that alert in advance, which is the wrong way round. See
- * https://github.com/juancavallotti/octo/issues/441.
- *
- * So known runtime series are always offered, marked when nothing has reported
- * them yet, and anything else the deployment exports is offered beside them.
+ * absent right up until the moment it would have fired. Known runtime series are
+ * always offered, marked when nothing has reported them yet.
  */
 
 /**
- * Series the runtime defines, whether or not one has been observed.
- *
- * Short and deliberately not a copy of the whole registry: these are the ones
- * worth alerting on, and a list that tried to mirror everything would go stale
- * without anybody noticing.
+ * Series the runtime defines, whether or not one has been observed. Short on
+ * purpose — the ones worth alerting on, not a copy of the whole registry.
  */
 const KNOWN: { name: string; hint: string }[] = [
   {
@@ -76,9 +68,8 @@ export function MetricPicker({
         setExported(page.items.map((m) => m.name));
         setProblem(null);
       } catch (e) {
-        // Shown rather than swallowed. An unreachable stats API and a deployment
-        // exporting nothing look identical in an empty list, and they want quite
-        // different things done about them.
+        // Shown rather than swallowed: an unreachable stats API and a deployment
+        // exporting nothing look identical in an empty list.
         if (!stopped) setProblem((e as Error).message);
       } finally {
         if (!stopped) setLoading(false);

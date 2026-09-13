@@ -5,13 +5,11 @@ import type { AlertCondition } from "@/app/model/alerts";
  *
  * A condition's window is stored as a number of buckets, which is the right unit
  * for the service — the arithmetic is positional — and the wrong one for a form.
- * "Window: 5" is unreadable without knowing the bucket width, which used to be a
- * separate field somewhere else on the page.
- *
  * So the editor never shows buckets. It shows durations, and converts using the
- * width the watch is checked at. That leaves one thing to be careful about, which
- * is the whole reason this file is separate and tested: changing how often a
- * watch is checked changes the width, and the same bucket count would then mean a
+ * width the watch is checked at.
+ *
+ * That leaves one thing to be careful about: changing how often a watch is
+ * checked changes the width, and the same bucket count would then mean a
  * different span. The durations are what somebody chose, so they are what is
  * preserved.
  */
@@ -74,12 +72,6 @@ export const HOLDS: Duration[] = [
 
 /**
  * How often a watch is allowed to report.
- *
- * There is one list here where there were two. A repeat interval ("every 15
- * minutes while it lasts") and a suppression window ("stay quiet for 15 minutes
- * afterwards") are the same setting said two ways — they cannot disagree, so
- * offering both only invited setting them to different numbers and getting the
- * smaller one. This is the survivor, and it reads as the cadence it is.
  *
  * Zero is genuinely every evaluation, which at a 30-second interval is a message
  * every 30 seconds. It stays reachable because a receiver that is a machine may

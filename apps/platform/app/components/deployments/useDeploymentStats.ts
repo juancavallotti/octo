@@ -15,16 +15,13 @@ import { parseGoDuration } from "@/app/components/stats/chart/duration";
  * The last five minutes of CPU and memory for a set of deployments, for the
  * sparklines on their cards.
  *
- * On its own cadence rather than the page's eight-second deployment poll, and the
- * reason is bytes: five minutes of one-second samples is about three hundred
- * points per metric per pod, so riding the status poll would move a hundred
- * kilobytes every eight seconds to animate a shape a hundred pixels wide. Thirty
- * seconds is well under the window, so nothing is missed.
+ * On its own cadence rather than the page's deployment poll, and the reason is
+ * bytes: five minutes of one-second samples is about three hundred points per
+ * metric per pod. Thirty seconds is well under the window, so nothing is missed.
  *
  * An install without the stats sidecar is the ordinary case here, not an error
  * case: it is off by default. When every deployment fails the same way, the hook
- * reports unavailable and the cards simply do not grow a sparkline row. Seven
- * error strips on a page nobody asked a question on would be worse than silence.
+ * reports unavailable and the cards simply do not grow a sparkline row.
  */
 
 const REFRESH_MS = 30_000;
@@ -51,15 +48,13 @@ export function useDeploymentStats(deploymentIds: string[]): DeploymentStats {
   // Compared by value: the caller rebuilds this array on every poll, so its
   // identity changes constantly while its contents rarely do. Serialized rather
   // than joined, because a deployment id is opaque and a separator character
-  // inside one would split it into two requests for deployments that do not
-  // exist.
+  // inside one would split it into two requests.
   const key = JSON.stringify(deploymentIds);
   const ids = useMemo(() => JSON.parse(key) as string[], [key]);
 
   // A monotonic sequence, so a response can be discarded when a newer one has
   // already landed. It counts every poll, not every deployment set: two polls of
-  // the same set overlap whenever one is slower than the interval, and the older
-  // one finishing last would put a stale window back on the cards.
+  // the same set overlap whenever one is slower than the interval.
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -107,17 +102,16 @@ export function useDeploymentStats(deploymentIds: string[]): DeploymentStats {
     };
   }, [ids]);
 
-  // Derived rather than cleared in the effect: with nothing to ask about there is
-  // nothing to show, and holding the previous answer would draw sparklines for
-  // deployments that are no longer on the page.
+  // Derived rather than cleared in the effect: holding the previous answer would
+  // draw sparklines for deployments that are no longer on the page.
   return { data: ids.length === 0 ? EMPTY : data, available };
 }
 
 /** Reduce one deployment's response to the two columns a sparkline draws.
  *
  * Pods are folded rather than drawn separately: at this size two overlaid lines
- * of the same colour are one thicker line. CPU sums, because two pods each using
- * half a core is a deployment using one; memory sums for the same reason. */
+ * of the same colour are one thicker line. Both sum, because two pods each using
+ * half a core is a deployment using one. */
 function fold(page: Awaited<ReturnType<typeof readStatsSeries>>): SparkData | null {
   const stepMs = parseGoDuration(page.step) ?? 1000;
 
@@ -142,7 +136,7 @@ function empty(): Points {
  * Add one pod's column into the running total, aligned on time.
  *
  * A pod that has no reading at a moment contributes nothing rather than a zero,
- * and a moment where no pod reported stays a gap. Treating an absent pod as zero
+ * and a moment where no pod reported stays a gap: treating an absent pod as zero
  * would draw a cliff every time one restarted.
  */
 function add(into: Points | null, next: Points): Points {

@@ -1,10 +1,6 @@
 /**
  * Turning a waterfall tree into rows and rectangles.
  *
- * Kept apart from the components so zooming, panning and collapsing are ordinary
- * functions with ordinary tests, and so none of it refetches: the trace is
- * fetched once and every interaction is arithmetic over what is already here.
- *
  * All times are nanoseconds from the trace's origin, the same axis
  * `buildWaterfall` produced.
  */
@@ -14,36 +10,25 @@ import type { Interval } from "./timeSpans";
 import type { WaterfallNode } from "./types";
 
 /**
- * How many rows are rendered at once.
- *
- * There is no virtualization anywhere in this app, and a pathological trace — a
- * runaway foreach, a loop nobody meant to write — is exactly the one someone
- * opens to find out why. The cap is what keeps opening it from being a second
- * incident; saying how many rows it hid is what keeps the picture honest.
+ * How many rows are rendered at once. Nothing is virtualized, so a pathological
+ * trace — a runaway foreach, a loop nobody meant to write — is capped, and how
+ * many rows the cap hid is reported.
  */
 export const MAX_ROWS = 2000;
 
 /**
- * How wide one second of trace is drawn at zoom 1.
- *
- * The chart used to stretch whatever it was given to fill the container, which
- * meant a 100ms trace and a 30s trace were drawn identically. Duration read as a
- * ratio between siblings and never as a quantity, and two traces could not be
- * compared by looking at them. At a constant density a 10s trace is exactly ten
- * times the width of a 1s one, which is the claim a time axis is supposed to
- * make.
+ * How wide one second of trace is drawn at zoom 1. At a constant density a 10s
+ * trace is exactly ten times the width of a 1s one, which is the claim a time
+ * axis is supposed to make.
  */
 const BASE_PX_PER_SECOND = 120;
 const BASE_SCALE = BASE_PX_PER_SECOND / 1e9;
 
 /**
- * How wide the track is allowed to get.
- *
- * Browsers cope with far more than this; layout and paint do not, and a
- * twenty-minute trace zoomed in would ask for tens of millions of pixels. It
- * clamps the zoom as well as the width — see {@link maxZoom} — because a factor
- * that no longer changes the geometry still has to stop counting up, or zooming
- * back out feels dead for several clicks.
+ * How wide the track is allowed to get: layout and paint are the limit, not the
+ * browser. It clamps the zoom as well as the width — see {@link maxZoom} —
+ * because a factor that no longer changes the geometry still has to stop
+ * counting up, or zooming back out feels dead for several clicks.
  */
 export const MAX_TRACK_PX = 200_000;
 
@@ -69,12 +54,9 @@ function clamp(value: number, low: number, high: number): number {
 }
 
 /**
- * The smallest zoom this trace allows.
- *
- * MIN_ZOOM, unless the zoom that fits the whole trace is smaller — a floor above
- * the fit zoom would leave Fit unable to fit. An hour-long trace needs 0.002 to
- * come back on screen, and a flat 0.02 floor would have refused it and left the
- * button doing nothing.
+ * The smallest zoom this trace allows: MIN_ZOOM, unless the zoom that fits the
+ * whole trace is smaller — a floor above the fit zoom would leave Fit unable to
+ * fit. An hour-long trace needs 0.002 to come back on screen.
  */
 function minZoom({ spanNs, containerPx }: ChartContext): number {
   if (!(spanNs > 0) || !(containerPx > 0)) return MIN_ZOOM;
@@ -99,11 +81,9 @@ export function clampZoom(zoom: number, context: ChartContext): number {
 /**
  * How wide to draw the whole trace.
  *
- * The `max` against the container is the whole fit-versus-constant rule, and it
- * is a floor rather than a switch: a trace too short to fill the window fills it,
- * and everything longer honours the constant density and overflows. There is no
- * threshold to tune and no discontinuity to cross — with a 900px track the
- * crossover simply falls around 7.5 seconds.
+ * The `max` against the container is a floor rather than a switch: a trace too
+ * short to fill the window fills it, and everything longer honours the constant
+ * density and overflows. No threshold to tune and no discontinuity to cross.
  */
 export function trackWidth(zoom: number, { spanNs, containerPx }: ChartContext): number {
   if (!(spanNs > 0)) return Math.max(containerPx, 0);
@@ -195,8 +175,7 @@ export function isFitted(view: Viewport, context: ChartContext): boolean {
  * There is no tool trace kind and no `tool` attribute — the runtime builds each
  * tool as a branch of the agent block, so `orders.assistant[search_docs].fetch`
  * is what a tool call looks like on the wire. A branch alone means nothing (`if`
- * yields `then`/`else`), which is why this has to be read against the block type
- * of the ancestor that owns it.
+ * yields `then`/`else`), so it is read against the owning block's type.
  */
 const TOOL_HOSTS: ReadonlySet<string> = new Set(["ai-agent", "mcp-router"]);
 
@@ -235,9 +214,8 @@ export function flattenWaterfall(
   const collapsible: string[] = [];
   let cut = 0;
 
-  // The tool context is threaded down the walk rather than recovered per row:
-  // this is already the one pass that visits every node with its parent in hand,
-  // and a row's tool is a fact about the branch it entered on the way here.
+  // A row's tool is a fact about the branch it entered on the way here, so the
+  // context is threaded down the walk rather than recovered per row.
   const walk = (nodes: WaterfallNode[], host: WaterfallNode | null, tool: string | null) => {
     for (const node of nodes) {
       const expandable = node.children.length > 0;
@@ -284,10 +262,9 @@ function descendants(node: WaterfallNode): number {
 /**
  * Where a span's bar sits on the track, in pixels from its start.
  *
- * The whole trace is laid out now, so there is nothing to clip and nothing to
- * drop: a bar off *screen* is a scroll position, not a fact about the geometry.
- * What survives is the floor — a 40ns block beside a 3s model call would round
- * to nothing, and invisible is indistinguishable from absent.
+ * The whole trace is laid out, so nothing is clipped; the width floor is what
+ * matters — a 40ns block beside a 3s model call would round to nothing, and
+ * invisible is indistinguishable from absent.
  */
 export function barRect(
   span: Interval,
@@ -315,8 +292,8 @@ export function axisTicks(view: Interval, target = 6): AxisTick[] {
 
   const step = niceStep(span / target);
   const ticks: AxisTick[] = [];
-  // Guarded rather than trusted: a step that came out too small for the span
-  // would spin here, and the axis is not worth a hung tab.
+  // A step that came out too small for the span would spin here, and the axis
+  // is not worth a hung tab.
   for (let at = Math.ceil(view.start / step) * step; at <= view.end; at += step) {
     ticks.push({ at, fraction: (at - view.start) / span });
     if (ticks.length > 64) break;

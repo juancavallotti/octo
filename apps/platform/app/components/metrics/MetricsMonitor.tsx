@@ -32,13 +32,9 @@ import Callout from "@/app/components/ui/Callout";
  * One deployment's CPU and memory, from the rolling week its pods keep in Redis.
  *
  * The range lives in the URL rather than in state, so a window worth showing
- * somebody is a link and a reload lands on what the reader was looking at. The
- * traces view argues the same thing at more length; the logs view mirrors state
- * out to the URL instead, and this is a vote.
- *
- * Replaced rather than pushed, matching how the traces filters navigate. A range
- * button is a filter, not a destination: pushing would make Back step through
- * every range the reader tried before it left the page.
+ * somebody is a link and a reload lands on what the reader was looking at.
+ * Replaced rather than pushed: a range button is a filter, not a destination, and
+ * pushing would make Back step through every range the reader tried.
  *
  * `now` is state and moves only when the reader asks. A window measured from
  * Date.now() on every render is a different query on every render, which is a
@@ -81,10 +77,9 @@ export default function MetricsMonitor({
 
   const { cpu, memory } = useMemo(() => split(series), [series]);
 
-  // The axis spans what came back, not what was asked for. A view asks its tier
-  // for more than the tier may hold — deliberately, so nothing is hidden — and
-  // drawing the requested window instead would squeeze ten minutes of live data
-  // into the left sixth of an hour-wide plot.
+  // The axis spans what came back, not what was asked for: a view asks its tier
+  // for more than the tier may hold, and drawing the requested window would
+  // squeeze ten minutes of live data into the left sixth of an hour-wide plot.
   const [from, to] = useMemo(
     () => covered(cpu, memory, now, askMs),
     [cpu, memory, now, askMs],

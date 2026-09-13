@@ -10,26 +10,19 @@ import { describeCost, formatAge } from "./format";
  * The apps that produced traces, and what they cost — the choice you make before
  * looking at any individual trace.
  *
- * A row is a (deployment, version) pair rather than a deployment, because that is
- * how the store groups them: a rollout keeps the deployment id and changes the
- * version, and both the failures and the cost belong to one version or the other.
- * Two rows for one deployment is the honest picture of a rollout — which is also
- * why there is no second control for the version. Picking the version *is*
- * picking the app here, and splitting them would let someone address a pair the
- * store never reported.
+ * A row is a (deployment, version) pair rather than a deployment, because that
+ * is how the store groups them: a rollout keeps the deployment id and changes
+ * the version, and both the failures and the cost belong to one version or the
+ * other. Picking the version *is* picking the app here, which is why there is no
+ * second control for it.
  *
  * Dropped records are reported here and nowhere else. The marker the runtime
- * publishes when it cannot keep up carries no trace id, so nothing can say *which*
- * traces are incomplete — only that some of this app's are. Attaching that to an
- * individual trace would be an invention; leaving it out entirely would let a
- * reader draw conclusions from a set they did not know had holes in it.
+ * publishes when it cannot keep up carries no trace id, so nothing can say
+ * *which* traces are incomplete — only that some of this app's are.
  *
- * The window comes *before* the app, because that is the order the two are
- * actually decided in: the app list is counted over the window, so an app is
- * only in it — and only says "12 traces" — because of a window that was already
- * chosen. Offered afterwards it asked someone to pick from a list narrowed by
- * something they had not been shown yet, and it was shown twice for the trouble:
- * once as a label here and once as the filter bar's own control.
+ * The window comes *before* the app because the app list is counted over the
+ * window: an app is only in it — and only says "12 traces" — because of a window
+ * that was already chosen.
  */
 export default function TraceAppPicker({
   apps,
@@ -51,9 +44,9 @@ export default function TraceAppPicker({
   onSelect: (app: TraceApp) => void;
   onRefresh: () => void;
 }) {
-  // Normalized both ways: a deployment from before version tags reports "" and
-  // the path omits the segment entirely, so the two spellings of "no version"
-  // have to compare equal or that app could never show as the selected one.
+  // A deployment without a version tag reports "" while the path omits the
+  // segment entirely, so the two spellings of "no version" have to compare equal
+  // or that app could never show as the selected one.
   const selected =
     apps.find(
       (app) =>
@@ -96,10 +89,8 @@ export default function TraceAppPicker({
 }
 
 /**
- * Name and version, which together are what was picked.
- *
- * The name is what someone recognises the app by, so it gets the room: the
- * version is a build hash with a tag on the front and cuts down to something
+ * Name and version, which together are what was picked. The name gets the room:
+ * a version is a build hash with a tag on the front and cuts down to something
  * still recognisable, while a truncated name is just a letter.
  */
 function AppFace({ app }: { app: TraceApp }) {
@@ -118,10 +109,8 @@ function VersionBadge({ version, shrink }: { version: string; shrink?: boolean }
     <span
       title={shrink ? version : undefined}
       className={`rounded bg-black/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-400 ${
-        // Capped rather than merely shrunk. Weighting the shrink still let a
-        // long version take enough room to clip the name by a few pixels, which
-        // is all "Dr. Octo" needs to become "Dr. Oc…". Half the trigger is the
-        // most a build hash may claim; the floor keeps it from vanishing under a
+        // Capped rather than merely shrunk: half the width is the most a build
+        // hash may claim, and the floor keeps it from vanishing under a
         // pathologically long name, so both stay readable at every width.
         shrink ? "min-w-12 max-w-[50%] truncate" : "shrink-0"
       }`}

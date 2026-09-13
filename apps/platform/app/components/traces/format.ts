@@ -3,22 +3,17 @@
  * long ago.
  *
  * Duration and cost both span many orders of magnitude here — a `set-variable`
- * takes tens of nanoseconds and a model call takes seconds; one token of a cheap
- * model costs $7.5×10⁻⁸ and an agent run costs cents — so neither can be rendered
- * with a fixed number of decimals. A fixed two-decimal dollar figure would print
- * `$0.00` for a real charge, which is the one thing the whole cost path exists to
- * avoid.
+ * takes tens of nanoseconds and a model call takes seconds — so neither can be
+ * rendered with a fixed number of decimals. A fixed two-decimal dollar figure
+ * would print `$0.00` for a real charge.
  */
 
 import type { CostStatus } from "@/app/model/traces";
 
 /**
  * One step of a compact scale: what to divide by, what to call the result, and
- * the figure at which it rolls over into the next step.
- *
- * The ceiling is per unit rather than a shared 1000 because seconds are not
- * decimal — 60s is a minute, and naming it "60s" is the same mistake as naming
- * 1000 thousands "1000k".
+ * the figure at which it rolls over into the next step. The ceiling is per unit
+ * rather than a shared 1000 because seconds are not decimal.
  */
 interface Unit {
   divisor: number;
@@ -42,12 +37,10 @@ const TOKEN_UNITS: readonly Unit[] = [
  * A value in the smallest unit whose *rendered* figure still fits inside it, or
  * null when it outgrows every unit offered.
  *
- * The unit is chosen from the rounded figure rather than the raw value, and that
- * is the whole point of this function. `trim` rounds, and rounding can carry a
- * value across the very boundary that picked its unit: 999,500 tokens is 999.5
- * thousands, which rounds to 1000, and "1000k" names a quantity the reader
- * already has a shorter name for. Choosing from the raw value asks the question
- * before the answer exists.
+ * The unit is chosen from the rounded figure rather than the raw value, because
+ * rounding can carry a value across the very boundary that picked its unit:
+ * 999,500 tokens is 999.5 thousands, which rounds to 1000, and "1000k" names a
+ * quantity the reader already has a shorter name for.
  */
 function scaled(value: number, units: readonly Unit[]): string | null {
   for (const { divisor, suffix, ceiling } of units) {
@@ -79,13 +72,9 @@ function trim(value: number): string {
 }
 
 /**
- * A token count, at a scale a reader can compare at a glance.
- *
- * Counts here run from a handful to millions, and the interesting comparison is
- * almost always between two of them — input against output, this trace against
- * the last. Grouping separators make that comparison work at four figures;
- * beyond that the leading digits are the whole of what a reader takes in, so the
- * tail is dropped rather than rendered.
+ * A token count, at a scale a reader can compare at a glance. Grouping
+ * separators up to four figures; beyond that the leading digits are the whole of
+ * what a reader takes in, so the tail is dropped rather than rendered.
  */
 export function formatTokens(count: number): string {
   if (!Number.isFinite(count) || count < 0) return "—";
@@ -115,13 +104,11 @@ export function formatCost(usd: number): string {
 
 /**
  * What a cost figure actually claims, given how many of its calls could be
- * priced. This is the one place the distinction is turned into words, so no
- * component has to remember to make it.
+ * priced. The one place the distinction is turned into words.
  *
  * With unpriced calls in the total, the figure is a lower bound and says so. A
- * total of zero with unpriced calls is not "free" at all — it is *nothing known*,
- * and rendering it as `$0` would be the exact misreading the store's
- * `cost_status` column exists to prevent.
+ * total of zero with unpriced calls is not "free" at all — it is *nothing
+ * known*, and rendering it as `$0` would be a misreading.
  */
 export function describeCost(
   usd: number,
@@ -150,11 +137,9 @@ export function describeCost(
 
 /**
  * Why one model call's cost is what it is, in the words a reader needs to judge
- * whether they can trust the number beside it.
- *
- * The store records this per call rather than leaving it to be inferred, because
- * every one of these cases produces a number — or a blank — that looks exactly
- * like the others until you know which it is.
+ * whether they can trust the number beside it. Every one of these cases produces
+ * a number — or a blank — that looks exactly like the others until you know
+ * which it is.
  */
 export function describeCostStatus(status: CostStatus): string {
   switch (status) {

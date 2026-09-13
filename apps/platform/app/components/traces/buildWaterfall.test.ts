@@ -4,13 +4,9 @@ import { at, records, T0 } from "./fixtures";
 import type { WaterfallNode } from "./types";
 
 /**
- * The reconstruction, against the shapes the runtime actually produces.
- *
- * Every scenario here is one the engine can generate: a request through a chain,
- * a composite with a branch, an agent making model calls, a flow-ref, a fork on
- * several goroutines, an invocation whose terminal was lost. What is asserted is
- * not just the tree but the *reason* for it — which evidence won where the
- * address and the clock disagreed, and what the builder refused to guess.
+ * The reconstruction, against the shapes the runtime actually produces. What is asserted
+ * is not just the tree but the *reason* for it — which evidence won where the address
+ * and the clock disagreed, and what the builder refused to guess.
  */
 
 /** The tree as `label` strings, so an assertion reads like the picture. */
@@ -101,9 +97,8 @@ describe("buildWaterfall", () => {
   });
 
   it("hangs a model call off the block that made it", () => {
-    // An llm.turn is stamped with its block's *own* address rather than one below
-    // it. Walking that path for an enclosing block would find the composite the
-    // agent sits in and stop there — the call would be drawn as the agent's
+    // An llm.turn is stamped with its block's *own* address rather than one below it.
+    // Walking that path for an enclosing block would draw the call as the agent's
     // sibling, billed to the branch instead of to the block that made it.
     const trace = records(
       {
@@ -127,15 +122,11 @@ describe("buildWaterfall", () => {
   });
 
   it("hangs a compaction off the agent that did it, beside its summarize turn", () => {
-    // An agent.compaction is stamped with the agent's own address, like a model
-    // call, because compacting is work the agent did to itself. Walking for an
-    // enclosing block instead would hang it off the composite the agent sits in,
-    // billing it to the branch rather than to the block that did it.
-    //
-    // The summarize strategy's model call lands beside it, at the same address.
-    // Neither is double counted: only a block.post-invoke can host a span, so the
-    // compaction has no children, and a childless span is classified by its block
-    // — an ai-agent, which is control — while the call is billed once as a call.
+    // An agent.compaction is stamped with the agent's own address, like a model call,
+    // because compacting is work the agent did to itself. The summarize strategy's model
+    // call lands beside it, and neither is double counted: only a block.post-invoke can
+    // host a span, so the childless compaction is classified by its block as control
+    // while the call is billed once as a call.
     const trace = records(
       {
         kind: "llm.turn",
@@ -212,10 +203,9 @@ describe("buildWaterfall", () => {
   });
 
   it("reads the later-published of two identical spans as the outer one", () => {
-    // A flow-ref whose sub-flow was measured to the very same instants as the
-    // block that called it — with fast blocks and a coarse clock, routine. The
-    // clock has nothing left to say, so publication order decides: a caller
-    // finishes after the thing it called, so its record is published second.
+    // A flow-ref whose sub-flow was measured to the very same instants as its caller —
+    // routine, with fast blocks and a coarse clock. The clock has nothing left to say,
+    // so publication order decides: a caller finishes after the thing it called.
     const trace = records(
       { kind: "flow.completed", start: 10_000, duration: 40_000, flow: "pricing", eventId: "ev-sub" },
       { kind: "block.post-invoke", start: 10_000, duration: 40_000, path: "orders.price" },
@@ -355,10 +345,8 @@ describe("buildWaterfall", () => {
   it("refuses a fork's inputs however far apart the overlapping pair sits", () => {
     // The concurrency check compares neighbours once, sorted by start. That is
     // sufficient rather than a shortcut: if a[i] overlaps a[j] then
-    // a[i].start <= a[i+1].start <= a[j].start < a[i].end, so a[i] overlaps its
-    // own neighbour too. Here the outer and the last invocation overlap while
-    // the middle one is nested well inside — a pair the neighbour comparison
-    // still has to catch.
+    // a[i].start <= a[i+1].start <= a[j].start < a[i].end, so a[i] overlaps its own
+    // neighbour too.
     const trace = records(
       { kind: "block.pre-invoke", start: 0, path: "orders.fan[0].call" },
       { kind: "block.pre-invoke", start: 1_000, path: "orders.fan[0].call" },
@@ -402,9 +390,9 @@ describe("buildWaterfall", () => {
   });
 
   it("takes its extent from the stored rollup so the two agree", () => {
-    // The list showed a duration computed from the summary. A chart measured
-    // from the records alone would be narrower whenever a record was truncated
-    // away, and the same trace would read as two different lengths.
+    // Measured from the summary, like the list: a chart measured from the records alone
+    // would be narrower whenever a record was truncated away, and the same trace would
+    // read as two different lengths.
     const trace = records({
       kind: "block.post-invoke",
       start: 10_000,

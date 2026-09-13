@@ -21,26 +21,14 @@ import {
 } from "./agentDraft";
 
 /**
- * Everything the agent page reads and edits, in one place.
+ * Everything the agent page reads and edits, in one place: one load, one draft,
+ * one notion of dirty. The sections below are presentational — they render fields
+ * against this draft and own nothing but their own prose.
  *
- * The page used to be three components that each fetched their own settings,
- * held their own draft, and committed it with their own button — plus a checkbox
- * that committed the instant it was clicked. Four ideas of "is this written down
- * yet?" on one screen, and one of them different from the other three.
- *
- * The buttons were the visible half of that. The half underneath was that no
- * component could know what any other held, so nothing could decide what to save
- * or notice that two of the settings replace the same pods. Fixing the buttons
- * alone would have left that in place and hidden it better.
- *
- * So the state comes up here: one load, one draft, one notion of dirty. The
- * sections below are presentational — they render fields against this draft and
- * own nothing but their own prose.
- *
- * Two things deliberately stay out. Removing a stored key is immediate, because
- * it is destructive, it asks first, and a revocation deferred behind a Save that
- * is never pressed is a key someone believes is gone. And installing or removing
- * the agent is not a setting at all.
+ * Two things stay out. Removing a stored key is immediate, because it is
+ * destructive, it asks first, and a revocation deferred behind a Save that is
+ * never pressed is a key someone believes is gone. And installing or removing the
+ * agent is not a setting at all.
  */
 
 interface AgentFormValue {
@@ -73,10 +61,8 @@ export default function AgentSettingsForm({
     try {
       // Settled rather than all: the agent status needs a cluster and the site
       // settings do not, so one being unavailable must not blank the other two.
-      // Failure is counted, not inferred from a null. A site with no LLM settings
-      // and no search key legitimately resolves null for both, and reading that
-      // as "everything failed" would keep the previous state on screen while
-      // pretending it had been refreshed.
+      // Failure is counted, not inferred from a null — a site with no LLM settings
+      // and no search key legitimately resolves null for both.
       let failure: string | null = null;
       let failures = 0;
       const keep = <T,>(p: Promise<T>): Promise<T | null> =>

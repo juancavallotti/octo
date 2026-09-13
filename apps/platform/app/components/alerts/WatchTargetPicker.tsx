@@ -10,42 +10,21 @@ import { NO_TARGET, type WatchTarget } from "./target";
  * Which app the watch is about — the first thing asked, because it is the first
  * thing anybody has decided.
  *
- * The list is what is **deployed**, not what has already reported.
+ * The list is what is **deployed**, not what has already reported. Traces are
+ * only one of three sources, and the watch you most want is the one armed before
+ * the first failure — which is exactly the moment there is nothing to have seen.
  *
- * It was the other way round, on the reasoning that an app which has never
- * reported cannot be alerted on. That reasoning was wrong twice over. Traces are
- * only one of three sources — an app with tracing switched off still has logs and
- * pod stats, and neither is represented in the trace table at all. And even for
- * traces it defeats the point: the watch you most want is the one armed before
- * the first failure, which is exactly the moment there is nothing to have seen.
- * A picker drawn from telemetry offers you an app only once you no longer need
- * to be told about it.
- *
- * Telemetry is still read, but only to annotate: it orders the apps that are
- * actually live above the ones that are quiet, and marks the quiet ones so
- * nobody writes a condition against an app with nothing to preview it against.
- *
- * What is emphatically NOT used for that is the deployment's `tracing` flag,
- * which looks like the right signal and is not. Dr. Octo runs with tracing off
- * and has produced two hundred traces regardless — the flag records a per-
- * deployment switch, not whether anything has arrived — so a row marked from it
- * would tell you a trace condition could never read anything, about an app where
- * it plainly can. What has actually been recorded is the only honest answer, and
- * it is the one the metric picker one step down already gives.
- *
- * The same searchable popover every other page uses to choose an app. Versions
- * are collapsed, unlike on traces: a watch is about the app across its rollouts,
- * and a threshold that stopped applying when somebody deployed is the failure
- * this is trying to avoid.
+ * Telemetry is read only to annotate: it orders the apps that are actually live
+ * above the ones that are quiet, and marks the quiet ones so nobody writes a
+ * condition against an app with nothing to preview it against. The deployment's
+ * `tracing` flag is not that signal — it records a per-deployment switch, not
+ * whether anything has arrived.
  */
 
 /**
- * How far back to look for signs of life.
- *
- * Explicit, and wide. Leaving both bounds off does not mean "all time" — the
- * service defaults an unbounded trace query to the last 24 hours — so the
- * previous `{ from: undefined, to: undefined }` quietly asked for one day while
- * its comment claimed a watch outlives a day.
+ * How far back to look for signs of life. Explicit, and wide: leaving both bounds
+ * off does not mean "all time" — the service defaults an unbounded trace query to
+ * the last 24 hours.
  */
 const SEEN_WITHIN_DAYS = 90;
 
@@ -156,17 +135,14 @@ export function WatchTargetPicker({
 }
 
 /**
- * One row per integration rather than per deployment or per version.
- *
- * Traces splits by version because a cost belongs to one or the other. A watch
- * does not: it is about the app across its rollouts, and a threshold that
- * stopped applying the moment somebody deployed is exactly the silence this
- * feature is meant to prevent. The most recent deployment wins the ids.
+ * One row per integration rather than per deployment or per version: a watch is
+ * about the app across its rollouts, and a threshold that stopped applying the
+ * moment somebody deployed is exactly the silence this feature is meant to
+ * prevent. The most recent deployment wins the ids.
  *
  * Live apps sort first, most recently seen at the top, because on an
  * installation with a long history of retired integrations those are the ones
- * anybody is here to watch. The rest follow by name, which is a stable order to
- * search through rather than an interesting one.
+ * anybody is here to watch. The rest follow by name.
  */
 function collapse(
   deployments: Array<{

@@ -7,13 +7,11 @@ import type { WorkBreakdown } from "./blockClasses";
  * Where a trace's time went: waiting on something else, working here, or
  * unaccounted for.
  *
- * Drawn as one bar per class rather than as a single stacked bar, which is the
- * whole reason this reads honestly. Concurrent work of different kinds — a fork
- * with a REST call in one branch and a transform in another — spends the same
- * wall-clock in two classes at once, so the shares genuinely can sum to more
- * than the trace lasted. A stacked bar cannot draw that without either
- * normalizing the numbers (making them wrong) or overflowing (making them look
- * broken). Separate bars are each independently true.
+ * One bar per class rather than a single stacked bar. Concurrent work of
+ * different kinds — a fork with a REST call in one branch and a transform in
+ * another — spends the same wall-clock in two classes at once, so the shares
+ * genuinely can sum to more than the trace lasted. Separate bars are each
+ * independently true.
  *
  * Unattributed is a bar like the others rather than the leftover gap, because it
  * is a real answer: engine overhead, queueing, and composites that held nothing.
@@ -66,10 +64,9 @@ export default function WorkSplit({ breakdown }: { breakdown: WorkBreakdown }) {
               {segment.label}
             </span>
             <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.08]">
-              {/* Floored at 2px for the same reason a waterfall bar is: a
-                  millisecond beside a second rounds to nothing, and an empty
-                  track reads as a full bar of a slightly different shade rather
-                  than as a value too small to see. */}
+              {/* Floored at 2px: a millisecond beside a second rounds to
+                  nothing, and an empty track reads as a full bar of a slightly
+                  different shade rather than as a value too small to see. */}
               <span
                 style={{
                   width: `${Math.min((value / total) * 100, 100)}%`,

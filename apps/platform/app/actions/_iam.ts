@@ -1,15 +1,8 @@
 /**
- * Where iam is.
- *
- * iam is the platform's identity service: it is the only component that talks to
- * the identity provider, and it converts what the provider says into a token
- * signed by this platform, carrying the caller's octo user id and their roles.
- * Sign-in goes through it, and so does every re-mint of the token a session
- * carries.
- *
- * Its own address rather than the orchestrator's, because it is a separate
- * service with a separate API — the same arrangement `_observability.ts`
- * describes, and for the same reason.
+ * Where iam is — the platform's identity service, and the only component that
+ * talks to the identity provider. It converts what the provider says into a token
+ * signed by this platform, carrying the caller's octo user id and their roles;
+ * sign-in and every re-mint of a session's token go through it.
  *
  * Unset means sign-in cannot complete, which is not the same as "the feature is
  * off": a session with no platform token cannot call anything, so the sign-in is

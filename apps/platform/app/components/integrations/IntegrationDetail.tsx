@@ -25,9 +25,8 @@ import IntegrationHeader from "./IntegrationHeader";
 
 /**
  * Read-only operating details for the selected integration, plus its primary
- * actions (open in the editor, move to a folder, delete). Laid out as a list of
- * labelled sections so new operating data — run status, metrics, history — can be
- * added later as additional sections without reworking the layout.
+ * actions (open in the editor, move to a folder, delete), laid out as a list of
+ * labelled sections.
  */
 
 interface Props {
@@ -70,11 +69,9 @@ export default function IntegrationDetail({
   onRename,
   onSelectIcon,
 }: Props) {
-  // Inline rename of the title. The parent keys this component by integration id,
-  // so selecting another integration remounts it and resets the draft cleanly.
-  // The integration's version tags, owned here so creating/deleting one in the
+  // The integration's version tags, owned here so creating or deleting one in the
   // Versions section immediately updates the Deployments section's change-version
-  // menu (the two sections render side by side).
+  // menu.
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const reloadSnapshots = useCallback(() => {
     listSnapshots(integration.id).then(setSnapshots, () => setSnapshots([]));
@@ -84,19 +81,17 @@ export default function IntegrationDetail({
   }, [reloadSnapshots]);
 
   // The active version scoping the Resources (and Env) panels: a tag, or null for
-  // the live working copy ("Current"). This component is keyed by integration id
-  // upstream, so it resets to Current when another integration is selected.
+  // the live working copy ("Current").
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  // Resolve against the current tags so a deleted/absent tag transparently falls
-  // back to Current — derived (not corrected via an effect) so the dropdown and
-  // the scoped panels stay consistent without an extra render.
+  // Resolved against the current tags so a deleted or absent tag falls back to
+  // Current — derived rather than corrected in an effect, so the dropdown and the
+  // scoped panels stay consistent without an extra render.
   const selectedSnapshot =
     (selectedTag && snapshots.find((s) => s.tag === selectedTag)) || null;
   const effectiveTag = selectedSnapshot ? selectedTag : null;
 
-  // Tags currently deployed (by tag string, which is unique per integration),
-  // derived from the live deployment list owned by the Deployments section. The
-  // Versions section uses this to disable delete on a deployed tag.
+  // Tags currently deployed, by tag string — unique per integration. What keeps
+  // the Versions section from offering to delete a tag something is running.
   const [deployedTags, setDeployedTags] = useState<ReadonlySet<string>>(
     new Set(),
   );
@@ -109,8 +104,8 @@ export default function IntegrationDetail({
   }, []);
 
   // The pod whose logs are docked at the bottom of the pane, or null when closed.
-  // Lifted here (above the scroll area) so the panel docks under the whole detail
-  // pane rather than inside the Deployments grid cell.
+  // Lifted above the scroll area so the panel docks under the whole detail pane
+  // rather than inside the Deployments grid cell.
   const [logsPod, setLogsPod] = useState<{
     deploymentId: string;
     podName: string;
@@ -119,13 +114,11 @@ export default function IntegrationDetail({
     setLogsPod({ deploymentId, podName });
   }, []);
 
-  // The Deploy button now lives in the header, but the deploy flow (modal, create,
-  // env) stays owned by the Deployments section; the parent just controls the
-  // modal's visibility.
+  // The deploy flow (modal, create, env) belongs to the Deployments section; only
+  // the modal's visibility is owned here, because the button is in the header.
   const [deployOpen, setDeployOpen] = useState(false);
 
-  // The folder path ("Parent / Child"), or "No folder" when unfiled. Moving is done
-  // by drag & drop in the tree, so this is read-only.
+  // Read-only: moving is done by drag and drop in the tree.
   const folderPath = useMemo(
     () => folderPathOf(folders, folderId),
     [folders, folderId],
@@ -136,8 +129,7 @@ export default function IntegrationDetail({
     ? integration.lastUpdated
     : updated.toLocaleString();
 
-  // Prefer the actor's email, fall back to their name, then to an em dash when
-  // the integration has no known creator/editor — a row that predates
+  // An em dash when there is no known creator or editor — a row that predates
   // attribution, or a user who has since been removed.
   const createdByLabel =
     integration.createdByEmail ?? integration.createdByName ?? "—";
@@ -164,8 +156,8 @@ export default function IntegrationDetail({
         onDelete={onDelete}
       />
 
-      {/* Version pills: a status-at-a-glance row (green = deployed, grey = not) that
-          doubles as a selector for the header dropdown. Only shown once tags exist. */}
+      {/* Status at a glance — green deployed, grey not — doubling as a selector
+          for the header dropdown. Only shown once tags exist. */}
       {snapshots.length > 0 && (
         <div className="px-4 pb-2">
           <VersionPills
@@ -177,8 +169,6 @@ export default function IntegrationDetail({
         </div>
       )}
 
-      {/* Two-column grid: Details (with the folded Definition stats) · Deployments /
-          Resources · Env. Collapses to a single column on narrow widths. */}
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <Section title="Details">
@@ -192,9 +182,8 @@ export default function IntegrationDetail({
                 <span className="font-mono text-xs">{integration.id}</span>
               }
             />
-            {/* Definition stats folded in at the bottom rather than a card of their
-                own — scoped to the active version (a tag's frozen definition, or the
-                working copy for Current). */}
+            {/* Scoped to the active version: a tag's frozen definition, or the
+                working copy for Current. */}
             <div className="mt-3 border-t border-black/5 pt-3 dark:border-white/5">
               <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
                 Definition
@@ -227,8 +216,7 @@ export default function IntegrationDetail({
 
           <Section title="Resources">
             {/* Scoped to the active version: the live working copy, or a tag's
-                frozen (read-only) set. Keyed by integration id so it resets on
-                selection; it reacts to version changes via props. */}
+                frozen (read-only) set. */}
             <ResourcesSection
               key={integration.id}
               integrationId={integration.id}
@@ -249,8 +237,8 @@ export default function IntegrationDetail({
         </div>
       </div>
 
-      {/* Docked pod-log panel: tails one pod's logs at the bottom of the pane.
-          Keyed by pod so switching pods resets the stream. */}
+      {/* Tails one pod's logs at the bottom of the pane. Keyed by pod so
+          switching pods resets the stream. */}
       {logsPod && (
         <PodLogPanel
           key={`${logsPod.deploymentId}:${logsPod.podName}`}

@@ -9,24 +9,14 @@
  * e.g. `orders.checkHeader[else].api-call-1`. Every step but the last names a
  * composite and the branch of it to descend into; the last names the block
  * itself. That structure is what nests a waterfall: a span's parent is the block
- * whose path is its deepest ancestor. The clock cannot answer that — two blocks
- * can share a millisecond, and a composite's own span covers its children — so
- * the address is the structural answer and the timestamps are only corroboration.
- *
- * ## What this parser refuses to guess
+ * whose path is its deepest ancestor.
  *
  * A block is addressed by its name, else its type, else its ref, with no check
- * that the result is spellable. A block *named* `a.b` therefore mints a path this
- * grammar cannot distinguish from a block `b` inside a composite `a` — which is
- * why the editor refuses to mint an address for such a block at all (see
- * `isCleanSegment` in packages/editor/src/app/run/address.ts). Here the record has
- * already been written, so refusing is not on offer.
- *
- * So the rule is: parse mechanically, never throw, and read a branch only from a
- * segment that is exactly `label[branch]`. Anything else stays in the label, where
- * it renders as a slightly odd block name rather than as a wrong tree. A waterfall
- * that draws one strange row is recoverable; one that reparents a block under a
- * composite it never ran in is a lie about what happened.
+ * that the result is spellable, so a block *named* `a.b` mints a path this
+ * grammar cannot distinguish from a block `b` inside a composite `a`. The rule
+ * is therefore: parse mechanically, never throw, and read a branch only from a
+ * segment spelled exactly `label[branch]`. Anything else stays in the label,
+ * where it renders as an odd block name rather than as a wrong tree.
  */
 
 /** One step of a path: a block, and the branch of it the next step descends into. */
@@ -62,8 +52,7 @@ export function parseBlockPath(path: string): PathSegment[] {
     // A branch is read only from a segment spelled exactly `label[branch]`: the
     // bracket opened at depth 0 and closed at the very end. An unterminated
     // bracket, a stray "]", or trailing text after one all fall through to "the
-    // whole thing is the label", which is the graceful degradation this file
-    // exists to guarantee.
+    // whole thing is the label".
     const clean = open >= 0 && close === end;
     const stop = clean ? open : end;
     segments.push({
@@ -112,12 +101,10 @@ export function ancestorPaths(path: string): string[] {
 }
 
 /**
- * Whether `inner` addresses a block inside the block `outer` addresses. Mirrors
- * `isInside` in runtime/core/runtime/mock.go and in the editor's address.ts.
- *
- * Defined in terms of {@link ancestorPaths} on purpose: the containment test and
- * the tree the waterfall builds are then the same function, so they cannot come to
- * different conclusions about the same two blocks.
+ * Whether `inner` addresses a block inside the block `outer` addresses. Defined
+ * in terms of {@link ancestorPaths} so the containment test and the tree the
+ * waterfall builds cannot come to different conclusions about the same two
+ * blocks.
  */
 export function isInside(outer: string, inner: string): boolean {
   return outer !== "" && ancestorPaths(inner).includes(outer);
@@ -142,9 +129,7 @@ export function blockLabel(path: string): string {
  * know the ancestor is a block whose branches are tools.
  *
  * Returns null for anything that is not a descendant of that exact prefix, and
- * for a descendant that entered no branch at all — a path this cannot read is a
- * path this declines to guess about, which is the same contract as the parser
- * above.
+ * for a descendant that entered no branch at all.
  */
 export function branchUnder(path: string, ancestorPath: string): string | null {
   if (!path.startsWith(ancestorPath)) return null;

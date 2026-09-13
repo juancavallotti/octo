@@ -33,13 +33,9 @@ import {
  * watching, how often to look at it, what would count as wrong, who to tell, how
  * not to tell them twice — and only then what to call it.
  *
- * The app comes first because it is the only answer everything else depends on:
- * every condition is measured over it, and it decides what they can even measure.
- *
- * The name comes last because it is the one thing you cannot write until the rest
- * is decided. Asked second, it was a blank box at the top of a form nobody had
- * filled in yet — and a watch called "Untitled" is worse than one named after
- * what it turned out to be watching.
+ * The app comes first because everything else depends on it: every condition is
+ * measured over it, and it decides what they can even measure. The name comes
+ * last because it is the one thing you cannot write until the rest is decided.
  */
 export function WatchEditor({
   initial,
@@ -56,10 +52,8 @@ export function WatchEditor({
     targetOf(initial.conditions),
   );
   const [preview, setPreview] = useState<WatchPreview | null>(null);
-  // A preview describes the definition it was asked about, and the form stays
-  // editable while the request is in flight. Without a version to compare, an
-  // answer that arrives after an edit is shown against a watch it never saw —
-  // and two overlapping previews resolve in whatever order the network chose.
+  // The form stays editable while a preview is in flight, so answers are matched
+  // against the version that asked for them.
   const version = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -70,8 +64,7 @@ export function WatchEditor({
   const [mixed] = useState(() => !targetsAgree(initial.conditions));
 
   // Every edit goes through this, so a preview on screen is always about what is
-  // on screen: the moment the definition changes, the old answer stops being an
-  // answer and any in-flight request stops being wanted.
+  // on screen: changing the definition drops the old answer and any in-flight one.
   const edit = (next: WatchInput) => {
     version.current += 1;
     setPreview(null);
@@ -118,9 +111,7 @@ export function WatchEditor({
     run(async () => {
       const asked = version.current;
       const result = await previewWatch(submitted());
-      // Dropped rather than shown if the definition moved while we waited. The
-      // reader asked about one watch; answering with a preview of another, under
-      // the same button, is worse than not answering.
+      // Dropped rather than shown if the definition moved while we waited.
       if (version.current === asked) setPreview(result);
     });
 
@@ -163,9 +154,8 @@ export function WatchEditor({
           target={target}
           step={stepFor(watch.intervalSeconds)}
           onCombinator={(combinator) => edit({ ...watch, combinator })}
-          // Filled rather than replaced: a condition just added, or one whose
-          // measure changed, has no scope yet and would otherwise be measured
-          // over the whole installation.
+          // Filled rather than replaced: a condition with no scope yet would
+          // otherwise be measured over the whole installation.
           onChange={(conditions) =>
             edit({ ...watch, conditions: fillTarget(conditions, target) })
           }

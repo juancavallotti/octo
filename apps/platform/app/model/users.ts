@@ -1,12 +1,10 @@
 /**
  * Browser-side client for user administration. Backed by the server actions in
- * `app/actions/users.ts`, which reach iam; these wrappers unwrap the
- * ActionResult so callers keep a value-or-throw contract.
+ * `app/actions/users.ts`; these wrappers unwrap the ActionResult so callers keep
+ * a value-or-throw contract.
  *
  * The types are restated here rather than imported from the client that shapes
- * the wire, for the reason the other models give: that client is server-only,
- * and nothing running in a browser should have to import it to name what comes
- * back.
+ * the wire, which is server-only.
  */
 
 import * as actions from "@/app/actions/users";
@@ -17,8 +15,7 @@ export interface PlatformUser {
   id: string;
   /**
    * The `sub` their identity provider presents, empty until their first sign-in
-   * claims this row. Shown for the question this screen gets asked; nothing
-   * addresses a user by it.
+   * claims this row. Shown, but nothing addresses a user by it.
    */
   subject: string;
   email: string;

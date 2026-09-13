@@ -1,26 +1,15 @@
 /**
  * What kind of work a span was: waiting on something else, or doing something
- * here.
- *
- * This is the question a trace is usually opened to answer — "where did the two
- * seconds go?" — and it is presentation policy rather than runtime fact, because
- * the runtime does not record it. So it is a table, kept honest three ways:
+ * here. Presentation policy rather than runtime fact — the runtime does not
+ * record it — so it is a table, kept honest three ways:
  *
  *  - **`unclassified` is a real, visible bucket**, never folded into either of
  *    the other two. A block nobody has classified is unknown, and a chart that
  *    silently calls it CPU is worse than one that admits it does not know.
  *  - **A drift test** (`blockClasses.test.ts`) reads the block types out of the
- *    Go tree and fails when one of them is missing from this table. The proper
- *    fix is to put the classification in the block registry itself and have
- *    `octo schema` carry it — see the follow-up issue — so that a new connector
- *    is caught by a check rather than by a wrong chart.
+ *    Go tree and fails when one of them is missing from this table.
  *  - **Tree position outranks the table.** A composite that wrapped real work is
  *    control whatever this table says, because its span is its children's.
- *
- * Two entries here disagree with the obvious reading and are worth naming: the
- * cache and agent-memory blocks look in-process, but the runtime's KV store is an
- * HTTP call to the orchestrator on a deployment (`runtime/services/k8s/kv.go`),
- * so their time is spent waiting on the network like any other request.
  */
 
 import { unionLength, type Interval } from "./timeSpans";
@@ -168,8 +157,7 @@ export interface WorkBreakdown {
   /** Wall-clock covered by any classified leaf at all. */
   coveredNs: number;
   /** `totalNs - coveredNs`: engine overhead, queueing, and the composites that
-   * held nothing. Shown explicitly, because it is what stops the other buckets
-   * from silently absorbing the time nobody measured. */
+   * held nothing. Named rather than folded into the other buckets. */
   unattributedNs: number;
   /** The block types that fell through the table, for the panel to name. */
   unknownTypes: string[];

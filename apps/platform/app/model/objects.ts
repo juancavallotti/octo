@@ -33,7 +33,7 @@ export interface ObjectValue {
 
 /**
  * List the non-secret namespaces a deployment holds data in (the user namespace is
- * always present). Backs the object browser's namespace picker.
+ * always present).
  */
 export async function listNamespaces(deploymentId: string): Promise<string[]> {
   return unwrap(await objectActions.listNamespaces(deploymentId));

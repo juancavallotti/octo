@@ -4,9 +4,7 @@
  *
  * The agent is an ordinary integration — the orchestrator installs it from a bundle
  * it ships, but everything after that is the same integration, snapshot and
- * deployment machinery as anything a user builds. That is why there is no "agent
- * logs" or "agent scale" operation here: those already exist on deployments, and
- * `deploymentId` is what connects the two.
+ * deployment machinery as anything a user builds, reached through `deploymentId`.
  */
 
 import type { ActionResult } from "@octo/http";
@@ -15,9 +13,8 @@ import { call } from "./http";
 /**
  * What the orchestrator reports about the agent.
  *
- * `blocked` is the field worth understanding: the status route deliberately does not
- * fail when the agent *cannot* be installed, because a page that 500s cannot tell
- * anyone what to configure. So a missing cluster, a missing encryption key and a
+ * `blocked` is the field worth understanding: the status route does not fail when the
+ * agent *cannot* be installed, so a missing cluster, a missing encryption key and a
  * missing LLM key all arrive here as a reason rather than an error.
  */
 export interface AgentStatus {
@@ -25,7 +22,7 @@ export interface AgentStatus {
   state: string;
   integrationId?: string;
   deploymentId?: string;
-  /** The in-cluster address the chat panel proxies to. Empty until deployed. */
+  /** The in-cluster address the agent answers at. Empty until deployed. */
   internalUrl?: string;
   /** The version tag the running deployment was published under. */
   installedTag?: string;
@@ -45,8 +42,7 @@ export interface AgentStatus {
   autoFix: boolean;
   /**
    * How many tool-calling turns one run may take, when an operator has set a limit.
-   * Absent means the agent's own definition decides, which is the default state and
-   * is why this is optional rather than a number that is sometimes meaningless.
+   * Absent means the agent's own definition decides, which is the default state.
    */
   maxIterations?: number;
   /** "" when nothing stands in the way; otherwise kubernetes | encryption | llm_key. */

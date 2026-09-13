@@ -26,10 +26,9 @@ import {
 
 export const authConfig: NextAuthConfig = {
   trustHost: true,
-  // Eight hours rather than the thirty-day default. iam will renew an expired
-  // platform token for a short grace period, so an idle session is a credential
-  // that can be revived; the session's own lifetime is the only real bound on how
-  // long that stays true, and a working day is the honest size for it.
+  // Eight hours rather than the thirty-day default. iam renews an expired platform
+  // token for a short grace period, so an idle session is a credential that can be
+  // revived; the session's lifetime is the only real bound on how long that lasts.
   session: { strategy: "jwt", maxAge: 8 * 60 * 60 },
   pages: { signIn: "/" },
   providers: [
@@ -54,14 +53,13 @@ export const authConfig: NextAuthConfig = {
     },
   ],
   callbacks: {
-    // The whole session lifecycle, in two calls out to the module that owns it.
     // `account` — not `profile` — is where the provider's raw id token is, and it
     // is present only on sign-in, so the exchange happens once per session and
     // every later call only considers a renewal.
     //
     // Returning null ends the session: Auth.js clears the cookies. Both paths that
-    // do it here are deliberate refusals, not errors to be swallowed — a session
-    // that cannot get a platform token can call nothing.
+    // do it here are refusals, not errors to swallow — a session that cannot get a
+    // platform token can call nothing.
     async jwt({ token, account }) {
       if (account?.id_token) {
         const fields = await signInExchange(account.id_token);

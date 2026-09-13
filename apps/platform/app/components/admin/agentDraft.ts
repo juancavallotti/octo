@@ -1,10 +1,9 @@
 /**
  * The agent page's draft, and the rules for reading it.
  *
- * Pure: no React, no fetching, no components. The reducer and the dirty
- * comparison are the whole of the page's logic worth reasoning about on their
- * own, and keeping them here means they can be read — and tested — without
- * standing up a provider around them.
+ * Pure: no React, no fetching, no components, so the reducer and the dirty
+ * comparison can be read — and tested — without standing up a provider around
+ * them.
  */
 
 import type { AgentStatus } from "@/app/model/agent";
@@ -88,9 +87,8 @@ export function reducer(state: State, action: Action): State {
     case "loaded": {
       const loaded = draftOf(action.stored);
       // A reload replaces the baseline, but it must not discard edits nobody
-      // has saved yet. Anything a lifecycle action does — toggling tracing,
-      // removing a key, rolling out — goes through the same reload, and it used
-      // to silently take the field somebody was halfway through typing with it.
+      // has saved yet: anything a lifecycle action does — toggling tracing,
+      // removing a key, rolling out — goes through the same reload.
       //
       // So a field that differs from the OLD baseline is kept, and everything
       // else takes the value that just came back. The new baseline is always

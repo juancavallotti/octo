@@ -4,12 +4,8 @@ import type { LucideIcon } from "lucide-react";
 
 /**
  * The headline-counter tile and its formatters, shared by every page that reports
- * numbers about a running dependency — the broker monitor at /platform/queues and
- * the storage view under /platform/objects.
- *
- * Shared rather than copied because these pages are read side by side when
- * something is wrong, and a tile that rounded bytes differently on one of them
- * would make two readings of the same install look like a discrepancy.
+ * numbers about a running dependency — so that two readings of the same install
+ * cannot disagree by rounding.
  */
 
 /** Group digits for readability; counts and byte values can run large. */
@@ -50,11 +46,9 @@ export function duration(seconds: number): string {
 }
 
 /**
- * One headline counter tile.
- *
- * The icon carries the direction of the counter — in against out, live against
- * lifetime — which is the distinction a reader scanning eight near-identical tiles
- * has to make, and the one the labels alone make slowest.
+ * One headline counter tile. The icon carries the direction of the counter — in
+ * against out, live against lifetime — which the labels alone make slowest to
+ * read.
  */
 export function Stat({
   icon: Icon,

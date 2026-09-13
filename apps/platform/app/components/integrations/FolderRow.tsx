@@ -15,11 +15,6 @@ import { type DragData, type DropData, type FlatFolder } from "./model";
  * The two row shapes the folder tree renders: a fixed bucket (All / Unfiled) and
  * a folder, which is simultaneously a sortable item, a drop target, and an inline
  * rename field.
- *
- * They live apart from FolderTree because the tree's job is the tree — which rows
- * exist, which are hidden under a collapsed ancestor, what is being dragged — and
- * a row's job is one row. Splitting them also makes FolderRow's prop list explicit
- * at a file boundary rather than implicit halfway down a longer file.
  */
 
 /** The shared row chrome both a bucket and a folder wear. */
@@ -32,9 +27,8 @@ const bucketRow = (active: boolean) =>
 
 /**
  * A bucket that is only a view of the integrations, not a place any of them can
- * be put — so, unlike BucketRow, it is not a drop target. Dragging a card onto
- * one has to do nothing, and a row that lights up under the pointer and then
- * does nothing is worse than one that never lights up.
+ * be put, so it is not a drop target: a row that lights up under the pointer and
+ * then does nothing is worse than one that never lights up.
  */
 export function ViewRow({
   active,

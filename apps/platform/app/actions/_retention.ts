@@ -4,13 +4,9 @@
  *
  *     serverAction (auth) → this client (getRetention()) → requestJson() → fetch
  *
- * It talks to the observability service rather than the orchestrator, like
- * `_logs.ts` and `_traces.ts` beside it and for the same reason: that service
- * owns the tables a retention policy governs, and serves the policy alongside
- * the queries over them. The other admin settings go through
- * `actions/client/settings.ts` to the orchestrator, so this is deliberately not
- * there — the split follows which service owns the data, not which page the form
- * happens to sit on.
+ * It talks to the observability service rather than the orchestrator: that
+ * service owns the tables a retention policy governs, and serves the policy
+ * alongside the queries over them.
  *
  * The server-only address and the snake_case→camelCase shaping are internal;
  * callers see only the types in `app/model/retention.ts`, which is where they

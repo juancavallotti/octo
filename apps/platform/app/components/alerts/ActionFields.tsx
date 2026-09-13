@@ -12,10 +12,9 @@ import type { WatchTarget } from "./target";
  * whole point: parsing on every keystroke and rendering the result back means a
  * separator disappears the moment it is typed — `filter(Boolean)` drops the
  * empty segment after the comma, the value re-renders without it, and a second
- * address cannot be started. Both address fields here had that.
+ * address cannot be started.
  *
- * Re-seeded by remount rather than by an effect, the way AgentTurnLimit is: the
- * caller keys this on the action, so a different action builds a fresh control
+ * Re-seeded by remount rather than by an effect, so a fresh control replaces it
  * instead of an effect fighting whoever is typing.
  */
 function AddressList({
@@ -55,10 +54,7 @@ function AddressList({
   );
 }
 
-/**
- * The two action bodies. Split from the list because the list is about adding
- * and removing, and these are about one destination each.
- */
+/** The two action bodies: one destination each. */
 
 export function EmailFields({
   action,
@@ -94,13 +90,9 @@ export function EmailFields({
  * Where a message goes: which app receives it, and on what subject.
  *
  * The subject is completed from what is actually subscribed on the broker right
- * now, which is the difference between picking a destination and guessing one. A
- * receiver that is not running yet has no subscription, so the field stays
- * typeable — setting the watch up before the flow exists is legitimate.
- *
- * The default deployment is the app the watch is about, because sending an alert
- * back to the thing it is about is the common case; anything else is typed or
- * picked from the live list.
+ * now. A receiver that is not running yet has no subscription, so the field stays
+ * typeable — setting the watch up before the flow exists is legitimate. Left
+ * blank, the destination is the app the watch is about.
  */
 export function TopicFields({
   action,
@@ -129,8 +121,7 @@ export function TopicFields({
     : [];
   // Which app this action actually publishes to: the one chosen here, or the
   // watch's own app when that is left blank. Filtering on the raw field alone
-  // showed every subject on the installation whenever it was blank, and then
-  // counted them in the hint.
+  // would offer every subject on the installation whenever it is blank.
   const receiving = deploymentId || target.deploymentId || "";
   const forThisApp = destinations.filter(
     (d) => !receiving || d.deploymentId === receiving,
@@ -187,12 +178,11 @@ export function TopicFields({
             placeholder="alerts"
           />
           {/*
-            The subscribed subjects, as a control rather than as a datalist.
-            A datalist only appears once somebody types, so the one thing worth
-            knowing here — what this app is actually listening on — was invisible
-            to anyone who did not already know it. This sets the field and holds
-            no state of its own, so a subject that does not exist yet can still
-            be typed: the receiving flow is often written after the watch.
+            The subscribed subjects, as a control rather than as a datalist: a
+            datalist only appears once somebody types, so what this app is
+            actually listening on would be invisible. This sets the field and
+            holds no state of its own, so a subject that does not exist yet can
+            still be typed — the receiving flow is often written after the watch.
           */}
           {subjects.length > 0 && (
             <select

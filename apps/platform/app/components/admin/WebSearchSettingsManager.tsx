@@ -12,19 +12,15 @@ import { useAgentForm } from "./AgentSettingsForm";
  * provider is Parallel and is not a choice — his tool is a parallel-search block,
  * so a second provider would be a second tool rather than a different value here.
  *
- * It sits below the LLM provider and above the deployment, in the order things are
- * needed: he cannot run without a model, he runs perfectly well without this. That
- * is the whole reason this section says what happens when it is empty — an operator
- * who reads "no key stored" should know it costs one tool, not the agent.
- *
- * As with the other two forms the key draft is never seeded from the server, and an
- * empty draft means "keep the stored key".
+ * The key is optional, which is why this section says what happens when it is
+ * empty: an operator who reads "no key stored" should know it costs one tool, not
+ * the agent. The key draft is never seeded from the server, and an empty draft
+ * means "keep the stored key".
  *
  * Presentational: what is stored, what is being typed and when it is written are
- * all the page's, held in AgentSettingsForm. This renders one field and owns the
- * prose around it. Removing the key is the exception and stays here, because it
- * is destructive, it asks first, and a revocation deferred behind a Save that is
- * never pressed is a key somebody believes is gone.
+ * all held in AgentSettingsForm. Removing the key is the exception and stays here,
+ * because it is destructive, it asks first, and a revocation deferred behind a Save
+ * that is never pressed is a key somebody believes is gone.
  */
 export default function WebSearchSettingsManager() {
   const confirm = useConfirm();
@@ -86,9 +82,8 @@ export default function WebSearchSettingsManager() {
         />
 
         {/* The key is read when the deployment's bindings are written, which is
-            install and roll-out and nothing else. Saying so here is the
-            difference between "it does not work" and "it has not reached him
-            yet" — the one question this form would otherwise generate. */}
+            install and roll-out and nothing else — the difference between "it does
+            not work" and "it has not reached him yet". */}
         <p className="text-xs text-zinc-500">
           The key travels to him as a cluster secret when he is installed or
           rolled out. Change it while he is running and it takes effect on his

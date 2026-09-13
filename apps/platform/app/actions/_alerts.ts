@@ -4,13 +4,10 @@
  *
  *     serverAction (auth) → this client (listWatches()) → requestJson() → fetch
  *
- * It talks to the observability service rather than the orchestrator, like
- * `_logs.ts`, `_traces.ts` and `_retention.ts` beside it: that service owns both
- * the table a watch is stored in and the telemetry a watch reads. The split
- * follows which service owns the data, not which page the form happens to sit on.
- *
- * The server-only address and the snake_case shaping are internal; callers see
- * only the types in `app/model/alerts.ts`.
+ * It talks to the observability service, which owns both the table a watch is
+ * stored in and the telemetry a watch reads. The server-only address and the
+ * snake_case shaping are internal; callers see only the types in
+ * `app/model/alerts.ts`.
  */
 
 import type { ActionResult } from "@octo/http";

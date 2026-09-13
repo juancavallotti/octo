@@ -19,16 +19,10 @@ const KEY_STEP = 16;
  * The conversation drawer: transcript, composer, and the navigation the agent asks
  * for.
  *
- * Full height down the right-hand side rather than a box in the corner. The old
- * panel was 26rem by 36rem, which is two or three tool chips and a paragraph — and
- * a run that calls a few tools and explains itself does not fit in that, so
- * everything interesting was permanently scrolled past.
- *
  * Floating, it overlays rather than pushing the page, and has no backdrop, because
  * he navigates: asking "take me to that deployment" and watching the page behind
  * the drawer change is the whole point, and a modal would break it. Pinned, it
- * docks and the page shrinks beside it — for the long session where the panel
- * covering a third of the editor stops being acceptable.
+ * docks and the page shrinks beside it.
  *
  * It does not position itself: the shell that renders it owns that, so switching
  * between docked and floating is a class change on one wrapper rather than a move
@@ -65,15 +59,13 @@ export default function AgentDrawer({
     router.push(target.path);
   });
 
-  // Reported upwards so the collapsed launcher can show he is still working. The
-  // panel is hidden, not unmounted, when it is closed, so this keeps arriving.
+  // The panel is hidden, not unmounted, when it is closed, so this keeps arriving.
   useEffect(() => onBusy(chat.busy), [chat.busy, onBusy]);
 
   const { ref: scroller, following, toBottom } = useStickToBottom(chat.turns);
   // The last *agent* turn, not the last turn. A message sent mid-answer is
   // appended while the run continues, so the end of the array is a question the
-  // reader just typed — with no gauge on it and nothing for the status strip to
-  // report, which would blank both at the moment there is most to say.
+  // reader just typed, with no gauge on it and nothing to report.
   const open = chat.turns.findLast((turn) => turn.role === "agent");
 
   const submit = () => {
@@ -82,14 +74,12 @@ export default function AgentDrawer({
   };
 
   // Tears down whatever a drag in progress installed. Held in a ref so that a
-  // panel unmounted mid-drag — signing out, say — does not leave window listeners
-  // behind that go on resizing a panel nobody can see.
+  // panel unmounted mid-drag does not leave window listeners behind.
   const endDrag = useRef<(() => void) | null>(null);
   useEffect(() => () => endDrag.current?.(), []);
 
-  // Plain pointer events, the same drag the editor's settings panel uses. Width
-  // lives in the shell (it sizes the wrapper); the final value is committed to
-  // storage on release rather than on every move.
+  // Width lives in the shell, which sizes the wrapper; the final value is
+  // committed to storage on release rather than on every move.
   function startResize(e: React.PointerEvent) {
     e.preventDefault();
     // A second pointerdown without an intervening pointerup should not stack a
@@ -103,9 +93,9 @@ export default function AgentDrawer({
       last = startWidth + (startX - ev.clientX);
       onResize(last);
     };
-    // pointercancel as well as pointerup: an OS or browser gesture can take the
-    // pointer away mid-drag, and listeners that outlive the gesture would go on
-    // resizing the panel on any later mouse move.
+    // pointercancel as well as pointerup: a gesture can take the pointer away
+    // mid-drag, and listeners that outlive it would go on resizing the panel on
+    // any later mouse move.
     const finish = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", finish);
@@ -158,8 +148,7 @@ export default function AgentDrawer({
         <span className="shrink-0 text-sm font-semibold">Dr. Octo</span>
         {/* The conversation on screen, in the space the header has going spare.
             Nothing when it has no name yet: the runtime names one once there is
-            something to name, and reports it — a placeholder in the meantime
-            would be a label that changes under the reader. */}
+            something to name, and reports it. */}
         {chat.title && (
           <span className="min-w-0 flex-1 truncate text-xs text-zinc-500" title={chat.title}>
             {chat.title}
@@ -214,7 +203,7 @@ export default function AgentDrawer({
         </div>
 
         {/* Offered only when following is off, so it is a way back rather than a
-            permanent control — and it is the only sign that scrolling away turned
+            permanent control — and the only sign that scrolling away turned
             anything off. */}
         {!following && (
           <button

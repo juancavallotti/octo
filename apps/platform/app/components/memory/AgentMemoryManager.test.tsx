@@ -121,12 +121,9 @@ describe("AgentMemoryManager", () => {
   });
 
   /**
-   * The live context, next to the record.
-   *
-   * The assertion that matters is the DIFFERENCE: the transcript holds both turns
-   * and working memory holds one, which is what compaction did. An operator
-   * asking "why doesn't it remember what I told it" is asking to see exactly this,
-   * and before the panel existed there was no way to answer them.
+   * The live context, next to the record. The assertion that matters is the DIFFERENCE:
+   * the transcript holds both turns and working memory holds one, which is what
+   * compaction did — and what an operator asking "why doesn't it remember" wants to see.
    */
   it("shows what the agent still carries beside what it said", async () => {
     await choose();
@@ -160,12 +157,8 @@ describe("AgentMemoryManager", () => {
   });
 
   /**
-   * Facts are addressed by person rather than by conversation.
-   *
-   * They used to appear only under an open conversation, which made sense — a
-   * conversation names the person — and answered the wrong question: "what does
-   * this agent know about u-1" is not about any one conversation, and finding out
-   * meant opening conversations until one of theirs turned up.
+   * Facts are addressed by person rather than by conversation: "what does this agent know
+   * about u-1" is not a question about any one conversation.
    */
   it("shows what the agent remembers about a person", async () => {
     await choose();
@@ -237,10 +230,8 @@ describe("AgentMemoryManager", () => {
   });
 });
 
-// A late response must not land under a selection it does not belong to. Without
-// the guard the viewer shows one agent's conversation under another agent's name,
-// which is the worst kind of wrong for a tool whose job is telling you what a
-// particular agent knows.
+// A late response must not land under a selection it does not belong to, or the viewer
+// shows one agent's conversation under another agent's name.
 describe("AgentMemoryManager, when the selection changes mid-request", () => {
   it("discards a conversation that arrives after the agent was switched", async () => {
     model.listMemoryAgents.mockResolvedValue([

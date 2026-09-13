@@ -8,12 +8,11 @@ import { unwrap } from "@/app/model/bff";
 
 /**
  * The platform test-suite store: the integration's `.octo/tests/<flow>_test.yaml`
- * resources in the orchestrator, read and written through the auth-gated actions — the
- * same path the Dev .env panel and the editor-meta store take.
+ * resources in the orchestrator, read and written through the auth-gated actions.
  *
- * Thin on purpose. Which flow a suite tests is read from the suite's own `flow:` key,
- * and that happens in the action rather than here, so this client-reachable module does
- * not pull the editor's runtime helpers into the browser bundle.
+ * Thin: which flow a suite tests is read from its own `flow:` key, and that
+ * happens in the action rather than here, so nothing pulls the editor's runtime
+ * helpers into the browser bundle.
  *
  * A resource needs an owning integration, so editing is only available once the
  * integration is saved; until then suites live for the session.

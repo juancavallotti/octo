@@ -43,7 +43,7 @@ describe("shownFor", () => {
   });
 
   // The deployed set is read from a separate call, so it can name an integration
-  // the list no longer has. Showing it would render a card with nothing behind it.
+  // the list does not have — which would render a card with nothing behind it.
   it("ignores a deployed id with no integration left", () => {
     const stale: Data = { ...data, deployed: new Set(["a", "gone"]) };
     expect(ids(shownFor("running", stale))).toEqual(["a"]);
@@ -54,9 +54,8 @@ describe("shownFor", () => {
     expect(ids(shownFor({ folder: "f1" }, data))).toEqual(["b", "a"]);
   });
 
-  // The rule that only shows itself through a rendered list: a card just dragged
-  // into a folder is not in that folder's stored order yet. Sorting it to the
-  // front would land it somewhere nobody dropped it.
+  // A card just dragged into a folder is not in that folder's stored order yet;
+  // sorting it to the front would land it somewhere nobody dropped it.
   it("puts an integration missing from the order at the end", () => {
     const justAssigned: Data = {
       ...data,

@@ -3,11 +3,6 @@
  * running as a pod of its own (`orchestrator/internal/devrun`).
  *
  * Server-only, unlike most of this layer — nothing in the browser addresses a dev run.
- * The editor drives it through the RUN transport, which reaches the remote app runner
- * (`app/run/remoteRunner.ts`); these are the types that runner and the typed client
- * speak. They live here regardless, because this is where the orchestrator's shapes are
- * declared and a second home for a wire contract is how two copies of it start to
- * disagree.
  *
  * What is NOT here is as informative as what is. There is no port (a dev pod owns its
  * network namespace, so the listen port is a platform constant), no namespace (a dev run
@@ -45,9 +40,7 @@ export interface DevRun {
   /**
    * The sidecar's own view of the run (which generation it applied, when it last pulled),
    * passed through as the sidecar produced it. Absent while a pod is still starting.
-   *
-   * Deliberately opaque: the orchestrator does not interpret it either, and re-declaring
-   * a schema owned by a separately versioned module is how a status surface starts lying.
+   * Opaque: the orchestrator does not interpret it either.
    */
   sidecar?: unknown;
 }

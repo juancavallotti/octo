@@ -23,25 +23,22 @@ import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 
 /**
  * GET/POST/DELETE /mcp — the platform's Model Context Protocol endpoint
- * (streamable HTTP). It mounts the same `@octo/mcp` handler the standalone app
- * does, but as an OAuth 2.1 *resource server*: every request must carry a valid
- * bearer access token. Tokens are OAuth JWTs minted by the configured OIDC provider
- * (the authorization server) for MCP clients like Claude and ChatGPT, or a legacy
- * `octo_…` API key (see verify-token.ts). `withMcpAuth` extracts the bearer, runs
- * the verifier, and — on a missing/invalid token — returns a spec-correct 401 whose
- * `WWW-Authenticate` points at the protected-resource metadata (RFC 9728), which
- * in turn advertises the provider so the client can register and obtain a token. The
- * OIDC proxy skips `/mcp` (see proxy.ts) precisely because this route owns its
- * own authentication.
+ * (streamable HTTP), mounted as an OAuth 2.1 *resource server*: every request must
+ * carry a valid bearer access token, either an OAuth JWT minted by the configured
+ * OIDC provider or a legacy `octo_…` API key (see verify-token.ts). `withMcpAuth`
+ * extracts the bearer, runs the verifier, and — on a missing or invalid token —
+ * returns a spec-correct 401 whose `WWW-Authenticate` points at the
+ * protected-resource metadata (RFC 9728), which in turn advertises the provider so
+ * the client can register and obtain a token. This route owns its own
+ * authentication, which is why the OIDC proxy skips `/mcp`.
  *
  * Integrations come from the orchestrator; definitions are validated with the
  * editor's pre-flight; run control goes to dev-run pods with one-shots staying local
  * (see ./run-host).
  *
- * The verified token is no longer only an authentication boundary: the user id it
- * resolves onto `AuthInfo.extra` is half of a dev run's identity, so a long-running
- * app started here belongs to the caller and is the same run the editor would attach
- * to. Integrations themselves are still not partitioned per user.
+ * The user id the verified token resolves onto `AuthInfo.extra` is half of a dev
+ * run's identity, so a long-running app started here belongs to the caller.
+ * Integrations themselves are not partitioned per user.
  */
 
 export const runtime = "nodejs";
@@ -50,16 +47,13 @@ export const dynamic = "force-dynamic";
 /**
  * Inject the runner's capability catalogue into the editor's schema registry.
  *
- * This route is a host of `@octo/editor` just as the editor page is, and it owes the
- * same injection: `validateDocument` checks block and connector types against the
- * *active* catalogue, and the bundled one is an empty fallback. Skip this and every
- * validation reports "unknown block type" for perfectly good YAML — which would make
- * the flow tools refuse every edit, since they validate before they save.
+ * `validateDocument` checks block and connector types against the *active*
+ * catalogue, and the bundled one is an empty fallback. Skip this and every
+ * validation reports "unknown block type" for perfectly good YAML.
  *
  * Cheap to call on every request: `probeSchema` caches the parsed schema, and
- * `setCapabilities` is an idempotent assignment. Deliberately not memoized here — a
- * probe that failed because the binary was still building must be free to succeed
- * later.
+ * `setCapabilities` is an idempotent assignment. Not memoized here — a probe that
+ * failed because the binary was still building must be free to succeed later.
  */
 async function primeCapabilities(): Promise<unknown> {
   const schema = await probeSchema();
@@ -119,25 +113,16 @@ const handler = createOctoMcpHandler(
 );
 
 /**
- * The MCP handler behind OAuth 2.1 bearer auth. `resourceUrl` is the public
- * origin (Auth.js's canonical var) so the `resource_metadata` challenge URL is
- * correct behind the platform proxy; `resourceMetadataPath` is the path-scoped
- * document the metadata routes serve. `required: true` rejects anonymous calls.
- */
-/**
- * Everything a tool does runs as the person who asked, not as this endpoint.
+ * Run everything a tool does as the person who asked, not as this endpoint.
  *
  * There is no session here to read a credential from — the caller arrived with a
  * bearer, which the verifier traded with iam for a platform token — so it is put
  * where the orchestrator client will find it, for the length of this request and
- * no longer. Without it the tools reach the API with no identity at all, and once
- * the API starts checking, that is the difference between doing what this person
- * may do and doing nothing.
+ * no longer.
  *
- * It wraps the handler *inside* withMcpAuth rather than around it, because that
- * is where the credential exists: withMcpAuth verifies the bearer and then hangs
- * the result off the request before calling what it wraps. Outside, there would
- * be nothing to read.
+ * It wraps the handler *inside* withMcpAuth rather than around it, because that is
+ * where the credential exists: withMcpAuth verifies the bearer and hangs the result
+ * off the request before calling what it wraps.
  */
 function asCaller(next: typeof handler) {
   return async (req: Request): Promise<Response> => {
@@ -152,6 +137,12 @@ function extraOf(req: Request): Record<string, unknown> | undefined {
   return (req as Request & { auth?: { extra?: Record<string, unknown> } }).auth?.extra;
 }
 
+/**
+ * The handler behind OAuth 2.1 bearer auth. `resourceUrl` is the public origin so
+ * the `resource_metadata` challenge URL is correct behind the platform proxy;
+ * `resourceMetadataPath` is the path-scoped document the metadata routes serve.
+ * `required: true` rejects anonymous calls.
+ */
 const authed = withMcpAuth(asCaller(handler), verifyMcpToken, {
   required: true,
   resourceMetadataPath: RESOURCE_METADATA_PATH,
