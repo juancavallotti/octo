@@ -307,14 +307,14 @@
                         "type": "integer"
                     },
                     "found": {
-                        "description": "Found distinguishes \"this conversation carries no live context\" from \"there\nis one and here it is\". A conversation that ended cleanly has its transcript\nand nothing to resume from, which is ordinary rather than an error — so this\nroute answers 200 either way and says which, rather than making every caller\ntreat a 404 as a success it has to recognize.",
+                        "description": "Found distinguishes \"this conversation carries no live context\" from \"there is\none and here it is\". A conversation that ended cleanly has nothing to resume\nfrom, which is ordinary, so the route answers 200 either way and says which.",
                         "type": "boolean"
                     },
                     "iteration": {
                         "type": "integer"
                     },
                     "payload": {
-                        "description": "Payload is the runtime's transcript verbatim. Empty when it is not text.",
+                        "description": "Payload is the stored transcript verbatim. Empty when it is not text.",
                         "type": "string"
                     },
                     "readable": {
@@ -452,7 +452,7 @@
             "deployment.Settings": {
                 "properties": {
                     "access": {
-                        "description": "Access is what this deployment's own token opens beyond the stores every pod\nowns — its key/value namespace, its objects, its agent memory.\n\nA set, and empty for almost every deployment. \"developer\" adds integrations,\nresources, snapshots and dev runs; \"operator\" adds deployments. They are\nindependent because they are different jobs, and something that builds\nintegrations and operates them is one thing that does both.\n\nThis is the credential an integration with no person behind it has — one\nwoken by a queue message or a webhook, where there is no caller's token to\nborrow — so it is the whole of what such a flow may do.",
+                        "description": "Access is what this deployment's own token opens beyond the stores every pod\nowns — its key/value namespace, its objects, its agent memory.\n\nA set, and empty for almost every deployment. \"developer\" adds integrations,\nresources, snapshots and dev runs; \"operator\" adds deployments, and the two are\nindependent because they are different jobs.\n\nThis is the credential a run with no person behind it has — one woken by a queue\nmessage or a webhook — so it is the whole of what such a flow may do.",
                         "items": {
                             "type": "string"
                         },
@@ -475,7 +475,7 @@
                         "type": "integer"
                     },
                     "runner": {
-                        "description": "Runner selects the image this deployment's pods run. Empty and \"standard\"\nare the generic octo-runtime: distroless, one static binary, no shell and\nnothing writable, which is what almost every integration wants.\n\n\"agentic\" is the heavier runner, which additionally carries a shell, curl,\njq, the standalone octo CLI, dolphin and a scratch workspace at /workspace.\nIt is for an integration built to drive the platform rather than serve it —\none whose flows run local commands, invoke other flows, or execute a test\nsuite. Dr. Octo is the first, and the reason it exists.\n\nTreat it as a privileged choice rather than a bigger one. A pod with a shell\nand a runtime it can point at a definition it just wrote is a general\nexecution environment, so the boundary it offers is the pod — not the\n`cli-run` allow list inside it. Do not grant it to an integration whose\ndefinition comes from somewhere you do not trust.",
+                        "description": "Runner selects the image this deployment's pods run. Empty and \"standard\"\nare the generic octo-runtime: distroless, one static binary, no shell and\nnothing writable, which is what almost every integration wants.\n\n\"agentic\" additionally carries a shell, curl, jq, the standalone octo CLI,\ndolphin and a scratch workspace at /workspace. It is for an integration built to\ndrive the platform rather than serve it — one whose flows run local commands,\ninvoke other flows, or execute a test suite.\n\nIt is a privileged choice rather than a bigger one: a pod with a shell and a\nruntime it can point at a definition it just wrote is a general execution\nenvironment, so the boundary it offers is the pod, not the `cli-run` allow list\ninside it. Do not grant it to a definition you do not trust.",
                         "type": "string"
                     },
                     "slug": {
@@ -1060,7 +1060,7 @@
                         "type": "string"
                     },
                     "icon": {
-                        "description": "Icon is a name from the editor's icon registry, or \"\" to go back to\nderiving one from the definition.",
+                        "description": "Icon is a chosen icon name, or \"\" to go back to deriving one from the\ndefinition.",
                         "type": "string"
                     }
                 },
