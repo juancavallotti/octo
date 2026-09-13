@@ -11,9 +11,9 @@ import "encoding/json"
 // containers need and nothing else.
 //
 // Anything off that contract (a Go struct, an int, a time.Time) falls back to a
-// JSON round-trip for that subtree alone. That both copies it and normalizes it
-// to the kinds the contract promises — numbers float64, objects map[string]any,
-// arrays []any — exactly as the whole body used to be handled.
+// JSON round-trip for that subtree alone, which both copies it and normalizes it
+// to the kinds the contract promises: numbers float64, objects map[string]any,
+// arrays []any.
 //
 // A value that will not round-trip either — a channel, a func — is handed back
 // as-is, so that part stays shared with the original. Losing the body would be

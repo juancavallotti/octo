@@ -189,15 +189,13 @@ func (m *Message) StopRequested() bool {
 }
 
 // Reported returns a copy of the message with the runtime's internal variables
-// removed: the shape to show a user. It is what a caller that serializes a whole
-// message for human eyes — `octo invoke`, the CLI's debug envelope — should print.
+// removed: the shape to serialize for human eyes.
 //
-// Those variables are bookkeeping between the engine and its blocks: the stop
-// flag a filter block sets to end the flow, the trace id tracing rides on.
-// Reporting a message as though it carried a variable the flow set itself would
-// be a lie, and in the trace id's case it would also be an unstable one, since
-// the variable is there only when tracing is on. Variables the flow really set
-// are untouched.
+// Those variables are bookkeeping between the engine and its blocks — the stop
+// flag that ends a flow, the trace id tracing rides on — so reporting them as
+// though the flow had set them would be a lie, and an unstable one for a variable
+// that is only there when tracing is on. Variables the flow really set are
+// untouched.
 //
 // It strips by prefix rather than by name so a new internal variable is covered
 // the moment it is named, instead of leaking until someone remembers this
@@ -317,19 +315,18 @@ func (m *Message) Clone() *Message {
 // a variable it sets cannot leak and a loop variable cannot escape, but both
 // messages read the same Body.
 //
-// That is what keeps mapping a collection linear in its size. In map mode the body
-// IS the collection, so deep-copying it per element copied the whole collection
-// once per element.
+// That is what keeps mapping a collection linear in its size: where the body IS
+// the collection, a deep copy per element would copy the whole collection once per
+// element.
 //
 // Sharing is invisible because Body is replace-only (see the field's doc): a block
 // rebinds Body on its own message and the other side never sees it. A block that
 // must mutate the body in place calls MutableBody first, which copies out. Both
 // messages are marked, so it does not matter which one mutates.
 //
-// Note that this marks the receiver too, which is unusual for a copying method: it
-// is what makes the sharing symmetric. Use Clone, not Scoped, whenever the copy
-// leaves this goroutine — sharing is only safe while one goroutine can touch
-// either side.
+// It marks the receiver as well as the copy, which is what makes the sharing
+// symmetric. Use Clone, not Scoped, whenever the copy leaves this goroutine:
+// sharing is only safe while one goroutine can touch either side.
 func (m *Message) Scoped() *Message {
 	scoped := m.shallow()
 	m.bodyShared = true
