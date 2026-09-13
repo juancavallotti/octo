@@ -1,9 +1,8 @@
 /**
- * Local-disk flow store for the standalone app: reads and writes `*.yaml` flow
- * definitions in a single configured directory (OCTO_FS_DIR, default `./flows`,
- * mounted as a volume in the Docker image). Flat — no folders — so the editor's
- * folder UI stays hidden. Filenames are validated to a single safe segment so a
- * tampered id can never escape the root.
+ * Local-disk flow store: reads and writes `*.yaml` flow definitions in a single
+ * configured directory (OCTO_FS_DIR, default `./flows`). Flat — no folders — and
+ * filenames are validated to a single safe segment, so a tampered id can never escape
+ * the root.
  *
  * The root is shared with two other modules, and each owns a disjoint slice of it:
  *
@@ -11,11 +10,8 @@
  *   testSuiteStore.ts    top-level `*_test.yaml` — the dolphin suites
  *   resourceStore.ts     everything else: subpaths, dotfiles, `.octo/`
  *
- * The test-file exclusion is this module's half of that split, and it mirrors the
- * runtime exactly: `octo` skips `*_test.yaml` when it loads a directory as a config
- * (runtime/core/runtime/config.go), which is what lets a suite live beside the flow it
- * tests. Without the same rule here, a suite would show up in the editor's folder
- * picker as an integration of its own.
+ * The test-file exclusion mirrors the runtime, which skips `*_test.yaml` when it loads
+ * a directory as a config — that is what lets a suite live beside the flow it tests.
  */
 
 import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -41,10 +37,7 @@ const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/;
 
 /**
  * A flow id without its extension — the name the editor shows and the runtime uses.
- *
- * Exported because the filesystem watcher needs exactly this rule and must not grow a
- * second copy of it: a watcher that knows about `.yaml` but not `.yml` silently stops
- * announcing half the files this store is happy to read.
+ * Exported so nothing grows a second copy of the rule.
  */
 export function nameOf(id: string): string {
   return id.replace(/\.ya?ml$/i, "");
@@ -57,11 +50,9 @@ export function isStoredFile(name: string): boolean {
 
 /**
  * Whether a filename is a dolphin test suite rather than a flow: `orders_test.yaml`
- * tests `orders.yaml`, the way `orders_test.go` tests `orders.go`.
- *
- * The rule is the runtime's — `IsTestFile` in runtime/core/runtime/config.go, which
- * strips the extension and looks for a `_test` suffix. Keep the two in step: the whole
- * arrangement rests on the editor and the runtime agreeing about which files are flows.
+ * tests `orders.yaml`, the way `orders_test.go` tests `orders.go`. The rule is the
+ * runtime's own — strip the extension, look for a `_test` suffix — and must stay in
+ * step with it.
  */
 export function isTestFile(id: string): boolean {
   return /_test$/i.test(nameOf(id));
@@ -76,11 +67,9 @@ export function isTestFile(id: string): boolean {
  */
 function resolveSafe(id: string): string {
   if (!ID_RE.test(id)) throw new Error("invalid file name");
-  // A test suite is not this store's to read or write. Excluding it from listFlows
-  // alone would leave the partition a convention that a hand-made id could step over —
-  // and the damaging direction is a write, which would silently overwrite a suite with
-  // a flow definition. slugify() already maps `_` to `-`, so no id minted here can land
-  // in this branch; it exists for the ones that were not minted here.
+  // A test suite is not this store's to read or write, and the damaging direction is
+  // a write: it would overwrite a suite with a flow definition. slugify() maps `_` to
+  // `-`, so only an id minted elsewhere reaches this branch.
   if (isTestFile(id)) throw new Error("not a flow: test suites are stored separately");
   const root = path.resolve(fsRoot());
   const full = path.resolve(root, id);
@@ -90,8 +79,8 @@ function resolveSafe(id: string): string {
 
 /**
  * Turn a display name into a safe filename stem. Collapsing every non-alphanumeric to
- * `-` is also what keeps a flow's own save out of the suite namespace next door:
- * `orders_test` slugs to `orders-test`, so it can never land on a `*_test.yaml`.
+ * `-` also keeps a save out of the suite namespace: `orders_test` slugs to
+ * `orders-test`, which can never be a `*_test.yaml`.
  */
 function slugify(name: string): string {
   return (

@@ -76,8 +76,7 @@ beforeEach(() => {
 });
 
 describe("runTest", () => {
-  // Two tabs of one browser must reach two runners — otherwise starting a suite in
-  // one tab tears down whatever the other had running.
+  // Two tabs of one browser must reach two runners.
   it("runs each tab against its own namespace", async () => {
     await runTest(TAB, req);
     await runTest("tab-b", req);
@@ -101,8 +100,7 @@ describe("runTest", () => {
     });
   });
 
-  // dolphin's exit code is a detail of how the run was made. The UI reasons about the
-  // tally, and a field that crosses a typed boundary should be a decision.
+  // dolphin's exit code is a detail of how the run was made; the verdict is the tally.
   it("does not leak the exit code to the browser", async () => {
     const result = await runTest(TAB, req);
 

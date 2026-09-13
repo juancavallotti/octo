@@ -14,12 +14,9 @@ import VaultChip from "./VaultChip";
    triggers (button, ⌘S, Enter in the rename field) share it. */
 
 /**
- * The standalone editor's top bar: the Octo mark and the desktop shell's folder
- * chip, the view tabs centred on it, and — on the right — Save (local-disk
- * filesystem) and the RUN control. No orchestrator, auth, or folders.
- *
- * The open file is named and renamed in the document bar below, next to the file
- * switcher, rather than by a title field up here.
+ * The editor's top bar: the Octo mark and the folder chip, the view tabs centred on
+ * it, and Save and the RUN control on the right. The open file is named and renamed in
+ * the document bar below, not here.
  */
 export default function StandaloneHeader() {
   return (

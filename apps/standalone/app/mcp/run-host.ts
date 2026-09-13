@@ -4,17 +4,12 @@ import { localRunner } from "@/app/run/localRunner";
 import { snapshot } from "@/app/run/session";
 
 /**
- * The standalone app's MCP run host: the in-process runner, which here is simply the
- * runner. This app IS the host — one process, one machine, the `octo` binary beside it —
- * so every operation is a local one.
+ * This app's MCP run host: one process, one machine, the `octo` binary beside it, so
+ * every operation is a local one. It is declared rather than defaulted to, so nothing
+ * can silently fall back to a runner in the wrong place.
  *
- * It is declared rather than defaulted to, and that is the point of the seam: the platform
- * runs an integration in a pod of its own, and a port that fell back to this module would
- * hand it a runner in the wrong place with nothing to say so.
- *
- * Of the run key, only the namespace is read. A local run is a child of this process keyed
- * by the MCP session, so the integration and the caller name nothing here — there is no
- * second user to be separated from, and nothing outlives the machine.
+ * Of the run key, only the namespace is read: a run here is a child of this process
+ * keyed by the MCP session, and nothing outlives the machine.
  */
 export const localMcpRunHost: RunHostPort = {
   binaries,

@@ -6,19 +6,14 @@ import { publish } from "@octo/events";
 import { fsRoot, isStoredFile, isTestFile, nameOf } from "./store";
 
 /**
- * Noticing that somebody else changed a flow file.
+ * Noticing that somebody else changed a flow file — a coding agent editing the YAML
+ * directly, a `git checkout`, another program — which is the common case here: the
+ * folder is plain files other tools work on. Writes through this app's own endpoints
+ * publish for themselves and need no watcher.
  *
- * The MCP store adapter publishes when an agent writes through the editor's own
- * endpoint, and that path has always worked. What it cannot see is every other way a
- * file changes: a coding agent editing the YAML directly, a `git checkout`, the user
- * in another program. Those are the common case for this app — the whole premise is
- * that the folder is plain files somebody else's tools can work on — and they were
- * structurally invisible until this. The editor stayed on what it loaded until it was
- * quit and reopened.
- *
- * The watcher is started by the SSE route, so it runs only while an editor is
- * actually listening, and it lives on `globalThis` so Next's per-route module
- * instances and dev HMR share the one watcher rather than accumulating them.
+ * Started by the SSE route, so it runs only while something is listening, and kept on
+ * `globalThis` so per-route module instances and dev HMR share one watcher rather than
+ * accumulating them.
  */
 
 /** Writes arrive in bursts — a truncate then a write, or a write then a rename. */
@@ -29,13 +24,9 @@ interface WatchState {
   /** Pending per-file debounce timers. */
   timers: Map<string, NodeJS.Timeout>;
   /**
-   * The digest of what we last saw for each file, seeded by every write this app
-   * makes (see {@link noteWritten}).
-   *
-   * This is what keeps the editor from being told about its own save. Without it a
-   * save publishes an event, the editor that saved has an edited document, and
-   * IntegrationLoader correctly concludes the file changed under a dirty editor —
-   * showing the "updated elsewhere" banner to the person who just pressed Save.
+   * The digest of what we last saw for each file, seeded by every write this app makes
+   * (see {@link noteWritten}). It is what keeps a save from being announced back as an
+   * outside change.
    */
   digests: Map<string, string>;
 }
@@ -60,11 +51,8 @@ export function noteWritten(id: string, content: string): void {
 }
 
 /**
- * Whether a filename is one the editor opens.
- *
- * Asked of the store rather than answered here, so the watcher cannot come to disagree
- * with it about which files exist — `.yml` is as much a flow as `.yaml`, and a watcher
- * that only knew the longer spelling would leave those files silently stale.
+ * Whether a filename is one the editor opens. Asked of the store rather than answered
+ * here, so the two cannot disagree about which files exist.
  */
 function isFlowFile(name: string): boolean {
   return isStoredFile(name);

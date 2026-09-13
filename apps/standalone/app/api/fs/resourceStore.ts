@@ -1,13 +1,11 @@
 /**
- * Local-disk resource store for the standalone app: reads and writes an
- * integration's resources (env files, templates) under the flows directory
- * (OCTO_FS_DIR), the same root the standalone runtime loads them from. Separate
- * from the flow store (`store.ts`), which only handles single-segment `*.yaml`
- * filenames: resources are path-like — `.env.dev`, `templates/welcome.tmpl` — so
- * this permits subpaths and dotfiles while still refusing to escape the root.
+ * Local-disk resource store: reads and writes an integration's resources (env files,
+ * templates) under the flows directory (OCTO_FS_DIR), the same root the runtime loads
+ * them from. Separate from the flow store, which handles single-segment `*.yaml`
+ * names only: resources are path-like — `.env.dev`, `templates/welcome.tmpl` — so this
+ * permits subpaths and dotfiles while still refusing to escape the root.
  *
- * Standalone resource storage is flat and shared across flows (there is no
- * per-integration partition on local disk), so these are addressed by name alone.
+ * Storage is flat and shared across flows, so resources are addressed by name alone.
  */
 
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";

@@ -1,12 +1,9 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * Renders every gallery sample in the real editor and captures a full-editor
- * viewport screenshot — showing the component palette, the flow on the canvas,
- * and the settings panel together. Each PNG is served by the docs site
- * (apps/docs/public/screenshots/sample-<id>.png). Run with `npm run
- * screenshots` (boots the editor with SSO disabled via playwright.config.ts).
- * See docs/SCREENSHOTS.md.
+ * Renders every gallery sample in the real editor and captures a full-editor viewport
+ * screenshot — palette, canvas and settings panel together. Run with
+ * `npm run screenshots`; see docs/SCREENSHOTS.md.
  */
 
 // docs image id (the image name) -> samples/<file>.yaml

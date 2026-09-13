@@ -2,19 +2,14 @@ import { defineConfig, devices } from "@playwright/test";
 import path from "node:path";
 
 /**
- * Playwright config for the docs screenshot harness (pnpm run screenshots).
+ * Playwright config for the screenshot harness (pnpm run screenshots): boots this
+ * app's dev server and drives the /preview route.
  *
- * It boots the standalone editor dev server and drives the /preview route, which
- * renders a repo sample on a pure editor canvas — no auth, no orchestrator, so
- * there is no sign-in wall to clear.
+ * OCTO_BIN_PATH is exported here because the server is launched directly rather than
+ * through the Taskfile, and /preview probes that binary for the capability schema —
+ * without it the palette renders empty.
  *
- * The dev server is launched directly (not via the root Taskfile), so we export
- * OCTO_BIN_PATH here to point at the built `octo` binary. The /preview route
- * probes it for the runtime capability schema; without it the palette falls back
- * to the empty bundled JSON and the screenshots come out with an empty palette.
- *
- * Shots render at 1440x900 with deviceScaleFactor 2 so the PNGs are crisp on the
- * landing page. Outputs land in apps/docs/public/screenshots/.
+ * Shots render at 1440x900 with deviceScaleFactor 2 so the PNGs stay crisp.
  */
 const OCTO_BIN_PATH =
   process.env.OCTO_BIN_PATH ??

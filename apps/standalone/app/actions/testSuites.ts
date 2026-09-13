@@ -1,14 +1,12 @@
 "use server";
 
 /**
- * Server actions backing the Testing tab (standalone). A dolphin suite is a real
- * `<flow>_test.yaml` on disk beside the flows, under OCTO_FS_DIR — unlike
- * `.octo/editor-meta.json` next door, which is undeclared design-time scratch. A suite
- * is meant to be committed and run from a terminal, which is what makes the tab's
- * verdict worth anything.
+ * Server actions backing the Testing tab. A dolphin suite is a real `<flow>_test.yaml`
+ * on disk beside the flows, under OCTO_FS_DIR — a committable file that `dolphin test`
+ * runs from a terminal, not editor scratch.
  *
- * Standalone storage is flat and shared across flows, so the integration id the editor
- * passes is not used: the flow name identifies the suite within the directory.
+ * Storage is flat and shared across flows, so the integration id goes unused: the flow
+ * name identifies the suite within the directory.
  */
 
 import type { ActionResult } from "@octo/http";

@@ -10,13 +10,10 @@ vi.mock("node:child_process", () => ({
 import { GET } from "./route";
 
 /**
- * The health route's whole value is that it is cheap and unconditional: the desktop
- * shell polls it while the window is still a splash screen, and treats a non-OK
- * answer as "the server never came up". So the two things worth pinning are that it
- * answers OK with nothing configured, and that it does not become a slow route by
- * accident — a future edit that made it touch the runner would be invisible in
- * manual testing and only show up as a desktop app that takes 30s to launch on a
- * machine without a runner.
+ * The health route's whole value is that it is cheap and unconditional. Two things
+ * worth pinning: it answers OK with nothing configured, and it never grows a
+ * dependency on the runner — an edit that did would pass manual testing and only show
+ * up as a slow start on a machine without one.
  */
 describe("GET /api/health", () => {
   it("answers ok", async () => {

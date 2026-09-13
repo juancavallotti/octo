@@ -4,17 +4,13 @@ import type { Capabilities } from "@octo/editor";
 import PreviewEditor from "@/app/components/PreviewEditor";
 
 /**
- * Dev-only preview route: `/preview?sample=<name>` renders a repo sample on the
- * editor canvas (loaded client-side by PreviewLoader from /api/preview-sample),
- * with neither a filesystem nor a run capability — so it's a pure read-only
- * editor (no Save, no RUN). Used by the Playwright screenshot harness to capture
- * how flows look. Returns 404 in production builds.
+ * Dev-only preview route: `/preview?sample=<name>` renders a repo sample on the editor
+ * canvas with neither a filesystem nor a run capability, so nothing can be saved or
+ * run. Returns 404 in production builds.
  *
- * The capability schema is probed from the bundled `octo` binary (`octo schema`)
- * and injected into the client editor, so the palette renders its real blocks;
- * when no runner is configured this resolves to null and the editor falls back
- * to its bundled JSON (an empty palette). The screenshot harness sets
- * OCTO_BIN_PATH so the palette is populated in the shots.
+ * The capability schema is probed from the `octo` binary and injected into the client
+ * editor, so the palette renders its real blocks; with no runner configured it
+ * resolves to null and the editor falls back to an empty bundled palette.
  */
 export default async function PreviewPage({
   searchParams,

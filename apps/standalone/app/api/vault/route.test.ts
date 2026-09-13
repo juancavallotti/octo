@@ -3,12 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GET } from "./route";
 
 /**
- * The vault route reports the store root, and the one behaviour worth pinning is
- * that it reads OCTO_FS_DIR *per request* rather than at import time. The desktop
- * shell restarts the whole server to switch vaults, so a cached root would be
- * correct there by accident — but the Docker image and `task dev` both set the
- * variable before the process starts, and a reader tempted to hoist `fsRoot()` into
- * a module constant would break the one deployment that changes it.
+ * The vault route reports the store root, and the behaviour worth pinning is that it
+ * reads OCTO_FS_DIR per request rather than at import time: hoisting `fsRoot()` into a
+ * module constant would serve a stale name to anything that changes the variable.
  */
 const saved = process.env.OCTO_FS_DIR;
 

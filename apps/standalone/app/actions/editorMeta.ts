@@ -1,24 +1,22 @@
 "use server";
 
 /**
- * Server actions backing the editor's meta file (standalone). `.octo/editor-meta.json`
- * holds design-time bookkeeping — today the saved test inputs a flow can be run with —
- * and lives under the flows directory (OCTO_FS_DIR), beside the flows it describes.
+ * Server actions backing the editor's meta file. `.octo/editor-meta.json` holds
+ * design-time bookkeeping — today the saved test inputs a flow can be run with — under
+ * the flows directory (OCTO_FS_DIR), beside the flows it describes.
  *
- * It is deliberately *undeclared*: no config references it, so run-host never stages it
- * into a run, and `listResources()` skips dot-directories, so it never shows up in the
- * Resources view. Standalone storage is flat and shared across flows, so one file
- * describes the whole directory and the integration id the editor passes is ignored.
+ * It is undeclared: no config references it, so it is never staged into a run, and
+ * `listResources()` skips dot-directories, so it never shows up as a resource. Storage
+ * is flat, so one file describes the whole directory and the integration id is ignored.
  */
 
 import type { ActionResult } from "@octo/http";
 import { readResource, writeResource } from "../api/fs/resourceStore";
 
 /**
- * The meta resource name (mirrors the editor's EDITOR_META_RESOURCE). Inlined rather
+ * The meta resource name, mirroring the editor's EDITOR_META_RESOURCE. Inlined rather
  * than imported: the editor's barrel is a tree of "use client" components, and pulling
- * it into a server action drags React client code across the boundary. The dev-env
- * store inlines `.env.dev` for the same reason.
+ * it into a server action drags React client code across the boundary.
  */
 const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
 

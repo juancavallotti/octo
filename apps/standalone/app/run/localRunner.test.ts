@@ -5,9 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { localRunner, start, stop, sync } from "./localRunner";
 import { currentConfigPath, snapshot, status } from "./session";
-// The one-shot is here for the single case that proves it leaves a long-running run alone —
-// the property that lets it live in @octo/run-host while the runner lives here. It can only
-// be checked where both halves exist, which is this app and not the package.
+// The one-shot is here for the single case that proves it leaves a long-running run
+// alone, which can only be checked where both halves exist.
 import { invoke } from "@octo/run-host";
 import {
   allocateAdminPort,
@@ -129,9 +128,8 @@ describe("local runner", () => {
     expect(started.port).toBeNull();
   });
 
-  // The runtime's observability service binds a fixed :39999 by default, which a
-  // second run on this host would fight over. Every run gets an admin port of its
-  // own — internal-only ones too, since probes do not need an HTTP source.
+  // The runtime's observability service binds a fixed :39999 by default, so every run
+  // gets an admin port of its own — internal-only ones too.
   it("gives every run its own admin port, released when it stops", async () => {
     process.env.OCTO_BIN_PATH = await fakeBin(
       dir,
@@ -217,12 +215,9 @@ describe("local runner", () => {
     }
   });
 
-  // Two Run clicks land as two overlapping start() calls. They must be serialized per
-  // namespace: without the lock the second start tears down and re-stages before the
-  // first has recorded its child, both octo processes spawn, and the loser is orphaned
-  // with its HTTP and admin ports never released (its exit handler sees a different
-  // s.proc and frees nothing). Prove the pools are net-zero across two racing starts and
-  // one stop — a leak would strand a port for the life of the editor.
+  // Two overlapping start() calls must be serialized per namespace: unserialized, both
+  // octo processes spawn and the loser is orphaned with its ports never released. The
+  // check is that both pools are net-zero across two racing starts and one stop.
   it("serializes overlapping starts so a race orphans no run and leaks no port", async () => {
     process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-sleep", "echo ready\nsleep 5");
     const yaml =
@@ -315,9 +310,8 @@ describe("local runner", () => {
     });
   });
 
-  // The AppRunner surface, which is what a remote backend will also have to satisfy.
-  // Only the log stream is genuinely new here — status/start/stop/sync delegate to the
-  // functions the tests above already cover.
+  // The AppRunner surface. Only the log stream is new here — status/start/stop/sync
+  // delegate to the functions the tests above cover.
   describe("log stream", () => {
     const key = { namespace: NS };
 

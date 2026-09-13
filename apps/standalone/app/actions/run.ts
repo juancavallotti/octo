@@ -1,20 +1,16 @@
 "use server";
 
 /**
- * Server actions for the editor's RUN feature (standalone). They drive this app's own
- * runner directly (no HTTP, no auth — local-only), keyed by the calling tab's run
- * namespace. The live log stream stays an SSE route (`/api/run/logs`), which resolves the
- * same namespace from the same two halves.
+ * Server actions for the editor's RUN feature. They drive this app's own runner
+ * directly — no HTTP, no auth — keyed by the calling tab's run namespace, which the
+ * SSE log route resolves the same way.
  *
- * The long-running app comes from `../run/localRunner`, which this app owns: it spawns
- * `octo run --watch` as a child of this very process, and nothing else runs that way. The
- * one-shots and the binary probes come from @octo/run-host, which both hosts share because
- * both run them identically.
+ * The long-running app comes from `../run/localRunner`, which spawns `octo run --watch`
+ * as a child of this process; the one-shots and binary probes come from @octo/run-host.
  *
  * Every action leads with `tabId`, the browser half of that namespace (see
- * `../run/namespace`). It is a separate parameter rather than a field on the
- * request objects because those types belong to @octo/editor, which has no business
- * knowing how a host keys its runners.
+ * `../run/namespace`), as a parameter rather than a field on the request objects: those
+ * types know nothing about how a host keys its runners.
  */
 
 import {
@@ -120,9 +116,8 @@ export async function runEvalCel(
  * (`{event_id, variables, body}`); `breakAt` halts the flow at a block and reports the
  * message as it looked there instead.
  *
- * Manual runs are quiet: LOG_LEVEL=error, so the runner's own startup chatter stays
- * out of the way and only real failures come back in `logs` (which the Problems tab
- * shows). That is a policy of the host, not of the caller.
+ * Manual runs are quiet — LOG_LEVEL=error — so only real failures come back in
+ * `logs`. That is this host's policy, not the caller's.
  */
 export async function runInvoke(
   tabId: string,
@@ -170,14 +165,12 @@ export async function runInvoke(
 }
 
 /**
- * Run a flow's dolphin suites — the Testing tab's Run.
+ * Run a flow's dolphin suites.
  *
- * The suites come in the request rather than being read off disk, so the tab runs the
- * edit in front of the user; `runInvoke` takes `yaml` for the same reason.
- *
- * The outcome is copied field by field rather than spread. run-host's own result carries
- * dolphin's exit code, which is a detail of how the run was made and not something the
- * UI should reason about — the verdict is the tally.
+ * The suites come in the request rather than off disk, so what runs is the unsaved
+ * edit; `runInvoke` takes `yaml` for the same reason. The outcome is copied field by
+ * field rather than spread, so dolphin's exit code stays out of the answer: the
+ * verdict is the tally.
  */
 export async function runTest(
   tabId: string,

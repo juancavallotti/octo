@@ -3,11 +3,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 /**
- * Dev-only loader for the repo's `samples/*.yaml` flows, used by the `/preview`
- * route and the Playwright screenshot harness (see editor/e2e/screenshots.spec.ts).
- * It reads a sample definition off disk so the editor can render it without an
- * orchestrator. Disabled in production builds — it must never expose the
- * filesystem in a deployed editor.
+ * Dev-only loader for the repo's `samples/*.yaml` flows, serving a sample definition
+ * off disk for the `/preview` route. Disabled in production builds: it must never
+ * expose the filesystem in a deployed editor.
  *
  *   GET /api/preview-sample?name=ai-router  ->  text/yaml
  */

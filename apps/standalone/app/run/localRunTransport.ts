@@ -1,18 +1,15 @@
 /**
- * The standalone transport: drives the RUN server actions (`app/actions/run.ts`,
- * backed by @octo/run-host spawning the bundled `octo` binary) and streams logs
- * over SSE. The log stream stays an EventSource — server actions can't back
- * streaming — pointed at the surviving `/api/run/logs` route.
+ * This app's transport: drives the RUN server actions in `app/actions/run.ts` and
+ * streams logs from `/api/run/logs`. The log stream stays an EventSource because a
+ * server action cannot back streaming.
  *
- * Every call carries this tab's id, which the server mixes with the run cookie to
- * pick the tab's own runner. `runTabId()` is called inside each method rather than
- * once at module scope: this module is imported by a client component that is still
- * server-rendered, where there is no sessionStorage to read.
+ * Every call carries this tab's id, which the server mixes with the run cookie to pick
+ * the tab's own runner. `runTabId()` is called inside each method rather than at module
+ * scope: this module is imported by a client component that is still server-rendered,
+ * where there is no sessionStorage to read.
  *
- * The contract's run target is deliberately unused: a run here is a child process
- * of this very process, keyed by the browser tab that asked for it, so the open
- * integration names nothing. `start`/`sync` take the integration only where it decides
- * which resources to stage, and standalone reads those from the workspace instead.
+ * The contract's run target goes unused: a run here is keyed by the browser tab that
+ * asked for it, and resources are read from the workspace.
  */
 
 import { runTabId } from "@octo/editor";

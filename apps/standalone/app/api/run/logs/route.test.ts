@@ -5,13 +5,8 @@ import { GET } from "./route";
 
 /**
  * The log stream is the one part of RUN that cannot send its tab id as an argument —
- * an EventSource sets no headers — so it rides in the query string. That plumbing is
- * exactly the kind that breaks quietly: the stream still opens, it just replays the
- * wrong tab's buffer.
- *
- * Deliberately a mirror of the platform's route test. The two routes are copies of
- * each other, and a copy is exactly what drifts — a test on only one of them would
- * not notice.
+ * an EventSource sets no headers — so it rides in the query string. That plumbing
+ * breaks quietly: the stream still opens, it just replays the wrong tab's buffer.
  */
 
 type SessionStore = { __octoRunSessions?: Map<string, unknown> };

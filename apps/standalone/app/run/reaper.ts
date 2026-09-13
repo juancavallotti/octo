@@ -2,12 +2,10 @@ import { stop } from "./localRunner";
 import { allSessions } from "./session";
 
 /**
- * Idle-run reaper. A namespaced run holds an octo process and a pooled port; with
- * many users we can't keep them forever. This sweeps every namespace that has seen
- * no activity within a rolling one-hour window, stopping its process and freeing
- * its port. The window is renewed by any manager call (see session()), so an editor
- * that is being used — even just hot-reload syncs — never ages out; only a tab
- * left idle does. SSE keepalive pings are server→client only and don't renew it.
+ * Idle-run reaper: a namespaced run holds an octo process and a pooled port, so a
+ * namespace with no activity within a rolling one-hour window is stopped and its port
+ * freed. Any manager call renews the window (see session()), so only a genuinely idle
+ * run ages out; SSE keepalive pings are server-to-client and renew nothing.
  */
 
 /** Rolling inactivity window before a run is stopped and cleared. */
