@@ -11,9 +11,8 @@
 // recompute — which is precisely the line the volatile tier does not cross. The one
 // condition that fires without a message arriving — the timeout — needs a timer
 // instead, and that timer is gated on core.LeaderElection so a group is reaped
-// once per cluster rather than once per replica. Both services behave correctly
-// in the standalone module too (an in-process map and a permanent leader), so
-// there is no second code path for single-process runs.
+// once per cluster rather than once per replica. Both services answer correctly
+// in a single process too, so there is no second code path for it.
 package controlflow
 
 import (
@@ -720,9 +719,7 @@ func (a *aggregate) accumulate(msg *types.Message, state *groupState) (any, erro
 // A message from a split carries its position, and is put there rather than on
 // the end. Elements run concurrently and finish in whatever order their work
 // takes, so appending on arrival would re-join a split into a different order
-// every run — the same input yielding a differently-shuffled array each time.
-// The position is already on the message; honoring it costs nothing and makes
-// the result deterministic.
+// every run.
 //
 // A message with no position — events batched off a source, which were never a
 // collection to begin with — is appended, since arrival is the only order it

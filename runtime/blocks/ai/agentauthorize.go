@@ -1,25 +1,15 @@
 // A person in the loop of a tool call.
 //
-// Every other boundary an agent has is structural: a method allowlist, a tool a
-// block does not hold, a specialist reachable only by a deliberate delegation.
-// Those work because a model cannot talk its way past a thing that is not
-// configured. What they cannot express is a rule about an *argument* — the
-// difference between "this tool is a GET" and "this call is a PUT" — and once
-// untrusted text can reach the conversation, that difference is where the danger
-// is. A page excerpt can carry instructions; the prompt that says to ignore them
-// is not a boundary.
+// A structural boundary — an allowlist, a tool a block does not hold — cannot
+// express a rule about an *argument*, which is where the danger is once untrusted
+// text can reach the conversation. This is the gate a model cannot answer: the run
+// stops, says what it is about to do and with which arguments, and waits for
+// somebody to allow it. The answer arrives as a second invocation on the same
+// conversation, handed to the run in flight.
 //
-// So this is the gate a model cannot answer: the run stops, says what it is about
-// to do and with which arguments, and waits for somebody to allow it. The answer
-// arrives the way a steer does — a second invocation on the same conversation,
-// handed to the run in flight — because that path already exists and already
-// answers "somebody took this" as a fact rather than a timeout.
-//
-// It cannot wait forever. A panel gets closed and a person walks away, and a run
-// parked on a tool call is billed for nothing. Every way of not being allowed
-// ends the same: a denial as the tool's own result, so the run carries on and the
-// model is told plainly that the call was refused rather than left to interpret a
-// hang.
+// It cannot wait forever, and every way of not being allowed ends the same: a
+// denial as the tool's own result, so the run carries on and the model is told the
+// call was refused rather than left to interpret a hang.
 package ai
 
 import (

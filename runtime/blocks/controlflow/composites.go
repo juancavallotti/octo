@@ -288,11 +288,9 @@ func (f *foreachBlock) Process(ctx context.Context, msg *types.Message) (*types.
 // Each element runs on its own scope, so the elements are independent: one
 // iteration's variables cannot leak into the next, and the loop variable never
 // escapes. The scopes share the incoming body rather than each copying it, which
-// is what keeps the loop linear in the size of the collection: in map mode the
-// body is usually the collection itself, so a copy per element copied all n
-// elements n times. Sharing is safe because a body is replace-only — an iteration
-// that sets a body rebinds its own scope's, leaving every later iteration to start
-// from the original.
+// keeps the loop linear in the size of the collection. Sharing is safe because a
+// body is replace-only: an iteration that sets a body rebinds its own scope's,
+// leaving every later iteration to start from the original.
 //
 // The array is positional — as many elements out as in — so an iteration whose
 // body drops the message contributes a null rather than shortening the array or

@@ -379,9 +379,9 @@ func (m *mcpRouter) initialize(req jsonrpcRequest) jsonrpcResponse {
 // supported otherwise.
 //
 // The last case is the one that matters: echoing back a version the router has
-// never heard of — which is what it used to do — is a false agreement, and worse
-// than a mismatch. Answering with a version the router does speak lets a client
-// that cannot read it disconnect rather than proceed on the lie.
+// never heard of is a false agreement, and worse than a mismatch. Answering with a
+// version the router does speak lets a client that cannot read it disconnect
+// rather than proceed on the lie.
 func negotiateProtocolVersion(requested string) string {
 	switch requested {
 	case "":

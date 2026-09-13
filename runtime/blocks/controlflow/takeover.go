@@ -18,7 +18,7 @@ import (
 // hashedKey reduces an arbitrary string to a bounded, path-safe KV key. Both the
 // user-supplied halves of a stored key — a cache key expression's result, an
 // aggregate group's correlation value — go through it, because a KV backend may
-// put the key in a URL path (the k8s module's API does).
+// put the key in a URL path.
 func hashedKey(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])

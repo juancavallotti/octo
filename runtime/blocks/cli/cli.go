@@ -189,17 +189,13 @@ func buildCommand(cfg cliRunSettings) (*command, error) {
 // buildAllowList resolves the programs this block may run, or reports nil for a
 // block that may run anything.
 //
-// An empty list means no restriction, and that is the deliberate default:
-// requiring one to run a command you spelled out two lines above is ceremony,
-// and it makes the block clumsy for exactly the local, iterative work it is most
-// useful for.
+// An empty list means no restriction, which is the default.
 //
-// What it costs is worth naming. A block with no list whose program comes from
-// the message will run whatever it is handed — which is fine when the caller is
-// the flow author at a terminal, and is remote code execution when the caller is
-// the internet. That combination gets a warning at build time, so the answer
+// The cost is worth naming: a block with no list whose program comes from the
+// message will run whatever it is handed, which is remote code execution as soon
+// as the message is untrusted. That combination warns at build time, so the answer
 // arrives at startup rather than in a postmortem; a constant program stays quiet,
-// because it can only ever run the one thing.
+// since it can only ever run the one thing.
 //
 // Every entry is resolved the same way the program will be, so a list may be
 // written as bare names, absolute paths, or a mix. An entry that resolves to

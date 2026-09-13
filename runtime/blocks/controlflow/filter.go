@@ -48,9 +48,8 @@ func applyReject(
 
 // buildOnReject compiles a filter block's optional onReject sub-flow. It returns
 // nil (use the built-in default response) when the slot is absent or carries no
-// steps — the editor seeds an empty sub-flow into every composite slot, so an
-// empty onReject must read as "unset" rather than an empty flow that suppresses
-// the default.
+// steps: a composite slot can be seeded empty, so an empty onReject must read as
+// "unset" rather than as a flow that suppresses the default.
 //
 //nolint:ireturn // the seam returns the MessageProcessor interface
 func buildOnReject(deps core.BlockDeps, cfg *types.FlowConfig) (core.MessageProcessor, error) {
