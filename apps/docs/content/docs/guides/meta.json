@@ -10,6 +10,7 @@
     "splitting-and-aggregating",
     "validation-and-auth",
     "verifying-webhooks",
+    "encrypting-data",
     "composing-flows",
     "debugging-flows",
     "[Testing](/testing)",

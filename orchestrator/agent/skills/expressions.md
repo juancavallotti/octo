@@ -38,7 +38,12 @@ A **source payload** expression runs before any message exists, so it sees only
 | `hmacSha1` | `hmacSha1(dyn, dyn) -> bytes` | The same with SHA-1, for legacy schemes only. |
 | `hexEncode` | `hexEncode(dyn) -> string` | Render bytes as lowercase hex. |
 | `secureCompare` | `secureCompare(dyn, dyn) -> bool` | Constant-time compare. Always use it for signatures — `==` leaks the match length via timing. |
+| `toAes` | `toAes(dyn, dyn) -> bytes` | Encrypt with AES-GCM. The key is 16, 24 or 32 bytes and its length selects AES-128/192/256; the result carries its own nonce, so it differs every time. Render with `base64.encode` or `hexEncode`. |
+| `fromAes` | `fromAes(dyn, dyn) -> bytes` | Decrypt what `toAes` produced. Wrap in `string()` for text. Authenticated, so a wrong key or an altered value fails the expression instead of decoding to garbage. |
+| `toChacha` / `fromChacha` | `(dyn, dyn) -> bytes` | The same with ChaCha20-Poly1305, which takes a 32-byte key. Not interchangeable with the AES pair. |
 | `uuid` | `uuid() -> string` | A random v4 UUID: correlation ids, idempotency keys, a synthetic id for a record without one. Non-deterministic like `now`, so a trace replay does not reproduce it — and never for `memoryThreadId`, which is evaluated once per run, so a minted thread saves a transcript nobody will read. |
+
+A CEL function cannot reach a connector, so an encryption key is always an argument: `base64.decode(env.CRYPTO_KEY)`, never a literal. Pass a base64 key without decoding it and its text becomes the key. Where the key should stay out of the flow file entirely, or where the algorithm is asymmetric, use the `crypto` connector and the `encrypt`/`decrypt` blocks instead.
 
 ## Standard libraries available
 

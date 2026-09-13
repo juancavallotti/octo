@@ -475,6 +475,77 @@ lengths, which is fine: for a fixed-width digest they are equal anyway.
   attacker can submit repeatedly and observe the timing of.
 </Callout>
 
+### toAes
+
+```
+toAes(dyn, dyn) -> bytes
+```
+
+Encrypts a value with AES-GCM under a key, returning the sealed bytes. They carry
+their own nonce, so nothing has to be stored beside them, and sealing the same
+plaintext twice gives different bytes — equal ciphertexts would leak that the
+values were equal.
+
+The key is 16, 24 or 32 bytes, and its length is what selects AES-128, AES-192 or
+AES-256. Rendering is a separate step, the same split `hmacSha256` uses, so the
+result goes through `base64.encode` or `hexEncode` before it travels.
+
+```bash
+bin/octo eval --expr 'base64.encode(toAes("078-05-1120", "0123456789abcdef0123456789abcdef"))'
+```
+
+### fromAes
+
+```
+fromAes(dyn, dyn) -> bytes
+```
+
+Reverses `toAes`. The result is bytes: wrap it in `string()` for text, and
+`fromJson(string(...))` to get a structured value back.
+
+AES-GCM is authenticated, so a value sealed under a different key, or altered
+since it was sealed, fails the expression rather than decoding into something
+plausible. That failure fails the block, which is the right default — guard it
+with a [validate](/reference/blocks/control-flow#validate) rule where the
+ciphertext arrives from outside.
+
+```yaml
+- type: set-payload
+  settings:
+    value: 'fromJson(string(fromAes(base64.decode(body.sealed), base64.decode(env.CRYPTO_KEY))))'
+```
+
+### toChacha
+
+```
+toChacha(dyn, dyn) -> bytes
+```
+
+The same as `toAes` with ChaCha20-Poly1305, which takes a 32-byte key and nothing
+else. Choose it where AES has no hardware acceleration, or where a counterparty
+asked for it; otherwise `toAes` is the default.
+
+### fromChacha
+
+```
+fromChacha(dyn, dyn) -> bytes
+```
+
+Reverses `toChacha`. The two algorithms are not interchangeable: opening AES-GCM
+bytes with `fromChacha` fails, as it should.
+
+<Callout type="warn">
+  The key is an argument because a CEL function cannot reach a connector — it
+  sees only what it is passed. Write it as `env.CRYPTO_KEY`, never as a literal
+  in a flow file, and remember that a key held as base64 has to be
+  `base64.decode`'d first: pass it without decoding and its *text* becomes the
+  key, which is both wrong and, at 44 characters, not a valid length anyway.
+</Callout>
+
+For asymmetric encryption, or to keep the key out of the flow file entirely, use
+the [crypto connector](/reference/connectors/crypto) and its `encrypt`/`decrypt`
+blocks instead.
+
 <Callout type="warn">
   `templateResource` needs a loaded config to resolve resources, so it cannot
   be exercised with standalone `octo eval`, where any id reports
