@@ -27,12 +27,11 @@ const envelopeFileMode = 0o600
 // codes. An unresolvable address is not reported here at all; it is a bad request and
 // exits non-zero.
 //
-// Reached is a *bool, and that is load-bearing. It is what identifies a break outcome
-// to a consumer — run-host sniffs for a boolean `reached` to tell the envelope from a
-// plain result body — so it must marshal as `false` on a breakpoint that was never
-// hit (a normal result: the message may simply have taken a branch the block is not
-// on), and be *absent* when there was no breakpoint at all, so a spies-only envelope
-// is not mistaken for one. A plain bool could not say both.
+// Reached is a *bool, and that is load-bearing: it is what identifies a break
+// outcome, so it must marshal as `false` on a breakpoint that was never hit (a
+// normal result — the message may simply have taken a branch the block is not on)
+// and be *absent* when there was no breakpoint at all, so a spies-only envelope is
+// not mistaken for one. A plain bool could not say both.
 type debugOutcome struct {
 	Reached *bool          `json:"reached,omitempty"`
 	Block   string         `json:"block,omitempty"`

@@ -75,16 +75,11 @@ type Case struct {
 	// Input is either the name of a shared input or an inline one.
 	Input CaseInput `yaml:"input" json:"input"`
 	// Mocks override the file's, per address and whole-spec. Replacing rather than
-	// merging case by case is the same rule `octo invoke` uses for a flag over a debug
-	// config section: a mock a case declares says exactly what that block will do,
-	// without the reader having to hold the file's version in their head too.
+	// merging means a mock a case declares says exactly what that block will do,
+	// without the reader holding the file's version in their head too.
 	//
-	// A null — `some.block: null` — is the other direction: it REMOVES the file's mock
-	// for that address, so this one case runs the real block. Every suite that mocks a
-	// block in all but one case needs it; without it, the file-level `mocks:` has to be
-	// dropped and repeated on each case, which is the duplication it exists to remove.
-	// Spelled as a null rather than a second `unmock:` key so that what an address does
-	// in a case is still said in one place. The pointer is what makes the null
+	// A null — `some.block: null` — REMOVES the file's mock for that address, so this
+	// one case runs the real block. The pointer is what makes that null
 	// distinguishable from `{}`, which decodes to a zero spec and means nothing.
 	Mocks map[string]*core.MockSpec `yaml:"mocks" json:"mocks"`
 	// Env overrides the file's, per VARIABLE — not whole-map like Mocks, because a
