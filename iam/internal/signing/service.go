@@ -26,9 +26,7 @@ const (
 	// DefaultKeyLifetime is how long a key signs before a new one takes over.
 	DefaultKeyLifetime = 30 * 24 * time.Hour
 
-	// signingAlgorithm is ES256 for every key. One algorithm rather than a
-	// setting: a second would have to be verifiable everywhere the first is, for
-	// no gain that anyone has asked for.
+	// signingAlgorithm is ES256 for every key; it is not configurable.
 	signingAlgorithm = string(jose.ES256)
 )
 
@@ -62,17 +60,14 @@ type Service struct {
 	now func() time.Time
 }
 
-// NewService returns a Service backed by repo. An issuer or audience that is not
-// set is refused here rather than producing tokens no one can check: `iss` is
-// what a verifier matches against the discovery document it fetched, so an empty
-// one is a token that fails at the far end for a reason nothing here would report.
+// NewService returns a Service backed by repo. An unset issuer or audience is
+// ErrInvalidConfig rather than tokens that fail at the far end for a reason
+// nothing here reports.
 func NewService(repo repository, cfg Config) (*Service, error) {
-	// A trailing slash is trimmed rather than accepted, because the issuer is used
-	// three ways that have to agree byte for byte: it is the `iss` claim, it is
-	// what the discovery document reports, and it is the base jwks_uri is built
-	// on. "https://iam.example/" would advertise a doubled slash in the URI and
-	// stamp the slash into every token, and a verifier comparing `iss` against its
-	// own configured issuer would reject them for a reason nothing names.
+	// The issuer is used three ways that have to agree byte for byte: the `iss`
+	// claim, what the discovery document reports, and the base jwks_uri is built
+	// on. A trailing slash would double in the URI and be stamped into every
+	// token.
 	cfg.Issuer = strings.TrimRight(strings.TrimSpace(cfg.Issuer), "/")
 	if cfg.Issuer == "" {
 		return nil, fmt.Errorf("%w: an issuer is required", ErrInvalidConfig)
@@ -154,23 +149,16 @@ func (s *Service) Mint(ctx context.Context, subject string, private any) (Token,
 
 // Verify checks a token this service minted and returns its registered claims.
 //
-// It exists for the refresh: the platform holds a token that is about to expire,
-// or has just expired, and wants a fresh one without sending the person back to
-// the identity provider. Verifying our own signature is how we know the caller
-// once held a real session, and the subject is how we find whose it was.
-//
 // Every check is strict, expiry included: another issuer, another audience, or a
 // signature no published key verifies is not our token and never becomes one.
 //
 // A token that fails only the expiry check comes back with its claims populated
-// and an error carrying ErrExpired, so a caller entitled to renew an expired
-// token can tell it from a forged one — see auth.Service.Refresh, where a machine
-// token is exactly that.
+// and an error carrying ErrExpired, so a caller entitled to renew an expired token
+// can tell it from a forged one.
 //
 // private, when non-nil, is unmarshalled from the same verified payload — the
-// mirror of Mint's argument of the same name, so what one side stamps the other
-// reads back through the same door. Passing nil asks for the registered claims
-// alone.
+// mirror of Mint's argument of the same name. Passing nil asks for the registered
+// claims alone.
 func (s *Service) Verify(ctx context.Context, raw string, private any) (jwt.Claims, error) {
 	parsed, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.ES256})
 	if err != nil {
@@ -187,15 +175,10 @@ func (s *Service) Verify(ctx context.Context, raw string, private any) (jwt.Clai
 		return jwt.Claims{}, err
 	}
 
-	// Checked here rather than through jwt.Claims.ValidateWithLeeway, which cannot
-	// do this job. It validates both horizons against a single instant, so moving
-	// that instant back far enough to forgive an expiry also moves it behind a
-	// fresh token's not-before and makes a token minted a second ago read as "not
-	// valid yet" — and its `Expected.Time` falls back to time.Now() when left
-	// zero, which is the real clock rather than this service's, so it would refuse
-	// an expired token before the window below was ever consulted and the whole
-	// refresh grace would be dead code. Four explicit comparisons against s.now()
-	// and no such surprises.
+	// Checked here rather than through jwt.Claims.ValidateWithLeeway, which
+	// validates both horizons against one instant: leeway large enough to forgive
+	// an expiry also makes a token minted a second ago read as "not valid yet". Its
+	// `Expected.Time` also falls back to the real clock rather than s.now().
 	if claims.Issuer != s.cfg.Issuer {
 		return jwt.Claims{}, fmt.Errorf("%w: another issuer", ErrNotOurToken)
 	}
@@ -216,11 +199,10 @@ func (s *Service) Verify(ctx context.Context, raw string, private any) (jwt.Clai
 	// The only horizon the window moves. A token that died inside it still reads
 	// as live here and nowhere else.
 	if deadline := claims.Expiry.Time().Add(clockSkew); now.After(deadline) {
-		// The claims come back populated alongside the error, and the error carries
-		// ErrExpired as well as ErrNotOurToken. A caller that treats every error the
-		// same refuses the token, which is the safe reading; one that is entitled to
-		// forgive an expiry — see auth.Service.Refresh and machine tokens — can tell
-		// this apart from a bad signature without parsing the token itself.
+		// The claims come back populated alongside an error carrying both ErrExpired
+		// and ErrNotOurToken: a caller that treats every error the same refuses the
+		// token, and one entitled to forgive an expiry can tell this apart from a bad
+		// signature without parsing the token itself.
 		return claims, fmt.Errorf("%w: the token expired at %s: %w",
 			ErrNotOurToken, claims.Expiry.Time().UTC(), ErrExpired)
 	}
@@ -230,11 +212,10 @@ func (s *Service) Verify(ctx context.Context, raw string, private any) (jwt.Clai
 // claimsFromAnyKey extracts the claims using whichever published key verifies the
 // signature.
 //
-// Every unexpired key is tried rather than the one the `kid` header names,
-// because the header is the token's own claim about itself and this is the check
-// that decides whether to believe the token at all. Retired keys are in the set
-// on purpose: they stopped signing, but what they signed is still inside its
-// lifetime, which is exactly the token a refresh arrives holding.
+// Every unexpired key is tried rather than the one the `kid` header names, since
+// the header is the token's own claim about itself and this is the check that
+// decides whether to believe it. Retired keys are in the set: they stopped signing,
+// but what they signed can still be inside its lifetime.
 func (s *Service) claimsFromAnyKey(
 	parsed *jwt.JSONWebToken, keys []Key, into *jwt.Claims, private any,
 ) error {
@@ -255,14 +236,12 @@ func (s *Service) claimsFromAnyKey(
 }
 
 // clockSkew is how far back a token's not-before is stamped, and the tolerance a
-// verifier should allow. Two machines in one cluster are not perfectly in step,
-// and a token rejected for being from the future is the least diagnosable
-// possible failure.
+// verifier should allow, since two machines are never perfectly in step.
 const clockSkew = 30 * time.Second
 
 // JWKS returns the public half of every key that has not expired, as the document
-// served at /.well-known/jwks.json. Retired keys are in it on purpose: they no
-// longer sign, but tokens they signed are still inside their lifetime.
+// served at /.well-known/jwks.json. Retired keys are in it: they do not sign, but
+// tokens they signed can still be inside their lifetime.
 func (s *Service) JWKS(ctx context.Context) (jose.JSONWebKeySet, error) {
 	keys, err := s.repo.Verifiers(ctx, s.now())
 	if err != nil {
@@ -270,8 +249,7 @@ func (s *Service) JWKS(ctx context.Context) (jose.JSONWebKeySet, error) {
 	}
 
 	// A brand-new install has no key until the first token is minted, and a caller
-	// fetching an empty JWKS would cache "this issuer has no keys". Minting one
-	// here means the set is populated as soon as anything asks.
+	// fetching an empty JWKS would cache "this issuer has no keys".
 	if len(keys) == 0 {
 		fresh, err := s.signingKey(ctx)
 		if err != nil {
@@ -297,8 +275,7 @@ func (s *Service) JWKS(ctx context.Context) (jose.JSONWebKeySet, error) {
 }
 
 // signingKey returns the key to sign with, rotating when the current one has
-// retired — or when there has never been one, which is the same question with the
-// same answer and so is deliberately not a separate path.
+// retired or when there has never been one.
 func (s *Service) signingKey(ctx context.Context) (Key, error) {
 	now := s.now()
 	key, err := s.repo.Current(ctx, now)

@@ -3,16 +3,12 @@
 // thing and the most consequential one — the private half of every signing key, so
 // that reading the database is not by itself enough to mint platform tokens.
 //
-// It is the orchestrator's cryptox, copied along with internal/db and internal/http
-// and for the same reason, but with an extra one that matters more than the others:
-// the key is the SAME key. Both services read KV_ENCRYPTION_KEY, so anything either
-// of them writes encrypted can be read by the other, and the stored format has to be
-// identical for that to keep being true. It is therefore not a file to improve
-// independently — a change here is a change to both.
+// The stored format is shared: every service that seals data at rest reads the same
+// KV_ENCRYPTION_KEY and writes the same nonce || ciphertext, so a change to the
+// format here is a change everywhere.
 //
 // The package is named cryptox rather than crypto so it does not shadow the
-// standard library package of that name, which this file itself imports. That
-// mirrors internal/http, which is package httpx for the same reason.
+// standard library package of that name, which this file imports.
 package cryptox
 
 import (

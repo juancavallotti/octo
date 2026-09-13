@@ -2,12 +2,8 @@
 // construction and teardown in one place so the rest of the service depends on
 // a small typed handle rather than wiring pgxpool directly.
 //
-// It is the orchestrator's db package again, deliberately copied rather than
-// shared — for the reason its openapi package gives, and which applies here with
-// less to weigh: this is forty lines, and importing another service to reuse them
-// would tie two independent modules together. The database it opens, on the other
-// hand, is the same one: iam owns the `users` table the orchestrator's other
-// modules reference by foreign key, so there is one Postgres and one schema.
+// The database it opens is the install's one Postgres: iam owns the `users` table
+// other modules reference by foreign key, under one schema.
 package db
 
 import (

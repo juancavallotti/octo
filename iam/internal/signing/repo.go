@@ -17,20 +17,17 @@ const (
 	keyColumns = "kid, algorithm, private_key, public_key, created_at, retire_after"
 
 	// rotateLockKey keys the advisory lock held while a new key is generated.
-	// Advisory locks share one namespace per database, so what matters is only
-	// that nothing else in this schema picks the same number — the user module's
-	// bootstrap lock uses a different one.
+	// Advisory locks share one namespace per database, so all that matters is that
+	// nothing else picks this number.
 	rotateLockKey = 5150082
 )
 
 // Repo persists the signing keyset to Postgres.
 //
 // The private half of every key is encrypted before it is written and decrypted on
-// the way back, so a copy of the database — a dump, a snapshot, a replica somebody
-// can read — does not by itself let anyone mint platform tokens. The cipher is
-// required rather than optional: a keyset that silently stored its private keys in
-// the clear because a setting was absent would be the one failure nothing here
-// could report afterwards.
+// the way back, so a copy of the database does not by itself let anyone mint
+// platform tokens. The cipher is required rather than optional, or an absent
+// setting would silently store private keys in the clear.
 type Repo struct {
 	pool   *pgxpool.Pool
 	cipher *cryptox.Cipher
@@ -65,8 +62,8 @@ func (r *Repo) Current(ctx context.Context, now time.Time) (Key, error) {
 
 // Verifiers returns every key a token might still legitimately have been signed
 // by: everything that has not expired, newest first. This is what the JWKS
-// publishes, so it deliberately includes keys that have retired from signing —
-// tokens they signed are still inside their lifetime.
+// publishes, keys retired from signing included, since tokens they signed can
+// still be inside their lifetime.
 func (r *Repo) Verifiers(ctx context.Context, now time.Time) ([]Key, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+keyColumns+` FROM iam_signing_keys
@@ -93,11 +90,10 @@ func (r *Repo) Verifiers(ctx context.Context, now time.Time) ([]Key, error) {
 // Rotate installs a new signing key and returns it, deleting any key that has
 // expired on the way.
 //
-// generate is called only if a key is actually needed — and it is called under an
-// advisory lock, after the "is one needed" question has been asked a second time.
-// The first ask happened outside the lock, in the caller, where it answers no for
-// every request but the one that rotates; asking again here is what stops two
-// replicas that both saw a retired key from installing two new ones.
+// generate is called only if a key is needed, under an advisory lock and after the
+// "is one needed" question has been asked a second time: the caller's first ask was
+// outside the lock, so asking again here is what stops two replicas that both saw a
+// retired key from installing two new ones.
 //
 // The lock is transaction-scoped, so it is released by the commit or by the
 // deferred rollback and cannot be leaked by an early return.
@@ -153,10 +149,10 @@ func (r *Repo) Rotate(ctx context.Context, now time.Time, generate func() (Key, 
 
 // scanKey reads one row in keyColumns order, opening the sealed private half.
 //
-// A key that will not decrypt is an error and not a skip. It means the stored
-// keyset was written under a different KV_ENCRYPTION_KEY, and the honest thing is
-// to say so: carrying on would quietly mint tokens under a new key while every
-// token already issued stayed unverifiable, which is a worse outage than refusing.
+// A key that will not decrypt is an error and not a skip: it means the stored
+// keyset was written under a different KV_ENCRYPTION_KEY, and carrying on would
+// mint tokens under a new key while every token already issued stayed
+// unverifiable.
 func (r *Repo) scanKey(row pgx.Row) (Key, error) {
 	var (
 		k      Key

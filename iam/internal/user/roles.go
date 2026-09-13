@@ -1,28 +1,20 @@
 package user
 
-// The catalogue of what a platform user can be granted.
-//
-// It lives in this package because this package owns roles: they are stored in
+// The catalogue of what a platform user can be granted. Roles are stored in
 // user_roles, granted and revoked through the user routes, and read back as part
-// of a User. Pulling the vocabulary out into a package of its own would be a
-// layer split rather than a feature one — and the only thing it would buy is an
-// import that `auth` already has, since it takes users from here anyway.
+// of a User.
 //
-// The four are coarse on purpose. They are the axes the platform already divides
-// along, and they are meant to be split later into finer grants without any of
-// them being renamed: a developer who should not see production loses a narrower
-// role, not this one. That is also why Role is a string and the column is a
-// varchar — adding one is an edit to this file, not a schema change applied by a
-// Job.
+// The four are coarse, and meant to be split later into finer grants without any
+// of them being renamed. That is also why Role is a string and the column is a
+// varchar: adding one is an edit to this file rather than a schema change.
 
 // Role is a grantable platform role. A named type rather than a bare string so a
 // user id and a role cannot be passed to the same function in the wrong order and
 // still compile.
 type Role string
 
-// Namespaced with `platform:` because these govern the platform itself; a later
-// per-integration or per-folder grant is a different namespace, and keeping the
-// prefix now is what leaves room for it.
+// Namespaced with `platform:` because these govern the platform itself, leaving
+// room for a later per-integration or per-folder namespace.
 const (
 	// RoleAdmin can do everything, including granting and revoking roles. It is
 	// the only role that can create another admin, which is why the first user to
@@ -36,13 +28,12 @@ const (
 	RoleOperator Role = "platform:operator"
 
 	// RoleRuntime is what a deployed integration's own token carries, and the one
-	// role no person is ever granted. It is deliberately absent from allRoles
-	// below, so ValidRole refuses it and no grant can ever write it: it is not
-	// something an administrator chooses for somebody, it is what a pod is.
+	// role no person is ever granted: it is absent from allRoles below, so ValidRole
+	// refuses it and no grant can write it.
 	//
-	// A machine holding it may reach the few routes a running integration needs —
-	// its key/value store, its frozen resources, its agent memory — and nothing
-	// else, whoever it was minted on behalf of.
+	// A machine holding it reaches the few routes a running integration needs — its
+	// key/value store, its frozen resources, its agent memory — and nothing else,
+	// whoever it was minted on behalf of.
 	RoleRuntime Role = "platform:runtime"
 )
 
@@ -58,9 +49,8 @@ func AllRoles() []Role {
 	return out
 }
 
-// ValidRole reports whether r is in the catalogue. Every write path checks this,
-// so the catalogue — and not the database — is what constrains the column: a
-// misspelled role is refused rather than stored as a grant nothing will match.
+// ValidRole reports whether r is in the catalogue. Every write path checks it, so
+// the catalogue and not the database is what constrains the column.
 func ValidRole(r Role) bool {
 	for _, known := range allRoles {
 		if known == r {
@@ -71,8 +61,7 @@ func ValidRole(r Role) bool {
 }
 
 // DescribeRole returns a one-line description of r, or "" for a role outside the
-// catalogue. It is here rather than in a UI layer so the catalogue's meaning
-// travels with the catalogue, and GET /roles can answer with it.
+// catalogue. GET /roles answers with it.
 func DescribeRole(r Role) string {
 	switch r {
 	case RoleAdmin:

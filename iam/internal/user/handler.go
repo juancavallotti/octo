@@ -31,23 +31,17 @@ type Middleware func(http.Handler) http.Handler
 // Register attaches the user routes to mux, each behind the guard its contents
 // call for.
 //
-// The guards arrive as arguments rather than being built here, because this
-// package must not decide who may administer the platform on top of describing
-// what administering it looks like — and because handing them in is what lets
-// the caller refuse to register any of this at all when it has no way to check a
-// token. See newServer.
+// The guards arrive as arguments rather than being built here, so this package
+// describes what administering looks like without also deciding who may do it.
 //
-// Role grants stay nested under the user they belong to, following the same rule
-// the orchestrator's per-integration resources and per-user API keys follow: a
-// sub-entity is addressed through its owner, so there is never a second way to
-// name the same thing.
+// Role grants stay nested under the user they belong to: a sub-entity is addressed
+// through its owner, so there is never a second way to name the same thing.
 func (h *Handler) Register(mux *http.ServeMux, signedIn, admin Middleware) {
-	// The catalogue is a list of four constants and describes nothing about this
+	// The catalogue is a list of constants and describes nothing about this
 	// installation, so it asks only that the caller be somebody.
 	mux.Handle("GET /roles", signedIn(http.HandlerFunc(h.catalogue)))
 
-	// Everything else is the user directory and what people may do, which is an
-	// administrator's business and nobody else's.
+	// Everything else is the user directory and what people may do.
 	for pattern, handler := range map[string]http.HandlerFunc{
 		"POST /users":                     h.create,
 		"GET /users":                      h.list,
@@ -65,13 +59,9 @@ func (h *Handler) Register(mux *http.ServeMux, signedIn, admin Middleware) {
 // references, the roles they hold, and the subject their identity provider
 // presents.
 //
-// The subject is here for one reason, and it is worth naming so it is not
-// mistaken for something to key on. It is the answer to "why is this person not
-// getting in" — whether their row has been claimed yet, and by which account at
-// the provider. Nothing addresses a user by it outside this service.
-//
-// Exported because the token exchange renders the same shape inside its own
-// response, and two structs describing one user is how they come to disagree.
+// The subject is reported so that "why is this person not getting in" can be
+// answered — whether their row has been claimed yet, and by which account at the
+// provider — and is not something to address a user by.
 type Response struct {
 	ID string `json:"id"`
 	// Subject is empty for somebody provisioned who has not signed in yet.
@@ -90,8 +80,8 @@ type Response struct {
 func ToResponse(u User) Response {
 	roles := u.Roles
 	if roles == nil {
-		// An absent list and an empty one mean the same thing here, and `null`
-		// makes a caller handle a case that never carries information.
+		// An absent list and an empty one mean the same thing here, so neither is
+		// rendered as `null`.
 		roles = []Role{}
 	}
 	return Response{
@@ -123,25 +113,24 @@ func (h *Handler) catalogue(w http.ResponseWriter, _ *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// createRequest is a user an administrator is adding. No subject: nobody types
-// one, it is written by the first sign-in. Roles arrive with the person because
-// letting somebody in and saying what they may do is one decision.
+// createRequest is a user an administrator is adding. No subject: it is written by
+// the first sign-in.
 type createRequest struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Roles []Role `json:"roles,omitempty"`
 }
 
-// updateRequest is the profile an administrator is correcting. The subject is
-// absent on purpose — it is what the row is keyed by once the first sign-in has
+// updateRequest is the profile an administrator is correcting. The subject is not
+// among the fields: it is what the row is keyed by once the first sign-in has
 // discovered it, so changing it would point the account at somebody else.
 type updateRequest struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 }
 
-// create adds a user before they have ever signed in, which is how somebody is
-// let in at all: this platform admits only provisioned users.
+// create adds a user before they have ever signed in, which is how somebody is let
+// in at all: only provisioned users are admitted.
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req createRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -152,9 +141,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	// Who granted the roles that come with them, recorded the same way a later
-	// grant records it. Only nil-able if this route were mounted without its
-	// guard, which would be a wiring mistake rather than a caller's.
+	// Who granted the roles that come with them, recorded the same way a later grant
+	// records it.
 	caller, err := authz.FromContext(r.Context())
 	if err != nil {
 		h.writeError(w, err)
@@ -199,10 +187,9 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 
 // page is one screenful of the directory, with the cursor for the next.
 //
-// An envelope rather than a bare array, because the cursor has to travel with
-// the rows and a header would put half the answer somewhere a JSON client is not
-// looking. `nextCursor` is absent on the last page, which is what a caller checks
-// rather than comparing counts against the limit it asked for.
+// An envelope rather than a bare array, so the cursor travels with the rows.
+// `nextCursor` is absent on the last page, which is what a caller checks rather
+// than comparing counts against the limit it asked for.
 type page struct {
 	Items      []Response `json:"items"`
 	NextCursor string     `json:"nextCursor,omitempty"`
@@ -211,9 +198,7 @@ type page struct {
 // list serves one page of the directory, filtered by `q` over name and address
 // and by `role` over what people hold.
 //
-// A limit that is not a number is the default rather than a refusal: the
-// parameter is a hint about page size, and failing a listing over it would be a
-// worse answer to a typo than serving a screenful.
+// A limit that is not a number takes the default rather than being refused.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -250,23 +235,18 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 // grant is a PUT and not a POST because it names the grant it creates: the same
 // request twice leaves the same state, and the role is in the path rather than in
-// a body.
-//
-// It answers with the user, so a caller that just changed what someone may do
-// sees the whole set rather than having to read it back.
+// a body. It answers with the user, so the whole role set comes back with it.
 func (h *Handler) grant(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
 	id := r.PathValue("id")
-	// Who granted it. The column stays nullable because rows written before there
-	// was an authenticated caller have nothing to put there, but every new one
-	// records somebody.
+	// Who granted it. The column is nullable for rows written before there was an
+	// authenticated caller, but every new one records somebody.
 	caller, err := authz.FromContext(r.Context())
 	if err != nil {
-		// Only reachable if this route were mounted without its guard, which would
-		// be a wiring mistake rather than a caller's — so it fails loudly here
-		// instead of recording an anonymous grant.
+		// Only reachable if this route were mounted without its guard, so it fails
+		// loudly rather than recording an anonymous grant.
 		h.writeError(w, err)
 		return
 	}
@@ -307,8 +287,7 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrInvalid):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrGranterGone):
-		// 401 rather than 404: what is missing is the caller, not the target, and
-		// the thing to do about it is sign in again as somebody who exists.
+		// 401 rather than 404: what is missing is the caller, not the target.
 		httpx.WriteError(w, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "user not found")

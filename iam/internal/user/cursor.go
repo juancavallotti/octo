@@ -12,10 +12,8 @@ import (
 // Paging position, as a caller carries it between requests.
 //
 // The directory is ordered by (created_at, id), so a position is exactly that
-// pair. It is encoded rather than exposed as two parameters because it is this
-// module's bookkeeping and not something a caller composes: a client that builds
-// its own would be depending on the sort order, which is the thing most likely to
-// change.
+// pair. It is encoded rather than exposed as two parameters so that nothing
+// composing a cursor depends on the sort order.
 
 // position is where a page resumes from. The zero value is the beginning.
 type position struct {
@@ -49,9 +47,8 @@ func decodeCursor(cursor string) (position, error) {
 	if err != nil {
 		return position{}, fmt.Errorf("%w: the cursor is not readable", ErrInvalid)
 	}
-	// The id is bound to a uuid column, so one that is not a UUID reaches Postgres
-	// and comes back as a type error — a 500 for a value the caller supplied.
-	// Refused here, where every caller-supplied cursor already passes.
+	// The id is bound to a uuid column, so one that is not a UUID would come back
+	// from Postgres as a type error on a value the caller supplied.
 	if _, err := uuid.Parse(id); err != nil {
 		return position{}, fmt.Errorf("%w: the cursor is not readable", ErrInvalid)
 	}

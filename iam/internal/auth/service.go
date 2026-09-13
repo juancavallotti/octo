@@ -11,10 +11,8 @@ import (
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
-// The three collaborators, each declared here in the consumer and each one
-// method wide, so the exchange can be tested without a provider, a database or a
-// keyset. *Verifier, *user.Service and *signing.Service satisfy them
-// structurally.
+// The three collaborators, declared here in the consumer so the exchange can be
+// tested without a provider, a database or a keyset.
 type (
 	verifier interface {
 		Verify(ctx context.Context, rawToken string) (Identity, error)
@@ -48,15 +46,12 @@ func NewService(v verifier, u users, m minter) (*Service, error) {
 }
 
 // platformClaims is what a platform token carries beyond the registered claims
-// the signing service stamps. Roles are the reason the token exists: they are
-// what a downstream service authorizes on, and putting them in the token is what
-// spares every one of those services a call back here on every request.
+// the signing service stamps. The roles travel in the token so that verifying it
+// is enough to authorize on them, with no call back here.
 type platformClaims struct {
 	// Email and Name describe the person a token speaks for, and are omitted
-	// entirely from a machine's — see mintMachine. A JWT is not encrypted, and a
-	// deployment's token sits on a pod filesystem where anybody who can read that
-	// pod can read it; carrying an address nothing consumes would be putting the
-	// owner's identity somewhere it is never needed.
+	// entirely from a machine's — see mintMachine. A JWT is not encrypted, so a
+	// machine token carries no address nothing consumes.
 	Email string      `json:"email,omitempty"`
 	Name  string      `json:"name,omitempty"`
 	Roles []user.Role `json:"roles"`
@@ -76,9 +71,8 @@ type Result struct {
 // token for whoever it identifies.
 //
 // The subject of the minted token is the octo user id and not the provider's
-// `sub`. That is the whole conversion: everything downstream refers to a
-// principal by an identifier this platform owns, which survives the provider
-// changing an account's email — or the platform changing provider.
+// `sub`, so a principal is named by an identifier that survives the provider
+// changing an account's email, or the install changing provider.
 func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error) {
 	identity, err := s.verifier.Verify(ctx, rawToken)
 	if err != nil {
@@ -102,69 +96,55 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 // Refresh trades a platform token this service minted for a fresh one, without
 // going back to the identity provider.
 //
-// It exists because the two lifetimes do not match. A platform token lives an
-// hour; a person's session lives a working day. Sending them back to the provider
-// every hour would be absurd, and the alternative — storing a long-lived provider
-// credential in the session so we can re-exchange it — is a worse thing to hold
-// than the short-lived token we already have.
+// It exists because the two lifetimes do not match: a platform token lives an
+// hour, a session lives a working day.
 //
-// A token that expired within the grace window is still accepted. That is the
-// case this is for: somebody left a tab open over lunch. Beyond the window there
-// is no recovery here and the platform sends them to sign in again.
+// A token that expired within the grace window is still accepted; beyond the
+// window there is no recovery here and the caller must sign in again.
 //
 // The roles are re-read from the database rather than copied across from the old
-// token, and that is the whole reason this is not simply a re-signing. It is what
-// makes a revoked role take effect within one token lifetime instead of at the
-// next sign-in. `last_login_at` is deliberately not touched: this is not a
-// sign-in, and treating it as one would make the column mean "was recently using
-// the platform" rather than what it says.
+// token, so a revoked role takes effect within one token lifetime rather than at
+// the next sign-in. `last_login_at` is not touched: this is not a sign-in.
 func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) {
 	var private platformClaims
 	claims, err := s.minter.Verify(ctx, rawToken, &private)
 	if err != nil && !renewableWhileExpired(err, private) {
 		// Only a token this service did not mint — or a person's, minted too long
 		// ago — is the caller's problem. Verify also reads the keyset from the
-		// database on its way through, and that failing says nothing at all about
-		// the token, so it must not be answered as though the token were bad.
+		// database, and that failing says nothing about the token.
 		if errors.Is(err, signing.ErrNotOurToken) {
 			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 		}
 		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
-	// The subject of a platform token is the octo user id, which is what makes
-	// this a plain lookup rather than anything the provider has to answer for.
+	// The subject of a platform token is the octo user id, so this is a plain
+	// lookup with nothing for the provider to answer.
 	u, err := s.users.Get(ctx, claims.Subject)
 	if err != nil {
-		// A user who has been deleted since the token was minted lands here, and a
-		// refusal is the right answer: the token outlived the account. A database
-		// that could not be reached is not that, and must not be answered as if it
-		// were — see ErrUnavailable.
+		// A user deleted since the token was minted lands here, and is refused: the
+		// token outlived the account. An unreachable database is not that — see
+		// ErrUnavailable.
 		if errors.Is(err, user.ErrNotFound) {
 			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 		}
 		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
-	// A machine token is renewed as a machine token. Re-minting it from the
-	// owner's current roles would quietly promote a pod to whatever its owner may
-	// do, which is the one thing a machine token is careful not to give it.
+	// A machine token is renewed as a machine token: re-minting it from the owner's
+	// current roles would promote a deployment to whatever its owner may do.
 	//
-	// Minted from the owner resolved above rather than by going back through
-	// MintMachine, which would verify the presented token again — and would refuse
-	// it, both because it is a machine's and because it may be inside the grace
-	// window rather than still valid.
+	// Minted from the owner resolved above rather than through MintMachine, which
+	// would verify the presented token again and refuse it — both because it is a
+	// machine's and because it may be inside the grace window.
 	//
-	// It also does not re-ask whether the owner may still deploy, and that is
-	// deliberate. The deployment was authorised when it was created; taking
-	// somebody's operator role away should not quietly stop integrations that are
-	// serving traffic. Stopping one is what deleting the deployment is for, and it
-	// is a decision somebody should have to make on purpose.
+	// Whether the owner may still deploy is not re-asked: the deployment was
+	// authorised when it was created, and revoking a role does not stop an
+	// integration already serving traffic.
 	//
-	// The access comes back off the presented token rather than from anywhere
-	// else. It is the only record of what this deployment was lent, and reading it
-	// through accessOf rather than copying the roles across is what keeps a
-	// renewal from carrying anything this service would not mint today.
+	// The access comes back off the presented token, the only record of what this
+	// deployment was lent, and is read through accessOf rather than copied, so a
+	// renewal cannot carry anything this service would not mint today.
 	if private.Deployment != "" {
 		token, err := s.mintMachine(ctx, u, private.Deployment, accessOf(private.Roles))
 		if err != nil {
@@ -183,13 +163,10 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 // renewableWhileExpired reports whether an otherwise-good token may be renewed
 // despite having expired.
 //
-// Only a machine token, and always. It is a deployment's standing credential
-// rather than a session: a pod that has been idle or switched off for a month
-// must still be able to trade its token in, and an expiry it cannot act on would
-// strand it with no way back. Every other check stood — the signature, the
-// issuer, the audience — so this forgives an old token, never a forged one.
-//
-// A person's token is not renewable once expired. They sign in again.
+// Only a machine token, and always: it is a deployment's standing credential
+// rather than a session, and a deployment idle for a month must still be able to
+// trade its token in. Every other check stood — the signature, the issuer, the
+// audience — so this forgives an old token, never a forged one.
 func renewableWhileExpired(err error, private platformClaims) bool {
 	return errors.Is(err, signing.ErrExpired) && private.Deployment != ""
 }
@@ -217,33 +194,23 @@ func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) 
 // MintMachine issues a token for a deployed integration, on the authority of the
 // person deploying it.
 //
-// A running integration has to reach the platform's API — its key/value store,
-// its frozen resources, its agent memory — and has no way to sign in. So the
-// person who deploys it lends it an identity: rawToken is their platform token,
-// and what comes back speaks for them.
+// A running integration has no way to sign in, so the person who deploys it lends
+// it an identity: rawToken is their platform token, and what comes back speaks for
+// them.
 //
-// Two things about the token it gets, and they are the whole design:
+// Two properties of the token it gets:
 //
-//   - Its subject is that person, so everything the platform scopes to a user
-//     scopes the same way for their deployment. A pod cannot reach another
-//     person's data, because as far as the API is concerned it is not another
-//     person.
+//   - Its subject is that person, so anything scoped to a user scopes the same way
+//     for their deployment and cannot reach another person's data.
 //   - Its roles are what `access` asks for and never what the person holds. An
-//     administrator's deployment is not an administrator. This is the difference
-//     between lending an identity and handing over an account — and it is why
-//     access is asked for rather than inherited: a deployment reaches what it
-//     was deployed to reach, decided once, by somebody, on purpose.
+//     administrator's deployment is not an administrator.
 //
-// And it is only issued to somebody who may deploy in the first place. Without
-// that check this would be a way for anyone with an account to hand themselves
-// the runtime role — which reaches a deployment's key/value store and its frozen
-// resources — by claiming to be deploying something. A read-only account asking
-// for one is not a deployment, it is an escalation.
+// It is issued only to somebody who may deploy, or any account could hand itself
+// the runtime role by claiming to be deploying something.
 //
-// It lives exactly as long as a person's token and is renewed the same way, which
-// is deliberate: a longer-lived one could outlive the key that signed it, since
-// the keyset only keeps a key published for one token lifetime past its
-// retirement.
+// It lives exactly as long as a person's token and is renewed the same way: a
+// longer-lived one could outlive the key that signed it, since the keyset keeps a
+// key published for only one token lifetime past its retirement.
 func (s *Service) MintMachine(
 	ctx context.Context, rawToken, deployment string, access []Access,
 ) (Result, error) {
@@ -279,8 +246,8 @@ func (s *Service) MintMachine(
 	return Result{Token: token, User: owner}, nil
 }
 
-// mintMachine stamps the token itself. Shared by the first mint and every
-// renewal, so the two cannot drift into describing the same pod differently.
+// mintMachine stamps the token itself. Shared by the first mint and every renewal,
+// so the two cannot describe the same deployment differently.
 func (s *Service) mintMachine(
 	ctx context.Context, owner user.User, deployment string, access []Access,
 ) (signing.Token, error) {
@@ -289,9 +256,8 @@ func (s *Service) mintMachine(
 		return signing.Token{}, err
 	}
 	// No Email, no Name. The subject still ties this token to the person who lent
-	// it — that is what scopes every store the pod reaches — but nothing reads
-	// their address off a machine token, and a token that sits on a pod filesystem
-	// should carry only what something actually consumes.
+	// it, which is what scopes what it reaches, but nothing reads an address off a
+	// machine token and it should carry only what is consumed.
 	token, err := s.minter.Mint(ctx, owner.ID, platformClaims{
 		Roles:      roles,
 		Deployment: deployment,
@@ -305,9 +271,8 @@ func (s *Service) mintMachine(
 // owner verifies a platform token and returns the person it speaks for, refusing
 // one that is itself a machine's.
 //
-// A pod must not be able to mint another pod a token: that would make a single
-// leaked machine credential renewable into an unbounded family of them, none of
-// which any person ever authorised.
+// A machine token must not be able to mint another, or one leaked credential
+// becomes an unbounded family of them that no person authorised.
 func (s *Service) owner(ctx context.Context, rawToken string) (user.User, error) {
 	var claims platformClaims
 	verified, err := s.minter.Verify(ctx, rawToken, &claims)
@@ -328,10 +293,9 @@ func (s *Service) owner(ctx context.Context, rawToken string) (user.User, error)
 // mayDeploy reports whether u is somebody who runs things here, and so somebody
 // whose deployments may be given an identity.
 //
-// The two roles that describe running deployments, named here rather than
-// derived from what the orchestrator will allow: this service cannot see that
-// policy, and the question it is actually answering is narrower — is this a
-// person who deploys, or a person asking for a credential they have no use for.
+// The two roles that describe running deployments. The question is narrow — is
+// this a person who deploys — not whether any particular deployment will be
+// allowed.
 func mayDeploy(u user.User) bool {
 	return u.HasRole(user.RoleAdmin) || u.HasRole(user.RoleOperator)
 }
