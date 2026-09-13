@@ -1,20 +1,17 @@
 /**
  * What the run-control tools need from their host, expressed as a port the host supplies.
  *
- * There is no default. Two hosts mount this server and they run an app in genuinely
- * different ways — one as a child process of itself, one as a pod elsewhere — so a port
- * that quietly fell back to one of them would give the other the wrong runner and no
- * error. Each host declares its own (`app/mcp/run-host.ts` in both apps); tests pass a
- * stub, and never spawn a real `octo` process.
+ * There is no default: a host may run an app as a child of itself or somewhere else
+ * entirely, and a port that fell back to either would hand the other the wrong runner
+ * with no error. Every host declares its own; tests pass a stub and never spawn a real
+ * `octo` process.
  *
- * The long-running half is addressed by a {@link RunKey} — run-host's own, not a copy of
- * it, because it is the same key both hosts' runners already consume. It carries a
- * namespace (resolved once per MCP session, so a session's run stays its own), the
- * integration, and the calling user; each host reads the halves it keys on. The one-shots
- * still take a bare namespace, because they are local on both hosts and it only names
- * where their files are staged.
+ * The long-running half is addressed by a {@link RunKey} — run-host's own, not a copy —
+ * carrying the namespace (resolved once per MCP session, so a session's run stays its
+ * own), the integration and the calling user; a host reads the halves it keys on. The
+ * one-shots take a bare namespace, which only names where their files are staged.
  *
- * The asynchronous signatures are the other half of that seam: they are what lets a host
+ * The asynchronous signatures are the other half of the seam: they are what lets a host
  * answer over the network rather than out of its own heap.
  */
 

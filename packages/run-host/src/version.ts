@@ -3,14 +3,10 @@ import { promisify } from "node:util";
 
 /**
  * Probes and caches the version lines of the two binaries the host spawns: `octo`, the
- * runner, and `dolphin`, the test runner behind the editor's Testing tab. A fact about the
- * host rather than about any run, which is why it is here and not on the app-runner port —
- * on a host whose app runs elsewhere the two answers come apart. The caches live on
- * `globalThis` so they survive Next's dev HMR module reloads.
- *
- * One module rather than two near-identical ones, because the two probes differ only in
- * which variable names the binary and which word asks it for its version — and a reader
- * comparing them for a version-skew warning wants them side by side.
+ * runner, and `dolphin`, the test runner. A fact about the host rather than about any
+ * run, which is why it is not on the app-runner port — on a host whose app runs elsewhere
+ * the two answers come apart. The caches live on `globalThis`, so they survive dev HMR
+ * module reloads.
  */
 
 const execFileAsync = promisify(execFile);
@@ -48,14 +44,11 @@ export interface Binaries {
 }
 
 /**
- * What this host can spawn, for the editor's status.
+ * What this host can spawn.
  *
- * Deliberately not part of what an app runner reports. Whether a binary is installed is
- * a fact about the HOST, not about the backend running the app — and on a host whose app
- * runs elsewhere the two answers come apart: it may be unable to start an app while
- * still running `invoke`, `eval` and a test suite perfectly well, all of which are these
- * binaries. Conflating them would hide working features whenever the app runner was
- * unavailable.
+ * Not part of what an app runner reports: whether a binary is installed is a fact about
+ * the host, and a host whose app runs elsewhere may be unable to start one while running
+ * `invoke`, `eval` and a test suite perfectly well.
  *
  * Probe first ({@link probeVersion}, {@link probeTestVersion}) so the versions are warm;
  * this reads the caches synchronously.
@@ -95,15 +88,12 @@ export async function probeVersion(): Promise<string | null> {
  * Probe the test runner's version once via `dolphin version` and cache it, on the same
  * terms as {@link probeVersion}.
  *
- * `version` rather than `--version` only because that is dolphin's own spelling; it
- * accepts both (see runtime/dolphin/main.go).
+ * `version` rather than `--version` only because that is dolphin's own spelling.
  *
- * Why a caller wants this at all: inside an image the two binaries are built from one
- * module in one stage and cannot disagree, but a developer's `bin/dolphin` can be an
- * older build than the `bin/octo` beside it. That mismatch shows up as a test failing
- * on a block type the octo under test supports and the dolphin's octo does not — a
- * confusing failure that is cheap to warn about and expensive to debug. It is a
- * warning, never a refusal: rebuilding one binary at a time is a normal thing to do.
+ * Worth asking because the two binaries can be built separately: an older dolphin beside
+ * a newer octo shows up as a test failing on a block type one of them does not know. A
+ * caller warns on a mismatch and never refuses — rebuilding one binary at a time is
+ * normal.
  */
 export async function probeTestVersion(): Promise<string | null> {
   if (store.__octoTestVersion !== undefined) return store.__octoTestVersion;

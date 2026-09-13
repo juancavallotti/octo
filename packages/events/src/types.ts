@@ -1,12 +1,11 @@
 /**
- * Events published on the in-process BFF event bus. A discriminated union so the
- * set can grow; today the only member is an integration-write notification.
+ * Events published on the in-process bus. A discriminated union, so the set can grow.
  */
 
 /** An integration's DEFINITION was created or updated (e.g. by the MCP server). */
 export interface IntegrationUpdatedEvent {
   type: "integration.updated";
-  /** Integration id — the orchestrator UUID, or the standalone flow filename. */
+  /** Integration id, in whatever form the publishing host addresses one by. */
   id: string;
   /** Display name, for human-readable messages. */
   name: string;
@@ -15,11 +14,9 @@ export interface IntegrationUpdatedEvent {
 /**
  * An integration's dolphin test suites changed.
  *
- * Its own event rather than an `integration.updated`, because the two ask the editor
- * for different things: the definition is the document, and reloading it over unsaved
- * edits needs the user's say-so. A suite is a separate file, and a write to one has no
- * business raising a banner about the flow — or, worse, prompting someone to discard
- * canvas work because an agent wrote a test.
+ * Its own event rather than an `integration.updated`, because the two ask a subscriber
+ * for different things: reloading the document over unsaved edits needs the user's say-so,
+ * while a suite is a separate file whose write should raise nothing about the flow.
  */
 export interface TestSuitesUpdatedEvent {
   type: "integration.tests-updated";

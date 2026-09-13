@@ -67,15 +67,12 @@ function looksLikeData(key: string): boolean {
 /**
  * A map whose keys carry data: an object with NO field list at all.
  *
- * Distinct from `{ t: "object", f: {} }`, which is an object that genuinely had no
- * keys. The two used to share one encoding, and that cost the collapse its permanence
- * — merging a collapsed map with a later, uncollapsed sample of the same field handed
- * back the very keys the collapse existed to hide. "Contents unknown" has to be a
- * state a merge cannot climb out of.
+ * Distinct from `{ t: "object", f: {} }`, which is an object that genuinely had no keys:
+ * "contents unknown" has to be a state a merge cannot climb out of, or merging in a
+ * later sample hands back the very keys the collapse existed to hide.
  *
- * Built fresh each time rather than shared: a returned shape is the caller's, and a
- * single frozen-by-convention constant handed to every caller is one mutation away
- * from rewriting every other shape in the process.
+ * Built fresh each time rather than shared: a returned shape is the caller's, and one
+ * constant handed to every caller is a mutation away from rewriting them all.
  */
 function opaqueMap(): Shape {
   return { t: "object" };

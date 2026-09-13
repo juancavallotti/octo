@@ -74,9 +74,8 @@ export async function requestJson<T>(
   try {
     return { ok: true, data: (await res.json()) as T };
   } catch {
-    // A 2xx with a non-JSON body (e.g. a plain-text health probe). Surface it as
-    // an error result rather than throwing — a thrown server-action error is
-    // redacted in production. Use requestOk for endpoints that aren't JSON.
+    // A 2xx with a non-JSON body: an error result rather than a throw, since this
+    // module never throws. Use requestOk for endpoints that are not JSON.
     return { ok: false, error: `invalid JSON response (${res.status})` };
   }
 }
@@ -139,15 +138,12 @@ export async function requestOk(
 /**
  * Perform `method url` and return the response body as bytes.
  *
- * For a binary or opaque document — a zip download, a resource's raw contents —
- * where {@link requestJson} would fail trying to parse it. The whole body is
- * buffered: these are documents, not streams (a zip's index is at its end, so it
- * cannot be used before it is complete anyway). Use {@link requestStream} for a
- * live stream.
+ * For a binary or opaque document — a zip download, a resource's raw contents — where
+ * {@link requestJson} would fail trying to parse it. The whole body is buffered, so use
+ * {@link requestStream} for a live stream.
  *
- * Never throws, like the rest of this module: a network error or a non-2xx becomes
- * an error result, with the usual `{ error }` envelope unwrapped when the failure
- * body carries one.
+ * Never throws, like the rest of this module: a network error or a non-2xx becomes an
+ * error result, with an `{ error }` envelope unwrapped when the failure body carries one.
  */
 export async function requestBytes(
   method: string,

@@ -5,13 +5,11 @@ import type { OctoEvent } from "./types";
 const KEEPALIVE_MS = 15000;
 
 /**
- * Build a Server-Sent Events {@link Response} that streams every bus event to the
- * client as a JSON `data:` frame until the request is aborted. Apps mount it from
- * a thin route handler (e.g. GET /api/integrations/events); the editor subscribes
- * with an EventSource and reloads when an event names the file it has open.
+ * Build a Server-Sent Events {@link Response} that streams every bus event to the client
+ * as a JSON `data:` frame until the request is aborted.
  *
- * Pass the request's `AbortSignal` so a disconnecting client unsubscribes; the
- * stream's own `cancel` covers the same teardown for good measure.
+ * Pass the request's `AbortSignal` so a disconnecting client unsubscribes; the stream's
+ * own `cancel` covers the same teardown for good measure.
  */
 export function integrationEventStream(signal?: AbortSignal): Response {
   const encoder = new TextEncoder();

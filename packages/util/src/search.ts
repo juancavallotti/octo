@@ -1,19 +1,14 @@
 /**
  * Ranking a typed query against a candidate label.
  *
- * The question a picker actually asks is not "does this contain that" but "how
- * close did they get" — someone typing at speed drops letters, doubles them, and
- * reaches for the wrong key, and a `includes()` filter answers all three with an
- * empty list. This scores a *subsequence*: the query's letters have to appear in
- * order, but not adjacently, and the score falls off with how far apart they had
- * to be spread to find them. A prefix scores 1, a dropped or mistyped letter
- * costs a fraction, and something unrelated lands at 0.
+ * Scores a *subsequence*: the query's letters must appear in order, though not
+ * adjacently, and the score falls off with how far apart they had to be spread. A prefix
+ * scores 1, a dropped or mistyped letter costs a fraction, and something unrelated lands
+ * at 0.
  *
- * It is deliberately not an edit distance. Transpositions ("teh" for "the") are
- * not free here, and that is the trade for a single pass and no matrix: what it
- * buys is that every letter someone did type still has to be in the answer, which
- * is what stops a fuzzy list from returning things that look nothing like the
- * query.
+ * Not an edit distance: transpositions ("teh" for "the") are not free, which is the
+ * trade for a single pass and no matrix. Every letter typed still has to appear in the
+ * answer.
  */
 
 /**
@@ -40,16 +35,13 @@ export function rankSearchString(
   const q = query.toLowerCase();
   const haystack = target.toLowerCase();
 
-  // The scan takes the first match of each letter, which is not always the
-  // tightest one: "ab" against "aab" takes the 'a' at 0 and the 'b' at 2 and
-  // scores 0.67, when the pair at 1 and 2 is adjacent and should score 1. So it
-  // is run again from every later place the query's first letter appears, and
-  // the best answer wins.
+  // The scan takes the first match of each letter, which is not always the tightest:
+  // "ab" against "aab" scores 0.67 where the adjacent pair scores 1. So it runs again
+  // from every later place the query's first letter appears, and the best wins.
   //
-  // Only that letter, and only as an *addition* to the plain scan: a query whose
-  // first letter the target lacks entirely still has to score on the letters
-  // that follow — "bling" finds "inventory" through its 'i' and 'n' — and that
-  // match has no start position to enumerate.
+  // As an addition to the plain scan, not a replacement: a query whose first letter the
+  // target lacks must still score on the letters that follow, and has no start position
+  // to enumerate.
   let best = packed(q, haystack, 0);
   // Guarded on length: `q[0]` on an empty query is undefined, and indexOf would
   // coerce it to the string "undefined" and go looking for that.

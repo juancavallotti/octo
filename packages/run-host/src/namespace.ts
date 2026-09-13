@@ -1,30 +1,24 @@
 import { createHmac, randomBytes } from "node:crypto";
 
 /**
- * Per-tab run namespaces. The editor's RUN feature is multi-user *and* multi-tab:
- * the session manager keys every running `octo` process by an 8-char namespace
- * slug, and two tabs sharing a slug fight over one runner — `start` stops whatever
- * the other tab had going. So a namespace is composed of two halves:
+ * Per-tab run namespaces. A running `octo` process is keyed by an 8-char namespace
+ * slug, and two browser tabs sharing one fight over a single runner, so a namespace
+ * is composed of two halves:
  *
- *   - the *identity* half, an 8-char slug in an HttpOnly cookie. A cookie (not
- *     localStorage) because the SSE log stream is a plain browser request that
- *     can't set custom headers, and because HttpOnly keeps it unreadable — and so
- *     unforgeable — from script.
- *   - the *tab* half, an opaque id the browser keeps in sessionStorage (per-tab by
- *     definition, and stable across reloads) and sends up with each call.
+ *   - the *identity* half, an 8-char slug in an HttpOnly cookie. A cookie rather than
+ *     localStorage because a plain browser request (an SSE stream) can set no custom
+ *     headers, and HttpOnly keeps it unreadable, and so unforgeable, from script.
+ *   - the *tab* half, an opaque id the browser keeps in sessionStorage — per-tab by
+ *     definition, stable across reloads — and sends up with each call.
  *
- * {@link deriveNamespace} mixes them. Because the cookie half never leaves the
- * server, a client that lies about its tab id only ever reaches another namespace
- * of its own — which is precisely the feature — and never another user's.
- *
- * The `/editor/runs/<ns>/` reverse proxy does not read the cookie at all: it takes
- * the (already-derived) namespace from the URL path and treats it as an
+ * {@link deriveNamespace} mixes them. Because the cookie half never leaves the server,
+ * a client that lies about its tab id only ever reaches another namespace of its own,
+ * never another user's. A derived namespace is therefore also usable on its own as an
  * unguessable token.
  */
 
-/** Cookie name holding the run namespace slug. Exported so an app that mints the
- * cookie from a server action (via its framework's own cookie store) stays in
- * sync with what {@link readNamespace} and the SSE/proxy routes expect. */
+/** Cookie name holding the run namespace slug. Exported so a caller that mints the
+ * cookie itself stays in sync with what {@link readNamespace} expects. */
 export const NAMESPACE_COOKIE = "octo_ns";
 const COOKIE = NAMESPACE_COOKIE;
 
@@ -75,9 +69,9 @@ const REJECT_AT = 256 - (256 % ALPHABET.length);
  * The cookie namespace is the secret and keys the HMAC, which is what makes the
  * result unguessable by anyone who doesn't already hold the cookie.
  *
- * An absent or malformed tab id yields the cookie namespace unchanged. That is the
- * single fallback seam — every caller can hand this a raw untrusted value — and it
- * keeps callers that have no tab (a stale bundle, curl) working as they did before.
+ * An absent or malformed tab id yields the cookie namespace unchanged, so a caller
+ * with no tab to name still gets a namespace of its own. Every caller may hand this a
+ * raw untrusted value.
  */
 export function deriveNamespace(base: string, tab: string | null | undefined): string {
   if (!tab || !isValidTabId(tab)) return base;

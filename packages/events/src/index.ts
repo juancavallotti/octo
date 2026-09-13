@@ -1,10 +1,8 @@
 /**
- * @octo/events — a lightweight in-process event bus for the BFF, plus the SSE
- * plumbing that carries its events to the browser. The MCP server publishes when
- * it writes an integration; the editor subscribes (via an EventSource on the
- * apps' /api/integrations/events route) and live-reloads the file it has open.
- * Isomorphic: the bus and stream helper run on the Node server, the subscribe
- * helper in the browser.
+ * @octo/events — a lightweight in-process event bus, plus the SSE plumbing that carries
+ * its events to the browser. A writer publishes when it changes an integration, and a
+ * subscriber reacts to the files it cares about. Isomorphic: the bus and stream helper
+ * run on the Node server, the subscribe helper in the browser.
  */
 
 export type {

@@ -1,13 +1,10 @@
 import type { OctoEvent } from "./types";
 
 /**
- * A lightweight in-process publish/subscribe bus shared across the BFF's route
- * handlers. Writers (the MCP store adapter) publish; the SSE route subscribes and
- * fans each event out to connected editors. State is a module-level Set, so it is
- * a true singleton only within a single Node server process — exactly like
- * @octo/run-host's log buffers. In a multi-replica deploy an event published on
- * one replica is not seen by subscribers on another; acceptable for the editor's
- * live-reload hint (and a non-issue for the single-process standalone app).
+ * A lightweight in-process publish/subscribe bus: writers publish, subscribers are fanned
+ * out to. State is a module-level Set, so it is a singleton only within one Node process
+ * — an event published by one process reaches no subscriber in another, which makes this
+ * a hint rather than a delivery guarantee.
  */
 
 type Listener = (event: OctoEvent) => void;

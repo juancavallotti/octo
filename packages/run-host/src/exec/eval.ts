@@ -52,19 +52,14 @@ export async function evalCel(
   const args = ["eval", "-expr", expression];
   if (opts?.data !== undefined) args.push("-data", opts.data);
   if (opts?.vars !== undefined) args.push("-vars", opts.vars);
-  // The CEL `env` map is passed as a value, not injected into the child's process env:
-  // standalone eval has no config to resolve env from, so the caller supplies it directly.
+  // The CEL `env` map is passed as a value rather than injected into the child's process
+  // env: a standalone eval has no config to resolve env from, so the caller supplies it.
   //
-  // These three (`-expr`, `-data`, `-vars`, `-env`) all ride the argv, which is readable
-  // via /proc/<pid>/cmdline while the child runs — so treat them as CEL evaluation
-  // *inputs*, not as a secret channel. That is acceptable here because eval is a one-shot
-  // the trusted server spawns in its own process (a developer's machine for the standalone
-  // app, the server's own pod for the platform), so its cmdline is visible only to that
-  // server, which already holds these values — not to any untrusted co-tenant, who reaches
-  // this only through the MCP API and never a shell. `octo eval` takes `-env` only as a
-  // flag (no file/stdin), and `-data`/`-vars` share the channel regardless, so callers must
-  // not pass real credentials as eval inputs; a fake value that exercises the expression is
-  // the intended use.
+  // `-expr`, `-data`, `-vars` and `-env` all ride the argv, which is readable from
+  // /proc/<pid>/cmdline while the child runs, so they are evaluation *inputs* and not a
+  // secret channel: the cmdline is visible only to the server that already holds these
+  // values. `octo eval` takes `-env` as a flag only, so callers must not pass real
+  // credentials — a fake value that exercises the expression is the intended use.
   if (opts?.env !== undefined) args.push("-env", JSON.stringify(opts.env));
 
   const timeoutMs = opts?.timeoutMs ?? EVAL_DEFAULT_TIMEOUT_MS;

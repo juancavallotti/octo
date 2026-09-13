@@ -10,10 +10,9 @@ import { guard, jsonResult } from "../result";
  * integration store, so it's always registered; the CRUD tools require a
  * {@link OctoMcpConfig.resourceStore} and are skipped on a host without one.
  *
- * These let an agent supply the credentials/config an integration needs before
- * running it: discover the declared env vars with `list_env_keys`, then either
- * pass values via a run's `env`, or persist them as an `env` resource with
- * `create_resource`.
+ * Together they supply the credentials an integration needs before it runs: discover the
+ * declared env vars with `list_env_keys`, then pass values in a run's `env` or persist
+ * them as an `env` resource.
  */
 export function registerResourceTools(
   server: McpServer,
