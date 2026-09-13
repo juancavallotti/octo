@@ -40,9 +40,7 @@ Required reading:
 - Use Conventional Commit messages — release automation depends on them.
 - **Comments explain the logic or document the declaration — nothing else.** A
   change that rewrites twenty comments is the sign that they were carrying
-  context which belonged in the commit message or `docs/`. The comments already
-  in this repository mostly break this rule and are **not** the pattern to
-  follow — trim what you find in a file you are already editing. See the comments
+  context which belonged in the commit message or `docs/`. See the comments
   section of [docs/coding-standards.md](docs/coding-standards.md).
 - **Do not test what the supply chain already tests.** If a failing test could only
   mean that Postgres, pgx, or the standard library is broken, it should not exist —
