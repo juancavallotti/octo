@@ -2,17 +2,9 @@ package core
 
 import "context"
 
-// EmbedClient is the provider-agnostic capability the ai-embed block depends on.
-// Every provider connector but llm-anthropic implements it — Anthropic has no
-// embeddings API —
-// so a connector that doesn't satisfy this interface fails ai-embed's type
-// assertion at flow-build time, the same way an unsupported provider fails any
-// other capability-by-interface binding in this codebase.
-//
-// The interface lives in core (not a connector package) for the same reason
-// LLMClient does: ai-embed resolves a connector by name through BlockDeps.Connector
-// and type-asserts the result, so the interface has to sit somewhere both core and
-// every connector package can reach without an import cycle.
+// EmbedClient is the provider-agnostic embedding capability. It is optional: a
+// provider whose API has no embeddings does not implement it, and a block that
+// needs one fails its type assertion at flow-build time.
 //
 // Implementations must be safe for concurrent use: one connector instance is
 // shared across all flows that reference it.

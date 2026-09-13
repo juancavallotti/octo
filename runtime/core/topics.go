@@ -10,12 +10,10 @@ import (
 // Topics is a deployment-scoped broadcast pub/sub available to connectors and
 // blocks. Unlike Queues (a competing-consumer model where each message reaches
 // exactly one consumer), a Topics message is fanned out to every subscriber on the
-// subject — the platform-events / topic model. There is no reply.
+// subject. There is no reply.
 //
-// In the standalone module topics are in-process (fan-out to local subscribers);
-// in the k8s module they are backed by NATS (a plain, non-queue subscription, so
-// every replica's subscribers receive every message). Delivery is at-most-once: a
-// message published with no live subscriber is dropped.
+// Every subscriber receives every message, wherever it is running. Delivery is
+// at-most-once: a message published with no live subscriber is dropped.
 type Topics interface {
 	// Publish broadcasts msg to every subscriber on subject. It does not wait for,
 	// or expect, a reply.

@@ -9,8 +9,7 @@ import (
 // gates its functions on a version number and treats "unset" as "whatever the
 // linked cel-go ships", so leaving them unset would let a dependency bump widen —
 // or redefine — what an already-deployed expression means. Pinning turns that into
-// a deliberate edit here, reviewed alongside the docs and the editor catalogue that
-// describe the same vocabulary. These are the current maxima in cel-go v0.28.1;
+// a deliberate edit here. These are the current maxima in cel-go v0.28.1;
 // libraries that have never been versioned sit at 0.
 const (
 	optionalTypesVersion        = 2

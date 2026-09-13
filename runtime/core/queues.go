@@ -9,9 +9,8 @@ import (
 )
 
 // DefaultListeners is the number of concurrent handler goroutines a subscription
-// runs when WithListeners is not set. It mirrors the per-flow worker default
-// (the pool package's defaultWorkers), so a queue consumer gets the same fair
-// amount of parallelism a flow does.
+// runs when WithListeners is not set. It matches the per-flow worker default, so a
+// queue consumer gets the same parallelism a flow does.
 const DefaultListeners = 8
 
 // DefaultRequestTimeout bounds a Request whose context carries no deadline, so a
@@ -30,14 +29,11 @@ var errNoQueues = errors.New("queues: no queue backend configured")
 // the same Subscribe for both — whether a reply is sent is decided by whether the
 // inbound message carries a reply destination.
 //
-// In the standalone module queues are in-process (buffered channels); in the k8s
-// module they are backed by NATS (queue-group subscriptions and native request-
-// reply). In those two, delivery is at-most-once: a message published with no live
-// consumer is dropped. The api module is at-least-once instead, because the
-// platform behind it acknowledges each delivery and redelivers what was not
-// acknowledged — so a handler that runs there must be idempotent, or deduplicate
-// on EventID, before it applies a side effect. A handler written for at-most-once
-// is not automatically safe under it.
+// Delivery is the backend's to promise, and it is not the same everywhere. A
+// backend that acknowledges and redelivers is at-least-once, so a handler must be
+// idempotent, or deduplicate on EventID, before it applies a side effect; one that
+// drops a message with no live consumer is at-most-once. A handler written for the
+// second is not automatically safe under the first.
 type Queues interface {
 	// Publish sends msg to subject for exactly one competing consumer. It does not
 	// wait for, or expect, a reply.
@@ -56,8 +52,8 @@ type Queues interface {
 
 // QueueHandler processes one inbound message and may return a reply. The reply is
 // sent only when the sender requested one (a Request, not a Publish); for a
-// fire-and-forget message it is ignored. A non-nil error is logged by the module
-// and, for a Request, surfaces to the requester as a failed request.
+// fire-and-forget message it is ignored. A non-nil error is logged and, for a
+// Request, surfaces to the requester as a failed request.
 type QueueHandler func(ctx context.Context, msg types.Message) (reply types.Message, err error)
 
 // Subscription is a handle to an active subscription. Close stops the handler

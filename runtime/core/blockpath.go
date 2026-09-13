@@ -11,12 +11,9 @@ import "strconv"
 // itself. The flow's optional bracket selects its error chain
 // (`orders[error].notify`).
 //
-// The same grammar is spoken by the address resolver behind `invoke --break-at`,
-// `--spies` and `--mocks` (core/runtime/address.go), by the editor's
-// naturalAddress (packages/editor/src/app/run/address.ts), and by the path the
-// flow builder mints for each block so block events can report where they came
-// from. The four helpers below are the one definition of how a path is spelled,
-// so those derivations cannot drift apart character by character.
+// The address resolver and the path the flow builder mints for each block both
+// speak this grammar. The four helpers below are the one definition of how a path
+// is spelled, so no derivation of one drifts character by character.
 
 // The branch names every composite spells the same way. The first two are also a
 // flow's own chains, selected by the bracket on the flow segment. A composite

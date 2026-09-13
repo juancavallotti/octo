@@ -18,24 +18,14 @@ import (
 // cancellation. It may read the event's message and may copy it (Clone, Scoped,
 // Reported): nothing else is touching the message while this runs.
 //
-// One flow runs on many goroutines — a worker pool per flow, and fork branches on
-// a shared pool — so a listener must be safe for concurrent use, and must be cheap:
-// its cost is paid once per watched block per message, on the hot path.
+// One flow runs on many goroutines, so a listener must be safe for concurrent use
+// and must be cheap: its cost is paid once per watched block per message, on the
+// hot path. A listener that must do slow or blocking work clones what it needs
+// here and hands the copy to a worker it owns, so the loss policy is its own
+// rather than the runtime's.
 //
-// A sync listener observes; it cannot skip or abort the block. A panic is contained
-// for the same reason: it is logged with its stack and counted, and the block
-// carries on. Telemetry is not worth a message, still less the process — and a
-// listener that could kill the flow it is watching would not be an observer.
-//
-// Inline is the only delivery this dispatcher offers. A queued, off-goroutine
-// variant used to exist and was removed: the producers are every flow worker in
-// the process and the consumer was a single goroutine, so no buffer size makes the
-// consumer keep up with sustained load — it only sets how long saturation takes to
-// start dropping. Worse, tail-dropping a full queue is not sampling, it is
-// "discard during bursts", which biases telemetry against exactly the traffic
-// worth measuring. A listener that genuinely must do slow or blocking work should
-// Clone what it needs here and hand the copy to a worker it owns, so the loss
-// policy is its own rather than the runtime's.
+// A sync listener observes; it cannot skip or abort the block. A panic is
+// contained: it is logged with its stack and counted, and the block carries on.
 type SyncBlockListener func(ctx context.Context, event types.BlockEvent)
 
 // registration pairs a listener with the block paths it asked for.
@@ -79,16 +69,13 @@ func (l *listeners) observes(path string) bool {
 }
 
 // BlockEvents dispatches the pre- and post-invoke events the flow engine emits
-// around every block. It is the seam behind flow debugging and per-block telemetry.
+// around every block.
 //
-// It is the block-level counterpart to EventBus, which carries per-message flow
-// events. The two differ where the cost does: EventBus fans out on the terminal
-// event of a whole flow, while this sits on the per-block hot path — so its
-// registered set is read through an atomic, and a listener declares up front which
-// block paths it wants, so a block nobody asked about costs one atomic load and a
-// map lookup rather than a built event.
-//
-// The zero-listener case costs one atomic load: see Observes.
+// It sits on the per-block hot path, which is what shapes it: the registered set
+// is read through an atomic, and a listener declares up front which block paths it
+// wants, so a block nobody asked about costs one atomic load and a map lookup
+// rather than a built event. With no listeners at all it costs the atomic load
+// alone — see Observes.
 type BlockEvents struct {
 	// set is the current listeners, replaced (never mutated) on registration.
 	set atomic.Pointer[listeners]
@@ -97,8 +84,7 @@ type BlockEvents struct {
 
 	// panics counts listener panics the emit path swallowed. A swallowed panic
 	// means a listener saw an event and recorded nothing, so whatever it feeds is
-	// under-reporting — the same thing a full queue used to mean, and just as
-	// impossible to infer from the numbers themselves.
+	// under-reporting in a way its own numbers cannot show.
 	panics atomic.Int64
 }
 
@@ -111,8 +97,8 @@ func NewBlockEvents() *BlockEvents {
 
 var defaultBlockEvents = NewBlockEvents()
 
-// DefaultBlockEvents returns the process-wide block-event dispatcher, the one a
-// Service uses unless an embedder wires its own.
+// DefaultBlockEvents returns the process-wide block-event dispatcher, used unless
+// a caller wires its own.
 func DefaultBlockEvents() *BlockEvents {
 	return defaultBlockEvents
 }

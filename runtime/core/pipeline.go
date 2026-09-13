@@ -58,33 +58,24 @@ type Block struct {
 	// minted by the flow builder from the block's position in the config. It is
 	// what a block event reports as the place it came from.
 	//
-	// It is empty for a block that must not report: the implicit spy and
-	// breakpoint wrappers, which stand in their target's place and would
-	// otherwise emit a second event at the same address.
+	// It is empty for a block that must not report: a wrapper standing in its
+	// target's place would otherwise emit a second event at the same address.
 	//
 	// The path is an observability label, not a resolvable handle. Two cases mint
 	// one the resolver would not accept back: two unnamed blocks of the same type
-	// in one chain share a path, and a name carrying a '.', '[' or ']' — which
-	// nothing rejects today — produces segments the parser splits the wrong way.
-	// Minting nothing in those cases would be worse than minting a label that is
-	// shared or unparseable, since it would leave those blocks unobservable.
+	// in one chain share a path, and a name carrying a '.', '[' or ']' produces
+	// segments the parser splits the wrong way.
 	Path      string
 	Processor MessageProcessor
 }
 
 // BlockAddress is where the block being built sits: the root flow it belongs to,
-// its address within that flow, and the name it was authored with.
+// its address within that flow, and the name it was authored with. It is how a
+// block that reports on itself says where it sits, which it cannot otherwise
+// derive — a leaf is built from nothing but its settings.
 //
-// A block cannot derive any of this for itself. A composite is built by the flow
-// builder and could read the builder's own position, but a leaf is built through
-// the registry from nothing but its settings — so a block that has to report on
-// itself, such as an AI block recording what a model turn cost, has no way to say
-// where the cost was incurred. This is that way.
-//
-// The same "observability label, not a resolvable handle" caveat Block.Path
-// carries applies here, for the same reasons: two unnamed blocks of the same type
-// in one chain share an address, and a name carrying '.', '[' or ']' mints
-// segments the address parser splits the wrong way.
+// Block.Path's caveat applies here too: this is an observability label, not a
+// resolvable handle.
 type BlockAddress struct {
 	// Flow is the root flow's name. Path already begins with it; it is carried
 	// separately so a record can be filtered by flow without parsing an address.
@@ -99,50 +90,44 @@ type BlockAddress struct {
 
 // BlockDeps carries build-time services a block factory may need beyond its
 // settings. Most blocks ignore it. Connector resolves a configured connector
-// instance by name so a block can use a capability that connector provides — for
-// example, a log block binding to a logger connector. ok is false when no
-// connector with that name is configured. Flows lets a block call another flow by
-// name (used by the flow-ref block); it is nil when no flow caller is wired. Env
-// holds the config's resolved environment variables so a block can expose them
-// to its expressions as env.NAME; it is nil when none are declared. Services
-// exposes the runtime services (leader election, KV) to a block; it is nil for
-// callers that do not wire them, so a block must guard against that.
+// instance by name so a block can use a capability that connector provides; ok is
+// false when no connector with that name is configured. Flows lets a block call
+// another flow by name, and is nil when no flow caller is wired. Env holds the
+// config's resolved environment variables so a block can expose them to its
+// expressions as env.NAME; it is nil when none are declared. Services exposes the
+// runtime services to a block, and is nil for a caller that does not wire them,
+// so a block must guard against that.
 type BlockDeps struct {
 	Connector func(name string) (connector Connector, ok bool)
 	Flows     FlowCaller
 	Env       map[string]string
 	Services  RuntimeServices
-	// Resources loads resources (templates, env files) a block may need, e.g. the
-	// template-resource block reading a template by id. It is nil when no loader is
-	// wired; a block must guard against that (or the caller supplies a Noop).
+	// Resources loads resources (templates, env files) a block may need. It is nil
+	// when no loader is wired; a block must guard against that, or the caller
+	// supplies a Noop.
 	Resources ResourceLoader
-	// Breakpoint collects the message at an addressed block and halts the flow, for
-	// the CLI's `invoke --break-at`. It is nil in every normal run — only the
-	// implicit breakpoint block reads it, and it refuses to build without one, so a
-	// flow can never carry a breakpoint that was not asked for.
-	Breakpoint *Breakpoint
-	// Spies collects what crosses each addressed block, for the CLI's `invoke
-	// --spies`. Nil in every normal run, on the same terms as Breakpoint: only the
-	// implicit spy block reads it, and it refuses to build without one.
-	Spies *Spies
-	// Mocks holds the canned outcomes each addressed block is replaced with, for the
-	// CLI's `invoke --mocks`. Unlike the two above it collects nothing — it is an
-	// input to the run — but it reaches the engine the same way, and the implicit
-	// mock block refuses to build without it, so a flow can never carry a mock that
+	// Breakpoint collects the message at an addressed block and halts the flow. It
+	// is nil in every normal run — only the implicit breakpoint block reads it, and
+	// it refuses to build without one, so a flow can never carry a breakpoint that
 	// was not asked for.
+	Breakpoint *Breakpoint
+	// Spies collects what crosses each addressed block. Nil in every normal run, on
+	// the same terms as Breakpoint.
+	Spies *Spies
+	// Mocks holds the canned outcomes each addressed block is replaced with. Unlike
+	// the two above it collects nothing — it is an input to the run — but it reaches
+	// the engine the same way, on the same terms.
 	Mocks *Mocks
 	// Events dispatches the pre- and post-invoke events emitted around every block.
 	// Unlike the rest of BlockDeps it is read by the flow itself rather than by a
-	// block factory — it arrives here because this is already the channel through
-	// which the runtime hands build-time services to the engine.
+	// block factory.
 	//
 	// It is nil when no dispatcher is wired, which is the engine's fast exit: a nil
 	// check per block is the whole cost of the feature for a flow nobody observes.
 	Events *BlockEvents
 	// Address is where the block being built sits in the flow being built. Unlike
-	// the rest of BlockDeps it is not a service — it is the one piece of build-time
-	// context a block cannot derive for itself, and it changes per block rather
-	// than per runtime. The flow builder fills it in for every block.
+	// the rest of BlockDeps it is not a service and changes per block rather than
+	// per runtime; the flow builder fills it in for every block.
 	Address BlockAddress
 	// SubFlows builds the nested chains a block declares, positioned at the block
 	// being built. It is what lets any block own a sub-flow slot: the block reads

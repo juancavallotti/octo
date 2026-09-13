@@ -26,10 +26,8 @@ var errBreakpointUnwired = errors.New(
 // rejects — is still observed, because its stop is seen on the way out of the
 // sub-flow instead of skipping the next block.
 //
-// It is deliberately absent from the schema registry (RegisterBlockMeta): it is a
-// debug-only block that must never appear in the editor palette, in `octo schema`,
-// or in the docs. Registering it there would also fail the docs-drift check, which
-// requires every schema-visible type to be documented on a reference page.
+// Like every debug block it is deliberately absent from the schema registry; see
+// debug.go.
 type breakpointBlock struct {
 	inner *Flow
 	bp    *core.Breakpoint

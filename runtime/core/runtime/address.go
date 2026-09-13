@@ -227,8 +227,8 @@ func (b block) slot(name string) (any, bool) {
 
 // unwrapDebug peels the debug wrappers an earlier injection put around a block, so a
 // second address can still descend through it. Spying a fork and then addressing a
-// block inside one of its branches would otherwise find the spy — which has no
-// branches — where the fork used to be.
+// block inside one of its branches would otherwise find the spy, which has no
+// branches, in place of the fork.
 //
 // It peels on the way down only, never at the target: an address that lands on an
 // already-wrapped block must resolve to the wrapper's slot, so the next injection

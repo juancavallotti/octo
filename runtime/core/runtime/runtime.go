@@ -49,15 +49,15 @@ type ServiceOption func(*Service)
 
 // WithInvokeMode makes every flow use an implicit source instead of its
 // configured external source, and skips starting connectors that are only used as
-// a flow source. Used by the CLI to call a flow directly without standing up
-// sources (no ports bound, no schedules fired).
+// a flow source, so a flow can be called directly without standing up sources —
+// no ports bound, no schedules fired.
 func WithInvokeMode() ServiceOption {
 	return func(s *Service) { s.invokeMode = true }
 }
 
 // WithBreakpoint makes the service break on the block the breakpoint addresses:
 // the block is wrapped in an implicit breakpoint block that records the message it
-// produced and halts the flow. It backs the CLI's `invoke --break-at`.
+// produced and halts the flow.
 //
 // It requires invoke mode. A breakpoint on a source-backed service would halt
 // whichever production message happened to arrive first, so Run refuses it rather
@@ -68,8 +68,7 @@ func WithBreakpoint(bp *core.Breakpoint) ServiceOption {
 
 // WithSpies makes the service record what crosses each block the spies address: the
 // block is wrapped in an implicit spy block that reports every message through it,
-// and the flow otherwise runs exactly as it would have. It backs the CLI's `invoke
-// --spies`.
+// and the flow otherwise runs exactly as it would have.
 //
 // It requires invoke mode. A spy is read-only, but nothing drains the collector
 // outside an invoke: on a source-backed service it would grow without bound, hoarding
@@ -80,8 +79,8 @@ func WithSpies(spies *core.Spies) ServiceOption {
 
 // WithMocks makes the service answer for each block the mocks address instead of
 // running it: the block is replaced by an implicit mock block that returns a canned
-// outcome. It backs the CLI's `invoke --mocks`, and it is what lets a flow whose
-// blocks call an API, an LLM or a database be exercised without any of that.
+// outcome. It is what lets a flow whose blocks call an API, an LLM or a database
+// be exercised without any of that.
 //
 // It requires invoke mode. A mock on a source-backed service would answer production
 // traffic with a canned response.
@@ -101,11 +100,11 @@ func WithBlockEvents(events *core.BlockEvents) ServiceOption {
 	return func(s *Service) { s.events = events }
 }
 
-// WithRuntimeServices wires the runtime services (leader election, KV) this
-// generation exposes to connectors and blocks. The services are injected into the
-// run context and the block dependencies. They are owned by the caller (the CLI
-// constructs them once and reuses them across watch-mode reloads), so the Service
-// never closes them. When unset, the no-op services apply.
+// WithRuntimeServices wires the runtime services this generation exposes to
+// connectors and blocks. The services are injected into the run context and the
+// block dependencies, and are owned by the caller — a Service never closes them,
+// so one set can outlive several generations. When unset, the no-op services
+// apply.
 func WithRuntimeServices(svc core.RuntimeServices) ServiceOption {
 	return func(s *Service) { s.services = svc }
 }
@@ -147,8 +146,8 @@ func (s *Service) resourceLoader() core.ResourceLoader {
 }
 
 // Flows returns the flow caller for this service, letting an embedder invoke a
-// flow by name (the CLI uses this in invoke mode). Calls only resolve once Run
-// has started the flows; use Started to wait for that.
+// flow by name. Calls only resolve once Run has started the flows; use Started to
+// wait for that.
 //
 //nolint:ireturn // exposes the FlowCaller interface intentionally
 func (s *Service) Flows() core.FlowCaller {
@@ -250,8 +249,8 @@ func (set *connectorSet) resolveConnector(ctx context.Context, cfg types.SourceC
 	}
 
 	// The desired connector type: an unresolved Connector that names a registered
-	// type (the editor's type-name fallback), else the source Type when it names
-	// one. Empty means the binding was neither a known instance nor a known type.
+	// type, else the source Type when it names one. Empty means the binding was
+	// neither a known instance nor a known type.
 	typeName := set.desiredType(cfg)
 	if typeName == "" {
 		return nil, fmt.Errorf("source connector %q is not configured", cfg.Connector)

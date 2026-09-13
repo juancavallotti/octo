@@ -5,19 +5,8 @@ import (
 	"encoding/json"
 )
 
-// LLMClient is the provider-agnostic capability the AI elements (ai-router,
-// ai-agent, ai-mapping, ai-retry) depend on. The provider connectors
-// (llm-anthropic, llm-openai, llm-gemini) satisfy it and translate these DTOs
-// to and from their SDK types.
-//
-// The interface lives in core (not a connector package) on purpose: the AI
-// blocks in runtime/blocks/ai bind to whatever provider a flow names, and must
-// not import any one provider's package. So an AI element resolves
-// a connector by name through BlockDeps.Connector and type-asserts the result to
-// LLMClient — the interface, not a concrete connector type. This is the
-// deliberate divergence from the concrete-type assertion other blocks use (e.g.
-// the rest block asserting *httpclient.Connector), forced by the requirement that
-// an AI element work with any provider.
+// LLMClient is the provider-agnostic completion capability. A provider connector
+// satisfies it and translates these DTOs to and from its SDK types.
 //
 // Implementations must be safe for concurrent use: one connector instance is
 // shared across all flows that reference it.
@@ -31,30 +20,24 @@ type LLMClient interface {
 }
 
 // LLMProvider is the optional half of a provider connector that names the vendor
-// family behind it. Callers type-assert for it exactly as they do for
-// LLMStreamClient and EmbedClient, so a connector that does not implement it
-// still works — its calls are simply recorded without a provider.
+// family behind it. A connector that does not implement it still works — its
+// calls are recorded without a provider.
 //
-// It exists because the connector's configured *name* is the author's ("my-llm"),
-// not the vendor's, and the model id is not a reliable substitute: "gpt-4o" is
-// published under both OPENAI and AZURE, and a newly shipped Anthropic model can
-// match a BEDROCK pattern before the price catalogue lists it under ANTHROPIC.
-// Guessing wrong is not cosmetic — the provider decides how cached tokens are
-// counted, so it decides the cost.
+// A connector's configured name is the flow author's ("my-llm"), not the vendor's,
+// and the model id is not a reliable substitute: "gpt-4o" is published under both
+// OPENAI and AZURE. The vendor family decides how cached tokens are counted, so
+// it decides the cost.
 type LLMProvider interface {
-	// Provider returns the vendor family that serves this connector's calls, in
-	// the vocabulary the price catalogue uses: ANTHROPIC, OPENAI, GOOGLE.
+	// Provider returns the vendor family that serves this connector's calls:
+	// ANTHROPIC, OPENAI, GOOGLE.
 	//
 	// The family, not the endpoint: a connector pointed at a proxy or an
-	// OpenAI-compatible server still reports the family whose API and token
-	// accounting it speaks, because that is what the number downstream depends on.
+	// OpenAI-compatible server reports the family whose API and token accounting
+	// it speaks.
 	Provider() string
 }
 
-// The vendor families the bundled connectors report. They are named here rather
-// than spelled at each connector so the vocabulary a cost reader parses is
-// enumerable from one place — and so the one that surprises people, Gemini's
-// vendor being GOOGLE, is written down once.
+// The vendor families a provider connector reports. Gemini's family is GOOGLE.
 const (
 	ProviderAnthropic  = "ANTHROPIC"
 	ProviderOpenAI     = "OPENAI"
@@ -64,46 +47,34 @@ const (
 
 // LLMStreamClient is the optional streaming half of a provider. A connector that
 // implements it can report a turn's output as it is produced instead of only when
-// it is finished. Callers type-assert for it exactly as they do for EmbedClient,
-// and fall back to Complete when a provider does not have it.
+// it is finished; one that does not is driven through Complete.
 type LLMStreamClient interface {
 	// Stream runs one completion turn, calling on for each event as it arrives, and
 	// returns the same *LLMResponse Complete would have returned for that turn.
 	//
 	// The events are strictly additive: everything a caller needs is still on the
-	// returned response, so moving a call from Complete to Stream changes when the
-	// caller learns things, never what it learns. That is what makes streaming safe
-	// to switch on.
+	// returned response, so streaming changes when the caller learns things, never
+	// what it learns.
 	//
 	// on is called on the calling goroutine, in order, between reads of the
 	// provider's connection — so a slow handler backpressures the model rather than
 	// buffering without bound. Returning an error from on stops the stream and is
-	// returned as-is, which is how a caller abandons a turn nobody is listening to.
+	// returned as-is.
 	Stream(ctx context.Context, req LLMRequest, on func(LLMStreamEvent) error) (*LLMResponse, error)
 }
 
-// LLMStreamKind is the canonical vocabulary for a streamed event.
+// LLMStreamKind is the canonical vocabulary for a streamed event. It is a closed
+// set: a provider maps its own wire events onto these, sends anything with no
+// canonical home as LLMStreamCustom, and never synthesizes a kind it does not
+// actually produce.
 //
-// It is a closed set on purpose. Every provider maps its own wire events onto
-// these, and anything with no canonical home goes to LLMStreamCustom rather than
-// growing the list. Two rules keep that honest: a provider never uses custom for
-// something a canonical kind already covers, and never synthesizes a kind it does
-// not actually have.
+// Consumers must tolerate any kind being absent, and must not rely on
+// granularity — only on meaning. A provider that delivers a tool call's arguments
+// whole reports one tool_input where another reports several, and concatenating
+// a call's fragments yields the same valid JSON either way.
 //
-// Consumers must tolerate any kind being absent, because a kind reports what its
-// provider actually produces and every provider withholds something. Thinking is
-// the one that varies most: it arrives only where reasoning was both asked for and
-// returned as content, so a connector configured for no reasoning reports none, and
-// OpenAI reports a summary of its reasoning rather than the reasoning itself.
-//
-// Granularity is not guaranteed either, only meaning. Gemini delivers a tool
-// call's arguments whole where the other two fragment them, so it reports one
-// tool_input rather than several; a consumer that concatenates the fragments of a
-// call gets the same valid JSON on all three.
-//
-// There is deliberately no terminal kind. Stream returns the finished
-// LLMResponse, so stop reason, usage and the assembled text are all read from
-// there — a "done" event would be a second, weaker way to learn the same thing.
+// There is no terminal kind: stop reason, usage and the assembled text are read
+// from the LLMResponse that Stream returns.
 type LLMStreamKind string
 
 const (
@@ -116,9 +87,7 @@ const (
 	// fragments are not individually parseable — only their concatenation is.
 	LLMStreamToolInput LLMStreamKind = "tool_input"
 	// LLMStreamCustom is a provider event with no canonical equivalent, carried
-	// through under the provider's own name for it. It is also what a connector
-	// falls back to for an event its SDK has grown since the connector was written,
-	// so a new provider event reaches consumers without the vocabulary changing.
+	// through under the provider's own name for it.
 	LLMStreamCustom LLMStreamKind = "custom"
 )
 
@@ -148,10 +117,8 @@ type LLMStreamEvent struct {
 	Index int
 }
 
-// LLMRequest is one completion turn. The shape mirrors the Anthropic Messages
-// tool-use loop (system separate from the conversation, explicit tool-call IDs,
-// tool results as their own turn) because it is the most expressive of the three
-// providers and maps cleanly onto OpenAI and Gemini.
+// LLMRequest is one completion turn: the system prompt separate from the
+// conversation, explicit tool-call IDs, and tool results as their own turn.
 type LLMRequest struct {
 	// System is the system prompt. It is provider-routed to the dedicated
 	// system slot rather than prepended as a message. May be empty.
@@ -160,7 +127,7 @@ type LLMRequest struct {
 	// (which may carry ToolCalls), and tool turns (which carry ToolResults).
 	Messages []LLMMessage
 	// Tools are the function definitions the model may call. May be empty for a
-	// plain text completion (e.g. ai-mapping).
+	// plain text completion.
 	Tools []LLMTool
 	// ToolChoice constrains whether and which tool the model must call. The zero
 	// value is auto (the model decides).
@@ -195,33 +162,26 @@ type LLMMessage struct {
 	ToolResults []LLMToolResult
 }
 
-// LLMThinkingBlock is one reasoning block from an assistant turn.
+// LLMThinkingBlock is one reasoning block from an assistant turn, carried because
+// a provider may require it back: a provider that validates the thinking runs of
+// an echoed assistant turn rejects a request whose blocks were dropped, reordered
+// or edited, so a tool loop that discards them breaks on the second turn.
 //
-// It is carried on the message rather than dropped because a provider may
-// require it back. With extended thinking enabled, Anthropic validates the
-// thinking runs of an echoed assistant turn and rejects a request whose blocks
-// were dropped, reordered, or edited — so a tool loop that discards them breaks
-// on the second turn. Callers treat these blocks as opaque: they never inspect,
-// merge, or construct one, they only carry it back via LLMResponse.Raw.
+// The blocks are opaque. Callers never inspect, merge or construct one; they
+// carry it back via LLMResponse.Raw.
 //
-// Which fields carry the block depends on how the provider returns reasoning, and
-// the two shapes in use disagree. Anthropic returns either readable text with an
-// attestation over it, or an encrypted payload standing in for text it withheld —
-// exactly one of Text and Redacted. OpenAI's Responses API returns both at once:
-// a readable summary and, separately, the encrypted reasoning the next turn has to
-// echo. So a consumer must not treat the two as exclusive; a connector carries
-// whichever its provider gave it and echoes all of them back untouched.
+// Text and Redacted are not exclusive. A provider may return exactly one of them,
+// or both at once — a readable summary alongside the encrypted reasoning the next
+// turn has to echo — so a consumer carries whichever it was given.
 type LLMThinkingBlock struct {
 	// Text is the reasoning content, or a summary of it. Empty when the provider
 	// returned no readable reasoning.
 	Text string
-	// Signature is the token that makes the block echoable. For Anthropic it is an
-	// attestation over Text, verified against its exact bytes, so changing either
-	// invalidates the block. For OpenAI it is the reasoning item's id, which the
-	// server matches the echoed item against.
+	// Signature is the token that makes the block echoable: either an attestation
+	// over Text, verified against its exact bytes, or the id the server matches the
+	// echoed block against.
 	Signature string
-	// Redacted is the opaque encrypted payload, echoed back as-is. It is the whole
-	// block for Anthropic and rides alongside Text for OpenAI.
+	// Redacted is the opaque encrypted payload, echoed back as-is.
 	Redacted []byte
 }
 
@@ -229,16 +189,13 @@ type LLMThinkingBlock struct {
 // not report a given figure leaves it zero; LLMResponse.Usage is nil when the
 // provider reported nothing at all.
 //
-// OutputTokens is defined as the billing-authoritative total and therefore
-// *includes* ThinkingTokens. Providers disagree here — Anthropic and OpenAI
-// already count reasoning inside their output total, Gemini reports thoughts
-// separately — so the connectors normalize to the inclusive figure and callers
-// never have to know which provider answered.
+// OutputTokens is the billing-authoritative total and therefore *includes*
+// ThinkingTokens. Providers disagree on this, so a connector normalizes to the
+// inclusive figure and callers never have to know which one answered.
+//
 // CachedTokens and CacheWriteTokens are the two halves of prompt caching and are
-// billed differently: a read is cheaper than ordinary input, a write is dearer
-// (Anthropic charges roughly 1.25x). Only Anthropic reports a write count today;
-// OpenAI's caching is automatic with no separate write charge, and Gemini bills
-// explicit caching by storage time rather than by tokens, so both leave it zero.
+// billed differently: a read is cheaper than ordinary input, a write dearer. A
+// provider that does not charge separately for a write leaves it zero.
 type LLMUsage struct {
 	InputTokens      int
 	OutputTokens     int
@@ -250,29 +207,20 @@ type LLMUsage struct {
 	// prompt, the tool schemas and the whole conversation — counting the ones it
 	// served from cache and the ones it wrote to it. It is the only portable
 	// measure of how full a context is, and no sum over the fields above
-	// reconstructs it: Anthropic reports InputTokens as the uncached remainder,
-	// while OpenAI, Gemini and OpenRouter report cached reads as a subset of
-	// theirs, so the same arithmetic means two different things on two providers.
+	// reconstructs it: a provider reporting InputTokens as the uncached remainder
+	// and one reporting cached reads as a subset of it make the same arithmetic
+	// mean two different things.
 	//
-	// The connectors normalize it, as they already do for OutputTokens and
-	// thinking, so a caller never has to know which provider answered. It is
-	// always >= InputTokens, and equal to it everywhere but Anthropic.
-	//
-	// The billing fields are deliberately left alone rather than redefined: they
-	// are priced at three different rates downstream, and they are written into
-	// trace records that are already stored. Adding a figure is honest; changing
-	// what a stored one means is not.
+	// A connector normalizes it, as it does OutputTokens and thinking. It is
+	// always >= InputTokens.
 	PromptTokens int
 
-	// ReportedCostUSD is what the provider says it charged for this turn, and is
-	// nil for every provider that reports no such figure — which is all of them
-	// but OpenRouter, whose response carries the amount it billed.
+	// ReportedCostUSD is the amount the provider says it charged for this turn,
+	// and is nil for a provider that reports no such figure.
 	//
-	// It is not a rate card and it does not make one: the runtime still knows no
-	// prices and still computes nothing. It relays a number a provider
-	// volunteered, which is a different fact from an estimate derived downstream
-	// — and a strictly better one, because it includes the per-request and
-	// per-image charges no token count can reconstruct.
+	// It is relayed, never derived: it is a number the provider volunteered, and
+	// it already includes the per-request and per-image charges no token count
+	// reconstructs.
 	ReportedCostUSD *float64
 }
 
@@ -307,18 +255,16 @@ type LLMToolChoice struct {
 }
 
 // LLMToolCall is a request from the model to run a tool. ID correlates the call
-// with its later LLMToolResult. Providers that do not supply IDs (Gemini) have
-// their connector synthesize a stable one. Input is the arguments as a JSON
-// object.
+// with its later LLMToolResult; a connector whose provider supplies no id
+// synthesizes a stable one. Input is the arguments as a JSON object.
 type LLMToolCall struct {
 	ID    string
 	Name  string
 	Input json.RawMessage
-	// Signature is an opaque, provider-specific continuation token the model
-	// attaches to a tool call that must be echoed back verbatim on the next turn
-	// for a multi-turn tool conversation to stay valid (Gemini 3.x thought
-	// signatures). It is empty for providers that do not use one; callers treat it
-	// as opaque and never inspect or construct it — they only carry it back via
+	// Signature is an opaque continuation token some providers attach to a tool
+	// call, which must be echoed back verbatim on the next turn for a multi-turn
+	// tool conversation to stay valid. It is empty where the provider uses none;
+	// callers never inspect or construct it, they carry it back via
 	// LLMResponse.Raw.
 	Signature []byte
 }
@@ -329,11 +275,8 @@ type LLMToolCall struct {
 type LLMToolResult struct {
 	ToolCallID string
 	// Tool is the name of the call this answers, carried alongside the id because
-	// not every provider correlates on the id alone: Gemini's function response is
-	// addressed by function *name*, so a connector that had only the id would have
-	// to reconstruct the name by looking back at the preceding assistant turn.
-	//
-	// It must match the originating LLMToolCall.Name.
+	// not every provider correlates on the id alone — some address a function
+	// response by name. It must match the originating LLMToolCall.Name.
 	Tool    string
 	Content string
 	IsError bool
@@ -369,12 +312,8 @@ type LLMResponse struct {
 	// Usage is the turn's token accounting, or nil when the provider reported none.
 	Usage *LLMUsage
 	// Model is the model that actually served the turn, as the provider reported
-	// it, falling back to the id the connector was configured with when it
-	// reported none.
-	//
-	// The two differ more often than not, and the difference is the point: a
-	// configured alias resolves to a dated snapshot, and it is the snapshot that
-	// answered and the snapshot that is billed. Pairing Usage with the alias
-	// would attribute tokens to something that does not have a price.
+	// it, falling back to the configured id when it reported none. It is the
+	// model Usage belongs to: a configured alias resolves to a dated snapshot, and
+	// it is the snapshot that answered and that is billed.
 	Model string
 }
