@@ -45,9 +45,7 @@ func NewRetentionHandler(svc RetentionService) *RetentionHandler {
 // Register wires the routes onto mux.
 //
 // These are the only routes in this service that are not reads. They live here
-// rather than on the orchestrator because this service owns the three tables a
-// policy governs, which is the same reason the platform queries logs and traces
-// here directly instead of hopping through it.
+// because this service owns the three tables a policy governs.
 func (h *RetentionHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings/retention", h.get)
 	mux.HandleFunc("PUT /settings/retention", h.update)

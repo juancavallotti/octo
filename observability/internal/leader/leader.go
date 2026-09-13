@@ -1,19 +1,15 @@
 // Package leader answers one question for the alerting runner: is this replica
 // the one that should act right now.
 //
-// The observability service is a competing consumer everywhere else — two
-// replicas share a NATS queue group and both write to the same tables, and that
-// is correct because ingesting a record twice is idempotent. Evaluating a watch
-// twice is not: two replicas would open two incidents, send two emails and race
-// each other's state updates. So exactly one replica evaluates, and this is how
-// it finds out that it is the one.
+// Ingesting a record twice is idempotent, so replicas compete freely everywhere
+// else. Evaluating a watch twice is not: two replicas would open two incidents,
+// send two emails and race each other's state updates. So exactly one replica
+// evaluates, and this is how it finds out that it is the one.
 //
-// It is a Kubernetes Lease, taken through client-go's leader election, with the
-// same timings the runtime's own election uses. Off-cluster there is no API
-// server to ask and no second replica to compete with, so the elector reports
-// itself the leader — which is not a degraded stand-in but the complete and exact
-// answer in a single process, the same relationship an in-process queue has to a
-// NATS one.
+// It is a Kubernetes Lease, taken through client-go's leader election. Off-cluster
+// there is no API server to ask and no second replica to compete with, so the
+// elector reports itself the leader — the complete and exact answer for a single
+// process rather than a degraded stand-in.
 package leader
 
 import (
@@ -32,10 +28,8 @@ import (
 )
 
 const (
-	// The conventional client-go timings, matched to the runtime's own election
-	// in runtime/services/k8s/leaderelection.go. Short enough for prompt
-	// failover, long enough to tolerate a brief API-server blip — and identical
-	// on both sides so an operator reading one has read the other.
+	// The conventional client-go timings: short enough for prompt failover, long
+	// enough to tolerate a brief API-server blip.
 	leaseDuration = 15 * time.Second
 	renewDeadline = 10 * time.Second
 	retryPeriod   = 2 * time.Second
@@ -88,9 +82,9 @@ func New(ctx context.Context) (*Elector, error) {
 
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		// Named rather than swallowed: a pod that has the downward-API variables
-		// and cannot reach the API server is misconfigured, and a service that
-		// silently elected itself would put two evaluators on one installation.
+		// Named rather than swallowed: having the downward-API variables and no
+		// reachable API server is a misconfiguration, and silently electing
+		// ourselves would put two evaluators on one installation.
 		return nil, fmt.Errorf("leader: in-cluster config for %s/%s: %w", namespace, name, err)
 	}
 	client, err := kubernetes.NewForConfig(config)
@@ -117,9 +111,8 @@ func (e *Elector) campaign(ctx context.Context, client kubernetes.Interface, nam
 				Identity: e.identity,
 			},
 		},
-		// Released on shutdown, so a rolling restart hands over in a couple of
-		// seconds instead of leaving the installation unwatched for a whole lease
-		// duration while the lease times out.
+		// Released on shutdown, so a restart hands over in a couple of seconds
+		// rather than leaving the installation unwatched until the lease expires.
 		ReleaseOnCancel: true,
 		LeaseDuration:   leaseDuration,
 		RenewDeadline:   renewDeadline,

@@ -132,17 +132,12 @@ func (s *Store) Create(ctx context.Context, w alerting.Watch, createdBy string) 
 // Update replaces a definition in place.
 //
 // The state row is not reset here. Step does that on the next evaluation, when it
-// sees the stored hash no longer matches — which keeps every reason a hold can
-// restart in the one function that owns holds, rather than splitting it between
-// the editor and the evaluator.
+// sees the stored hash no longer matches, which keeps every reason a hold can
+// restart in the one function that owns holds.
 // Update saves a definition and, when the saved watch is disabled, retires its
-// open episode in the SAME transaction.
-//
-// The two were separate calls, and the order made a trap: the disable landed
-// first, so a failing retire returned an error while leaving the watch disabled
-// with its incident still open. The runner skips disabled watches, so nothing
-// would ever evaluate it again and nothing could resolve that incident — a
-// dashboard row frozen on fire, and no path back short of re-enabling the watch.
+// open episode in the SAME transaction. Split apart, a failing retire would leave
+// a disabled watch with an open incident — and since disabled watches are never
+// evaluated, nothing could ever resolve it.
 func (s *Store) Update(
 	ctx context.Context, w alerting.Watch, updatedBy string, retireAt time.Time,
 ) (alerting.Watch, error) {
@@ -289,9 +284,8 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// Defer pushes a watch's next evaluation out without recording one, for a watch
-// the runner deliberately did not look at. Without it a skipped watch stays due
-// and is retried on every tick for as long as the reason lasts.
+// Defer pushes a watch's next evaluation out without recording one. Without it a
+// skipped watch stays due and is retried on every tick.
 func (s *Store) Defer(ctx context.Context, watchID string, until time.Time) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE alert_watch_state SET next_due_at = $2 WHERE watch_id = $1::uuid`, watchID, until)

@@ -2,8 +2,8 @@ package alerting
 
 import "fmt"
 
-// Unit names what a number is, so the UI can render "11.4%" and "1.9 GB" beside
-// each other without the watch having to declare one unit for all of it.
+// Unit names what a number is, so "11.4%" and "1.9 GB" can be rendered beside each
+// other without the watch declaring one unit for all of it.
 type Unit string
 
 const (
@@ -17,12 +17,9 @@ const (
 
 // Metric is one number a condition can be written about.
 //
-// The catalogue below is deliberately closed for the two Postgres sources. An
-// open expression language over those tables is a second product — it needs a
-// parser, a safety story and a way to explain itself in an incident — and every
-// alert anyone has actually asked for is in this table. Pod stats are the
-// exception and are open by necessity: the metric names come from whatever the
-// runtime exports, and this service does not get to enumerate them.
+// The catalogue below is closed for the two Postgres sources. Pod stats are the
+// exception and are open by necessity: their metric names come from whatever the
+// exporter publishes, and this service does not get to enumerate them.
 //
 // CountLike drives the Poisson floor in Scale. It is true for anything that
 // counts occurrences, where the natural spread of a quiet series is the square
@@ -118,12 +115,10 @@ var (
 
 // LookupMetric resolves a metric within a source.
 //
-// A pod-stat metric is synthesized rather than looked up: the names are whatever
-// the runtime's Prometheus registry exports, which this service has no business
-// enumerating. It is treated as count-like only when its name says so, following
-// the convention the exporter already uses — a _total is a counter, and the
-// sidecar reports counters as per-bucket deltas, so its natural spread really is
-// Poisson.
+// A pod-stat metric is synthesized rather than looked up, since its name comes
+// from whatever the exporter publishes. It is count-like only when the name says
+// so: a _total is a counter, and counters arrive as per-bucket deltas, so the
+// natural spread really is Poisson.
 func LookupMetric(source Source, name string) (Metric, error) {
 	switch source {
 	case SourceTraces:
@@ -150,10 +145,9 @@ func LookupMetric(source Source, name string) (Metric, error) {
 	return Metric{}, fmt.Errorf("alerting: unknown %s metric %q", source, name)
 }
 
-// Metrics lists the closed catalogue for a source, for the editor's pickers. Pod
-// stats return nothing, because their names are discovered from a deployment
-// rather than declared here — the existing /stats/{id}/metrics route is what
-// answers that question.
+// Metrics lists the closed catalogue for a source. Pod stats return nothing,
+// because their names are discovered from a deployment rather than declared here —
+// GET /stats/{deploymentId}/metrics is what answers that question.
 func Metrics(source Source) []Metric {
 	var from map[string]Metric
 	switch source {

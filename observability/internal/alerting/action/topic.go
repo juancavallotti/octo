@@ -12,25 +12,14 @@ import (
 	"github.com/juancavallotti/octo/observability/internal/alerting"
 )
 
-// scopedSubjectFormat is how the runtime scopes a deployment's own topics:
-// octo.<deploymentID>.t.<subject>.
+// scopedSubjectFormat scopes a deployment's own topics: octo.<deploymentID>.t.
+// <subject>. The publisher of these subjects is in a separate Go module, so this
+// is a copy; a contract test in this package fails if the two disagree.
 //
-// This is a SECOND COPY of a format the runtime owns, in
-// runtime/services/k8s/topics.go, where it is unexported. A contract test in this
-// package reads that source and fails if the two ever disagree — the same device
-// podstats/wire_contract_test.go uses to keep two copies of a wire type honest.
-//
-// The copy is here rather than the two sides sharing a constant because they are
-// separate Go modules, and because the direction of the coupling matters: the
-// runtime does not get to know that the platform publishes alerts at it.
-//
-// Publishing into a deployment's own subject, rather than to an unscoped
-// `internal.` one, is deliberate and is the only delivery that works today. The
-// runtime refuses Subscribe on a system: subject on purpose — that plane carries
-// every deployment's logs and traces, so a flow that could subscribe to it could
-// read other workloads' traffic. An alert therefore arrives on the subject the
-// target deployment already listens to with an ordinary `events` source, and no
-// runtime change is needed.
+// An alert goes to a deployment's own scoped subject rather than an unscoped
+// `internal.` one, because that plane carries every deployment's logs and traces
+// and a flow able to subscribe to it could read other workloads' traffic. The
+// scoped subject is one a target deployment already listens to.
 const scopedSubjectFormat = "octo.%s.t.%s"
 
 // Topics publishes alerts onto the broker.
@@ -51,23 +40,19 @@ func NewTopics(conn *nats.Conn) *Topics {
 type TopicParams struct {
 	// DeploymentID is the deployment whose subject this publishes to — the app
 	// that acts on the alert, not the app the alert is about. They are often
-	// different: a platform agent watching an integration it does not run.
+	// different.
 	DeploymentID string `json:"deploymentId"`
 	Subject      string `json:"subject"`
 
 	// ReportTo is who the receiving app should send its findings to, carried on
 	// the alert rather than configured inside that app.
 	//
-	// It exists because the receiver of an alert is often something that will
-	// write back — an agent that triages and then reports — and the alternative
-	// is worse in both directions. Configured inside the app, the addresses live
-	// somewhere nobody editing the watch can see. Left to the app to choose, an
-	// agent is deciding who hears about an incident, which is not a decision to
-	// hand to a model.
+	// It rides on the alert so the addresses stay visible to whoever edits the
+	// watch, and so the receiving app is not the one deciding who hears about an
+	// incident.
 	//
-	// Optional and empty by default: a topic action feeding a flow that only
-	// records or reacts needs nobody's address, and asking for one would make
-	// every such watch carry a field it does not use.
+	// Optional and empty by default: an action feeding a flow that only records or
+	// reacts needs nobody's address.
 	ReportTo []string `json:"reportTo,omitempty"`
 }
 

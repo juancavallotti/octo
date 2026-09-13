@@ -20,10 +20,9 @@ func Spec() []byte { return spec }
 // with components.schemas pruned to the schemas those operations can actually
 // reach.
 //
-// Pruning the schemas is the point. A trace record carries two dozen fields and
-// references several other types, so a caller asking about logs and being handed
-// every trace schema in the service has not been helped much. Reachability is
-// computed transitively, because a kept schema's own fields reference others.
+// Pruning the schemas is the point: a caller asking about logs should not be
+// handed every trace schema in the service. Reachability is computed transitively,
+// because a kept schema's own fields reference others.
 //
 // An empty tag and path return the document unchanged. A filter matching nothing
 // returns a document with no paths rather than an error: "no operation is tagged

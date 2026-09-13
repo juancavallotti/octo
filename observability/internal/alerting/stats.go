@@ -20,11 +20,10 @@ const (
 
 // zByConfidence is the standard normal quantile for the supported intervals.
 //
-// A lookup rather than an inverse-CDF approximation, because the vocabulary here
-// is deliberately closed: three choices cover every alert anyone writes, and a
-// table is exact where a rational approximation is merely close. An unsupported
-// value falls back to 95% rather than erroring — a confidence is a tuning knob,
-// and a typo in one is no reason to stop evaluating a watch.
+// A lookup rather than an inverse-CDF approximation, because the vocabulary is
+// closed and a table is exact where an approximation is merely close. An
+// unsupported value falls back to 95% rather than erroring: a typo in a tuning
+// knob is no reason to stop evaluating a watch.
 var zByConfidence = map[float64]float64{
 	0.90: 1.6449,
 	0.95: 1.9600,
@@ -56,12 +55,10 @@ func Median(values []float64) (float64, bool) {
 // MAD is the median absolute deviation from the median: the robust answer to "how
 // far does this series usually move".
 //
-// Robust is the operative word and it is why this is here instead of a standard
-// deviation. A standard deviation is computed from the very outliers an alert
-// exists to find, so a twenty-minute outage inflates the spread it is being
-// judged against and the incident argues itself down. A median tolerates up to
-// half the sample being contaminated before the estimate moves at all, which is
-// exactly the regime "one bad stretch inside a day of history" lives in.
+// Robust is the operative word. A standard deviation is computed from the very
+// outliers an alert exists to find, so an outage inflates the spread it is judged
+// against and argues itself down; a median tolerates up to half the sample being
+// contaminated before the estimate moves at all.
 func MAD(values []float64) (median, mad float64, ok bool) {
 	median, ok = Median(values)
 	if !ok {
@@ -78,10 +75,9 @@ func MAD(values []float64) (median, mad float64, ok bool) {
 // Scale is the spread a robust z-score divides by: the MAD converted to a sigma,
 // floored so it can never be zero.
 //
-// The floors are not defensive padding, they are the whole reason low-volume
-// watches behave. For a quiet integration the MAD is frequently exactly zero —
-// twelve buckets that all read 1, or all read 0 — and a z-score over that finds
-// every subsequent point infinitely anomalous.
+// The floors are what make low-volume watches behave. For a quiet integration the
+// MAD is frequently exactly zero — twelve buckets that all read 1, or all read 0 —
+// and a z-score over that finds every subsequent point infinitely anomalous.
 //
 // countLike applies the Poisson floor √max(median,1): for a counting process the
 // natural scale is the square root of the mean, so a baseline of 1 gets a sigma
@@ -102,14 +98,10 @@ func Scale(median, mad float64, countLike bool, minScale float64) float64 {
 // WilsonLowerBound is the lower end of the Wilson score interval for a proportion
 // of successes out of n trials.
 //
-// This is what a ratio condition compares against a threshold, instead of the raw
-// k/n, and it is the single most load-bearing piece of arithmetic in the package.
-// One failure out of two traces is a 50% error rate by the point estimate, and a
-// threshold of 10% would page somebody at three in the morning about two requests.
-// The Wilson bound at n=2 is about 9% — below any threshold anyone sets — and at
-// n=400 it is about 45%, which fires. The gate scales itself with the evidence,
-// where a fixed minimum-sample cutoff has to be tuned for the busiest case and is
-// then wrong for the quietest.
+// This is what a ratio condition compares against a threshold, rather than the raw
+// k/n. One failure out of two traces is a 50% error rate by the point estimate,
+// where the Wilson bound is about 9% — below any threshold anyone sets — while at
+// n=400 it is about 45% and fires. The gate scales itself with the evidence.
 //
 // The point estimate is still what gets reported, because that is the number a
 // human recognises; this is only what the comparison is made against.

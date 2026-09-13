@@ -1,16 +1,12 @@
 // Package source turns an alerting query into a series, by asking whichever
 // store holds the answer.
 //
-// It is a package of its own so that the alerting package's tests never link
-// pgx or a Redis client. Everything worth arguing about in alerting — whether a
-// change is a spike, whether a proportion is evidence, when a hold has been held
-// — is decided over value types by pure functions, and keeping the only code
-// that needs a server on this side of the boundary is what makes that testable.
+// It is a package of its own so that the alerting package's tests never link pgx
+// or a Redis client: everything alerting decides is decided over value types by
+// pure functions, and the only code needing a server lives on this side.
 //
-// The dependency runs one way: this package imports alerting for Query and
-// Series, and alerting knows nothing about this one. The runner declares the
-// narrow interface it needs and *Fetcher happens to satisfy it, which is the same
-// relationship retention.Service has with repo.
+// The dependency runs one way: this package imports alerting for Query and Series,
+// and alerting knows nothing about this one.
 package source
 
 import (
@@ -227,14 +223,13 @@ func lowered(in []string) []string {
 // on an index that is already ordered the right way. On an idle installation both
 // halves scan nothing and return false immediately.
 //
-// received_at rather than ts, deliberately. ts is when the traced thing happened,
-// which a publisher stamps and can backdate; received_at is when this service
-// wrote the row, which is the only column that answers "is the pipeline alive".
+// received_at rather than ts: ts is when the traced thing happened, which a
+// publisher stamps and can backdate, while received_at is when the row was
+// written, which is the only column that answers "is the pipeline alive".
 //
-// trace_summaries is in the list even though it is derived from traces, and the
-// smoke test that put it here is the argument: it is the table most conditions
-// read, and a probe that missed it would suppress every downward watch on an
-// installation whose summaries were arriving perfectly well.
+// trace_summaries is in the list even though it is derived from traces: it is the
+// table most conditions read, and a probe that missed it would suppress every
+// downward watch on an installation whose summaries were arriving perfectly well.
 const ingestingSQL = `
 SELECT EXISTS (SELECT 1 FROM logs WHERE received_at >= $1)
     OR EXISTS (SELECT 1 FROM traces WHERE received_at >= $1)

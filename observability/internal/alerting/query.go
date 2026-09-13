@@ -8,9 +8,7 @@ import (
 )
 
 // Scope narrows the rows a query reads. A zero field is no constraint on that
-// axis, which is the same contract repo.LogFilter already has — the log fields
-// here are named after it deliberately, so the fetcher is a translation rather
-// than a mapping.
+// axis.
 type Scope struct {
 	DeploymentID  string `json:"deploymentId,omitempty"`
 	IntegrationID string `json:"integrationId,omitempty"`

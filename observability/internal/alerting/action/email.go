@@ -23,11 +23,9 @@ const (
 	// moment it fires.
 	maxRecipients = 50
 
-	// sendPath is the orchestrator's platform-internal send. Deliberately not a
-	// provider API: the Resend key lives encrypted in site_settings and is
-	// decrypted by the one service that owns it, so this process holds no
-	// credential at all and a compromise of it leaks no way to send mail as this
-	// installation.
+	// sendPath is the internal send endpoint rather than a provider API, so this
+	// process holds no mail credential at all and a compromise of it leaks no way
+	// to send mail as this installation.
 	sendPath = "/email/send"
 )
 
@@ -78,9 +76,9 @@ func newEmailAction(spec alerting.ActionSpec, mailer *Mailer) (Deliverer, error)
 	return &emailAction{params: p, mail: mailer}, nil
 }
 
-// sendRequest mirrors the orchestrator's sendRequestBody. There is no from or
-// apiKey field on purpose: the identity a send goes out under is defined once, in
-// the stored settings, and that is what stops this being a relay.
+// sendRequest is the send endpoint's body. There is no from or apiKey field: the
+// identity a send goes out under is defined once in the stored settings, which is
+// what stops this being a relay.
 type sendRequest struct {
 	To      []string `json:"to"`
 	Subject string   `json:"subject"`

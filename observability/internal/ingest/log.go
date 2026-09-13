@@ -1,13 +1,11 @@
-// Package ingest consumes the telemetry deployed runtimes publish over NATS and
-// hands it to a store for persistence: log records on internal.logs, trace
-// records on internal.traces. Parsing here is the inverse of the encoding each
-// sink applies at the other end.
+// Package ingest consumes telemetry published over NATS and hands it to a store
+// for persistence: log records on internal.logs, trace records on internal.traces.
 //
 // Both streams live in one package because they arrive the same way — a shared,
 // deployment-agnostic subject, consumed by a queue group so each record lands on
 // exactly one replica, with the emitting deployment's identity inside the record
-// rather than in the subject. Types are named for the stream they belong to,
-// since neither is "the" one.
+// rather than in the subject. Types are named for the stream they belong to, since
+// neither is "the" one.
 package ingest
 
 import (
@@ -17,15 +15,14 @@ import (
 	"time"
 )
 
-// LogSubject is the shared subject runtimes ship log records to. It mirrors the
-// constant in the runtime's k8s services module; the two must stay in sync.
+// LogSubject is the shared subject log records are shipped to. Publisher and
+// consumer are in separate Go modules, so the two must stay in sync by hand.
 const LogSubject = "internal.logs"
 
 // logQueueGroup makes every replica a competing consumer of LogSubject, so each
-// record is delivered to exactly one replica (point-to-point). Named for the
-// stream it consumes, like traceQueueGroup, not for the service: the name is on
-// the wire, and renaming it would split old and new replicas into two groups
-// for the length of a rolling upgrade.
+// record is delivered to exactly one replica (point-to-point). The name is on the
+// wire: changing it would split old and new replicas into two groups for the
+// length of a rolling upgrade.
 const logQueueGroup = "octo-logs"
 
 // Reserved JSON keys the slog sink emits for the built-in record fields and the

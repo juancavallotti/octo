@@ -38,14 +38,12 @@ const anthropicProvider = "ANTHROPIC"
 // Status says what a stored cost means.
 type Status string
 
-// Usage is the token accounting a provider reported for one model call, as the
-// runtime normalizes it.
+// Usage is the normalized token accounting a provider reported for one model call.
 //
 // OutputTokens is the billing-authoritative total and ALREADY INCLUDES
-// ThinkingTokens: the LLM connectors normalize every provider to that inclusive
-// figure precisely so a consumer never has to know which one answered. Adding the
-// two together therefore bills reasoning twice, which is why nothing here reads
-// ThinkingTokens at all — it is carried for reporting, not for arithmetic.
+// ThinkingTokens. Adding the two together bills reasoning twice, which is why
+// nothing here reads ThinkingTokens at all — it is carried for reporting, not for
+// arithmetic.
 //
 // CachedTokens is cache-READ tokens and CacheWriteTokens is cache CREATION. The
 // two bill in opposite directions from ordinary input — a read cheaper, a write
@@ -71,9 +69,8 @@ type Call struct {
 	// Model is the model that actually served the call, which is not necessarily
 	// the one that was asked for.
 	Model string
-	// Provider is the vendor family the runtime stamped on the call, in this
-	// package's vocabulary (ANTHROPIC, OPENAI, GOOGLE). Empty for a record written
-	// before the runtime carried one, or by a connector that reports none.
+	// Provider is the vendor family stamped on the call, in this package's
+	// vocabulary (ANTHROPIC, OPENAI, GOOGLE). Empty when the call reported none.
 	Provider string
 	// Usage is what the provider reported, and is nil when it reported nothing.
 	// Nil is not an empty Usage: a provider staying silent and a provider
@@ -85,13 +82,10 @@ type Call struct {
 	Embedding bool
 }
 
-// Priced is what one call cost, and how much that number can be trusted.
-//
-// The cost is deliberately unexported and reachable only through CostUSD, which
-// makes the caller acknowledge that it may not exist. A plain float64 field would
-// read as zero for an unknown model, and a zero that means "we could not price
-// this" is indistinguishable from a zero that means "this was free" in every
-// total built downstream of it.
+// Priced is what one call cost, and how much that number can be trusted. The cost
+// is unexported and reachable only through CostUSD, so a caller has to acknowledge
+// that it may not exist: a zero meaning "unpriceable" and a zero meaning "free"
+// are indistinguishable once they are in a total.
 type Priced struct {
 	Status Status
 	// Provider and PriceID identify the rate that produced the cost, and are
@@ -124,13 +118,10 @@ func (p Priced) CostUSD() (float64, bool) {
 // convention is the default, since it is what the OpenAI-compatible APIs follow.
 //
 // The rule is keyed on the provider the *call* reported, not on the provider of
-// whichever rate happened to match the model. Those differ exactly when it
-// matters: bare claude-* patterns are published under AWS and BEDROCK as well,
-// so an Anthropic model shipped before the catalogue lists it under ANTHROPIC
-// falls through to one of those — and the exclusive arithmetic its usage was
-// reported under is then applied as though it were inclusive, subtracting cached
-// tokens from an input count that never contained them. That under-charges, and
-// nothing in the stored record says so.
+// whichever rate matched the model. Those differ exactly when it matters: bare
+// claude-* patterns are published under AWS and BEDROCK too, so a call whose usage
+// was reported under the exclusive convention would otherwise be priced as though
+// it were inclusive — under-charging, with nothing in the record to say so.
 func (t *Table) Price(call Call) Priced {
 	if call.Usage == nil {
 		return Priced{Status: StatusNoUsage}
@@ -142,9 +133,8 @@ func (t *Table) Price(call Call) Priced {
 
 	priced := Priced{Status: StatusPriced, Provider: rate.Provider, PriceID: rate.ID}
 
-	// An embedding is priced from its input alone. The runtime reports nothing
-	// else for one — no output, no reasoning, no cache — so reading those fields
-	// here would be inventing accounting the provider never sent.
+	// An embedding is priced from its input alone: nothing else is reported for
+	// one, so reading those fields would invent accounting nobody sent.
 	if call.Embedding {
 		priced.cost = amount(nonNegative(call.Usage.InputTokens), rate.InputPer1M)
 		return priced
@@ -172,12 +162,10 @@ func (t *Table) Price(call Call) Priced {
 // has no published rate.
 //
 // Both fall back to the input rate, and the two fallbacks err in opposite
-// directions: a read costs *less* than input, so charging it at input
-// over-states; a write costs *more*, so charging it at input under-states. Only
-// the read fallback can be described as conservative. Neither invents a
-// multiplier — a 1.25x write rate is Anthropic's published figure, not a
-// universal one, and pricing from a rate nobody published would be a confident
-// answer with nothing behind it. The status is what says so, either way.
+// directions: a read costs *less* than input, so charging it at input over-states;
+// a write costs *more*, so it under-states. Neither invents a multiplier, since a
+// 1.25x write rate is one vendor's published figure rather than a universal one.
+// The status is what says the figure is an estimate.
 func (t *Table) cacheCost(priced *Priced, rate Rate, cached, written int) float64 {
 	var cost float64
 	if cached > 0 {
@@ -200,13 +188,7 @@ func (t *Table) cacheCost(priced *Priced, rate Rate, cached, written int) float6
 }
 
 // providerOf is the vendor family to apply the cached-token rule for: what the
-// runtime stamped on the call, falling back to the provider of the rate that
-// matched.
-//
-// The fallback is what every record stored before the runtime carried a provider
-// replays under, and what a third-party connector that reports none still gets.
-// It is the old behaviour exactly, kept so that adding the attribute changed no
-// historical figure.
+// call reported, falling back to the provider of the rate that matched.
 func providerOf(call Call, rate Rate) string {
 	// Normalized before the emptiness check, not after: a reported provider of
 	// whitespace is non-empty as a string but names nothing, and taking it would
@@ -231,17 +213,12 @@ func nonNegative(n int) int {
 	return n
 }
 
-// reportedCost renders a cost the provider reported, and whether there was one.
+// reportedCost renders a cost the provider reported, and whether there was one. It
+// needs no rate and consults no card, so PriceID is empty and Provider comes from
+// the call.
 //
-// It needs no rate and consults no card, which is why it lives beside the
-// arithmetic rather than inside Table.Price: a Table is the rate card and the
-// arithmetic over it, and this is neither. PriceID is empty because no stored
-// rate produced the number, and Provider comes from the call, since there is no
-// matched rate to take it from.
-//
-// A negative figure is refused rather than stored: a provider reporting one is
-// reporting something this accounting cannot mean, and a credit recorded as a
-// cost would net against real charges in every total built on it.
+// A negative figure is refused rather than stored: a credit recorded as a cost
+// would net against real charges in every total built on it.
 func reportedCost(call Call) (Priced, bool) {
 	if call.Usage == nil || call.Usage.ReportedCostUSD == nil {
 		return Priced{}, false

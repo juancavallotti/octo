@@ -3,14 +3,10 @@
 //
 // # Why the types are duplicated
 //
-// The writer is sidecars/stats, a separate Go module with no go.work and no
-// replace directive, and its types live under internal/. This module cannot
-// import them and never will. So Entry, Sample and Bucket are redeclared here
-// with byte-identical JSON tags, and wire_contract_test.go reads the writer's
-// source and compares the declarations — the same device
-// runtime/services/k8s/rediskv_contract_test.go uses for the volatile KV
-// layout, and for the same reason: two copies that drift do not fail to
-// compile, they silently disagree.
+// The writer is a separate Go module whose types live under internal/, so they
+// cannot be imported here. Entry, Sample and Bucket are redeclared with
+// byte-identical JSON tags, and wire_contract_test.go compares the two
+// declarations: copies that drift do not fail to compile, they silently disagree.
 //
 // # What is stored
 //
@@ -18,8 +14,8 @@
 // the dictionary beside them. Each series identity is interned once into
 // dict:{gen} and a row carries only the readings, positional to it. That
 // encoding exists because self-describing JSON is six to ten times larger and
-// would not fit the shared cache — it is the right storage shape and the wrong
-// API shape, which is why this package exists to undo it.
+// would not fit the shared cache. It is the right storage shape and the wrong API
+// shape, which is why this package exists to undo it.
 //
 // Indices are only ever appended, so a later generation is a superset of every
 // earlier one and the newest dictionary decodes older rows too.

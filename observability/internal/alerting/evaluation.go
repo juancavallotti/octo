@@ -25,13 +25,10 @@ const (
 	ReasonConditionMet   = "condition_met"
 )
 
-// Outcome is one condition's answer, and it is deliberately self-contained.
-//
-// It carries the threshold it was judged against and the label it was judged
-// under as they were at the moment it ran, so a history row from three weeks ago
-// still explains itself after the watch has been retuned. A row that stored only
-// the observed value and looked the threshold up on read would render a sentence
-// that was never true.
+// Outcome is one condition's answer, and it is self-contained: it carries the
+// threshold it was judged against and the label it was judged under as they were
+// when it ran, so a history row still explains itself after the watch has been
+// retuned.
 type Outcome struct {
 	ConditionID string  `json:"conditionId"`
 	Kind        string  `json:"kind"`

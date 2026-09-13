@@ -6,10 +6,9 @@
 // safe direction, where losing the alert state in Postgres would mean a hold
 // restarting or an incident re-announcing itself.
 //
-// It is deliberately not where firing state lives. A hold is a count of
-// consecutive checks that has to survive a restart, and how an episode ended —
-// recovered, or simply undecidable — is a fact the history reads back. Neither
-// is a thing to let expire.
+// It is not where firing state lives. A hold is a count of consecutive checks that
+// has to survive a restart, and how an episode ended is a fact the history reads
+// back; neither is a thing to let expire.
 package cooldown
 
 import (

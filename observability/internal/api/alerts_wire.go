@@ -10,8 +10,7 @@ import (
 // The wire shapes for alerting.
 //
 // Separate from the handler because there are a lot of them and they are all
-// mapping, and because the mapping is the part the platform's own client mirrors
-// field for field. snake_case, like every other response this service serves.
+// mapping. snake_case, like every other response this service serves.
 
 // watchBody is a watch as it is written and read back.
 //
@@ -29,12 +28,10 @@ type watchBody struct {
 	// Conditions and Actions travel as the open objects they are stored as,
 	// parameters and all.
 	//
-	// Deliberately untyped here rather than a struct per kind: describing them
-	// field by field would mean this package knowing every condition's
-	// parameters, which is the one thing a discriminated shape exists to avoid,
-	// and it would put a second definition of them beside the one the domain
-	// already decodes strictly. The domain's own builder is what refuses a
-	// malformed one, and it does so with a message naming the field.
+	// Untyped rather than a struct per kind: describing them field by field would
+	// mean this package knowing every condition's parameters, and would put a
+	// second definition beside the one the domain already decodes strictly. The
+	// domain's builder refuses a malformed one, naming the field.
 	Conditions []map[string]any `json:"conditions"`
 	Actions    []map[string]any `json:"actions"`
 	OnNoData   string           `json:"on_no_data"`
@@ -48,12 +45,9 @@ type watchBody struct {
 	// but the first. Zero lets every one through.
 	CooldownSeconds int `json:"cooldown_seconds"`
 
-	// ActorID is the acting user's id, forwarded by the platform's BFF from the
-	// authenticated session and empty when unknown. A body field rather than a
-	// verified credential, which is the convention every write route on the
-	// orchestrator already follows and for the same reason: this service has no
-	// session, and the BFF is the auth boundary. It is attribution, never
-	// authorization.
+	// ActorID is the acting user's id, and is empty when unknown. A body field
+	// rather than a verified credential, because this service holds no session:
+	// it is attribution, never authorization.
 	ActorID string `json:"actorId,omitempty"`
 
 	CreatedAt *time.Time `json:"created_at,omitempty"`

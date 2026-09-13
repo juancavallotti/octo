@@ -9,9 +9,9 @@ import (
 
 // Turning rows back into series.
 //
-// Everything here is pure — rows in, series out, no Redis and no clock — which
-// is deliberate: this is where the arithmetic that can be quietly wrong lives,
-// and none of it should need a server to test.
+// Everything here is pure — rows in, series out, no Redis and no clock. This is
+// where the arithmetic that can be quietly wrong lives, and none of it should need
+// a server to test.
 //
 // # Counters read as growth on both tiers
 //
@@ -27,12 +27,10 @@ import (
 //
 // # Gaps stay gaps
 //
-// A reading the scrape did not report is nil, never zero, all the way to the
-// JSON. Two reasons, and the second is the sharper one: a zero would draw a
-// cliff where a series merely stopped being reported, and a NaN would reach
-// encoding/json, which refuses it — and because httpx.WriteJSON writes the
-// status before encoding, that surfaces as a 200 with a truncated body rather
-// than an error anyone could act on.
+// A reading the scrape did not report is nil, never zero, all the way to the JSON.
+// A zero would draw a cliff where a series merely stopped being reported, and a
+// NaN would reach encoding/json, which refuses it — and since the status is
+// written before encoding, that surfaces as a 200 with a truncated body.
 
 // Stat names one of the numbers a rollup row carries. Live rows only ever have
 // a value; the rest are what collapsing a bucket produced.

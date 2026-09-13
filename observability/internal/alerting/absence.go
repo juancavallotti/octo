@@ -88,8 +88,7 @@ func (c *absenceCondition) Evaluate(now time.Time, s Series) Outcome {
 		return out.finish(Unknown, ReasonNoData)
 	}
 
-	// Reporting nothing and reporting a zero both count as silent here, which is
-	// the one place in this package where the two are deliberately the same. The
+	// Reporting nothing and reporting a zero both count as silent here: the
 	// question is whether anything happened, and neither a missing bucket nor an
 	// empty one says it did.
 	silent := 0.0

@@ -8,11 +8,8 @@ import (
 // Series is an evenly spaced, gap-preserving column of bucket values.
 //
 // Columnar and aligned rather than a list of (time, value) pairs, because every
-// condition in this package is positional arithmetic over a fixed grid — a window
-// is a slice, a baseline is an earlier slice, a guard band is the gap between
-// them. A pair list would have each condition re-deriving the grid, and the grid
-// is exactly where an off-by-one bucket hides without changing any answer enough
-// to look wrong.
+// condition here is positional arithmetic over a fixed grid: a window is a slice,
+// a baseline is an earlier slice, a guard band is the gap between them.
 //
 // Values[i] == nil means unknown, never zero; whether an absent bucket became a
 // zero or stayed nil was decided by Aggregate.FillsZero at fetch time, and Filled
@@ -21,9 +18,8 @@ import (
 // Denominator is populated only for ratio metrics, and is fetched in the same
 // round trip as Values so the two can never disagree about which rows they
 // counted. On such a series Values holds the NUMERATOR count rather than the
-// quotient — the quotient only exists over a window, because a ratio is summed
-// from its parts and never averaged from its buckets, so producing one per bucket
-// would invite exactly the arithmetic Reduce refuses.
+// quotient: a ratio is summed from its parts and never averaged from its buckets,
+// so the quotient only exists over a window.
 type Series struct {
 	Step        time.Duration
 	StartMS     int64

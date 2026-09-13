@@ -20,10 +20,8 @@ const (
 	// as a client-side error that names neither a count nor an app. This is sized
 	// to absorb a burst instead, and past it the consumer sheds and says so.
 	//
-	// Matched to traceBuffer deliberately. A log line is smaller than a trace
-	// record and a request produces fewer of them, so at the same depth the log
-	// path has strictly more slack than the trace path — which is the right way
-	// round for the records an operator reads when something is going wrong.
+	// Matched to traceBuffer: a log line is smaller than a trace record and a
+	// request produces fewer of them, so the same depth is strictly more slack.
 	logBuffer = 8192
 
 	// logWriteTimeout bounds one insert. It is a backstop against a database that
@@ -63,8 +61,8 @@ type Subscription struct {
 
 // Start joins the LogSubject queue group and runs the worker pool until the
 // returned Subscription is closed (or ctx is cancelled). Records are inserted
-// best-effort: a decode or store error is logged and the record dropped, matching
-// the at-most-once delivery of the runtime's core-NATS shipping.
+// best-effort: a decode or store error is logged and the record dropped, since
+// delivery is at-most-once and there is nothing to retry against.
 func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, error) {
 	subCtx, cancel := context.WithCancel(ctx)
 
@@ -73,9 +71,8 @@ func (c *LogConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription
 	//
 	// The two halves matter separately. Detaching it means cancelling the
 	// subscription stops the delivery loop at once without aborting a write that
-	// has already started — the loss #260 is about. Cutting it off after the
-	// budget means Close cannot be held open past that by a database that has
-	// stopped answering, whatever a single write's own timeout says.
+	// has already started. Cutting it off after the budget means Close cannot be
+	// held open past that by a database that has stopped answering.
 	writeCtx, stopWrites := context.WithCancel(context.WithoutCancel(ctx))
 	go func() {
 		<-subCtx.Done()
@@ -129,11 +126,9 @@ func (c *LogConsumer) write(writeCtx context.Context, m *nats.Msg) {
 }
 
 // drain writes what is still buffered on the way out, under the shutdown budget
-// writeCtx is already carrying by the time this runs.
-//
-// Workers used to return on cancellation and abandon whatever was still in the
-// channel — records NATS considers delivered and will never send again. Every
-// worker drains, so together they empty it; whichever finds it empty returns.
+// writeCtx is already carrying by the time this runs. What is in the channel is
+// records NATS considers delivered and will never send again. Every worker drains,
+// so together they empty it; whichever finds it empty returns.
 func (c *LogConsumer) drain(writeCtx context.Context, work <-chan *nats.Msg) {
 	for {
 		select {

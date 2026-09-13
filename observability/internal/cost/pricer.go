@@ -3,17 +3,12 @@ package cost
 // Pricer prices a model call against an ordered list of rate cards, taking the
 // first answer that is one.
 //
-// Two sources rather than one because they cover different ground. OpenRouter's
-// card is fresher and priced per model by the platform that sells them, but it
-// only lists what OpenRouter itself routes to; helicone's carries the patterns
-// OpenRouter never publishes — Bedrock, Azure, vendor-hosted ids. Preferring the
-// first and falling through to the second is what makes a model priced by
-// whichever card actually knows it, rather than unpriced because the preferred
-// card had not heard of it.
+// Several sources rather than one because they cover different ground: one card
+// is fresher but lists only what its own platform routes to, another carries the
+// patterns the first never publishes. Falling through prices a model by whichever
+// card actually knows it.
 //
-// The order is the caller's and is not sorted here: "preferred" is a deployment
-// decision, and a pricer that reordered its own sources would make the config
-// that set them a suggestion.
+// The order is the caller's and is not sorted here.
 type Pricer struct {
 	sources []*Refresher
 }
@@ -30,17 +25,12 @@ func NewPricer(sources ...*Refresher) *Pricer {
 // estimate: it is what was charged, including the per-request and per-image
 // portions no token count can reconstruct. Nothing is consulted after it.
 //
-// Only StatusUnpricedModel falls through to the next card — that status means
-// "this card has never heard of this model", which is exactly the question the
-// next card might answer. StatusNoUsage does not: a provider that reported no
-// tokens leaves nothing for any card to price, so asking a second one would
-// return the same answer more slowly. A partial pricing does not either: it is a
-// real cost from a real rate, and preferring a different card's guess over the
-// preferred card's arithmetic would make the order mean something else.
+// Only StatusUnpricedModel falls through to the next card, since that status means
+// "this card has never heard of this model". StatusNoUsage leaves nothing for any
+// card to price, and a partial pricing is a real cost from a real rate.
 //
 // A pricer with no sources — or a nil one — prices nothing, which is what a
-// service that has not loaded a card yet must report. Every Table already
-// degrades that way; this keeps the property.
+// service that has not loaded a card yet must report.
 func (p *Pricer) Price(call Call) Priced {
 	if reported, ok := reportedCost(call); ok {
 		return reported

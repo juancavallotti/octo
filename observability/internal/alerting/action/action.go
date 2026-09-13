@@ -95,10 +95,9 @@ func (d *Dispatcher) build(spec alerting.ActionSpec) (Deliverer, error) {
 
 // Validate checks a watch's actions without sending anything.
 //
-// Run at save time, and deliberately run through the same build the dispatcher
-// uses: a validator that reimplemented the checks would drift from the thing it
-// was validating, and the drift would show up as an action that saved cleanly and
-// never delivered.
+// Run at save time, through the same build the dispatcher uses: a validator that
+// reimplemented the checks would drift, and the drift would show up as an action
+// that saved cleanly and never delivered.
 func Validate(w alerting.Watch) error {
 	if len(w.Actions) > alerting.MaxActions {
 		return fmt.Errorf("alerting: %w: %d actions exceeds the limit of %d",

@@ -53,17 +53,12 @@ const (
 
 	// sweepInterval is how often finished runs are collected.
 	//
-	// It has a timer of its own rather than riding the batch deadline, and that is
-	// a correctness matter rather than a tidiness one. The batch's timer is armed
-	// by adding a row — and a consumer whose records are all foldable adds none,
-	// because they are all being held. The deadline would never fire, the sweep
-	// would never run, and the runs would sit in Redis until their TTL deleted
-	// them unwritten. A trace made entirely of block records is not exotic: it is
-	// what the middle of any streamed answer looks like.
+	// It needs a timer of its own: the batch deadline is armed by adding a row, and
+	// a consumer whose records are all foldable adds none, so the sweep would never
+	// run and the runs would sit in Redis until their TTL deleted them unwritten.
 	//
 	// Half a second against a one-second fold window, so a finished run is written
-	// within about a window and a half of going quiet. An idle tick is one
-	// ZRANGEBYSCORE against an empty set.
+	// within about a window and a half of going quiet.
 	sweepInterval = 500 * time.Millisecond
 )
 
@@ -74,9 +69,6 @@ const (
 // the caller. It reaches the database only through what Append or Expire returns —
 // folded into its run's record, or handed back unchanged when the run was too
 // short to be worth folding.
-// Stated in terms of TraceRow rather than fold's own alias for it, which is what
-// keeps the dependency one-way: fold reads this package's type, and this package
-// knows only the shape of something that folds.
 type Folder interface {
 	Append(ctx context.Context, r TraceRow, now time.Time) ([]TraceRow, error)
 	Expire(ctx context.Context, now time.Time, limit int) ([]TraceRow, error)
@@ -101,12 +93,8 @@ type pricer interface {
 }
 
 // TraceConsumer subscribes to TraceSubject and writes what arrives in batches.
-//
-// Batching is the difference from LogConsumer, and it is warranted by volume
-// rather than taste: one request through a ten-block flow emits a couple of dozen
-// trace records where the same request produces one or two log lines, so the
-// per-record round trip that suits the log path would spend most of its time in
-// protocol overhead here.
+// One request through a ten-block flow emits a couple of dozen trace records, so a
+// per-record round trip would spend most of its time in protocol overhead.
 type TraceConsumer struct {
 	shedder
 
@@ -131,10 +119,9 @@ func NewTraceConsumer(store TraceStore, resolver integrations, prices pricer, fo
 // Start joins the TraceSubject queue group and writes until the returned
 // Subscription is closed (or ctx is cancelled).
 //
-// One writer, because one is enough and it keeps the batching to a single
-// accumulator. It is not a correctness constraint: FoldTraces emits its deltas in
-// trace-id order, so any two writers — in this process or in another replica —
-// take their row locks in the same order and cannot deadlock on each other.
+// One writer, which keeps the batching to a single accumulator. Not a correctness
+// constraint: deltas are emitted in trace-id order, so any two writers take their
+// row locks in the same order and cannot deadlock on each other.
 func (c *TraceConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscription, error) {
 	subCtx, cancel := context.WithCancel(ctx)
 
@@ -162,10 +149,8 @@ func (c *TraceConsumer) Start(ctx context.Context, conn *nats.Conn) (*Subscripti
 //
 // Cancellation is checked in every branch rather than left to the ctx.Done() case
 // alone, because select does not rank its cases: with a record ready and the
-// context already finished, either is a legal choice. Taking the record would
-// write it — and the batch it joined — under a context that cannot succeed, which
-// is the loss drain exists to prevent. Whichever branch notices first hands over
-// to drain and its live context instead.
+// context already finished, either is a legal choice. Taking the record would write
+// it, and the batch it joined, under a context that cannot succeed.
 func (c *TraceConsumer) write(ctx context.Context, in <-chan *nats.Msg) {
 	batch := newTraceBatch(c.store)
 	defer batch.stop()
@@ -213,10 +198,10 @@ func (c *TraceConsumer) write(ctx context.Context, in <-chan *nats.Msg) {
 // drain writes what is already in hand before shutting down, starting with first
 // when the loop had already taken a record off the channel.
 //
-// Delivery has stopped by the time this runs, but records taken off the wire and
-// not yet written are lost if they are abandoned — and NATS will not send them
-// again. Since the context that got us here is already cancelled, the final write
-// gets one of its own, bounded so a stuck database cannot hold the process open.
+// Records taken off the wire and not yet written are lost if abandoned, and NATS
+// will not send them again. The context that got us here is already cancelled, so
+// the final write gets one of its own, bounded so a stuck database cannot hold the
+// process open.
 func (c *TraceConsumer) drain(first *nats.Msg, in <-chan *nats.Msg, batch *traceBatch) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
 	defer cancel()
@@ -229,11 +214,9 @@ func (c *TraceConsumer) drain(first *nats.Msg, in <-chan *nats.Msg, batch *trace
 		case m := <-in:
 			c.take(ctx, m, batch)
 		default:
-			// One last sweep before the flush. Runs still open here belong to
-			// whichever replica sweeps next — the state is in Redis, not in this
-			// process — but a single-replica install has no next replica, so
-			// collecting what is already due is the difference between those records
-			// being written and being dropped on every restart.
+			// One last sweep before the flush. Runs still open here belong to whoever
+			// sweeps next, but collecting what is already due is the difference between
+			// those records being written and being dropped on every restart.
 			c.sweep(ctx, batch)
 			batch.flush(ctx)
 			return
@@ -254,16 +237,10 @@ func (c *TraceConsumer) take(ctx context.Context, m *nats.Msg, batch *traceBatch
 
 // fold routes a record through the folder, returning whatever is ready to store.
 //
-// Only block records go through it, and that is a deliberate limit rather than a
-// first step. They are where the volume is — a streaming block emits a pre-invoke
-// and a post-invoke per frame, which for an agent is per token — and everything
-// else is one record per event, so folding it could only add a round trip and a
-// delay to something that was already one row.
-//
-// The delay is the cost worth naming: a block record is held for as long as the
-// fold window before it is stored, because a run cannot be recognised from its
-// first record. Traces are read after the fact, so that is affordable; it would
-// not be if anything watched them live.
+// Only block records go through it: they are where the volume is, and everything
+// else is already one record per event. The cost is that a block record is held
+// for as long as the fold window before it is stored, because a run cannot be
+// recognised from its first record.
 //
 // A folder error stores the record as it stands rather than dropping it. Redis
 // being unreachable should cost the folding, not the trace.
@@ -287,11 +264,10 @@ func foldable(kind string) bool {
 
 // sweep collects the runs that have gone quiet and adds them to the batch.
 //
-// It pops repeatedly while each pop comes back full, because a full pop means
-// there was more due than the script would take in one go — and waiting a whole
-// interval to collect the rest would let a backlog grow faster than it drains.
-// Bounded by expirePasses so a backlog cannot hold the writer while records are
-// still arriving.
+// It pops repeatedly while each pop comes back full, since a full pop means more
+// was due than one script would take and a backlog would otherwise grow faster
+// than it drains. Bounded by expirePasses so it cannot hold the writer while
+// records are still arriving.
 func (c *TraceConsumer) sweep(ctx context.Context, batch *traceBatch) {
 	if c.folder == nil {
 		return
@@ -378,9 +354,8 @@ func (b *traceBatch) add(ctx context.Context, row TraceRow) {
 }
 
 // flush writes the batch and clears it. A failed write is logged and the rows
-// dropped, matching the at-most-once delivery the runtime ships them with: there
-// is nothing to retry against, and holding them would only make the next failure
-// bigger.
+// dropped: delivery is at-most-once, so there is nothing to retry against and
+// holding them would only make the next failure bigger.
 func (b *traceBatch) flush(ctx context.Context) {
 	b.disarm()
 	if len(b.rows) == 0 {
@@ -393,12 +368,8 @@ func (b *traceBatch) flush(ctx context.Context) {
 }
 
 // disarm cancels the deadline, so a batch flushed for being full does not also
-// wake the loop for having aged.
-//
-// No draining of the timer channel: since Go 1.23 a stopped or reset timer is
-// guaranteed not to deliver a stale value afterwards, and this module builds at
-// 1.25. The older Stop-then-drain dance would be harmless here but would imply a
-// hazard that no longer exists.
+// wake the loop for having aged. The timer channel needs no draining: since Go
+// 1.23 a stopped or reset timer cannot deliver a stale value afterwards.
 func (b *traceBatch) disarm() {
 	b.deadline.Stop()
 	b.armed = false
