@@ -2,10 +2,9 @@
 // API (POST /v1/extract) and hands back the page contents Parallel read out of
 // the URLs it was given.
 //
-// It is the read half of the web tools: search finds the pages, extract fetches
-// what is on them. An objective is optional here — with one, Parallel returns
-// excerpts scoped to it; without one, it returns the page. full_content asks for
-// the whole page rather than excerpts.
+// An objective is optional: with one, Parallel returns excerpts scoped to it;
+// without one, it returns the page. full_content asks for the whole page rather
+// than excerpts.
 package parallel
 
 import (

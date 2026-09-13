@@ -122,8 +122,7 @@ func turnFromCompletion(resp *sdk.ChatCompletion) (turn, error) {
 //
 // CompletionTokens already counts reasoning tokens inside itself, matching the
 // inclusive convention core.LLMUsage adopts, and PromptTokens already counts the
-// tokens served from cache — the OpenAI-compatible convention, which is why this
-// connector reports OPENROUTER rather than the vendor behind the model.
+// tokens served from cache, the OpenAI-compatible convention.
 func translateUsage(u sdk.CompletionUsage) *core.LLMUsage {
 	if u.PromptTokens == 0 && u.CompletionTokens == 0 {
 		return nil

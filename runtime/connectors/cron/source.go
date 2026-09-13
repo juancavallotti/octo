@@ -108,8 +108,7 @@ func (c *Connector) NewSource(
 
 // Start begins the schedule on its own goroutines without blocking. It first
 // acquires the source's leader-election key from the runtime services on the
-// context, so emit can gate ticks on leadership (in the standalone module the
-// source is always the leader).
+// context, so emit can gate ticks on leadership.
 func (s *source) Start(ctx context.Context) error {
 	s.ctx = ctx
 	lease, err := core.RuntimeServicesFromContext(ctx).LeaderElection().Acquire(ctx, s.leaderKey)

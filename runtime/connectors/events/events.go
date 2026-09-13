@@ -6,10 +6,9 @@
 // connector's competing-consumer load balancing.
 //
 // The topic itself is a core runtime service (core.Topics, reached via
-// core.RuntimeServicesFromContext), in-process in the standalone module and
-// NATS-backed in the k8s module. This connector holds no transport of its own; a
-// source subscribes to the core topics service and forwards each delivery into its
-// flow, and the block publishes onto it.
+// core.RuntimeServicesFromContext), so this connector holds no transport of its
+// own: a source subscribes and forwards each delivery into its flow, and the block
+// publishes onto it.
 package events
 
 import (

@@ -96,9 +96,9 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 }
 
 // withLogSink tees base through the runtime's central log sink when the active
-// services module ships logs (the k8s module), so a log block's output reaches the
-// aggregator in addition to this connector's own output. The standalone module
-// ships nothing, so base is returned unchanged.
+// services module ships logs, so a log block's output reaches the aggregator in
+// addition to this connector's own output. Where nothing is shipped, base is
+// returned unchanged.
 //
 //nolint:ireturn // returns the slog.Handler interface intentionally
 func withLogSink(ctx context.Context, base slog.Handler) slog.Handler {

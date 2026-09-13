@@ -1,14 +1,15 @@
 // This file provides the "notion-verify-request" block: it authenticates an
-// inbound Notion webhook delivered over the http connector. It verifies the HMAC
-// signature over the exact request bytes using the notion connector's
-// verification token, and aborts on a bad signature. It sources those bytes from
-// either the http source's rawBodyVar variable or its native raw-content mode
-// (rawBody: true, msg.RawBody()); in raw-content mode it then parses the verified
-// bytes back into Body so downstream body.* access keeps working. When the payload
-// is Notion's one-time subscription handshake (a bare {verification_token}) it
-// sets a marker variable so the flow can branch and log the token — and, while no
-// token is known yet, accepts that one request unsigned and captures the token, so
-// a fresh subscription can be bootstrapped without one already in hand.
+// inbound Notion webhook. It verifies the HMAC signature over the exact request
+// bytes using the notion connector's verification token, and aborts on a bad
+// signature. It sources those bytes from either a message variable holding the raw
+// body or the message's own raw-content mode; in raw-content mode it then parses
+// the verified bytes back into Body so downstream body.* access keeps working.
+//
+// When the payload is Notion's one-time subscription handshake (a bare
+// {verification_token}) it sets a marker variable so the flow can branch and log
+// the token — and, while no token is known yet, accepts that one request unsigned
+// and captures the token, so a fresh subscription can be bootstrapped without one
+// already in hand.
 package notion
 
 import (

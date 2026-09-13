@@ -1,18 +1,16 @@
 // Package queue exposes the platform's core queue service to flows as first-class
 // DSL constructs: a message source that runs each queued message through a flow,
 // and the "queue-dispatch" block that sends the current message to a subject.
-// Together they make the cluster's competing-consumer queues the way flows load
-// balance work across replicas — the cross-replica analogue of the in-process
-// flow-ref block.
+// Together they make competing-consumer queues the way flows load balance work
+// across replicas.
 //
 // The queue itself is a core runtime service (core.Queues, reached via
-// core.RuntimeServicesFromContext), in-process in the standalone module and
-// NATS-backed in the k8s module. This connector holds no transport of its own; it
-// only owns the request/response correlation needed to turn a queue Request into a
-// flow execution and return the flow's result as the reply. That correlation rides
-// the process-wide flow-event bus exactly as the HTTP connector does: every
-// terminal FlowEvent carries the result message keyed by EventID, which a parked
-// source handler matches against its pending registry.
+// core.RuntimeServicesFromContext), so this connector holds no transport of its
+// own: it owns only the request/response correlation needed to turn a queue
+// Request into a flow execution and return the flow's result as the reply. That
+// correlation rides the process-wide flow-event bus — every terminal FlowEvent
+// carries the result message keyed by EventID, which a parked source handler
+// matches against its pending registry.
 package queue
 
 import (

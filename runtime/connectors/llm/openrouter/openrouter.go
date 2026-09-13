@@ -7,23 +7,18 @@
 // OpenRouter fronts hundreds of models from many vendors behind one key and one
 // API, so a flow points at `anthropic/claude-sonnet-4.5` or `openai/gpt-5.4`
 // without a connector and an account per vendor. The model id carries the vendor
-// as a prefix; everything else about configuring this connector is the same
-// shape as the other three.
+// as a prefix.
 //
-// It speaks Chat Completions rather than Responses, which is the opposite choice
-// from llm-openai and made for the opposite reason. OpenRouter's Responses
+// It speaks Chat Completions rather than Responses: OpenRouter's Responses
 // endpoint is beta and does not cover every upstream it routes to, while Chat
-// Completions is the surface every routed model answers on. The conflict that
-// drove llm-openai off Chat Completions — a reasoning effort that could not be
-// combined with function tools — is OpenAI's, not OpenRouter's: reasoning here
-// is a request field of OpenRouter's own, and the reasoning that comes back
-// rides on the message rather than being absent.
+// Completions is the surface every routed model answers on. Reasoning is a
+// request field of OpenRouter's own, and the reasoning that comes back rides on
+// the message.
 //
-// Requests are stateless: the whole conversation is sent every turn, matching
-// the other three connectors and keeping nothing on the provider's side. That is
-// why an assistant turn echoes its reasoning_details verbatim — with nothing
-// stored upstream, the echoed block is what lets a thinking model continue the
-// same train of thought across a tool call.
+// Requests are stateless: the whole conversation is sent every turn. That is why
+// an assistant turn echoes its reasoning_details verbatim — with nothing stored
+// upstream, the echoed block is what lets a thinking model continue the same
+// train of thought across a tool call.
 package openrouter
 
 import (
@@ -227,9 +222,7 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 // The two paths meet at translateTurn: the fold below gathers exactly the fields
 // turnFromCompletion gathers, so a streamed turn and a blocking one cannot
 // disagree about what the turn contained. Chat Completions has no terminal object
-// carrying the finished response, so unlike llm-openai there is a fold here at
-// all — but it folds into the same intermediate rather than into a second
-// translation.
+// carrying the finished response, which is why there is a fold here at all.
 func (c *Connector) Stream(
 	ctx context.Context, req core.LLMRequest, on func(core.LLMStreamEvent) error,
 ) (*core.LLMResponse, error) {

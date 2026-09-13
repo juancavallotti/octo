@@ -75,8 +75,8 @@ const (
 )
 
 // connectorSettings is the client-wide configuration decoded from the
-// connector's settings block. Field order matches the editor schema (auth last,
-// after maxResponseBytes); Cache carries no octo tag so it stays out of it.
+// connector's settings block. Cache carries no octo tag, so it stays out of the
+// generated capability schema.
 type connectorSettings struct {
 	// Prepended to each request path.
 	BaseURL string `json:"baseURL" octo:"label=Base URL,required"`
@@ -127,7 +127,7 @@ type poolSettings struct {
 
 // authSettings selects and configures the authentication scheme. Type is "",
 // "bearer", "basic", or "oauth2"; the remaining fields are read per scheme and
-// shown in the editor only for their scheme (showIf).
+// gated on it with showIf.
 type authSettings struct {
 	// Authentication scheme.
 	Type string `json:"type" octo:"label=Type,type=enum,enum=bearer|basic|oauth2|gcp"`
@@ -342,12 +342,9 @@ func (c *Connector) resolveURL(ref *url.URL) *url.URL {
 	// sends "GET things HTTP/1.1", which is not a valid origin-form target: the
 	// server rejects it at the parser with a bare 400 and no handler ever runs.
 	//
-	// This is the one place the invariant can be stated, because it is the only
-	// one that knows there is a host: Start validates the base is absolute, so
-	// every URL resolved here has one. joinPath cannot know — it sees two path
-	// strings. And nothing else notices, because String() inserts the missing
-	// slash when Host is set, so the log lines and the GET cache key both read
-	// perfectly while the request on the wire is malformed.
+	// Nothing else catches it: String() inserts the missing slash when Host is
+	// set, so the log lines and the GET cache key both read perfectly while the
+	// request on the wire is malformed.
 	if final.Path != "" && !strings.HasPrefix(final.Path, "/") {
 		final.Path = "/" + final.Path
 	}
@@ -381,9 +378,9 @@ func joinPath(base, ref string) string {
 // where the store is durable.
 //
 // The secret store is always the persistent, encrypted tier — a volatile namespace
-// is never a secret namespace — so a deployed connector keeps its refresh token
-// across a rollout. A standalone run keeps secrets in memory (it has no encryption
-// key), so there a restart re-authenticates.
+// is never a secret namespace — so where the store is durable the connector keeps
+// its refresh token across a restart, and where it is not, a restart
+// re-authenticates.
 func (c *Connector) configureOAuth2(ctx context.Context, name string, auth authSettings, timeout time.Duration) {
 	secrets := core.RuntimeServicesFromContext(ctx).Secrets()
 	c.tokens = newTokenSource(name, oauth2Config{

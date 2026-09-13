@@ -5,9 +5,6 @@
 // Bind parameters come from CEL expressions evaluated against the message.
 //
 // Placeholder style is the driver's own: $1, $2 for Postgres and ? for SQLite.
-//
-// The block lives in the connector's package: importing the connector registers
-// the block too, and it binds to the connector by concrete type.
 package database
 
 import (

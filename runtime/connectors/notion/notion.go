@@ -3,10 +3,10 @@
 // retrieve a page, query a data source, verify and normalize inbound webhooks,
 // and render a page's blocks to markdown.
 //
-// Inbound Notion webhooks arrive over the http connector (Notion posts JSON to a
-// route it owns); the notion-verify-request and notion-event blocks process that
-// request. Signature verification runs over the exact request bytes, which the
-// http source exposes via its rawBodyVar setting.
+// Inbound Notion webhooks are JSON posted to a route the flow owns; the
+// notion-verify-request and notion-event blocks process that request. Signature
+// verification runs over the exact request bytes, so the route has to make them
+// available unparsed.
 package notion
 
 import (

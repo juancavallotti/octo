@@ -3,10 +3,10 @@
 // messages, verify inbound event requests, filter and normalize events, and
 // enrich a message with Slack data.
 //
-// Inbound Slack events arrive over the http connector (Slack posts JSON to a
-// route it owns); the slack-verify-request and slack-event blocks process that
-// request. Signature verification runs over the exact request bytes, which the
-// http source exposes via its rawBodyVar setting.
+// Inbound Slack events are JSON posted to a route the flow owns; the
+// slack-verify-request and slack-event blocks process that request. Signature
+// verification runs over the exact request bytes, so the route has to make them
+// available unparsed.
 package slack
 
 import (

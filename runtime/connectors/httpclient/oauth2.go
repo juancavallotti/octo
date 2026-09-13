@@ -3,8 +3,8 @@
 // caches it, refreshing with a refresh_token when the endpoint issued one and
 // otherwise re-running the client-credentials grant. The token (and any refresh
 // token) is persisted best-effort in the runtime secret store under the system
-// namespace, so where the store is durable (the k8s services module) a fresh
-// process or replica can adopt a still-valid token instead of minting another.
+// namespace, so where that store is durable a fresh process can adopt a
+// still-valid token instead of minting another.
 package httpclient
 
 import (

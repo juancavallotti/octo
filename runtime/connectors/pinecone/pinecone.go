@@ -4,10 +4,10 @@
 // (optionally per message, via CEL), falling back to the connector's default.
 //
 // Start looks the index up by name, which does two things at once: it resolves
-// the index's data-plane host, and it validates eagerly — comparing the index's
-// actual dimension against the configured one, so a mismatched embedding model
-// and index (the classic Pinecone failure mode) fails at startup rather than on
-// the first upsert, mirroring how the database connector pings its DSN eagerly.
+// the index's data-plane host, and it compares the index's actual dimension
+// against the configured one, so a mismatched embedding model and index — the
+// classic Pinecone failure mode — fails at startup rather than on the first
+// upsert.
 //
 // Configure host — the index host the Pinecone console shows — and the lookup is
 // skipped: startup then touches the network not at all, which is what a flow test
@@ -192,10 +192,9 @@ func (c *Connector) Stop(context.Context) error {
 // IndexConnection.WithNamespace is documented as cheap for exactly this reason,
 // so there is no need to cache a connection per namespace.
 //
-// It errors rather than returning nil when the connector is not started (or is
-// stopping), mirroring the database connector's DB(): a message still in flight
-// during shutdown fails with a sentence that says what happened, instead of
-// panicking on a nil connection.
+// It errors rather than returning nil when the connector is not started or is
+// stopping, so a message still in flight during shutdown fails with a sentence
+// that says what happened instead of panicking on a nil connection.
 func (c *Connector) IndexConnection(namespace string) (*sdk.IndexConnection, error) {
 	conn := c.idxConn.Load()
 	if conn == nil {

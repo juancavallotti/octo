@@ -5,8 +5,8 @@
 // vars so downstream blocks can authorize on them.
 //
 // The token is read from a request-header variable (default "Authorization",
-// stripping a "Bearer " prefix); the http route source must be configured to
-// copy that header into vars (source `headers: [Authorization]`).
+// stripping a "Bearer " prefix), so the source must be configured to copy that
+// header into vars.
 //
 // Signing keys are resolved one of three ways (the `mode` setting):
 //   - "discover" (default): OIDC discovery from the configured issuer
@@ -74,9 +74,8 @@ const (
 	modeInline   = "inline"
 )
 
-// jwtValidateSettings is the jwt-validate block's typed configuration. Field
-// order follows the editor's capability schema (which differs from the runtime
-// struct's original order); decoding is by json name, so order is presentational.
+// jwtValidateSettings is the jwt-validate block's typed configuration. Decoding
+// is by json name, so field order is presentational.
 type jwtValidateSettings struct {
 	// How signing keys are resolved: discover (OIDC discovery from issuer), jwks
 	// (fetch jwksUrl directly), or inline (publicKey / publicKeyResource).

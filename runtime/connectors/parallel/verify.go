@@ -4,14 +4,12 @@
 // the exact request bytes together, and the block aborts on anything that does
 // not verify.
 //
-// It sources those bytes from either the http source's rawBodyVar variable or its
-// native raw-content mode (rawBody: true, msg.RawBody()); in raw-content mode it
-// then parses the verified bytes back into Body so downstream body.* access keeps
-// working.
+// It sources those bytes from either a message variable holding the raw body or
+// the message's own raw-content mode; in raw-content mode it then parses the
+// verified bytes back into Body so downstream body.* access keeps working.
 //
-// There is no handshake to bootstrap, unlike notion: Parallel issues the secret
-// in its dashboard, so a request that cannot be verified is simply not one Octo
-// has any reason to trust.
+// There is no handshake to bootstrap: Parallel issues the secret in its dashboard,
+// so a request that cannot be verified is simply not one to trust.
 package parallel
 
 import (
@@ -117,16 +115,14 @@ func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types
 	}
 
 	// In native raw-content mode Body is the {contentType, rawData} envelope, not
-	// the Parallel payload. Parse the verified bytes into Body so downstream
-	// body.* access works the same as with rawBodyVar. SetBodyJSON leaves
-	// raw-content mode on the way, which is what makes this a normal JSON message.
+	// the Parallel payload. Parse the verified bytes into Body so downstream body.*
+	// access works the same either way; SetBodyJSON leaves raw-content mode on the
+	// way, which is what makes this a normal JSON message.
 	//
-	// The error is returned rather than swallowed, which is where this parts ways
-	// with slack: Slack posts form-encoded slash commands, so a parse failure
-	// there is expected and best-effort is right. Every Parallel webhook is JSON,
-	// so bytes that carry a valid signature and still will not parse mean
-	// something is wrong, and a flow reading body.data would otherwise walk into
-	// the raw envelope instead.
+	// The error is returned rather than swallowed: every Parallel webhook is JSON,
+	// so bytes that carry a valid signature and still will not parse mean something
+	// is wrong, and a flow reading body.data would otherwise walk into the raw
+	// envelope instead.
 	if _, _, ok := msg.RawBody(); ok {
 		if err := msg.SetBodyJSON(raw); err != nil {
 			return nil, fmt.Errorf("parallel-verify-request: parse verified body: %w", err)

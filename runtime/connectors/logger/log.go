@@ -2,13 +2,11 @@
 // line for each message and forwards the message unchanged. The logged line is a
 // CEL expression evaluated against the message, or a JSON object with the body
 // and variables when no expression is configured. Setting "full" additionally
-// attaches the whole
-// message (correlation id, variables, body, schema) as structured attributes for
-// debugging.
+// attaches the whole message (correlation id, variables, body, schema) as
+// structured attributes.
 //
-// The block lives in the logger connector's package: importing the connector
-// registers the block too. A named logger binds to the connector by concrete
-// type; with no name the process default logger is used.
+// A named logger binds to the connector by concrete type; with no name the process
+// default logger is used.
 package logger
 
 import (
