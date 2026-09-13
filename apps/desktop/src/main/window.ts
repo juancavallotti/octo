@@ -5,18 +5,10 @@ import { stateDir } from "./paths";
 import { read, write } from "./state";
 
 /**
- * The one window, and the rules about what may be shown in it.
- *
- * Two of those rules are load-bearing security properties rather than polish:
- *
- *  - The renderer is sandboxed with context isolation on and node integration
- *    off. It is showing a local web app, and a local web app that can require()
- *    is a local web app that can do anything.
- *  - Navigation is pinned to the server's own origin, compared by parsing rather
- *    than by string prefix (see sameOrigin). The editor links out to the docs, and
- *    without this a docs link would replace the editor with a chromeless browser
- *    that has no back button and no way home. External URLs go to the real
- *    browser, which is where the user's session and extensions already are.
+ * The one window, and the rules about what may be shown in it. Two of them are
+ * security properties rather than polish: the renderer is sandboxed with context
+ * isolation on and node integration off, and navigation is pinned to the server's
+ * own origin (see sameOrigin) with everything else handed to the real browser.
  */
 
 let win: BrowserWindow | null = null;
@@ -32,12 +24,9 @@ export function mainWindow(): BrowserWindow | null {
 }
 
 /**
- * The size and place to open at: where the window was last, when that is still
- * somewhere the user can see.
- *
- * The visibility check is the part worth having. A window remembered on a second
- * monitor that is no longer attached opens entirely off-screen, and an app whose
- * window cannot be found is indistinguishable from one that did not launch.
+ * The size and place to open at: where the window was last, but only when that is
+ * still on an attached display — a window remembered on a monitor since unplugged
+ * would open entirely off-screen.
  */
 function rememberedBounds(): Partial<Electron.BrowserWindowConstructorOptions> {
   const saved = read(stateDir()).window;
@@ -82,7 +71,7 @@ export function createWindow(): BrowserWindow {
 
   win.once("ready-to-show", () => win?.show());
   // On close rather than on every resize: a drag fires hundreds of events, and this
-  // writes a file. The geometry only has to be right the next time the app opens.
+  // writes a file.
   win.on("close", () => win && rememberBounds(win));
   void win.loadFile(splashFile());
   return win;
@@ -131,8 +120,7 @@ export async function showSplash(): Promise<void> {
 }
 
 app.on("window-all-closed", () => {
-  // macOS convention: closing the window does not quit the app. Quitting is what
-  // stops the server, so this also means a closed window leaves running flows
-  // running — which is what a user who closed a window by reflex would want.
+  // macOS convention: closing the window does not quit the app, and quitting is
+  // what stops the server, so a closed window leaves running flows running.
   if (process.platform !== "darwin") app.quit();
 });

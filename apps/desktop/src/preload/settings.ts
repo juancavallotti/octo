@@ -1,12 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 /**
- * The Settings window's bridge.
- *
- * Separate from the editor's preload and deliberately so: these channels change which
- * binary the app executes, and the editor page renders the user's own flow files. The
- * two must never share a bridge — see the sender check in ipc.ts, which is what
- * actually enforces it.
+ * The Settings window's bridge, separate from the editor page's: these channels
+ * change which binary the app executes. The sender check in ipc.ts enforces the
+ * separation.
  */
 
 export interface BinaryStatusView {

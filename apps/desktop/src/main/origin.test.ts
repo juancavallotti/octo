@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sameOrigin } from "./origin";
 
-/**
- * The cases below are the reason this function exists. Every one of the rejected
- * URLs passes a `startsWith(origin)` test, which is what the navigation guard and
- * the IPC check both used before.
- */
+/** Every rejected URL below passes a `startsWith(origin)` test. */
 const ORIGIN = "http://127.0.0.1:8477";
 
 describe("sameOrigin", () => {
@@ -22,7 +18,7 @@ describe("sameOrigin", () => {
   });
 
   it("rejects a host smuggled in as userinfo", () => {
-    // The whole point: this string starts with the origin, and its host is not ours.
+    // Starts with the origin; its host is not ours.
     expect(new URL("http://127.0.0.1:8477@evil.example/x").host).toBe("evil.example");
     expect(sameOrigin("http://127.0.0.1:8477@evil.example/x", ORIGIN)).toBe(false);
     expect(sameOrigin("http://127.0.0.1:8477:pass@evil.example/", ORIGIN)).toBe(false);

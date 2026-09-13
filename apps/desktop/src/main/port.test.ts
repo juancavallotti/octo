@@ -3,9 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { available, choosePort, pinnedPort, PREFERRED_PORT } from "./port";
 
 /**
- * The port logic is worth testing precisely because its failure mode is invisible:
- * a fallback that silently landed on an ephemeral port would work perfectly on the
- * developer's machine and quietly break every agent's MCP config on the user's.
+ * The port logic fails invisibly: a fallback that landed on an ephemeral port works
+ * on the machine that chose it and breaks every MCP config pointed at it.
  */
 
 const held: net.Server[] = [];
@@ -59,8 +58,6 @@ describe("choosePort", () => {
 
   it("refuses with a message naming the range when every port is taken", async () => {
     // A range of one, fully occupied: the exhausted case without binding 20 ports.
-    // It used to answer 0 here, which no caller could turn into a URL — the app
-    // polled http://127.0.0.1:0 for 30s and then reported a start failure.
     await hold(PREFERRED_PORT);
     await expect(choosePort(PREFERRED_PORT, 1)).rejects.toThrow(
       /No free port between 8477 and 8477.*OCTO_DESKTOP_PORT/s,

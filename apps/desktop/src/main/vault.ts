@@ -12,16 +12,11 @@ import { confineTo, mainWindow, showSplash, splashHint } from "./window";
 /**
  * Which folder is open, and how it changes.
  *
- * Switching vaults restarts the server rather than repointing it. `fsRoot()` in
- * the editor reads OCTO_FS_DIR per call, so repointing looks tempting — and is
- * wrong. The server process holds a pile of state that is not keyed by vault:
- * run sessions, the port pool, staged resources, the schema cache, SSE
- * subscribers. Repointing would leave runs from the old folder visible and
- * proxyable inside the new one. A restart costs about a second and has no such
- * class of bug.
- *
- * The port is deliberately reused across a switch, so the MCP endpoint an agent
- * is configured against survives it.
+ * A switch restarts the server rather than repointing it: the server process holds
+ * state that is not keyed by folder — run sessions, the port pool, staged
+ * resources, caches, SSE subscribers — and repointing would leave the old folder's
+ * runs visible inside the new one. The port is reused across the switch, so the MCP
+ * endpoint survives it.
  */
 
 /** Remembered folders that still exist, most recent first. */
@@ -40,8 +35,8 @@ export function initialVault(): string {
   const last = read(stateDir()).lastVault;
   if (last) return last;
   const fallback = path.join(app.getPath("documents"), "Octo");
-  // Created rather than merely named: an OCTO_FS_DIR that does not exist gives
-  // the editor an empty flow list and no way to say why.
+  // Created rather than merely named: an OCTO_FS_DIR that does not exist serves an
+  // empty flow list with no way to say why.
   mkdirSync(fallback, { recursive: true });
   return fallback;
 }
@@ -66,16 +61,10 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Ask before killing work the user may not realise is running.
- *
- * Switching folders stops the server, and the server owns every running flow. A
- * user who started an integration ten minutes ago and then reached for the folder
- * menu should be told, once, with a number — not warned unconditionally, which
- * teaches them to click through it.
- *
- * A server that cannot answer is treated as having nothing running: refusing to
- * switch folders because a status endpoint was unreachable would be the worse
- * failure of the two.
+ * Ask before killing work the user may not realise is running: stopping the server
+ * stops every flow it owns. Asks only when there is something to lose, and treats a
+ * server that cannot answer as having nothing running — an unreachable status
+ * endpoint must not block the switch.
  */
 async function confirmIfRunning(detail: string, verb: string): Promise<boolean> {
   const server = current();
@@ -84,8 +73,8 @@ async function confirmIfRunning(detail: string, verb: string): Promise<boolean> 
   let running = 0;
   try {
     // Bounded, because the whole switch is serialised behind this call: a server
-    // that accepts the connection without answering would otherwise make the File
-    // menu do nothing at all, silently, and queue every later switch behind it.
+    // that accepts the connection without answering would queue every later switch
+    // behind it.
     const res = await fetch(`${server.url}/api/run/active`, {
       signal: AbortSignal.timeout(2000),
     });
@@ -118,9 +107,8 @@ async function restartOn(vaultPath: string): Promise<boolean> {
 
   await showSplash();
   await splashHint(vaultPath);
-  // The old folder's advertisement is stale the moment we stop serving it, and a
-  // stale endpoint file is worse than none: an agent would keep calling a URL
-  // that now answers for a different folder.
+  // Retract before stopping: a stale endpoint file points at a URL that now
+  // answers for a different folder.
   retract(previous?.vault);
   await stop();
 
@@ -128,8 +116,7 @@ async function restartOn(vaultPath: string): Promise<boolean> {
     const server = await start(vaultPath, port);
     rememberVault(vaultPath);
     publish(server);
-    // The recents submenu and the folder-dependent items are built from state,
-    // so they have to be rebuilt when the state changes.
+    // The recents submenu and the folder-dependent items are built from state.
     buildMenu();
     const win = mainWindow();
     if (win) {
@@ -138,9 +125,8 @@ async function restartOn(vaultPath: string): Promise<boolean> {
     }
     return true;
   } catch (err) {
-    // Put the user back where they were rather than leaving them on a splash
-    // screen: a folder that cannot be served should not cost them the one that
-    // could.
+    // Roll back to the previous folder rather than leaving the user on a splash
+    // screen.
     await dialog.showMessageBox({
       type: "error",
       message: `Octo could not open ${path.basename(vaultPath)}.`,
@@ -162,23 +148,15 @@ export function switchTo(vaultPath: string): Promise<boolean> {
 }
 
 /**
- * Restart the server on the folder that is already open.
- *
- * Which is what changing the runtime binary needs: OCTO_BIN_PATH is read by the
- * server process at startup and handed to every run, so a new binary only takes
- * effect when that process is replaced. It goes through the same serialised restart
- * a folder switch does — including the rollback — rather than growing a second one.
- *
- * Falls back to the remembered folder when there is no server, because the case that
- * matters most has none: a runtime binary that does not start leaves the user on a
- * splash screen, and pointing Settings at a working one has to be able to bring the
- * app up rather than merely record a preference for next time.
+ * Restart the server on the folder that is already open, through the same
+ * serialised restart a folder switch uses, rollback included. Falls back to the
+ * remembered folder when no server is running, so a settings change can bring the
+ * app up rather than merely record a preference.
  */
 export function reopenCurrent(): Promise<boolean> {
   return serialize(async () => {
-    // Resolved inside the queue, not before it. A folder switch may already be waiting
-    // its turn, and reading the folder out here would restart the runtime onto the one
-    // the user just left — undoing the switch a moment after it finished.
+    // Resolved inside the queue, not before it: a switch may already be waiting its
+    // turn, and this would restart onto the folder the user just left.
     const vault = current()?.vault ?? read(stateDir()).lastVault ?? null;
     if (!vault) return false;
     const ok = await confirmIfRunning(

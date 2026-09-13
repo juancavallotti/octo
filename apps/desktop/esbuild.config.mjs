@@ -6,12 +6,10 @@ import esbuild from "esbuild";
 /**
  * Bundle the main and preload processes into dist/.
  *
- * Bundling rather than compiling to loose files is what lets apps/desktop declare
- * no runtime dependencies at all, which in turn is what keeps electron-builder from
- * having to resolve production deps across pnpm's symlink farm — the single most
- * common pnpm + electron-builder failure. Everything this app needs at runtime is
- * either in these bundles, in Electron itself, or in extraResources — electron-updater
- * included, which is a devDependency for exactly this reason.
+ * Bundling rather than compiling to loose files is what lets this app declare no
+ * runtime dependencies at all: everything it needs is in these bundles, in Electron
+ * itself, or in extraResources — electron-updater included, which is why that is a
+ * devDependency.
  *
  *   node esbuild.config.mjs          build once
  *   node esbuild.config.mjs --run    watch, and (re)start Electron on each build
@@ -19,11 +17,7 @@ import esbuild from "esbuild";
 
 const watch = process.argv.includes("--run");
 
-/**
- * The splash and Settings pages are loaded from disk at runtime rather than inlined,
- * so they have to land beside the bundle. Copied on every build: it is a handful of
- * files, and a stale page is a confusing thing to debug.
- */
+/** The splash and Settings pages are loaded from disk, so they land beside the bundle. */
 function copyStatic() {
   cpSync("src/main/static", "dist/main/static", { recursive: true });
 }
@@ -42,9 +36,8 @@ const common = {
 
 const builds = [
   { ...common, entryPoints: ["src/main/index.ts"], outfile: "dist/main/index.js" },
-  // Both preloads run in a sandboxed renderer: no source map comment, since the
-  // file is loaded through Electron's own loader and a dangling comment only
-  // produces a console warning.
+  // Both preloads run in a sandboxed renderer, which loads them through Electron's
+  // own loader: an external source map comment only warns.
   {
     ...common,
     entryPoints: ["src/preload/index.ts"],
@@ -69,10 +62,9 @@ if (!watch) {
 let child = null;
 let restartTimer = null;
 /**
- * Restarts are suppressed until the first set of bundles is on disk. Every build
+ * Restarts are suppressed until the first set of bundles is on disk: every build
  * fires onEnd during the initial pass, and the debounce below is shorter than the
- * gap between them — so without this, Electron could start against a half-written
- * dist/ and exit, taking the watch with it.
+ * gap between them.
  */
 let armed = false;
 
@@ -84,23 +76,17 @@ async function restart() {
     const ended = new Promise((resolve) => dying.once("exit", resolve));
     dying.kill();
     child = null;
-    // Wait for it to actually go. The app releases port 8477 while shutting down,
-    // and a replacement that raced it would either walk to 8478 — moving the MCP
-    // URL mid-session — or, with OCTO_DESKTOP_PORT pinned, fail to bind at all.
+    // Wait for it to actually go: the port is only released during shutdown, and a
+    // replacement that raced it would move or fail to bind.
     await ended;
   }
   const electron = createRequire(import.meta.url)("electron");
   child = spawn(electron, ["."], { stdio: "inherit", env: process.env });
-  // Quitting the app from its own menu should end the watch too, rather than
-  // leaving a rebuild loop running against nothing.
+  // Quitting the app from its own menu ends the watch too.
   child.on("exit", (code) => process.exit(code ?? 0));
 }
 
-/**
- * Coalesce the builds' completions into one restart. Without this, the bundles
- * finishing a few ms apart would start Electron once each — and the first of those
- * would race a preload file that is mid-write.
- */
+/** Coalesce the builds' completions into one restart. */
 function scheduleRestart() {
   if (!armed) return;
   clearTimeout(restartTimer);
@@ -122,9 +108,8 @@ const notify = {
 const contexts = await Promise.all(
   builds.map((b) => esbuild.context({ ...b, plugins: [notify] })),
 );
-// Build them all, THEN start Electron once, and only then let rebuilds restart it.
-// The onEnd hooks fire during this pass while `armed` is still false, so nothing
-// launches against a dist/ that is missing the slowest of the bundles.
+// Build them all, THEN start Electron once, and only then let rebuilds restart it:
+// nothing must launch against a dist/ missing the slowest of the bundles.
 await Promise.all(contexts.map((c) => c.rebuild()));
 copyStatic();
 await restart();

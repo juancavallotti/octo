@@ -6,19 +6,11 @@ import { serverEntry } from "./paths";
 import type { RunningServer } from "./server";
 
 /**
- * Publishing where the editor is, so an agent can find it.
- *
- * The server's URL is also its MCP endpoint, and the point of a deterministic
- * port is that an agent configured against it stays configured. But "configured"
- * still requires a human to have found the URL once, and the natural place to
- * look is the folder they are working in — so the endpoint is written into the
- * vault's own .octo/ directory, beside the editor metadata that already lives
- * there. A Claude Code session `cd`'d into the folder can then discover the
- * editor without knowing that Electron exists.
- *
- * The second copy, in userData, answers a different question: it is the record
- * this app leaves for its own next launch, so a crashed instance's server can be
- * reaped rather than left holding the port.
+ * Where the running editor is, published to two files that answer two questions.
+ * The copy in the vault's `.octo/` advertises the MCP URL to anything working in
+ * that folder; the copy in userData is the record this app leaves for its own next
+ * launch, so a crashed instance's server can be reaped rather than left holding the
+ * port.
  */
 
 export interface Endpoint {
@@ -85,15 +77,9 @@ export function retract(vault?: string): void {
 
 /**
  * Is this PID still the editor server we started, rather than whatever the OS has
- * since given that number to?
- *
- * The distinction matters more than it looks. A recorded PID proves nothing on its
- * own: signal 0 succeeding only says *a* process exists, and PIDs are reused freely
- * on a machine that has been up for days. Acting on that alone means SIGKILLing a
- * whole process group that could be the user's shell, editor, or anything else.
- *
- * So ask the OS what the process actually is, and only accept it if the command
- * line is the server we would have launched.
+ * since given that number to? A recorded PID proves nothing on its own — PIDs are
+ * reused — so accept it only when the command line is the server we would have
+ * launched.
  */
 function isOurServer(pid: number): boolean {
   try {
@@ -109,13 +95,9 @@ function isOurServer(pid: number): boolean {
 }
 
 /**
- * Kill a server left behind by a previous instance that did not shut down
- * cleanly (a crash, a force quit, a SIGKILL).
- *
- * Without this the next launch finds its deterministic port taken by its own
- * ghost, walks to the next one, and silently changes the MCP URL out from under
- * every agent configured against it — which is precisely the failure the
- * deterministic port exists to prevent.
+ * Kill a server left behind by a previous instance that did not shut down cleanly,
+ * which would otherwise hold the deterministic port and push the next launch onto a
+ * different MCP URL.
  */
 export function reapOrphan(): void {
   let previous: Endpoint;
@@ -126,8 +108,7 @@ export function reapOrphan(): void {
   }
 
   const pid = previous.serverPid;
-  // Identity first, and only then the signal: killing a process group is not the
-  // sort of thing to do on the strength of a number written down hours ago.
+  // Identity first, and only then the signal.
   if (typeof pid === "number" && pid > 1 && isOurServer(pid)) {
     try {
       // The group, as ever: the orphan may itself have spawned `octo` children.

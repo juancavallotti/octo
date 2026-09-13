@@ -3,17 +3,9 @@ import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import path from "node:path";
 
 /**
- * The editor server's output, kept in two places: a bounded in-memory tail and a
- * file on disk.
- *
- * The tail exists for exactly one moment — the server failed to become ready and
- * the user is looking at a splash screen that will never finish. Without it the
- * only honest thing the app could say is "it didn't start", which is useless. With
- * it, the dialog can show the last thing the server actually said, which is
- * usually the whole answer (a port conflict, a missing file, a bad vault).
- *
- * The file exists for the other moment: something misbehaved an hour ago and the
- * user wants to send it to someone.
+ * The editor server's output, kept in two places. The bounded in-memory tail is what
+ * a failure dialog quotes, so a server that never came up can say why; the file on
+ * disk is what a user sends on after the fact.
  */
 
 const TAIL_LINES = 200;
@@ -31,8 +23,8 @@ function logFile(): string {
 export function openLog(): void {
   tail = [];
   stream?.end();
-  // Truncating rather than appending: this file is for the session you are in.
-  // An append-forever log in userData is a disk leak nobody ever notices.
+  // Truncating rather than appending: the file covers one session, and an
+  // append-forever log in userData grows unwatched.
   stream = createWriteStream(logFile(), { flags: "w" });
 }
 
