@@ -15,9 +15,8 @@ const (
 	requestTimeout = 5 * time.Second
 
 	// jwksPath and discoveryPath are the well-known locations. The discovery
-	// document is served alongside the keys, and not only because a standard says
-	// to: it is what lets the runtime's existing jwt-validate block verify a
-	// platform token in its `discover` mode, with no new code anywhere.
+	// document is served alongside the keys so that a verifier given only the issuer
+	// can find them.
 	jwksPath      = "/.well-known/jwks.json"
 	discoveryPath = "/.well-known/openid-configuration"
 
@@ -43,11 +42,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+discoveryPath, h.discovery)
 }
 
-// discoveryDocument is the subset of OpenID Provider Metadata that is true of
-// this service. It is deliberately not a full one: iam is not an OpenID provider
-// and runs no authorization flow — it signs tokens for principals another
-// provider already authenticated — so advertising an authorization_endpoint
-// would point callers at something that does not exist.
+// discoveryDocument is the subset of OpenID Provider Metadata that is true of this
+// service. Not a full one: iam runs no authorization flow — it signs tokens for
+// principals another provider already authenticated — so there is no
+// authorization_endpoint to advertise.
 type discoveryDocument struct {
 	Issuer                           string   `json:"issuer"`
 	JWKSURI                          string   `json:"jwks_uri"`
@@ -83,9 +81,7 @@ func (h *Handler) jwks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cacheable, because the whole point of publishing keys rather than
-	// verifying centrally is that a caller fetches them once and then checks
-	// tokens on its own.
+	// Cacheable: a caller fetches the keys once and then checks tokens on its own.
 	w.Header().Set("Cache-Control", "public, max-age="+jwksMaxAgeSeconds)
 	httpx.WriteJSON(w, http.StatusOK, set)
 }

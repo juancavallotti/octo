@@ -22,13 +22,12 @@ type Collector struct {
 	// gen is the dictionary generation the open bucket's indices refer to. It
 	// tracks the NEWEST sample folded in, not the first.
 	//
-	// It has to. A dictionary that grows mid-bucket widens the bucket's vectors
-	// too, so a bucket stamped with the generation it opened at would name a
-	// dictionary that does not contain the indices it ends up holding — the same
-	// mismatch Encode avoids for samples. Advancing is safe in the other
-	// direction because indices are append-only: every later generation is a
-	// superset of every earlier one, so the newest resolves every index in the
-	// bucket including those folded in before it existed.
+	// A dictionary that grows mid-bucket widens the bucket's vectors too, so a
+	// bucket stamped with the generation it opened at would name a dictionary that
+	// does not contain the indices it ends up holding. Advancing is safe in the
+	// other direction because indices are append-only: the newest generation
+	// resolves every index in the bucket, including those folded in before it
+	// existed.
 	gen int
 }
 

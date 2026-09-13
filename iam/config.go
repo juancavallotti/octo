@@ -12,26 +12,21 @@ import (
 )
 
 const (
-	// defaultAudience is the `aud` every platform token carries. One value,
-	// because there is one platform: a per-service audience would mean a token
-	// that lets you call the orchestrator and not the observability service, which
-	// is what roles are for.
+	// defaultAudience is the `aud` every platform token carries. One value, because
+	// what a token may reach is a question for its roles rather than its audience.
 	defaultAudience = "octo"
 )
 
 // signingConfig reads the settings that shape a minted token.
 //
-// IAM_ISSUER has no default. It is the `iss` claim and the base a caller's
-// discovery lands on, so a wrong value produces tokens that verify nowhere and a
-// discovery document pointing at somebody else — and neither failure names this
-// setting when it happens. Required as soon as the service can mint at all;
-// signing.NewService is what refuses an empty one.
+// IAM_ISSUER has no default: it is the `iss` claim and the base a caller's
+// discovery lands on, and a wrong value produces tokens that verify nowhere without
+// any failure naming this setting. signing.NewService refuses an empty one.
 //
 // The two durations are optional and left at zero when unset, which the signing
-// service reads as "use your own defaults" rather than as a value: one place owns
-// each default, and it is the package that documents it. A malformed value stops
-// startup naming the setting, because the likely typos ("60", "1hour") differ
-// from the intent by a factor nobody would notice from behaviour.
+// service reads as "use your own defaults" so that one place owns each default. A
+// malformed value stops startup naming the setting, because the likely typos
+// ("60", "1hour") differ from the intent by a factor nothing would show.
 func signingConfig() (signing.Config, error) {
 	cfg := signing.Config{
 		Issuer:   os.Getenv("IAM_ISSUER"),
@@ -61,10 +56,8 @@ func signingConfig() (signing.Config, error) {
 // empty key returns a nil cipher, which leaves token signing disabled; a malformed
 // key or an invalid length stops startup.
 //
-// The variable is KV_ENCRYPTION_KEY, shared with the orchestrator, and the name is
-// the orchestrator's history rather than a description — it protects rather more
-// than KV there too. What matters is that both services read the SAME key, so this
-// platform has one thing to hold and one to rotate.
+// The variable is KV_ENCRYPTION_KEY: every service that seals data at rest reads
+// that same key, so an install has one thing to hold and one to rotate.
 func newCipher(b64 string) (*cryptox.Cipher, error) {
 	if b64 == "" {
 		return nil, nil //nolint:nilnil // no key means signing is off, not an error
@@ -79,9 +72,8 @@ func newCipher(b64 string) (*cryptox.Cipher, error) {
 // newSigningService builds the keyset, or reports ErrInvalidConfig when this
 // install has not configured one — an absent issuer, or an absent encryption key.
 //
-// Both are reported the same way for the same reason: neither is a fault, both are
-// coherent ways to run, and in both cases what happens is that POST /auth reports
-// itself unavailable rather than the process refusing to start.
+// Both are reported the same way: neither is a fault, and in both cases POST /auth
+// reports itself unavailable rather than the process refusing to start.
 func newSigningService(
 	database *db.DB, cipher *cryptox.Cipher, cfg signing.Config,
 ) (*signing.Service, error) {

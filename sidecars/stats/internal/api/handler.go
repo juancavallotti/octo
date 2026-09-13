@@ -1,28 +1,20 @@
 // Package api is the stats sidecar's HTTP surface.
 //
-// It is deliberately smaller than the dev sidecar's, and unauthenticated, for
-// one reason: nothing drives this sidecar. It has no commands, no peer that
-// sends it anything, and no token in its environment to check one against. It
-// samples the container beside it and writes to a cache. What it serves is the
-// two probes the kubelet needs and one status page for whoever is debugging it.
+// It is unauthenticated because nothing drives it: there are no commands, no peer
+// that sends it anything, and no token in its environment to check one against. It
+// serves the two probes a kubelet needs and one status page.
 //
 // # Why /readyz is unconditional
 //
-// This is the load-bearing decision in the package, so it is stated here rather
-// than only at the handler.
+// Injected as a native sidecar — a restartable init container — this process's
+// readiness is folded into the POD's. A /readyz reporting its real state would take
+// the integration out of its Service endpoints whenever this sidecar was unhappy,
+// so a Redis outage would stop traffic to every integration in the namespace at
+// once in order to protect the collection of statistics.
 //
-// The sidecar is injected as a native sidecar — a restartable init container —
-// and Kubernetes folds a restartable init container's readiness into the POD's
-// readiness. A /readyz that reported the sidecar's real state would therefore
-// take the integration out of its Service endpoints whenever this sidecar was
-// unhappy. A Redis outage would stop production traffic to every integration in
-// the namespace at once, in order to protect the collection of statistics.
-//
-// That trade is never worth making. Observability must not be able to break the
-// thing it observes, so both probes answer 200 whenever the process is running,
-// and everything that actually went wrong is reported through /status and the
-// log instead. The orchestrator declines to attach a readiness probe at all
-// (orchestrator/internal/kube/statssidecar.go), which is belt to this brace.
+// Observability must not be able to break the thing it observes, so both probes
+// answer 200 whenever the process is running and everything that went wrong is
+// reported through /status and the log.
 package api
 
 import (
@@ -84,9 +76,8 @@ type Handler struct {
 // NewHandler returns a Handler reading live state from reporter.
 func NewHandler(r Reporter) *Handler { return &Handler{reporter: r} }
 
-// Endpoints lists the routes, for the startup log. There is no OpenAPI document
-// for the sidecars, so the log line is the API's documentation — the same device
-// sidecars/dev/internal/api uses.
+// Endpoints lists the routes, for the startup log. This service publishes no
+// OpenAPI document, so the log line is what names them.
 func Endpoints() []string {
 	return []string{"GET /healthz", "GET /readyz", "GET /status"}
 }
@@ -110,14 +101,13 @@ func (h *Handler) probe(w http.ResponseWriter, _ *http.Request) {
 }
 
 // status reports what the sidecar is doing. Unauthenticated because it carries
-// nothing secret — counters, intervals, and the pod and deployment ids, both of
-// which are already labels on the pod serving it.
+// nothing secret: counters, intervals, and the pod and deployment ids, which are
+// already labels on the pod serving it.
 func (h *Handler) status(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := json.NewEncoder(w).Encode(h.reporter.Report()); err != nil {
-		// The header is already written, so there is nowhere to report this but
-		// the connection, which is already broken.
+		// The header is already written, so there is nowhere left to report this.
 		return
 	}
 }

@@ -13,8 +13,8 @@ import (
 
 const (
 	// requestTimeout bounds a single call to the orchestrator. Generous relative to
-	// the work (one row plus its resources) but finite, so a wedged connection cannot
-	// hold the reload lock open forever.
+	// the work but finite, so a wedged connection cannot hold the reload lock open
+	// forever.
 	requestTimeout = 30 * time.Second
 	// maxBundleBytes caps how much the sidecar will read into memory. An integration
 	// definition plus its resources is kilobytes; this is the backstop against a
@@ -74,11 +74,11 @@ func (c *Client) Fetch(ctx context.Context) (Bundle, error) {
 }
 
 // Expire tells the orchestrator to tear this dev run down. Called when Fetch
-// reports ErrGone: the sidecar cannot delete its own workload (it holds no
-// Kubernetes credential, by design), so it asks the one peer it has.
+// reports ErrGone: this process holds no Kubernetes credential and cannot delete
+// its own workload, so it asks the one peer it has.
 //
-// A separate endpoint from the user-facing DELETE /devruns/{id} on purpose — that
-// route authorises a user action, and a pod holding a dev-run token is not a user.
+// Its own endpoint rather than the user-facing delete route, since a dev-run token
+// is not a user's credential.
 func (c *Client) Expire(ctx context.Context) error {
 	req, err := c.newRequest(ctx, http.MethodPost, "expire")
 	if err != nil {
@@ -91,18 +91,15 @@ func (c *Client) Expire(ctx context.Context) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// A 404 here means the run is already gone, which is the outcome being asked
-	// for. Reporting it as an error would make the caller retry a request that has
-	// already succeeded in every sense that matters.
+	// A 404 here means the run is already gone, which is the outcome being asked for,
+	// so it is not reported as an error.
 	if resp.StatusCode == http.StatusNotFound {
 		// Drain so the connection can be reused; the body carries nothing we need.
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBundleBytes))
 		return nil
 	}
 	// Classify BEFORE draining: statusError reads a bounded snippet of the body to
-	// explain a failure, and draining first would leave it nothing to report — the
-	// orchestrator's reason for refusing would be lost, and the caller would see a
-	// bare status where Fetch shows the detail.
+	// explain a failure, and draining first would leave it nothing to report.
 	if err := statusError(resp, "expire dev run"); err != nil {
 		return err
 	}
@@ -122,10 +119,9 @@ func (c *Client) newRequest(ctx context.Context, method, action string) (*http.R
 	return req, nil
 }
 
-// statusError maps a non-2xx response to the sentinel the caller branches on, or
-// to a plain error carrying the status and a bounded snippet of the body — the
-// body is where the orchestrator explains itself, and dropping it would leave a
-// bare status code as the only clue.
+// statusError maps a non-2xx response to the sentinel the caller branches on, or to
+// a plain error carrying the status and a bounded snippet of the body, which is
+// where the reason for a refusal is.
 func statusError(resp *http.Response, op string) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil

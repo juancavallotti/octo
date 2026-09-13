@@ -26,12 +26,9 @@ const (
 
 // Handler serves the token exchange.
 //
-// svc may be nil, and that is a supported state rather than an oversight: an
-// install with no identity provider configured still registers this route, and it
-// answers 503 naming what is missing. A route that vanished with its dependency
-// would leave a caller unable to tell a misconfigured install from a build that
-// never had the feature — the same reasoning the orchestrator's agent status
-// route already follows.
+// svc may be nil, which is a supported state: an install with no identity provider
+// configured still registers this route, and it answers 503 naming what is missing
+// rather than vanishing into a 404.
 type Handler struct {
 	svc *Service
 }
@@ -84,9 +81,9 @@ func (h *Handler) exchange(w http.ResponseWriter, r *http.Request) {
 	h.writeToken(w, result)
 }
 
-// refresh trades a platform token for a fresh one. Deliberately the same shape as
-// the exchange — a bearer, no body, the same reply — so a client has one thing to
-// call and one thing to parse, differing only in which token it presents.
+// refresh trades a platform token for a fresh one, in the same shape as the
+// exchange — a bearer, no body, the same reply — differing only in which token is
+// presented.
 func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	if h.svc == nil {
 		httpx.WriteError(w, http.StatusServiceUnavailable,
@@ -113,8 +110,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // machineRequest names the deployed integration a token is being minted for, and
-// what it is being lent beyond its own stores. An absent set asks for nothing,
-// which is what almost every deployment wants.
+// what it is being lent beyond its own stores. An absent set asks for nothing.
 type machineRequest struct {
 	Deployment string   `json:"deployment"`
 	Access     []Access `json:"access,omitempty"`
@@ -124,9 +120,9 @@ type machineRequest struct {
 // person deploying it — whose own platform token is the bearer here.
 //
 // Unlike the other two this takes a body, because neither the deployment nor the
-// access it is being lent is something the credential can say. Naming a
-// different deployment buys nothing — the token can only ever act as the caller —
-// and the access is checked against what the caller may lend.
+// access being lent is something the credential can say. The access is checked
+// against what the caller may lend, and the token can only ever act as the
+// caller.
 func (h *Handler) machine(w http.ResponseWriter, r *http.Request) {
 	if h.svc == nil {
 		httpx.WriteError(w, http.StatusServiceUnavailable,
@@ -182,21 +178,20 @@ func bearerToken(r *http.Request) string {
 
 // writeError maps the exchange's failures to statuses.
 //
-// The distinction that matters is between the caller's problem and ours. A token
-// that does not verify is 401 and says only that. A provider we could not reach
-// is 503: the caller's token may be perfectly good, and telling them it was
-// rejected would send them to re-authenticate against a provider that is down.
+// The distinction that matters is between the caller's problem and ours: a token
+// that does not verify is 401, while a provider that could not be reached is 503,
+// since that token may be perfectly good.
 func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
-		// Logged in full, answered in one word. The reason a token failed is a hint
+		// Logged in full, answered in one word: the reason a token failed is a hint
 		// to whoever is guessing at one.
 		slog.Info("auth exchange rejected a token", "error", err)
 		w.Header().Set("WWW-Authenticate", "Bearer error=\"invalid_token\"")
 		httpx.WriteError(w, http.StatusUnauthorized, "the token is not valid")
 	case errors.Is(err, ErrUnavailable):
-		// 503 and not 401, so a platform holding a valid credential keeps it rather
-		// than signing its users out over a fault on this side.
+		// 503 and not 401, so a caller holding a valid credential keeps it rather
+		// than discarding it over a fault on this side.
 		slog.Error("auth could not answer", "error", err)
 		httpx.WriteError(w, http.StatusServiceUnavailable, "this service cannot answer right now")
 	case errors.Is(err, ErrProviderUnreachable):
@@ -205,16 +200,16 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrForbidden):
 		httpx.WriteError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, user.ErrNotProvisioned):
-		// 403 and not 401: they authenticated perfectly well. Re-authenticating
-		// would change nothing, and telling them to try again would be a lie. What
-		// has to happen is that somebody gives them an account.
+		// 403 and not 401: they authenticated perfectly well, and re-authenticating
+		// would change nothing. What has to happen is that somebody gives them an
+		// account.
 		slog.Info("a verified caller has no account on this platform", "error", err)
 		httpx.WriteError(w, http.StatusForbidden,
 			"this account has not been provisioned on this platform; ask an administrator to add you")
 	case errors.Is(err, user.ErrInvalid):
-		// The provider verified a token describing a principal we cannot store —
-		// no subject, or no email. The caller cannot fix it and neither can we, so
-		// it says what is wrong with the token rather than pretending it is invalid.
+		// The provider verified a token describing a principal that cannot be stored:
+		// no subject, or no email. Reported as what is wrong with the token rather
+		// than as a failed verification.
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	default:
 		slog.Error("auth handler", "error", err)

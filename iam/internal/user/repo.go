@@ -11,12 +11,10 @@ import (
 )
 
 const (
-	// userColumns is the canonical column list (and order) scanUser expects, kept
-	// in one place so reads and RETURNING clauses stay in sync. It is qualified
-	// with the table alias every read below uses, because every read joins.
-	// COALESCE on the subject: it is NULL until the first sign-in writes it, and
-	// an empty string is what every reader of this struct already treats as "not
-	// signed in yet".
+	// userColumns is the column list (and order) scanUser expects, kept in one
+	// place so reads and RETURNING clauses stay in sync. COALESCE on the subject:
+	// it is NULL until the first sign-in writes it, and readers treat the empty
+	// string as "not signed in yet".
 	userColumns = "u.id, COALESCE(u.subject, ''), u.email, u.name, u.created_at, u.last_login_at"
 
 	// rolesColumn aggregates the joined grants into one text array. FILTER drops
@@ -32,15 +30,13 @@ const (
 		 FROM users u LEFT JOIN user_roles ur ON ur.user_id = u.id`
 
 	// bootstrapLockKey keys the advisory lock taken while deciding whether a user
-	// is the first ever to sign in. An arbitrary constant — advisory locks share
-	// one namespace per database, so what matters is only that nothing else in
-	// this schema picks the same number.
+	// is the first ever to sign in. Arbitrary: advisory locks share one namespace
+	// per database, so all that matters is that nothing else picks this number.
 	bootstrapLockKey = 5150081
 
 	// pgInvalidTextRepresentation is what Postgres reports when a value cannot be
-	// parsed as the column's type — a user id that is not a UUID, here. It is a
-	// caller's mistake rather than a fault, so it is translated to ErrNotFound
-	// instead of surfacing as a 500.
+	// parsed as the column's type — a user id that is not a UUID, here — which is
+	// translated to ErrNotFound.
 	pgInvalidTextRepresentation = "22P02"
 
 	// pgUniqueViolation is what Postgres reports when a row would duplicate a
@@ -62,22 +58,14 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // subject, or — on an installation that has no administrator — creates them and
 // makes them one.
 //
-// All of it in one transaction under one lock, and that is the whole point of the
-// method existing. Done as separate steps the two checks are both
-// time-of-check-to-time-of-use races:
+// All of it runs in one transaction under the advisory lock every decision about
+// "is there an administrator" is taken under, because done as separate steps both
+// checks are time-of-check-to-time-of-use races: two strangers signing in at once
+// could both observe "no administrator" and one would be left with an account
+// nothing provisioned, and the account that gets the role has to be the same one
+// the check was made about.
 //
-//   - two unprovisioned strangers signing in at once could both observe "no
-//     administrator", and although only one would end up with the role, the other
-//     would be left with a real account — permanently past an allowlist that was
-//     supposed to refuse them;
-//   - and the account that gets the role has to be the same one the check was
-//     made about, or a fresh installation can end up administered by nobody.
-//
-// The lock is the same one every decision about "does this platform have an
-// administrator" is taken under, because they are all the same invariant.
-//
-// The second return reports whether this call created the row, which the caller
-// has no other way to know and which reads better in a log than a guess.
+// The second return reports whether this call created the row.
 func (r *Repo) Admit(ctx context.Context, subject, email, name string) (User, bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -104,9 +92,8 @@ func (r *Repo) Admit(ctx context.Context, subject, email, name string) (User, bo
 		); err != nil {
 			if hasSQLState(err, pgUniqueViolation) {
 				// The provider moved this account onto an address another row
-				// already holds. Refused rather than resolved: the directory is in a
-				// state this schema cannot represent, and picking a winner here would
-				// merge two people quietly.
+				// already holds. Refused rather than resolved: picking a winner here
+				// would merge two people quietly.
 				return User{}, false, ErrConflict
 			}
 			return User{}, false, fmt.Errorf("user repo: admit: refresh: %w", err)
@@ -139,18 +126,13 @@ func (r *Repo) Admit(ctx context.Context, subject, email, name string) (User, bo
 // adopt claims the row an administrator provisioned for this address, writing
 // the subject onto it so every later sign-in keys on that instead.
 //
-// This is the one moment an address decides who somebody is, and it happens at
-// most once per row — which is what bounds the exposure. Two rules make it safe
-// to do at all:
+// This is the one moment an address decides who somebody is, and two rules bound
+// it: a row already carrying a different subject is refused, and the row is taken
+// FOR UPDATE inside the caller's transaction so two first sign-ins racing for the
+// same address cannot both adopt it.
 //
-//   - A row that already carries a different subject is refused. That is a
-//     different principal wearing a familiar address, not the person the row was
-//     waiting for.
-//   - The row is taken FOR UPDATE inside the caller's transaction, so two first
-//     sign-ins racing for the same address cannot both adopt it.
-//
-// pgx.ErrNoRows means no row is waiting, which is not a failure: it is the
-// caller's signal to fall through to the first-administrator path.
+// pgx.ErrNoRows means no row is waiting, which is not a failure but the caller's
+// signal to fall through to the first-administrator path.
 func (r *Repo) adopt(ctx context.Context, tx pgx.Tx, subject, email, name string) (string, error) {
 	var (
 		id       string
@@ -182,7 +164,7 @@ func (r *Repo) adopt(ctx context.Context, tx pgx.Tx, subject, email, name string
 // that method's transaction and under its lock.
 //
 // The grant is part of the same statement sequence rather than a later call,
-// because "the first user is an administrator" is only true if nothing can happen
+// because "the first user is an administrator" only holds if nothing can happen
 // between deciding it and doing it.
 func (r *Repo) admitNewcomer(
 	ctx context.Context, tx pgx.Tx, subject, email, name string,
@@ -217,16 +199,12 @@ func (r *Repo) admitNewcomer(
 
 // Create provisions a user an administrator named, rather than one who signed in.
 //
-// It is how somebody is let in before their first sign-in: this platform admits
-// only provisioned users (see Service.SignIn), so an account has to exist here
-// before the person it belongs to can get past the door. All it takes is their
-// address, because that is all an administrator knows about a colleague who has
-// never been here — the OIDC subject is left NULL for the first sign-in to write
-// (see adopt).
+// It is how somebody is let in before their first sign-in: only provisioned users
+// are admitted (see Service.SignIn), so an account has to exist before the person
+// it belongs to can sign in. All it takes is their address; the OIDC subject is
+// left NULL for the first sign-in to write (see adopt).
 //
-// An address that already has an account is ErrConflict rather than an update:
-// the caller asked to create somebody, and quietly rewriting an existing
-// account's name would be a different and much worse thing to do.
+// An address that already has an account is ErrConflict rather than an update.
 func (r *Repo) Create(ctx context.Context, email, name string) (User, error) {
 	row := r.pool.QueryRow(ctx,
 		`INSERT INTO users (email, name)
@@ -266,10 +244,8 @@ func (r *Repo) Update(ctx context.Context, id, email, name string) error {
 }
 
 // Delete removes a user. Their role grants and API keys go with them (ON DELETE
-// CASCADE); what they authored does not, because those columns are ON DELETE SET
-// NULL — an integration outlives whoever created it, and losing the integration
-// along with the person who left would be a far worse outcome than losing the
-// attribution.
+// CASCADE); what they authored outlives them with the attribution dropped, because
+// those columns are ON DELETE SET NULL.
 func (r *Repo) Delete(ctx context.Context, id string) error {
 	return r.underAdminLock(ctx, "delete", func(tx pgx.Tx) error {
 		if err := lastAdminCheck(ctx, tx, id); err != nil {
@@ -316,24 +292,19 @@ func (r *Repo) GetBySubject(ctx context.Context, subject string) (User, error) {
 	return u, nil
 }
 
-// List returns one page of users with their granted roles, oldest first — which
-// puts whoever set the platform up at the top.
+// List returns one page of users with their granted roles, oldest first.
 //
-// Keyset paging on (created_at, id) rather than an offset: an offset shifts under
-// a page when somebody is provisioned or removed between two requests, which on
-// this screen means a row read twice or skipped while an administrator is part
-// way through a directory. The tiebreak on id is what makes the order total, and
-// therefore what makes the cursor unambiguous when two rows were created in the
-// same microsecond.
+// Keyset paging on (created_at, id) rather than an offset, so a row provisioned or
+// removed between two requests cannot shift a page and have a row read twice or
+// skipped. The tiebreak on id makes the order total, and so the cursor unambiguous
+// when two rows were created in the same microsecond.
 //
-// `query` matches a substring of the name or the address, case-insensitively,
-// and `role` narrows to the people holding it. Both are applied here rather than
-// in the caller because a filter applied after paging would return short pages of
-// an unknown total.
+// `query` matches a substring of the name or the address, case-insensitively, and
+// `role` narrows to the people holding it; both are applied before paging, or the
+// pages would be short by an unknown amount.
 //
 // It reads one row more than asked for and reports the cursor for the next page,
-// or "" on the last. Asking the database for that row is what tells the caller
-// there is a next page without a second count query.
+// or "" on the last.
 func (r *Repo) List(
 	ctx context.Context, query string, role Role, limit int, cursor string,
 ) ([]User, string, error) {
@@ -392,10 +363,9 @@ func (r *Repo) Grant(ctx context.Context, userID string, granted Role, grantedBy
 		userID, string(granted), grantedBy,
 	)
 	if err != nil {
-		// Two foreign keys can refuse this row, and they mean opposite things: the
-		// target does not exist, or the caller does not. Reported apart, because
-		// "user not found" about a user the administrator is looking at sends them
-		// hunting for the wrong problem.
+		// Two foreign keys can refuse this row and they mean opposite things: the
+		// target does not exist, or the grantor does not. Reported apart, or the
+		// error names the wrong user.
 		if violated(err, grantedByConstraint) {
 			return ErrGranterGone
 		}
@@ -413,9 +383,9 @@ func (r *Repo) Revoke(ctx context.Context, userID string, revoked Role) error {
 	if revoked != RoleAdmin {
 		return r.revoke(ctx, r.pool, userID, revoked)
 	}
-	// Taking the administrator role away is a decision about whether this platform
-	// still has one, so it is made under the lock every such decision is made
-	// under, in the same transaction as the write it authorises.
+	// Taking the administrator role away is a decision about whether one is left,
+	// so it is made under the lock every such decision is made under, in the same
+	// transaction as the write it authorises.
 	return r.underAdminLock(ctx, "revoke", func(tx pgx.Tx) error {
 		if err := lastAdminCheck(ctx, tx, userID); err != nil {
 			return err
@@ -459,13 +429,11 @@ func (r *Repo) underAdminLock(ctx context.Context, what string, fn func(pgx.Tx) 
 	return nil
 }
 
-// lastAdminCheck refuses an operation that would leave the platform with no
+// lastAdminCheck refuses an operation that would leave the install with no
 // administrator. Called inside underAdminLock, so what it observes cannot change
-// before the write it guards.
-//
-// An installation with nobody able to administer it is not merely inconvenient:
-// the bootstrap in Admit hands the role to the next stranger who signs in, so
-// losing the last administrator is a way to give the platform away.
+// before the write it guards. Losing the last administrator is not recoverable in
+// place: the bootstrap in Admit would hand the role to the next stranger to sign
+// in.
 func lastAdminCheck(ctx context.Context, tx pgx.Tx, userID string) error {
 	var last bool
 	err := tx.QueryRow(ctx,
@@ -485,9 +453,7 @@ func lastAdminCheck(ctx context.Context, tx pgx.Tx, userID string) error {
 	return nil
 }
 
-// CountWithRole returns how many users hold the given role. The admin count is
-// what stands between an install and having nobody who can grant anything, so it
-// is the check the revoke path makes before removing the last one.
+// CountWithRole returns how many users hold the given role.
 func (r *Repo) CountWithRole(ctx context.Context, held Role) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx,
@@ -547,9 +513,8 @@ func isForeignKeyViolation(err error) bool {
 }
 
 // isInvalidTextRepresentation reports whether err is Postgres refusing to parse a
-// value as its column's type. Every caller here reaches it the same way — an id
-// from a URL path that is not a UUID — which is a request for something that does
-// not exist rather than a fault worth a 500.
+// value as its column's type — here always an id that is not a UUID, which names
+// something that does not exist rather than being a fault.
 func isInvalidTextRepresentation(err error) bool {
 	return hasSQLState(err, pgInvalidTextRepresentation)
 }

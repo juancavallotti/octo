@@ -9,12 +9,10 @@ import (
 )
 
 const (
-	// defaultPort is this sidecar's own HTTP port. Deliberately not 8099, which
-	// is the dev sidecar's: the two never share a pod, but a port that identifies
-	// which sidecar answered is worth more than a number reused out of habit.
+	// defaultPort is this sidecar's own HTTP port, distinct from every other
+	// sidecar's so the port identifies which one answered.
 	defaultPort = "8098"
-	// defaultRuntimeAdmin is the runtime's admin port on the shared loopback
-	// (runtime/services/observability/observability.go:37).
+	// defaultRuntimeAdmin is the runtime's admin port on the shared loopback.
 	defaultRuntimeAdmin = "127.0.0.1:39999"
 
 	// defaultSampleInterval is the live tier's resolution.
@@ -25,9 +23,8 @@ const (
 	// defaultRetention is how far the history tier reaches back.
 	defaultRetention = 7 * 24 * time.Hour
 
-	// minSampleInterval floors the sample rate. Below this the sidecar spends
-	// more time scraping and encoding than the runtime spends serving, and the
-	// point of the exercise is to observe the pod rather than to load it.
+	// minSampleInterval floors the sample rate, below which scraping and encoding
+	// costs more than the pod being observed.
 	minSampleInterval = 100 * time.Millisecond
 )
 
@@ -46,17 +43,13 @@ type config struct {
 
 // loadConfig reads and validates the environment.
 //
-// Every problem is collected and reported together, so one restart reveals all
-// of them rather than one per crash loop. Missing required values are a hard
-// startup failure for the same reason the dev sidecar makes them one: a stats
-// sidecar that does not know which deployment it belongs to, or has nowhere to
-// write, has no job to do, and CrashLoopBackOff with a named cause is a better
-// signal than a container that looks healthy and silently stores nothing.
+// Every problem is collected and reported together, so one restart reveals all of
+// them rather than one per crash loop. A sidecar that does not know which
+// deployment it belongs to, or has nowhere to write, has no job to do.
 //
-// Note what is NOT a startup failure: a Redis that is configured but
-// unreachable. That is a running condition this sidecar rides out, because
-// failing on it would turn a cache outage into a restart storm across every
-// production pod at once.
+// Note what is NOT a startup failure: a Redis that is configured but unreachable.
+// That is a running condition this rides out, since failing on it would turn a
+// cache outage into a restart storm across every pod at once.
 func loadConfig() (config, error) {
 	cfg := config{
 		port:         envOr("PORT", defaultPort),
@@ -97,13 +90,10 @@ func loadConfig() (config, error) {
 
 // checkIntervals validates the three durations against each other.
 //
-// The two ratios ARE the tier depths — how many samples a live tier holds and
-// how many buckets a retention window holds — and they are computed with integer
-// division. So both ordering and divisibility are checked: 700ms samples in a 1s
-// bucket orders fine and then truncates to a depth of one, which is a tier whose
-// size nobody chose and no error anybody sees. Rejecting at startup is how an
-// experiment with the intervals fails loudly rather than quietly measuring
-// something else.
+// The two ratios ARE the tier depths — how many samples a live tier holds, how many
+// buckets a retention window holds — and are computed with integer division, so
+// both ordering and divisibility are checked: 700ms samples in a 1s bucket order
+// fine and then truncate to a depth of one, a tier size nobody chose.
 func (c config) checkIntervals() []string {
 	var problems []string
 	if c.sample > 0 && c.sample < minSampleInterval {

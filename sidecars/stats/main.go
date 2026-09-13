@@ -8,28 +8,23 @@
 // 604,800 rows a pod and a week of hourly rows is 168, which is the whole reason
 // the second tier exists.
 //
-// Why this exists. A deployed integration pod is observable only while somebody
-// is watching it: the runtime can serve metrics, nothing scrapes them, and when
-// a deployment misbehaved an hour ago there is no record of what it was doing.
-// This is the record. It is write-only for now — nothing reads these keys yet —
-// but the layout is deployment-first so that one deployment id finds every pod
-// that ever reported, which is what the monitoring feature this precedes needs.
+// Without it a pod is observable only while somebody is watching: the runtime
+// serves metrics and nothing keeps them, so a deployment that misbehaved an hour
+// ago left no record. The layout is deployment-first, so one deployment id finds
+// every pod that ever reported.
 //
 // # What it is not allowed to do
 //
-// It must never be able to take a production pod out of service. It is injected
-// as a native sidecar, and Kubernetes folds a restartable init container's
-// readiness into the pod's, so a truthful readiness probe here would let a Redis
-// outage stop traffic to every integration in the namespace at once. Both probes
-// therefore answer 200 whenever the process is running, the orchestrator
-// attaches no readiness probe at all, and every failure — an unreachable Redis,
-// a runtime that is not serving metrics — is counted and logged rather than
-// signalled. Losing statistics is always the right trade against losing traffic.
+// It must never be able to take a pod out of service. Injected as a native
+// sidecar, its readiness is folded into the pod's, so a truthful readiness probe
+// here would let a Redis outage stop traffic to every integration in the namespace
+// at once. Both probes therefore answer 200 whenever the process is running, and
+// every failure — an unreachable Redis, a runtime not serving metrics — is counted
+// and logged rather than signalled. Losing statistics beats losing traffic.
 //
-// It holds no Kubernetes credential and never touches the cluster API, the same
-// invariant the dev sidecar keeps. It learns which pod it is from the downward
-// API and which deployment from its environment, and speaks to exactly two
-// peers: the runtime on loopback, and Redis.
+// It holds no Kubernetes credential and never touches the cluster API. It learns
+// which pod it is from the downward API and which deployment from its environment,
+// and speaks to exactly two peers: the runtime on loopback, and Redis.
 package main
 
 import (
@@ -54,17 +49,16 @@ const (
 	// shutdownTimeout bounds how long in-flight requests have to drain on
 	// SIGTERM. Everything served here is small and immediate.
 	shutdownTimeout = 5 * time.Second
-	// flushTimeout bounds the last write on the way out. The sampler gets it
-	// after the HTTP server has been told to stop, and it is the reason this is a
-	// native sidecar: the runtime has already terminated by then, so the bucket
-	// being flushed is complete rather than truncated.
+	// flushTimeout bounds the last write on the way out, given to the sampler after
+	// the HTTP server has been told to stop. As a native sidecar this process is
+	// terminated last, so the bucket being flushed is complete rather than
+	// truncated.
 	flushTimeout = 5 * time.Second
 
 	// HTTP server timeouts. The endpoints are unauthenticated, so a client with
 	// network reach could otherwise pin a goroutine mid-header, mid-body or on an
 	// idle keep-alive. Everything here answers in microseconds, so all four are
-	// tight — unlike the dev sidecar, which needs a generous write timeout for
-	// its multi-megabyte /metrics passthrough.
+	// tight.
 	readHeaderTimeout = 5 * time.Second
 	readTimeout       = 10 * time.Second
 	writeTimeout      = 10 * time.Second
@@ -72,15 +66,10 @@ const (
 
 	// Redis client tuning, applied on top of whatever the URL parsed to.
 	//
-	// The defaults are built for a caller that needs its command to succeed and
-	// will wait to make that happen: three retries with backoff, on top of the
-	// connection pool's own dial attempts, which is several seconds before a
-	// down server is reported. That is the wrong shape here. Samples are taken
-	// once a second and each is written as it is taken, so a write that spends
-	// five seconds retrying does not rescue that sample — it swallows the four
-	// after it, and stalls the loop that would otherwise have kept scraping.
-	//
-	// Failing fast is what keeps the sidecar responsive through an outage: the
+	// The library's defaults retry with backoff for several seconds before a down
+	// server is reported, which is the wrong shape here: samples are taken once a
+	// second and written as they are taken, so a write that spends five seconds
+	// retrying swallows the four samples after it and stalls the scrape loop. The
 	// sample is lost either way, and the next tick gets a clean attempt.
 	redisMaxRetries  = 1
 	redisDialTimeout = 2 * time.Second
@@ -109,10 +98,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// New rather than Open: the lazy client, with no PING to prove it. A Redis
-	// that is down at startup is a running condition this rides out, not a reason
-	// to fail — see the note in internal/redisx. Only a URL that does not parse
-	// stops the process, because that is a mistake no amount of waiting fixes.
+	// New rather than Open: the lazy client, with no PING to prove it. A Redis that
+	// is down at startup is a running condition this rides out. Only a URL that does
+	// not parse stops the process, being a mistake no waiting fixes.
 	client, err := openRedis(cfg.redisURL)
 	if err != nil {
 		return err
@@ -184,15 +172,14 @@ func run() error {
 // openRedis validates the URL through redisx and returns a client tuned for
 // sampling.
 //
-// redisx owns two things worth not reimplementing: how the URL is parsed and
-// how a parse failure is reported without the password in it. The retry policy
-// is deliberately not one of them — it is the caller's to choose, and this
-// caller wants failure reported rather than retried. See the constants above.
+// redisx owns how the URL is parsed and how a parse failure is reported without the
+// password in it. The retry policy is the caller's to choose, and this one wants
+// failure reported rather than retried — see the constants above.
 //
-// The tuned client is built from a FRESH ParseURL rather than from a copy of
-// the validated client's Options. A go-redis Options carries internal
-// registration state, and reusing one makes the second client log a spurious
-// "cannot overwrite existing handler" error at every startup.
+// The tuned client is built from a FRESH ParseURL rather than from a copy of the
+// validated client's Options: a go-redis Options carries internal registration
+// state, and reusing one makes the second client log a spurious "cannot overwrite
+// existing handler" error at every startup.
 func openRedis(url string) (*redis.Client, error) {
 	validated, err := redisx.New(url)
 	if err != nil {

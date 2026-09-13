@@ -1,13 +1,7 @@
 // Package authz decides whether a caller may reach iam's own management routes.
 //
-// It is the answer to the note that stood in the user handler for as long as
-// those routes existed: role grants were recorded with no grantor, because there
-// was nobody behind them to record. There is now.
-//
-// The token it checks is one this service minted. That is the whole shape of it
-// — iam signs in the platform's callers and then holds them to the same
-// credential everything else does, rather than inventing a second kind of
-// admission for itself.
+// The token it checks is one this service minted: iam holds its own callers to the
+// credential it issues rather than admitting them some second way.
 package authz
 
 import (
@@ -30,9 +24,8 @@ type verifier interface {
 
 // Principal is who a verified token speaks for.
 //
-// Roles are plain strings rather than user.Role, which keeps this package out of
-// the user package's way: user imports this one to read the caller off a request,
-// and the other direction would be a cycle.
+// Roles are plain strings rather than user.Role: the user package imports this one
+// to read the caller off a request, and the other direction would be a cycle.
 type Principal struct {
 	Subject string
 	Roles   []string
@@ -57,9 +50,8 @@ const (
 // Require wraps next so that only a caller presenting a valid platform token
 // holding every role in `roles` reaches it.
 //
-// No grace window is allowed: an expired token is a credential for renewing
-// itself at POST /auth/refresh and for nothing else. Widening that here would
-// make every management route accept a token ten minutes after it died.
+// No grace window is allowed: an expired token is a credential for renewing itself
+// at POST /auth/refresh and for nothing else.
 func Require(v verifier, roles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +65,8 @@ func Require(v verifier, roles ...string) func(http.Handler) http.Handler {
 			var private principalClaims
 			claims, err := v.Verify(r.Context(), token, &private)
 			if err != nil {
-				// Logged in full, answered in one word — the reason a token failed is
-				// a hint to whoever is guessing at one.
+				// Logged in full, answered in one word: the reason a token failed is a
+				// hint to whoever is guessing at one.
 				slog.Info("iam refused a token on a management route", "error", err)
 				w.Header().Set(`WWW-Authenticate`, `Bearer error="invalid_token"`)
 				httpx.WriteError(w, http.StatusUnauthorized, "the token is not valid")
@@ -84,9 +76,8 @@ func Require(v verifier, roles ...string) func(http.Handler) http.Handler {
 			p := Principal{Subject: claims.Subject, Roles: private.Roles}
 			for _, want := range roles {
 				if !p.HasRole(want) {
-					// The role is named. A caller who holds the wrong one can act on
-					// that, and it tells them nothing they could not learn by reading
-					// the documentation.
+					// The role is named: a caller holding the wrong one can act on
+					// that, and the catalogue is public anyway.
 					httpx.WriteError(w, http.StatusForbidden, "this requires the "+want+" role")
 					return
 				}
@@ -99,9 +90,8 @@ func Require(v verifier, roles ...string) func(http.Handler) http.Handler {
 
 // NewContext returns ctx carrying p as the authenticated caller.
 //
-// Require does this itself; it is exported for the callers that establish a
-// principal some other way — a test standing in for a guard, and whatever second
-// kind of admission this service eventually grows.
+// Require does this itself; it is exported for a caller that establishes a
+// principal some other way.
 func NewContext(ctx context.Context, p Principal) context.Context {
 	return context.WithValue(ctx, contextKey{}, p)
 }

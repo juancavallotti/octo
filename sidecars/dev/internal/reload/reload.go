@@ -1,17 +1,14 @@
 // Package reload turns "go look again" into at most one pull at a time.
 //
-// A reload is triggered by a save, and saves arrive in bursts — the editor
-// debounces edits at 2s, and one user hitting save repeatedly is the normal case
-// rather than the pathological one. Handling each arrival independently would mean
-// N concurrent fetches of the same bundle and N interleaved writers into the one
-// directory the runtime is watching, which is how a workspace ends up holding
-// half of two generations.
+// Triggers arrive in bursts, and handling each independently would mean N
+// concurrent fetches of the same bundle and N interleaved writers into the one
+// watched directory, which is how a workspace ends up holding half of two
+// generations.
 //
 // So a pull is serialised, and a request arriving while one is in flight sets a
-// pending flag instead of queueing behind it. That is the whole design, and the
-// flag rather than a queue is the point: the second and the fiftieth request in a
-// burst want exactly the same thing — the latest bundle — so collapsing them
-// costs nothing and bounds the work at one extra round.
+// pending flag rather than queueing behind it. A flag and not a queue: every
+// request in a burst wants the same thing, the latest bundle, so collapsing them
+// bounds the work at one extra round.
 package reload
 
 import (
@@ -24,9 +21,8 @@ import (
 	"github.com/juancavallotti/octo/sidecars/dev/internal/workspace"
 )
 
-// puller is the orchestrator client this needs. Declared here, in the consumer, so
-// a test drives a fake with no HTTP server; satisfied structurally by
-// *bundle.Client.
+// puller is the bundle client this needs. Declared here, in the consumer, so a test
+// drives a fake with no HTTP server; satisfied by *bundle.Client.
 type puller interface {
 	Fetch(ctx context.Context) (bundle.Bundle, error)
 	Expire(ctx context.Context) error
@@ -45,8 +41,7 @@ const (
 	// OutcomeApplied means this call pulled and wrote the workspace.
 	OutcomeApplied Outcome = iota
 	// OutcomeCoalesced means a pull was already in flight, so this call marked it to
-	// repeat and returned. The reload WILL happen; it just is not this call's to
-	// report on.
+	// repeat and returned. The reload will happen, but not within this call.
 	OutcomeCoalesced
 )
 
@@ -63,8 +58,8 @@ type State struct {
 	// LastPull is when a pull last succeeded; zero if none has.
 	LastPull time.Time `json:"lastPull,omitzero"`
 	// LastError is the last pull or apply failure, cleared by the next success.
-	// Retained rather than only logged: a reload that failed twenty minutes ago is
-	// exactly what someone staring at a stale app needs to see.
+	// Retained rather than only logged, so a failure explains a stale workspace long
+	// after it happened.
 	LastError string `json:"lastError,omitempty"`
 	// Pulls counts successful pulls, so "is it reloading at all?" is answerable.
 	Pulls int `json:"pulls"`
@@ -120,14 +115,11 @@ func (c *Coordinator) State() State {
 
 // Reload pulls the bundle and writes it into the workspace.
 //
-// If a pull is already in flight the call coalesces into it and returns
-// immediately with OutcomeCoalesced; the in-flight caller notices the pending flag
-// and runs another round when it finishes. One consequence worth naming: the
-// caller that drives the extra rounds reports THEIR error, which may belong to a
-// later logical request than its own. That is the right trade for a reload — what
-// matters is that the newest bundle lands, not which HTTP response carries the
-// news — but it does mean a 200 here means "the workspace is current", not
-// "your specific request was the one that made it so".
+// If a pull is already in flight the call coalesces into it and returns immediately
+// with OutcomeCoalesced; the in-flight caller notices the pending flag and runs
+// another round when it finishes. The caller driving those extra rounds reports
+// their errors, which may belong to a later logical request than its own: success
+// here means the workspace is current, not that this call is what made it so.
 func (c *Coordinator) Reload(ctx context.Context) (Outcome, error) {
 	c.mu.Lock()
 	if c.running {
@@ -138,18 +130,17 @@ func (c *Coordinator) Reload(ctx context.Context) (Outcome, error) {
 	c.running = true
 	c.mu.Unlock()
 
-	// The first round serves this caller, under its context. Any further round
-	// serves the callers that coalesced in and already got OutcomeCoalesced; they
-	// have no context of their own, so those rounds run detached from ctx (see
-	// onceDetached). Binding them to ctx would drop the reload the moment this
-	// caller disconnects, leaving the workspace stale until the next save.
+	// The first round serves this caller, under its context. Any further round serves
+	// callers that coalesced in and have no context of their own, so it runs detached
+	// from ctx (see onceDetached): binding it here would drop a promised reload the
+	// moment this caller disconnects.
 	err := c.once(ctx)
 	for {
 		c.mu.Lock()
 		if !c.pending || err != nil {
-			// Stop on error too. Repeating a round that just failed would turn a
-			// transient orchestrator outage into a tight loop against it; the next
-			// save, or the caller's own retry, is a better clock than this one.
+			// Stop on error too: repeating a round that just failed would turn a
+			// transient outage into a tight loop against it, and the next trigger is a
+			// better clock than this one.
 			c.pending = false
 			c.running = false
 			c.mu.Unlock()
@@ -211,10 +202,9 @@ func (c *Coordinator) record(err error) {
 	c.state.LastError = err.Error()
 }
 
-// expire tells the orchestrator to tear the dev run down and signals the process
-// to stop. Best-effort by necessity: if the call fails there is nothing further
-// this pod can do about its own existence, and the orchestrator's idle reaper is
-// the backstop that always eventually collects it.
+// expire tells the orchestrator to tear the dev run down and signals the process to
+// stop. Best-effort by necessity: if the call fails there is nothing further this
+// pod can do about its own existence.
 func (c *Coordinator) expire(ctx context.Context) {
 	c.expireOnce.Do(func() {
 		if err := c.pull.Expire(ctx); err != nil {

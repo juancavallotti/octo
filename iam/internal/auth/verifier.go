@@ -2,13 +2,9 @@
 // provider issued at sign-in, verifies it, resolves the caller to a platform user
 // with roles, and mints an internal token signed by this service.
 //
-// It is the only place in the platform that talks to an identity provider from
-// Go. Everything downstream — the orchestrator, the observability service, the
-// runtime's own jwt-validate block — verifies the token this package produces,
-// against keys iam publishes, and so needs to know nothing about OIDC at all.
-// That is the whole point of the exchange: one component understands the
-// provider, and it converts what the provider says into something the rest of the
-// system can check for itself.
+// It is the one place that speaks OIDC: what the provider says is converted into
+// a token verifiable against the keys iam publishes, which takes no knowledge of
+// OIDC to check.
 package auth
 
 import (
@@ -23,10 +19,9 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Identity is what an identity provider told us about the caller. It is
-// deliberately three fields: the subject that keys the user row, and the two
-// pieces of profile the platform displays. Anything else a provider sends is
-// theirs and stays theirs.
+// Identity is what an identity provider told us about the caller: the subject
+// that keys the user row and the two pieces of profile kept with it. Anything else
+// a provider sends is not read.
 type Identity struct {
 	// Subject is the OIDC `sub` — stable across email changes at the provider,
 	// which is why it and not the address is what the user row is keyed by once
@@ -54,16 +49,12 @@ type Verifier struct {
 
 // NewVerifier returns a Verifier for the given issuer and accepted audiences.
 //
-// Audiences is a set rather than one value because one install presents more than
-// one face to the same provider: the editor signs people in with a token minted
-// for its client id, and an MCP client arrives with an access token minted for the
-// `/mcp` resource identifier. Both are this platform, and both should be able to
-// trade their token for a platform one.
+// Audiences is a set rather than one value because one install can present more
+// than one audience to the same provider, and a token minted for any of them may
+// be traded for a platform token.
 //
-// The check itself is ours rather than go-oidc's, which accepts a single client
-// id. That is the reason it is spelled out below and tested in both directions:
-// widening an audience check by accident is how a token minted for somebody
-// else's application becomes a session here.
+// The check is spelled out in audienceAccepted rather than left to go-oidc, which
+// accepts a single client id.
 func NewVerifier(issuer string, audiences []string) *Verifier {
 	return &Verifier{issuer: issuer, audiences: audiences}
 }
@@ -83,15 +74,13 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error
 	}
 
 	if !v.audienceAccepted(token.Audience) {
-		// The audiences are not named in the message. Which applications this
-		// install accepts is not something an unauthenticated caller needs to learn
-		// from a failed attempt.
+		// The accepted audiences are not named: an unauthenticated caller does not
+		// learn which applications this install answers for.
 		return Identity{}, fmt.Errorf(
 			"%w: the token was minted for a different application", ErrUnauthenticated)
 	}
 
-	// Only what we use. A provider's token carries a great deal more, and none of
-	// it is ours to store.
+	// Only what is used. A provider's token carries more, and none of it is stored.
 	var claims struct {
 		Email string `json:"email"`
 		Name  string `json:"name"`
@@ -102,16 +91,14 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error
 
 	email, name := strings.TrimSpace(claims.Email), strings.TrimSpace(claims.Name)
 	if email == "" {
-		// An OAuth access token carries `sub` and little else — an MCP client's
-		// bearer never has an email on it — so before refusing, ask the provider
-		// who this is. An id token that simply was not asked for the email scope
-		// lands here too, and the same call answers for it.
+		// An OAuth access token carries `sub` and little else, and an id token minted
+		// without the email scope lands here too, so ask the provider before
+		// refusing.
 		email, name = v.fromUserinfo(ctx, provider, rawToken, name)
 	}
 	if email == "" {
-		// Named specifically, because the fix is at the provider and not here: the
-		// email scope has to be requested, and the claim has to reach either the
-		// token or the userinfo endpoint.
+		// Named specifically, because the fix is at the provider: the email scope has
+		// to be requested and the claim has to reach the token or userinfo.
 		return Identity{}, fmt.Errorf(
 			"%w: the token carries no email claim and the provider's userinfo did not "+
 				"supply one; the provider must be configured to include an email for the "+
@@ -137,17 +124,11 @@ func (v *Verifier) audienceAccepted(tokenAudiences []string) bool {
 // token as the credential. It returns what it found, falling back to the name we
 // already had.
 //
-// The credential is whatever was presented to us, which is right for the case
-// this exists to serve: an MCP client arrives with an OAuth access token, and an
-// access token is exactly what a userinfo endpoint wants. A sign-in arrives with
-// an id token instead, and a conforming provider may well refuse that — which is
-// acceptable, because an id token that carries no email at all is a provider
-// misconfiguration, and the refusal below names it. What this must never do is
-// turn either case into a different error about a lookup nobody asked for.
-//
-// Best-effort on purpose, for the same reason: a provider that publishes no
-// userinfo endpoint, or one that is briefly unreachable, should produce the "no
-// email" refusal the caller can act on.
+// The credential is whatever was presented: an access token is what a userinfo
+// endpoint wants, and a provider may refuse an id token there. Either way this is
+// best-effort — a provider with no userinfo endpoint, or one briefly unreachable,
+// leaves the caller with the "no email" refusal rather than an error about a
+// lookup nobody asked for.
 func (v *Verifier) fromUserinfo(
 	ctx context.Context, provider *oidc.Provider, rawToken, name string,
 ) (string, string) {
@@ -169,15 +150,10 @@ func (v *Verifier) fromUserinfo(
 // resolve returns the verifier, performing discovery on the first call that needs
 // it. A failure is returned and not remembered, so the next request tries again.
 //
-// The network call happens OUTSIDE the mutex, which matters when the provider is
-// down. Holding the lock across it would make every concurrent sign-in queue
-// behind one attempt and then start its own, so with a handful of callers most
-// would burn their whole deadline waiting rather than being told promptly that
-// the provider is unreachable. The lock guards only the field.
-//
-// The cost is that several first-time callers may each discover at once. That is
-// one GET apiece, it happens only until one of them succeeds, and it is the
-// cheaper of the two failure modes by a wide margin.
+// The network call happens OUTSIDE the mutex, so a provider that is down does not
+// make every concurrent sign-in queue behind one attempt and then start its own;
+// the lock guards only the field. The cost is one extra GET per first-time caller
+// until one of them succeeds.
 func (v *Verifier) resolve(ctx context.Context) (*oidc.Provider, *oidc.IDTokenVerifier, error) {
 	if provider, verifier := v.cached(); verifier != nil {
 		return provider, verifier, nil
@@ -194,9 +170,8 @@ func (v *Verifier) resolve(ctx context.Context) (*oidc.Provider, *oidc.IDTokenVe
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	// First writer wins. Two concurrent discoveries of the same issuer produce
-	// equivalent verifiers, so which one is kept does not matter — only that every
-	// later caller sees the same one and none of them discovers again.
+	// First writer wins: two concurrent discoveries of the same issuer produce
+	// equivalent verifiers, so only sharing one of them matters.
 	if v.verifier == nil {
 		v.provider, v.verifier = provider, verifier
 	}

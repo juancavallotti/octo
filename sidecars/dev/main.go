@@ -1,16 +1,8 @@
-// Command dev-sidecar owns the workspace of a platform dev run: the pod the
-// orchestrator creates when someone clicks Run in the editor. It shares an
-// emptyDir with an `octo run --config <dir> --watch` container and does the two
-// jobs that container cannot do for itself — it PULLS the integration's definition
-// and resources from the orchestrator into the watched directory, and it answers
+// Command dev-sidecar owns the workspace of a dev run. It shares an emptyDir with
+// an `octo run --config <dir> --watch` container and does the two jobs that
+// container cannot do for itself: it PULLS the integration's definition and
+// resources from the orchestrator into the watched directory, and it answers
 // questions about the runtime beside it over HTTP.
-//
-// Why this exists at all: the editor's RUN state used to live in the platform
-// BFF's memory — a child process handle, a log buffer, an allocated port — while
-// the BFF runs with several replicas and no session affinity. Any request that
-// landed on a different replica than the one that started the run found nothing.
-// Moving the running app into its own pod is what makes every replica able to
-// serve every request, because none of them holds anything.
 //
 // It speaks to exactly one peer, the orchestrator: inbound for commands, outbound
 // for the bundle. It never touches the Kubernetes API, so a dev pod carries no
@@ -37,12 +29,11 @@ import (
 
 const (
 	defaultPort = "8099"
-	// defaultWorkspaceDir is the directory the runtime container watches. It names
-	// the watched directory directly rather than a root to join onto, so there is one
-	// value and no implicit path arithmetic between the two containers' config.
+	// defaultWorkspaceDir is the watched directory, named directly rather than as a
+	// root to join onto, so there is no implicit path arithmetic between the two
+	// containers' config.
 	defaultWorkspaceDir = "/workspace/integrations"
-	// defaultRuntimeAdmin is the runtime's admin port on the shared loopback
-	// (runtime/services/observability/observability.go:41).
+	// defaultRuntimeAdmin is the runtime's admin port on the shared loopback.
 	defaultRuntimeAdmin = "127.0.0.1:39999"
 	// shutdownTimeout bounds how long in-flight requests have to drain on SIGTERM.
 	shutdownTimeout = 10 * time.Second
@@ -51,16 +42,15 @@ const (
 	readHeaderTimeout = 10 * time.Second
 	// readTimeout bounds reading a whole request (headers plus body), writeTimeout a
 	// whole response, and idleTimeout a kept-alive connection between requests.
-	// readHeaderTimeout alone leaves a slow body, a slow response read, or an idle
-	// keep-alive free to pin a goroutine — and /healthz and /readyz are
-	// unauthenticated (api/handler.go), so any client with network reach could. Of
-	// the three, writeTimeout is the most generous because it also bounds the
-	// /metrics passthrough, which relays up to a few MiB from the runtime.
+	// readHeaderTimeout alone would leave a slow body, a slow response read or an
+	// idle keep-alive free to pin a goroutine, which the unauthenticated probes make
+	// reachable by any client. writeTimeout is the most generous of the three
+	// because it also bounds the /metrics passthrough.
 	readTimeout  = 30 * time.Second
 	writeTimeout = 60 * time.Second
 	idleTimeout  = 60 * time.Second
-	// expireGrace bounds the shutdown that follows the dev run being expired. Short:
-	// the run is gone, so there is nothing left worth draining for.
+	// expireGrace bounds the shutdown that follows the dev run being expired. Short,
+	// since the run is gone and there is nothing left worth draining for.
 	expireGrace = 5 * time.Second
 	// firstPullRetryDelay paces the startup pull's retries.
 	firstPullRetryDelay = 2 * time.Second
@@ -93,12 +83,10 @@ type config struct {
 // loadConfig reads and validates the environment.
 //
 // Every missing required value is a hard startup failure, listed together so one
-// restart reveals all of them. Deliberately unlike the observability service, which
-// degrades to serving /healthz without a database: that service is still useful
-// half-configured, and this one is not. A sidecar that cannot reach the
-// orchestrator, or cannot prove which dev run it is, has no job to do — and
-// CrashLoopBackOff with a named cause is a far better signal than a pod that looks
-// healthy and silently never populates its workspace.
+// restart reveals all of them. There is no degraded mode to fall back to: a sidecar
+// that cannot reach the orchestrator, or cannot prove which dev run it is, has no
+// job to do, and failing loudly beats a pod that looks healthy and never populates
+// its workspace.
 func loadConfig() (config, error) {
 	cfg := config{
 		port:         envOr("PORT", defaultPort),
@@ -140,12 +128,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Before anything else, and before the runtime container is allowed to start.
-	// `octo run --watch` survives a missing config but not a missing DIRECTORY: its
-	// watcher's fsnotify Add fails and the process exits (runtime/octo/watch.go:29).
-	// So an empty workspace is a working starting point and an absent one is a
-	// crash-loop — which is why this is a hard startup failure rather than something
-	// the first pull gets around to.
+	// Before anything else, and before the watching container is allowed to start: a
+	// watcher survives a missing config but not a missing DIRECTORY, whose fsnotify
+	// Add fails. So an absent workspace is a hard startup failure here rather than
+	// something the first pull gets around to.
 	ws := workspace.New(cfg.workspaceDir)
 	if err := ws.Ensure(); err != nil {
 		return err
@@ -182,18 +168,16 @@ func run() error {
 	}()
 
 	// The first pull, in the background so a slow or unreachable orchestrator cannot
-	// stop the sidecar from serving its probes. Readiness reports whether it
-	// succeeded, and readiness is what gates the runtime container starting — so the
-	// ordering guarantee is kept without the startup path being able to hang.
+	// stop the probes from serving. Readiness reports whether it succeeded, which is
+	// what keeps the startup ordering without this path being able to hang.
 	go firstPull(ctx, coordinator)
 
 	select {
 	case err := <-errCh:
 		return err
 	case <-coordinator.Expired():
-		// The dev run is gone and the orchestrator has been told to tear it down. Exit
-		// rather than sit here serving an integration nobody can account for; the
-		// workload is being deleted underneath us either way.
+		// The dev run is gone and the orchestrator has been told to tear it down, so
+		// exit rather than serve an integration nothing can account for.
 		slog.Warn("dev run expired, shutting down", "devRun", cfg.devRunID)
 		return shutdown(httpServer, expireGrace)
 	case <-ctx.Done():
@@ -205,11 +189,10 @@ func run() error {
 // firstPull populates the workspace at startup, retrying with a fixed backoff
 // until it succeeds, the run is expired, or the process is shutting down.
 //
-// Retrying rather than failing is the right shape here: at pod start the
-// orchestrator may still be rolling, and a sidecar that gave up would leave the
-// runtime watching an empty directory with nothing to fix it. The one non-retryable
-// outcome — the dev run being gone — closes Expired() from inside the coordinator,
-// which the loop below observes as its exit condition.
+// Retrying rather than failing: at pod start the orchestrator may still be rolling,
+// and giving up would leave an empty directory with nothing to fix it. The one
+// non-retryable outcome — the dev run being gone — closes Expired() from inside the
+// coordinator, which the loop below observes as its exit condition.
 func firstPull(ctx context.Context, coordinator *reload.Coordinator) {
 	for attempt := 1; ; attempt++ {
 		_, err := coordinator.Reload(ctx)
@@ -218,9 +201,8 @@ func firstPull(ctx context.Context, coordinator *reload.Coordinator) {
 			slog.Info("workspace populated", "attempt", attempt)
 			return
 		case errors.Is(err, bundle.ErrGone):
-			// Terminal. The coordinator has already asked the orchestrator to expire the
-			// run and closed Expired(), which run() is selecting on — so logging
-			// "retrying" here would describe something that is not going to happen.
+			// Terminal: the coordinator has already asked the orchestrator to expire the
+			// run and closed Expired(), which run() is selecting on.
 			slog.Warn("dev run is gone; not retrying", "attempt", attempt, "error", err)
 			return
 		default:
@@ -252,9 +234,7 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// parseLevel maps a LOG_LEVEL name to an slog.Level, defaulting to info. It
-// matches the names the runtime and the other services accept, so an operator
-// configures every octo process alike.
+// parseLevel maps a LOG_LEVEL name to an slog.Level, defaulting to info.
 func parseLevel(name string) (slog.Level, error) {
 	switch name {
 	case "", "info":

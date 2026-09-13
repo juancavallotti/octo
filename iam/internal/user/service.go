@@ -33,26 +33,16 @@ func NewService(repo repository) *Service {
 }
 
 // SignIn refreshes the user identified by subject and returns them with their
-// granted roles. It is what the token exchange calls once it has verified an
-// identity provider's token: subject and email are required (a principal we
-// cannot identify is rejected), name is best-effort.
+// granted roles. subject and email are required; name is best-effort.
 //
-// **Only the first user is provisioned here.** Everybody after them has to
-// already have an account, which an administrator creates — this platform is an
-// allowlist, and being able to authenticate at the identity provider is not by
-// itself permission to be here. That distinction is the point: the provider says
-// who somebody is, and this platform says who may come in, and an installation
-// whose provider admits an entire company should not admit an entire company.
+// **Only the first user is provisioned here.** Everybody after them must already
+// have an account: authenticating at the identity provider is not by itself
+// permission to be here. The first ever sign-in is the exception because there is
+// nobody to have created that account — see Repo.admitNewcomer for why that moment
+// is identifiable and cannot happen twice.
 //
-// The exception is the first ever sign-in, because there is nobody to have
-// created that account. See Repo.admitNewcomer for why that moment is
-// identifiable and why it cannot happen twice.
-//
-// Nothing here reads a claim beyond the three arguments. What an address is worth
-// as an identity is the identity provider's business: this service takes the
-// address it was given, and an installation whose provider hands out addresses
-// that are not their owners' has a provider to fix. See Repo.adopt for the one
-// moment an address decides anything, and for the two rules that bound it.
+// Nothing is read beyond the three arguments; see Repo.adopt for the one moment an
+// address decides anything, and for the two rules that bound it.
 func (s *Service) SignIn(ctx context.Context, subject, email, name string) (User, error) {
 	subject = strings.TrimSpace(subject)
 	email = strings.TrimSpace(email)
@@ -83,9 +73,8 @@ func (s *Service) GetBySubject(ctx context.Context, subject string) (User, error
 	return s.repo.GetBySubject(ctx, subject)
 }
 
-// defaultPageSize and maxPageSize bound a listing. The default is a screenful;
-// the cap is what stops a caller asking for the whole directory in one request
-// and is generous enough that no honest client meets it.
+// defaultPageSize and maxPageSize bound a listing: the cap is what stops a caller
+// asking for the whole directory in one request.
 const (
 	defaultPageSize = 25
 	maxPageSize     = 100
@@ -95,13 +84,10 @@ const (
 // page or "" on the last.
 //
 // A limit of zero or less takes the default, and one above the cap is clamped
-// rather than refused: the caller asked for as many as possible, and answering
-// with the most this service will give is more useful than a 400.
+// rather than refused.
 //
-// A role outside the catalogue is refused rather than silently ignored: a
-// listing filtered by a role that cannot exist would answer "nobody here holds
-// that", which reads as an answer about the directory instead of about the
-// request.
+// A role outside the catalogue is refused rather than ignored, which would answer
+// "nobody holds that" about a role that cannot exist.
 func (s *Service) List(
 	ctx context.Context, query string, role Role, limit int, cursor string,
 ) ([]User, string, error) {
@@ -130,11 +116,7 @@ func (s *Service) Grant(ctx context.Context, userID string, granted Role, grante
 // Revoke removes a role from a user.
 //
 // It refuses to remove the last platform:admin. An install with no admin has
-// nobody who can grant a role to anyone — including the role that would fix it —
-// so this is not a policy but the one state the system cannot recover from. The
-// check races with a concurrent revoke of a different admin in principle; two
-// people removing the last two admins at the same instant is not a scenario worth
-// a lock, and the recovery is a direct row insert either way.
+// nobody who can grant a role to anyone, including the role that would fix it.
 func (s *Service) Revoke(ctx context.Context, userID string, revoked Role) error {
 	if err := validate(userID, revoked); err != nil {
 		return err
@@ -158,12 +140,9 @@ func validate(userID string, r Role) error {
 // Create provisions a user an administrator named, by address, holding roles.
 // See Repo.Create for why the OIDC subject is discovered rather than supplied.
 //
-// The roles come with the person because that is one intent — "let this
-// colleague in as an operator" — and splitting it across two calls would leave
-// the caller to decide what a half-done one means. Every role is validated
-// before the row is written, so the one failure a caller can cause cannot land
-// halfway; what remains is a database fault between two statements, which leaves
-// the person created with fewer roles and is reported as itself.
+// Every role is validated before the row is written, so the one failure a caller
+// can cause cannot land halfway. A database fault between the two statements can
+// still leave the person created with fewer roles, and is reported as itself.
 //
 // `grantedBy` attributes the grants, and is nil when the grantor is not known.
 func (s *Service) Create(
@@ -211,11 +190,9 @@ func (s *Service) Update(ctx context.Context, id, email, name string) (User, err
 
 // Delete removes a user, refusing to remove the last administrator.
 //
-// The same rule Revoke enforces, and it matters more here. Without it an
-// administrator could delete every account including their own, and the next
-// person to sign in would be the first user of what looks like a fresh install
-// and be made an admin by the bootstrap — so "delete everyone" would be a way to
-// hand the platform to whoever knocks next.
+// The same rule Revoke enforces. Without it, deleting every account would leave
+// what looks like a fresh install, and the bootstrap would make an admin of the
+// next person to sign in.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("%w: id is required", ErrInvalid)
@@ -226,12 +203,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 
 // validAddress rejects what cannot be an address at all.
 //
-// One @ with something either side, and no spaces. Deliberately not a grammar
-// from the RFC: the authority on whether an address exists is the identity
-// provider that authenticates it, and a stricter rule here would refuse valid
-// addresses while catching nothing an administrator would actually type. What it
-// does catch is the two mistakes they do make — an empty field, and a name typed
-// into the address box.
+// One @ with something either side, and no spaces — not the RFC grammar, since
+// whether an address exists is the identity provider's answer. It catches an empty
+// field and a name typed into the address box.
 func validAddress(email string) error {
 	if email == "" {
 		return fmt.Errorf("%w: an email address is required", ErrInvalid)

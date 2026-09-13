@@ -9,24 +9,15 @@ import (
 
 // Values is a positional vector of readings that survives JSON.
 //
-// The reason it exists rather than a plain []float64: encoding/json refuses to
-// marshal NaN and the infinities, returning "json: unsupported value: NaN" for
-// the whole document. NaN is this package's own encoding for a gap — a series
-// the dictionary knows but the scrape did not report — so a plain []float64
-// makes the one value the format needs to carry the one value it cannot. The
-// failure is silent in the worst way: store.push logs the encode error and
-// drops the row, nothing in the sampler is fatal, and because indices are
-// append-only a series that stops being reported puts a NaN in every subsequent
-// sample. The tier stops being written for the rest of the pod's life and the
-// only evidence is a log line.
+// It exists rather than a plain []float64 because encoding/json refuses to marshal
+// NaN and the infinities, failing the whole document. NaN is this package's
+// encoding for a gap — a series the dictionary knows but the scrape did not report
+// — and since indices are append-only, one series that stops being reported would
+// otherwise fail every later sample for the life of the pod.
 //
-// So a gap is written as JSON null, which is what a reader would expect anyway,
-// and read back as NaN so the collapse rules in rollup keep seeing the value
-// they are written against.
-//
-// The infinities go the same way. A metric reading of infinity is a broken
-// metric rather than a measurement, and the alternative is the same silent
-// write failure over a number that was never usable.
+// So a gap is written as JSON null and read back as NaN, leaving the collapse rules
+// in rollup seeing the value they are written against. The infinities go the same
+// way: a reading of infinity is a broken metric rather than a measurement.
 type Values []float64
 
 // nullLiteral is what a non-finite reading is written as, and recognised as.

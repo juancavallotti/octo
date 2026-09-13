@@ -3,12 +3,9 @@
 // stays free of feature-specific types so handlers depend on it, not the other
 // way round.
 //
-// The orchestrator's httpx, copied. Sharing it would mean a fourth module for
-// two hundred lines, and would change the build context of two Dockerfiles that
-// each build a service from its own self-contained directory. The error envelope
-// matters most: `{"error": "..."}` is exactly what @octo/http unwraps on the
-// TypeScript side, so the three services answering in one shape is the property
-// worth keeping, and it is the shape that is shared rather than the code.
+// The error envelope is `{"error": "..."}`, the shape every service in this
+// repository answers failures with; it is that shape, and not this code, that is
+// the shared thing.
 package httpx
 
 import (
@@ -41,9 +38,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // ErrorResponse is the envelope WriteError produces, and so the failure body of
-// every route that reports through it. It is a named type rather than an inline
-// map so there is one shape to point at, and it matches the orchestrator's and
-// the observability service's byte for byte.
+// every route that reports through it.
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
