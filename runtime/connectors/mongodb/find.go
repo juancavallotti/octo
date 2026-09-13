@@ -156,9 +156,8 @@ func (p *findProcessor) evalQuery(activation map[string]any) (query, error) {
 	return query{filter: filter, projection: projection, sort: sort}, nil
 }
 
-// one runs the single-document form. A miss is a null body rather than an
-// error, mirroring the sql block's single mode: "no such order" is an ordinary
-// answer a flow branches on, not a failure.
+// one runs the single-document form. A miss is a null body rather than an error:
+// "no such order" is an ordinary answer a flow branches on, not a failure.
 func (p *findProcessor) one(
 	ctx context.Context, collection *mongo.Collection, q query, msg *types.Message,
 ) (*types.Message, error) {

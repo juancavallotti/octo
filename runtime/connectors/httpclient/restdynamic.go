@@ -1,16 +1,13 @@
 // This file provides the "rest-dynamic" block: a request whose method, path,
 // query, headers and body are all decided per message rather than at build time.
 //
-// The rest block freezes method and path, which is right when a flow calls a known
-// endpoint and only the values vary. It is the wrong shape when the endpoint itself
-// is data — a caller relaying a request it was handed, or an agent that decides
-// which route to call from a description of the API. There is no way to express
-// "GET /integrations/{the id I just learned}" with a static path.
+// It is the shape for an endpoint that is itself data — a caller relaying a
+// request it was handed, or an agent deciding which route to call from a
+// description of the API — which a static path cannot express.
 //
-// The other difference is query and headers. rest takes a map of expressions, one
-// per known key. This takes a single expression per map, evaluated to the whole
-// map, because a caller that does not know the path usually does not know the
-// parameter names either.
+// Query and headers each take a single expression evaluated to the whole map,
+// rather than one expression per known key, because a caller that does not know
+// the path usually does not know the parameter names either.
 package httpclient
 
 import (
@@ -277,11 +274,10 @@ func (p *dynamicProcessor) buildTarget(activation map[string]any) (string, error
 // was configured to sit beneath. Nothing legitimate needs it in a path built for an
 // API call, and here the path is data.
 //
-// Every check runs against the parsed path rather than the rendered string, which
-// gets two things right that scanning the raw value does not: url.Parse
-// percent-decodes, so "%2e%2e" is caught alongside the literal "..", and the query
-// is separated out, so a parameter value that happens to contain ".." is not
-// mistaken for traversal it cannot perform.
+// Every check runs against the parsed path rather than the rendered string:
+// url.Parse percent-decodes, so "%2e%2e" is caught alongside the literal "..", and
+// the query is separated out, so a parameter value containing ".." is not mistaken
+// for traversal it cannot perform.
 func (p *dynamicProcessor) checkPath(path string) error {
 	if path == "" {
 		return fmt.Errorf("rest-dynamic path: evaluated to empty")
@@ -332,18 +328,12 @@ func (p *dynamicProcessor) buildQuery(activation map[string]any) (url.Values, er
 
 // applyHeaders evaluates the header expression to a map and sets each entry.
 //
-// Authorization is one of them. A flow acting on behalf of its caller has a
-// credential that is not configuration -- it arrives with the message -- and the
-// connector's auth setting, fixed at startup, cannot express it. The connector
-// already gives way to a request that carries its own Authorization, so the two
-// do not contend: a header set here means the block's credential is used, and a
-// block that sets none gets the connector's.
-//
-// The header names being data is the reason this was once refused. But the
-// expression producing them is written in the flow definition, by the same person
-// who chose the connector and its baseURL, and it is the connector's baseURL --
-// with allowMethods and pathPrefix beside it -- that bounds where a credential
-// can be sent. Refusing the name bought nothing that those bound.
+// Authorization is one of them. A credential that arrives with the message cannot
+// be expressed by the connector's auth setting, which is fixed at startup. The
+// connector gives way to a request carrying its own Authorization, so the two do
+// not contend: a header set here means the block's credential is used, and a block
+// that sets none gets the connector's. Where that credential can be sent is
+// bounded by the connector's baseURL, allowMethods and pathPrefix.
 func (p *dynamicProcessor) applyHeaders(req *http.Request, activation map[string]any) error {
 	entries, err := evalStringMap(p.headers, activation, "headers")
 	if err != nil {

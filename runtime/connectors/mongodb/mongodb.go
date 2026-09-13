@@ -89,14 +89,11 @@ const (
 // concurrency will actually arrive; Octo does have that number, so the default
 // here is stated in terms of it.
 const (
-	// Sized to the worker count a flow gets by default — max(8, GOMAXPROCS*4),
-	// i.e. 32 on an eight-core host (see resolveWorkers in core/runtime) — so
-	// every worker of one flow can hold a checked-out connection instead of
-	// queueing on the pool. Like the database connector, this one cannot see
-	// which flows bind to it, so this is a justified constant rather than a
-	// derivation: a deployment pointing many flows at one connector should raise
-	// it, and one running dozens of replicas against a small server should lower
-	// it.
+	// Sized to the worker count a flow gets by default — 32 on an eight-core host
+	// — so every worker of one flow can hold a checked-out connection instead of
+	// queueing on the pool. A connector cannot see how many flows bind to it, so
+	// this is a constant rather than a derivation: raise it when many flows share
+	// one connector, lower it when many replicas share a small server.
 	defaultMaxPoolSize = 32
 	// A client-level CSOT bounding every operation, server selection included,
 	// so a wedged query cannot pin a worker forever. Matches the http-client
@@ -159,14 +156,11 @@ var _ core.Connector = (*Connector)(nil)
 // credential, or an unreachable server all fail at startup rather than on the
 // first message.
 //
-// The ping is what verifyOnStart turns off, and the driver's own documentation
-// is why that switch exists: pinging at startup "reduces application resilience
-// because applications starting up will error if the server is temporarily
-// unavailable or is failing over". Failing fast is the better default — a typo
-// in a URI should not wait for traffic to surface — but it is a trade, not a
-// law, and a deployment that would rather ride out a failover can say so.
-// Turning it off is also what lets a config with no server behind it be built
-// at all, which is what a flow test needs.
+// The ping is what verifyOnStart turns off. Failing fast is the better default —
+// a typo in a URI should not wait for traffic to surface — but it costs
+// resilience: a server that is temporarily unavailable or failing over takes the
+// startup down with it. Turning it off is also what lets a config with no server
+// behind it be built at all.
 func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) error {
 	var set connectorSettings
 	if err := config.Settings.Decode(&set); err != nil {
@@ -227,13 +221,11 @@ func (c *Connector) Stop(ctx context.Context) error {
 
 // Collection returns a handle on database.collection, falling back to the
 // connector's default database when database is empty. Blocks call it per
-// message so one flow can address a different database or collection per
-// tenant, the way the pinecone connector scopes a connection to a namespace.
+// message so one flow can address a different database or collection per tenant.
 //
-// It errors rather than returning nil when the connector is not started (or is
-// stopping), mirroring the database connector's DB(): a message still in flight
-// during shutdown fails with a sentence that says what happened, instead of
-// panicking on a nil client.
+// It errors rather than returning nil when the connector is not started or is
+// stopping, so a message still in flight during shutdown fails with a sentence
+// that says what happened instead of panicking on a nil client.
 func (c *Connector) Collection(database, collection string) (*mongo.Collection, error) {
 	client := c.client.Load()
 	if client == nil {
@@ -277,9 +269,8 @@ func resolveExtendedJSON(mode string) (bool, error) {
 // from Start so the defaulting is testable without a running deployment.
 //
 // A configured setting wins over the same option spelled in the connection
-// string, matching how the password setting overrides the URI's. A default only
-// fills a gap neither of them filled — so a URI carrying ?maxPoolSize=50 keeps
-// its 50 instead of being quietly overwritten by this package's 32.
+// string, and a default only fills a gap neither of them filled — so a URI
+// carrying ?maxPoolSize=50 keeps its 50.
 func resolveClientOptions(uri string, set connectorSettings) (*options.ClientOptions, error) {
 	maxPool, err := poolSize("maxPoolSize", set.MaxPoolSize)
 	if err != nil {

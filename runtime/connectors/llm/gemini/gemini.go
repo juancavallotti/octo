@@ -181,10 +181,10 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 // Stream runs one GenerateContent turn over the streaming endpoint, reporting
 // content as it arrives and returning the same response Complete would have.
 //
-// Unlike the other two SDKs, genai ships no accumulator and each chunk is a delta
-// rather than a snapshot, so the fold is written here. Folding back into the
-// provider's own response shape rather than straight into the agnostic DTOs is
-// what lets translateResponse stay the single translation both paths go through.
+// genai ships no accumulator and each chunk is a delta rather than a snapshot, so
+// the fold is written here. Folding back into the provider's own response shape
+// rather than straight into the agnostic DTOs is what lets translateResponse stay
+// the single translation both paths go through.
 func (c *Connector) Stream(
 	ctx context.Context, req core.LLMRequest, on func(core.LLMStreamEvent) error,
 ) (*core.LLMResponse, error) {
@@ -302,10 +302,8 @@ func (f *streamFold) response() *genai.GenerateContentResponse {
 // translateResponse will report on the finished response.
 //
 // A function call is reported as a single tool_input carrying its complete
-// arguments. Gemini never fragments them, unlike the other two providers, but a
-// consumer concatenating tool_input text per call still ends up with the same
-// valid JSON — which is the point of a canonical vocabulary, and better than
-// staying silent because the delivery differs.
+// arguments: Gemini never fragments them, and a consumer concatenating tool_input
+// text per call still ends up with the same valid JSON.
 func emitPart(part *genai.Part, index, ordinal int, on func(core.LLMStreamEvent) error) error {
 	switch {
 	case part.Thought && part.Text != "":
@@ -405,15 +403,11 @@ func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.Emb
 	for i, e := range resp.Embeddings {
 		vectors[i] = e.Values
 	}
-	// No usage. EmbedContentResponse carries no token count at all: its two
-	// accounting fields, Metadata.BillableCharacterCount and each embedding's
-	// Statistics.TokenCount, are both Vertex-only, and this connector is pinned to
-	// BackendGeminiAPI — so they are always nil here, and a character count is not a
-	// token total in any case. A nil Usage is the honest answer, and
-	// core.EmbedResponse documents it as an ordinary outcome rather than a fault.
-	//
-	// Should the connector ever grow a Vertex backend, Statistics.TokenCount summed
-	// across the batch is the figure to report.
+	// No usage. EmbedContentResponse's two accounting fields,
+	// Metadata.BillableCharacterCount and each embedding's Statistics.TokenCount,
+	// are both Vertex-only, and this connector is pinned to BackendGeminiAPI, so
+	// they are always nil here. core.EmbedResponse documents a nil Usage as an
+	// ordinary outcome rather than a fault.
 	return &core.EmbedResponse{Vectors: vectors, Model: req.Model}, nil
 }
 
@@ -582,11 +576,10 @@ func translateResponse(resp *genai.GenerateContentResponse, configuredModel stri
 // none. Gemini populates FunctionCall.ID only sometimes, so ordinal is the call's
 // position in the turn and the fallback is built from it.
 //
-// The name alone will not do, which is what this used to be. Gemini calls tools in
-// parallel — two `octo_api` calls in one turn is the ordinary case, not a corner —
-// and identical ids collapse them: the agent reports both under one id, the panel
-// draws one chip for two calls, and the two results become indistinguishable to
-// anything correlating on the id.
+// The name alone will not do. Gemini calls tools in parallel — two calls of the
+// same tool in one turn is the ordinary case, not a corner — and identical ids
+// collapse them, leaving the two results indistinguishable to anything
+// correlating on the id.
 //
 // The ordinal is per turn, which is all the scope an id needs: a result is matched
 // against the calls of the assistant turn it answers, never across turns.
@@ -608,14 +601,12 @@ func servedBy(reported, configured string) string {
 }
 
 // translateUsage converts the SDK's token counts, reporting nil when the response
-// carried none. Gemini counts thoughts *outside* candidatesTokenCount, unlike the
-// other two providers, so they are added in to keep OutputTokens meaning the same
-// thing whichever provider answered.
+// carried none. Gemini counts thoughts *outside* candidatesTokenCount, so they are
+// added in: core.LLMUsage.OutputTokens is inclusive.
 func translateUsage(u *genai.GenerateContentResponseUsageMetadata) *core.LLMUsage {
-	// An all-zero metadata block reports nil, the same as no metadata at all.
-	// Usage != nil means "the provider accounted for this turn" on every connector,
-	// and Gemini attaches the struct more eagerly than the others do, so without
-	// this the same emptiness would read as accounting here and as none elsewhere.
+	// An all-zero metadata block reports nil, the same as no metadata at all: a
+	// non-nil Usage means the provider accounted for this turn, and Gemini attaches
+	// the struct whether or not it did.
 	if u == nil || (u.PromptTokenCount == 0 && u.CandidatesTokenCount == 0 &&
 		u.ThoughtsTokenCount == 0 && u.CachedContentTokenCount == 0) {
 		return nil
@@ -626,7 +617,7 @@ func translateUsage(u *genai.GenerateContentResponseUsageMetadata) *core.LLMUsag
 		ThinkingTokens: int(u.ThoughtsTokenCount),
 		CachedTokens:   int(u.CachedContentTokenCount),
 		// promptTokenCount is the whole prompt, cached content included, so the two
-		// are the same here — unlike the output side, which needed the sum above.
+		// are the same here.
 		PromptTokens: int(u.PromptTokenCount),
 	}
 }
@@ -677,8 +668,6 @@ func responseMap(tr core.LLMToolResult) map[string]any {
 	// JSON Schema or OpenAPI, where every $ref is "#/components/schemas/...",
 	// came back as INVALID_ARGUMENT naming a reference that matched no part.
 	//
-	// One string cannot be mistaken for a reference to anything, and it is what
-	// the other providers send: Anthropic tool results are text, which is why the
-	// same agent worked there and failed here.
+	// One string cannot be mistaken for a reference to anything.
 	return map[string]any{"result": tr.Content}
 }

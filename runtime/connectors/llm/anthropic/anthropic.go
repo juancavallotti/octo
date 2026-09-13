@@ -1,17 +1,14 @@
 // Package anthropic provides the "llm-anthropic" connector: a configured
-// Anthropic Messages client that satisfies core.LLMClient so the AI flow
-// elements (ai-router, ai-agent, ai-mapping, ai-retry) can drive it without
-// knowing which provider is behind the name they reference.
+// Anthropic Messages client that satisfies core.LLMClient, so a caller drives it
+// without knowing which provider is behind the name it references.
 //
 // The connector concentrates provider policy: API key, model, and the default
 // response token cap. It translates the provider-agnostic core.LLM* DTOs to and
 // from the Anthropic SDK types on each Complete call.
 //
-// Extended thinking is off unless the thinking setting asks for it, so a
-// connector that does not mention it behaves exactly as it always has. Whether or
-// not it is on, reasoning blocks a response carries are captured and echoed back
-// on the next turn, which the provider requires of any assistant turn that has
-// them.
+// Extended thinking is off unless the thinking setting asks for it. Either way,
+// reasoning blocks a response carries are captured and echoed back on the next
+// turn, which the provider requires of any assistant turn that has them.
 package anthropic
 
 import (
@@ -384,14 +381,10 @@ func toTools(tools []core.LLMTool) ([]sdk.ToolUnionParam, error) {
 // and in both thinking is the side that yields: it is an optimization, while the
 // thing it conflicts with is what the caller actually asked for.
 //
-// A forced tool choice is the first. That is what lets a single thinking-enabled
-// connector still serve an ai-router, which forces a choice on every call.
-//
-// The second is a max_tokens too small to hold the budget. toThinking checks that
-// at startup, but only against the connector's own default: any AI block may
-// override maxTokens per call, so a budget validated at startup can still exceed
-// what a particular request allows. Startup cannot see that request, which is why
-// the check has to happen again here.
+// A forced tool choice is the first. The second is a max_tokens too small to hold
+// the budget: toThinking checks that at startup, but only against the connector's
+// own default, and a caller may override maxTokens per call — so a budget
+// validated at startup can still exceed what a particular request allows.
 func (c *Connector) applyThinking(params *sdk.MessageNewParams, tc core.LLMToolChoice) {
 	if !c.thinkingEnabled() {
 		return

@@ -64,14 +64,13 @@ func registerConnector() {
 const (
 	defaultPort = 8080
 	// defaultHost binds every interface when neither the settings nor the
-	// HTTP_HOST env var pin an address (matches the orchestrator's bindAllHost).
+	// HTTP_HOST env var pin an address.
 	defaultHost              = "0.0.0.0"
 	defaultRequestTimeout    = 30 * time.Second
 	defaultReadHeaderTimeout = 10 * time.Second
 	// envHTTPHost and envHTTPPort are the unprefixed env vars the runtime binds
 	// to when the connector is used config-less (the implicit/type-resolved path
-	// starts it with empty settings). They mirror the contract the orchestrator
-	// injects into pods (orchestrator/internal/deployment/envports.go).
+	// starts it with empty settings).
 	envHTTPHost = "HTTP_HOST"
 	envHTTPPort = "HTTP_PORT"
 )

@@ -1,13 +1,12 @@
 // This file provides the "slack-verify-request" block: it authenticates an
-// inbound Slack request delivered over the http connector. It verifies the HMAC
-// signature over the exact request bytes using the slack connector's signing
-// secret, and aborts on a bad or stale signature. It sources those bytes from
-// either the http source's rawBodyVar variable or its native raw-content mode
-// (rawBody: true, msg.RawBody()); in raw-content mode it then parses the verified
-// bytes back into Body so downstream body.* access keeps working. When the
-// payload is Slack's URL-verification handshake it sets a marker variable so the
-// flow can branch, echo the challenge back, and skip event handling (see the
-// sample).
+// inbound Slack request. It verifies the HMAC signature over the exact request
+// bytes using the slack connector's signing secret, and aborts on a bad or stale
+// signature. It sources those bytes from either a message variable holding the raw
+// body or the message's own raw-content mode; in raw-content mode it then parses
+// the verified bytes back into Body so downstream body.* access keeps working.
+//
+// When the payload is Slack's URL-verification handshake it sets a marker variable
+// so the flow can branch, echo the challenge back, and skip event handling.
 package slack
 
 import (

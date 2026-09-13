@@ -56,10 +56,9 @@ func registerConnector() {
 	})
 }
 
-// connectorSettings configures the directory the connector owns. There is no
-// default root: where a flow may read and write is the one thing worth stating
-// out loud, and inheriting the process working directory would make it depend on
-// how the runtime happened to be launched.
+// connectorSettings configures the directory the connector owns. Root is
+// required: inheriting the process working directory would make the reachable
+// files depend on how the process was launched.
 type connectorSettings struct {
 	// Directory every path is resolved under. A path that escapes it is refused.
 	Root string `json:"root" octo:"label=Root directory,required"`
@@ -182,24 +181,22 @@ func (c *Connector) openRoot() (*os.Root, error) {
 // escapes it. Containment is decided by filepath.Rel: a relative result starting
 // with ".." left the root, anything else did not.
 //
-// Rel rather than a "root + separator" prefix test, on the joined-but-unclamped
-// path, for two reasons. A root that is itself a filesystem root has no such
-// prefix — "/" plus a separator is "//", which prefixes none of its own children.
-// And pre-cleaning the path as an absolute one ("/" + path) silently rewrites
-// "../secret" to "<root>/secret" instead of refusing it, which is safe but
-// answers a different question than the one asked: the guard could then never
-// fire, and the path would resolve somewhere the caller did not name. A ".." that
-// stays inside the root is still fine — Join folds it away here, so os.Root never
-// has to walk through a directory the path only mentioned on its way back out.
+// Rel rather than a "root + separator" prefix test, because a root that is itself
+// a filesystem root has no such prefix: "/" plus a separator is "//", which
+// prefixes none of its own children. It runs on the joined-but-unclamped path,
+// since pre-cleaning "../secret" as an absolute path would rewrite it to
+// "<root>/secret" and the guard would never fire.
+//
+// A ".." that stays inside the root is fine — Join folds it away here, so os.Root
+// never walks through a directory the path only mentioned on its way back out.
 func (c *Connector) resolve(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("file path is empty")
 	}
-	// An absolute path is refused rather than silently re-rooted. Join would
-	// otherwise treat "/etc/passwd" as relative and hand back "<root>/etc/passwd",
-	// which is contained — so the guard below would never fire — but is not the
-	// file the caller named. Saying so is the honest answer, and it stops a write
-	// with createDirs from mirroring a whole system path inside the root.
+	// An absolute path is refused rather than silently re-rooted: Join would treat
+	// "/etc/passwd" as relative and hand back "<root>/etc/passwd", which is
+	// contained but is not the file the caller named, and a write with createDirs
+	// would mirror a whole system path inside the root.
 	if filepath.IsAbs(path) {
 		return "", fmt.Errorf("file path %q must be relative to the connector root", path)
 	}

@@ -24,8 +24,7 @@ type sourceSettings struct {
 
 // source subscribes to a topic subject and turns each broadcast message into a
 // flow execution. It is fire-and-forget: a topic has no reply, so the handler just
-// forwards the message onto the flow channel and returns, unlike the queue source
-// which parks awaiting its flow's result.
+// forwards the message onto the flow channel and returns.
 type source struct {
 	out       chan<- *types.Message
 	subject   string

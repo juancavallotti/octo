@@ -54,9 +54,8 @@ type frame struct {
 // a route that leaves it alone behaves exactly as it did before.
 //
 // The fields are grouped in an object rather than spread across the source's
-// settings because the editor only evaluates showIf for an object's sub-fields —
-// and only against strings, so a boolean gate would never match. A named group is
-// the honest way to say "these belong to one feature".
+// settings because they belong to one feature, and a showIf gate on a group is
+// the only conditional the settings schema expresses.
 type sseSettings struct {
 	// Serve this route as an event stream: blocks push frames to the caller over
 	// one long-lived connection instead of the flow returning a single response.
@@ -95,8 +94,8 @@ type sseConfig struct {
 	maxStreams      int
 }
 
-// newSSEConfig resolves the settings, applying the defaults the editor only
-// advertises. An unset or zero heartbeat means the default rather than "off":
+// newSSEConfig resolves the settings, applying a default for anything unset. An
+// unset or zero heartbeat means the default rather than "off":
 // a stream nothing ever writes to is exactly the one a proxy culls.
 func newSSEConfig(set sseSettings) sseConfig {
 	cfg := sseConfig{

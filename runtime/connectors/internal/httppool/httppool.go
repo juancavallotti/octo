@@ -1,19 +1,15 @@
 // Package httppool builds the outbound HTTP transports every connector that
 // calls an external API shares.
 //
-// It exists because the obvious way to write an HTTP client in Go is a trap at
-// this runtime's concurrency. &http.Client{Timeout: t} leaves Transport nil,
-// which means http.DefaultTransport, whose MaxIdleConnsPerHost is 2. Past two
-// concurrent requests to the same host every further connection is closed
-// instead of parked, so the next request dials again — one TCP handshake, and
-// against HTTPS one TLS handshake, per request. Reuse gets worse as concurrency
-// rises, which is the opposite of what a pool is for, and a sustained workload
-// walks through the ephemeral port range and then fails as though the upstream
-// were down.
+// It exists because &http.Client{Timeout: t} leaves Transport nil, which means
+// http.DefaultTransport, whose MaxIdleConnsPerHost is 2. Past two concurrent
+// requests to the same host every further connection is closed instead of parked,
+// so the next request dials again — a TCP handshake, and against HTTPS a TLS
+// handshake, per request — and a sustained workload walks through the ephemeral
+// port range and then fails as though the upstream were down.
 //
-// A flow's workers setting is a request for exactly that concurrency: 512
-// workers means up to 512 concurrent outbound requests. The pool has to be sized
-// in the same units.
+// A flow's workers setting is a request for exactly that concurrency, so the pool
+// is sized in the same units.
 package httppool
 
 import (

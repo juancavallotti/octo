@@ -4,23 +4,14 @@
 // provider-agnostic core.LLM* DTOs to and from the OpenAI SDK types on each
 // Complete call.
 //
-// It speaks Responses rather than Chat Completions, and the reason is reasoning.
-// On /v1/chat/completions a non-none reasoning effort could not be combined with
-// function tools on some models — the server answered 400 naming reasoning_effort
-// — so an agent had to ask for no reasoning at all to be able to call its tools.
-// That is not a small loss: a model told not to reason stops following the parts
-// of a prompt that need any, and one told to answer in prose started answering
-// with a copy of the JSON body it was handed. Responses has no such conflict.
-//
-// Chat Completions also returned no reasoning content whatsoever, so
-// core.LLMMessage.Thinking was always empty here and thinking never streamed.
-// Responses returns reasoning summaries, so both now work.
+// It speaks Responses rather than Chat Completions: Responses returns reasoning
+// summaries, and places no restriction on combining a reasoning effort with
+// function tools.
 //
 // Requests are stateless: store is off and the whole conversation is sent every
-// turn, matching how the other two connectors work and keeping nothing on the
-// provider's side. That is why reasoning items are echoed with their encrypted
-// content — with no stored response to refer back to, the encrypted item is what
-// lets the next turn continue the same reasoning.
+// turn. That is why reasoning items are echoed with their encrypted content —
+// with no stored response to refer back to, the encrypted item is what lets the
+// next turn continue the same reasoning.
 package openai
 
 import (
@@ -145,12 +136,6 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 // OpenAI's — so sending the field unasked is how a connector pointed at a model
 // without reasoning fails on every call. Saying nothing works everywhere and lets
 // a reasoning model apply the effort it was trained to.
-//
-// The previous default was an explicit none, which existed only to dodge the
-// Chat Completions conflict between reasoning and function tools. Responses has no
-// such conflict, so the workaround is gone with the API that needed it — and with
-// it the behaviour it caused, of a model with reasoning switched off answering in
-// the shape of its input rather than the shape its prompt asked for.
 func toReasoningEffort(effort string) (shared.ReasoningEffort, error) {
 	switch effort {
 	case "", reasoningDefault:
@@ -193,9 +178,8 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 //
 // The finished response arrives whole on the terminal response.completed event, so
 // there is no accumulator here and no fold: the deltas are reported as they pass
-// and the server's own final object is what gets translated. That is the closest
-// of the three connectors to the equality the interface promises, since the
-// streamed and blocking paths translate literally the same type.
+// and the server's own final object is what gets translated, so the streamed and
+// blocking paths cannot disagree about the answer.
 func (c *Connector) Stream(
 	ctx context.Context, req core.LLMRequest, on func(core.LLMStreamEvent) error,
 ) (*core.LLMResponse, error) {
@@ -242,8 +226,8 @@ func (c *Connector) Stream(
 
 // emitEvent maps one stream event onto the canonical vocabulary.
 //
-// Only the deltas map. The lifecycle events carry nothing a caller cannot read off
-// the returned response, which is the same rule the other two connectors follow.
+// Only the deltas map: the lifecycle events carry nothing a caller cannot read off
+// the returned response.
 func emitEvent(
 	event responses.ResponseStreamEventUnion,
 	opened map[int64]responses.ResponseOutputItemUnion,
@@ -297,7 +281,7 @@ func (c *Connector) params(req core.LLMRequest) (responses.ResponseNewParams, er
 		Model: c.model,
 		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
 		// Nothing is kept on the provider's side: the conversation is sent whole every
-		// turn, exactly as the other two connectors send theirs.
+		// turn.
 		Store: param.NewOpt(false),
 	}
 	if strings.TrimSpace(req.System) != "" {
@@ -405,9 +389,7 @@ func toFloat32(in []float64) []float32 {
 // Responses models a turn as a flat list rather than as one message with parts.
 //
 // The order is load-bearing. A reasoning item has to precede the function call it
-// produced, or the server rejects the turn as a call whose reasoning is missing;
-// it is the same rule Anthropic enforces on echoed thinking blocks, and it is why
-// both connectors put reasoning first.
+// produced, or the server rejects the turn as a call whose reasoning is missing.
 func toInput(msgs []core.LLMMessage) (responses.ResponseInputParam, error) {
 	out := make(responses.ResponseInputParam, 0, len(msgs))
 	for i, m := range msgs {

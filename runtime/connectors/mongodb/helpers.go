@@ -125,15 +125,13 @@ func evalOptionalDocument(label string, program *expr.Program, activation map[st
 // block names one, otherwise as the body.
 //
 // The body is the default on purpose. A find's documents, an insert's ids —
-// these are the payload the next block works on, and an HTTP flow that ends
-// there should answer with them. Naming a variable is how you say "keep the
-// body I came in with", which is the exception, not the rule.
+// these are the payload the next block works on. Naming a variable is how you say
+// "keep the body I came in with", which is the exception, not the rule.
 //
 // Results go out as JSON bytes and come back through SetBodyJSON so the message
-// only ever holds the decoded-JSON kinds its contract promises. That matters
-// more here than in most connectors: a bson.ObjectID left in a body would take
-// the expensive round-trip on every scope copy, and CEL would compare it as
-// whatever it happened to convert to.
+// only ever holds the decoded-JSON kinds its contract promises: a bson.ObjectID
+// left in a body would take the expensive round-trip on every scope copy, and CEL
+// would compare it as whatever it happened to convert to.
 func deliver(msg *types.Message, resultVar string, result any) error {
 	raw, err := json.Marshal(result)
 	if err != nil {

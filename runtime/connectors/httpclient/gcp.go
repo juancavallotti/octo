@@ -7,12 +7,10 @@
 // IAP-protected endpoint. An *access* token is an OAuth token carrying scopes,
 // and it is what a call to a Google API — Storage, Pub/Sub, BigQuery — wants.
 //
-// Unlike oauth2.go this persists nothing. That file caches its token in the
-// runtime secret store so a replica can adopt one another process already paid
-// for; here there is nothing to save. The metadata server is local, free, and
-// always available to a process that is entitled to a token at all, and a token
-// minted for this instance's identity is not something to hand around between
-// replicas through shared storage.
+// Nothing is persisted. The metadata server is local, free, and always available
+// to a process entitled to a token at all, and a token minted for this instance's
+// identity is not something to hand around between replicas through shared
+// storage.
 package httpclient
 
 import (
@@ -101,13 +99,9 @@ func (g *gcpTokenSource) Token(ctx context.Context) (string, error) {
 // for, bounded by the connector's timeout.
 //
 // The bound matters even though the metadata server is link-local: without it a
-// hung metadata call holds a flow worker for as long as the caller's context
-// allows, which is the flow's deadline rather than this connector's. The oauth2
-// source gets the same bound from the http.Client it was built with; this one has
-// no client of its own, since the metadata package brings its own.
-//
-// WithTimeout never extends an existing deadline, so a caller already closer to
-// giving up still wins.
+// hung metadata call holds a worker for as long as the caller's context allows,
+// which is the caller's deadline rather than this connector's. WithTimeout never
+// extends an existing deadline, so a caller already closer to giving up wins.
 func (g *gcpTokenSource) fetch(ctx context.Context) (storedToken, error) {
 	if g.cfg.timeout > 0 {
 		var cancel context.CancelFunc

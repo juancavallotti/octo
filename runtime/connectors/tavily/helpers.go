@@ -77,9 +77,8 @@ func onCallError(msg *types.Message, err error, failOnError bool) (*types.Messag
 // deliver hands a block's result back to the message: into resultVar when the
 // block names one, otherwise as the body.
 //
-// The body is the default on purpose, matching pinecone: a search's results are
-// the payload the next block works on, and an HTTP flow that ends there should
-// answer with them. Naming a variable is how you say "keep the body I came in
+// The body is the default because a search's results are the payload the next
+// block works on. Naming a variable is how you say "keep the body I came in
 // with", which is the exception, not the rule.
 func deliver(msg *types.Message, resultVar string, result any) *types.Message {
 	if resultVar != "" {

@@ -2,18 +2,10 @@
 // mongodb blocks read or write crosses it.
 //
 // BSON has types JSON does not: ObjectId, dates, Decimal128, binary, and true
-// 64-bit integers. A message body, by contract, is decoded JSON — see the
-// commentary on types.copyBody. So something has to give, and the choice made
-// here is MongoDB Extended JSON v2 in both directions rather than a lossy
-// flattening of its own.
-//
-// The reason is symmetry. Under a flattening convention (ObjectId to a hex
-// string, dates to RFC 3339) the document a find returns cannot be handed back
-// to a filter: the string no longer matches the ObjectId it came from, and
-// nothing in the body says so. Under extended JSON it round-trips, because
-// {"$oid": "..."} is the shape both sides agree on. It is also a documented
-// MongoDB format rather than a convention this package invented, so what a flow
-// author already knows about mongosh and Compass output transfers.
+// 64-bit integers, and a message body is decoded JSON by contract. The bridge is
+// MongoDB Extended JSON v2 in both directions, because it round-trips: the
+// document a find returns can be handed straight back to a filter, since
+// {"$oid": "..."} is the shape both sides agree on.
 //
 // Relaxed is the default because canonical turns every number into an object,
 // which is a heavy price for a precision problem most collections do not have.
@@ -88,13 +80,11 @@ const sortStage = "$sort"
 // order they were written in.
 //
 // Every other stage takes an object where order does not matter, so the ordinary
-// decode is right for them. $sort is the exception, and it is the same problem
-// the find block's sort setting has: the keys arrive in a CEL map, which is
-// unordered, and the JSON encoding on the way to BSON sorts them alphabetically.
-// A pipeline that sorts by two keys would silently sort by the alphabetically
-// first one, which is a wrong answer that looks like a right one — so the list
-// form the find block already accepts is accepted here too, and a multi-key
-// object is refused with that form named.
+// decode is right for them. $sort is the exception: its keys arrive in a CEL map,
+// which is unordered, and the JSON encoding on the way to BSON sorts them
+// alphabetically, so a two-key sort would silently sort by the alphabetically
+// first one. The ordered list form is accepted here too, and a multi-key object
+// is refused with that form named.
 func decodeStage(label string, value any) (bson.Raw, error) {
 	stage, ok := value.(map[string]any)
 	if !ok {
@@ -116,14 +106,10 @@ func decodeStage(label string, value any) (bson.Raw, error) {
 	return doc, nil
 }
 
-// decodeSort turns a sort value into a bson.D, which is ordered.
-//
-// Order is the entire point of a multi-key sort, and a CEL object cannot carry
-// it: CEL maps are unordered, and the JSON encoding on the way to BSON sorts
-// keys alphabetically. So a single-key object is taken as written, and a
-// multi-key one is refused in favour of the list form — sorting by the wrong
-// key first is a wrong answer that looks like a right one, and silently
-// producing it is worse than asking for two more characters of YAML.
+// decodeSort turns a sort value into a bson.D, which is ordered. A CEL object
+// cannot carry the order a multi-key sort is entirely about, so a single-key
+// object is taken as written and a multi-key one is refused in favour of the
+// list form.
 func decodeSort(value any) (bson.D, error) {
 	switch typed := value.(type) {
 	case []any:

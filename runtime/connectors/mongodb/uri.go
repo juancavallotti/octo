@@ -12,10 +12,8 @@ import (
 // password leaves the URI untouched, which is the path every
 // URI-with-inline-credentials config already takes.
 //
-// This is the database connector's dsn.go rule applied to MongoDB. There is no
-// keyword-form branch to carry over: both mongodb:// and mongodb+srv:// are
-// URLs, so net/url does the escaping and a password containing "@", "/" or ":"
-// needs no hand-encoding in config.
+// Both mongodb:// and mongodb+srv:// are URLs, so net/url does the escaping and a
+// password containing "@", "/" or ":" needs no hand-encoding in config.
 //
 // The password wins over one already embedded in the URI, with a warning: two
 // sources for one credential is a mistake worth surfacing, but failing to start

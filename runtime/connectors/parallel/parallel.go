@@ -3,10 +3,10 @@
 // a synchronous search, start an asynchronous task run, and authenticate the
 // callback that run delivers.
 //
-// The two halves are deliberately different shapes. Search answers in the same
-// request. A task run does not: it returns a handle, and the answer arrives later
-// as a webhook posted to a route the flow owns, over the http connector — which
-// is why this connector also verifies signatures, the way slack and notion do.
+// The two halves are different shapes. Search answers in the same request. A task
+// run does not: it returns a handle, and the answer arrives later as a webhook
+// posted to a route the flow owns, which is why this connector also verifies
+// signatures.
 package parallel
 
 import (
