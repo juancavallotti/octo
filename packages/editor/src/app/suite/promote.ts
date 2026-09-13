@@ -1,25 +1,16 @@
 /**
  * A run that just happened → a test case.
  *
- * The second bridge. A debugging session already contains everything a case needs — the
- * input, the mocks that stood in for the awkward blocks, and the message that came back —
- * and this turns that into something committed instead of something the user retypes from
- * the console.
+ * A debugging session already contains everything a case needs: the input, the mocks
+ * that stood in for the awkward blocks, and the message that came back. Pure, and knows
+ * nothing about React or the run provider; the caller passes a {@link PromotableRun} and
+ * decides which runs qualify.
  *
- * Pure, and knows nothing about React or the run provider, so the promotion rules are
- * testable on their own and the runtime subpath can carry them. The client passes a
- * {@link PromotableRun}; deciding which runs qualify is the caller's job.
- *
- * Two things it is careful about, both of which make a promoted test fail on its first
- * honest run if got wrong:
- *
- *   **The body is the message's `body`, not the message.** A run's result is the whole
- *   `{event_id, variables, body}` envelope; asserting that as `expect.body` would compare
- *   a body against an envelope, and no flow ever produces one.
- *
- *   **Variables are opt-in.** `expect.vars` is a subset check, so seeding it with every
- *   variable the run happened to build up asserts far more than the user meant — engine
- *   bookkeeping included — and breaks on changes that have nothing to do with the test.
+ * Two rules, either of which makes a promoted test fail on its first honest run if got
+ * wrong. **The body is the message's `body`, not the message** — a run's result is the
+ * whole `{event_id, variables, body}` envelope, and no flow ever produces one of those.
+ * And **variables are opt-in**, because `expect.vars` is a subset check and seeding it
+ * with everything the run built up asserts far more than the user meant.
  */
 
 import type { Expectation, MockSpec, Outcome, SuiteCase, SuiteInput } from "./types";
@@ -27,9 +18,7 @@ import type { Expectation, MockSpec, Outcome, SuiteCase, SuiteInput } from "./ty
 /**
  * What a run was made with, kept on the result so it can be promoted afterwards.
  *
- * Values, not the JSON text the transport moves: this is the run's *meaning*, and it is
- * the shape a suite case holds. Typed here rather than in the run provider because being
- * promotable is the only reason any of it is recorded.
+ * Values, not the JSON text the transport moves: this is the shape a suite case holds.
  */
 export interface RunSetup {
   input?: SuiteInput;
@@ -59,13 +48,11 @@ export interface PromoteOptions {
   /**
    * What the failure message must contain, for a run that failed.
    *
-   * Typed by the user rather than lifted from the run: what the console has for a failed
-   * flow is the runner's stderr — a timestamped log line — and a case seeded with that
-   * could never pass. Only the phrase a human recognises is worth asserting.
+   * Typed by the user rather than lifted from the run: a failed flow's stderr is a
+   * timestamped log line, and a case seeded with that could never pass.
    *
-   * Without one there is nothing to assert: dolphin has no "expect any failure", so the
-   * case comes out asserting that the flow COMPLETED — the opposite of what happened.
-   * That is why the UI requires one before it will save a failed run.
+   * Without one there is nothing to assert — dolphin has no "expect any failure", so the
+   * case comes out asserting that the flow COMPLETED.
    */
   errorContains?: string;
 }

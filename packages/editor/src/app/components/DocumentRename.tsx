@@ -9,18 +9,14 @@ import { BAR_BUTTON } from "./barButton";
 /**
  * The document's name in the bar, and the pencil that renames it.
  *
- * `children` is whatever the host shows when it is not being renamed — the
- * standalone's file switcher, a plain chip in the platform — because the two
- * differ only in what else you can do with the name once it is on screen. The
- * field replaces that rather than sitting beside it: two names at once reads as
- * two different documents.
+ * `children` is whatever the name looks like when it is not being renamed. The field
+ * replaces that rather than sitting beside it: two names at once reads as two different
+ * documents.
  *
- * Renaming is an edit plus a save. Edits go straight into editor state (rather
- * than into local state committed at the end), which is what keeps the save
- * controller from reading a stale name when Enter asks it to write. The save is
- * forced: naming a document that has not been drawn yet is still a request to
- * store it, and the controller's "nothing worth persisting" rule is about the
- * Save button.
+ * Renaming is an edit plus a save. Edits go straight into editor state rather than into
+ * local state committed at the end, so the save controller cannot read a stale name when
+ * Enter asks it to write. The save is forced: naming a document that has not been drawn
+ * yet is still a request to store it.
  */
 export default function DocumentRename({
   children,

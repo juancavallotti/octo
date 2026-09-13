@@ -15,14 +15,10 @@ import { getBlockSpec, getConnectorSpec, getSourceSpec } from "../schema";
 import type { FieldSpec } from "../schema/types";
 
 /**
- * A lightweight pre-flight check used to gate the RUN button: it answers "would
- * the runtime even accept this document?" without trying to be the runtime. It
+ * A lightweight pre-flight check: would the runtime even accept this document? It
  * mirrors the failures the runner reports on load — empty/duplicate names, missing
- * required settings, dangling connector/flow references, empty required branches —
- * so the common breakages surface in the editor before we ever spawn `octo`.
- *
- * It is intentionally not exhaustive (CEL expressions, connector reachability,
- * etc. are left to the runner's own logs streamed into the panel).
+ * required settings, dangling connector/flow references, empty required branches — and
+ * is not exhaustive: CEL expressions and connector reachability are left to the runner.
  */
 
 /**
@@ -129,21 +125,16 @@ function checkSource(
     return;
   }
   checkFields(spec.fields, source.settings, doc, { ...scope, label: `${scope.label} source` }, issues);
-  // The connector binding is optional: a lone connection of the matching type
-  // binds implicitly (serialize resolves it). It only has to be chosen when the
-  // choice is ambiguous — two or more connections of that type. An explicit
-  // binding, however, must still resolve.
+  // The connector binding is optional: a lone connection of the matching type binds
+  // implicitly. It only has to be chosen when two or more connections share that type.
   // Two different questions, so two different sets.
   //
-  // An explicit binding only has to be *plausible*, and a connection whose type is an
-  // environment placeholder is: the editor cannot know what it resolves to, so
-  // refusing it would be a claim it cannot support.
+  // An explicit binding only has to be *plausible*, so a connection whose type is an
+  // environment placeholder counts: nothing here can know what it resolves to.
   //
-  // Ambiguity is the opposite. It asks whether the implicit binding is unclear, and
-  // an implicit binding resolves against connections of the matching type — so a
-  // placeholder that might turn out to be something else entirely must not count.
-  // Otherwise one http connection alongside one unrelated placeholder would demand a
-  // choice between them that the author does not have to make.
+  // Ambiguity is the opposite question — whether the implicit binding is unclear — and an
+  // implicit binding resolves against connections of the matching type, so a placeholder
+  // that might turn out to be something else must not count.
   const declared = doc.connectors.filter((c) => c.type === source.connector);
   if (source.connectorRef) {
     const bindable = doc.connectors.filter(
@@ -250,11 +241,9 @@ export function validateDocument(doc: EditorDocument): ValidationResult {
     // A connection is not a canvas node, so its issues carry no ids — clicking one
     // has nothing to select.
     const scope: Scope = { label: `Connection "${conn.name || conn.type}"` };
-    // A type that is a bare ${NAME} is resolved from the environment at load, so
-    // there is nothing here to look up and nothing meaningful to say about the
-    // settings either — which fields are valid depends on which type it becomes.
-    // Reporting it as unknown would block Run and Deploy on a config the runtime
-    // loads perfectly well.
+    // A type that is a bare ${NAME} is resolved from the environment at load, so there is
+    // nothing here to look up and nothing to say about the settings either — which fields
+    // are valid depends on which type it becomes.
     if (isEnvPlaceholder(conn.type)) {
       continue;
     }

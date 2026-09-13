@@ -5,29 +5,11 @@
  * drives both autocomplete and the IDE-style hover docs in the CEL fields and the
  * CEL tester.
  *
- * SOURCE OF TRUTH — the Octo-specific entries (variables + OCTO_FUNCTIONS) mirror
- * the Go declarations in the runtime's single CEL seam; there is no machine-readable
- * export to transcribe from yet, so they are kept in sync by hand. This table is a
- * near-copy of the MCP catalogue at `packages/mcp/src/cel.ts` — when a
- * `RegisterMessageExtension` is added/changed in Go, update BOTH:
- *   - variables:                 runtime/core/expr/message.go (MessageVars)
- *   - toJson / fromJson:         runtime/core/expr/json.go
- *   - toFormData / fromFormData: runtime/core/expr/formdata.go
- *   - multipart / addPart / fromMultipart / toMultipart:
- *                                runtime/core/expr/multipart.go (addPart is a
- *                                member function, so it lives in EXT_METHODS)
- *   - toYaml / fromYaml:         runtime/core/expr/yaml.go
- *   - toEnv / fromEnv:           runtime/core/expr/env.go
- *   - templateResource:          runtime/core/expr/template.go
- *   - hmacSha256 / hmacSha1 / hexEncode / secureCompare: runtime/core/expr/crypto.go
- *   - EXT_METHODS / EXT_NAMESPACES: runtime/core/expr/stdext.go, which pins the
- *     version of each cel-go library and therefore which functions exist.
- * The CEL_BUILTINS entries are standard CEL and change only with the CEL spec
- * (reference: https://celbyexample.com/).
- *
- * Follow-up (issue #125 → #120): source this catalogue from the runtime and make it
- * context-aware (block-scoped variables, member/type completion) instead of this
- * hand-authored, static table.
+ * HAND-MAINTAINED — the Octo-specific entries (CEL_VARIABLES, OCTO_FUNCTIONS,
+ * EXT_METHODS, EXT_NAMESPACES) mirror what the runtime's CEL seam registers
+ * (`runtime/core/expr`), and there is no machine-readable export to transcribe from,
+ * so a new or changed registration has to be written in here too. The CEL_BUILTINS
+ * entries are standard CEL and change only with the CEL spec.
  */
 
 /**
@@ -238,8 +220,7 @@ export const OCTO_FUNCTIONS: CelEntry[] = [
  * of the same libraries live in {@link EXT_NAMESPACES}.
  *
  * Octo's own `addPart` is here too rather than in {@link OCTO_FUNCTIONS}: what
- * decides the list is call position, not who registered it, and completing
- * `addPart` at statement position would offer a call that cannot compile.
+ * decides the list is call position, not who registered it.
  */
 export const EXT_METHODS: CelEntry[] = [
   // --- octo: multipart (runtime/core/expr/multipart.go) ---
@@ -970,9 +951,8 @@ export const STRING_METHODS: CelEntry[] = pick([
 ]);
 
 /**
- * Receiver-style methods for a map value. The two-variable comprehensions are the
- * reason a map has any at all — standard CEL offers only `has()` and `size()` on
- * one.
+ * Receiver-style methods for a map value: the two-variable comprehensions, plus the
+ * `has()` and `size()` standard CEL offers on one.
  */
 export const MAP_METHODS: CelEntry[] = pick([
   "all",

@@ -3,16 +3,14 @@ import type { EncodedShape, ObservedEntry, ObservedMessage } from "./types";
 /**
  * Combining what one traced run saw with what earlier ones saw.
  *
- * Kept apart from the provider that stores it because it is a lattice, not a piece of
- * React: two beliefs about one value combine into the weaker of the two, and no
- * sequence of merges can make the editor more confident than its least confident
- * evidence. That is what makes accumulating across runs safe — a case that takes a
- * branch today does not erase what a case took yesterday, and a field that was a
- * string once and a number once comes back as neither.
+ * A lattice: two beliefs about one value combine into the weaker of the two, and no
+ * sequence of merges can be more confident than its least confident evidence. That is
+ * what makes accumulating across runs safe — a field that was a string once and a number
+ * once comes back as neither.
  */
 
-/** How many keys an object may carry before it is treated as a map. Matches the
- *  producer's cap in @octo/run-host's exec/shapes.ts. */
+/** How many keys an object may carry before it is treated as a map. Matches the cap the
+ *  shapes are produced under. */
 const MAX_KEYS = 24;
 
 export function mergeShape(a: EncodedShape, b: EncodedShape): EncodedShape {
@@ -28,11 +26,10 @@ export function mergeShape(a: EncodedShape, b: EncodedShape): EncodedShape {
     return { t: "list", of: mergeShape(a.of, b.of) };
   }
   if (a.t === "object") {
-    // An object with no `f` at all is a map whose contents were deliberately not
-    // recorded — keys that looked like data. Merging must not climb back out of that:
-    // "these keys" is narrower than "contents unknown", and the keys in question are
-    // somebody's email addresses. An object that merely had no keys carries `f: {}`,
-    // which is a different thing and unions normally.
+    // An object with no `f` at all is a map whose contents were not recorded — keys that
+    // looked like data. Merging must not climb back out of that: "these keys" is narrower
+    // than "contents unknown". An object that merely had no keys carries `f: {}`, which
+    // is a different thing and unions normally.
     if (!a.f || !b.f) return { t: "object" };
     const f: Record<string, EncodedShape> = {};
     for (const key of new Set([...Object.keys(a.f), ...Object.keys(b.f)])) {
@@ -78,12 +75,9 @@ export function mergeObserved(
 }
 
 /**
- * Drop what is no longer addressable.
- *
- * An entry is keyed by a block's natural address, which a rename of the block changes
- * — meta/rename.ts re-roots a FLOW rename, but nothing follows a block. Without this
- * the file accumulates entries for blocks that no longer exist, for as long as the
- * project does.
+ * Drop what is no longer addressable. An entry is keyed by a block's natural address,
+ * which a rename of the block changes — meta/rename.ts re-roots a FLOW rename, but
+ * nothing follows a block.
  */
 export function pruneObserved(
   observed: Record<string, ObservedEntry> | undefined,

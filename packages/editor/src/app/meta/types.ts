@@ -6,13 +6,11 @@
  * test inputs, mocks and spies you saved — nothing the flows themselves depend on.
  *
  * The shape is keyed twice — by document, then by flow — so one file can describe a
- * whole workspace (the standalone app shares one file across a flows directory) while
- * the platform, whose store is already per-integration, simply has one entry.
+ * whole workspace or a single document.
  *
  * Within a flow, test inputs are addressed by an id of our own minting, while mocks and
- * spies are addressed by the *runtime's* block address. That asymmetry is forced: an
- * input is ours alone, but a mock and a spy have to name a block to the runner, and the
- * only name the runner knows is the address.
+ * spies are addressed by the *runtime's* block address: a mock and a spy have to name a
+ * block to the runner, and the only name the runner knows is the address.
  */
 
 /** A saved input to run a flow with — the body and variables of a test message. */
@@ -35,8 +33,7 @@ export interface TestInput {
  * when it holds. Mirrors the runtime's `core.MockCase` (runtime/core/mock.go).
  *
  * `body` and `vars` are JSON *strings* here, not values, exactly as {@link TestInput}'s
- * are: the form edits text and validates that it parses, and the text is what survives a
- * half-finished edit. They are parsed on the way to the runner.
+ * are, so a half-finished edit survives. They are parsed on the way to the runner.
  *
  * The runtime enforces two rules this type cannot express, and {@link isValidCase} is
  * where the editor holds itself to them: exactly one of `body`/`error`/`drop` is set, and
@@ -60,12 +57,10 @@ export interface MockCase {
  * a flow whose blocks call a payment API or an LLM.
  *
  * Keyed by `address` — the runtime's block path — and NOT by the editor's block id, which
- * is minted fresh on every parse and so cannot survive a reload. See run/address.ts: a
- * block whose address would be ambiguous is given a real name when a mock is placed on it,
- * so that this key means something tomorrow.
+ * is minted fresh on every parse and so cannot survive a reload. See run/address.ts.
  *
- * `enabled` is what the button toggles. A disabled mock is kept rather than deleted, so
- * turning mocking off for one run does not cost the user the spec they wrote.
+ * A disabled mock is kept rather than deleted, so turning mocking off for one run does
+ * not cost the user the spec they wrote.
  */
 export interface BlockMock {
   address: string;
@@ -91,10 +86,7 @@ export function isValidCase(c: MockCase): boolean {
  * A message shape the editor has seen, as it is stored.
  *
  * Keys and type tags only — never a value. This file is committed, and a traced run
- * carries real bodies: bearer tokens, customer emails, card numbers. The rule is
- * enforced where the shapes are produced (`@octo/run-host`'s exec/shapes.ts, which
- * reduces the traces on the server and discards them), so nothing carrying a scalar
- * from a run ever reaches here. This type mirrors that wire format.
+ * carries real bodies: bearer tokens, customer emails, card numbers.
  *
  * Tagged and self-describing so it can grow: an unrecognised `t` degrades to "not
  * known" rather than failing the parse.

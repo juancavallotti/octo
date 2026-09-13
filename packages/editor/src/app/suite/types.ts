@@ -2,16 +2,14 @@
  * The dolphin test-suite model, mirroring `runtime/dolphin/internal/suite/testfile.go`.
  *
  * A suite is a debug config with assertions bolted on: the input, the mocks and the
- * spied addresses are the very sections `octo invoke --run-debug-config` already reads.
- * That is why the mocks here are the editor's existing {@link MockSpec} — the same type
- * the run transport sends — rather than a second copy of the same shape. It is also what
- * makes the two bridges cheap: a suite case can be handed to the canvas ▶ menu, and a run
- * result can be promoted into a case, without translating between two mock models.
+ * spied addresses are the very sections `octo invoke --run-debug-config` already reads,
+ * so the mocks here are the editor's own {@link MockSpec} rather than a second copy of
+ * the same shape.
  *
  * These types are the *shape*, not the rules. dolphin rejects several combinations that
  * typecheck fine here (an expectation that wants both a body and an error, a spy naming
- * more records than its count); validate.ts is where those live, because a form has to be
- * able to hold a half-written file long enough for the user to finish it.
+ * more records than its count); validate.ts holds those, so a form can hold a
+ * half-written file long enough for the user to finish it.
  */
 
 import type { MockSpec, MockCaseSpec } from "../run/transport";
@@ -45,11 +43,8 @@ export function isSharedInput(input: CaseInput | undefined): input is string {
  * What a message should look like: the body exactly, the variables it must at least
  * carry, and any CEL that must hold over it.
  *
- * `body` is an exact deep-equal and `vars` a subset, and the asymmetry is deliberate.
- * The body is the flow's answer, and a test earns its keep by failing when a new field
- * appears in it. Variables are scratch space the engine and the blocks add to, so
- * pinning the whole map would break on every unrelated change. `that: ['vars.size() ==
- * 2']` is there for when you do want it exact.
+ * `body` is an exact deep-equal; `vars` is a subset, because variables are scratch space
+ * the engine and the blocks add to. `that: ['vars.size() == 2']` pins them exactly.
  */
 export interface MessageExpect {
   body?: unknown;
@@ -74,8 +69,7 @@ export type Outcome = "message" | "dropped" | "error";
 
 /**
  * The outcome an expectation states. Three-way, never three independent fields: dolphin
- * rejects the combinations, so a form that offers them as checkboxes is offering the
- * user a file that will not load.
+ * rejects the combinations.
  */
 export function outcomeOf(expect: Expectation | undefined): Outcome {
   if (expect?.error) return "error";
@@ -129,8 +123,7 @@ export interface SuiteCase {
   input?: CaseInput;
   /**
    * Overrides the file's, per address and WHOLE-SPEC — see {@link mocksFor}. Replacing
-   * rather than merging is dolphin's rule, and a bridge that merged instead would give
-   * the canvas a different run than `dolphin test`.
+   * rather than merging is dolphin's rule.
    *
    * `null` is the other direction: it LIFTS the file's mock for that address, so this one
    * case runs the real block. Only a case has it — the file has nothing to un-do — and
@@ -160,17 +153,13 @@ export interface Suite {
    *
    * A null HERE is not an un-mock — the file has no inherited mock to remove, and dolphin
    * refuses it as a spec that does nothing. It is still held in the model rather than
-   * dropped on read, so the Testing tab can say so instead of silently deleting a key the
-   * user typed.
+   * dropped on read, so the invalid key can be reported instead of silently deleted.
    */
   mocks?: Record<string, MockSpec | null>;
   /**
-   * Environment every case runs with.
-   *
-   * Not a nicety. A config's env is resolved when it is LOADED, before any block runs,
-   * so a flow whose connector reads `${ANTHROPIC_API_KEY}` cannot even be built without
-   * one — and mocking the block that uses it does not help. Without this, the suites you
-   * most want are the ones you cannot write.
+   * Environment every case runs with. A config's env is resolved when it is LOADED,
+   * before any block runs, so a flow whose connector reads `${ANTHROPIC_API_KEY}` cannot
+   * be built without one — and mocking the block that uses it does not help.
    */
   env?: Record<string, string>;
   /** A Go duration bounding every case; a case may shorten or lengthen it. */
@@ -184,9 +173,8 @@ export function emptySuite(flow: string): Suite {
 }
 
 /**
- * Whether a string is a Go duration (`30s`, `1m30s`, `500ms`). TypeScript has no parser
- * for these, and the value goes to Go verbatim, so the form checks the spelling here
- * rather than letting dolphin refuse the whole file over one field.
+ * Whether a string is a Go duration (`30s`, `1m30s`, `500ms`). The value goes to Go
+ * verbatim, so the spelling is checked here rather than by refusing the whole file.
  */
 export function isValidDuration(value: string): boolean {
   return /^[-+]?(\d+(\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)((\d+(\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h))*$/.test(

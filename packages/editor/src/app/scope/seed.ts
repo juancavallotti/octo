@@ -117,9 +117,8 @@ export function rootScope(
 /**
  * The scope for a source's payload expression.
  *
- * Deliberately not the message scope: a source has produced no message yet, so
- * `body`, `vars` and the rest are not compiled into it (Go: SourcePayloadVars in
- * runtime/core/expr/source.go). Offering them here is how the editor came to suggest
+ * Not the message scope: a source has produced no message yet, so `body`, `vars` and the
+ * rest are not compiled into it (Go: SourcePayloadVars) and offering them would suggest
  * names that cannot compile.
  */
 export function sourceScope(): Scope {

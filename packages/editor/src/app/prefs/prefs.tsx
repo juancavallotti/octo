@@ -6,23 +6,17 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
  * Editor preferences: choices about how the editor behaves that belong to the person
  * using it, not to the document they have open.
  *
- * The editor reads them and never writes them. Where they are *set* is the host's
- * business and differs by host — Octo Desktop has a Settings window, the platform will
- * read them from the signed-in user's profile — and a preferences UI inside an
- * embeddable editor would be a second place to change something the host already owns.
- * So this is a plain value passed down from the host, with a default for every field.
- *
- * Every default is the conservative answer, because a host that has not been taught
- * about a preference yet passes nothing.
+ * The editor reads them and never writes them: this is a plain value passed in, with a
+ * default for every field. Every default is the conservative answer, because a caller
+ * that has not been taught about a preference yet passes nothing.
  */
 export interface EditorPrefs {
   /**
    * Run flows in the background, by the editor's own decision, to learn what their
    * messages look like — feeding CEL completion without waiting for the user to press ▶.
    *
-   * Off unless a host says otherwise. Only flows that do nothing observable outside the
-   * process are ever eligible (see run/pure.ts), but "the editor runs your flows" is
-   * still a thing to be asked about rather than assumed.
+   * Off unless asked for. Only flows that do nothing observable outside the process are
+   * ever eligible (see run/pure.ts).
    */
   autoLearn: boolean;
 }

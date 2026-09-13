@@ -23,26 +23,22 @@ import { scaffoldSuite } from "./scaffold";
  *   a flow, no suite   the ordinary starting point, and the only one that is an
  *                      invitation
  *
- * What is deliberately NOT a state here is "no dolphin binary". Authoring works
- * regardless and only the Run button is gated, because a user who has written tests must
- * be able to find out why they cannot run them rather than watch the tab disappear.
+ * What is NOT a state here is "no dolphin binary": authoring works regardless and only
+ * the Run button is gated, so a user who has written tests can find out why they cannot
+ * run them rather than watch the tab disappear.
  *
- * Selection lives in useState rather than a reducer, and stayed there once the form
- * arrived: the view mode belongs to the open suite and the selected case belongs to the
- * open suite's form, so both live where they are used and both are correctly forgotten
- * when another flow is opened. A reducer here would have had to remember to do that.
+ * Selection lives in useState rather than a reducer: the view mode and the selected case
+ * both belong to the open suite, so both are correctly forgotten when another flow is
+ * opened.
  */
 export default function TestingView() {
   const { state } = useEditorState();
   const suites = useTestSuites();
   const [selected, setSelected] = useState<string | null>(null);
 
-  // Opening another flow deliberately does NOT drop the last report. It used to, back when
-  // a run was always one suite and the console could only have meant the open one. Now
-  // every result is filed under the suite that produced it — in the console's groups and
-  // in this tab's per-suite tally — so the report is the last RUN's, like the logs and a
-  // flow's output, and navigating is not a reason to destroy it. The console's own clear
-  // button is.
+  // Opening another flow does NOT drop the last report. Every result is filed under the
+  // suite that produced it, so the report is the last RUN's — like the logs and a flow's
+  // output — and navigating is not a reason to destroy it. The clear button is.
   const select = (flow: string) => setSelected(flow);
 
   // Top-level flows only: those are what `octo invoke` — and so a suite — addresses.

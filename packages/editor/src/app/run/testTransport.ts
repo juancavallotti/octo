@@ -2,11 +2,6 @@
  * The Testing tab's half of the RUN transport contract: what it takes to run a flow's
  * dolphin suites, and what comes back.
  *
- * Declared here rather than imported from `@octo/run-host`, for the same reason
- * {@link FlowRunOutcome} is: that package spawns processes and reads the filesystem, and
- * the editor is a browser bundle. The two shapes are kept aligned by the host action in
- * the middle, which maps them field by field.
- *
  * A separate module from transport.ts because these types are as long again as the rest
  * of the contract, and nothing outside the Testing tab reads them.
  */
@@ -96,19 +91,13 @@ export interface TestRunRequest {
   env?: Record<string, string>;
   /**
    * Trace the cases and report the message shapes they saw.
-   *
-   * The editor asks for this on every suite run it makes: the cases already say how to
-   * exercise the flow and their mocks mean nothing real is called, so a run the user
-   * wanted anyway is the cheapest true answer to "what do these messages look like".
    */
   learnShapes?: boolean;
 }
 
 /**
- * A message shape a traced run saw: keys and type tags, never a value.
- *
- * Mirrors the wire format @octo/run-host produces (its exec/shapes.ts), which is where
- * the traces are reduced — on the server, before the run's real bodies are discarded.
+ * A message shape a traced run saw: keys and type tags, never a value. The reduction
+ * happens before the shapes reach the editor, so no scalar from a run arrives here.
  */
 export interface ObservedShape {
   t: "string" | "number" | "bool" | "null" | "list" | "object" | "dyn";
@@ -126,10 +115,7 @@ export interface ObservedAtAddress {
 export interface TestRunOutcome {
   /**
    * Whether a report came back that could be read — **not** whether the tests passed.
-   *
-   * dolphin exits non-zero when a case fails, and a failing case is the normal thing the
-   * user is here to look at. Folding that into `ok` would report "the run failed" and
-   * hide it. The verdict is in {@link totals}.
+   * dolphin exits non-zero when a case fails, and that verdict is in {@link totals}.
    */
   ok: boolean;
   /** True when the wall-clock backstop had to kill the run. */
@@ -167,12 +153,9 @@ const TALLY: Record<TestCaseStatus, keyof TestTotals> = {
 };
 
 /**
- * Tally a subset of a report.
- *
- * A run may carry several suites while the Testing tab's toolbar speaks for exactly one,
- * so the whole-run {@link TestRunOutcome.totals} is the wrong scope there. `elapsedMs`
- * sums the cases rather than measuring wall clock — exact while dolphin runs one case at
- * a time, and the run's own figure stays authoritative in the console.
+ * Tally a subset of a report, for a caller that speaks for one suite rather than the
+ * whole run. `elapsedMs` sums the cases rather than measuring wall clock — exact while
+ * dolphin runs one case at a time.
  */
 export function totalsOf(cases: readonly TestCaseResult[]): TestTotals {
   const totals = emptyTotals();

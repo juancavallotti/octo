@@ -151,10 +151,7 @@ async function openSuite(
   return screen.getByRole("button", { name: /Run tests/ });
 }
 
-/**
- * The open suite's toolbar. A tally is scoped to it because the console reports one per
- * suite too, so "1 passed" on its own no longer says whose.
- */
+/** The open suite's toolbar, whose tally is scoped to that suite. */
 const toolbar = () =>
   screen.getByRole("button", { name: /Run tests/ }).parentElement!;
 
@@ -359,10 +356,9 @@ describe("when running is not possible", () => {
 });
 
 describe("the report and the suite it belongs to", () => {
-  // The report is the last RUN's, not the open suite's — it used to be dropped on
-  // navigation, back when a run was always one suite and the console could only have meant
-  // the open one. Now every result is filed under the suite that produced it, so moving
-  // between two suites to compare them no longer destroys what was just run.
+  // The report is the last RUN's, not the open suite's: every result is filed under the
+  // suite that produced it, so moving between two suites to compare them does not destroy
+  // what was just run.
   it("keeps the report when another flow is opened, filed under the suite that ran", async () => {
     const user = userEvent.setup();
     const { transport } = stubTransport(outcome());

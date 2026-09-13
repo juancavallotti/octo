@@ -25,10 +25,8 @@ function kindOf(input: CaseInput | undefined): Kind {
  * something declared in `inputs:` or an inline `{data, vars}`, never both. A body six
  * cases share wants a name; a body used once does not.
  *
- * `vars` is offered as prominently as `data` on purpose. An invoked flow starts no
- * sources, so nothing populates the message variables — a flow reading a header the HTTP
- * source would normally have copied across sees nothing unless the case supplies it. It
- * is the most common reason a flow behaves differently under test than in production.
+ * `vars` is offered as prominently as `data`: an invoked flow starts no sources, so
+ * nothing populates the message variables unless the case supplies them.
  */
 export default function CaseInputField({
   value,

@@ -1,16 +1,13 @@
 /**
  * The RUN capability's transport contract: the small surface the RunProvider
- * needs to drive a runner, decoupled from how it is reached. The editor's
- * provider holds all the client-side policy (debounced sync, log dedupe,
- * validation gating); a transport only moves bytes — so the same provider works
- * whether the runner is reached through a platform BFF or a standalone app's
- * local process. The concrete transports live in the apps that embed the editor.
+ * needs to drive a runner, decoupled from how it is reached. All client-side
+ * policy (debounced sync, log dedupe, validation gating) lives in the provider;
+ * a transport only moves bytes.
  */
 
 import type { ObservedAtAddress, TestRunOutcome, TestRunRequest } from "./testTransport";
 
-// The Testing tab's types live next door — they are as long again as the rest of this
-// contract — but they are part of it, so they are re-exported from here.
+// The Testing tab's types are part of this contract, so they are re-exported here.
 export * from "./testTransport";
 
 /** A one-shot CEL evaluation request (no flow run) — the CEL tester's input. */
@@ -38,8 +35,7 @@ export interface CelEvalResult {
 /**
  * One canned outcome of a mocked block, as the RUNNER takes it (the runtime's
  * `core.MockCase`). Unlike the editor's own `MockCase` in meta/types.ts, `body` and `vars`
- * are *values* here rather than JSON text — run/debug.ts is where the one becomes the
- * other.
+ * are *values* here rather than JSON text.
  *
  * Exactly one of `body`, `error` and `drop` is set: a block either returns a message,
  * fails, or filters it out. `vars` only goes alongside a `body`.
@@ -107,14 +103,7 @@ export interface FlowRunRequest {
   spies?: string[];
   /** Blocks to stand in for, by address; the real block never runs. */
   mocks?: Record<string, MockSpec>;
-  /**
-   * Trace the run and report the message shapes it saw.
-   *
-   * The editor asks for this on every flow run it makes. A one-shot invoke is one
-   * flow and one message, already mocked however the canvas says — so most of what
-   * the scope model cannot work out by reading the document (what a source
-   * synthesizes, what a call returned) is sitting in a run the user made anyway.
-   */
+  /** Trace the run and report the message shapes it saw. */
   learnShapes?: boolean;
 }
 
@@ -153,9 +142,7 @@ export interface FlowRunOutcome {
   error?: string;
   /**
    * Message shapes the run saw, by block address — only when they were asked for.
-   *
-   * Keys and type tags, never a value; see @octo/run-host's exec/shapes.ts, which
-   * reduces the trace on the server and discards it there.
+   * Keys and type tags, never a value.
    */
   shapes?: Record<string, ObservedAtAddress>;
 }
@@ -168,8 +155,7 @@ export interface RunStatusSnapshot {
   version: string | null;
   /**
    * Whether the host can run test suites — a *second* binary (dolphin), so this is not
-   * implied by `available`. Either can be missing on its own: a host with a runner but
-   * no test runner still runs flows, and only the Testing tab's run controls go dead.
+   * implied by `available`. Either can be missing on its own.
    */
   testAvailable: boolean;
   /** dolphin's `version` line, or null when unknown/unavailable. */
@@ -177,47 +163,32 @@ export interface RunStatusSnapshot {
   /**
    * Whether this run will ever have a {@link testUrl} — i.e. it serves HTTP at the address
    * the backend injects, and so is networked. An HTTP source whose connector pins its own
-   * port or host is not reachable and does not count. Distinct from `testUrl !== null`: a backend can know a run is exposable
-   * before it can hand out the URL, which is exactly what a dev-run pod does — its public
-   * endpoint is withheld until the pod is ready, so a networked run reports `exposable:true`
-   * with `testUrl:null` for the seconds its image is still pulling. The provider reads it to
-   * decide whether a null URL is "coming" (keep polling) or "never" (a run that serves no
-   * HTTP), so it neither leaves the endpoint link blank on a slow start nor spins forever on
-   * a run that will never publish one.
+   * port or host is not reachable and does not count. Distinct from `testUrl !== null`,
+   * which can be null while an exposable run is still coming up: together they say whether
+   * a missing URL is "coming" (keep polling) or "never".
    */
   exposable: boolean;
   /**
    * Where to reach the running networked integration, or null when it serves no HTTP.
    *
-   * App-relative for a host that runs the app itself and proxies to it; absolute for one
-   * that runs it elsewhere and gives it its own hostname. Either is a valid input to
-   * `new URL(value, origin)` — an absolute value ignores the base — so a consumer needs
-   * no branch on which kind it got.
-   *
-   * Null while an {@link exposable} run is still coming up: a dev-run pod's endpoint is held
-   * back until it is ready, so a link offered earlier would answer 502 while the image pulls.
+   * App-relative or absolute; either is a valid input to `new URL(value, origin)` — an
+   * absolute value ignores the base — so a consumer needs no branch on which kind it got.
+   * Null while an {@link exposable} run is still coming up.
    */
   testUrl: string | null;
   /**
    * Whether the host reloads the running app when the integration is SAVED, rather than
-   * from the buffer the editor pushes.
-   *
-   * True where the runner reads the stored definition itself; false where it runs
-   * whatever YAML it was last handed. The provider reads it to decide whether to
-   * debounce-push edits at all: pushing a buffer nothing will read is worse than not
-   * pushing, because the RUN panel would then imply the running app had changed.
+   * from the buffer the editor pushes. True where the runner reads the stored definition
+   * itself; false where it runs whatever YAML it was last handed. A caller with a true
+   * value should not debounce-push edits: nothing will read them.
    */
   reloadsOnSave: boolean;
 }
 
 /**
- * Which run an operation addresses.
- *
- * The open integration, when it is saved. Every method carries it — not only the ones
- * that need its resources — because a host may key the run itself on it: one that runs
- * the app beside the editor keys on the browser instead and ignores this, while one that
- * runs it elsewhere has nothing else to name it by. A draft has no id and so cannot be
- * addressed by the second kind at all.
+ * Which run an operation addresses: the open integration, when it is saved. Every method
+ * carries it, because a transport may key the run itself on it and have nothing else to
+ * name it by. A draft has no id.
  */
 export interface RunTarget {
   integrationId?: string;
@@ -229,23 +200,18 @@ export interface RunTransport {
   status(target: RunTarget): Promise<RunStatusSnapshot>;
   /**
    * Start a runner for the given config; resolves to the new state. The target's
-   * `integrationId` also lets the host resolve the integration's resources (env files,
-   * templates, and the dev-env `.env.dev`) from its backend.
-   *
-   * `yaml` carries the same caveat as {@link sync}'s: a host whose runner pulls the
-   * stored definition runs what was SAVED and ignores it, and refuses a draft outright
-   * — there is nothing stored to run.
+   * `integrationId` also lets resources (env files, templates, the dev-env `.env.dev`)
+   * be resolved. `yaml` carries the same caveat as {@link sync}'s: a transport whose
+   * runner pulls the stored definition runs what was SAVED and ignores it.
    */
   start(args: RunTarget & { yaml: string }): Promise<RunStatusSnapshot>;
   /** Stop the current runner. */
   stop(target: RunTarget): Promise<void>;
   /**
-   * Make the running runner pick up the current definition.
-   *
-   * `yaml` is meaningful only to a host that PUSHES config: it writes what it is handed.
-   * A host whose runner pulls the stored definition ignores it, and there this is an
-   * explicit "reload now" rather than the per-edit trigger — see
-   * {@link RunStatusSnapshot.reloadsOnSave}, which is how a caller knows which it has.
+   * Make the running runner pick up the current definition. `yaml` is meaningful only to
+   * a transport that PUSHES config; one that pulls the stored definition ignores it and
+   * treats this as an explicit "reload now". {@link RunStatusSnapshot.reloadsOnSave} says
+   * which kind a caller has.
    */
   sync(args: RunTarget & { yaml: string }): Promise<void>;
   /**
@@ -274,19 +240,14 @@ export interface RunTransport {
     target: RunTarget,
   ): () => void;
   /**
-   * Run a flow's dolphin suites and return the report — the Testing tab's Run.
+   * Run a flow's dolphin suites and return the report. Distinct from {@link invoke} in
+   * what it asserts, not in what it runs: dolphin drives `octo invoke` once per case.
+   * Availability is its own flag ({@link RunStatusSnapshot.testAvailable}).
    *
-   * Distinct from {@link invoke} in what it asserts, not in what it runs: dolphin drives
-   * `octo invoke` once per case, so this is the same debug path with the suite's
-   * expectations checked against the result. Availability is its own flag
-   * ({@link RunStatusSnapshot.testAvailable}) because dolphin can be absent while octo
-   * is present.
-   *
-   * Two different failures, told apart the same way {@link invoke} tells them apart: it
    * REJECTS when the call could not be made (no runner, no session, a transport error),
    * and resolves with `ok: false` when dolphin ran but produced no report worth reading.
-   * A run whose tests merely failed resolves with `ok: true` — that is the report the
-   * user came for, and {@link TestTotals} holds the verdict.
+   * A run whose tests merely failed resolves with `ok: true`; {@link TestTotals} holds
+   * the verdict.
    */
   test(req: TestRunRequest): Promise<TestRunOutcome>;
 }

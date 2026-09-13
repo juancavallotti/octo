@@ -26,11 +26,9 @@ function wayOf(r: RecordExpect | undefined): Way {
 /**
  * One crossing of a watched block: what went in, and what came out.
  *
- * `input` sits outside the three-way switch on purpose, and that is the format being
- * precise rather than sloppy. The spy clones the message BEFORE the block runs, so even a
- * block that failed shows what it was carrying when it did — which is the whole reason to
- * spy on a block you have mocked into failing. What came out is the exclusive part: a
- * block either returned a message, dropped it, or failed.
+ * `input` sits outside the three-way switch: the spy clones the message BEFORE the block
+ * runs, so even a block that failed shows what it was carrying. What came out is the
+ * exclusive part — a block either returned a message, dropped it, or failed.
  */
 export default function RecordField({
   value,

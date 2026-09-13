@@ -38,18 +38,14 @@ import EditorBody from "./EditorBody";
 /**
  * EditorRoot is the embeddable Octo visual editor: a top bar, a left component
  * sidebar, the main flow canvas, and a bottom runner-log panel. It always owns
- * editor-wide state (EditorStateProvider) and the drag-and-drop session; the
- * load/save (`fs`) and run (`run`) capabilities are optional — when one is
- * supplied the editor wraps the tree in its provider and the matching controls
- * appear, and when it is omitted those controls render nothing. This is what lets
- * the same editor embed in the orchestrator-backed platform, a local standalone
- * app, or a read-only preview.
+ * editor-wide state (EditorStateProvider) and the drag-and-drop session; every
+ * capability (`fs`, `run`, …) is optional — supply one and the editor wraps the tree in
+ * its provider and the matching controls appear, omit it and those controls render
+ * nothing.
  *
- * The top bar is the app-owned `header` slot (it composes the controls — Save,
- * folders, RUN, account menu — that make sense for that host), and under it the
- * document bar (inside the body, between the drawers) carries the open file's own
- * controls plus the app-owned `files` switcher. `loader` is an extra in-provider slot used by a preview route to
- * inject its own sample loader.
+ * `header`, `files`, `consoleActions` and `loader` are slots the embedder fills: the top
+ * bar, the right of the document bar, the console header, and an extra node inside the
+ * providers.
  */
 export default function EditorRoot({
   integrationId,
@@ -71,24 +67,22 @@ export default function EditorRoot({
 }: {
   integrationId?: string;
   /**
-   * Bumped by the host to request a live reload of the open file after an
-   * external write (see @octo/events); a clean editor reloads silently, a dirty
-   * one shows a reload banner. Omit when the host has no event stream.
+   * Bumped to request a live reload of the open file after an external write: a clean
+   * editor reloads silently, a dirty one shows a reload banner. Omit when there is no
+   * event stream to bump it from.
    */
   reloadToken?: string | number;
   loader?: React.ReactNode;
   /** App-owned top bar; composes editor controls (e.g. via PlatformEditor). */
   header?: React.ReactNode;
   /**
-   * App-owned file switcher, shown at the right of the document bar. Hosts that
-   * browse their files elsewhere (the platform's integration list) pass nothing
-   * and that side of the bar stays empty.
+   * File switcher, shown at the right of the document bar. Pass nothing and that side
+   * of the bar stays empty.
    */
   files?: React.ReactNode;
   /**
-   * App-owned controls for the console header (e.g. the MCP endpoint copy button).
-   * The editor cannot know a host's MCP URL — it is configured, proxied, or the
-   * shell's — so the host hands over the control, not the value.
+   * Controls for the console header (e.g. the MCP endpoint copy button). The editor
+   * cannot know the MCP URL, so it takes the control rather than the value.
    */
   consoleActions?: React.ReactNode;
   /** Load/save capability; omit for a read-only editor (no Save / loader). */
@@ -106,8 +100,8 @@ export default function EditorRoot({
   meta?: EditorMetaStore | null;
   /**
    * Bumped when something else wrote the meta file — its own token rather than
-   * `reloadToken`, because a mock an agent placed should appear without asking, while
-   * the document behind it has unsaved edits to protect.
+   * `reloadToken`, because meta can be adopted silently while the document behind it
+   * has unsaved edits to protect.
    */
   metaToken?: string | number;
   /**
@@ -118,9 +112,8 @@ export default function EditorRoot({
   /** Bumped when something else wrote a suite for this document. */
   testsToken?: string | number;
   /**
-   * How the person using the editor has said it should behave — set by the host, which
-   * is where a preferences UI belongs (Octo Desktop's Settings window, a platform user
-   * profile). Every field defaults conservatively, so omitting this is always safe.
+   * How the person using the editor has said it should behave. Every field defaults
+   * conservatively, so omitting this is always safe.
    */
   prefs?: Partial<EditorPrefs> | null;
   /** Called after a save with the stored record (e.g. to update the URL). */

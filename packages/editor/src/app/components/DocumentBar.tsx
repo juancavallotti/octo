@@ -10,15 +10,8 @@ import ResourcesLauncher from "./ResourcesLauncher";
  * flow you happen to be looking at — undo/redo and its connections, environment and
  * resources on the left, and the host's file switcher on the right.
  *
- * These three used to float over the top-left of the canvas as separate pills,
- * which read as three unrelated controls dropped on the drawing and only existed
- * in the canvas view. As a bar they are one group, they cost a strip of chrome
- * instead of a corner of the canvas, and they stay put when you switch to YAML or
- * Testing — where the file's connections are just as much the subject.
- *
- * `files` is a host slot, and its absence is the feature: the platform has its own
- * integration browser and passes nothing, so the right of the bar is simply empty
- * there.
+ * `files` is a slot, and its absence is the feature: a caller with its own file browser
+ * passes nothing and the right of the bar is empty.
  */
 export default function DocumentBar({ files }: { files?: React.ReactNode }) {
   return (

@@ -82,9 +82,9 @@ export function CelScopeProvider({ site, children }: { site: CelSite; children: 
 /**
  * The scope here, or null when no index is mounted.
  *
- * Deliberately reads nothing but the two contexts. A CEL field is rendered in places
- * that have no editor state at all — the standalone tester, a unit test — and a hook
- * that reached for the reducer would make the field throw in every one of them.
+ * Reads nothing but the two contexts: a CEL field is rendered in places that have no
+ * editor state at all, and a hook that reached for the reducer would throw in each of
+ * them.
  */
 function useScope() {
   const index = useContext(IndexContext);

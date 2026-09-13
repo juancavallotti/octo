@@ -4,10 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 /**
- * A self-contained confirmation dialog for the Resources tab. The platform's
- * useConfirm lives in the app (not this package), so this is a local, provider-
- * free version: a component calls `confirm({...})` and awaits the boolean, and
- * renders the returned `dialog` element. Styling mirrors the app's ConfirmDialog.
+ * A self-contained, provider-free confirmation dialog for the Resources tab: a component
+ * calls `confirm({...})`, awaits the boolean, and renders the returned `dialog` element.
  */
 
 export interface ConfirmOptions {

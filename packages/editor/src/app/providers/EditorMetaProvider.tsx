@@ -29,11 +29,9 @@ import {
 /**
  * The editor-meta capability: what a flow can be run with and run under — its saved test
  * inputs, the blocks mocked out, the blocks spied on — kept in `.octo/editor-meta.json`
- * beside the flows. Like the dev-env store, the capability only moves a raw string: the
- * host decides where that string lives (the standalone app's flows directory, the
- * platform's orchestrator) and all the parsing is pure code here. When no store is
- * provided, or the document has never been saved, all of it still works; it just lives
- * for the session rather than being written down.
+ * beside the flows. The store only moves a raw string; all the parsing is pure code here.
+ * Without a store, or for a document that has never been saved, everything still works
+ * and simply lives for the session.
  */
 
 /** The resource this is stored as. Path-like, and hidden from the Resources view. */
@@ -49,9 +47,8 @@ export interface EditorMetaStore {
   /** Persist the raw file content. */
   save(integrationId: string | null, content: string): Promise<void>;
   /**
-   * Whether meta can be persisted for this document. The platform cannot store a
-   * resource for an unsaved draft (it has no id yet); standalone shares one file for
-   * the whole flows directory, but still needs the document to have a name to key by.
+   * Whether meta can be persisted for this document. False where there is nothing to
+   * key the entry by — an unsaved draft has no id and no name.
    */
   canEdit(integrationId: string | null): boolean;
 }
@@ -83,9 +80,8 @@ interface EditorMetaValue {
 
   /**
    * Message shapes a traced run saw, for every flow in the document, by block address.
-   *
    * Document-wide rather than per flow because an address is rooted at a flow name and
-   * the scope model looks one up by address alone — the same reason enabledMocks() is.
+   * is looked up by address alone.
    */
   observed(): Record<string, ObservedEntry>;
   /**
@@ -115,9 +111,8 @@ export function EditorMetaProvider({
 }: {
   store: EditorMetaStore | null;
   /**
-   * Bumped by the host when something else wrote this file — an MCP agent placing a
-   * mock or saving a test input. Without it the canvas shows what it read on mount,
-   * and an agent that mocked a block looks to the user like it did nothing.
+   * Bumped when something else wrote this file. Without it the canvas goes on showing
+   * what it read on mount.
    */
   reloadToken?: string | number;
   children: ReactNode;
@@ -162,12 +157,9 @@ export function EditorMetaProvider({
   }, [refresh]);
 
   /**
-   * Re-read when the host says something else wrote the file.
-   *
-   * Skipped while an edit of ours is still pending its debounced write: the file on
-   * disk is a version behind by construction, and adopting it would undo the mock the
-   * user just placed and then save the undo. The pending write lands within the
-   * debounce and is itself announced, so nothing is lost by waiting.
+   * Re-read when {@link reloadToken} says something else wrote the file. Skipped while
+   * an edit of ours is still pending its debounced write: the stored file is a version
+   * behind by construction, and adopting it would undo the edit and then save the undo.
    */
   const seenToken = useRef(reloadToken);
   useEffect(() => {
@@ -287,9 +279,8 @@ export function EditorMetaProvider({
       },
 
       // The whole document's worth, for the run request. An address is rooted at a flow
-      // name, so a mock or spy on another flow's block is not noise: the flow being
-      // invoked may reach it through a flow-ref, and if it doesn't, the address simply
-      // never fires. Sending everything means what the canvas shows is what the run does.
+      // name, so a mock on another flow's block is not noise: the invoked flow may reach
+      // it through a flow-ref, and if it doesn't, the address simply never fires.
       observed() {
         const file = fileMetaFor(meta, documentKey ?? "");
         return Object.values(file.flows).reduce<Record<string, ObservedEntry>>(
@@ -308,13 +299,11 @@ export function EditorMetaProvider({
           edit(flow.id, (entry) => ({
             ...entry,
             // Merged rather than replaced: a run exercises the cases it was given, and
-            // the next one may take a branch this one did not. Forgetting what the last
-            // run saw would make the menu depend on which case ran most recently.
+            // the next one may take a branch this one did not.
             //
-            // Pruned on the way in, which is the only moment this is written and so
-            // the only moment it can shrink: a renamed block changes its address and
-            // nothing re-roots it, so the entry it left behind would otherwise stay
-            // for the life of the project.
+            // Pruned on the way in, the only moment this is written and so the only
+            // moment it can shrink: a renamed block changes its address, and the entry
+            // it left behind would otherwise stay for the life of the project.
             observed: pruneObserved(mergeObserved(entry.observed, forFlow), live),
           }));
         }

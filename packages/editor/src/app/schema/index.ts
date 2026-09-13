@@ -48,14 +48,12 @@ import type {
 } from "./types";
 
 /**
- * Loader for the runtime capability schema. The runtime is the source of truth:
- * it generates the full catalogue from its Go block/connector metadata
- * (`octo schema`), and a host that can reach the runner injects it at boot via
- * {@link setCapabilities}. The bundled JSON is only an *empty* barebones fallback
- * (`{blocks:[],connectors:[]}`) so the editor renders without crashing when no
- * runner is available — it no longer mirrors the runtime's catalogue. This module
- * also resolves the icon names blocks reference to actual lucide components (icons
- * can't live in JSON).
+ * Loader for the runtime capability schema. The runtime is the source of truth: it
+ * generates the full catalogue from its Go block/connector metadata (`octo schema`),
+ * which must be injected at boot via {@link setCapabilities}. The bundled JSON is an
+ * *empty* fallback (`{blocks:[],connectors:[]}`) so the editor renders without crashing
+ * when none was injected. This module also resolves the icon names blocks reference to
+ * actual lucide components (icons can't live in JSON).
  */
 const FALLBACK = capsJson as Capabilities;
 

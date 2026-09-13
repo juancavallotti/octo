@@ -5,21 +5,12 @@ import { Check, TriangleAlert } from "lucide-react";
 import { McpIcon } from "../schema/mcp-icon";
 
 /**
- * Copies the MCP endpoint this editor is served next to.
+ * Copies the MCP endpoint this editor is served next to — the reason an agent can drive
+ * the editor, and otherwise invisible from inside it.
  *
- * The endpoint is the whole reason an agent can drive the editor, and it is
- * otherwise invisible from inside it. It used to hide at the bottom of the desktop
- * shell's folder menu, where only one of the three deployments could reach it —
- * every deployment serves one.
- *
- * It wears the MCP mark rather than a copy glyph: a bare pair of pages next to the
- * trash bin says "copy" without ever saying copy *what*. Hovering shows the URL,
- * which is the other half of the answer — you usually want to know where the thing
- * is pointing before you paste it into an agent's config.
- *
- * The URL comes from the host (`consoleActions`), because only the host knows it:
- * the platform's is configured (it may sit behind a proxy), the desktop shell's
- * comes from the shell, and a browser's is simply its own origin.
+ * It wears the MCP mark rather than a copy glyph, which would say "copy" without ever
+ * saying copy *what*; hovering shows the URL. The URL is passed in, because it is not
+ * derivable from here: it may sit behind a proxy rather than on this origin.
  */
 export default function CopyMcpUrlButton({ url }: { url: string }) {
   // null while idle; true after a copy, false when the clipboard refused — which it

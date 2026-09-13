@@ -15,9 +15,9 @@ function nameOf(value: unknown): string {
 }
 
 /**
- * True when a value is a *whole-value* `${NAME}` env reference — used to seed env
- * mode. Embedded interpolation (e.g. `https://${HOST}/x`) is intentionally not a
- * match: that's ordinary text the picker can't represent, so it stays literal.
+ * True when a value is a *whole-value* `${NAME}` env reference. Embedded interpolation
+ * (e.g. `https://${HOST}/x`) is not a match: that is ordinary text the picker cannot
+ * represent, so it stays literal.
  */
 export function isEnvRef(value: unknown): boolean {
   return nameOf(value) !== "";

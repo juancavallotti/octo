@@ -14,19 +14,15 @@ import {
 /**
  * Reading and writing `.octo/editor-meta.json`.
  *
- * Parsing is deliberately lenient: this file is a convenience, not a source of truth,
- * and it sits in a directory users can hand-edit and commit. Anything unreadable —
- * absent, malformed JSON, the wrong shape, a hand-mangled entry — degrades to "no
- * saved inputs" for the part that is broken, rather than throwing and taking the
- * editor down with it. The cost of being wrong here is a lost test input; the cost of
- * throwing is a blank screen.
+ * Parsing is lenient: this file is a convenience, not a source of truth, and it sits in
+ * a directory users can hand-edit and commit. Anything unreadable — absent, malformed
+ * JSON, the wrong shape, a hand-mangled entry — degrades to "no saved inputs" for the
+ * part that is broken rather than throwing.
  *
  * Unknown keys are NOT preserved through a round-trip: parseFlowMeta returns only the
- * fields it knows, and serialize re-emits what it parsed. An older editor opening a
- * project therefore drops a newer one's additions. That is tolerable for what this
- * file holds — `observed` is a cache that regenerates, and the rest is scratch — but
- * it is the constraint to check against before putting anything here that a user
- * could not reproduce.
+ * fields it knows, and serialize re-emits what it parsed. Tolerable for what this file
+ * holds — `observed` is a cache that regenerates, and the rest is scratch — but it is
+ * the constraint to check before putting anything here a user could not reproduce.
  */
 
 function isRecord(value: unknown): value is Record<string, unknown> {

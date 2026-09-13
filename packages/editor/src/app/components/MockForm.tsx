@@ -47,13 +47,12 @@ function badJson(text: string | undefined): boolean {
 /**
  * The form behind "Mock this block": the cases the block answers with instead of running.
  *
- * It mirrors TestInputForm — an inline panel, not a modal — because it is reached the same
- * way, from a button on the thing it configures.
+ * An inline panel rather than a modal, because it is reached from a button on the thing
+ * it configures.
  *
- * The form holds the user to the runtime's one rule that the type cannot: a case does
+ * The form holds the user to the runtime's one rule the type cannot express: a case does
  * exactly ONE thing. A block either returns a message, fails, or drops it, so the outcome
- * is a three-way choice rather than three fields you could fill in at once. Letting them
- * be filled in at once and rejecting it later would be a worse way to teach the same rule.
+ * is a three-way choice rather than three fields that could be filled in at once.
  */
 export default function MockForm({
   initial,

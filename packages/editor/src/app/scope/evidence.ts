@@ -10,13 +10,8 @@ import type { Field, Origin, ValueShape } from "./types";
  * Nothing here runs anything or watches anything. It reads what the user has already
  * written down — saved test inputs, the bodies their mocks return, the cases and
  * expectations in their `_test.yaml` suites — and turns it into the shapes the scope
- * model wants. That material is the best evidence available *and* the cheapest: it is
- * authored rather than captured, already committed, and carries no question about
- * whose data it is.
- *
- * A mock is the clearest case. Somebody writing `{"chargeId": "ch_1", "status":
- * "ok"}` as what a payment block returns has described that block's output exactly,
- * for the editor's purposes, without being asked to.
+ * model wants. A mock is the clearest case: `{"chargeId": "ch_1", "status": "ok"}` as
+ * what a payment block returns describes that block's output exactly.
  */
 
 /** The body and variables of one message, as far as they are known. */

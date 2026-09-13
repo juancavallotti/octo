@@ -11,9 +11,8 @@ import type { TestCaseResult, TestCaseStatus } from "../../run/testTransport";
  * most of what makes one legible — and dolphin's failure detail is already a multi-line
  * diff, so it is rendered preformatted rather than reflowed into prose.
  *
- * Deliberately absent: dolphin's `reproduce` command. run-host strips it before this
- * ever reaches the browser — it names a staged config that was deleted on the way out,
- * so it is a command that cannot be run offered to someone who would reasonably try.
+ * Absent: dolphin's `reproduce` command, which is stripped before the report reaches the
+ * browser — it names a staged config that no longer exists by then.
  */
 
 const STATUS: Record<TestCaseStatus, { label: string; className: string }> = {

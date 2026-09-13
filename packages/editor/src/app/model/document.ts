@@ -71,12 +71,10 @@ export interface FlowDoc {
   annotations?: Record<string, boolean>;
   outputSchema?: string;
   /**
-   * Root-flow-only concurrency tuning (the runtime's FlowConfig — see
-   * runtime/types/flow.go). Sub-flows must not set them, so they are only edited
-   * from the Flow settings panel for top-level flows and only serialize when set:
-   * `workers` sizes the message worker pool (default 8), `buffer` the inbound
-   * channel depth (default 64), `pool` the shared pool composites like fork draw
-   * from (default 8).
+   * Root-flow-only concurrency tuning (the runtime's FlowConfig). Sub-flows must not
+   * set them, and they serialize only when set: `workers` sizes the message worker pool
+   * (default 8), `buffer` the inbound channel depth (default 64), `pool` the shared pool
+   * composites like fork draw from (default 8).
    */
   workers?: number;
   buffer?: number;
@@ -147,8 +145,7 @@ export interface EditorDocument {
   /**
    * Declared resources (the runtime's top-level `resources:`): env-file resources
    * combined into the environment and template resources rendered by the
-   * `template-resource` block. Optional so older document literals stay valid; a
-   * fresh document seeds an empty one (see blankDocument).
+   * `template-resource` block. Optional; {@link blankDocument} seeds an empty one.
    */
   resources?: Resources;
 }
@@ -329,10 +326,6 @@ export function findBlock(
 /**
  * The flow whose own chain holds `blockId` — the sub-flow when the block sits inside a
  * composite, not the top-level flow that composite belongs to.
- *
- * REMOVE_BLOCK and ADD_BLOCK both address a flow, and every existing caller had one to
- * hand from the props it was rendered with. A keyboard command has only the selection,
- * so it has to ask.
  */
 export function owningFlowId(
   doc: EditorDocument,
@@ -359,10 +352,7 @@ export function owningFlowId(
 
 /**
  * The TOP-LEVEL flow a block belongs to, however deep inside composites it sits.
- *
- * Distinct from {@link owningFlowId}, which answers "which chain holds it" — the
- * sub-flow of a switch case, say. Running is a top-level idea: you invoke a flow by
- * name, and a branch inside one is not something the runner can be pointed at.
+ * Distinct from {@link owningFlowId}, which answers "which chain holds it".
  */
 export function rootFlowIdOf(doc: EditorDocument, blockId: string): string | null {
   const holds = (flow: FlowDoc): boolean => {

@@ -33,11 +33,10 @@ import type { TestRunOutcome, TestSuiteInput } from "./testTransport";
  * tab exists to tell you whether the flow in front of you does what you said, and
  * testing yesterday's copy of it would be worse than useless.
  *
- * The suites come from the CALLER rather than from the store, deliberately — the open
- * suite's Run button sends the string being edited, and the header's sends every suite
- * that can run (see suite/runAll.ts). Reading them here would tie this provider to
- * TestSuiteProvider for no gain, and would run what was last saved rather than what is on
- * screen.
+ * The suites come from the CALLER rather than from the store: the open suite's Run button
+ * sends the string being edited, and the header's sends every suite that can run (see
+ * suite/runAll.ts). Reading them here would run what was last saved rather than what is
+ * on screen.
  */
 export interface SuiteRunValue {
   running: boolean;

@@ -1,21 +1,15 @@
 /**
- * The browser half of a run namespace. The runner a tab drives is keyed by the
- * cookie the host sets *plus* this id, so two tabs of one browser get two runners
- * instead of fighting over one — see @octo/run-host's `deriveNamespace`.
+ * The browser half of a run namespace: the runner a tab drives is keyed by the host's
+ * cookie *plus* this id, so two tabs of one browser get two runners rather than fighting
+ * over one. It is opaque and carries no authority on its own — the server mixes it with a
+ * secret the browser cannot read.
  *
- * sessionStorage is the right home for it: scoped to one tab by definition, and
- * stable across reloads, which is exactly the lifetime a runner should have.
- *
- * A host's RunTransport calls this and passes the result up with each request. The
- * id is opaque and carries no authority on its own — the server mixes it with a
- * secret the browser can't read, so a forged one only ever reaches another
- * namespace of the same browser's.
- *
- * The one thing sessionStorage does not give us for free: a tab created *from*
- * another one — "Duplicate tab", window.open, ctrl-clicking a target=_blank link —
- * inherits a copy of its opener's storage, and so its id. That is a likely way to
- * reach for a second integration, and it would land both tabs back on one runner,
- * so an inherited id is checked against the tabs already holding it.
+ * It lives in sessionStorage, which is scoped to one tab and stable across reloads —
+ * exactly the lifetime a runner should have. The one thing that does not give us for
+ * free: a tab created *from* another one ("Duplicate tab", window.open, ctrl-clicking a
+ * target=_blank link) inherits a copy of its opener's storage, and so its id, which would
+ * land both tabs back on one runner. An inherited id is therefore checked against the
+ * tabs already holding it.
  */
 
 /** sessionStorage key holding this tab's id. */
@@ -30,10 +24,8 @@ const CHANNEL = "octo_run_tab";
 const CLAIM_TIMEOUT_MS = 75;
 
 /**
- * Resolved once per tab. Deliberately a promise even though nothing awaits yet:
- * establishing an id can require asking other tabs whether they already hold it
- * (a duplicated tab inherits its opener's sessionStorage), and callers should not
- * have to change shape when it does.
+ * Resolved once per tab. A promise because establishing an id can require asking other
+ * tabs whether they already hold it.
  */
 let resolved: Promise<string> | null = null;
 
@@ -93,16 +85,13 @@ function defend(id: string): void {
  * Resolves true when a live tab already holds `id` — i.e. this tab is a duplicate
  * and needs its own.
  *
- * Silence means free, and that is forced rather than chosen: the ordinary case is a
- * reload with no sibling to answer, and treating silence as taken would hand it a
- * new id every time — losing exactly the runner-survives-a-reload property this
- * whole mechanism exists to provide.
+ * Silence means free: the ordinary case is a reload with no sibling to answer, and
+ * treating silence as taken would hand out a new id every time, losing the
+ * runner-survives-a-reload property this exists to provide.
  *
- * So the errors are not symmetric. A wrong `true` costs one unnecessary fresh
- * runner. A wrong `false` — a sibling that misses the window — leaves two tabs on
- * one runner, which is the old behaviour, for that tab only, until it reloads.
- * Hence a window generous enough that a live tab answering a same-origin broadcast
- * will not realistically miss it.
+ * The errors are not symmetric. A wrong `true` costs one unnecessary fresh runner; a
+ * wrong `false` leaves two tabs sharing one, for that tab only, until it reloads. Hence
+ * a window generous enough that a live tab will not realistically miss it.
  */
 function claim(id: string): Promise<boolean> {
   if (typeof BroadcastChannel === "undefined") return Promise.resolve(false);
@@ -141,18 +130,16 @@ async function establish(): Promise<string> {
 /**
  * runTabId returns this tab's id, establishing one on first use.
  *
- * Returns `""` when there is no browser — the editor is server-rendered, and a host
- * that sends no tab id gets its plain cookie namespace, which is how RUN behaved
- * before tabs were separated. Callers must therefore invoke this lazily (inside a
- * transport method), never at module scope.
+ * Returns `""` when there is no browser — the editor is server-rendered, and a request
+ * carrying no tab id falls back to the plain cookie namespace. Callers must therefore
+ * invoke this lazily (inside a transport method), never at module scope.
  */
 export function runTabId(): Promise<string> {
   if (typeof window === "undefined") return Promise.resolve("");
   // Never rejects. A browser that cannot produce an id at all — no usable crypto, a
-  // sandbox that blocks BroadcastChannel outright — sends none and gets the plain
-  // cookie namespace, which is how RUN behaved before tabs were separated: one
-  // shared runner. Since the answer is memoized, a rejection would instead be
-  // memoized too, and break every RUN call for the life of the page.
+  // sandbox that blocks BroadcastChannel outright — sends none and shares one runner.
+  // The answer is memoized, so a rejection would be memoized too and break every RUN
+  // call for the life of the page.
   if (!resolved) resolved = establish().catch(() => "");
   return resolved;
 }

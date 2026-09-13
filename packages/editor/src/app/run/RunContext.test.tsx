@@ -319,8 +319,7 @@ describe("RunProvider and a networked run still coming up", () => {
     // Withheld at start: the pod is not ready, so there is no link to offer yet.
     expect(screen.getByTestId("url")).toHaveTextContent("null");
 
-    // Learned on its own from a later status read — the fix for the link that used to appear
-    // only after the window was reloaded.
+    // Learned on its own from a later status read, with no reload.
     await waitFor(() => expect(screen.getByTestId("url")).toHaveTextContent(url), {
       timeout: 6000,
     });

@@ -1,16 +1,14 @@
 /**
  * How a dolphin suite is named, and how its flow is read back.
  *
- * Both halves of this must be the same in every host or the Testing tab breaks in a way
- * that looks like a failed save: the file is written, but the tab asks for a flow the
- * store answers under a different name, so the suite reads as missing while it sits
- * right there. Standalone keeps suites on disk beside the flows; the platform keeps them
- * as orchestrator resources. Different storage, one rule.
+ * Minting a name and reading one back must agree whatever the suites are stored in, or a
+ * written suite reads as missing: the tab asks for a flow the store answers under a
+ * different name.
  *
  * The naming follows the runtime's own: `orders_test.yaml` tests `orders`, the way
  * `orders_test.go` tests `orders.go`. `octo` skips these when it loads a directory as a
- * config (`IsTestFile` in runtime/core/runtime/config.go) and dolphin's discovery uses
- * the same suffix, which is what lets a suite live beside the flow it tests.
+ * config, and dolphin's discovery uses the same suffix, which is what lets a suite live
+ * beside the flow it tests.
  */
 
 /** The stem suffix that marks a test file, mirroring the runtime's TestFileSuffix. */
