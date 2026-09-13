@@ -299,11 +299,9 @@ func widenSpan(from, to, candidateFrom, candidateTo time.Time) (time.Time, time.
 
 // hashable is the part of a definition that changes what a pending clock means.
 //
-// Deliberately not the whole watch. Renaming a watch or changing who it emails
-// must not restart a hold that is three evaluations into a five-evaluation wait;
-// changing a threshold must, because the clock was measuring a different question
-// and carrying it across the edit would fire an alert on evidence gathered for a
-// condition that no longer exists.
+// Not the whole watch: renaming one or changing who it emails must not restart a
+// hold three evaluations into a five-evaluation wait, while changing a threshold
+// must, because the clock was then measuring a different question.
 type hashable struct {
 	Combinator Combinator      `json:"combinator"`
 	Conditions []ConditionSpec `json:"conditions"`

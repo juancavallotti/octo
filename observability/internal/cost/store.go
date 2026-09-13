@@ -76,15 +76,10 @@ func (s *Store) Current(ctx context.Context, source string) ([]Rate, error) {
 // replaces it, since the index would reject the insert while the old row is
 // still open.
 //
-// The explicit transaction is belt-and-braces rather than the mechanism.
-// Postgres already runs one pipelined batch as an implicit transaction, so today
-// the BEGIN changes nothing — a mutation test removing it fails nothing. It is
-// here so the guarantee survives this function growing a second batch, which
-// chunking a large card would require and which would silently lose atomicity
-// without it.
-//
-// Callers reload with Current afterwards rather than assuming what they wrote:
-// the ids assigned here are what priced records point back at.
+// The explicit transaction is not the mechanism — one pipelined batch is already
+// implicitly atomic — but it keeps the guarantee if this ever grows a second
+// batch. Callers reload with Current afterwards rather than assuming what they
+// wrote: the ids assigned here are what priced records point back at.
 func (s *Store) Apply(ctx context.Context, source string, changes []Change) error {
 	if len(changes) == 0 {
 		return nil

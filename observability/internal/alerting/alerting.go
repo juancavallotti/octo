@@ -8,12 +8,11 @@
 // in; the arithmetic is in series.go and stats.go, the judgement in condition.go,
 // and the decision about what to do with it in state.go.
 //
-// The shape of the package is deliberate: everything between "fetch" and "write"
-// is a pure function over value types. The statistics, the gap policy and the
-// flap control are exactly the parts that can be quietly wrong — a watch that
-// never fires looks identical to a watch with nothing to report — so none of them
-// may need a database or a clock to test. The fetchers live in the source
-// subpackage for the same reason: this package's test binary never links pgx.
+// Everything between "fetch" and "write" is a pure function over value types. The
+// statistics, the gap policy and the flap control are the parts that can be
+// quietly wrong — a watch that never fires looks identical to a watch with nothing
+// to report — so none of them may need a database or a clock to test. The fetchers
+// live in the source subpackage for the same reason.
 package alerting
 
 import "time"

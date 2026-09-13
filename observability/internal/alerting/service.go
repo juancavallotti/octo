@@ -7,17 +7,13 @@ import (
 	"time"
 )
 
-// MaxWatches bounds an installation.
-//
-// The same reasoning behind podstats.MaxSelectedSeries: refusing the next one is
-// better than answering slowly, because a tick that cannot finish inside its
-// interval degrades every watch rather than the one that was added last.
+// MaxWatches bounds an installation. Refusing the next one beats answering
+// slowly: a tick that cannot finish inside its interval degrades every watch
+// rather than the one that was added last.
 const MaxWatches = 200
 
-// watchStore is what the service needs from persistence, declared here where it
-// is consumed. It overlaps the runner's own interface deliberately — the two
-// callers need different subsets, and naming one union would make each of them
-// depend on methods it never calls.
+// watchStore is what the service needs from persistence, declared here where it is
+// consumed.
 type watchStore interface {
 	Create(ctx context.Context, w Watch, createdBy string) (Watch, error)
 	Update(ctx context.Context, w Watch, updatedBy string, retireAt time.Time) (Watch, error)
@@ -119,9 +115,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 // Preview evaluates a definition now and reports what it would have decided,
 // without recording anything or telling anybody.
 //
-// It takes a whole watch rather than an id on purpose: the editor's use is to
-// judge a definition that has not been saved, which is the only time the question
-// is worth asking.
+// It takes a whole watch rather than an id, so a definition that has not been
+// saved can be judged.
 func (s *Service) Preview(ctx context.Context, w Watch) (Evaluation, error) {
 	if s.preview == nil {
 		return Evaluation{}, fmt.Errorf("alerting: this process does not evaluate watches")

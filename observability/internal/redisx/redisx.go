@@ -30,11 +30,9 @@ const dialTimeout = 30 * time.Second
 // usable even when the server is down, and becomes useful again when the server
 // comes back without anything having to rebuild it.
 //
-// That is what a caller wants when it is *reporting* on Redis rather than relying
-// on it: holding a live client is the difference between "unreachable" and
-// "unconfigured", and between a health page that recovers and one that keeps
-// reporting the failure it saw at boot. Callers that cannot work without Redis
-// want Open instead.
+// That is what a caller reporting *on* Redis wants: holding a live client is the
+// difference between "unreachable" and "unconfigured". Callers that cannot work
+// without Redis want Open instead.
 func New(url string) (*redis.Client, error) {
 	opts, err := redis.ParseURL(url)
 	if err != nil {

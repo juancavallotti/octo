@@ -1,20 +1,10 @@
 // Package openapi serves the observability service's own API description.
 //
 // The document is generated from the annotations on the query handlers by
-// `task observability:openapi` and committed as swagger.json beside this file, then embedded
-// into the binary. Generation is strictly a build-time step: nothing here parses Go
-// source at runtime, and the swaggo toolchain is not a dependency of the module —
-// only of the task that regenerates the artifact. CI regenerates and fails on a
-// diff, so the committed spec and the annotations cannot drift apart.
-//
-// It is the orchestrator's openapi package again, deliberately copied rather than
-// shared. This module depends on pgx and nats and nothing else; importing the
-// orchestrator to reuse a hundred lines of JSON walking would tie two services
-// together that are otherwise independent, which is a worse trade than the
-// duplication. If a third service wants this, that is the moment to reconsider.
-//
-// The general API annotations live here rather than in main.go so that file stays
-// about wiring.
+// `task observability:openapi` and committed as swagger.json beside this file, then
+// embedded into the binary. Generation is a build-time step: nothing here parses Go
+// source at runtime. CI regenerates and fails on a diff, so the committed spec and
+// the annotations cannot drift apart.
 //
 //	@title						Octo Observability API
 //	@version					1.0

@@ -26,11 +26,9 @@ type Change struct {
 
 // Diff reports what a fetched card changes about the stored one.
 //
-// A pattern the fetch no longer carries is deliberately absent from the result:
-// it stays open. A model vanishing from a catalogue is a fact about the
-// catalogue, not about the model, and closing the row would unprice calls the
-// rate already explains — including calls yet to be ingested from a runtime that
-// is still using it.
+// A pattern the fetch does not carry is absent from the result and stays open. A
+// model vanishing from a catalogue is a fact about the catalogue, not the model,
+// and closing the row would unprice calls the rate already explains.
 func Diff(stored, fetched []Rate) []Change {
 	byKey := make(map[rateKey]Rate, len(stored))
 	for _, rate := range stored {

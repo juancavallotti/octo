@@ -1,19 +1,15 @@
 // Package fold collapses a run of near-identical trace records into one.
 //
-// The records that make this worth doing come from streaming. An `sse-event`
-// block is an ordinary block, so the engine emits a block.pre-invoke and a
-// block.post-invoke for every frame it writes — which, for an agent streaming an
-// answer, is every token. One conversation with the platform agent produced a
-// single trace of 26,508 records; across the whole traces table those records
-// were 93% of the bytes and none of the insight. Nobody has ever read the
-// waterfall for a streamed answer, because it is thirty thousand spans of one
-// word each.
+// The records that make this worth doing come from streaming: a pre-invoke and a
+// post-invoke per frame, which for an agent streaming an answer is every token.
+// A single streamed conversation can arrive as tens of thousands of records, and
+// nobody reads a waterfall of thirty thousand one-word spans.
 //
-// So a run becomes one record: the first record's identity, the last record's
-// end, a count, and — where the bodies allow it — the text of the whole run
-// concatenated back into something a person can read. That last part is the
-// reason to fold rather than to sample. Losing 29,999 rows saves space; getting
-// the streamed answer back as one block of prose is what makes the trace useful.
+// So a run becomes one record: the first record's identity, the last record's end,
+// a count, and — where the bodies allow it — the text of the whole run
+// concatenated back into something a person can read. That last part is the reason
+// to fold rather than to sample: losing the rows saves space, but getting the
+// streamed answer back as one block of prose is what makes the trace useful.
 //
 // This file is the arithmetic and nothing else: no Redis, no clock, no I/O. What
 // decides when a run has ended lives in the store.
@@ -27,12 +23,9 @@ import (
 	"github.com/juancavallotti/octo/observability/internal/ingest"
 )
 
-// Attribute the folded record carries, and the keys under it.
-//
-// It goes in attrs rather than in a column because it describes how the row was
-// made rather than what was traced, and because attrs is already the place a
-// reader looks for that: the runtime writes bodyBytes there when it truncates a
-// payload, for the same reason.
+// Attribute the folded record carries, and the keys under it. It goes in attrs
+// rather than in a column because it describes how the row was made rather than
+// what was traced.
 const (
 	AttrFolded = "folded"
 
@@ -51,24 +44,18 @@ const (
 const BodiesFirst = "first"
 
 // Record is one trace record as this package needs it: what arrived, plus the
-// stream identity ingest resolved.
-//
-// It is ingest.TraceRow rather than a type of its own because a folded run has to
-// go back into the same batch the unfolded records would have — the store, the
-// summary fold and the columns downstream all take that type, and a parallel one
-// would only need converting at both ends.
+// stream identity ingest resolved. An alias, because a folded run goes back into
+// the same batch the unfolded records would have.
 type Record = ingest.TraceRow
 
 // Key identifies the run a record belongs to.
 //
-// Kind is part of it, and that is the part worth explaining: pre-invoke and
-// post-invoke alternate, so a rule that ended a run whenever the next record's
-// kind differed would end every run at length one and fold nothing at all. Two
+// Kind is part of it because pre-invoke and post-invoke alternate: ending a run
+// whenever the next record's kind differed would end every run at length one. Two
 // runs are open for the same block instead — one per kind — and both collapse.
 //
-// BlockType is in the key without being able to vary within a path, which makes
-// it redundant. It is here anyway so the key is self-describing: a fold read back
-// out of the store says what kind of block it came from without a join.
+// BlockType cannot vary within a path, so it is redundant. It is here so a fold
+// read back out of the store says what block it came from without a join.
 type Key struct {
 	TraceID   string
 	Kind      string
@@ -86,22 +73,19 @@ func KeyOf(r Record) Key {
 	}
 }
 
-// Open is a run being accumulated.
-//
-// The first record is kept whole because the folded row is mostly it: the same
-// seq, event id, correlation id, flow and path, so the waterfall's (eventId,
-// path) nesting key still resolves and a folded span sits exactly where the
-// unfolded ones did. Everything else here is what the rest of the run
-// contributed.
+// Open is a run being accumulated. The first record is kept whole because the
+// folded row is mostly it — the same seq, event id, correlation id, flow and path,
+// so the (eventId, path) nesting key still resolves and a folded span sits where
+// the unfolded ones did. Everything else here is what the rest of the run added.
 type Open struct {
 	Key   Key
 	First Record
 
 	Count int
 
-	// LastSeq and LastEnd are where the run finished. LastEnd is the last
-	// record's timestamp, which is its *end*: the runtime stamps a record when the
-	// traced thing completed.
+	// LastSeq and LastEnd are where the run finished. LastEnd is the last record's
+	// timestamp, which is its *end*: a record is stamped when the traced thing
+	// completed.
 	LastSeq int64
 	LastEnd time.Time
 
@@ -119,13 +103,10 @@ type Open struct {
 	Bytes int
 	// Truncated is set when the cap stopped a chunk being kept.
 	Truncated bool
-	// Mergeable says the first record had a payload field, which is what gives the
-	// merged text somewhere to go. It is decided by the first record and does not
-	// change: every later record shares this one's shape, and the shape is what
-	// determines whether a payload field is there at all.
-	//
-	// False is not a failure. The run still folds — one row with a count is where
-	// nearly all of the space saving is — and the record says so.
+	// Mergeable says the first record had a payload field for the merged text to go
+	// in. Decided by the first record and unchanging, since every later record
+	// shares its shape. False is not a failure: the run still folds to one row with
+	// a count, and the record says so.
 	Mergeable bool
 
 	// Err is the first non-empty error in the run, and Dropped the OR of every
@@ -159,12 +140,10 @@ func Start(r Record) *Open {
 
 // SameShape reports whether r belongs to the run o is accumulating.
 //
-// The shape is every non-string field of the body, which for a streamed frame is
-// what says *what* is streaming: {"text": "...", "type": "thinking", "index": 0,
-// "iteration": 4}. The text differs every frame and is the thing being
-// concatenated; type, index and iteration are constant for as long as one thing
-// is being streamed and change when the next begins. Comparing them is what keeps
-// a run of thinking from merging into the answer that follows it.
+// The shape is every field but the payload, which for a streamed frame is what
+// says *what* is streaming: in {"text": "...", "type": "thinking", "index": 0},
+// text differs every frame while type and index are constant until the next thing
+// begins. Comparing them keeps a run of thinking from merging into the answer.
 func (o *Open) SameShape(r Record) bool {
 	shape, _, _ := split(r.Record.Body)
 	return shape == o.Shape
@@ -203,22 +182,18 @@ func (o *Open) Absorb(r Record, maxBytes int) {
 	o.Bytes += len(text)
 }
 
-// Close turns the run into the single record that stands for it.
-//
-// Below min the run is not worth rewriting: the attrs a fold adds cost more than
-// two rows save, and a reader looking at a two-record span learns nothing from
-// being told it is two records. Those come back as the first record unchanged,
-// which is only correct because a short run's later records are handed back
-// separately by the store.
+// Close turns the run into the single record that stands for it. A run below min
+// comes back as its first record unchanged and reports false, which is correct
+// only because the store hands back a short run's later records separately.
 func (o *Open) Close(min int) (Record, bool) {
 	if o.Count < min {
 		return o.First, false
 	}
 
 	out := o.First
-	// The interval, preserving the rule the whole stack reads records by:
-	// [ts - durationNs, ts]. The run began where the first record began — its
-	// stamp minus its own duration — and ended at the last record's stamp.
+	// The interval, keeping the [ts - durationNs, ts] convention: the run began
+	// where the first record began — its stamp minus its own duration — and ended
+	// at the last record's stamp.
 	out.Record.Time = o.LastEnd
 	if began := o.First.Record.Time.Add(-time.Duration(o.First.Record.DurationNs)); o.LastEnd.After(began) {
 		out.Record.DurationNs = o.LastEnd.Sub(began).Nanoseconds()
@@ -249,26 +224,14 @@ func (o *Open) join() string {
 	return string(out)
 }
 
-// Field names a streamed frame puts its payload in.
+// Field names a streamed frame puts its payload in. A list rather than a rule
+// because "the string fields are the text" is wrong on real frames — in {"text":
+// "...", "type": "thinking"}, type is a string that must not be concatenated, and
+// merging it would fold a run of thinking into the answer that follows.
 //
-// This list is the one piece of convention in the package, and it is worth being
-// plain about why it is a list rather than a rule. The obvious rule — "the string
-// fields are the text, the rest is the shape" — does not survive contact with the
-// data: an sse-event frame is {"text": "...", "type": "thinking", "index": 0},
-// and `type` is a string that must NOT be concatenated. It is precisely the field
-// that says a run of thinking has ended and an answer has begun, and merging it
-// would fold the two together.
-//
-// The alternative rule — "the field that varies is the text" — is correct but
-// cannot be evaluated on one record, and this decision has to be made per record:
-// the script that accumulates a run compares shapes as opaque strings, and giving
-// it a two-record handshake to perform would put real logic in Lua for a case that
-// a name covers.
-//
-// So: merging is best-effort and keyed on the names streaming actually uses.
-// **Folding does not depend on it.** A body this list does not recognise still
-// collapses its run to one row with a count — which is where nearly all of the
-// space goes — and says so with attrs.folded.bodies.
+// Merging is therefore best-effort. Folding does not depend on it: a body this
+// list does not recognise still collapses to one row with a count, and says so
+// with attrs.folded.bodies.
 var mergeFields = map[string]bool{
 	"text":    true,
 	"delta":   true,
@@ -284,9 +247,7 @@ var mergeFields = map[string]bool{
 // the same shape as {"b":0}. The text is the merge field's value.
 //
 // The third return says whether the body can take part in a merge at all: it needs
-// to be a JSON object with a recognised string payload field. Without one there is
-// nothing to concatenate, and a folded record whose body was the first frame's
-// while looking like the whole run's would be worse than one that admits it.
+// to be a JSON object with a recognised string payload field.
 func split(body json.RawMessage) (shape, text string, mergeable bool) {
 	if len(body) == 0 {
 		return "", "", false
@@ -312,8 +273,7 @@ func split(body json.RawMessage) (shape, text string, mergeable bool) {
 				continue
 			}
 			// A merge-named field holding something other than a string is shape like
-			// anything else. Nothing streams that way, but assuming it does not would
-			// mean silently dropping the field from the shape.
+			// anything else; leaving it out would silently drop it from the shape.
 		}
 		shapeBuf = append(shapeBuf, k...)
 		shapeBuf = append(shapeBuf, '=')
@@ -356,7 +316,7 @@ func merged(body json.RawMessage, text string) json.RawMessage {
 }
 
 // withFolded writes the fold's own accounting into a record's attributes,
-// preserving whatever the runtime put there.
+// preserving whatever was already there.
 func withFolded(attrs json.RawMessage, count int, firstSeq, lastSeq int64, mergeable bool) json.RawMessage {
 	fields := map[string]json.RawMessage{}
 	if len(attrs) > 0 {
@@ -364,10 +324,9 @@ func withFolded(attrs json.RawMessage, count int, firstSeq, lastSeq int64, merge
 		// be read downstream either, and losing it costs less than losing the count.
 		_ = json.Unmarshal(attrs, &fields)
 	}
-	// A record whose attrs were absent comes back from the store as the four bytes
-	// `null`, which unmarshals into a map by setting it to nil rather than by
-	// failing — so the check above passes and the assignment below panics. Absent
-	// and empty mean the same thing here, and this is where they are made to.
+	// Absent attrs come back as the four bytes `null`, which unmarshals into a map
+	// by setting it to nil rather than by failing — so the check above passes and
+	// the assignment below would panic.
 	if fields == nil {
 		fields = map[string]json.RawMessage{}
 	}
@@ -394,9 +353,8 @@ func withFolded(attrs json.RawMessage, count int, firstSeq, lastSeq int64, merge
 	return out
 }
 
-// String renders a key as the store's key suffix. Trace id first so every fold
-// for one trace shares a prefix, which keeps a trace's keys together in whatever
-// tooling somebody eventually points at them.
+// String renders a key as the store's key suffix. Trace id first so every fold for
+// one trace shares a prefix.
 func (k Key) String() string {
 	return k.TraceID + "|" + k.Kind + "|" + k.Path + "|" + k.BlockType
 }

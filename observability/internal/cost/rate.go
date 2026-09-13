@@ -1,14 +1,12 @@
-// Package cost prices the model calls a runtime reports.
+// Package cost prices the model calls a trace record reports.
 //
-// A trace record for an llm.turn or llm.embed carries the model that served the
-// call and the tokens the provider charged: the runtime deliberately knows no
-// rate card, so pricing is the consumer's job. This package is that rate card
-// and the arithmetic over it.
+// A record for an llm.turn or llm.embed carries the model that served the call and
+// the tokens the provider charged, and this package is the rate card and the
+// arithmetic over it.
 //
-// One record in ten thousand carries money anyway, and it is not an exception to
-// that rule. Some providers report what they charged — OpenRouter does — and the
-// runtime relays the figure without computing it. Such a call is priced by
-// reportedCost in price.go and never reaches a table here at all.
+// Some providers — OpenRouter among them — report what they charged, and a record
+// carrying such a figure is priced by reportedCost in price.go without reaching a
+// table here at all.
 //
 // The rate card is keyed by patterns rather than model ids, because that is how
 // the upstream catalogues publish it: `claude-3-5-sonnet-20241022` under equals
@@ -35,14 +33,10 @@ const (
 	OpIncludes Operator = "includes"
 )
 
-// rankedProviders orders the vendors this platform can actually call, most
-// preferred first, and exists to settle a genuine ambiguity: a model id can be
-// published under several providers at different prices — `gpt-4o` appears under
-// both OPENAI and AZURE — and the trace record cannot break the tie, because the
-// attribute it carries is the connector's *authored instance name*, not its
-// vendor. Preferring the providers there are connectors for
-// (runtime/connectors/llm/) is the answer that matches what actually served the
-// call. Anything not listed sorts after these, alphabetically.
+// rankedProviders settles a genuine ambiguity, most preferred first: a model id can
+// be published under several providers at different prices — `gpt-4o` appears
+// under both OPENAI and AZURE — and a record that names no vendor cannot break the
+// tie. Anything unlisted sorts after these, alphabetically.
 var rankedProviders = []string{"ANTHROPIC", "OPENAI", "GOOGLE"}
 
 // Operator says how a Rate's pattern is matched against a served model id.
@@ -99,16 +93,13 @@ func (r Rate) matches(model string) bool {
 
 // usable reports whether the entry can be admitted to a table at all.
 //
-// An empty pattern is rejected rather than kept, because under includes it
-// matches every model id there is: one such row in the feed would silently price
-// the entire catalogue at whatever it charges, and every total built on it would
-// be wrong in a way no arithmetic reveals. A rate whose figures are not prices
-// is rejected on the same grounds — see usablePrice.
+// An empty pattern is rejected because under includes it matches every model id
+// there is, and one such row would price the whole catalogue at whatever it
+// charges. A rate whose figures are not prices is rejected on the same grounds —
+// see usablePrice.
 //
-// The two cache halves are deliberately not checked here. They are optional, and
-// a rate with a malformed cache price can still price its call correctly at
-// priced_partial, so refusing the whole entry would lose a model over the half
-// of it that was fine. A decoder that can produce one nils it instead.
+// The two cache halves are not checked here. They are optional, and a rate with a
+// malformed cache price still prices its call at priced_partial.
 func (r Rate) usable() bool {
 	if r.Pattern == "" {
 		return false
@@ -127,17 +118,9 @@ func (r Rate) usable() bool {
 // usablePrice reports whether a figure is a price at all: a real, non-negative
 // quantity.
 //
-// Neither half of that is theoretical. A NaN or an infinity multiplies through
-// the arithmetic into cost_usd, where one poisoned row makes every SUM over it
-// meaningless — and unlike an unpriced call, nothing in the stored record says
-// so. A negative rate is the failure this package already refuses twice
-// elsewhere: reportedCost rejects a negative figure a provider reports, and
-// nonNegative floors a reported token count, both because a credit recorded as a
-// cost nets silently against real charges.
-//
-// It is a property of the number rather than of any one feed, which is why it
-// lives here rather than in a decoder: OpenRouter's "-1" for a variable price is
-// one instance of the rule, not a case in it.
+// A NaN or an infinity multiplies through into cost_usd, where one poisoned row
+// makes every SUM over it meaningless and nothing in the record says so. A
+// negative rate is a credit, which would net silently against real charges.
 func usablePrice(per1M float64) bool {
 	return !math.IsNaN(per1M) && !math.IsInf(per1M, 0) && per1M >= 0
 }
@@ -157,11 +140,10 @@ func normalizeProvider(s string) string {
 	return strings.ToUpper(strings.TrimSpace(s))
 }
 
-// moreSpecific orders two entries by how precisely they name a model, most
-// precise first, and is a *total* order on distinct entries — that is the point
-// of its length. A partial order would leave ties for the sort to break by input
-// position, and the input is a map iteration and an HTTP response, so the same
-// catalogue would price the same call differently on different runs.
+// moreSpecific orders two entries by how precisely they name a model, most precise
+// first. It is a *total* order on distinct entries, which is the point of its
+// length: a tie left for the sort to break by input position would let the same
+// catalogue price the same call differently on different runs.
 //
 // The keys, in order:
 //

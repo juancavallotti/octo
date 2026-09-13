@@ -70,16 +70,10 @@ type TracePruneResult struct {
 //     records and then the summaries themselves, in one transaction.
 //  2. Orphans. Delete records older than the cutoff that no summary claims.
 //
-// The second pass is not belt-and-braces. A trace.dropped marker carries no
-// trace id — it describes a publisher's stream, not any one run — and FoldTraces
-// skips records with an empty trace id, so a marker never produces a summary row
-// and pass 1 can never reach it. Without pass 2 those markers accumulate for the
-// life of the installation.
-//
-// It is also cheap, because of the clock relationship above: for a trace whose
-// summary survives the cutoff, every record satisfies ts ≥ started_at ≥ cutoff.
-// Once pass 1 has finished, the only rows left below the cutoff are the orphans
-// pass 2 is looking for.
+// The second pass is load-bearing: a trace.dropped marker carries no trace id, so
+// it never produces a summary row and pass 1 can never reach it. It is also cheap,
+// because of the clock relationship above — once pass 1 has finished, the only
+// rows left below the cutoff are the orphans pass 2 is looking for.
 func (t *Traces) Prune(ctx context.Context, cutoff time.Time, batch int) (TracePruneResult, error) {
 	var out TracePruneResult
 

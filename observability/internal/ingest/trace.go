@@ -9,19 +9,15 @@ import (
 	"github.com/juancavallotti/octo/observability/internal/cost"
 )
 
-// TraceSubject is the shared subject runtimes ship trace records to. Like
-// LogSubject it mirrors a constant in the runtime's k8s services module, and the
-// two must stay in sync by hand: the two modules do not share a go.mod, so this
-// package cannot import the runtime's types and the wire shape below is a copy
-// rather than the original.
+// TraceSubject is the shared subject trace records are shipped to. Like
+// LogSubject, publisher and consumer are in separate Go modules, so the wire
+// shape below is a copy that must be kept in sync by hand.
 const TraceSubject = "internal.traces"
 
-// The record kinds the runtime publishes. They are the runtime's own vocabulary,
-// spelled here so this package can reason about the handful that mean something
-// to it — a model call to price, a terminal that decides a trace's status, an
-// entry point to name it by. A kind not listed is still stored: the store's job
-// is to keep what a runtime said, not to have an opinion about a version of the
-// runtime newer than itself.
+// The record kinds that arrive, spelled here so this package can reason about the
+// handful that mean something to it — a model call to price, a terminal that
+// decides a trace's status, an entry point to name it by. A kind not listed is
+// still stored: keeping what was published matters more than recognising it.
 const (
 	KindFlowStarted   = "flow.started"
 	KindFlowCompleted = "flow.completed"
@@ -63,8 +59,8 @@ type TraceRecord struct {
 	BlockType     string
 
 	// Time is when the traced thing happened and DurationNs how long it took, so
-	// the interval it occupies is [Time - DurationNs, Time]: the runtime stamps a
-	// record at completion. DurationNs is zero for a record marking a point.
+	// the interval it occupies is [Time - DurationNs, Time]: a record is stamped
+	// at completion. DurationNs is zero for a record marking a point.
 	Time       time.Time
 	DurationNs int64
 
@@ -73,8 +69,8 @@ type TraceRecord struct {
 	Truncated bool
 
 	// Body, Vars and Attrs are stored as they arrived. Body and Vars are nil when
-	// the runtime captured no payload, which is not the same as capturing an
-	// empty one — see Truncated.
+	// no payload was captured, which is not the same as capturing an empty one —
+	// see Truncated.
 	Body  json.RawMessage
 	Vars  json.RawMessage
 	Attrs json.RawMessage
@@ -84,10 +80,9 @@ type TraceRecord struct {
 	// Usage: a provider staying silent and a provider charging nothing are
 	// different facts.
 	//
-	// Provider is the vendor family the runtime stamped on the call. It is empty
-	// for a record written before the runtime carried one, and for a third-party
-	// connector that reports none — in both cases pricing falls back to the
-	// provider of whichever rate matched the model.
+	// Provider is the vendor family stamped on the call, and is empty when the
+	// record carries none — pricing then falls back to the provider of whichever
+	// rate matched the model.
 	Model    string
 	Provider string
 	Usage    *cost.Usage
@@ -122,8 +117,8 @@ type TraceRow struct {
 	Priced cost.Priced
 }
 
-// traceWire is the record as it arrives: the runtime's TraceEvent flattened
-// together with the deployment that emitted it, one JSON object per message.
+// traceWire is the record as it arrives: the trace event flattened together with
+// the deployment that emitted it, one JSON object per message.
 type traceWire struct {
 	Seq           uint64          `json:"seq"`
 	Kind          string          `json:"kind"`
@@ -147,8 +142,8 @@ type traceWire struct {
 	AppVersion   string `json:"appVersion"`
 }
 
-// Attribute names the runtime gives a model call. Only the two this package
-// prices from are named; the rest travel through in Attrs untouched.
+// Attribute names a model call arrives with. Only the two this package prices from
+// are named; the rest travel through in Attrs untouched.
 const (
 	attrModel    = "model"
 	attrProvider = "provider"
@@ -156,12 +151,11 @@ const (
 )
 
 // usageWire is the token accounting nested under attrs.usage. The counts are
-// pointer-free ints because the runtime omits the whole object rather than
-// individual counts when a provider reports nothing.
+// pointer-free ints because the whole object is omitted, rather than individual
+// counts, when a provider reports nothing.
 //
-// The cost is the exception, and is a pointer for the opposite reason: the
-// runtime writes it only when a provider volunteered one, so absent and zero
-// have to stay apart all the way from the wire to the stored row.
+// The cost is the exception and is a pointer: it is written only when a provider
+// volunteered one, so absent and zero stay apart from the wire to the stored row.
 type usageWire struct {
 	InputTokens      int      `json:"inputTokens"`
 	OutputTokens     int      `json:"outputTokens"`

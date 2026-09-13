@@ -14,13 +14,10 @@ const (
 	// defaultAlertDays is how long the alerting history is kept when nobody has
 	// said.
 	//
-	// The other two axes default to keeping everything, and this one deliberately
-	// does not. Logs and traces are evidence somebody may need to produce months
-	// later; an evaluation log is diagnostic and its value decays in days, while
-	// its volume does not — a hundred one-minute watches write about 144,000 rows
-	// a day whether or not anything happens. Inheriting "unset means forever"
-	// would leave every installation quietly accumulating that table after the
-	// upgrade, which is a decision nobody would have made on purpose.
+	// The other two axes default to keeping everything, and this one does not.
+	// Logs and traces are evidence somebody may need months later; an evaluation
+	// log is diagnostic and its value decays in days while its volume does not —
+	// a hundred one-minute watches write about 144,000 rows a day regardless.
 	defaultAlertDays = 14
 )
 
@@ -35,10 +32,8 @@ type stored struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 
 	// AlertsDays is a pointer so that "never configured" and "configured to keep
-	// forever" stay different facts. A row written before alerting existed has no
-	// key at all and gets the default; somebody who deliberately sets zero gets
-	// what every other axis means by it. A plain int would collapse the two and
-	// silently switch the default off for every existing installation on upgrade.
+	// forever" stay different facts. A row with no key at all gets the default,
+	// while an explicit zero means what it means on every other axis.
 	AlertsDays *int `json:"alertsDays,omitempty"`
 }
 

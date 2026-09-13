@@ -1,16 +1,9 @@
 // Package retention holds this installation's data-retention policy — how many
 // days of log events and of traces it keeps — and the sweep that enforces it.
 //
-// The policy is a single jsonb row in site_settings under the key "retention",
-// the same table and the same convention the orchestrator's email and LLM
-// settings use: a new setting costs a key rather than a migration.
-//
-// This service reads and writes that row itself rather than asking the
-// orchestrator for it. It owns the three tables the policy governs, and the
-// platform talks to it directly for exactly this data for the same reason. The
-// orchestrator's sitesettings package is out of reach regardless — logs is a
-// separate Go module, so its internal packages cannot be imported here — which
-// is why the row access below is a small copy rather than a shared dependency.
+// The policy is a single jsonb row in site_settings under the key "retention", so
+// a new setting costs a key rather than a migration. This service reads and writes
+// that row itself, because it owns the three tables the policy governs.
 package retention
 
 import (
@@ -56,13 +49,9 @@ func (s *Store) Get(ctx context.Context, key string) (json.RawMessage, bool, err
 
 // Put stores value under key, creating the row or replacing it.
 //
-// There is deliberately no locked read-modify-write here, which is the one place
-// this diverges from the orchestrator's Store. That lock exists there because a
-// settings save carries an already-stored API key forward, so a lost update is a
-// silently discarded key rotation. A retention policy holds no secret and a save
-// supplies every field, so there is nothing to carry forward: two concurrent
-// saves resolve to whichever landed second either way, and a lock would only
-// make that outcome slower.
+// There is no locked read-modify-write here: a retention policy holds no secret
+// and a save supplies every field, so there is nothing to carry forward. Two
+// concurrent saves resolve to whichever landed second either way.
 func (s *Store) Put(ctx context.Context, key string, value json.RawMessage) error {
 	// pgx infers the jsonb OID from the column and passes []byte through as
 	// pre-encoded JSON, so the marshalled value needs no further wrapping.

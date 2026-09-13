@@ -6,20 +6,17 @@ const (
 	// resolveEvaluations is how many consecutive clean evaluations close an
 	// incident.
 	//
-	// Deliberately asymmetric with the hold, and deliberately more than one. A
-	// metric hovering at its threshold otherwise emits an open/resolve pair every
-	// minute, and a stream of those is what teaches people to filter the alert
-	// channel — at which point the watch that matters goes unread too.
+	// Asymmetric with the hold, and more than one: a metric hovering at its
+	// threshold would otherwise emit an open/resolve pair every minute, which is
+	// what teaches people to filter the alert channel.
 	resolveEvaluations = 2
 
 	// staleEvaluations is how many consecutive undecided evaluations close a
 	// firing incident for lack of evidence.
 	//
-	// Counted in evaluations for the same reason the hold is: it is a number of
-	// times we tried and could not tell, not a duration. Thirty of them is half an
-	// hour at the default interval, which is long enough that a Redis restart does
-	// not close an incident and short enough that a firing watch does not stay
-	// firing forever on evidence nobody can refresh.
+	// Counted in evaluations rather than as a duration: it is a number of times we
+	// tried and could not tell. Thirty is half an hour at the default interval,
+	// long enough that a backend restart does not close an incident.
 	staleEvaluations = 30
 )
 
@@ -141,12 +138,9 @@ func firing(next State, w Watch, now time.Time, actions []Action) (State, []Acti
 		next.IncidentID = "" // the store mints one and writes it back
 		return next, append(actions, Action{Kind: ActionOpen, At: now})
 	}
-	// Still firing, so it is offered again — every time, with no period of its
-	// own. What decides whether anybody hears it is the cooldown, and that is
-	// deliberately the only thing that decides: a repeat interval here and a
-	// suppression window there are the same setting written twice, and two copies
-	// of one setting can be given different numbers, at which point the smaller
-	// silently wins and the larger is a lie on the form.
+	// Still firing, so it is offered again every time, with no period of its own.
+	// The cooldown is the only thing that decides whether anybody hears it; a
+	// repeat interval here would be the same setting written twice.
 	return next, append(actions, Action{Kind: ActionRepeat, At: now})
 }
 
@@ -184,10 +178,9 @@ func recovered(next State, w Watch, now time.Time, actions []Action) (State, []A
 // outage marked fixed because the pipeline stopped reporting is the failure this
 // rule exists to prevent.
 //
-// That does mean a firing watch whose backend is flaky can never resolve on its
-// own, and that is the conservative direction rather than an oversight. The
-// episode still ends: after the evidence has been missing long enough it closes
-// as stale, which reads as what it was rather than as a recovery.
+// A firing watch whose backend is flaky therefore never resolves on its own. The
+// episode still ends: once the evidence has been missing long enough it closes as
+// stale, which reads as what it was rather than as a recovery.
 func undecided(next State, w Watch, now time.Time, actions []Action) (State, []Action) {
 	next.ConsecutiveFiring = 0
 	next.ConsecutiveOK = 0

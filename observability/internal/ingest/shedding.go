@@ -17,16 +17,11 @@ const dropWarnInterval = 10 * time.Second
 // shedder is how a consumer hands a delivered record to its writer without ever
 // blocking, and what it does when there is no room.
 //
-// Blocking in a NATS callback does not stall the other subscriptions — the client
-// runs a delivery goroutine per subscription — but it backs records up in this
-// one's pending queue until the client hits its own limit and drops them as a
-// slow consumer. That is the same loss, arriving as a client-side error with no
-// count of what went or which app lost it. Shedding here loses the same records
-// and keeps the accounting.
-//
-// Both consumers embed it so the two cannot drift into answering the same
-// question differently — what to do under pressure should be a decision, not a
-// side effect of how each one happened to size its buffer.
+// Blocking in a NATS callback does not stall the other subscriptions, but it backs
+// records up in this one's pending queue until the client drops them as a slow
+// consumer — the same loss, arriving as a client-side error with no count of what
+// went or which app lost it. Shedding here loses the same records and keeps the
+// accounting.
 type shedder struct {
 	// what names the records being shed, for the warning. "trace" or "log".
 	what string

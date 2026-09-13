@@ -57,9 +57,9 @@ type LogRow struct {
 	Time         time.Time `json:"ts"`
 	Level        string    `json:"level"`
 	Message      string    `json:"message"`
-	// Attrs is whatever the runtime attached to the log call, passed through as it
-	// sent it. swaggertype keeps the description honest about that: bytes to Go,
-	// arbitrary JSON to a client.
+	// Attrs is whatever was attached to the log call, passed through as it
+	// arrived. swaggertype keeps the description honest: bytes to Go, arbitrary
+	// JSON to a client.
 	Attrs      json.RawMessage `json:"attrs" swaggertype:"object"`
 	ReceivedAt time.Time       `json:"received_at"`
 }

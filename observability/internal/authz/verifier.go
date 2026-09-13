@@ -65,8 +65,8 @@ func NewVerifier(issuer string) *Verifier {
 
 // Principal is who a verified token says its bearer is.
 type Principal struct {
-	// Subject is the platform user id. For a deployment's own token it is the
-	// user the deployment was minted on behalf of, not the deployment.
+	// Subject is the user id. For a deployment's own token it is the user the
+	// deployment was minted on behalf of, not the deployment.
 	Subject string
 	// Roles is what the token carries, and what the policy is applied to.
 	Roles []string

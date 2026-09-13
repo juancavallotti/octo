@@ -35,8 +35,7 @@ const (
 	entryRankFallback = 99
 )
 
-// Attribute names the runtime gives a source record, used to render what started
-// a trace.
+// Attribute names a source record carries, used to render what started a trace.
 const (
 	attrMethod   = "method"
 	attrRoute    = "route"
@@ -202,18 +201,13 @@ func (d *TraceDelta) considerIdentity(row ingest.TraceRow) {
 // betterEntry orders two claims: better rank, then lower sequence, then lower
 // deployment, then lower label.
 //
-// Only the first two are about quality; the last two are there to make the
-// comparison a total order. Sequence numbers are unique within one publisher, not
-// within a trace — a trace that crossed apps carries records numbered by two
-// processes, and two replicas of one app both start counting at one — so records
-// of equal rank routinely share a number. With nothing further to compare, the
-// winner would be whichever arrived first, which is the order-dependence every
-// other column here is arranged to avoid.
+// Only the first two are about quality; the last two make the comparison a total
+// order. Sequence numbers are unique within one publisher rather than within a
+// trace, so records of equal rank routinely share a number, and the winner would
+// otherwise be whichever arrived first.
 //
-// betterEntrySQL in traces.go compares the same four terms in the same order.
-// The fold and the cross-batch merge decide the same question, so a difference
-// between them would make the answer depend on how a trace's records happened to
-// be split into batches.
+// betterEntrySQL in traces.go compares the same four terms in the same order, so
+// the answer does not depend on how a trace's records were split into batches.
 func betterEntry(candidate, best entryCandidate) bool {
 	if candidate.rank != best.rank {
 		return candidate.rank < best.rank

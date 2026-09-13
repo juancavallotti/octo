@@ -80,8 +80,8 @@ func (t *Traces) Insert(ctx context.Context, rows []ingest.TraceRow) error {
 func traceValues(row ingest.TraceRow) []any {
 	record := row.Record
 
-	// Absent and empty are different facts for a payload: nil means the runtime
-	// captured none, which is not the same as capturing an empty document.
+	// Absent and empty are different facts for a payload: nil means none was
+	// captured, which is not the same as capturing an empty document.
 	body := nilIfEmpty(record.Body)
 	vars := nilIfEmpty(record.Vars)
 	attrs := record.Attrs

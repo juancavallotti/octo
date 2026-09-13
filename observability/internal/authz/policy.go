@@ -45,9 +45,8 @@ var policy = []rule{
 	// writable through this API: records arrive over the broker, not over HTTP.
 	//
 	// A trace carries the request bodies of whatever was traced, so this is the
-	// most revealing read in the platform — but it is revealing to exactly the
-	// people the platform already shows it to, and narrowing it further would
-	// mean a monitor who cannot see what they are monitoring.
+	// most revealing read here — but narrowing it further would mean a monitor
+	// who cannot see what they are monitoring.
 	{"logs", anyone, nil},
 	{"traces", anyone, nil},
 	{"stats", anyone, nil},

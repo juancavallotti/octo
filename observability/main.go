@@ -1,14 +1,8 @@
-// Command observability is the platform's observability service. It consumes
-// what deployed runtimes ship over NATS as a competing consumer — log records on
-// internal.logs, trace records on internal.traces — and persists both to Postgres
-// for the platform to query. It also serves the pod stats the stats sidecar
-// writes to Redis, the retention policy over what it stores, and the storage
-// report on the two stores underneath all of it.
-//
-// It began as the log aggregator and was called "logs" for as long as that was
-// the whole job. Traces, pod stats and retention landed here because each was the
-// same shape of problem — records shipped in, history queried out — and the name
-// followed once it described the thing.
+// Command observability consumes telemetry over NATS as a competing consumer —
+// log records on internal.logs, trace records on internal.traces — and persists
+// both to Postgres. It serves that history back, along with the pod stats it reads
+// from Redis, the retention policy over what it keeps, and a report on how full
+// the two stores underneath are.
 package main
 
 import (
@@ -58,20 +52,18 @@ const (
 	// slow-header denial-of-service attempts.
 	readHeaderTimeout = 10 * time.Second
 	// The whole request, headers and body. Generous next to the header deadline
-	// because an ingest POST carries a batch, and still finite: without it a
-	// client can drip a body for as long as it likes and hold the goroutine
-	// reading it.
+	// because an ingest POST carries a batch, and still finite: without it a client
+	// can drip a body for as long as it likes and hold the goroutine reading it.
 	readTimeout = 60 * time.Second
 
 	// How a run of near-identical trace records is collapsed into one.
 	//
 	// foldWindow is how long a run stays open with nothing arriving, and it is the
 	// only thing that ends a run that simply stopped. A second is comfortably longer
-	// than the gap between two frames of a stream — those arrive tens of times a
-	// second — and short enough that a block record in an ordinary flow, which folds
-	// nothing, is stored about as promptly as it was before. That delay is the price
-	// of folding at all, and it is affordable only because traces are read after the
-	// fact rather than watched live.
+	// than the gap between two frames of a stream, and short enough that a record
+	// which folds nothing is still stored promptly. That delay is the price of
+	// folding at all, affordable because traces are read after the fact rather than
+	// watched live.
 	foldWindow = time.Second
 	// A backstop for nothing ever sweeping again — a replica that died holding open
 	// runs — rather than a second deadline. Well above the window so it never
@@ -79,12 +71,10 @@ const (
 	foldTTL = 10 * time.Minute
 	// The cap on a run's merged text. Generous, because the point of merging is to
 	// read a streamed answer back as prose and an answer cut off at the interesting
-	// part would leave the row honest and useless. Past it the fold is marked
-	// truncated — the same flag the runtime sets when it drops a payload of its own.
+	// part would be honest and useless. Past it the fold is marked truncated.
 	foldMaxBodyBytes = 32 * 1024
 	// The shortest run worth rewriting. Below this the attributes a fold adds cost
-	// more than the rows it saves, and a reader learns nothing from being told that
-	// a two-record span is two records.
+	// more than the rows it saves.
 	foldMinRun = 4
 )
 
@@ -114,20 +104,12 @@ func run() error {
 	// cannot deliver a topic action and can still evaluate every watch.
 	var natsConn *nats.Conn
 
-	// Redis is the one dependency this service refuses to start without, and it is
-	// deliberately not treated like the two below it.
-	//
-	// A missing DATABASE_URL or NATS_URL degrades to "serving /healthz while the
-	// dependencies come up", which is right for both: they are reachable or they
-	// are not, and the consumers reconnect. Redis is different because what it
-	// holds is not a connection but a decision — the fold that collapses a
-	// streaming block's per-frame trace records into one row. An aggregator that
-	// started without it would look healthy, consume normally, and quietly store
-	// tens of thousands of rows per conversation again, which is the bug the fold
-	// exists to fix and is invisible until the table is large.
-	//
-	// So this fails loudly, at the one moment somebody is watching, naming the
-	// variable and the chart value that sets it.
+	// Redis is the one dependency this service refuses to start without. A missing
+	// DATABASE_URL or NATS_URL degrades to serving /healthz until they are
+	// reachable, but Redis holds the fold that collapses a streaming block's
+	// per-frame trace records into one row. Starting without it would look healthy
+	// and quietly store tens of thousands of rows per conversation, which is
+	// invisible until the table is large — so it fails loudly instead.
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
 		return errors.New("REDIS_URL is not set: the aggregator folds trace records in " +
@@ -189,10 +171,9 @@ func run() error {
 		natsConn = conn
 	}
 
-	// Alerting, which needs the database and nothing else to be useful: a watch
-	// with a log action works with no broker and no orchestrator, and one with a
-	// topic or email action records that it could not deliver rather than
-	// stopping the service from starting.
+	// Alerting needs the database and nothing else to be useful: a watch with a log
+	// action works with no broker, and one with a topic or email action records
+	// that it could not deliver rather than stopping the service from starting.
 	var alerts *alerting.Service
 	if database != nil {
 		var err error
@@ -231,16 +212,13 @@ func run() error {
 	}
 }
 
-// startAlerting starts the watch evaluator.
+// startAlerting starts the watch evaluator. It is gated on the database because a
+// watch is a question about tables this process may not have, and the leader
+// election is what makes it safe to run on every replica — ingesting a record
+// twice is idempotent, evaluating a watch twice is not.
 //
-// Wired here, beside the consumers, and gated on the database for the same
-// reason they are: a watch is a question about tables this process may not have.
-// The leader election is what makes it safe to run on every replica — ingesting a
-// record twice is idempotent, and evaluating a watch twice is not.
-//
-// A failure to build the elector is fatal. It means this pod has a cluster
-// identity and cannot reach the API server, and a service that shrugged and
-// elected itself would put two evaluators on one installation.
+// A failure to build the elector is fatal: a service that shrugged and elected
+// itself would put two evaluators on one installation.
 func startAlerting(
 	ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, conn *nats.Conn,
 ) (*alerting.Service, error) {
@@ -259,10 +237,9 @@ func startAlerting(
 		alertsource.New(pool, podstats.NewService(podstats.NewReader(rdb))),
 		elector,
 		dispatcher,
-		// The cooldown record is disposable on purpose, which is why it is the one
-		// piece of alerting state that lives in Redis: losing it means somebody is
-		// told twice, where losing what is in Postgres would restart a hold or
-		// re-announce an open incident.
+		// The cooldown record is the one piece of alerting state in Redis because it
+		// is disposable: losing it means somebody is told twice, where losing what is
+		// in Postgres would restart a hold or re-announce an incident.
 		alertcooldown.New(rdb),
 	)
 	go runner.Run(ctx)
@@ -273,9 +250,9 @@ func startAlerting(
 // startTraces publishes a rate card and subscribes the trace consumer to it.
 //
 // The card is loaded from the database first and refreshed in the background
-// afterwards, never the other way round: a process that waited on the published
-// catalogue before consuming would price nothing while the feed was slow, and
-// nothing at all for as long as it was down. Rates already stored answer both.
+// afterwards, never the other way round: waiting on the published catalogue before
+// consuming would price nothing while the feed was slow, and nothing at all for as
+// long as it was down.
 func startTraces(ctx context.Context, pool *pgxpool.Pool, conn *nats.Conn, rdb *redis.Client) (*ingest.Subscription, error) {
 	store := cost.NewStore(pool)
 	interval := priceRefreshInterval()
@@ -284,10 +261,9 @@ func startTraces(ctx context.Context, pool *pgxpool.Pool, conn *nats.Conn, rdb *
 	for _, source := range priceSources() {
 		refresher := cost.NewRefresher(store, catalogueFor(source), source, interval)
 		if err := refresher.Load(ctx); err != nil {
-			// Not fatal, because the failure is survivable and the alternative is
-			// not: a call this service cannot price is stored as unpriced, which
-			// is honest and fixable later, whereas refusing to consume would
-			// throw away the trace itself over a number that sits beside it.
+			// Not fatal: a call this service cannot price is stored as unpriced,
+			// which is fixable later, whereas refusing to consume would throw away
+			// the trace itself over a number that sits beside it.
 			slog.Error("could not load a stored rate card; it starts empty",
 				"source", source, "error", err)
 		}
@@ -314,10 +290,9 @@ func startTraces(ctx context.Context, pool *pgxpool.Pool, conn *nats.Conn, rdb *
 var defaultPriceSources = []string{cost.SourceOpenRouter, cost.SourceHelicone}
 
 // priceSources reads LLM_PRICES_SOURCES, a comma-separated list in preference
-// order. An unknown name is warned about and skipped rather than fatal, on the
-// same terms as an unparseable refresh interval: a typo in a tuning knob is no
-// reason to stop a service from starting. A value naming nothing usable falls
-// back to the default, because pricing nothing at all is never what was meant.
+// order. An unknown name is warned about and skipped rather than fatal: a typo in
+// a tuning knob is no reason to stop a service from starting. A value naming
+// nothing usable falls back to the default.
 func priceSources() []string {
 	raw := os.Getenv("LLM_PRICES_SOURCES")
 	if strings.TrimSpace(raw) == "" {
@@ -344,9 +319,8 @@ func priceSources() []string {
 	return sources
 }
 
-// catalogue is the part of a published rate card this file uses. It is declared
-// here, where it is consumed, because the two readers are different types and
-// the only thing this needs from either is the fetch.
+// catalogue is the part of a published rate card this file uses: the two readers
+// are different types and the fetch is all either is needed for.
 type catalogue interface {
 	Fetch(ctx context.Context) (cost.Fetched, error)
 }
@@ -378,13 +352,11 @@ func priceRefreshInterval() time.Duration {
 
 // newServer wires the HTTP routes. The query API is registered only when a
 // database is configured; /healthz and the API description always serve, so a
-// liveness probe passes and the description reads even before Postgres is
-// reachable.
+// liveness probe passes even before Postgres is reachable.
 //
-// Redis is passed separately from the database because the two are not
-// optional in the same way. This service refuses to start without a Redis and
-// degrades to serving /healthz without a Postgres, so anything backed by Redis
-// registers unconditionally while anything backed by Postgres cannot.
+// Redis is passed separately because the two stores are not optional in the same
+// way: anything backed by Redis registers unconditionally, since the service
+// refuses to start without one.
 func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
@@ -392,19 +364,17 @@ func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) htt
 	slog.Info("openapi routes registered",
 		"endpoints", "GET /openapi.json, GET /openapi/operations")
 
-	// Outside the database check, unlike everything below it: pod stats live in
-	// Redis, which this service refuses to start without. Gating them on a
-	// Postgres they do not use would take them away for the one failure that
-	// cannot affect them.
+	// Outside the database check: pod stats live in Redis, and gating them on a
+	// Postgres they do not use would take them away for a failure that cannot
+	// affect them.
 	api.NewStatsHandler(podstats.NewService(podstats.NewReader(rdb))).Register(mux)
 	slog.Info("pod stats API registered", "endpoints",
 		"GET /stats/{deploymentId}/pods, GET /stats/{deploymentId}/metrics, "+
 			"GET /stats/{deploymentId}/series")
 
-	// The storage report is outside the gate for the same reason, and it takes the
-	// pool as possibly nil on purpose: the half of the report about a store this
-	// process does not have is a reason rather than a failure, and the Redis half
-	// is worth having while Postgres is still coming up.
+	// The storage report takes the pool as possibly nil: the half of the report
+	// about a store this process does not have is a reason rather than a failure,
+	// and the Redis half is worth having while Postgres is still coming up.
 	api.NewStorageHandler(storagestats.NewService(rdb, databasePool(database))).Register(mux)
 	slog.Info("storage report registered", "endpoints", "GET /settings/storage")
 
@@ -414,18 +384,16 @@ func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) htt
 		slog.Info("query API registered", "endpoints", "GET /logs, GET /traces, "+
 			"GET /traces/apps, GET /traces/{traceId}, GET /traces/{traceId}/records/{id}")
 
-		// Data retention: the policy for how long the two streams above are kept,
-		// and the sweep that enforces it. It belongs to this service because this
-		// service owns the tables a sweep deletes from — the policy itself is a
-		// row in site_settings, so it costs a key rather than a migration.
+		// Data retention: the policy for how long the two streams above are kept, and
+		// the sweep that enforces it. The policy is a row in site_settings, so it
+		// costs a key rather than a migration.
 		api.NewRetentionHandler(retention.NewService(database.Pool())).Register(mux)
 		slog.Info("retention routes registered",
 			"endpoints", "GET/PUT /settings/retention, POST /retention/run")
 
-		// Alerting. The service is registered whether or not this replica is the
-		// one evaluating: reading and editing a watch is not leader work, and a
-		// standby replica answering the API is what makes the platform's requests
-		// land anywhere rather than on one pod.
+		// Alerting. Registered whether or not this replica is the one evaluating:
+		// reading and editing a watch is not leader work, so a request lands on any
+		// replica rather than on one.
 		api.NewAlertsHandler(alerts).Register(mux)
 		slog.Info("alerting routes registered", "endpoints",
 			"GET/POST /alerts/watches, GET/PUT/DELETE /alerts/watches/{id}, "+
@@ -436,13 +404,10 @@ func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) htt
 	return guard(mux)
 }
 
-// guard wraps the API in the authorization policy, when this install has an iam
-// to verify tokens against.
-//
-// Without one it returns the mux untouched and says so, which is the same
-// decision newServer makes for every other absent dependency: a service that
-// cannot verify a token must not start refusing every request, because there is
-// no way for a caller to fix that from the outside.
+// guard wraps the API in the authorization policy, when IAM_URL names an issuer
+// to verify tokens against. Without one it returns the mux untouched and says so:
+// a service that cannot verify a token must not start refusing every request,
+// because there is no way for a caller to fix that from the outside.
 func guard(mux http.Handler) http.Handler {
 	issuer := os.Getenv("IAM_URL")
 	if issuer == "" {
@@ -463,9 +428,6 @@ func databasePool(database *db.DB) *pgxpool.Pool {
 }
 
 // healthz reports that the process is up.
-//
-// A named function rather than the closure it used to be, because an annotation
-// has to hang off something the generator can see.
 //
 //	@Summary		Liveness
 //	@Description	Answers as soon as the process is serving, whether or not Postgres or
@@ -488,8 +450,7 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// parseLevel maps a LOG_LEVEL name to an slog.Level, defaulting to info. It
-// matches the runtime's accepted level names so operators configure both alike.
+// parseLevel maps a LOG_LEVEL name to an slog.Level, defaulting to info.
 func parseLevel(name string) (slog.Level, error) {
 	switch name {
 	case "", "info":

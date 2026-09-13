@@ -112,10 +112,9 @@ type cataloguePayload struct {
 //
 // The feed carries keys this does not name — prompt_audio_per_1m,
 // completion_audio_per_1m, per_image, per_call — because some models bill for
-// things beyond text tokens. They are ignored rather than mapped: the runtime
-// reports token counts and nothing else, so there is no quantity here to multiply
-// them by. A model billed per call or per image is therefore under-costed by
-// whatever that portion is, which is a limit of what the traces carry.
+// things beyond text tokens. A record reports token counts and nothing else, so
+// there is no quantity to multiply those by, and a model billed per call or per
+// image is under-costed by that portion.
 type catalogueRow struct {
 	Provider    string   `json:"provider"`
 	Model       string   `json:"model"`
@@ -150,10 +149,9 @@ func (r catalogueRow) rate() Rate {
 
 // reduce normalizes published rows and keeps the best one per key.
 //
-// "Best" is moreSpecific, the same ordering resolution uses — deliberately one
-// rule rather than two. Between rows sharing a key it falls through to the feed's
-// current-price flag and then to the cheaper price, so the choice is deterministic
-// and errs toward under-claiming.
+// "Best" is moreSpecific, the same ordering resolution uses. Between rows sharing
+// a key it falls through to the feed's current-price flag and then to the cheaper
+// price, so the choice is deterministic and errs toward under-claiming.
 func reduce(rows []catalogueRow) Fetched {
 	type key struct {
 		provider string

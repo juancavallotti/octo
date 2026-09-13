@@ -11,46 +11,33 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// The bounded read.
+// The bounded read. A naive LRANGE key 0 -1 pulls 3600 rows of ~95 floats per pod
+// even when the caller wants one series over the last minute. Three things bound
+// it:
 //
-// A naive LRANGE key 0 -1 pulls 3600 rows of ~95 floats per pod even when the
-// caller wants one series over the last minute, on a Redis shared with the
-// trace folds and the volatile KV tier. Four things bound it, and only the
-// first three are interesting:
+//  1. Tier selection. liveDepth × sampleInterval is the entire reach of the live
+//     tier — an hour at the defaults — so a window older than that cannot be
+//     answered from live rows, and that is decided before a row is fetched.
 //
-//  1. Tier selection, which is free. liveDepth × sampleInterval is the entire
-//     reach of the live tier — an hour at the defaults — so a window older than
-//     that cannot be answered from live rows no matter how many are read. That
-//     is decided before a row is fetched.
-//
-//  2. A score-filtered pod set. The pods index retains members for retention
-//     plus an hour, eight days at the defaults, so a deployment that rolls a
-//     few times a day carries dozens of dead pod names against one or two live
-//     ones. A pod whose last write precedes the window cannot hold rows inside
-//     it, which makes ZRANGEBYSCORE an exact filter rather than a heuristic.
+//  2. A score-filtered pod set. The pods index retains members for retention plus
+//     an hour, so a deployment that rolls a few times a day carries dozens of dead
+//     pod names. A pod whose last write precedes the window cannot hold rows
+//     inside it, which makes ZRANGEBYSCORE an exact filter rather than a
+//     heuristic.
 //
 //  3. An index estimate whose error is one-sided. Rows are newest-first and
-//     spacing is at least the sample interval, because the sampler is a ticker
-//     and gaps only widen it. So (t0 − from) / interval is an upper bound on
-//     how many rows are needed: a gap means fewer, never more. The estimate
-//     over-fetches and cannot under-fetch — which is what makes it safe, and
-//     why it is still never used as a stopping condition. If the oldest row
-//     read is still inside the window, a continuation read follows.
+//     spacing is at least the sample interval, so (t0 − from) / interval is an
+//     upper bound: a gap means fewer rows are needed, never more. It over-fetches
+//     and cannot under-fetch, which is why it is never a stopping condition — if
+//     the oldest row read is still inside the window, a continuation read follows.
 //
-// What none of this bounds is the metric filter. Values are positional, so
-// reading two of ninety-five series still transfers every byte of every row in
-// the window. Nothing in Redis changes that, and it is not worth trying: the
-// win is in the window and the pod set, and the filter's value is that it lets
-// the rows be projected as they are decoded rather than retained whole.
-//
-// No Lua. The fold's scripts exist for atomicity across keys they were not
-// passed; a read has nothing to make atomic. Decoding thousands of rows inside
-// Redis's single thread would trade this service's idle CPU for a stall on the
-// one instance the fold pipeline depends on.
+// The metric filter bounds nothing: values are positional, so reading two of
+// ninety-five series still transfers every byte of every row in the window. Its
+// value is that rows can be projected as they are decoded rather than retained.
 
-// Nothing here sets its own deadline. A read rides the caller's context, as
-// fold's store does, so one bound covers every round trip of a query rather
-// than each stage getting its own and the total being unbounded.
+// Nothing here sets its own deadline. A read rides the caller's context, so one
+// bound covers every round trip of a query rather than each stage getting its own
+// and the total being unbounded.
 const (
 	// estimateSlack is added to a computed index range. Spacing can only fall
 	// below the sample interval through ticker catch-up or a clock adjustment,
@@ -90,10 +77,9 @@ type PodRef struct {
 // A zero since lists everything the index still holds. The bool reports
 // whether the cap truncated the list.
 //
-// An unknown deployment is an empty list and no error. This service has no
-// deployment registry — that is the orchestrator's — so it cannot tell a
-// deployment that never existed from one whose stats have expired or whose
-// sidecar is switched off, and answering as though it could would be a lie.
+// An unknown deployment is an empty list and no error: with no deployment
+// registry here, a deployment that never existed cannot be told apart from one
+// whose stats have expired or whose sidecar is switched off.
 func (r *Reader) Pods(ctx context.Context, deploymentID string, since time.Time) ([]PodRef, bool, error) {
 	min := "-inf"
 	if !since.IsZero() {
@@ -153,10 +139,8 @@ type PodState struct {
 // States describes several pods in one round trip.
 //
 // The result is keyed by pod name and omits nothing: a pod whose keys have all
-// expired comes back with a defaulted Meta and zero counts, which is a normal
-// state rather than an error. The live tier's TTL is only twice the rollup
-// interval, so every pod that stopped more than two hours ago is in exactly
-// that state while remaining in the index for eight days.
+// expired comes back with a defaulted Meta and zero counts, which is normal rather
+// than an error — the live tier's TTL is far shorter than the index's.
 func (r *Reader) States(ctx context.Context, deploymentID string, pods []PodRef, tier Tier) (map[string]PodState, error) {
 	if len(pods) == 0 {
 		return map[string]PodState{}, nil

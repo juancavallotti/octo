@@ -1,24 +1,14 @@
-// Package storagestats reports how full the platform's two stores are.
+// Package storagestats reports how full the two stores underneath this service
+// are: memory against the ceiling, the hit rate, what has been evicted, how much
+// of the connection pool is in use, how large the KV table has grown.
 //
-// It is the deeper half of what the orchestrator's health report deliberately
-// refuses to answer. That one reports one thing per dependency — did it answer —
-// and says in its own doc comment that a Redis answering a ping tells you nothing
-// about how full it is. This is where that question gets asked: memory against
-// the ceiling, the hit rate, what has been evicted, how much of the connection
-// pool is in use, how large the KV table has grown.
+// It lives here because this service holds both stores and is the heaviest writer
+// to one of them: every log and trace record lands through the pool reported here,
+// so a pool with no connection to spare is the shape of telemetry backing up.
 //
-// It lives in this service because this service holds both stores and is the
-// heaviest writer to one of them: every log and trace record lands through the
-// pool reported here, so a pool with no connection to spare is the shape of
-// telemetry backing up. The KV table is the orchestrator's, but its size is a
-// question about the database rather than about who writes to it.
-//
-// Both halves are optional and reported independently. An installation with no
-// Redis is a supported one (volatile objects fall back to the database), and this
-// service serves /healthz without a database while Postgres comes up, so each side
-// reports "not configured" with a reason rather than failing the request. A page
-// that could not distinguish "absent" from "broken" would be worse than no page,
-// because it would be believed.
+// Both halves are optional and reported independently. Each side reports "not
+// configured" with a reason rather than failing the request, because a report that
+// could not distinguish "absent" from "broken" would be worse than none.
 package storagestats
 
 import (
@@ -82,8 +72,7 @@ type DatabaseStats struct {
 	IdleConns     int32 `json:"idleConns"`
 	MaxConns      int32 `json:"maxConns"`
 	// EmptyAcquireCount is how often a caller had to wait for a connection, which
-	// is the number that turns "the platform feels slow" into "the pool is too
-	// small".
+	// is the number that turns "it feels slow" into "the pool is too small".
 	EmptyAcquireCount int64 `json:"emptyAcquireCount"`
 	DatabaseBytes     int64 `json:"databaseBytes"`
 	KVTableBytes      int64 `json:"kvTableBytes"`
@@ -115,11 +104,9 @@ func (s *Service) Collect(ctx context.Context) Stats {
 //
 // INFO with no argument, not INFO with a list of sections: multiple section
 // arguments only arrived in Redis 7.0, and against an older server that call is an
-// error — which this package would then report as "Redis is not reachable", the
-// exact confusion between absent, broken and merely old that its doc comment says
-// to avoid. The default section set already contains every field read below, and it
-// leaves out the expensive ones (commandstats, latencystats) that INFO ALL would
-// pull in.
+// error this package would report as "not reachable". The default section set
+// already contains every field read below, and it leaves out the expensive ones
+// (commandstats, latencystats) that INFO ALL would pull in.
 //
 // DBSIZE is asked for separately because INFO reports the key count only per
 // logical database, in a shape that is more work to read than to ask for.
@@ -222,9 +209,9 @@ func parseInfo(raw string) map[string]string {
 	return out
 }
 
-// infoInt reads a numeric INFO field, treating an absent or unreadable one as zero.
-// Redis's field set varies by version, and a report that failed because one counter
-// was renamed would be worse than one showing a zero.
+// infoInt reads a numeric INFO field, treating an absent or unreadable one as
+// zero. Redis's field set varies by version, and a report that failed over one
+// missing counter would be worse than one showing a zero.
 func infoInt(info map[string]string, key string) int64 {
 	value, err := strconv.ParseInt(strings.TrimSpace(info[key]), 10, 64)
 	if err != nil {

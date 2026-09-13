@@ -94,11 +94,9 @@ func (r *IntegrationResolver) Resolve(ctx context.Context, deploymentID string) 
 		}
 	}
 
-	// Detached from the caller's context on purpose. Everyone waiting on this
-	// entry takes its answer, so running the query under the first caller's
-	// deadline would let that one caller's cancellation resolve the deployment as
-	// unknown for every record behind it. The lookup gets a deadline of its own
-	// instead; each waiter still honours its own ctx while waiting.
+	// Detached from the caller's context: everyone waiting on this entry takes its
+	// answer, so the first caller's cancellation must not resolve the deployment
+	// as unknown for every record behind it. Each waiter still honours its own ctx.
 	lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lookupTimeout)
 	entry.integrationID, entry.found, entry.err = r.lookup.IntegrationOf(lookupCtx, deploymentID)
 	cancel()

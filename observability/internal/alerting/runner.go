@@ -15,24 +15,19 @@ const (
 	// watch may ask for.
 	tickInterval = MinInterval
 
-	// maxConcurrentWatches bounds how many watches one tick evaluates at once.
-	// Four concurrent aggregate queries is a load the trace table already carries
-	// from the UI, and this pool is shared with the ingest path — a watch is
-	// never urgent enough to compete with the records it is about.
+	// maxConcurrentWatches bounds how many watches one tick evaluates at once. The
+	// connection pool is shared with the ingest path, and a watch is never urgent
+	// enough to compete with the records it is about.
 	maxConcurrentWatches = 4
 
 	// evalTimeout bounds one watch. Generous enough for a percentile over an hour
 	// of summaries, short enough that a stuck query cannot hold the tick open.
 	evalTimeout = 30 * time.Second
-	// The two things a worker does after deciding, each bounded on its own. The
-	// write is short because it is one transaction against a database in the same
-	// cluster; the announcement is longer because it may be an HTTP call to the
-	// orchestrator's mailer, and a slow send is better than a lost alert.
-	//
-	// Bounded at all because the parent context has no deadline: without these, a
-	// blocked write or a hanging mailer holds a worker open forever, and enough of
-	// them hold the tick's WaitGroup with them — at which point evaluation stops
-	// for the whole installation and the symptom is silence.
+	// The two things a worker does after deciding, each bounded on its own: the
+	// write is one transaction, while an announcement may be an HTTP call and a slow
+	// send beats a lost alert. Bounded at all because the parent context has no
+	// deadline — a blocked write or a hanging mailer would hold a worker open
+	// forever, and enough of them hold the tick's WaitGroup with them.
 	writeTimeout    = 15 * time.Second
 	announceTimeout = 30 * time.Second
 
@@ -51,12 +46,8 @@ const (
 	ingestGrace = 2 * MinStep
 )
 
-// The interfaces the runner consumes, declared here where they are used.
-//
-// The store one is larger than this codebase usually likes. It is one collaborator
-// with one job — everything the scheduler does to a row — and splitting it into a
-// due-lister, a recorder and a parker would be three names for the same thing and
-// three fakes in every test that drives a tick.
+// The interfaces the runner consumes, declared here where they are used. store is
+// one collaborator with one job: everything the scheduler does to a row.
 type store interface {
 	Due(ctx context.Context, now time.Time, limit int) ([]Due, error)
 	// Record returns the state it actually wrote, because the incident id is
@@ -120,11 +111,9 @@ func NewRunner(s store, f fetcher, leader elector, n notifier, quiet quieter) *R
 	}
 }
 
-// Run evaluates due watches until ctx is done.
-//
-// It ticks once immediately rather than waiting out the first interval, on the
-// same terms the price refresher does: a process that has just taken the lease
-// has no reason to leave the installation unwatched for a minute.
+// Run evaluates due watches until ctx is done. It ticks once immediately rather
+// than waiting out the first interval: a process that has just taken the lease has
+// no reason to leave the installation unwatched for a minute.
 func (r *Runner) Run(ctx context.Context) {
 	r.tick(ctx)
 
@@ -235,12 +224,8 @@ func (r *Runner) evaluateOne(ctx context.Context, item Due, now time.Time, inges
 		Duration: r.now().Sub(started),
 	}
 
-	// Bounded separately from the evaluation. evalTimeout covers the fetch, and
-	// the parent context has no deadline at all — so a database write or a
-	// notification that blocks holds this worker open indefinitely, and four of
-	// them hold the tick's WaitGroup with it, which stops every later tick. Its
-	// own deadline rather than evalCtx's, because a fetch that ran out of time
-	// still has a decision worth writing down.
+	// Bounded separately from the evaluation, and off ctx rather than evalCtx: a
+	// fetch that ran out of time still has a decision worth writing down.
 	writeCtx, writeCancel := context.WithTimeout(ctx, writeTimeout)
 	defer writeCancel()
 
@@ -261,12 +246,9 @@ func (r *Runner) evaluateOne(ctx context.Context, item Due, now time.Time, inges
 	r.announce(announceCtx, item, result, recorded)
 }
 
-// fetchAll runs a watch's plan.
-//
-// Sequentially, and deliberately: the plan is already coalesced down to one query
-// per distinct set of rows, the whole tick is running several watches at once,
-// and a second layer of concurrency inside each would multiply the load on a pool
-// this service shares with ingest.
+// fetchAll runs a watch's plan sequentially. The plan is already coalesced to one
+// query per distinct set of rows and the tick runs several watches at once, so a
+// second layer of concurrency would only multiply the load on the pool.
 func (r *Runner) fetchAll(ctx context.Context, built *Built, now time.Time) map[string]Fetched {
 	plan := built.Plan(now)
 	out := make(map[string]Fetched, len(plan))
@@ -280,8 +262,7 @@ func (r *Runner) fetchAll(ctx context.Context, built *Built, now time.Time) map[
 // announce delivers whatever the state machine asked for.
 //
 // A delivery failure never rolls back the transition that has already been
-// recorded. The watch did fire, the incident is open, and losing that fact
-// because a mailer was down is strictly the worse failure — the next evaluation
+// recorded: the watch did fire, the incident is open, and the next evaluation
 // offers the repeat again.
 func (r *Runner) announce(ctx context.Context, item Due, result Result, next State) {
 	if len(result.Actions) == 0 || r.notify == nil {
@@ -298,10 +279,9 @@ func (r *Runner) announce(ctx context.Context, item Due, result Result, next Sta
 		notification := NewNotification(item.Watch, next, result.Evaluation, action)
 		delivered := r.notify.Notify(ctx, item.Watch, notification)
 		if !anyDelivered(delivered) {
-			// Said once per announcement, beside the per-action errors the
-			// dispatcher already logs. Without it the only trace of an alert that
-			// reached nobody is the absence of a notification row, which reads
-			// exactly like an alert that was never announced at all.
+			// Said once per announcement: otherwise the only trace of an alert that
+			// reached nobody is a missing notification row, which reads exactly like
+			// an alert that was never announced.
 			slog.Error("an alert reached nobody: every action failed",
 				"watch", item.Watch.Name, "kind", action.Kind,
 				"incident", next.IncidentID, "actions", len(delivered))
@@ -324,16 +304,13 @@ func (r *Runner) announce(ctx context.Context, item Due, result Result, next Sta
 
 // silenced reports whether the cooldown swallows this announcement.
 //
-// It gates the two that start or repeat a claim, and never the two that end one.
-// A receiver that is slow on purpose — a person, an agent working the problem —
-// is exactly who the cooldown is for, and exactly who most needs to be told it
-// is over. Suppressing the ending to be consistent would leave them working on
-// something that had already fixed itself.
+// It gates the two actions that start or repeat a claim, and never the two that
+// end one: whoever the cooldown was protecting is exactly who most needs to hear
+// that it is over.
 //
-// The claim is taken here rather than after delivery, and atomically: two
-// evaluators racing across a lease handover must not both decide they are first.
-// The cost is that a delivery which then fails still spent the cooldown, which is
-// the safe direction — the alternative is a failing mailer retried every tick.
+// The claim is taken here rather than after delivery, and atomically, so two
+// evaluators racing across a lease handover cannot both decide they are first. A
+// delivery that then fails still spent the cooldown, which is the safe direction.
 func (r *Runner) silenced(ctx context.Context, w Watch, action Action) bool {
 	if r.quiet == nil || w.Cooldown <= 0 {
 		return false
@@ -366,13 +343,10 @@ func anyDelivered(results []DeliveryResult) bool {
 	return false
 }
 
-// Preview evaluates a watch now without recording anything or telling anybody.
-//
-// This is what makes the condition vocabulary usable: an author sees every
-// condition's observed value against its threshold before saving, so "why does
-// this not fire" is answered in the editor rather than in production. It is the
-// same plan, fetch and combine the runner uses, with the state machine skipped —
-// which is only possible because those three are pure.
+// Preview evaluates a watch now without recording anything or telling anybody, so
+// an author can see every condition's observed value against its threshold before
+// saving. It is the same plan, fetch and combine the runner uses with the state
+// machine skipped, which is only possible because those three are pure.
 func (r *Runner) Preview(ctx context.Context, w Watch) (Evaluation, error) {
 	built, err := Build(w)
 	if err != nil {

@@ -1,7 +1,6 @@
 // Package api exposes the read-only HTTP query surface over what this service
 // stores: log events, and the traces beside them. It owns no storage; it parses
-// request filters, delegates to a querier, and shapes the JSON the platform's
-// views consume.
+// request filters, delegates to a querier, and shapes the JSON that comes back.
 //
 // Types are named for the stream they serve, the same way repo's are. The
 // package holds a handler per stream, so a bare "Handler" would name neither.

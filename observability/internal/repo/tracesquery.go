@@ -340,17 +340,15 @@ type TraceRecordRow struct {
 	DurationNs int64     `json:"duration_ns"`
 
 	Err string `json:"error"`
-	// Dropped marks a record the runtime shipped as incomplete; Truncated marks
-	// one whose payload was cut to fit.
+	// Dropped marks a record shipped as incomplete; Truncated marks one whose
+	// payload was cut to fit.
 	Dropped   bool `json:"dropped"`
 	Truncated bool `json:"truncated"`
 
-	// Body and Vars are null when the runtime captured no payload AND when the
-	// caller asked for the trace without them. The two are indistinguishable here
-	// by design: a client that asked for no bodies knows it did.
-	// swaggertype says what RawMessage means on the wire: bytes to Go, arbitrary
-	// JSON to a client. Without it the description would call these base64 strings.
-	// Their shape belongs to the block that was traced, not to this API.
+	// Body and Vars are null when no payload was captured AND when the caller
+	// asked for the trace without them; the two are indistinguishable here, since
+	// a client that asked for no bodies knows it did. swaggertype says what
+	// RawMessage means on the wire: bytes to Go, arbitrary JSON to a client.
 	Body  json.RawMessage `json:"body" swaggertype:"object"`
 	Vars  json.RawMessage `json:"vars" swaggertype:"object"`
 	Attrs json.RawMessage `json:"attrs" swaggertype:"object"`
@@ -409,8 +407,8 @@ func (t *Traces) Trace(ctx context.Context, traceID string) (TraceListRow, bool,
 // held more than the cap.
 //
 // Ordering by seq rides the (trace_id, seq) index, and it is publication order
-// rather than time order on purpose: seq is the only total order a publisher
-// gives, whereas two records can share a timestamp.
+// rather than time order: seq is the only total order a publisher gives, whereas
+// two records can share a timestamp.
 func (t *Traces) Records(ctx context.Context, traceID string, withBodies bool) ([]TraceRecordRow, bool, error) {
 	columns := recordColumnsNoBodies
 	if withBodies {

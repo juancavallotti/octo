@@ -662,14 +662,14 @@
                         "uniqueItems": false
                     },
                     "actorId": {
-                        "description": "ActorID is the acting user's id, forwarded by the platform's BFF from the\nauthenticated session and empty when unknown. A body field rather than a\nverified credential, which is the convention every write route on the\norchestrator already follows and for the same reason: this service has no\nsession, and the BFF is the auth boundary. It is attribution, never\nauthorization.",
+                        "description": "ActorID is the acting user's id, and is empty when unknown. A body field\nrather than a verified credential, because this service holds no session:\nit is attribution, never authorization.",
                         "type": "string"
                     },
                     "combinator": {
                         "type": "string"
                     },
                     "conditions": {
-                        "description": "Conditions and Actions travel as the open objects they are stored as,\nparameters and all.\n\nDeliberately untyped here rather than a struct per kind: describing them\nfield by field would mean this package knowing every condition's\nparameters, which is the one thing a discriminated shape exists to avoid,\nand it would put a second definition of them beside the one the domain\nalready decodes strictly. The domain's own builder is what refuses a\nmalformed one, and it does so with a message naming the field.",
+                        "description": "Conditions and Actions travel as the open objects they are stored as,\nparameters and all.\n\nUntyped rather than a struct per kind: describing them field by field would\nmean this package knowing every condition's parameters, and would put a\nsecond definition beside the one the domain already decodes strictly. The\ndomain's builder refuses a malformed one, naming the field.",
                         "items": {
                             "additionalProperties": {},
                             "type": "object"
@@ -816,7 +816,7 @@
                         "type": "string"
                     },
                     "attrs": {
-                        "description": "Attrs is whatever the runtime attached to the log call, passed through as it\nsent it. swaggertype keeps the description honest about that: bytes to Go,\narbitrary JSON to a client.",
+                        "description": "Attrs is whatever was attached to the log call, passed through as it\narrived. swaggertype keeps the description honest: bytes to Go, arbitrary\nJSON to a client.",
                         "type": "object"
                     },
                     "deployment_id": {
@@ -974,7 +974,7 @@
                         "type": "string"
                     },
                     "body": {
-                        "description": "Body and Vars are null when the runtime captured no payload AND when the\ncaller asked for the trace without them. The two are indistinguishable here\nby design: a client that asked for no bodies knows it did.\nswaggertype says what RawMessage means on the wire: bytes to Go, arbitrary\nJSON to a client. Without it the description would call these base64 strings.\nTheir shape belongs to the block that was traced, not to this API.",
+                        "description": "Body and Vars are null when no payload was captured AND when the caller\nasked for the trace without them; the two are indistinguishable here, since\na client that asked for no bodies knows it did. swaggertype says what\nRawMessage means on the wire: bytes to Go, arbitrary JSON to a client.",
                         "type": "object"
                     },
                     "cache_write_tokens": {
@@ -997,7 +997,7 @@
                         "type": "string"
                     },
                     "dropped": {
-                        "description": "Dropped marks a record the runtime shipped as incomplete; Truncated marks\none whose payload was cut to fit.",
+                        "description": "Dropped marks a record shipped as incomplete; Truncated marks one whose\npayload was cut to fit.",
                         "type": "boolean"
                     },
                     "duration_ns": {
@@ -1066,7 +1066,7 @@
                         "type": "integer"
                     },
                     "emptyAcquireCount": {
-                        "description": "EmptyAcquireCount is how often a caller had to wait for a connection, which\nis the number that turns \"the platform feels slow\" into \"the pool is too\nsmall\".",
+                        "description": "EmptyAcquireCount is how often a caller had to wait for a connection, which\nis the number that turns \"it feels slow\" into \"the pool is too small\".",
                         "type": "integer"
                     },
                     "idleConns": {

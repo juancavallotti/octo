@@ -42,10 +42,9 @@ const (
 // Store holds open runs in Redis, so a fold survives its records being spread
 // across replicas.
 //
-// That spread is not hypothetical: the aggregator's consumers join a NATS queue
-// group, so consecutive records of one trace go to whichever replica is free. An
-// in-process fold would work at one replica and silently stop working at two,
-// which is the worst way for a thing like this to fail.
+// Consumers join a NATS queue group, so consecutive records of one trace go to
+// whichever replica is free: an in-process fold would work at one replica and
+// silently stop working at two.
 //
 // The scripts below touch keys they were not passed, which rules out Redis
 // Cluster — the expiry sweep reads a hash it found in the sorted set, and no
@@ -222,10 +221,9 @@ func decodePending(pending map[string]string) ([]Record, error) {
 //
 // A nil json.RawMessage marshals to the four bytes `null` and unmarshals back as
 // those four bytes rather than as nil, and the difference is load-bearing all the
-// way to the column: the store writes a nil body as SQL NULL, meaning the runtime
-// captured nothing, and `null` as the JSON value null, meaning it captured a null.
-// A record that passed through a fold must not acquire the second by having been
-// held.
+// way to the column: a nil body is written as SQL NULL, meaning nothing was
+// captured, and `null` as the JSON value null, meaning a null was. A record that
+// passed through a fold must not acquire the second by having been held.
 func decodeRecord(encoded string) (Record, error) {
 	var rec Record
 	if err := json.Unmarshal([]byte(encoded), &rec); err != nil {
