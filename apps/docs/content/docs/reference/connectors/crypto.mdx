@@ -139,27 +139,32 @@ flows:
     process:
       # Encrypt just the one sensitive field, leaving the rest of the body alone.
       - type: encrypt
+        name: seal-ssn
         settings:
           crypto: vault
           value: body.ssn
           target: sealedSsn
 
       - type: set-payload
+        name: seal-body
         settings:
           value: '{"name": body.name, "ssn": vars.sealedSsn}'
 
       # The ssn in this line is base64 ciphertext, and different on every tick.
       - type: log
+        name: log-sealed
         settings:
           message: '"sealed: " + toJson(body)'
 
       - type: decrypt
+        name: open-ssn
         settings:
           crypto: vault
           value: body.ssn
           target: openedSsn
 
       - type: set-payload
+        name: open-body
         settings:
           value: '{"name": body.name, "ssn": vars.openedSsn}'
 ```
