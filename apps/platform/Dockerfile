@@ -102,11 +102,21 @@ COPY --from=editor-build /app/apps/platform/public ./apps/platform/public
 COPY --from=bin /out/octo /usr/local/bin/octo
 COPY --from=bin /out/dolphin /usr/local/bin/dolphin
 
-# OCTO_RUN_DIR must be writable at runtime; back it with an emptyDir in k8s.
-# Owned by the unprivileged user below, which is what lets the container write
-# there without running as root. Same for /tmp, which Next.js uses for its
-# response cache.
-RUN mkdir -p /app/.octo-run && chown -R node:node /app/.octo-run /tmp
+# The three paths the server writes to at runtime, owned by the unprivileged user
+# below — which is what lets the container write them without running as root.
+#
+#   OCTO_RUN_DIR   the RUN feature's scratch space; back it with an emptyDir in k8s.
+#   /tmp           Next.js's response cache.
+#   .next/cache    where the image optimizer stores what it has already resized.
+#
+# The last one has to be created here rather than just chowned: the COPY above
+# lays .next down as root and without a `cache` inside it, so the server's first
+# attempt to write one is an EACCES on mkdir. That is not fatal — every optimized
+# image is simply re-encoded on every request, and the failure surfaces only as a
+# repeated unhandledRejection in the log — which is precisely why it survived
+# unnoticed.
+RUN mkdir -p /app/.octo-run /app/apps/platform/.next/cache \
+ && chown -R node:node /app/.octo-run /app/apps/platform/.next/cache /tmp
 
 # Run unprivileged. node:22-alpine ships a `node` user (uid/gid 1000) but does
 # not select it, so without this the editor runs as root — which clusters with
