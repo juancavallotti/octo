@@ -2,11 +2,8 @@ import type { Resource, SnapshotResource } from "@/app/model/orchestrator";
 
 /**
  * The pure half of the resources panel: what a resource looks like in the list,
- * and the two ways one arrives.
- *
- * Kept out of the component so the kind-guessing rule — which mirrors the
- * standalone loader's, and is the sort of thing that drifts silently when it is
- * only ever exercised through a form — can be tested without React.
+ * and the two ways one arrives. React-free, so the kind-guessing rule can be
+ * exercised directly rather than only through a form.
  */
 
 /** One row of the resources list, from either source. */
@@ -49,9 +46,9 @@ export function fromLive(r: Resource): DisplayResource {
 }
 
 /**
- * A resource frozen under a version tag. No id, because a frozen resource has no
- * independent identity to address — it belongs to the snapshot — and the absent
- * id is what the list reads to know it cannot be deleted.
+ * A resource frozen under a version tag. It has no id: it belongs to the snapshot
+ * rather than having an identity of its own, and the absent id is what marks it
+ * undeletable.
  */
 export function fromFrozen(r: SnapshotResource): DisplayResource {
   return { key: `${r.kind}:${r.name}`, kind: r.kind, name: r.name };

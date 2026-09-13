@@ -6,13 +6,9 @@ import { listEvaluations, type Evaluation } from "@/app/model/alerts";
 
 /**
  * Every time this watch was asked, newest first — including the ticks where
- * nothing happened.
- *
- * That inclusion is the whole point. An alert that did not go off is otherwise
- * indistinguishable from one that was never evaluated, and telling those apart is
- * the question asked after every missed incident. "Only what happened" is on by
- * default because it is the usual view, but turning it off has to be possible or
- * the log cannot answer the question it exists for.
+ * nothing happened, since an alert that did not go off is otherwise
+ * indistinguishable from one that was never evaluated. "Only what happened" is
+ * the default view, not the only one.
  */
 export function EvaluationHistory({ watchId }: { watchId: string }) {
   const [rows, setRows] = useState<Evaluation[]>([]);
@@ -21,10 +17,8 @@ export function EvaluationHistory({ watchId }: { watchId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Toggling the filter starts a second read while the first is in flight, and
-  // the older one finishing last would put the rows it fetched under the filter
-  // that is no longer selected. The same guard useAlerts uses, for the same
-  // reason.
+  // Toggling the filter starts a second read while the first is in flight; the
+  // older one finishing last would file its rows under the wrong filter.
   const sequence = useRef(0);
 
   const read = useCallback(
@@ -32,9 +26,8 @@ export function EvaluationHistory({ watchId }: { watchId: string }) {
       const mine = ++sequence.current;
       setBusy(true);
       // A base read replaces; only a paged one appends. Cleared before the
-      // request rather than after it, because a base read that FAILS would
-      // otherwise leave the previous filter's rows on screen underneath the new
-      // filter's state — the old answer presented as the new question's.
+      // request, so a base read that fails does not leave the previous filter's
+      // rows on screen under the new filter's state.
       if (!before) {
         setRows([]);
         setCursor(null);

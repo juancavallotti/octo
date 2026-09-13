@@ -18,12 +18,6 @@ import { newTurn, type Turn } from "./turns";
  * Loaded when the list is opened rather than with the drawer: most sessions never
  * open it, and it is two requests to a pod that may not be there.
  *
- * It wears the platform's picker panel rather than a list of its own, because the
- * question it asks is the picker's question: somebody knows the name of the
- * conversation they want and not its position in a list that only grows. The panel
- * hangs from the right, since the control that opens it is an icon at the right of
- * the drawer's header.
- *
  * What it lists is the agent's own record of each conversation, which is not his
  * memory — memory is compacted, so a long conversation has had its early turns
  * replaced by a summary. Only one of the two is what a person actually read.
@@ -102,7 +96,7 @@ function Rows({
       readConversation(row.id)
         .then((conversation) => {
           // Every stored turn is finished, so none of them streams. Replay is the
-          // text that was said, not the working-out behind it — the tool calls and
+          // text that was said, not the working-out behind it: the tool calls and
           // the reasoning belonged to the run and are gone with it.
           onOpen(
             row.id,
@@ -128,10 +122,8 @@ function Rows({
 
   /**
    * Erase a conversation, dropping it from the list rather than reloading: the
-   * listing is a request to a pod that may not answer twice, and the row that just
-   * went is the one thing the panel already knows the answer about. A failure puts
-   * it back, since a list that quietly loses a row it could not delete is worse
-   * than the error.
+   * listing is a request to a pod that may not answer twice. A failure puts the
+   * row back.
    */
   const erase = (row: ConversationRow) => {
     setConfirming(null);
@@ -161,8 +153,8 @@ function Rows({
   };
 
   // Only a listing that never arrived replaces the panel. An error raised after
-  // it loaded — a read that failed, a delete that was refused — is shown with the
-  // rows still there, or the row `erase` puts back would come back invisible.
+  // it loaded is shown with the rows still there, or the row `erase` puts back
+  // would come back invisible.
   if (!rows) {
     return (
       <div className="absolute right-0 top-full z-40 mt-1 w-72 rounded-md border border-black/10 bg-white py-1 shadow-lg dark:border-white/15 dark:bg-zinc-800">
@@ -241,8 +233,8 @@ function Rows({
  * The date, short enough for a row.
  *
  * A value that is not one shows nothing rather than "Invalid Date" — and rather
- * than the raw string, which for the RFC 3339 stamp this is fed would be
- * twenty-five characters in a column sized for six.
+ * than the raw string, which for an RFC 3339 stamp is twenty-five characters in a
+ * column sized for six.
  */
 function shortDate(value: string): string {
   const at = new Date(value);

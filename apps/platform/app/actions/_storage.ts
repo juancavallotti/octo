@@ -4,14 +4,6 @@
  *
  *     serverAction (auth) → this client (getStorageStats()) → requestJson() → fetch
  *
- * The deeper half of what `client/health.ts` deliberately refuses to answer. That
- * one asks the orchestrator whether each dependency answered a round trip; this
- * one asks the observability service what a round trip cannot tell you — memory
- * against the ceiling, the hit rate, what has been evicted, how much of that
- * service's connection pool is in use, how large the KV table has grown. It is
- * served there because that service holds both stores and is the heaviest writer
- * to one of them.
- *
  * Either half may be null. An installation with no Redis is supported (volatile
  * objects fall back to the database), so `redisReason` distinguishes "this
  * installation has none" from "it is down" — the page must not show those the same
@@ -51,7 +43,7 @@ export interface DatabaseStats {
   acquiredConns: number;
   idleConns: number;
   maxConns: number;
-  /** How often a caller waited for a connection — the number that turns "telemetry is late" into "the pool is too small". */
+  /** How often a caller waited for a connection — what turns "telemetry is late" into "the pool is too small". */
   emptyAcquireCount: number;
   databaseBytes: number;
   /** kv_store including its indexes. */

@@ -18,8 +18,7 @@ import DeployFormFields from "./DeployFormFields";
  *    names the new tag here (prefilled with the suggested next version).
  *
  * It also holds scale (replicas) and, for an HTTP source, the address slug plus
- * optional external exposure. The parent owns the deploy call (so it can create the
- * tag, refresh, and surface errors); this owns the form and closes on success.
+ * optional external exposure. The parent owns the deploy call; this owns the form.
  */
 
 /** What the modal submits: either an existing snapshot to deploy, or a new tag to
@@ -64,11 +63,10 @@ export default function DeployModal({
   const [slugOk, setSlugOk] = useState(false);
   const [tracing, setTracing] = useState(false);
   // Platform-access grants, both off by default: an integration that reads its own
-  // installation is the exception, and the default should be the rule.
+  // installation is the exception.
   const [access, setAccess] = useState<DeploymentAccess[]>([]);
-  // Which image the pods run. Empty is the distroless default every integration
-  // has always had; "agentic" is the privileged one, so it is opt-in like the
-  // grants above and for a stronger reason.
+  // Which image the pods run. Empty is the distroless default; "agentic" is the
+  // privileged one, so it is opt-in like the grants above.
   const [runner, setRunner] = useState("");
   // A tag reads its frozen definition, Current the live working copy. The
   // suggestion prefills the slug box on load, but not on the failure fallback —

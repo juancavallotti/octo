@@ -17,12 +17,7 @@ function sseResponse(body: string): Response {
   return { ok: true, status: 200, body: stream } as unknown as Response;
 }
 
-/**
- * What the runtime returns for a message it handed to the run already in flight:
- * an empty body, immediately. Nothing about the message comes back this way — the
- * acknowledgement arrives on the stream that is already open — and a steer sharing
- * the run's Response would have it cancelling the very stream it is waiting on.
- */
+/** What the runtime returns for a message handed to the run in flight: an empty body. */
 function handedOver(): Response {
   return { ok: true, status: 200, body: null } as unknown as Response;
 }
@@ -34,11 +29,7 @@ function frames(...events: unknown[]): string {
 
 const fetchMock = vi.fn();
 
-/**
- * Readers over the segment model, so the assertions below stay about behaviour.
- * A turn is an ordered log now, and these pull the three things a test cares
- * about back out of it.
- */
+/** Readers over the segment model, so the assertions below stay about behaviour. */
 function answerOf(turn: Turn): string {
   return textOf(turn, "text");
 }
@@ -194,8 +185,7 @@ describe("useAgentChat", () => {
   });
 
   // The reasons come from the runtime and can grow. One this build does not know is
-  // still worth saying something about, but never by showing the raw string — those
-  // are written for a log.
+  // still worth saying something about — but never by showing the raw string.
   it("falls back to a readable note for a guardrail reason it does not know", async () => {
     fetchMock.mockResolvedValue(
       sseResponse(frames({ type: "guardrail", reason: "some future reason" })),
@@ -209,14 +199,9 @@ describe("useAgentChat", () => {
     expect(result.current.turns[1].note).not.toContain("some future reason");
   });
 
-  // `busy` only becomes true once React commits, so two sends in one tick both pass
-  // a state-based guard. The second would replace the controller the first is
-  // holding, and Stop would then reach a stream that had already finished while the
-  // live one ran on.
-  // A message typed while he is working is handed to the run in flight rather than
-  // starting a rival — the runtime claims the conversation, so the second request
-  // is injected into it and stops with an empty body. Both messages are the
-  // person's, and both belong in the transcript.
+  // `busy` only becomes true once React commits, so two sends in one tick both pass a
+  // state-based guard. The second is handed to the run in flight rather than starting a
+  // rival, and both messages belong in the transcript.
   it("hands a second message to the run in flight instead of starting a rival", async () => {
     fetchMock
       .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "ok" })))
@@ -234,9 +219,8 @@ describe("useAgentChat", () => {
       result.current.turns.filter((t) => t.role === "user").map((t) => answerOf(t)),
     ).toEqual(["first", "second"]);
 
-    // And it did not take the run's controller with it. Only the first request is
-    // a stream, so only the first is what Stop has to be able to reach — a steer
-    // that replaced the controller would leave Stop pointing at nothing.
+    // Only the first request is a stream, so only the first is what Stop has to reach —
+    // a steer that replaced the controller would leave Stop pointing at nothing.
     const run = fetchMock.mock.calls[0][1] as RequestInit;
     const steer = fetchMock.mock.calls[1][1] as RequestInit;
     expect(steer.signal).toBeDefined();
@@ -244,10 +228,9 @@ describe("useAgentChat", () => {
   });
 
   /**
-   * The request that carries a steered message answers nothing: the runtime hands
-   * it to the run in flight and stops the flow, so the POST comes back empty and
-   * immediately whether the message was folded in or thrown away. Until the run
-   * says which, the bubble must not claim it was read.
+   * The request that carries a steered message answers nothing, whether the message was
+   * folded in or thrown away. Until the run says which, the bubble must not claim it was
+   * read.
    */
   it("holds a steered message as unread until he says he took it", async () => {
     fetchMock
@@ -272,17 +255,14 @@ describe("useAgentChat", () => {
       result.current.turns.filter((t) => t.role === "user").map((t) => t.delivery),
     ).toEqual([undefined, "taken"]);
 
-    // And it took its place in the conversation rather than staying at the bottom:
-    // the run's turn is closed above it and a fresh one opened underneath, so what
-    // he does about the message renders under the message.
+    // And it took its place in the conversation: the run's turn is closed above it and a
+    // fresh one opened underneath, so what he does about the message renders under it.
     expect(result.current.turns.map((t) => t.role)).toEqual(["user", "agent", "user", "agent"]);
   });
 
-  // The run this joins already holds the page and the route catalogue from its
-  // opening turn, and the runtime injects whatever arrives here into that
-  // conversation verbatim. Sending them again duplicates 1.5KB of context per
-  // follow-up and leaves the acknowledgement carrying a string that no bubble the
-  // person typed could ever be matched to.
+  // The run this joins already holds the page and the route catalogue, and the runtime
+  // injects whatever arrives here verbatim. Sending them again duplicates context and
+  // leaves the acknowledgement carrying a string no bubble could be matched to.
   it("steers with the question alone, not the whole page context", async () => {
     fetchMock
       .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "ok" })))
@@ -302,11 +282,9 @@ describe("useAgentChat", () => {
   });
 
   /**
-   * A message can be handed over without this window ever knowing a run was in
-   * flight — a second tab, or this one after a reload while the old run still
-   * holds the claim. The runtime stops the flow with an empty body, so the stream
-   * carries nothing: no frames, no answer, and a turn that renders as a blank gap
-   * where an answer should be.
+   * A message can be handed over without this window ever knowing a run was in flight —
+   * a second tab, or this one after a reload. The stream then carries nothing: no
+   * frames, no answer, and a turn that renders as a blank gap.
    */
   it("says so when the stream carried nothing because the run was already claimed", async () => {
     fetchMock.mockResolvedValue(sseResponse(""));
@@ -349,10 +327,9 @@ describe("useAgentChat", () => {
     expect(result.current.turns.at(-1)?.delivery).toBe("missed");
   });
 
-  // Somebody else's message — a second tab on the same conversation, or this one
-  // reloaded mid-run. It really did join the conversation and really did shape
-  // what follows, so it is written in rather than dropped: the answer changing
-  // direction with nothing said would be the reply going strange for no reason.
+  // Somebody else's message — a second tab, or this one reloaded mid-run. It really did
+  // shape what follows, so it is written in rather than dropped: the answer changing
+  // direction with nothing said would read as the reply going strange.
   it("writes in a message this window never sent", async () => {
     fetchMock.mockResolvedValue(
       sseResponse(
@@ -435,10 +412,10 @@ describe("useAgentChat", () => {
     );
   });
 
-  // Stop releases the controller synchronously, so the next question is not refused
-  // by the guard above. The first call rejects the way an aborted fetch really does,
-  // so the abandoned reader unwinds *while* the second stream is live — which is the
-  // state in which it must not clear busy or the controller out from under it.
+  // Stop releases the controller synchronously, so the next question is not refused by
+  // the guard above. The first call rejects the way an aborted fetch does, so the
+  // abandoned reader unwinds *while* the second stream is live — which is when it must
+  // not clear busy or the controller out from under it.
   it("accepts a new question immediately after a stop, and lets it finish", async () => {
     fetchMock
       .mockImplementationOnce(
@@ -473,9 +450,8 @@ describe("useAgentChat", () => {
     expect(result.current.turns.at(-1)?.streaming).toBe(false);
   });
 
-  // The guardrail answers from a set-payload rather than the model, so nothing
-  // streams and the reply exists only in the route's closing frame. Dropping that
-  // frame unconditionally left the user with a diagnostic string and no answer.
+  // The guardrail answers from a set-payload rather than the model, so nothing streams
+  // and the reply exists only in the route's closing frame.
   it("shows the guardrail's reply, which arrives only in the closing frame", async () => {
     fetchMock.mockResolvedValue(
       sseResponse(
@@ -493,9 +469,8 @@ describe("useAgentChat", () => {
     expect(result.current.turns[1].note).toBe("He declined this one.");
   });
 
-  // Most of what a reasoning model emits, and the thing whose absence made the
-  // panel look frozen. It accumulates separately from the answer so the two can be
-  // shown differently.
+  // Most of what a reasoning model emits. It accumulates separately from the answer so
+  // the two can be shown differently.
   it("accumulates thinking apart from the answer", async () => {
     fetchMock.mockResolvedValue(
       sseResponse(

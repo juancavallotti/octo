@@ -30,8 +30,8 @@ export function ThreadTranscript({
       </div>
     );
   }
-  // Labelled, because the working-memory panel beside this one deliberately shows
-  // overlapping text and "which of the two is this" has to be answerable.
+  // Labelled, because overlapping text shows elsewhere and "which of these is
+  // this" has to be answerable.
   return (
     <section
       aria-label="Transcript"
@@ -49,9 +49,7 @@ export function ThreadTranscript({
           that scrolled inside a box that scrolls is two places to be lost in. */}
       <ol className="flex flex-col gap-3 p-4">
         {transcript.turns.map((turn) => {
-          // A question the run never got back to. Worth badging rather than
-          // hiding: somebody asked it, and an agent that stops answering is the
-          // thing an operator is looking for.
+          // A question the run never got back to — badged rather than hidden.
           const unanswered = turn.attrs?.unanswered === true;
           return (
             <li key={turn.seq} className="text-sm">

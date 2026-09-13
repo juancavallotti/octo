@@ -5,16 +5,14 @@
  * ## Why nanoseconds, and why relative
  *
  * The runtime measures in nanoseconds and a `transform` block runs in tens of
- * microseconds, so a millisecond is not a small unit here — it is larger than
- * whole blocks. Rounding to one would collapse a chain of fast blocks onto a
- * single instant, and nesting them would come down to a coin flip.
+ * microseconds, so rounding to a millisecond would collapse a chain of fast
+ * blocks onto a single instant and nesting them would come down to a coin flip.
  *
  * Absolute epoch nanoseconds do not fit a JS number — 1.8e18 against a safe
  * integer ceiling of 9e15 — so an instant is kept as whole milliseconds plus the
- * nanoseconds inside that millisecond, and only ever multiplied out **relative to
- * the trace's own origin**. A trace lasting a hundred days still lands inside the
- * safe range once the epoch is subtracted off, and every number in this module
- * and in the waterfall is that offset.
+ * nanoseconds inside that millisecond, and only ever multiplied out **relative
+ * to the trace's own origin**. Every number in this module and in the waterfall
+ * is that offset.
  */
 
 const NS_PER_MS = 1_000_000;
@@ -96,13 +94,9 @@ export function mergeIntervals(intervals: Interval[]): Interval[] {
 }
 
 /**
- * How much wall-clock time the spans cover between them.
- *
- * The union rather than the sum, which is the whole point: a fork running four
- * REST calls concurrently for 100ms spent 100ms of the trace's time, not 400ms.
- * Summing durations would let a single branch account for more than the trace
- * lasted, and a percentage over 100 is how a chart admits it is measuring the
- * wrong thing.
+ * How much wall-clock time the spans cover between them — the union rather than
+ * the sum: a fork running four REST calls concurrently for 100ms spent 100ms of
+ * the trace's time, not 400ms.
  */
 export function unionLength(intervals: Interval[]): number {
   return mergeIntervals(intervals).reduce(
@@ -118,7 +112,7 @@ export function unionLength(intervals: Interval[]): number {
  * Concurrency is otherwise invisible: a `fork` mints the same block path on
  * several goroutines, so its branches arrive as spans that are siblings by
  * address and simultaneous by clock. Anything that ran alone comes back as lane
- * 0, so a sequential chain costs nothing to lay out.
+ * 0.
  */
 export function packLanes(intervals: Interval[]): number[] {
   const order = intervals

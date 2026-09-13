@@ -14,10 +14,8 @@ import { needsUpgrade } from "@/app/lib/runtimeRelease";
  * button, and a labelled address line.
  *
  * None of them knows what a deployment is — they take a status, a string, a
- * label — which is why they sit apart from the row that arranges them. The two
- * cards that show a deployment (in the integration, and on the deployments page)
- * both wear the pills, and a pill that read differently in the two places would
- * be two facts about one deployment.
+ * label — which is why they sit apart from the row that arranges them: a pill
+ * that read differently in two places would be two facts about one deployment.
  */
 
 const STATUS_STYLES: Record<DeploymentStatus, string> = {
@@ -54,9 +52,7 @@ export function VersionPill({ tag }: { tag: string }) {
  * The octo runtime the deployment's pods are running, under the octopus — the same
  * mark the runtime greets you with when it starts. Distinct from VersionPill,
  * which is the integration's own version: a deployment keeps the runtime image it
- * was created with until it is rolled over, so a cluster commonly runs several at
- * once — and which one a misbehaving deployment is on is the first thing asked
- * when troubleshooting it.
+ * was created with until it is rolled over.
  */
 export function RuntimePill({
   version,
@@ -68,9 +64,7 @@ export function RuntimePill({
   image?: string;
   /**
    * The runtime this install deploys now, when this deployment is not on it. Its
-   * presence is what turns the pill into a prompt: a deployment keeps the runtime
-   * it was created with until somebody rolls it over, and nothing else on the page
-   * says that has fallen behind.
+   * presence is what turns the pill into a prompt.
    */
   behind?: string;
 }) {
@@ -114,9 +108,9 @@ export function TracedPill() {
  * what its own token opens on the platform. Renders nothing when it has none of
  * them, so a card with nothing to say does not grow an empty line.
  *
- * The last two are the privileged ones, and they come last for that reason: a
- * reader scanning a column of deployments sees the ordinary facts in the same
- * place every time, and an amber pill at the end of the line is the exception.
+ * The privileged ones come last, so a reader scanning a column of deployments
+ * finds the ordinary facts in the same place every time and an amber pill at the
+ * end of the line is the exception.
  */
 export function DeploymentPills({
   tag,

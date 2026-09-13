@@ -13,16 +13,9 @@ import type { AlertNoData, WatchInput } from "@/app/model/alerts";
  *   the cadence   how often it may report while it stays true
  *   no data       what an empty window counts as
  *
- * There were four. A repeat interval sat between the hold and the cadence and
- * said the same thing the cadence says: "report every 15 minutes" and "stay
- * quiet for 15 minutes after reporting" are one setting written twice. Two
- * copies of one setting can be given two numbers, and then the smaller one
- * quietly wins while the form claims otherwise — so it is gone, and what is left
- * is a single rate.
- *
- * The hold used to sit under Schedule as "Hold for (seconds)", which explained
- * nothing. It is here because what it is for is suppression: a momentary spike
- * that resolves on its own is not something to be woken for.
+ * The hold belongs here rather than beside the schedule because what it is for
+ * is suppression: a momentary spike that resolves on its own is not something to
+ * be woken for.
  */
 export function Deduplication({
   watch,

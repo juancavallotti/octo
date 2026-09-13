@@ -62,9 +62,8 @@ export interface LlmSettingsInput {
  * The site's web search settings: whether the platform agent can search the open
  * web, and with which Parallel key.
  *
- * `provider` is reported rather than chosen. There is one provider today — the
- * agent's tool is a parallel-search block — so a second one would be a second
- * connector and a second tool, not a different value in this form.
+ * `provider` is reported rather than chosen: there is one today, and the agent's
+ * tool is a parallel-search block.
  */
 export interface WebSearchSettings {
   provider: string;
@@ -89,15 +88,11 @@ export interface WebSearchSettingsInput {
  * READ ONLY. The provider, model and key are deploy-time chart values on the
  * embedding server, not settings — the model cannot be changed once anything has
  * been embedded, because vectors carry no record of which model produced them and
- * a store holding two models' cannot be ranked coherently. A control that must
- * never be touched does not belong behind a Save button.
+ * a store holding two models' cannot be ranked coherently.
  *
- * `pending` is here because "configured" and "search is semantic" are not the same
- * statement: everything written before the server existed has no vector until the
- * sweep reaches it, and an operator deserves to see that happening rather than
- * wonder why search has not changed. There is no matching `embedded` total —
- * counting rows that already have a vector cannot use an index, so it read both
- * memory tables end to end every time the page loaded.
+ * `pending` counts what was stored before the server existed and has no vector
+ * until the sweep reaches it. There is no matching `embedded` total: counting rows
+ * that already have a vector cannot use an index.
  */
 export interface EmbeddingStatus {
   /** Whether this installation has an embedding server at all. */

@@ -5,21 +5,13 @@ import { Send, Square } from "lucide-react";
 import { useAutoGrow } from "./useAutoGrow";
 
 /**
- * How many lines the box grows to before it starts scrolling instead.
- *
- * Four rather than one is the whole change: a question worth asking this panel is
- * usually longer than a line, and the box used to hide everything but the last of
- * it. Four rather than more because the drawer's transcript pays for every line —
- * the composer grows downward out of the reading area.
+ * How many lines the box grows to before it starts scrolling instead. Four: a
+ * question worth asking is usually longer than a line, and every line past that
+ * is taken from the transcript above.
  */
 const MAX_ROWS = 4;
 
-/**
- * The message box.
- *
- * Its own component because the drawer around it grew past what one file should
- * hold, and because this is the part with the keyboard conventions in it.
- */
+/** The message box, and the keyboard conventions that go with it. */
 export default function Composer({
   draft,
   onDraft,
@@ -34,15 +26,14 @@ export default function Composer({
   busy: boolean;
   onStop: () => void;
 }) {
-  // The one rule both ways in are held to. The send button is disabled on an empty
-  // draft; without this, Enter was not — and whitespace pressed Enter for real.
+  // The one rule both ways in are held to: a draft that is only whitespace is not
+  // a message, whether it is sent by button or by Enter.
   const submit = () => {
     if (draft.trim()) onSubmit();
   };
 
-  // The height is owned by the hook, so there is no max-height class below: a
-  // class and a measured cap would be two answers to one question, and the one
-  // written inline is the one that would quietly stop matching.
+  // The height is owned by the hook, so there is no max-height class below — a
+  // class and a measured cap would be two answers to one question.
   const box = useAutoGrow(draft, MAX_ROWS);
 
   return (
@@ -61,12 +52,8 @@ export default function Composer({
         aria-label="Message"
         onChange={(e) => onDraft(e.target.value)}
         onKeyDown={(e) => {
-          // Enter sends, shift+enter breaks the line — the convention every chat
-          // input follows, and the one a multi-line paste needs.
-          //
-          // Except mid-composition. An IME uses Enter to accept the candidate it
-          // is offering, so without this check anyone typing Japanese, Chinese or
-          // Korean sends a half-finished word every time they choose one.
+          // Enter sends, shift+enter breaks the line — except mid-composition,
+          // where an IME uses Enter to accept the candidate it is offering.
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             submit();

@@ -9,20 +9,16 @@ import { callerToken } from "@/app/auth/callerToken";
 /**
  * POST /api/agent/chat — the browser's end of a conversation with Dr. Octo.
  *
- * Shaped like the pod-log proxy: a raw fetch carrying `req.signal`, the upstream
- * body passed straight through, 499 on abort. Closing the panel therefore aborts
- * the fetch, which aborts this one, which ends the agent's stream — the runtime's
- * `sse-event` sees a closed connection and its `ifClosed: stop` ends the run, so a
- * shut tab does not leave a model running with nobody reading it.
- *
- * The differences from that proxy: it is a POST with a JSON body, the response is
- * `text/event-stream`, and the target is resolved rather than configured.
+ * A raw fetch carrying `req.signal`, the upstream body passed straight through,
+ * 499 on abort. Closing the panel therefore aborts the fetch, which aborts this
+ * one, which ends the agent's stream — the runtime's `sse-event` sees a closed
+ * connection and its `ifClosed: stop` ends the run, so a shut tab does not leave a
+ * model running with nobody reading it.
  *
  * It carries two instructions besides the message, and both become headers here
  * rather than being passed through. `{stop: true}` becomes the header the agent's
  * `stopWhen` reads, which ends the run on whichever replica is holding the
- * conversation — not only the one this connection reached. Hanging up ends a run
- * too, but only the run whose stream this connection holds.
+ * conversation — not only the one this connection reached.
  *
  * `{authorize: {id, allow}}` is a person's answer to a tool call the run is
  * holding in front of them, and it reaches the run the same way: addressed to the
@@ -31,8 +27,8 @@ import { callerToken } from "@/app/auth/callerToken";
 export async function POST(req: Request) {
   // Authorization first, before anything that would describe this installation to
   // whoever asked. The write roles, not merely a session: Dr. Octo holds full
-  // read-write access to the orchestrator API, so a chat route open to any signed-in
-  // user would be a way around the gate every other write goes through.
+  // read-write access to the orchestrator API, so a chat route open to any
+  // signed-in user would be a way around the gate every other write goes through.
   let user: { id: string; name: string };
   try {
     user = await currentWriteUserId();
@@ -56,10 +52,9 @@ export async function POST(req: Request) {
   let body: Record<string, unknown>;
   try {
     const parsed: unknown = await req.json();
-    // An object, and specifically not the JSON literal `null` — which parses
-    // fine and is not an object, so reading a field off it throws and the caller
-    // gets a 500 for what is plainly a bad request. Arrays and scalars parse too
-    // and carry none of the fields below.
+    // An object, and specifically not the JSON literal `null` — which parses fine
+    // and is not an object, so reading a field off it throws. Arrays and scalars
+    // parse too and carry none of the fields below.
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       return Response.json({ error: "invalid request body" }, { status: 400 });
     }
@@ -74,42 +69,35 @@ export async function POST(req: Request) {
   }
 
   // The identity is written *over* whatever arrived, last, so a forged user block
-  // in the request cannot survive. It is the only field the client does not own:
-  // the agent keys its memory on the user id, so accepting one from the browser
-  // would let anyone read anyone's conversation by asking for it.
+  // in the request cannot survive. The agent keys its memory on the user id, so
+  // accepting one from the browser would let anyone read anyone's conversation.
   const payload = { ...body, user };
 
-  // A stop travels as a header because that is what the agent's `stopWhen` reads,
-  // and it is set here rather than accepted from the browser for the same reason
-  // the identity is: what the client says is a request, and what reaches the agent
-  // is this route's decision.
+  // A stop travels as a header because that is what the agent's `stopWhen` reads.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "text/event-stream",
   };
-  // Strictly true. The panel sends a boolean, and reading anything truthy would
-  // let "false" or 0.0 end a run — a stop is the one instruction here that
-  // destroys work, so it takes the value it was specified with and no other.
+  // Strictly true: reading anything truthy would let "false" or 0.0 end a run, and
+  // a stop is the one instruction here that destroys work.
   if (body.stop === true) headers["X-Agent-Stop"] = "1";
 
-  // The caller's own credential, so that what the agent's tools reach is what
-  // this person may reach. Set here from the session rather than accepted from
-  // the browser, for the same reason the identity and the stop are: what the
-  // client says is a request, and what reaches the agent is this route's
-  // decision.
+  // The caller's own credential, so that what the agent's tools reach is what this
+  // person may reach. Set here from the session rather than accepted from the
+  // browser: what the client says is a request, and what reaches the agent is this
+  // route's decision.
   //
-  // Absent when there is none, and the agent's tools then have nothing to
-  // present — which the orchestrator answers with a 401. That is the right
-  // failure: the alternative is an agent acting with whatever standing its own
-  // pod happens to have, on behalf of somebody who does not have it.
+  // Absent when there is none, and the agent's tools then have nothing to present —
+  // which the orchestrator answers with a 401. That is the right failure: the
+  // alternative is an agent acting with whatever standing its own pod happens to
+  // have, on behalf of somebody who does not have it.
   const token = await callerToken();
   if (token) headers["X-Agent-Caller-Token"] = token;
 
   // An authorization, read with the same strictness and for a sharper reason: this
   // is the one instruction that lets something happen rather than stopping it. An
   // id that is not a non-empty string is not an answer, and `allow` is granted only
-  // by the boolean `true` — anything else denies, which is the safe direction when
-  // a value did not arrive in the shape it was specified in.
+  // by the boolean `true` — anything else denies.
   const authorize = body.authorize;
   if (authorize && typeof authorize === "object" && !Array.isArray(authorize)) {
     const { id, allow } = authorize as Record<string, unknown>;

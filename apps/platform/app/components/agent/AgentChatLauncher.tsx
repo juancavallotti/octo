@@ -16,10 +16,9 @@ import {
  * Where the panel sits, docked and floating.
  *
  * Docked, it gives way on a narrow window rather than crushing the page: it never
- * takes the last 22.5rem of it, and under `md` — where even that would leave the
- * page a strip — it goes back to floating, where covering the page is at least
- * honest. Written out in full because Tailwind reads these strings from the
- * source; an interpolated `calc()` would name a class nobody generated.
+ * takes the last 22.5rem of it, and under `md` it goes back to floating. Written
+ * out in full because Tailwind reads these strings from the source; an
+ * interpolated `calc()` would name a class nobody generated.
  */
 const DOCKED =
   "shrink-0 max-w-[100vw] max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 md:max-w-[calc(100vw-22.5rem)]";
@@ -27,10 +26,7 @@ const FLOATING = "fixed inset-y-0 right-0 z-40 max-w-[100vw]";
 
 /**
  * Loaded on demand, because this launcher sits in the layout every signed-in page
- * shares and the drawer brings a Markdown renderer with it. Installing the agent is
- * a deliberate act, so on most installations that is weight on every page for
- * something nobody can open — and even where he is installed, it is weight before
- * anybody asks him anything.
+ * shares and the drawer brings a Markdown renderer with it.
  */
 const AgentDrawer = dynamic(() => import("./AgentDrawer"), { ssr: false });
 
@@ -38,19 +34,17 @@ const AgentDrawer = dynamic(() => import("./AgentDrawer"), { ssr: false });
  * The shell every signed-in page sits in, and the button that opens the chat
  * beside it.
  *
- * It probes once on mount and renders only the page when the agent is not deployed
- * — which is most installations, since installing him is a deliberate act. A
- * launcher that opened onto an error would be worse than no launcher.
+ * It probes once on mount and renders only the page when the agent is not
+ * deployed, which is most installations.
  *
  * It owns the page's layout rather than only floating over it because the panel can
  * be pinned: docked, the page shrinks into the space beside the panel; floating, it
- * overlays as before. The page is wrapped either way so that pinning is a class
- * change rather than a different tree.
+ * overlays. The page is wrapped either way so that pinning is a class change
+ * rather than a different tree.
  *
- * The drawer mounts on first open and then stays mounted, hidden when collapsed —
- * so minimising it keeps the conversation and lets an answer in flight finish
- * arriving. Before that first open nothing of it exists, which is what keeps an
- * installation that never uses the agent from paying for it.
+ * The drawer mounts on first open and then stays mounted, hidden when collapsed, so
+ * minimising it keeps the conversation and lets an answer in flight finish
+ * arriving.
  */
 export default function AgentChatLauncher({
   userKey,
@@ -78,8 +72,7 @@ export default function AgentChatLauncher({
       .then((body: { available?: boolean }) => setAvailable(Boolean(body.available)))
       .catch(() => {
         // An unreachable probe means no chat, which is what the initial state
-        // already says. Nothing to report on a page the user came to for something
-        // else entirely.
+        // already says.
       });
     return () => controller.abort();
   }, []);
@@ -115,15 +108,7 @@ export default function AgentChatLauncher({
           or floating over it. It is never re-parented, because moving it in the tree
           would remount the drawer — aborting the fetch that is streaming an answer
           and losing the conversation with it. Which is also why collapsing hides it
-          rather than unmounting it: reopen and the answer is there, finished.
-
-          Nothing is mounted before the first open, so an installation where the
-          agent is never used pays for none of it.
-
-          How it gives way on a narrow window is in DOCKED above: media queries
-          on the one element rather than a measured width in state, because the
-          constraint really is the window, and nothing here has to re-render to
-          obey it. */}
+          rather than unmounting it: reopen and the answer is there, finished. */}
       {opened && (
         <div
           style={open ? { width } : undefined}

@@ -1,22 +1,15 @@
 /**
  * Keyboard navigation for the waterfall's treegrid.
  *
- * `role="treegrid"` is a promise about behaviour, not a source of it: it tells
- * assistive technology that arrow keys will walk a tree, and then something has
- * to actually walk it. Without this the role is a claim the widget does not keep.
- *
  * The active row is tracked here and pointed at with `aria-activedescendant`,
- * rather than moving real focus between rows. The rows are plain divs rebuilt on
+ * rather than moving real focus between rows: the rows are plain divs rebuilt on
  * every zoom, and focus that has to survive that is focus that gets lost.
- *
- * Scrolling the active row into view is deliberately *not* here. A row is as
- * wide as the whole track now, and what a scroll into view must not disturb —
- * the horizontal position of the chart — is the caller's scroller, not this
- * hook's business.
+ * Scrolling that row into view is not this hook's business — the scroller
+ * belongs to the caller.
  *
  * Keys follow the ARIA treegrid pattern — arrows walk and fold the tree, Enter
- * opens a span — with the chart's own two additions: shifted arrows pan the
- * viewport, and Escape fits the whole trace back on screen.
+ * opens a span — with two additions: shifted arrows pan the viewport, and Escape
+ * fits the whole trace back on screen.
  */
 
 import { useCallback, useState } from "react";

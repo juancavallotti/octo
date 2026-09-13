@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The remote app runner: the platform's answer to "the editor's Run cannot live in a BFF
- * replica's memory". Everything here is about holding no state — every operation re-derives
- * the run from (user, integration) by asking the orchestrator — so what is worth testing is
- * that it never needs to remember anything, and that the two places where a dev run is
- * genuinely unlike a local child process are handled deliberately:
+ * The remote app runner. Everything here is about holding no state — every operation
+ * re-derives the run from (user, integration) by asking the orchestrator — and about the
+ * two places a dev run is genuinely unlike a local child process:
  *
  *   - a run's existence IS its status, so an empty list is a complete answer;
  *   - a pod log has no cursor, so a resumed stream numbers onwards from where the client
@@ -346,10 +344,9 @@ describe("logTail", () => {
     await expect(logTail(KEY)).rejects.toThrow("dev run not found");
   });
 
-  // A read that hits its deadline stops mid-stream. Returning the lines gathered so far as
-  // if they were the whole document lets an agent reason about a log that merely stops
-  // where the timeout cut it — so the truncation has to be visible in the output itself.
-  // The internal deadline is stood in for by a controller we hold, via AbortSignal.timeout.
+  // A read that hits its deadline stops mid-stream, and lines returned as if they were
+  // the whole document would let an agent reason about a log that merely stops where the
+  // timeout cut it. The deadline is stood in for by a controller we hold.
   it("marks the tail as truncated when the read times out", async () => {
     const deadline = new AbortController();
     const timeoutSpy = vi

@@ -10,14 +10,9 @@ import RoleBadges from "./RoleBadges";
  * One person: who they are, how their provider knows them, what they hold, and
  * the two ways to act on them.
  *
- * Nothing here changes a role. The row is a reading; editing opens a dialog.
- * That is the whole point of the split — role chips in a table make granting one
- * a single click on a list somebody is scrolling.
- *
- * Their own row cannot be removed. An administrator deleting themselves is how
- * somebody locks themselves out of the section they are standing in; iam refuses
- * to remove the last administrator regardless, and this stops the attempt being
- * made by accident.
+ * Nothing here changes a role — the row is a reading, and editing opens a dialog,
+ * so granting one is never a single click on a list somebody is scrolling. Their
+ * own row cannot be removed either, so nobody locks themselves out by accident.
  */
 export default function UserRow({
   user,
@@ -66,10 +61,8 @@ export default function UserRow({
       </td>
       <td className="py-2 pr-4 align-top">
         {user.subject ? (
-          // The provider's own id, for the question this screen gets asked when
-          // somebody cannot get in. Monospace and breakable: these are long and
-          // shaped like `auth0|65f…`, and truncating one would defeat the point
-          // of showing it.
+          // The provider's own id. Monospace and breakable: these are long and
+          // shaped like `auth0|65f…`, and truncating one defeats showing it.
           <code className="text-xs break-all text-zinc-500">{user.subject}</code>
         ) : (
           <span className="text-xs text-zinc-400 italic">Not signed in yet</span>
@@ -79,9 +72,7 @@ export default function UserRow({
         {user.lastLoginAt ? (
           new Date(user.lastLoginAt).toLocaleDateString()
         ) : (
-          // They have been provisioned and have not arrived. Worth saying as a
-          // state rather than a blank, because "did my invite work" is the
-          // question this screen will be asked.
+          // Provisioned and not yet arrived — a state rather than a blank.
           <span className="italic">Never</span>
         )}
       </td>

@@ -1,14 +1,8 @@
 /**
  * The app list's data lifecycle: fetch the apps that produced traces in a window.
  *
- * Every count in the response is meaningless without that window — "12 traces"
- * says nothing until you know whether that is an hour or a week — so it is named
- * on screen. It used to be named by echoing back the from/to the service
- * reported, because the service decides what an unbounded query means. It is
- * named by the control that sets it now: the window is chosen beside the app
- * picker, before the list it narrows, and the client always sends the explicit
- * bounds that choice resolves to. Displaying an echo of what was just asked for
- * would be a second answer to a question with one.
+ * The window is always sent as explicit bounds, so a count is reported against a
+ * window the caller already knows — nothing here echoes one back.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -44,9 +38,8 @@ export function useTraceApps(window: TraceWindow = {}): TraceApps {
       },
       (err: Error) => {
         if (!live) return;
-        // The list is left as it was: an app that was there a moment ago has not
-        // stopped existing because one poll failed, and blanking it would read
-        // as "nothing is being traced any more".
+        // The list is left as it was: an app has not stopped existing because one
+        // poll failed.
         setError(err.message);
         setLoaded(wanted);
       },

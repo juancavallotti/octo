@@ -5,16 +5,9 @@ import { useLayoutEffect, useRef } from "react";
 /**
  * A textarea that is as tall as what has been typed into it, up to a limit.
  *
- * The composer was a one-line box with a `max-h-32` that never applied, because
- * the height never changed for it to clamp. Anything longer than a sentence
- * scrolled inside a single visible line, which is a poor way to write the kind
- * of question this panel is for.
- *
- * The measurement is the whole trick and it has one rule: the height has to be
- * released before it is read. `scrollHeight` is the content's height *or the
- * element's*, whichever is larger, so measuring an element still holding last
- * keystroke's height can only ever grow — deleting a line would leave the box
- * where it was, permanently.
+ * The measurement has one rule: the height has to be released before it is read.
+ * `scrollHeight` is the content's height *or the element's*, whichever is larger,
+ * so measuring an element still holding its old height can only ever grow.
  */
 
 /**
@@ -23,15 +16,13 @@ import { useLayoutEffect, useRef } from "react";
  *
  * `value` is passed rather than read off the element because the resize belongs
  * to the render that changed it: a controlled textarea whose value came from
- * elsewhere — a cleared draft, a restored one — has to resize too, and there is
- * no input event for either.
+ * elsewhere — a cleared draft, a restored one — has no input event to hang it on.
  */
 export function useAutoGrow(value: string, maxRows: number) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
-  // Layout, not effect: this runs between React writing the value and the browser
-  // painting it. In a plain effect the old height is on screen for a frame, which
-  // reads as the box flickering on every keystroke.
+  // Layout, not effect: in a plain effect the old height is on screen for a
+  // frame, which reads as the box flickering on every keystroke.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -39,10 +30,9 @@ export function useAutoGrow(value: string, maxRows: number) {
     // Release, then measure. See the note above — this order is the point.
     el.style.height = "auto";
 
-    // The cap is computed from the element's own line-height rather than a class,
-    // so the clamp and what the user sees cannot drift apart. A jsdom element (or
-    // one styled in `em`) reports no usable line-height; falling back to the
-    // unclamped height keeps the hook honest instead of collapsing the box to zero.
+    // From the element's own line-height rather than a class, so the clamp and
+    // what the user sees cannot drift apart. An element reporting no usable
+    // line-height falls back to the unclamped height rather than collapsing.
     const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
     const content = el.scrollHeight;
     if (!Number.isFinite(lineHeight) || lineHeight <= 0) {

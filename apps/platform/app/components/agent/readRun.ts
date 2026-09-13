@@ -13,11 +13,9 @@ import { HANDED_OVER_NOTE } from "./turns";
 /**
  * One run's stream, folded into the transcript.
  *
- * Split from the hook because it is the only part that is neither state nor
- * request: given a body and somewhere to put the frames, it reads until the run
- * ends. It is also the part with the one piece of bookkeeping worth naming — the
- * turn the run is writing changes mid-stream, and everything after the change has
- * to go to the new one.
+ * Given a body and somewhere to put the frames, it reads until the run ends. The
+ * one piece of bookkeeping worth naming is that the turn the run is writing
+ * changes mid-stream, and everything after the change has to go to the new one.
  */
 
 /**
@@ -43,8 +41,7 @@ export interface RunSink {
    * The conversation was named mid-run. It belongs to the panel, not a turn.
    *
    * The thread comes with it so the caller can check the name is for the
-   * conversation it is showing: a run that named some other thread must not
-   * retitle the one on screen.
+   * conversation it is showing.
    */
   nameThread: (title: string, thread?: string) => void;
 }
@@ -57,7 +54,7 @@ export async function readRun(
   nextId: () => string,
 ): Promise<void> {
   // What this stream actually delivered. Zero is not an empty answer: it is the
-  // runtime saying somebody else owns this conversation — see below.
+  // runtime saying somebody else owns this conversation.
   let applied = 0;
 
   for await (const frame of parseSSE(body)) {
@@ -82,10 +79,6 @@ export async function readRun(
     if (!event) continue;
     applied++;
 
-    // A message reached the run from outside it. `context` means it was read, and
-    // is the one frame that moves the run to a new turn: what follows was said
-    // because of that message, so it belongs under it rather than appended to the
-    // answer it interrupted.
     // Naming is about the conversation rather than about anything said in it, so
     // it goes to the panel and never into the transcript.
     if (event.type === "thread_title") {
@@ -93,6 +86,10 @@ export async function readRun(
       continue;
     }
 
+    // A message reached the run from outside it. `context` means it was read, and
+    // is the one frame that moves the run to a new turn: what follows was said
+    // because of that message, so it belongs under it rather than appended to the
+    // answer it interrupted.
     if (event.type === "signal") {
       if (event.signal === "context") {
         const opened = nextId();
@@ -108,7 +105,7 @@ export async function readRun(
   }
 
   // Nothing arrived at all, which is the runtime saying somebody else owns this
-  // conversation. Left alone it is a blank turn with no explanation, which reads
-  // as a message that vanished.
+  // conversation. Left alone it is a blank turn that reads as a message that
+  // vanished.
   if (applied === 0) sink.noteTurn(target.turn, HANDED_OVER_NOTE);
 }

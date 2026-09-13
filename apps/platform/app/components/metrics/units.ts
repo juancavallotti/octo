@@ -6,10 +6,6 @@
  * enough here because these are the runtime's own metrics plus the two standard
  * collectors, all of which follow it: a `_bytes` suffix is bytes, `_seconds` is
  * seconds, `_total` is a counter.
- *
- * Getting this wrong is not cosmetic. 133000000 rendered as a plain number is
- * unreadable where "127 MiB" is obvious, and a counter charted as its raw value
- * would show a line that only ever climbs.
  */
 
 import { bytes, num } from "@/app/components/stats/Stat";

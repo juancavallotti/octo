@@ -13,14 +13,12 @@ import RolloutForm from "./RolloutForm";
 
 /**
  * Modal that rolls a live deployment over to a version and edits its environment in
- * one step. It reuses the deploy modal's env editor (seeded from the deployment's
- * current bindings, so the operator can extend or change them) and the header's
- * version picker, and works two ways:
+ * one step. The env editor is seeded from the deployment's current bindings, so the
+ * operator can extend or change them. It works two ways:
  *
  *  - `versionMode="pick"`  → choose an existing tag (roll to it) or Current (tag the
- *    working copy first, then roll). Used by the integrations deployments panel.
- *  - `versionMode="new-tag"` → always cut a new tag from the working copy. Used by
- *    the editor's Deploy button, which ships the on-screen definition.
+ *    working copy first, then roll).
+ *  - `versionMode="new-tag"` → always cut a new tag from the working copy.
  *
  * With more than one candidate deployment it also lets the operator pick which one to
  * upgrade. The parent owns save/createSnapshot/rollout (so it can refresh and surface
@@ -71,7 +69,6 @@ export default function RolloutModal({
   const selected =
     deployments.find((d) => d.id === selectedId) ?? deployments[0];
 
-  // Close on Escape, mirroring the deploy modal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onClose();

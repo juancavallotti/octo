@@ -1,17 +1,12 @@
 /**
  * Attaching "what this block was handed" to "what it did".
  *
- * The runtime publishes a `block.pre-invoke` with the incoming message and a
- * `block.post-invoke` with the outcome, and deliberately does *not* claim the two
- * can be paired: `runtime/types/event.go` measures each invocation's duration at
- * the source precisely because a `fork` runs one address on several goroutines,
- * so a listener cannot tell which pre belongs to which post.
- *
- * That constraint is inherited here. The pre-invoke is a **payload attachment and
- * never a timing input** — every span's interval comes from the post-invoke's own
- * measured duration, so a wrong match cannot move a bar. And when the pairing is
- * not provable the row says the input is unknown, because a plausible wrong
- * payload is worse than no payload: nothing about it looks wrong.
+ * A `block.pre-invoke` carries the incoming message and a `block.post-invoke` the
+ * outcome, and the two cannot in general be paired: one address may run on
+ * several goroutines at once. So a pre-invoke is a **payload attachment and never
+ * a timing input** — every span's interval comes from the post-invoke's own
+ * measured duration — and where the pairing is not provable the input is reported
+ * as unknown rather than guessed.
  */
 
 import type { TraceRecord } from "@/app/model/traces";
@@ -47,10 +42,9 @@ export function attachInputs(nodes: WaterfallNode[], pres: PreInvoke[]): void {
     const available = inputs.get(key);
     if (!available) continue;
 
-    // Concurrency is the case the runtime warns about: overlapping invocations of
-    // one address are a fork's branches, and nothing in the stream says which
-    // input became which outcome. Refuse the whole bucket rather than order it by
-    // a clock that was never measuring that.
+    // Overlapping invocations of one address are a fork's branches, and nothing in
+    // the stream says which input became which outcome. Refuse the whole bucket
+    // rather than order it by a clock that was never measuring that.
     if (concurrent(outcomes)) {
       for (const node of outcomes) node.inputMatched = false;
       continue;

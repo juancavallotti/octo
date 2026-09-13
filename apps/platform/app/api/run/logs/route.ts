@@ -11,23 +11,20 @@ const KEEPALIVE_MS = 15000;
 /**
  * GET /api/run/logs — Server-Sent Events stream of the dev run's log lines.
  *
- * A route rather than a server action because actions cannot stream, and it is the one
- * piece of the RUN feature that still needs a route at all. The lines come from the
- * orchestrator, which reads them from the run's pod — so this holds no buffer, and any
+ * A route rather than a server action because actions cannot stream. The lines come from
+ * the orchestrator, which reads them from the run's pod — so this holds no buffer, and any
  * replica can serve the stream for a run any other replica started.
  *
  * The run is addressed by the caller's own user id (from the session) and the integration
- * named in the query string. Both halves matter: the integration is untrusted client
- * input, and pairing it with a server-resolved user is what keeps one user's stream from
- * reaching another's run — naming somebody else's integration simply finds nothing.
+ * named in the query string. The integration is untrusted client input; pairing it with a
+ * server-resolved user is what keeps one user's stream from reaching another's run.
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
 
-  // The namespace is not what a dev run is keyed on — it is carried because the run key
-  // has a slot for it, and resolving it here keeps two things the route would otherwise
-  // lose: the run cookie stays fresh (an SSE connect is often a session's first request),
-  // and `deriveNamespace` validates the untrusted tab id rather than passing it along.
+  // The namespace is not what a dev run is keyed on, but resolving it here keeps the run
+  // cookie fresh (an SSE connect is often a session's first request) and validates the
+  // untrusted tab id rather than passing it along.
   const { ns: base, setCookie } = ensureNamespace(req);
 
   let userId: string;
@@ -43,10 +40,9 @@ export async function GET(req: Request) {
     integrationId: url.searchParams.get("integrationId") || undefined,
   };
 
-  // Whether there is a run to follow is settled before the stream opens, deliberately. An
-  // EventSource retries a stream that merely closes — forever, every few seconds — but
-  // treats a non-200 as final, so the honest answer to "nothing is running" is a status
-  // code and not an empty stream.
+  // Whether there is a run to follow is settled before the stream opens: an EventSource
+  // retries a stream that merely closes — forever, every few seconds — but treats a
+  // non-200 as final, so "nothing is running" has to be a status code.
   let running: boolean;
   try {
     running = (await remoteRunner.status(key)).running;

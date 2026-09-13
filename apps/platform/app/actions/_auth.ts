@@ -1,15 +1,13 @@
 /**
  * Authorization gates for the server actions. The action is the trust boundary:
  * it authorizes, then delegates to the (auth-agnostic) orchestrator client lib.
- * Reads require a session; writes require the write roles — the same split the
- * route handlers' `withAuth` applied. A denied check short-circuits to an error
- * result with the wording the routes returned.
+ * Reads require a session; writes require the write roles. A denied check
+ * short-circuits to an error result.
  *
  * Two of the four gates also resolve the caller's durable orchestrator user id, for
- * operations the orchestrator scopes to a user rather than to the cluster: their API
- * keys, and the dev runs they have running. That id is always resolved here, from the
- * session — never taken from client input, which is what keeps one user from addressing
- * another's.
+ * operations the orchestrator scopes to a user rather than to the cluster. That id
+ * always comes from the session, never from client input, which is what keeps one
+ * user from addressing another's.
  */
 
 import {
@@ -63,14 +61,9 @@ export async function withWrite<T>(
 
 /**
  * Run `fn` only for an administrator — the gate on everything the admin section
- * does, reads included.
- *
- * This is the check that matters, and not the one in the admin layout. Every one
- * of these actions is a POST endpoint in its own right, reachable by anyone who
- * knows its id whether or not a page ever rendered for them, so a layout that
- * declines to draw the page protects nothing on its own. The layout is there so
- * an administrator's colleague sees an honest refusal instead of a screen of
- * failed requests.
+ * does, reads included. Every one of these actions is a POST endpoint in its own
+ * right, reachable by anyone who knows its id whether or not a page ever rendered
+ * for them, so this is the check that matters.
  *
  * Unlike withWrite it does not read AUTH_WRITE_ROLES: which roles may write is an
  * operator's decision, and who may change the installation's own settings is not.
@@ -153,11 +146,6 @@ export async function currentUserId(): Promise<string> {
  * {@link currentUserId}, for a route handler whose caller can cause cluster-wide
  * writes. Throws ForbiddenError when the session lacks the write roles, for the
  * route to turn into a 403.
- *
- * The agent's chat route is the caller, and it needs this rather than
- * {@link currentUserId} because of what sits behind it: the agent holds full
- * read-write access to the orchestrator API, so admitting any signed-in user there
- * would route around the very gate every other write goes through.
  */
 export async function currentWriteUserId(): Promise<{ id: string; name: string }> {
   const session = await requireRole(...writeRoles);

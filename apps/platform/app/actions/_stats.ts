@@ -5,14 +5,12 @@
  *     serverAction (auth) → this client (getSeries()) → requestJson() → fetch
  *
  * It reads the observability service, like logs, traces and retention: that
- * service owns the stats query API too (see `_observability.ts` for why directly
- * and not through the orchestrator). The address and the wire shaping are
+ * service owns the stats query API too. The address and the wire shaping are
  * internal; callers see only the model's types.
  *
  * The routes are deployment-scoped because the storage is. A pod's rows live under
  * `octo:stats:v0:{deployment}:{pod}:`, and the deployment id is the only key into
- * them — there is no way to ask this API about a pod without knowing which
- * deployment it belongs to.
+ * them.
  */
 
 import type { ActionResult } from "@octo/http";
@@ -107,11 +105,9 @@ function seriesQuery(q: StatsSeriesQuery): string {
 /**
  * Read points for the named metrics.
  *
- * A query naming no metric is refused here rather than at the service, which
- * answers it with a 400. The bound is the point of the parameter — rows are stored
- * positionally, so an unfiltered query reads every series of every pod — and a
- * caller that lost its metric list along the way should not be told about it by an
- * error page.
+ * A query naming no metric is refused here rather than at the service, which answers
+ * it with a 400. The bound is the point of the parameter: rows are stored
+ * positionally, so an unfiltered query reads every series of every pod.
  */
 export async function getSeries(
   deploymentId: string,

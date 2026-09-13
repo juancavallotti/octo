@@ -19,14 +19,10 @@ import { needsUpgrade } from "@/app/lib/runtimeRelease";
 /**
  * The deployments view: every active deployment across every integration, shown as
  * a card grid with live per-pod state (polled while the page is open) — two columns
- * where the viewport is wide enough for them, one below that. Unlike the dashboard's
- * read-only tile grid, each card exposes the management actions the dedicated page
- * is for — scale it, roll it over to another version (the same dialog that turns
- * tracing on and off), tail one pod's logs, or open the integration in the
- * manager/editor. Reuses the dashboard's aggregation
- * (listAllDeployments) so the page and the dashboard summary stay in sync, and the
- * integrations panel's rollout dialog and log panel so a deployment is operated
- * the same way wherever it is met.
+ * where the viewport is wide enough for them, one below that. Each card exposes the
+ * management actions the dedicated page is for: scale it, roll it over to another
+ * version (the same dialog that turns tracing on and off), tail one pod's logs, or
+ * open the integration in the manager.
  *
  * It also answers the question a fleet raises that a single deployment does not:
  * which of these are running an older runtime than a deploy made today would get.
@@ -129,8 +125,7 @@ export default function DeploymentsMonitor({
   );
 
   // The tags this integration already has running, so the version picker can mark
-  // them — the same hint the integrations panel gives, derived from the list this
-  // page has loaded anyway.
+  // them. Derived from the list this page has loaded anyway.
   const deployedTags = useMemo(() => {
     const target = rollout.target;
     if (!target) return new Set<string>();

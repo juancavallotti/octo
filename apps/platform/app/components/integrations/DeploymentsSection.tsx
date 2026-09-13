@@ -11,9 +11,8 @@ import RolloutModal from "./RolloutModal";
  * Deployments for one integration, scoped to the active version: with a tag
  * selected it lists that tag's deployments; with Current selected it lists them
  * all. Each row shows live status and its actions (scale, rollout, undeploy, pod
- * logs). The orchestrator pushes status over SSE (it watches the cluster), so the
- * list updates live; if the stream is unavailable we fall back to gentle polling.
- * The Deploy button lives in the parent header and controls this modal.
+ * logs). Status arrives over SSE, falling back to gentle polling when the stream
+ * is unavailable.
  */
 
 export default function DeploymentsSection({
@@ -73,9 +72,8 @@ export default function DeploymentsSection({
       ? deployments
       : deployments.filter((d) => d.tag === filterTag);
 
-  // Mirror the live list up to the parent (for the Versions section's deployed-tag
-  // hint). Effect-driven so it stays in sync regardless of which path — first
-  // paint, SSE frame, or poll — last set the list.
+  // Report the live list upward. Effect-driven so it stays in sync regardless of
+  // which path — first paint, SSE frame, or poll — last set the list.
   useEffect(() => {
     onDeploymentsChange?.(deployments);
   }, [deployments, onDeploymentsChange]);

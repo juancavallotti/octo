@@ -22,18 +22,16 @@ import { AXIS, CPU_COLOR, dotFor, GRID, LINE, MEM_COLOR } from "./theme";
 /**
  * CPU and memory for one deployment's pods, on one chart with two axes.
  *
- * Two units on one plot is a deliberate trade. It costs a reader the ability to
- * compare the heights of two lines — which they should never do here anyway —
- * and buys the thing the question actually needs: whether the memory climb and
- * the CPU spike happened at the same moment. Cores read against the left axis,
- * bytes against the right, and the axis labels are coloured to match the lines
- * they govern, which is the only thing keeping a two-unit chart readable.
+ * Two units on one plot costs a reader the ability to compare the heights of two
+ * lines and buys what the question needs: whether the memory climb and the CPU
+ * spike happened at the same moment. Cores read against the left axis, bytes
+ * against the right, and the axis labels are coloured to match the lines they
+ * govern, which is the only thing keeping a two-unit chart readable.
  *
- * The domains and the tick positions are still ours rather than Recharts'. Its
- * defaults tick a byte axis decimally, which produces gridlines at 95 MiB where
- * 100 MB was meant, and it does not anchor a magnitude at zero — so a memory
- * line varying by 2 MiB on a 120 MiB pod is drawn full height and reads as a
- * crisis. See scale.ts.
+ * The domains and the tick positions are ours rather than Recharts'. Its defaults
+ * tick a byte axis decimally, and it does not anchor a magnitude at zero — so a
+ * memory line varying by 2 MiB on a 120 MiB pod is drawn full height and reads as
+ * a crisis. See scale.ts.
  */
 
 /** One pod's column of one metric. */
@@ -58,12 +56,8 @@ export default function LineChart({
   fromMs: number;
   toMs: number;
   /**
-   * Offer a range selector under the chart.
-   *
-   * For the history view, where it earns its space: a week of buckets is a lot
-   * of plot for one screen, and every sub-range of it still has points in it, so
-   * narrowing shows more rather than less. The live view is already at the
-   * finest resolution the pod stores, so there is nothing to zoom into.
+   * Offer a range selector under the chart. It earns its space where a range is
+   * wide enough that every sub-range still has points in it.
    *
    * It selects within data already fetched — no request, and no window that
    * could resolve to a different tier than the one on screen.

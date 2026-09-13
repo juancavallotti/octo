@@ -21,13 +21,11 @@ import DeploymentSpark, { metricsHref } from "./DeploymentSpark";
 import type { SparkData } from "./useDeploymentStats";
 
 /**
- * One deployment in the deployments page's list (as opposed to the dashboard's
- * tile grid). Unlike the read-only tile, this row shows the live per-pod state and
- * carries the management actions the dedicated page is for: scale it, roll it over
- * to another version (which is also where tracing is turned on and off), tail one
- * pod's logs, or open the integration behind it. Every one of those is delegated
- * to the parent, which performs the call and refreshes — mirroring the in-context
- * DeploymentRow.
+ * One deployment in the deployments page's list: the live per-pod state, plus the
+ * management actions — scale it, roll it over to another version (which is also
+ * where tracing is turned on and off), tail one pod's logs, or open the
+ * integration behind it. Every one of those is delegated to the parent, which
+ * performs the call and refreshes.
  *
  * The card is laid out in bands rather than one wrapping header row, because two
  * of these sit side by side in the page's grid: identity (status, name, version)

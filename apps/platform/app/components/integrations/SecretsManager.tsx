@@ -21,8 +21,7 @@ import { indexSecretUsage, type SecretUse } from "./secretUsage";
  * and when it was last set. The actual value lives in a Kubernetes Secret; the
  * orchestrator never returns it.
  *
- * Owns its own load/refresh/error state, mirroring IntegrationsManager's `run()`
- * pattern. A delete the orchestrator refuses (the secret is still referenced by a
+ * A delete the orchestrator refuses (the secret is still referenced by a
  * deployment) offers a force override.
  *
  * Which secrets are in use is worked out here rather than asked of the

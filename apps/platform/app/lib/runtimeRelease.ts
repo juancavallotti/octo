@@ -3,16 +3,13 @@
  * that exists is behind it.
  *
  * The answer is the image the orchestrator is configured to deploy, which the
- * chart hands to this app as RUNTIME_IMAGE — the same value, from the same
- * template helper, that it hands the orchestrator. It is read from the environment
- * rather than baked in from release-please because an operator may pin the runtime
- * to a tag this install was not built at, and a badge that called that "behind"
- * would be wrong on every deployment they own.
+ * chart hands to this app as RUNTIME_IMAGE. It is read from the environment rather
+ * than baked in from release-please because an operator may pin the runtime to a
+ * tag this install was not built at, and a badge calling that "behind" would be
+ * wrong on every deployment they own.
  *
- * Absent — a dev machine, a standalone editor, an install that never set it —
- * means the comparison cannot be made, and nothing is claimed. Silence is the only
- * honest answer there: every deployment reading "up to date" and every deployment
- * reading "needs upgrade" are both fabrications.
+ * Absent — a dev machine, a standalone editor, an install that never set it — means
+ * the comparison cannot be made, and nothing is claimed.
  */
 
 /** Server-only: the runtime image this install deploys, or "" when unset. */
@@ -39,8 +36,7 @@ export function currentRuntime(version: string, image: string): string {
  * The tag part of a container image reference, or "" when it is untagged or
  * pinned by digest. The colon searched for is the last one, and only past the
  * final slash, so a registry with a port (registry:5000/octo/runtime) is not
- * mistaken for a tag. Mirrors the orchestrator's imageTag, which is what produces
- * the tag a deployment reports.
+ * mistaken for a tag.
  */
 export function imageTag(image: string): string {
   // Both spellings of a digest are turned away, because both occur: a reference
@@ -60,17 +56,14 @@ export function imageTag(image: string): string {
 /**
  * Whether a deployment's runtime is OLDER than the one this install deploys.
  *
- * Older, not merely different, and the distinction is the whole of this function.
- * A deployment can be ahead — someone rolled it onto a build the chart has not
- * caught up with — and telling them to upgrade to the lower version they are
- * already past is worse than saying nothing.
+ * Older, not merely different: a deployment can be ahead — someone rolled it onto
+ * a build the chart has not caught up with — and telling them to upgrade to the
+ * lower version they are already past is worse than saying nothing.
  *
- * Compared by tag rather than by full reference: a mirrored registry gives the
- * same runtime a different path, and calling that an upgrade would tell everyone
- * running a mirror that all of their deployments are stale. Anything that is not
- * a dotted release number — `dev`, a branch build — is not comparable, and an
- * unknown on either side is not behind. All three are the same answer: say
- * nothing rather than something invented.
+ * Compared by tag rather than by full reference, because a mirrored registry gives
+ * the same runtime a different path. Anything that is not a dotted release number
+ * — `dev`, a branch build — is not comparable, and an unknown on either side is
+ * not behind.
  */
 export function needsUpgrade(deployed: string | undefined, current: string): boolean {
   if (!deployed || !current || deployed === current) return false;

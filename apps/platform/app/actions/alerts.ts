@@ -5,17 +5,13 @@
  * (`_alerts.ts`), which reads and writes the observability service's API
  * directly.
  *
- * Reads take any signed-in caller; every mutation takes the write roles. These
- * are the first writes this app makes to the observability service besides the
- * retention policy — that service has no auth of its own, and this is the
- * boundary.
+ * Reads take any signed-in caller; every mutation takes the write roles. The
+ * observability service has no auth of its own, so this is the boundary.
  *
- * The acting user is resolved here, from the session, through the same gate that
- * resolves it everywhere else — the durable orchestrator user id rather than
- * whatever the session object happens to carry. It is never taken from client
- * input. Attribution rather than
- * authorization, but taking it from the request would let one user's change be
- * recorded against another.
+ * The acting user is resolved here, from the session — the durable orchestrator
+ * user id, never taken from client input. Attribution rather than authorization,
+ * but taking it from the request would let one user's change be recorded against
+ * another.
  */
 
 import type {
@@ -94,6 +90,5 @@ export async function listEvaluations(
   return withRead(() => alerts.listEvaluations(query));
 }
 
-// Re-exported so a caller can name a page's rows without importing the model
-// twice; the model is where these are declared.
+// Re-exported so a caller can name a page's rows without importing the model too.
 export type { Evaluation };

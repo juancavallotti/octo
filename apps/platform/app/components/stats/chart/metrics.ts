@@ -29,19 +29,16 @@ const EMPTY: Points = { times: [], values: [] };
  *
  * The divisor is per point, never one global step, and that is the whole care in
  * this function. A counter's value at a point is what it grew since the point
- * before, so the interval that produced it is whatever elapsed — and a scrape gap
- * widens that. Dividing everything by the nominal step would report a pod as
- * having burned a minute of CPU in a second every time a sample was missed.
+ * before, and a scrape gap widens that — dividing everything by the nominal step
+ * would report a pod as having burned a minute of CPU in a second every time a
+ * sample was missed.
  *
  *   rollup tier   ends[i] − times[i], the bucket's own width. Exact, and the
  *                 reason the API carries both edges: buckets are not contiguous.
  *   live tier     times[i] − times[i−1], for the same reason.
- *   first point   no predecessor, so the nominal step. Real data, not a zero to
- *                 be dropped: the service seeds the first delta from a row before
- *                 the window precisely so this point exists.
+ *   first point   no predecessor, so the nominal step.
  *
- * An interval that is not positive yields a gap rather than an infinity. Nothing
- * should produce one, and a chart is not the place to find out.
+ * An interval that is not positive yields a gap rather than an infinity.
  */
 export function toCores(series: StatsSeries, stepMs: number): Points {
   const count = Math.min(series.times.length, series.values.length);
@@ -84,10 +81,8 @@ export function toGauge(series: StatsSeries): Points {
  *
  * What a rate should be summarized by. `process_cpu_seconds_total` advances in
  * ten-millisecond steps, so at one-second sampling an idle pod reads 0 or 0.1
- * cores and nothing between — and `latest` on that series reports "0.0000
- * cores" about half the time it is asked, which looks like a broken reading
- * rather than a quantized one. Averaged over the window it reads 0.010, which
- * is both stable and what `kubectl top` says.
+ * cores and nothing between; averaged over the window it reads 0.010, which is
+ * both stable and what `kubectl top` says.
  */
 export function mean(points: Points): Reading {
   let total = 0;

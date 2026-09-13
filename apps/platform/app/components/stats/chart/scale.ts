@@ -3,17 +3,8 @@
  * numbers out, no React and no DOM — so the part that can be quietly wrong is
  * testable without rendering anything.
  *
- * Recharts draws the charts; this decides what it is told to draw. Its own
- * defaults are wrong here in two specific ways, and both are visible rather than
- * theoretical. It ticks a byte axis decimally, which puts gridlines at 95 MiB
- * where 100 MB was meant. And it fits a domain to the data, so a memory line
- * varying by 2 MiB on a 120 MiB pod is drawn full height and reads as a crisis
- * rather than as a flat line.
- *
- * # Nulls are not zeros
- *
  * A null reading is a gap in the scrape. Extents ignore it and downsampling
- * propagates it, so it reaches `toRows` still absent and Recharts leaves a hole
+ * propagates it, so it reaches `toRows` still absent and the chart leaves a hole
  * in the line rather than drawing through a moment nobody measured.
  */
 
@@ -57,10 +48,9 @@ export function unionExtent(parts: ReadonlyArray<Extent | null>): Extent | null 
  *
  * Two adjustments, both for cases that otherwise render blank. A flat series has
  * `min === max`, which makes every scale a division by zero; it is given a band
- * around itself. And a series of non-negative readings is anchored at zero,
- * because a memory line hovering between 118 and 120 MiB drawn full-height reads
- * as a crisis rather than as a flat line — pass `anchorZero: false` for a series
- * where zero is not a meaningful floor.
+ * around itself. And a series of non-negative readings is anchored at zero, so a
+ * memory line hovering between 118 and 120 MiB is not drawn full height — pass
+ * `anchorZero: false` for a series where zero is not a meaningful floor.
  */
 export function plotExtent(raw: Extent | null, anchorZero = true): Extent {
   if (!raw) return { min: 0, max: 1 };
@@ -87,10 +77,8 @@ export function plotExtent(raw: Extent | null, anchorZero = true): Extent {
 /**
  * The nearest 1, 2 or 5 × 10ⁿ at or **above** `raw`.
  *
- * Above, where `traces/chartLayout.ts`'s private equivalent rounds below. Its
- * time axis wants at least the tick count it asked for; a value axis wants at
- * most it — rounding down there turns a request for four gridlines into eight,
- * and eight labelled rules is a lattice rather than a reference.
+ * Above, not below: a value axis wants at most the tick count it asked for, and
+ * rounding down turns a request for four gridlines into eight.
  */
 export function niceStep(raw: number): number {
   if (!Number.isFinite(raw) || raw <= 0) return 1;
@@ -105,9 +93,8 @@ export function niceStep(raw: number): number {
 /**
  * The same idea in powers of 1024, for an axis labelled in bytes.
  *
- * A decimal step makes an axis of "19 MiB, 38 MiB, 57 MiB", which is arithmetic
- * nobody wants to do while reading a chart. Memory is quoted in binary units, so
- * the gridlines should land on them.
+ * Memory is quoted in binary units, so the gridlines should land on them — a
+ * decimal step makes an axis of "19 MiB, 38 MiB, 57 MiB".
  */
 export function binaryStep(raw: number): number {
   if (!Number.isFinite(raw) || raw <= 0) return 1;
@@ -185,10 +172,9 @@ export interface Sampled {
 /**
  * Reduce a column to at most `buckets` points, keeping the extreme of each.
  *
- * Five minutes of one-second samples is 300 points for a sparkline 120 pixels
- * wide, so most of them are decoration. Averaging would smooth away the spike
- * that is the only reason anyone glances at a sparkline, so each bucket keeps its
- * furthest value from zero instead. A bucket with no reading stays a gap.
+ * Averaging would smooth away the spike that is the only reason anyone glances
+ * at a sparkline, so each bucket keeps its furthest value from zero instead. A
+ * bucket with no reading stays a gap.
  */
 export function downsample(
   times: ReadonlyArray<number>,

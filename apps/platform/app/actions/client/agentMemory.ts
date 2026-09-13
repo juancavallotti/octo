@@ -1,15 +1,8 @@
 /**
  * What an agent remembers, as typed operations against the orchestrator.
  *
- * This replaces reaching into the agent's own pod for its conversation record.
- * That arrangement existed because the runtime had nowhere to put a durable
- * transcript, so Dr. Octo kept one himself in KV and served it from flows — which
- * meant reading somebody's history required the agent to be deployed and healthy,
- * and meant every agent that wanted history had to build it again.
- *
  * The routes are integration-scoped, because that is what the memory belongs to
- * and what survives a redeploy. Everything else about the layering holds: no verb
- * and no path shape leaves this module.
+ * and what survives a redeploy. No verb and no path shape leaves this module.
  */
 
 import { call, enc, type ActionResult } from "./http";
@@ -52,10 +45,9 @@ export interface MemoryTranscript {
 /**
  * The live context an interrupted run would resume from.
  *
- * Distinct from the transcript above, and the distinction is the whole point of
- * the feature: turns are kept uncompacted forever, while THIS is what the model
- * actually still carries — pruned or summarized to stay inside the context
- * window. Comparing the two is how you see what an agent has forgotten.
+ * Distinct from the transcript above: turns are kept uncompacted forever, while
+ * THIS is what the model actually still carries — pruned or summarized to stay
+ * inside the context window.
  *
  * `payload` is the runtime's own serialized form. The orchestrator stores it
  * without parsing it, so the engine can change the format without a migration,
@@ -182,13 +174,7 @@ export function listUserMemories(
   return call("GET", `${userBase(integrationId, agentId, userId)}`);
 }
 
-/**
- * Forget one curated memory.
- *
- * There is deliberately no operation to EDIT one. An operator rewriting what an
- * agent believes about a person, with no audit trail, is a feature that should be
- * asked for explicitly rather than fall out of a viewer.
- */
+/** Forget one curated memory. There is no operation to edit one. */
 export function deleteUserMemory(
   integrationId: string,
   agentId: string,

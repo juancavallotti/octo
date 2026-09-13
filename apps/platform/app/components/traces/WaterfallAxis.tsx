@@ -7,20 +7,17 @@ import { formatDuration } from "./format";
 /**
  * The time ruler above the bars, and the surface you zoom with.
  *
- * Dragging a range is the primary gesture because it is the one that says what
- * you mean: "this part, from here to here". Wheel zoom is offered as a modifier
- * so that an ordinary scroll still scrolls — a chart that hijacks the wheel makes
- * a long trace unreadable, and now that the track scrolls sideways an unmodified
- * wheel is how someone pans it. Double-click restores the whole trace.
+ * Dragging a range is the primary gesture: "this part, from here to here". Wheel
+ * zoom is behind a modifier so that an unmodified wheel still pans the track.
+ * Double-click restores the whole trace.
  *
- * Labels are offsets from the start of the trace rather than wall-clock times.
- * A trace is read as "what happened, in what order, and how long did each part
+ * Labels are offsets from the start of the trace rather than wall-clock times:
+ * a trace is read as "what happened, in what order, and how long did each part
  * take", and every one of those questions is about elapsed time.
  *
  * The ruler spans the whole track, but ticks are computed for the *visible*
  * window only. At full zoom the track can be 200,000px wide, and a label every
- * 110px would be eighteen hundred of them for a ruler nobody can see more than a
- * screenful of.
+ * 110px would be eighteen hundred of them.
  */
 export default function WaterfallAxis({
   view,
@@ -45,9 +42,9 @@ export default function WaterfallAxis({
   // The drag in progress, in nanoseconds from the start of the trace.
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
 
-  // Panning must not re-render two thousand rows, so the scroll offset is not
-  // state — it is read off the scroller here, where the ticks are the only thing
-  // that depends on it, and coalesced to one frame.
+  // Panning must not re-render two thousand rows, so the scroll offset is read
+  // off the scroller here, where the ticks are the only thing that depends on
+  // it, and coalesced to one frame.
   const [scrollLeft, setScrollLeft] = useState(0);
   useEffect(() => {
     const element = scroller.current;

@@ -4,14 +4,9 @@ import type { ReactNode } from "react";
 import { Rocket } from "lucide-react";
 
 /**
- * The form primitives both admin settings pages share: the input styling, a
+ * The form primitives the admin settings pages share: the input styling, a
  * labelled field, the API-key row, and the banner shown when this orchestrator
  * cannot encrypt a key at all.
- *
- * Extracted because the email and LLM managers are the same form with different
- * fields, and the API-key row in particular carries behaviour worth writing once —
- * it never displays a stored key, only whether one exists and its last four
- * characters.
  */
 
 export const INPUT =
@@ -40,8 +35,8 @@ export function Field({
 
 /**
  * Shown when the orchestrator has no encryption key. Storing a secret is refused in
- * that state rather than done in the clear, so the operator is told up front and
- * pointed at the setting, instead of finding out when a save fails.
+ * that state rather than done in the clear, so the operator is told up front rather
+ * than finding out when a save fails.
  */
 export function EncryptionWarning() {
   return (
@@ -136,11 +131,7 @@ export function PrimaryButton({
   );
 }
 
-/**
- * The primary action, matching the Deploy button on an integration: filled sky,
- * an icon, and the same size — so "the main thing to do here" looks the same
- * wherever you are.
- */
+/** The primary action with an icon: filled sky, same size as the plain one. */
 export function PrimaryAction({
   onClick,
   disabled,
@@ -163,7 +154,7 @@ export function PrimaryAction({
   );
 }
 
-/** An icon-only action, as the integration header uses for its secondary ones. */
+/** An icon-only action, for secondary things. */
 export function IconAction({
   onClick,
   disabled,

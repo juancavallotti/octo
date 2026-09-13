@@ -2,17 +2,13 @@
  * The stats service's JSON shapes, and how they become the model's.
  *
  * These interfaces mirror `observability/internal/api/stats.go` field for field and **must
- * stay in sync with it**. Kept apart from the client so the one file that tracks a
- * Go struct is the one file to review when that struct changes.
- *
- * Unlike the logs and traces surfaces, this API is already camelCase on the wire,
- * so the mapping renames nothing. It is still written out by hand, because the two
- * things it does are the two things a generic converter gets wrong:
+ * stay in sync with it**. The API is already camelCase on the wire, so the mapping
+ * renames nothing; it is written out by hand for the two things a generic
+ * converter gets wrong:
  *
  *  - **A null reading stays null.** `values` is `(number | null)[]` and a null is
  *    a gap in the scrape. `?? 0` anywhere in here would turn "nothing was
- *    reported" into "the measurement was zero" — the same mistake the storage side
- *    spent a commit removing.
+ *    reported" into "the measurement was zero".
  *  - **Absent collections become empty ones.** The Go side omits empty arrays and
  *    maps (`omitempty`), so `ends`, `min`, `labels` and the rest arrive undefined
  *    rather than empty, and every consumer would otherwise need its own guard.

@@ -15,20 +15,12 @@ import { records } from "./fixtures";
 import type { Waterfall, WaterfallNode } from "./types";
 
 /**
- * The drift test.
- *
- * A classification table in the UI and a block registry in the runtime will come
- * apart, and the failure is silent: a new connector's block lands, nobody
- * classifies it, and every trace that uses it quietly attributes its time to the
- * wrong place. So rather than assert against a list written here — which would
- * pass forever, since it would be the same list twice — this reads the block
- * types out of the Go tree and requires the table to cover them.
- *
- * That makes it a *guard*, not the fix. The fix is to put the classification on
- * the block metadata itself so `octo schema` carries it, at which point this file
- * can go. Until then, a new block fails this test with its own name in the
- * message, which is the shortest path from "a connector landed" to "someone
- * decided whether it waits on the network".
+ * The drift test. A classification table in the UI and a block registry in the runtime
+ * come apart silently, so rather than assert against a list written here — the same list
+ * twice — this reads the block types out of the Go tree and requires the table to cover
+ * them. A new block fails with its own name in the message. The fix is to put the
+ * classification on the block metadata so `octo schema` carries it; this is the guard
+ * until then.
  */
 
 const RUNTIME = fileURLToPath(new URL("../../../../../runtime", import.meta.url));
@@ -109,9 +101,8 @@ function registeredBlockTypes(): { types: Set<string>; unresolved: string[] } {
 }
 
 /**
- * Types the runtime injects rather than registers: the debug wrappers, which are
- * deliberately absent from the schema registry because they are never authored.
- * They still reach a trace on a dev run, so the table carries them.
+ * Types the runtime injects rather than registers: the debug wrappers, absent from the
+ * schema registry because they are never authored. They still reach a trace on a dev run.
  */
 const INJECTED = new Set(["breakpoint", "spy", "mock"]);
 
@@ -213,10 +204,9 @@ describe("workBreakdown", () => {
   });
 
   /**
-   * A fork whose branches ran the given blocks at once. Concurrency has to be
-   * modelled through a fork rather than as two blocks of one chain: blocks in a
-   * chain run one after another, so a fixture that overlapped them would be
-   * asserting against a trace the runtime cannot produce.
+   * A fork whose branches ran the given blocks at once. Concurrency has to be modelled
+   * through a fork: blocks in a chain run one after another, so overlapping two of them
+   * would assert against a trace the runtime cannot produce.
    */
   function forked(...branches: { type: string; start: number; duration: number }[]): Waterfall {
     const ends = branches.map((b) => b.start + b.duration);

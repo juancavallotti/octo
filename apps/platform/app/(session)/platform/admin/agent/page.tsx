@@ -8,26 +8,18 @@ import WebSearchSettingsManager from "@/app/components/admin/WebSearchSettingsMa
 /**
  * The platform agent (`/platform/admin/agent`), whole.
  *
- * These were separate tabs — LLM provider and Platform agent — and they were two
- * descriptions of one task. Nothing else on this installation configures an LLM
- * provider; it exists so that Dr. Octo can reason. Splitting them made the one
- * requirement invisible, since the page that refuses to install him was not the
- * page holding the key he is refused for.
+ * The provider first, then web search, then the deployment, in the order they are
+ * needed — and in decreasing order of how much they matter, since the middle one
+ * is optional and the first one is not. Nothing else on this installation
+ * configures an LLM provider; it exists so that Dr. Octo can reason, and the
+ * install button is disabled until it is set — the orchestrator decides that, not
+ * this page.
  *
- * So: the provider first, then web search, then the deployment, in the order they
- * are needed — and in decreasing order of how much they matter, since the middle
- * one is optional and the first one is not. The
- * install button is disabled until the LLM provider is configured — the
- * orchestrator decides that, not this page — and its reason now links to a section
- * a scroll away rather than to somewhere else entirely.
+ * Embeddings are NOT here. They configure how agent memory is searched, not how
+ * the agent reasons, and they are not configured on this platform at all — they
+ * are chart values on the embedding server. See SearchRanking on /platform/memory.
  *
- * Embeddings are NOT here, and were briefly. They configure how agent memory is
- * searched, not how the agent reasons, and they are not configured on this
- * platform at all — they are chart values on the embedding server. What was left
- * was a read-only report about search, which belongs on the page where someone
- * searches: see SearchRanking on /platform/memory.
- *
- * ConfirmProvider wraps both because each asks before something irreversible:
+ * ConfirmProvider wraps them because each asks before something irreversible:
  * removing a stored key, and removing or rolling out the agent.
  */
 export default function AdminAgentPage() {
@@ -42,15 +34,9 @@ export default function AdminAgentPage() {
           </p>
 
           {/*
-            One card, three rows, divided.
-            
-            These were three bordered boxes stacked down the page, each under its
-            own heading, and the deployment one had grown a fourth box inside it
-            for a single checkbox. Four frames for one subject reads as four
-            unrelated settings pages — and they are not unrelated: the provider is
-            what he reasons with, the search key is a tool he holds, and the
-            deployment is him. Dividers say "parts of one thing" where borders say
-            "separate things".
+            One card, three rows, divided: the provider is what he reasons with,
+            the search key is a tool he holds, and the deployment is him. Dividers
+            say "parts of one thing" where borders say "separate things".
           */}
           {/*
             One provider around all three, because they are one form: it loads

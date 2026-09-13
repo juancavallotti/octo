@@ -2,10 +2,9 @@
  * Bundles: an integration and every resource it owns as one zip archive, plus the
  * one other call whose payload is bytes — a frozen resource's contents.
  *
- * Split out of `orchestrator.ts` because these are the calls that carry an
- * encoding hop: an archive crosses the server-action boundary base64-encoded (a
- * server action's payload is serialized by React, so binary travels as text), and
- * that encoding stops here. Callers deal in bytes.
+ * These are the calls that carry an encoding hop: an archive crosses the
+ * server-action boundary base64-encoded, and that encoding stops here. Callers
+ * deal in bytes.
  */
 
 import * as bundleActions from "@/app/actions/bundles";

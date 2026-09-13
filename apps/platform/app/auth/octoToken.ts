@@ -2,31 +2,22 @@
  * The platform token's life inside a session: obtained at sign-in, kept fresh
  * while the session lasts, and given up when it can no longer be renewed.
  *
- * It lives here rather than in the Auth.js callbacks for two reasons. The
- * callbacks are three lines of plumbing and this is the policy; and this is
- * testable without Auth.js, which matters because both behaviours it depends on
- * are internal to a beta release.
- *
  * ## Where the token is, and where it is not
  *
  * The token is written onto the JWT — the payload of the encrypted session cookie
- * — and deliberately NOT onto the `session` object. Auth.js serializes `session`
- * to the browser at /api/auth/session, so anything put there is readable by client
- * JavaScript, and a bearer that reaches the browser is a bearer that can call the
- * platform's API directly, around the very boundary the server actions exist to
- * be. Roles go on the session (they are for rendering); the credential does not.
+ * — and deliberately NOT onto the `session` object, which Auth.js serializes to
+ * the browser at /api/auth/session. A bearer that reaches the browser is a bearer
+ * that can call the platform's API directly, around the very boundary the server
+ * actions exist to be. Roles go on the session (they are for rendering); the
+ * credential does not.
  *
  * ## Why the proxy is what actually refreshes it
  *
- * `auth()` called with no arguments — in a server component or a server action —
- * discards the response's Set-Cookie headers (next-auth/lib/index.js: the no-args
- * branch reads `.json()` and drops the rest). Only the `auth((req) => …)` wrapper
- * copies them onto the outgoing response, and the one place that uses it is
- * proxy.ts. So a re-mint during a render is used for that render and then thrown
- * away, and the write that sticks is the one that happens on a request passing
- * through the proxy. Its matcher covers every navigation and every server-action
- * POST, so in practice the cookie is rewritten promptly; a tab left idle for an
- * hour simply refreshes on its next request.
+ * `auth()` called with no arguments discards the response's Set-Cookie headers
+ * (next-auth/lib/index.js). Only the `auth((req) => …)` wrapper copies them onto
+ * the outgoing response, so a re-mint during a render is used for that render and
+ * then thrown away; the write that sticks is the one on a request passing through
+ * proxy.ts, whose matcher covers every navigation and every server-action POST.
  *
  * That is also why re-mints are single-flighted below: a render calling `auth()`
  * several times would otherwise ask iam several times for a token it is about to
@@ -61,9 +52,7 @@ const inFlight = new Map<string, Promise<PlatformToken | "expired" | "unavailabl
  * Exchange the identity provider's id token for a platform token, at sign-in.
  *
  * Returns null when the exchange fails, and the caller turns that into a refused
- * sign-in. Refusing is the point: a session with no platform token looks signed in
- * and can call nothing, which is a far worse thing to hand somebody than an error
- * at the door.
+ * sign-in: a session with no platform token looks signed in and can call nothing.
  */
 export async function signInExchange(idToken: string): Promise<OctoTokenFields | null> {
   const res = await exchangeIdToken(idToken);
@@ -77,8 +66,7 @@ export async function signInExchange(idToken: string): Promise<OctoTokenFields |
 /**
  * Renew the token if it is close to expiry, and report what to do about it.
  *
- * The three outcomes are the whole policy, and the third is the one worth being
- * careful about:
+ * The three outcomes are the whole policy:
  *
  *  - renewed, or not yet due → the fields to carry on with;
  *  - iam refused the token (401) → null, and the caller ends the session. The

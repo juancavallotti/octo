@@ -8,10 +8,7 @@ import type { ToolRun } from "./useAgentChat";
  * One tool call, as a chip that opens.
  *
  * Closed it says what ran and whether it worked; open it shows the arguments the
- * model chose and what came back. That second half is the point — it is the
- * difference between believing an answer and being able to check it, and for an
- * agent with write access to the platform it is also the audit trail you have
- * without turning tracing on.
+ * model chose and what came back.
  */
 
 /** Render a tool's arguments or result compactly, whatever shape they arrive in. */
@@ -51,14 +48,12 @@ export default function ToolChip({
   const [open, setOpen] = useState(asking);
 
   // Open it when the question ARRIVES, not only when the chip happens to mount
-  // holding one. The agent reports a call before it asks about it, so this chip is
-  // almost always already on screen and closed by the time the question lands —
-  // and a person cannot decide about a call whose arguments are behind a click.
+  // holding one: the agent reports a call before it asks about it, and a person
+  // cannot decide about a call whose arguments are behind a click.
   //
-  // Adjusted during render rather than in an effect: React re-runs this component
-  // before touching the DOM, so the chip is never painted asking-but-closed. It
-  // stays a nudge and not a lock — the header still collapses it afterwards, which
-  // matters for the one chip somebody has decided to leave open and ignore.
+  // Adjusted during render rather than in an effect, so the chip is never painted
+  // asking-but-closed. It stays a nudge and not a lock — the header still
+  // collapses it afterwards.
   const [asked, setAsked] = useState(asking);
   if (asking !== asked) {
     setAsked(asking);
@@ -124,10 +119,9 @@ export default function ToolChip({
  * The question, under the arguments it is about.
  *
  * Nothing here is optimistic: the buttons send the answer and leave the chip as it
- * is. What happened to the call comes back on the run's own stream — the runtime
- * reports the decision it acted on — so a click that did not land shows as the
- * denial the run will eventually make, rather than as an approval this panel
- * invented.
+ * is. What happened to the call comes back on the run's own stream, so a click
+ * that did not land shows as the denial the run will eventually make rather than
+ * as an approval invented here.
  */
 function Ask({
   waiting,
@@ -136,14 +130,12 @@ function Ask({
   waiting?: number;
   onAnswer: (allow: boolean) => Promise<boolean>;
 }) {
-  // What this window has SENT, which is not what the run decided. The decision
-  // still arrives on the stream and settles the chip; this only stops the panel
-  // offering a choice that has already been made, and says so while the answer is
-  // in flight.
+  // What this window has SENT, which is not what the run decided — the decision
+  // still arrives on the stream and settles the chip.
   //
-  // It matters because the first answer wins: the run deletes the gate as it
-  // takes one, so a second click — someone correcting a mis-click — reaches a gate
-  // that is no longer there and is discarded in silence. Better not to offer it.
+  // It stops a second choice being offered, because the first answer wins: the run
+  // deletes the gate as it takes one, so a second click reaches a gate that is no
+  // longer there and is discarded in silence.
   const [sent, setSent] = useState<"allow" | "deny" | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -153,9 +145,7 @@ function Ask({
     void onAnswer(allow).then((delivered) => {
       if (delivered) return;
       // It never reached the run, so nothing is coming: no decision frame, and a
-      // denial on the timeout that reads as nobody having answered. Give the
-      // buttons back and say why, rather than leaving a person to believe they
-      // answered this.
+      // denial on the timeout that reads as nobody having answered.
       setSent(null);
       setFailed(true);
     });
@@ -197,10 +187,9 @@ function Ask({
 /**
  * How long the run said it would wait, said the way a person reads a clock.
  *
- * Minutes are rounded DOWN, and anything under one is given in seconds. Rounding
- * to the nearest minute turns a 20-second wait into "0 min" — which claims the
- * call has already expired while its buttons are still live — and a 45-second one
- * into "1 min", which invites somebody to take longer than they have.
+ * Minutes are rounded DOWN, and anything under one is given in seconds: rounding
+ * to the nearest would turn a 45-second wait into "1 min" and invite somebody to
+ * take longer than they have.
  */
 function waitFor(seconds?: number): string {
   if (!seconds || seconds <= 0) return "";

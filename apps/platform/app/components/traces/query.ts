@@ -9,10 +9,9 @@
  *     …/t/<traceId>                  with a trace open
  *
  * The version is part of the selection rather than a detail of it because the
- * app list is grouped that way: the trace store reports a (deployment, name,
- * version) triple per row, since a rollout keeps the deployment id and changes
- * the version, and a cost belongs to a version. A row selected by deployment
- * alone would open a list whose totals did not match the row that was clicked.
+ * app list is grouped that way — a (deployment, name, version) triple per row —
+ * and a row selected by deployment alone would open a list whose totals did not
+ * match the row that was clicked.
  *
  * The prefixes disambiguate the id kinds, which are otherwise all opaque strings.
  */
@@ -40,10 +39,9 @@ export const NOTHING_SELECTED: TraceSelection = {
 /**
  * Decode one path segment, treating an invalid escape as literal text.
  *
- * decodeURIComponent throws on a malformed sequence, and this runs inside a
- * useMemo during render — so a truncated or hand-edited shared link would take
- * the whole view down rather than resolve to no selection, which is how the rest
- * of this parser treats input it cannot read.
+ * decodeURIComponent throws on a malformed sequence, and this runs during
+ * render, so a truncated or hand-edited link would take the whole view down
+ * rather than resolve to no selection.
  */
 function decodeSegment(segment: string): string {
   try {
@@ -104,9 +102,7 @@ export function buildHref(selection: TraceSelection): string {
 // ---------------------------------------------------------------------------
 
 /**
- * How far back to look. A preset rather than two timestamps because the window
- * is a question ("was it happening this morning?") and not a value anyone wants
- * to type — and because both the app list and the trace list must be measured
+ * How far back to look. Both the app list and the trace list must be measured
  * over the *same* window or their counts stop being comparable.
  */
 export type WindowPreset = "1h" | "24h" | "7d" | "30d";
@@ -174,11 +170,9 @@ export function writeFilters(filters: TraceFilterValues): string {
 }
 
 /**
- * The absolute bounds of a preset, resolved against a fixed `now`.
- *
- * `now` is passed rather than read, because a window recomputed on every render
- * changes on every render — and a changing window is a changing query, which
- * would refetch forever.
+ * The absolute bounds of a preset, resolved against a fixed `now`, which is
+ * passed rather than read: a window recomputed on every render is a changing
+ * query, which would refetch forever.
  */
 export function windowFor(preset: WindowPreset, now: number): { from: string; to: string } {
   const hours = WINDOW_PRESETS.find((p) => p.key === preset)?.hours ?? 24;

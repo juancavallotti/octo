@@ -28,15 +28,12 @@ const TYPE_PRIORITY = ["slack", "notion", "cron", "events", "queue", "http"];
 /**
  * Is this Dr. Octo? He is an integration like any other — an Octo App, which is
  * the whole joke — so he arrives here as a definition and would otherwise be drawn
- * as the http source he happens to ride on.
- *
- * Asked of the service name he declares, not of the integration's title: the name
- * is part of his definition (orchestrator/agent/config.yaml), while a title is
- * something anyone can type over.
+ * as the http source he happens to ride on. Asked of the service name he declares,
+ * not of the integration's title, which anyone can type over.
  *
  * Read from the raw YAML rather than from the parsed document, because the parsed
  * one keeps only what the loaded capability schema knows about — and this runs in
- * places that have no schema, where the whole thing would silently stop working.
+ * places that have no schema.
  */
 function isDrOcto(definition: string): boolean {
   try {
@@ -81,11 +78,8 @@ export function iconForDefinition(definition: string): LucideIcon {
 }
 
 /**
- * The icon to show for an integration: the one it chose, or the one its
- * definition suggests.
- *
- * An unset icon derives, which is what every integration did before choosing was
- * possible — so this reads the same as iconForDefinition until somebody picks.
+ * The icon to show for an integration: the one it chose, or, when it has chosen
+ * none, the one its definition suggests.
  */
 export function iconForIntegration(
   icon: string | undefined,

@@ -1,15 +1,12 @@
 /**
  * A tool call the agent is holding in front of a person, and what became of it.
  *
- * Split from the fold next door because it is a different question. That one is
- * about the ORDER of what the agent did; this is about one call being suspended
- * mid-sequence while somebody decides, which is the only thing in a run that
- * waits on a human.
+ * One call suspended mid-sequence while somebody decides, which is the only thing
+ * in a run that waits on a human.
  *
- * It lives on the tool run rather than as a segment of its own, deliberately: the
- * call is already on screen when the question arrives — the agent reports a call
- * before it asks about it — so the chip that shows the arguments is the right
- * place to ask about them.
+ * It lives on the tool run rather than as a segment of its own: the call is
+ * already on screen when the question arrives, so the chip that shows the
+ * arguments is where the question about them belongs.
  */
 
 import type { AgentEvent } from "./frames";
@@ -18,9 +15,9 @@ import type { Segment, ToolRun } from "./turns";
 /**
  * A tool call waiting on a person, once the agent has asked.
  *
- * `pending` is the only state with a question in it. The other two are what the
- * chip shows afterwards, because a call somebody allowed and a call that ran
- * freely are not the same thing to read back later.
+ * `pending` is the only state with a question in it. The other two are what is
+ * shown afterwards, because a call somebody allowed and a call that ran freely are
+ * not the same thing to read back later.
  */
 export interface Authorization {
   id: string;
@@ -35,11 +32,8 @@ export interface Authorization {
  *
  * The chip is normally there — the agent reports a call before it asks about it —
  * but that is the emit list's doing rather than a guarantee: `tool_call` can be
- * left out of it, and the runtime only insists on `tool_authorization`, because a
- * frame carrying the tool, the arguments and the id is complete enough for a
- * consumer that renders it on its own. Attaching to a chip is THIS panel's
- * choice, so the panel is what has to cope when there is none. Dropping the
- * question instead would ask nobody and deny everything on the timeout.
+ * left out of it, and the runtime only insists on `tool_authorization`. Dropping
+ * the question instead would ask nobody and deny everything on the timeout.
  */
 export function holdTool(
   segments: Segment[],
@@ -73,8 +67,7 @@ export function holdTool(
  * Record what was decided about a call.
  *
  * Matched on the authorization id rather than the tool call id because that is
- * what the answer quotes, and because a person may have answered from another
- * tab: the decision is about the call, not about who clicked.
+ * what the answer quotes, and a person may have answered from another tab.
  */
 export function settleAuthorization(
   segments: Segment[],

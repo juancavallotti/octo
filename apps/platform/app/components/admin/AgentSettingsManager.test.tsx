@@ -184,10 +184,9 @@ describe("AgentSettingsManager", () => {
     await waitFor(() => expect(setAgentTracing).toHaveBeenCalledWith(false));
   });
 
-  // Whether the troubleshooter may act is the sharpest switch on this page: on,
-  // an alert firing at four in the morning can end in a rollout nobody watched.
-  // The control says what is true now and the button says what would change, so
-  // both directions are asserted.
+  // Whether the troubleshooter may act is the sharpest switch on this page: on, an alert
+  // firing at four in the morning can end in a rollout nobody watched. Both directions
+  // are asserted.
   it("lets the troubleshooter be allowed to act, and restricted again", async () => {
     const user = userEvent.setup();
     getAgentStatus.mockResolvedValue({ ...DEPLOYED, autoFix: false });
@@ -225,10 +224,9 @@ describe("AgentSettingsManager", () => {
     );
   });
 
-  // The headline risk of rolling out: an edited agent is replaced by the shipped
-  // one. Saying so is the whole point of tracking `edited` — and saying that the
-  // edits are frozen as their own version first is what makes it a warning rather
-  // than a dead end.
+  // The headline risk of rolling out: an edited agent is replaced by the shipped one.
+  // Saying that the edits are frozen as their own version first is what makes it a
+  // warning rather than a dead end.
   it("warns that a roll-out replaces local edits when the agent was edited", async () => {
     const user = userEvent.setup();
     getAgentStatus.mockResolvedValue({
@@ -254,9 +252,8 @@ describe("AgentSettingsManager", () => {
     await waitFor(() => expect(rolloutAgent).toHaveBeenCalledTimes(1));
   });
 
-  // Without this the only way back to the shipped agent was for the bundle's digest
-  // to move: an agent edited into a state you wanted to undo had no button, because
-  // "no update available" hid the one that would have fixed it.
+  // The way back to the shipped agent cannot depend on the bundle's digest moving: an
+  // agent edited into a state you want to undo needs the button too.
   it("offers a reinstall when the agent is current, not just when an update exists", async () => {
     const user = userEvent.setup();
     getAgentStatus.mockResolvedValue(DEPLOYED);
@@ -336,8 +333,8 @@ describe("AgentSettingsManager", () => {
     expect(screen.queryByText("orchestrator unreachable")).toBeNull();
   });
 
-  // The nastier half of the same bug: the action worked, so the card on screen
-  // describes a state that no longer exists, and its buttons would act on it.
+  // The action worked, so the card on screen describes a state that is gone, and its
+  // buttons would act on it.
   it("does not keep a stale status when the refresh after an action fails", async () => {
     const user = userEvent.setup();
     getAgentStatus.mockResolvedValueOnce(NOT_INSTALLED);
@@ -346,8 +343,7 @@ describe("AgentSettingsManager", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Install" })).toBeTruthy(),
     );
-    // Persistent rather than once: "the refresh after an action fails" means it
-    // stays failed, and the suite-wide default resolve would otherwise win a
+    // Persistent rather than once: the suite-wide default resolve would otherwise win a
     // later refresh and put the stale card back.
     getAgentStatus.mockRejectedValue(new Error("orchestrator unreachable"));
     await user.click(screen.getByRole("button", { name: "Install" }));
@@ -378,9 +374,8 @@ describe("AgentSettingsManager", () => {
 });
 
 /**
- * The turn limit — the only edited setting on this page, and the one with a rule
- * worth pinning: an empty field is not "unchanged", it is how the override is
- * cleared.
+ * The turn limit, and the rule worth pinning: an empty field is not "unchanged", it is
+ * how the override is cleared.
  */
 describe("AgentSettingsManager turn limit", () => {
   beforeEach(() => {
@@ -463,10 +458,8 @@ describe("AgentSettingsManager turn limit", () => {
     );
   });
 
-  // Answered here rather than by the orchestrator, because the round trip that
-  // would answer it also replaces the agent's pods.
-  // Both at once is the case the combined endpoint exists for: one call, one
-  // roll-out, rather than two replacements of the pods for one click.
+  // Both at once is the case the combined endpoint exists for: one call, one roll-out,
+  // rather than two replacements of the pods for one click.
   it("sends both pod settings together when both changed", async () => {
     const user = userEvent.setup();
     const field = await turnLimit();
@@ -488,9 +481,8 @@ describe("AgentSettingsManager turn limit", () => {
     expect(setAgentDeploymentSettings).toHaveBeenCalledTimes(1);
   });
 
-  // Every lifecycle action reloads, and a reload reseeds the draft. It used to
-  // take whatever somebody was halfway through typing with it — an edit lost to
-  // a button that had nothing to do with it.
+  // Every lifecycle action reloads, and a reload reseeds the draft — without taking
+  // whatever somebody is halfway through typing with it.
   it("keeps an unsaved edit when a lifecycle action reloads", async () => {
     const user = userEvent.setup();
     getAgentStatus.mockResolvedValue({ ...DEPLOYED, tracing: false });
@@ -501,8 +493,7 @@ describe("AgentSettingsManager turn limit", () => {
     await user.click(screen.getByRole("button", { name: /Turn tracing on/ }));
 
     await waitFor(() => expect(setAgentTracing).toHaveBeenCalled());
-    // The edit survived the reload, and is still offered for saving. Queried
-    // directly rather than through the helper, which renders a second manager.
+    // Queried directly rather than through the helper, which renders a second manager.
     expect(
       (screen.getByLabelText("Turn limit") as HTMLInputElement).value,
     ).toBe("40");
@@ -518,8 +509,7 @@ describe("AgentSettingsManager turn limit", () => {
     await user.type(field, "500");
 
     expect(screen.getByText(/Between 1 and 200/)).toBeTruthy();
-    // The page's one Save validates what the per-section buttons used to: an
-    // out-of-range limit would otherwise be found by the orchestrator having
+    // Save validates the range here, or the orchestrator finds it out of range having
     // already replaced the pods to reject it.
     expect(
       screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),

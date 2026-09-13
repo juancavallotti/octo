@@ -10,10 +10,10 @@
  *   - Say YES when it should say no, and the editor serves the gateway error page
  *     to itself and nobody can reach the platform at all.
  *
- * The second is not hypothetical: the editor may legitimately live *under* the
- * wildcard — ingress.host=octo.apps.example.com with baseDomain=apps.example.com
- * is an ordinary layout, and nothing in the chart forbids it — so the platform's
- * own hostnames have to be excluded explicitly. The chart passes them in.
+ * The editor may legitimately live *under* the wildcard —
+ * ingress.host=octo.apps.example.com with baseDomain=apps.example.com is an
+ * ordinary layout — so the platform's own hostnames have to be excluded
+ * explicitly. The chart passes them in.
  */
 
 /** Lowercase a Host header value and drop its port. */

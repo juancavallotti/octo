@@ -28,14 +28,12 @@ export interface AgentChat {
   send: (message: string) => void;
   stop: () => void;
   /**
-   * Answer a tool call the run is holding in front of the person reading this
-   * panel. The run is waiting on it, so nothing is added to the transcript here —
-   * the runtime reports the decision back on the stream, and that frame is what
-   * settles the chip.
+   * Answer a tool call the run is holding. Nothing is added to the transcript
+   * here: the runtime reports the decision back on the stream.
    *
    * Resolves false when the answer never reached the run, which the caller has to
-   * say out loud: an answer that failed to send and one that was never given look
-   * the same from the reader's chair, and both end in a denial minutes later.
+   * say out loud — an unsent answer and an unanswered call look the same, and
+   * both end in a denial minutes later.
    */
   authorize: (id: string, allow: boolean) => Promise<boolean>;
   reset: () => void;
@@ -45,20 +43,19 @@ export interface AgentChat {
 
 /**
  * A conversation with the agent: the requests, and the reader loop that turns
- * their frames into a transcript. The transcript itself lives in useTranscript.
+ * their frames into a transcript.
  *
  * It owns the AbortController, which is the whole hang-up chain — aborting the
- * fetch aborts the proxy's upstream fetch, which closes the agent's stream, which
- * ends its run. Nothing here has to tell the agent to stop; it only has to not
- * swallow the abort.
+ * fetch closes the agent's stream, which ends its run. Nothing here has to tell
+ * the agent to stop; it only has to not swallow the abort.
  */
 export function useAgentChat(
   userKey: string,
   page: string,
   onNavigate: (event: NavigateEvent) => void,
 ): AgentChat {
-  // Destructured rather than held whole: the hook returns a fresh object every
-  // render, so a callback closing over it would be rebuilt on every render too.
+  // Destructured rather than held whole: a fresh object every render would rebuild
+  // every callback that closed over it.
   const {
     turns,
     append,
@@ -77,13 +74,12 @@ export function useAgentChat(
   const [title, setTitle] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   // Steers in flight. They are not the run's request and must not share its
-  // controller, but they still have to be cancellable — see steer and dropSteers.
+  // controller, but they still have to be cancellable.
   const steers = useRef(new Set<AbortController>());
 
   // Held in a ref so the reader loop is not rebuilt when the callback identity
-  // changes, which for an inline arrow function is every render. Assigned in an
-  // effect rather than during render: a render can be discarded, and this is the
-  // callback a live stream will reach for.
+  // changes. Assigned in an effect rather than during render, since a render can
+  // be discarded and a live stream will reach for whatever is here.
   const navigate = useRef(onNavigate);
   useEffect(() => {
     navigate.current = onNavigate;
@@ -100,22 +96,14 @@ export function useAgentChat(
   // The transcript's mutators, as the reader wants them. Memoized so a run holds
   // one sink for its whole life rather than a new one per render.
   const sink = useMemo<RunSink>(
-    // nameThread is the runtime reporting what it called this conversation, on
-    // the run that opened it — so a new conversation acquires its name mid-run
-    // rather than only on the next listing. A name for some other thread is
-    // dropped: it would retitle the conversation on screen with one that belongs
-    // to a conversation nobody is looking at.
     () => ({ apply, applySignal, takeMessage, setFinalAnswer, noteTurn, nameThread }),
     [apply, applySignal, nameThread, noteTurn, setFinalAnswer, takeMessage],
   );
 
   /**
-   * Cancel every steer in flight.
-   *
-   * Not tidiness. A steer that lands *after* a stop finds no run to join, so the
-   * runtime claims the conversation and starts one — answering a follow-up
-   * somebody has just cancelled, at full price. The same request landing after a
-   * reset would answer it into the conversation that was abandoned.
+   * Cancel every steer in flight. One that lands after a stop finds no run to
+   * join, so the runtime claims the conversation and starts one — answering a
+   * question that was cancelled, or answering into an abandoned conversation.
    */
   const dropSteers = useCallback(() => {
     for (const controller of steers.current) controller.abort();
@@ -134,21 +122,17 @@ export function useAgentChat(
    * Hand a message to the run already in flight.
    *
    * The runtime claims a conversation for the length of a run, so this request
-   * does not start a second one: the message is injected into the conversation the
-   * agent is having and its own flow stops with an empty body. The answer — and a
-   * `signal` frame confirming the message was taken — arrive on the stream that is
-   * already open, which is why nothing here reads a response.
-   *
-   * The user turn is appended locally rather than waited for. The run injects it at
-   * the top of its next iteration, which can be seconds away, and a chat that does
-   * not show what you just typed reads as one that dropped it.
+   * starts no second one: the message is injected and this flow stops with an
+   * empty body. The answer, and the `signal` frame confirming the message was
+   * taken, arrive on the stream already open, which is why nothing here reads a
+   * response. The user turn is appended locally rather than waited for, since the
+   * run injects it at the top of its next iteration.
    */
   const steer = useCallback(
     (text: string) => {
       const turnId = randomId();
-      // Pending, not sent: the response to this request says nothing about what
-      // became of the message — see Delivery — so the bubble waits for the run to
-      // say it took it.
+      // Pending, not sent: this response says nothing about what became of the
+      // message, so it waits for the run to say it took it.
       append({ ...newTurn(turnId, "user", text), delivery: "pending" });
 
       const controller = new AbortController();
@@ -158,27 +142,19 @@ export function useAgentChat(
           const res = await fetch("/api/agent/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            // The question alone. The run this joins already holds the page and
-            // the route catalogue from its opening turn, and the runtime injects
-            // whatever arrives here into that conversation verbatim — so sending
-            // them again would add 1.5KB of duplicate context per follow-up and
-            // leave the acknowledgement carrying a string no bubble can match.
+            // The question alone: the run this joins already holds the page and
+            // the route catalogue, and whatever arrives here is injected verbatim.
             body: JSON.stringify({ threadId: readThreadId(userKey), message: text }),
             signal: controller.signal,
           });
-          // The body is the empty one the runtime returns for a message it handed
-          // over. Nothing reads it, and cancelling releases the connection rather
-          // than leaving it open until the browser gets round to it.
+          // Nothing reads the empty body, and cancelling releases the connection
+          // rather than leaving it to the browser.
           await res.body?.cancel();
           if (!res.ok) throw new Error(`the agent returned ${res.status}`);
         } catch (e) {
-          // An abort is a stop or a reset, not a failure — and reporting one over
-          // an answer that is still arriving would be a failure the reader cannot
-          // act on and did not cause.
-          //
-          // A real failure is marked on the message rather than raised as a
-          // banner. It is one message that did not land, in a panel where others
-          // did, and a notice at the top of the drawer cannot say which.
+          // An abort is a stop or a reset, not a failure. A real failure is marked
+          // on the message rather than raised over the panel: it is one message
+          // that did not land, and only the message itself can say which.
           if ((e as Error).name !== "AbortError") setDelivery(turnId, "missed");
         } finally {
           steers.current.delete(controller);
@@ -192,13 +168,10 @@ export function useAgentChat(
     (message: string) => {
       const text = message.trim();
       if (!text) return;
-      // A run is in flight, so this message joins it instead of starting a rival.
-      //
-      // The controller ref rather than `busy`: state is only true after React
-      // commits, so two sends in one tick would both read a stale `busy` and the
-      // second would replace the controller the first is holding — leaving Stop
-      // unable to reach the stream that is actually running. The ref is set
-      // synchronously.
+      // A run in flight takes the message rather than a second run starting.
+      // The controller ref as well as `busy`, because state is only true after
+      // React commits: two sends in one tick would both read a stale `busy`, and
+      // the second would replace the controller the first is holding.
       if (busy || abort.current) {
         steer(text);
         return;
@@ -241,14 +214,12 @@ export function useAgentChat(
 
           await readRun(res.body, target, sink, (to) => navigate.current(to), randomId);
         } catch (e) {
-          // Aborting is how stopping and closing the panel both work; it is not a
-          // failure to report.
+          // Aborting is how stopping and unmounting both work, not a failure.
           if ((e as Error).name !== "AbortError") setError((e as Error).message);
         } finally {
-          // Both only if this run is still the current one. An aborted reader
+          // Both only if this run is still the current one: an aborted reader
           // unwinds a microtask after stop(), by which time a new question may
-          // already be streaming — and clearing either the controller or busy then
-          // would be this run switching off the next one's lights.
+          // already be streaming.
           const mine = abort.current === controller;
           if (mine) {
             abort.current = null;
@@ -270,11 +241,8 @@ export function useAgentChat(
    */
   const stop = useCallback(() => {
     dropSteers();
-    // The reader's own settling does not cover this: by the time it unwinds the
-    // controller below has been released, so it no longer knows the run it is
-    // closing was the current one. Nothing is going to read a message that was
-    // waiting when the run was ended, and a spinner left turning would say the
-    // opposite.
+    // The reader's own settling does not cover this: by the time it unwinds, the
+    // controller has been released and it no longer knows this run was current.
     settlePending();
     const controller = abort.current;
     if (!controller) return;
@@ -282,11 +250,9 @@ export function useAgentChat(
     abort.current = null;
     setBusy(false);
 
-    // And say so, rather than only hanging up. Closing the connection ends the run
-    // whose stream this connection holds, which is almost always the same run —
-    // but a stop addressed to the conversation ends it wherever it is, including
-    // through a proxy that has not noticed the socket go, and on a replica this
-    // browser never spoke to.
+    // And say so, rather than only hanging up: a stop addressed to the conversation
+    // ends the run wherever it is, including behind a proxy that has not noticed
+    // the socket go and on a replica this browser never spoke to.
     void post(userKey, { stop: true });
   }, [dropSteers, settlePending, userKey]);
 

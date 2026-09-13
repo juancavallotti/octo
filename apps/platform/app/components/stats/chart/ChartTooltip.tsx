@@ -4,11 +4,9 @@
 /**
  * The hover card, in the app's own clothes rather than Recharts' default.
  *
- * Two things it does that the default cannot. It formats every value through
- * the metric's own unit, so a tooltip says "127 MiB" and "5 KiB/s" rather than
- * 133173248 and 5017.6. And it caps the rows it lists: one metric on this page
- * carries a hundred and eight series, and a hover card with a hundred and eight
- * lines is a wall that covers the chart it is describing.
+ * It formats every value through the metric's own unit, so a tooltip says
+ * "127 MiB" rather than 133173248, and it caps the rows it lists — a metric can
+ * carry a hundred series, and that many lines covers the chart it describes.
  */
 
 const MAX_ROWS = 8;
@@ -25,19 +23,17 @@ export interface TooltipFormatting {
 }
 
 /**
- * One line of the card. Typed structurally rather than imported from Recharts:
- * its tooltip props are generic over the value and name types and resolve
- * through context, which makes them awkward to satisfy from a render prop for
- * no benefit — these four fields are the whole contract.
+ * One line of the card. Typed structurally rather than imported from Recharts,
+ * whose tooltip props are generic over the value and name types and resolve
+ * through context: these four fields are the whole contract.
  */
 export interface TooltipEntry {
   // Recharts allows an accessor function here as well as a key; this chart only
   // ever passes strings, and String() below copes either way.
   dataKey?: string | number | ((row: never) => unknown);
-  // Widened deliberately: Recharts types a value as possibly an array (for a
-  // stacked or range series) and a name as its own union. This chart plots
-  // neither, so the rows are filtered to numbers below and the rest is written
-  // through String().
+  // Widened: Recharts types a value as possibly an array (for a stacked or range
+  // series) and a name as its own union. This chart plots neither, so the rows
+  // are filtered to numbers below and the rest is written through String().
   name?: unknown;
   value?: unknown;
   color?: string;

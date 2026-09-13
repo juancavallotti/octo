@@ -42,23 +42,15 @@ vi.mock("@/app/model/siteSettings", () => ({
 import AdminAgentPage from "./page";
 
 /**
- * These were two tabs for one task, and this is what holds them together now.
+ * One page for one task. The assertions are about *composition* rather than behaviour —
+ * each manager has its own suite for that — and what can regress is somebody moving one
+ * back out to its own route, splitting the page that refuses to install the agent from
+ * the page holding the key he is refused for.
  *
- * The assertions are about *composition* rather than behaviour — each manager has
- * its own suite for that. What can regress here is somebody moving one back out to
- * its own route, which would restore the exact split this page exists to undo: the
- * page that refuses to install the agent would once again not be the page holding
- * the key he is refused for.
- *
- * Web search sits between them for the same reason the other two are here at all:
- * it is a key this agent uses, so it belongs on the page that installs him — and it
- * goes below the provider because he runs without it and does not run without that.
- *
- * The absence of an embedding section is asserted too, because it was here once and
- * putting it back is the tempting mistake. Nothing on this platform configures
- * embeddings — the provider, model and key are chart values on the embedding server
- * — so what would land here is a status report about searching agent memory, which
- * belongs on the page that searches it.
+ * Web search goes below the provider because he runs without it and does not run without
+ * that. The absence of an embedding section is asserted because nothing on this platform
+ * configures embeddings: the provider, model and key are chart values on the embedding
+ * server.
  */
 describe("the platform agent page", () => {
   it("carries the provider and the deployment on one page", async () => {
@@ -82,8 +74,8 @@ describe("the platform agent page", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
-  // The whole point of the merge: the requirement and the field it names are now
-  // close enough that the link is an anchor rather than a navigation.
+  // The requirement and the field it names are close enough that the link is an anchor
+  // rather than a navigation.
   it("points a blocked install at the provider section above it", async () => {
     render(<AdminAgentPage />);
 

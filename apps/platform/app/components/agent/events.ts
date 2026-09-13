@@ -36,10 +36,9 @@ const num = (v: unknown): number | undefined =>
  *
  * Returns null for anything it cannot use rather than throwing. The type check
  * alone is not enough: the agent's definition is editable and its emit list is
- * open, so a frame can arrive well-formed as JSON and wrong in its fields — and
- * each of those has a consequence. A null `text` concatenates the word "null" into
- * the answer; a `tool_call` with no id opens a chip no result can ever close; a
- * non-string `error` reaches React as an object child and takes the panel down.
+ * open, so a frame can arrive well-formed as JSON and wrong in its fields — a null
+ * `text` concatenates the word "null" into the answer, a `tool_call` with no id
+ * opens a chip no result can ever close.
  */
 export function parseAgentEvent(data: string): AgentEvent | null {
   let parsed: unknown;
@@ -75,7 +74,7 @@ export function parseAgentEvent(data: string): AgentEvent | null {
 
     // Every field is checked, and the id hardest of all: it is what an answer
     // quotes, so a frame without a usable one would open a question that can
-    // never be answered and would sit there until the run denied it.
+    // never be answered.
     case "tool_authorization":
       if (!str(frame.tool) || !str(frame.toolCallId) || !str(frame.authorizationId)) return null;
       return {
@@ -121,7 +120,7 @@ export function parseAgentEvent(data: string): AgentEvent | null {
 
     // A name only counts if there is one, and `str` alone would let "" and a
     // line of spaces through — either of which blanks a header that was showing
-    // something, which is the case this is here to prevent.
+    // something.
     case "thread_title": {
       const title = str(frame.title) ? frame.title.trim() : "";
       if (!title) return null;
@@ -142,14 +141,13 @@ export function parseAgentEvent(data: string): AgentEvent | null {
         text: str(frame.text) ? frame.text : undefined,
         // An authorize signal carries a decision rather than text. `allowed` is
         // read strictly: anything that is not the boolean true reads as a denial,
-        // which is the safe direction for the one frame that says a gated call may
-        // go ahead.
+        // which is the safe direction for a frame that says a gated call may go
+        // ahead.
         authorizationId: str(frame.authorizationId) ? frame.authorizationId : undefined,
         allowed: frame.allowed === true,
       };
 
-    // The only one whose text is optional: it repeats what streamed, and the
-    // reducer takes it only when nothing did.
+    // The only one whose text is optional: it repeats what streamed.
     case "done":
       return { type: "done", iteration, text: str(frame.text) ? frame.text : undefined };
 
@@ -174,7 +172,6 @@ export function parseAgentEvent(data: string): AgentEvent | null {
 /**
  * Parse a navigate frame, keeping only a path this app can actually route to.
  *
- * **This is the check that matters, and it belongs here rather than in the agent.**
  * The agent is an integration the user can edit, so a guard in its definition is
  * advice; this runs on every frame regardless of what the agent was changed to say.
  * A path must be site-relative — one leading slash, and not the `//host` form that
@@ -211,8 +208,8 @@ export function parseNavigateEvent(data: string): NavigateEvent | null {
  * flow's whole result body.
  *
  * Normally this repeats what already streamed and is discarded. It earns its keep
- * on the paths where nothing streamed: the agent's guardrail answers from a
- * `set-payload`, not from the model, so that reply exists *only* here.
+ * where nothing streamed: the agent's guardrail answers from a `set-payload`, not
+ * from the model, so that reply exists *only* here.
  */
 export function parseFinalAnswer(data: string): string | null {
   let parsed: unknown;
@@ -240,11 +237,10 @@ const DEFAULT_EVENT = "message";
 /**
  * Turn a byte stream of server-sent events into frames.
  *
- * Written as a generator over the raw reader rather than using EventSource because
- * the chat request is a POST with a body, which EventSource cannot make. It holds
- * the partial tail between chunks — a frame is split wherever TCP decides, and a
- * token stream splits often — and joins repeated `data:` lines with newlines, as
- * the format requires.
+ * A generator over the raw reader rather than EventSource, which cannot make the
+ * POST with a body this needs. It holds the partial tail between chunks — a frame
+ * is split wherever TCP decides — and joins repeated `data:` lines with newlines,
+ * as the format requires.
  */
 export async function* parseSSE(
   stream: ReadableStream<Uint8Array>,

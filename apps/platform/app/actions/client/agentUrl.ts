@@ -6,13 +6,6 @@
  * agent's status. So it is looked up, and because it changes only when someone
  * installs, removes or redeploys the agent, it is cached briefly rather than
  * fetched on every message.
- *
- * It lives in the client layer rather than beside the routes because it is a
- * client-layer concern — a base URL, resolved — and because it now has three
- * callers rather than two: the chat proxy, the status probe, and the server
- * actions that read a person's past conversations — which use the status for the
- * integration id rather than the address, since conversations live in the
- * orchestrator now.
  */
 
 import { baseUrl, callRaw } from "./http";
@@ -23,12 +16,10 @@ const TTL_MS = 30_000;
 /**
  * How long the status lookup waits before giving up.
  *
- * fetch has no timeout of its own, and this call sits in front of everything that
- * reaches the agent — the chat proxy, the status probe, the conversation list — so
- * an orchestrator that accepts a connection and then says nothing would hold each
- * of them open indefinitely. Five seconds is far longer than a request to a
- * service in the same cluster takes and short enough to be a delay rather than a
- * hang.
+ * fetch has no timeout of its own, so an orchestrator that accepts a connection
+ * and then says nothing would hold every caller open indefinitely. Five seconds is
+ * far longer than a request to a service in the same cluster takes and short
+ * enough to be a delay rather than a hang.
  */
 const STATUS_TIMEOUT_MS = 5_000;
 
@@ -39,12 +30,12 @@ interface Resolved {
 
 let cached: Resolved | null = null;
 
-/** The orchestrator base URL with any trailing slash trimmed, or "" when unset. */
+/** Whether an orchestrator base URL is configured at all. */
 export function orchestratorConfigured(): boolean {
   return baseUrl() !== "";
 }
 
-/** The agent's status, as much of it as these routes care about. */
+/** The agent's status, as much of it as reaching him needs. */
 export interface AgentReachability {
   state: string;
   internalUrl?: string;
@@ -60,10 +51,7 @@ export type ResolveResult =
   | { ok: true; url: string }
   | { ok: false; error: string; status: number };
 
-/**
- * Read the agent's status from the orchestrator. Used directly by the status probe,
- * which wants the state and not just the address.
- */
+/** Read the agent's status from the orchestrator — the state, not just the address. */
 export async function fetchAgentStatus(): Promise<AgentReachability | null> {
   try {
     const res = await callRaw("/settings/agent", {

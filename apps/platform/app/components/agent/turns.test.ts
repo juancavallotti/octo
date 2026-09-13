@@ -1,6 +1,6 @@
 /**
- * The fold, which is where the order lives. Every case here is about a sequence
- * rather than a value: what the panel can show is exactly what this preserves.
+ * The fold, which is where the order lives: what the panel can show is exactly what
+ * this preserves.
  */
 
 import { describe, expect, it } from "vitest";
@@ -112,10 +112,8 @@ describe("authorization", () => {
     expect(runs(turn)[0].done).toBe(true);
   });
 
-  // Attaching to the chip is the panel's own choice, so the panel copes when
-  // there is no chip: a flow whose emit list carries tool_authorization without
-  // tool_call would otherwise ask nobody, and every gated call would be denied on
-  // the timeout with no question ever shown.
+  // A flow whose emit list carries tool_authorization without tool_call would otherwise
+  // ask nobody, and every gated call would be denied on the timeout, unasked.
   it("opens a chip for a question that has none", () => {
     const turn = run(asking("c1"));
 
@@ -213,7 +211,7 @@ describe("reduce", () => {
     expect(turn.segments).toEqual([]);
   });
 
-  // Only the unanswered kind reaches the fold now: one he read is written into the
+  // Only the unanswered kind reaches the fold: one he read is written into the
   // conversation where he read it, which is takeIn's job rather than this one's.
   it("records a message he accepted and never reached", () => {
     const turn = run(text("looking"), {
@@ -252,9 +250,9 @@ describe("reduce", () => {
 });
 
 /**
- * A message sent while he was working. The runtime answers the request that
- * carried it with nothing, so this state — and the frame that clears it — is the
- * only thing standing between the reader and a bubble they cannot tell was read.
+ * A message sent while he was working. The runtime answers the request that carried it
+ * with nothing, so this state is all that stands between the reader and a bubble they
+ * cannot tell was read.
  */
 describe("takeIn", () => {
   /** Mid-run: the agent has said something, and a steered message is waiting. */
@@ -321,9 +319,8 @@ describe("takeIn", () => {
 });
 
 /**
- * A message the run took responsibility for and never answered. Unlike one that
- * was read, there is no position in the conversation to give it — nothing followed
- * from it — so it is only marked.
+ * A message the run took responsibility for and never answered. Nothing followed from
+ * it, so there is no position in the conversation to give it — it is only marked.
  */
 describe("acknowledge", () => {
   const waiting = (id: string, said: string): Turn => ({

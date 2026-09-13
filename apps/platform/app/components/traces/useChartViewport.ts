@@ -17,19 +17,15 @@ import { LABEL_PX } from "./WaterfallRow";
 /**
  * Where the reader is looking at the chart, and how wide the chart is drawn.
  *
- * Apart from the component because it is a different question: the chart draws
- * spans, this decides how much of the trace a screenful is and where along it
- * the reader has got to. Everything numeric is in chartLayout; what is here is
- * the part that needs a DOM — measuring the track, and putting the scroll where
- * a zoom said it should go.
+ * Everything numeric is in chartLayout; what is here is the part that needs a
+ * DOM — measuring the track, and putting the scroll where a zoom said it should
+ * go.
  */
 
 /**
- * What the track is assumed to be until it has been measured.
- *
- * Only reached in a non-visual renderer, where clientWidth is 0 — and a zero
- * there is not "no room", it is "no answer". Left as 0 the scale would be 0 and
- * every bar would come out NaN.
+ * What the track is assumed to be until it has been measured. A clientWidth of 0
+ * is "no answer" rather than "no room"; left at 0 the scale would be 0 and every
+ * bar would come out NaN.
  */
 const ASSUMED_TRACK_PX = 800;
 
@@ -56,9 +52,8 @@ export function useChartViewport(spanNs: number): ChartViewport {
 
   // clientWidth rather than a bounding box, because it already excludes the
   // vertical scrollbar — which is the same reason the ruler has to live inside
-  // the scroller rather than above it. Outside, it would keep the container's
-  // full width while the rows lost a scrollbar's worth of it, and every bar
-  // would sit a few pixels off the tick it is measured against.
+  // the scroller rather than above it, or every bar would sit a few pixels off
+  // the tick it is measured against.
   useEffect(() => {
     const element = scroller.current;
     if (!element) return;
@@ -94,10 +89,9 @@ export function useChartViewport(spanNs: number): ChartViewport {
   }, [view]);
 
   // The DOM owns the offset, not this state: a bare wheel, a scrollbar drag and
-  // a trackpad swipe all move it without passing through `apply`, and that is
-  // deliberate — panning must not re-render two thousand rows. So a gesture
-  // reads where the chart actually is before deciding where to put it, or it
-  // anchors a zoom to a position the reader left some time ago.
+  // a trackpad swipe all move it without passing through `apply`, so that
+  // panning does not re-render two thousand rows. A gesture therefore reads
+  // where the chart actually is before deciding where to put it.
   const live = useCallback(
     (): Viewport => ({
       ...view,
@@ -106,9 +100,7 @@ export function useChartViewport(spanNs: number): ChartViewport {
     [view],
   );
 
-  // Zoom on a modified wheel only. A bare wheel now pans and scrolls the rows,
-  // which is what someone reaching for it on a chart wider than the window wants
-  // — and a trackpad's horizontal delta pans for free.
+  // Zoom on a modified wheel only; a bare wheel pans and scrolls the rows.
   //
   // Registered by hand rather than with an onWheel prop because React attaches
   // wheel listeners passively: preventDefault() from a synthetic handler is
@@ -130,13 +122,13 @@ export function useChartViewport(spanNs: number): ChartViewport {
 
   // Vertically only. A row is as wide as the whole track — tens of thousands of
   // pixels on a slow trace — and scrollIntoView on an element wider than the
-  // scrollport aligns to its start: unqualified, every ArrowDown would snap the
-  // chart back to time zero. Saved and restored rather than passed as
-  // `inline: "nearest"`, which browsers still honour on an oversized element.
+  // scrollport aligns to its start, so unqualified every ArrowDown would snap
+  // the chart back to time zero. The offset is saved and restored rather than
+  // left to `inline: "nearest"`, which browsers ignore on an oversized element.
   const revealRow = useCallback((elementId: string) => {
     const element = document.getElementById(elementId);
-    // Optional right through: scrollIntoView is a browser convenience, absent in
-    // jsdom, and moving the cursor must not depend on being able to scroll to it.
+    // scrollIntoView is absent in jsdom, and moving the cursor must not depend
+    // on being able to scroll to it.
     if (!element?.scrollIntoView) return;
     const surface = scroller.current;
     const before = surface?.scrollLeft;

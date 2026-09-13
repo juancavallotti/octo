@@ -9,14 +9,13 @@
  *
  * This module assembles those three. The address decides nesting where it can
  * (`./nesting`), the clock decides it where the address cannot, and the parts
- * that genuinely cannot be known — which input became which outcome in a fork, an
- * invocation whose terminal was lost — are reported as unknown rather than
- * guessed. Everything here is pure, so re-zooming and re-filtering never refetch.
+ * that genuinely cannot be known — which input became which outcome in a fork,
+ * an invocation whose terminal was lost — are reported as unknown rather than
+ * guessed.
  *
  * **One thing this never does** is treat a gap in `seq` as lost records. `seq` is
  * gapless across a whole *publisher*, not within a trace, so one trace's records
- * are normally non-consecutive. Loss is reported per app from the `trace.dropped`
- * marker, which carries no trace id and so belongs to no trace at all.
+ * are normally non-consecutive.
  */
 
 import type { TraceRecord } from "@/app/model/traces";
@@ -41,9 +40,8 @@ import {
 export interface BuildOptions {
   /**
    * The stored rollup's bounds. When given they seed the chart's extent, so the
-   * duration the trace list showed and the width of this chart are the same
-   * number rather than two computations that agree until one of them changes.
-   * The records still widen it, which is what keeps a truncated trace honest.
+   * stored duration and the width of this chart are the same number. The records
+   * still widen it, which is what keeps a truncated trace honest.
    */
   startedAt?: string;
   endedAt?: string;
@@ -153,11 +151,10 @@ function spanOf(record: TraceRecord, start: number, end: number): WaterfallNode 
 }
 
 /**
- * A stand-in root for an invocation whose terminal record never arrived.
- *
- * Without one, its blocks would be adopted by whichever unrelated span happened
- * to enclose them in time — a tree that looks complete and is wrong. The stand-in
- * spans its members, which is a *lower bound* on what really ran, and says so.
+ * A stand-in root for an invocation whose terminal record never arrived, so its
+ * blocks are not adopted by whichever unrelated span happened to enclose them in
+ * time. It spans its members, which is a *lower bound* on what really ran, and
+ * says so.
  */
 function inferredRoots(
   nodes: WaterfallNode[],

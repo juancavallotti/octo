@@ -233,11 +233,9 @@ export function updateResource(
 }
 
 /**
- * Create or replace a resource by its (path-like) name. Resource names are
- * addressed by the orchestrator's opaque id, not by name, so this lists the
- * integration's resources, and updates the match by id or creates a new one. Used
- * for name-keyed resources like `.env.dev` that the editor owns without tracking
- * their id.
+ * Create or replace a resource by its (path-like) name. Resources are addressed
+ * by the orchestrator's opaque id rather than by name, so this lists the
+ * integration's resources and updates the match by id, or creates a new one.
  */
 export async function upsertResourceByName(
   integrationId: string,

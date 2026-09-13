@@ -6,16 +6,9 @@ import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 /**
  * The model's reasoning while it is reasoning.
  *
- * This exists because leaving it out made the panel look broken: on a reasoning
- * model most of the output is thinking — 875 of 900 tokens on the conversation
- * that prompted this — so without it there is nothing on screen between the
- * question and the answer, and a model that is working is indistinguishable from
- * one that has hung.
- *
- * Open while it streams, closed once something follows it. That ordering is the
- * whole design: the reasoning is worth watching when it is the only thing
- * happening, and is clutter the moment there is a tool call or an answer to read
- * instead.
+ * Open while it streams, closed once something follows it: the reasoning is worth
+ * watching when it is the only thing happening, and is clutter the moment there is
+ * a tool call or an answer to read instead.
  *
  * One of these per stretch of reasoning rather than one per turn: an agent that
  * thinks, calls a tool and thinks again did two separate pieces of thinking, and
@@ -33,21 +26,16 @@ export default function ThinkingSegment({
   answered: boolean;
 }) {
   // Derived rather than synchronised: until someone touches it the panel simply
-  // *is* open-while-unanswered, which needs no effect and cannot lag a render
-  // behind. After a deliberate choice it follows that choice, so the answer
-  // arriving never collapses a panel somebody is reading.
+  // *is* open-while-unanswered. After a deliberate choice it follows that choice,
+  // so the answer arriving never collapses a panel somebody is reading.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? !answered;
   const body = useRef<HTMLDivElement>(null);
 
-  // Follow the reasoning as it arrives, so the newest line is the visible one —
-  // by scrolling this box and nothing else.
-  //
-  // It used to call scrollIntoView on a tail element, which scrolls the nearest
-  // scrollable *ancestor*: the transcript. So every token of reasoning dragged the
-  // whole conversation down, including when the reader had deliberately scrolled
-  // away from the bottom — quietly undoing the one thing the transcript's own
-  // scrolling is careful about.
+  // Follow the reasoning as it arrives, so the newest line is the visible one — by
+  // scrolling this box and nothing else. scrollIntoView on a tail element would
+  // scroll the nearest scrollable *ancestor*, dragging the whole conversation down
+  // on every token even when the reader had scrolled away from the bottom.
   useEffect(() => {
     const el = body.current;
     if (open && el) el.scrollTop = el.scrollHeight;

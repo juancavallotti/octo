@@ -2,13 +2,9 @@
  * Browser-side client for alerting. Backed by the server actions in
  * `app/actions/alerts.ts`, which read and write the observability service's API
  * directly; these wrappers unwrap the ActionResult so callers keep a
- * value-or-throw contract.
- *
- * It sits beside `logs.ts`, `traces.ts` and `retention.ts` for the same reason
- * they do: alerting lives on the observability service, which owns both the
- * tables a watch is stored in and the ones it reads. The types live here rather
- * than in the client that shapes the wire, so nothing client-side has to import a
- * server-only module to name what comes back.
+ * value-or-throw contract. The types live here rather than in the client that
+ * shapes the wire, so nothing client-side has to import a server-only module to
+ * name what comes back.
  */
 
 import * as actions from "@/app/actions/alerts";
@@ -30,9 +26,9 @@ export type AlertOp = "gt" | "gte" | "lt" | "lte";
 export type AlertActionKind = "topic" | "email";
 
 /**
- * How an absent measurement is read. `ok` is the default, because the ordinary
- * reason a window is empty is that an app was quiet; a watch that should fire on
- * silence says so with an `absence` condition, where it is visible.
+ * How an absent measurement is read. `ok` is the default: the ordinary reason a
+ * window is empty is that an app was quiet, and a watch that should fire on silence
+ * says so with an `absence` condition instead.
  */
 export type AlertNoData = "ok" | "fire" | "keep";
 
@@ -56,11 +52,9 @@ export interface AlertScope {
 }
 
 /**
- * One condition, in the shape the service stores and evaluates.
- *
- * `params` is deliberately open: the three kinds share almost no parameters, and
- * the service's own decoder is what refuses a malformed one — with a message
- * naming the field, which the editor surfaces rather than replacing.
+ * One condition, in the shape the service stores and evaluates. `params` is open:
+ * the three kinds share almost no parameters, and the service's own decoder is
+ * what refuses a malformed one, with a message naming the field.
  */
 export interface AlertCondition {
   id: string;
@@ -97,11 +91,9 @@ export interface Watch {
   /** How long the combined verdict must hold. Counted in evaluations. */
   forSeconds: number;
   /**
-   * How long the watch stays quiet after announcing something.
-   *
-   * The only bound on how often a watch reports: a still-firing watch offers to
-   * say so on every evaluation, and this is what all but the first runs into. It
-   * counts across episodes as well as within one. Zero lets every one through.
+   * How long the watch stays quiet after announcing something — the only bound on
+   * how often a watch reports. It counts across episodes as well as within one;
+   * zero lets every one through.
    */
   cooldownSeconds: number;
   createdAt?: string | null;
@@ -128,9 +120,8 @@ export interface WatchListItem {
 }
 
 /**
- * One condition's answer, carrying the threshold it was judged against as it was
- * at the time. A row from three weeks ago still explains itself after the watch
- * has been retuned, which it could not if the page looked the threshold up.
+ * One condition's answer, carrying the threshold it was judged against as it stood
+ * at the time, so an old row still explains itself after the watch is retuned.
  */
 export interface AlertOutcome {
   conditionId: string;
@@ -163,7 +154,7 @@ export interface Incident {
   watchName: string;
   openedAt: string;
   resolvedAt: string | null;
-  /** `resolved` and `stale` are deliberately different facts. */
+  /** `resolved` and `stale` are different facts. */
   closedReason?: string;
   severity: AlertSeverity;
   acknowledgedAt: string | null;
@@ -261,9 +252,8 @@ export async function deleteWatch(id: string): Promise<void> {
 }
 
 /**
- * Evaluate a definition now without storing anything or notifying anybody. It
- * takes a whole watch rather than an id, because the question is worth asking
- * about a definition that has not been saved.
+ * Evaluate a definition now without storing anything or notifying anybody. It takes
+ * a whole watch rather than an id, so an unsaved definition can be asked about.
  */
 export async function previewWatch(input: WatchInput): Promise<WatchPreview> {
   return unwrap(await actions.previewWatch(input));

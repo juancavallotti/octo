@@ -4,16 +4,11 @@ import { SEVERITY_CLASS, describeEpisode, describeVerdict } from "./format";
 import type { Incident } from "@/app/model/alerts";
 
 /**
- * What is on fire right now.
+ * What is on fire right now: an open incident is a fact about the installation,
+ * where a watch is a definition.
  *
- * Above the watch list rather than inside it, because an open incident is a fact
- * about the installation and the list is a set of definitions — and because the
- * one thing somebody arriving at this page mid-outage needs is not to have to
- * find the row.
- *
- * Acknowledging records that somebody has seen it. It deliberately does not
- * resolve the episode: only the metric coming back does that, and a button that
- * closed an incident would be a button for lying to the next person who looks.
+ * Acknowledging records that somebody has seen it, and does not resolve the
+ * episode — only the metric coming back does that.
  */
 export function IncidentBanner({
   incidents,

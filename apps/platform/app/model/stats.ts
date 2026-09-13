@@ -1,17 +1,16 @@
 /**
  * Browser-side client for pod stats — the per-pod CPU, memory and runtime metrics
- * a sidecar samples into Redis and the observability service reads back. Backed by the
- * stats server actions, which call that service's query API directly; this wrapper
- * unwraps the ActionResult so callers keep a value-or-throw contract. Read-only.
+ * a sidecar samples into Redis and the observability service reads back. Backed by
+ * the stats server actions; this wrapper unwraps the ActionResult so callers keep a
+ * value-or-throw contract. Read-only.
  *
- * The shapes below mirror `observability/internal/api/stats.go`. Three of its rules survive
- * into these types and must survive into every consumer:
+ * The shapes below mirror `observability/internal/api/stats.go`, and three of its
+ * rules must survive into every consumer:
  *
  *  - A reading is `number | null`, and null is a **gap** — a series the pod's
  *    dictionary knows that the scrape did not report. It is not a zero. A chart
  *    that draws zero for it invents a cliff where a metric merely stopped being
- *    reported, and the whole storage layer went to some trouble to keep the two
- *    apart.
+ *    reported.
  *  - A counter's value is its **growth** over the interval ending at that point,
  *    on both tiers. That is what lets a caller chart one without knowing which
  *    tier answered — and it means the number is not the stored reading.
@@ -50,11 +49,10 @@ export interface StatsPod {
   series: number;
 
   /**
-   * Row counts per tier, reported separately because zero live rows beside a full
-   * history is the ordinary state of a pod that stopped a few hours ago: the live
-   * tier is kept for twice the rollup interval while the pod stays indexed for the
-   * whole retention window. Shown together, that reads as expected rather than as
-   * a fault.
+   * Row counts per tier. Zero live rows beside a full history is the ordinary
+   * state of a pod that stopped a few hours ago: the live tier is kept for twice
+   * the rollup interval while the pod stays indexed for the whole retention
+   * window.
    */
   liveRows: number;
   rollupRows: number;
@@ -105,9 +103,8 @@ export interface StatsSeries {
   /** Unix milliseconds. On the rollup tier this is the bucket's start. */
   times: number[];
   /**
-   * Bucket ends, rollup tier only. Carried because rows are not contiguous: when
-   * a bucket's end does not meet the next one's start, scraping stopped between
-   * them — which is visible only if both edges are known.
+   * Bucket ends, rollup tier only. Rows are not contiguous: when a bucket's end
+   * does not meet the next one's start, scraping stopped between them.
    */
   ends: number[];
 
@@ -136,12 +133,9 @@ export interface StatsSeriesPage {
 export type StatName = "value" | "min" | "max" | "last" | "samples";
 
 /**
- * One request for series data.
- *
- * `metrics` is required rather than optional, mirroring the service: rows are
- * stored positionally, so a query with no name filter reads every series of every
- * pod. It is the bound the whole read strategy rests on, and a caller should meet
- * it at compile time rather than as a 400.
+ * One request for series data. `metrics` is required rather than optional: rows
+ * are stored positionally, so a query with no name filter reads every series of
+ * every pod, and that bound is better met at compile time than as a 400.
  */
 export interface StatsSeriesQuery {
   metrics: string[];

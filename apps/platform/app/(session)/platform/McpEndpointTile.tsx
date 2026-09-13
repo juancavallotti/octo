@@ -13,13 +13,6 @@ import { McpIcon } from "@octo/editor";
  * It sits beside the page title rather than in the tile grid, so it is compact and
  * tinted: this is the one address on the dashboard people come back to copy, and
  * the gradient marks it as the odd one out among the plain navigation tiles.
- *
- * The copy button lives inside the field rather than beside it, which is where a
- * reader now looks for it — and it keeps the address the full width of the card.
- *
- * Name and line sit together beside the icon rather than stacked as three bands.
- * The card shares a row with the page title, so its height is what decides whether
- * that row reads as one thing; two lines against one icon is the compact shape.
  */
 export function McpEndpointTile({
   url,

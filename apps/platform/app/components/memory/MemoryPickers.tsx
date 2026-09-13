@@ -9,17 +9,13 @@ import { AppPicker } from "@/app/components/AppPicker";
  * What to look at: an integration, then one of the agents that has stored
  * something under it.
  *
- * A single compact row rather than a pair of labelled fields — these two pickers
- * scope everything on the page, so they belong above the tabs and out of the way,
- * not in a form-shaped block that reads as something to fill in. The agent is an
- * accessory beside the integration rather than a second dropdown revealed by it:
- * it still needs an integration to mean anything, but that is a fact about the
- * list it offers, not a reason to hide the control.
+ * A single compact row rather than a pair of labelled fields: these two pickers
+ * scope everything on the page, so they belong out of the way, not in a
+ * form-shaped block that reads as something to fill in.
  *
  * The agent list is not read from any definition. An agent appears here once it
- * has actually recorded something, which is precisely when there is anything to
- * show — and it means an agent that was renamed leaves its old memory visible
- * under the old id rather than disappearing from the viewer along with its name.
+ * has actually recorded something — so an agent that was renamed leaves its old
+ * memory visible under the old id rather than disappearing along with its name.
  */
 export function MemoryPickers({
   integrations,

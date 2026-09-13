@@ -2,11 +2,8 @@
 
 import type { QueueConnection, QueueSubscriber } from "@/app/model/queues";
 
-// The tile and its formatters live in components/stats now, shared with the
-// storage view: the two pages are read side by side when something is wrong, and a
-// tile that rounded bytes differently on one of them would make two readings of the
-// same install look like a discrepancy. Re-exported so existing importers of this
-// module keep working.
+// The tile and its formatters are shared, so two readings of the same install
+// cannot disagree by rounding. Re-exported for importers of this module.
 export { Stat, bytes, num } from "@/app/components/stats/Stat";
 import { bytes, num } from "@/app/components/stats/Stat";
 
@@ -21,11 +18,9 @@ const HEAD =
  * which connection, in which queue group, and how many messages its subscriptions
  * here were delivered.
  *
- * Deliberately not the connections' own totals. Those cover every subject a client
- * touches, so one client subscribed to two subjects shows the same set under
- * both — true, and unreadable as anything but a bug next to a per-subject message
- * count that differs. They are listed once each in ConnectionsTable; the CID is
- * what joins the two.
+ * Not the connections' own totals, which cover every subject a client touches and
+ * would show the same numbers under two different subjects. The CID joins a row
+ * here to the connection it belongs to.
  */
 export function SubscribersTable({
   subscribers,
@@ -71,12 +66,10 @@ export function SubscribersTable({
  * Every open client connection, once each, with the counters that belong to a
  * connection rather than to a subject.
  *
- * Published and Delivered, not "in" and "out". NATS reports a connection's
- * counters from the broker's side — `in_msgs` is what the client sent *to* it —
- * so a pure consumer reads zero in while the server's Messages in runs high, and
- * the two look like they disagree. Named for what the client did, and shown
- * beside the connection that published the traffic, they stop reading as a
- * contradiction: this client took 45, that one sent 55.
+ * Published and Delivered, not "in" and "out": NATS reports these from the
+ * broker's side, so `in_msgs` is what the client sent *to* it and a pure consumer
+ * reads zero there. Named for what the client did, the numbers stop reading as a
+ * contradiction.
  */
 export function ConnectionsTable({
   connections,

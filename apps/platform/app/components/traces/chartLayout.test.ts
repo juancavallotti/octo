@@ -133,10 +133,9 @@ describe("agent tool calls", () => {
 
 describe("the time scale", () => {
   it("draws a trace ten times as long ten times as wide", () => {
-    // The whole point of a constant density. Stretching each trace to the window
-    // made a 100ms trace and a 30s trace the same picture, so a duration could
-    // only ever be read as a ratio between siblings — never as a quantity, and
-    // never compared across two traces.
+    // A constant density is what makes a duration a quantity rather than a ratio
+    // between siblings: stretching each trace to the window draws a 100ms trace
+    // and a 30s trace the same picture.
     const ten = { spanNs: 600e9, containerPx: 900 };
     expect(trackWidth(1, ten) / trackWidth(1, MINUTE)).toBeCloseTo(10);
   });
@@ -159,8 +158,8 @@ describe("the time scale", () => {
   it("will not lay out a track no browser should be asked to paint", () => {
     const hour = { spanNs: 3600e9, containerPx: 900 };
     expect(trackWidth(500, hour)).toBe(MAX_TRACK_PX);
-    // And the zoom is clamped with it, or zooming back out feels dead for
-    // several clicks while a factor that changed nothing counts back down.
+    // The zoom is clamped with it, or zooming back out is dead for several clicks
+    // while a factor that changed nothing counts back down.
     expect(zoomAt({ zoom: 1, scrollLeft: 0 }, 0, 1e6, hour).zoom).toBeLessThan(500);
   });
 });
@@ -180,8 +179,8 @@ describe("barRect", () => {
   });
 
   it("lays out a bar that is off screen rather than dropping it", () => {
-    // There is nothing to clip any more: the whole trace is laid out, and being
-    // off *screen* is a scroll position rather than a fact about the geometry.
+    // Nothing is clipped: the whole trace is laid out, and being off screen is a
+    // scroll position rather than a fact about the geometry.
     const scale = pxPerNs(1, MINUTE);
     expect(barRect({ start: 55e9, end: 60e9 }, scale).left).toBeCloseTo(6600, 6);
   });
@@ -229,9 +228,8 @@ describe("the viewport", () => {
   });
 
   it("can fit a trace too long for the ordinary zoom floor", () => {
-    // An hour needs 0.002 to come back on screen. A flat 0.02 floor refused it,
-    // which left Fit as a button that did nothing on exactly the traces someone
-    // most needs it for.
+    // An hour needs 0.002 to come back on screen, so the floor cannot be flat —
+    // Fit has to work on exactly the traces someone most needs it for.
     const hour = { spanNs: 3600e9, containerPx: 900 };
     expect(isFitted(fitView(hour), hour)).toBe(true);
   });

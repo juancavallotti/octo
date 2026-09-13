@@ -26,11 +26,8 @@ import { useObjectWrites } from "./useObjectWrites";
 /**
  * The object browser's data lifecycle: which deployment and key are selected
  * (mirrored to the URL so an object is bookmarkable), the three lists that follow
- * from that selection, and the read/write/delete of a value.
- *
- * The interlinked selection and editing state stays in the reducer next door;
- * this owns the fetching, the URL sync, and the ordering of the two against each
- * other. What is left in ObjectsManager is rendering.
+ * from that selection, and the read/write/delete of a value. The interlinked
+ * selection and editing state stays in the reducer next door.
  *
  * The race guard is the part worth knowing about: selecting a key starts a fetch,
  * and selecting another before it lands must not let the first answer overwrite
@@ -176,8 +173,7 @@ export function useObjects({
     writeUrl(deploymentId, null, namespace);
   }, [deploymentId, namespace, writeUrl]);
 
-  // The value is binary (returned base64); show it read-only rather than risk a
-  // lossy text edit.
+  // Binary values (returned base64) are read-only rather than risk a lossy edit.
   const binary = current?.encoding === "base64";
   const dirty = current != null && !binary && draft !== current.value;
   // Secret namespaces are browse + cleanup only: list keys, delete them, but never

@@ -5,17 +5,12 @@ import { getHealth, type Dependency } from "@/app/model/health";
 import { SecondaryButton } from "./fields";
 
 /**
- * What this installation runs on, and whether the orchestrator can reach it.
+ * What this installation runs on, and whether the orchestrator can reach it. The
+ * one admin page that reports rather than configures.
  *
- * The only admin page that reports rather than configures. It exists because the
- * answer used to live in pod logs: when the platform is behaving strangely the
- * first question is which of the four processes underneath it is up, and getting
- * to it meant kubectl.
- *
- * It says what it checked, in as many words. A single round trip is all this
- * proves — Postgres answering says nothing about replication lag, Redis answering
- * says nothing about how full it is — and a page that implied more would be worse
- * than this one, because it would be believed.
+ * It says what it checked, in as many words: a single round trip proves a
+ * dependency answered and nothing more, and a page that implied more would be
+ * believed.
  */
 
 /** What each dependency is for, in the terms of what breaks without it. */
@@ -41,11 +36,9 @@ const LABELS: Record<string, string> = {
 };
 
 /**
- * Three states, not two. "Not configured" is deliberately neutral rather than a
- * warning: running without cluster access is supported, and colouring it as a
- * fault would send someone looking for one that is not there. The same is true,
- * and more often, of the embedding server — most installations do not have one,
- * and agent memory works without it.
+ * Three states, not two. "Not configured" is neutral rather than a warning:
+ * running without cluster access or an embedding server is supported, and
+ * colouring it as a fault sends someone looking for one that is not there.
  */
 function Badge({ dep }: { dep: Dependency }) {
   if (!dep.configured) {

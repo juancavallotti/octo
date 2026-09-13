@@ -110,9 +110,8 @@ describe("TraceSummaryPanel", () => {
     expect(screen.getByText("$0.0094")).toBeInTheDocument();
   });
 
-  // The decomposition used to live in a `title`, which is to say it was invisible
-  // on a touch device and absent from a screen reader. It is on the page now, so
-  // the test reads what is rendered rather than an attribute.
+  // The decomposition is on the page rather than in a `title`: a hover is invisible on a
+  // touch device and absent from a screen reader.
   it("shows the input/output split without hovering anything", () => {
     render(<TraceSummaryPanel summary={SUMMARY} waterfall={sequential()} />);
     expect(screen.getByText(/1,800 in · 260 out/)).toBeInTheDocument();

@@ -6,13 +6,8 @@
  * the same one that gates the editor (see oidc.config.ts) — and validates the
  * bearer access-token JWTs it mints for MCP clients (Claude, ChatGPT, …).
  *
- * These constants are consumed by:
- *  - the `/mcp` route's {@link ../mcp/verify-token} (issuer + resource → aud check),
- *  - the `.well-known/oauth-protected-resource` metadata routes (RFC 9728), which
- *    point clients at the authorization server so they can self-register (DCR).
- *
- * They are intentionally free of the `jose`/orchestrator imports the verifier
- * pulls in, so the metadata routes stay light.
+ * Free of the `jose`/orchestrator imports the token verifier pulls in, so the
+ * `.well-known/oauth-protected-resource` metadata routes (RFC 9728) stay light.
  */
 
 import { OIDC_ISSUER, trimSlashes } from "@/oidc.config";
@@ -20,8 +15,7 @@ import { OIDC_ISSUER, trimSlashes } from "@/oidc.config";
 /**
  * The authorization server we trust — the provider's issuer, reused as-is from
  * the editor's OIDC config so the two can never disagree. Access tokens must
- * carry `iss` equal to this. Empty only on a misconfigured install, which is one
- * nobody can sign in to either — see oidc.config.ts.
+ * carry `iss` equal to this. Empty only on a misconfigured install.
  */
 export const MCP_ISSUER = OIDC_ISSUER;
 

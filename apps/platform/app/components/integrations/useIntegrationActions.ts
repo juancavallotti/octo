@@ -23,13 +23,11 @@ import {
 /**
  * The things you can do to an integration itself: import one from a file,
  * download it as a bundle, replace its contents from one, duplicate the selected
- * one, rename it, delete it.
+ * one, rename it, delete it. All of them turn on `selected` and none touches the
+ * folder tree's shape.
  *
- * Separate from the folder tree's own mutations because these all turn on
- * `selected` and none of them touches the tree's shape. `renameSelected` is the
- * odd one out and returns a boolean rather than going through `run`: the inline
- * editor has to stay open on a name conflict rather than close as though the
- * rename had worked.
+ * `renameSelected` is the odd one out and returns a boolean rather than going
+ * through `run`, so an inline editor can stay open on a name conflict.
  */
 export function useIntegrationActions({
   selected,
@@ -53,9 +51,9 @@ export function useIntegrationActions({
   setBusy: (busy: boolean) => void;
   setError: (message: string | null) => void;
 }) {
-  // Hidden file input backing the "Import" button, and the hidden one backing
-  // "Replace from bundle". Importing either shape — a bare .yaml definition or a
-  // .zip bundle — always creates a new integration.
+  // Hidden file inputs backing "Import" and "Replace from bundle". Importing
+  // either shape — a bare .yaml definition or a .zip bundle — always creates a
+  // new integration.
   const importInput = useRef<HTMLInputElement>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
 
@@ -63,9 +61,7 @@ export function useIntegrationActions({
     setError(null);
     if (isBundleFile(file)) {
       // A bundle is read by the orchestrator, which is the only thing that knows
-      // the archive format; the filename only names an archive whose manifest
-      // doesn't. Everything else — validity, naming conflicts — comes back as an
-      // error result and lands in the inline banner.
+      // the archive format; validity and naming conflicts come back as errors.
       run(async () => {
         const created = await importBundle(
           await readFileBytes(file),
@@ -143,9 +139,8 @@ export function useIntegrationActions({
   };
 
   // Rename the selected integration (its name is effectively its filename),
-  // preserving the definition. The updated name lands via the refresh. Returns
-  // whether the rename succeeded so the inline editor can stay open on conflict
-  // (e.g. a duplicate name); failures still surface in the inline error banner.
+  // preserving the definition. Returns whether it succeeded; failures also
+  // surface in the inline error banner.
   const renameSelected = async (name: string): Promise<boolean> => {
     if (!selected) return false;
     setBusy(true);

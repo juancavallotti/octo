@@ -7,12 +7,6 @@ import { acknowledge, answerOf, reduce, settle, takeIn, type Turn } from "./turn
 /**
  * The transcript, and every way a frame changes it.
  *
- * Split from the hook that fetches because these are two different jobs: this one
- * is a reducer over an array with no network in it, and the one next door is the
- * request, the claim and the abort chain. Keeping them together meant one file
- * where a change to how a signal is displayed sat inside the code that decides
- * whether a message starts a run.
- *
  * Every mutator takes the turn it is about, because a stream outlives the render
  * that started it: by the time a frame arrives the array has moved on, and the
  * only stable handle on "the turn this run is writing" is its id.
@@ -56,9 +50,8 @@ export function useTranscript(): Transcript {
 
   /**
    * A signal says what the run did with a message posted to it, so it is applied
-   * to that message — and only falls back to the transcript when it is about one
-   * this window never sent, which is what a second tab on the same conversation
-   * looks like from here.
+   * to that message — and only falls back to the turn the run is writing when it is
+   * about a message this window never sent.
    */
   const applySignal = useCallback(
     (turnId: string, event: Extract<AgentEvent, { type: "signal" }>) => {

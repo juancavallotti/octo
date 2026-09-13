@@ -5,18 +5,14 @@
  * query at twenty `metric` parameters, which is easy to respect. The one that
  * matters is series: a metric name is not a series, and on a real deployment
  * `octo_flow_duration_seconds_bucket` alone resolves to a hundred and eight of
- * them — three flows times three outcomes times twelve bucket boundaries, more
- * than every other series combined.
+ * them.
  *
  * So batches are packed by **estimated resolved series**, which the catalogue
  * already tells us exactly: each metric lists its label sets and the pods
- * exposing each one. Packing by name count instead would put four ordinary
- * metrics and one histogram in the same request and make its response twenty
- * times the size of its neighbours.
+ * exposing each one.
  *
  * A single metric larger than the budget goes in a request of its own rather
- * than being dropped: the page's whole purpose is showing everything, and the
- * service has no way to return part of a metric.
+ * than being dropped: the service has no way to return part of a metric.
  */
 
 import type { StatsMetric } from "@/app/model/stats";
@@ -25,9 +21,8 @@ import type { StatsMetric } from "@/app/model/stats";
 export const MAX_NAMES = 20;
 
 /**
- * Series per request. Below podstats.MaxSelectedSeries, which is declared as the
- * bound on a query — worth staying under whether or not the service enforces it,
- * since a batch that trips a limit fails the whole request rather than trimming
+ * Series per request. Below podstats.MaxSelectedSeries, the declared bound on a
+ * query: a batch that trips a limit fails the whole request rather than trimming
  * it.
  */
 export const SERIES_BUDGET = 180;

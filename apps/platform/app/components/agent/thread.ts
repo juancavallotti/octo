@@ -1,18 +1,11 @@
-/**
- * Naming a conversation, and remembering which one this tab is in.
- *
- * Pure, and its own module so it can be tested without React — the id generator
- * has three paths through it and only one of them runs on a developer's laptop.
- */
+/** Naming a conversation, and remembering which one this tab is in. */
 
 /**
  * A random id, without assuming a secure context.
  *
  * crypto.randomUUID exists only over HTTPS or on localhost, and a self-hosted
- * platform served over plain HTTP is an ordinary way to run this. There it is
- * undefined, and calling it threw synchronously out of send() — before the try —
- * which left busy true and a controller nothing would ever clear, wedging the
- * chat for the life of the page.
+ * platform served over plain HTTP is an ordinary way to run this — where calling
+ * it throws.
  *
  * These ids key React lists and name a conversation; the conversation is scoped
  * server-side by the authenticated user, so this is not a security boundary and

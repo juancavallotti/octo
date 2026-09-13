@@ -2,10 +2,8 @@
  * The orchestrator's type surface: what a stored integration, snapshot, resource,
  * folder and deployment look like on the wire, plus the inputs the calls take.
  *
- * Split out of `orchestrator.ts` because it is the bulk of that module and shares
- * nothing with the rest of it: these are shapes, and the other half is a list of
- * one-line calls. `orchestrator.ts` re-exports everything here, so
- * `@/app/model/orchestrator` remains the single import for both.
+ * `orchestrator.ts` re-exports everything here, so `@/app/model/orchestrator`
+ * remains the single import.
  */
 
 /** A stored integration: a named flow definition (YAML) plus bookkeeping. */
@@ -22,10 +20,9 @@ export interface Integration {
   /** RFC3339 timestamp of the last update. */
   lastUpdated: string;
   /**
-   * Attribution: the ids of the creating and last-editing users, with those
-   * users resolved to email/name for display. All optional — a row written
-   * before attribution existed has no actor, and one whose user has since been
-   * deleted keeps the row and loses the name.
+   * Attribution: the ids of the creating and last-editing users, with those users
+   * resolved to email/name for display. All optional — a row can have no actor, and
+   * one whose user has since been deleted keeps the row and loses the name.
    */
   createdBy?: string;
   updatedBy?: string;
@@ -47,9 +44,8 @@ export interface Snapshot {
 }
 
 /**
- * A resource frozen alongside a tag's definition — metadata only (content is
- * served separately, on demand, by the runtime's loader). Read-only, since a
- * snapshot is immutable.
+ * A resource frozen alongside a tag's definition — metadata only; content is
+ * served separately, on demand, by the runtime's loader. Read-only.
  */
 export interface SnapshotResource {
   /** "env" or "template". */
@@ -150,15 +146,14 @@ export interface Deployment {
   createdAt?: string;
   /** RFC3339 timestamp of the last status/state update. */
   lastUpdated: string;
-  /** The deployment's persisted env bindings, keyed by var name — for a rollout
-   * dialog to seed "edit existing". Secret bindings carry only the secret name. */
+  /** The deployment's persisted env bindings, keyed by var name. Secret bindings
+   * carry only the secret name. */
   env?: Record<string, EnvBindingInput>;
   /** Whether this deployment's pods run with the runtime tracer on. */
   tracing?: boolean;
   /** The octo runtime image the pods are running, and its tag on its own. Absent
-   * when neither the cluster nor the record knows. It is not the platform's own
-   * version: a deployment keeps the image it was created with until it is rolled
-   * over, so a cluster commonly runs several at once. */
+   * when neither the cluster nor the record knows. Not the platform's own version:
+   * a deployment keeps the image it was created with until it is rolled over. */
   runtimeImage?: string;
   runtimeVersion?: string;
   /** What this deployment's own token opens on the platform. See {@link DEPLOYMENT_ACCESS}. */
@@ -203,10 +198,7 @@ export interface DeploymentInput {
  * A running integration presents a token of its own, and what it may do is what
  * that token carries. For an integration woken by a queue message or a webhook
  * there is nobody else's credential to borrow, so this is the whole of what it
- * may reach.
- *
- * A set rather than a ladder: building integrations and operating deployments
- * are different jobs, and something can do both, either, or neither.
+ * may reach. A set rather than a ladder: it can hold both, either, or neither.
  */
 export type DeploymentAccess = "developer" | "operator";
 
@@ -250,9 +242,8 @@ export interface DeployOptions {
   /** The integration's declared env vars (excluding orchestrator-managed ones). */
   envVars?: DeployEnvVar[];
   /** Env var names already supplied by the selected version's .env resources
-   * (frozen for a tag, live for Current). A required var in this set is treated as
-   * satisfied — the modal neither blocks nor forces a value, but it can be
-   * overridden with an explicit value or secret. */
+   * (frozen for a tag, live for Current). A required var in this set counts as
+   * satisfied, and can still be overridden with an explicit value or secret. */
   envProvidedKeys?: string[];
   /** Normalized form of the checked candidate. */
   slug?: string;

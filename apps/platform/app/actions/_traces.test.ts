@@ -3,17 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * The trace-store client, at the two places it can quietly lie.
  *
- * The first is cost. The trace store is careful to distinguish "this call cost
- * nothing" from "nobody could say what this call cost" — a null token count, a
- * null cost and a `cost_status` explaining which. That distinction survives the
- * database, the query and the JSON, and this layer is the last place it can be
- * thrown away by a `?? 0` that looks like defensive coding. A call priced at $0
- * is a claim about a bill; an unpriced one is an admission.
+ * Cost: "this call cost nothing" and "nobody could say what this call cost" are
+ * different claims, and this is the last layer that can collapse them with a
+ * `?? 0`. A call priced at $0 is a claim about a bill; an unpriced one is an
+ * admission.
  *
- * The second is the captured payloads. Traces carry the actual messages a flow
- * handled, and the temptation in a snake_case→camelCase mapper is to walk the
- * whole document. That would rewrite the user's own keys, so the trace would show
- * something the flow never carried.
+ * Payloads: traces carry the actual messages a flow handled, so a
+ * snake_case→camelCase mapper that walked the whole document would rewrite the
+ * user's own keys.
  */
 
 const requestJson = vi.fn();
@@ -119,8 +116,7 @@ describe("the trace-store client", () => {
     if (!res.ok) return;
 
     const record = res.data.items[0];
-    // The whole point: null, and specifically not zero. A reader shown $0.00 for
-    // this call would conclude the model was free rather than unknown.
+    // Null, and specifically not zero: $0.00 reads as free rather than unknown.
     expect(record.costUsd).toBeNull();
     expect(record.costUsd).not.toBe(0);
     expect(record.costStatus).toBe("unpriced_model");
@@ -138,9 +134,8 @@ describe("the trace-store client", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
 
-    // A summary's cost is a sum, so it is 0 rather than null here. That is only
-    // honest next to the count that says the 0 is a lower bound — drop the count
-    // and this trace reads as a model call that cost nothing.
+    // A summary's cost is a sum, so 0 rather than null — honest only next to the
+    // count that says the 0 is a lower bound.
     expect(res.data.summary.costUsd).toBe(0);
     expect(res.data.summary.unpricedCalls).toBe(1);
     expect(res.data.summary.llmCalls).toBe(1);
@@ -173,8 +168,8 @@ describe("the trace-store client", () => {
     // `{}` would claim the flow carried an empty document.
     expect(res.data.items[0].body).toBeNull();
     expect(res.data.items[0].vars).toBeNull();
-    // Truncation is reported, not swallowed: a waterfall drawn from a cut record
-    // set is wrong in a way the picture cannot show.
+    // Truncation is reported, not swallowed: a chart drawn from a cut record set
+    // is wrong in a way the picture cannot show.
     expect(res.data.truncated).toBe(true);
     // Bodies default to on at the service, so only the declining case is sent.
     expect(calledParams().get("bodies")).toBe("0");

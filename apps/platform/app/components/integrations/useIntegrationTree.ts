@@ -27,11 +27,6 @@ import { useIntegrationActions } from "./useIntegrationActions";
  * integrations themselves, the views derived from them for the current bucket,
  * and the mutations — create, import, duplicate, rename, delete, reorder.
  *
- * The manager keeps what is left: where the selection lives (the URL), the
- * drag-and-drop wiring, and the rendering. That split is the reason this is a
- * hook rather than a second component — the two halves share a great deal of
- * state and almost no concerns.
- *
  * Every mutation goes through `run`, so all of them refresh on success and
  * surface their failure in the same inline banner. `renameSelected` is the one
  * exception, and returns a boolean: the inline editor has to stay open on a name

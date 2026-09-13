@@ -10,10 +10,9 @@ import {
  *
  * The tree accepts several kinds of drag onto several kinds of target, and most
  * pairs mean nothing: a folder onto Unfiled, an integration onto All, anything
- * onto itself. Separating the decision from the mutation is what makes those
- * rules checkable, and one of them in particular is worth checking — a folder
- * dropped into its own subtree would detach that subtree from the tree entirely,
- * and it is not a case anyone reproduces by hand twice.
+ * onto itself. Separating the decision from the mutation keeps those rules
+ * checkable — not least that a folder dropped into its own subtree would detach
+ * that subtree from the tree entirely.
  */
 export type DragOutcome =
   | { kind: "none" }

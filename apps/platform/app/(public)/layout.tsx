@@ -1,8 +1,6 @@
 /**
- * Layout for the public, signed-out surface (the welcome page). It is deliberately
- * chrome-free — no app header — so the marketing/sign-in content owns the whole
- * viewport and centers itself. The signed-in platform uses the (session) layout
- * instead, which carries the shared header.
+ * Layout for the public, signed-out surface. Chrome-free — no app header — so the
+ * sign-in content owns the whole viewport and centers itself.
  */
 export default function PublicLayout({
   children,

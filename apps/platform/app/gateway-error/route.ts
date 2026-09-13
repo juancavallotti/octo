@@ -16,8 +16,8 @@ import { cleanHost, explanationFor, renderErrorPage } from "./errorPage";
  *     always answering 404.
  *
  * The status is echoed back on the response, not just printed in the body: an
- * uptime check that saw HTTP 200 with the word "503" on it would be worse than the
- * bare gateway text this replaces.
+ * uptime check that saw HTTP 200 with the word "503" on it would be worse than no
+ * page at all.
  *
  * It is a route handler rather than a page because a page cannot choose its own
  * status code, and because this must not depend on the React runtime, a stylesheet
@@ -99,11 +99,9 @@ function wantsJSON(req: NextRequest): boolean {
   if (accept.includes("json")) return true;
   // Otherwise the method decides. A person reaching a dead address arrives by
   // navigation, which is a GET; a POST or a PUT to one is a webhook or an API
-  // client, and handing those a 12 KB document on every retry helps nobody.
-  //
-  // This is the branch an accept-anything header lands in, which is what curl and
-  // most HTTP libraries send when nobody set one — so before this it was the
-  // *common* case for machine traffic, not an edge case.
+  // client, and handing those a 12 KB document on every retry helps nobody. This is
+  // the branch an accept-anything header lands in, which is what curl and most HTTP
+  // libraries send when nobody set one.
   return !SAFE_METHODS.has(req.method.toUpperCase());
 }
 

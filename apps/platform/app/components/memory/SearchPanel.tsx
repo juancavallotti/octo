@@ -8,20 +8,10 @@ import { SearchRanking } from "./SearchRanking";
 /**
  * Search across an agent's conversations and remembered facts.
  *
- * Its own tab rather than a box above the conversation list, which is where it
- * started. There it pushed the list and the transcript down the page whenever it
- * had results, so finding something cost you sight of everything else; and the
- * results deserve the width, since a hit is a line of somebody's conversation
- * rather than a key.
- *
- * The ranking line lives here too, for the same reason it exists at all: whether
- * search ranks by meaning or by words is a fact about *this* box, and it is the
- * first thing worth knowing when a result looks wrong.
- *
  * It does not label individual results as semantic or textual. The store decides
  * that per query — semantic when embeddings are configured and have something to
  * match, text otherwise — and mid-backfill two searches a second apart can be
- * answered by different indexes. Labelling each hit would be honest and useless.
+ * answered by different indexes.
  */
 export function SearchPanel({
   onSearch,
@@ -64,8 +54,8 @@ export function SearchPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {hits === null ? (
-          // Nothing asked, so nothing shown. An empty results frame sitting under
-          // the box would say "no matches" for a search nobody has run.
+          // Nothing asked, so nothing shown: an empty results frame would say "no
+          // matches" for a search nobody has run.
           <div className="flex h-full items-center justify-center p-8">
             <p className="max-w-sm text-center text-sm text-zinc-500 dark:text-zinc-400">
               Search this agent&rsquo;s conversations and the facts it keeps about people.

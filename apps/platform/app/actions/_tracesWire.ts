@@ -1,16 +1,14 @@
 /**
  * The observability service's trace JSON shapes, and how they become the model's.
  *
- * These interfaces mirror `observability/internal/repo/tracesquery.go` field for field and
- * **must stay in sync with it** — the same contract the Go side keeps with the
- * runtime's wire struct. Kept apart from the client itself so the one file that
- * has to track a Go struct is the one file to review when that struct changes.
+ * These interfaces mirror `observability/internal/repo/tracesquery.go` field for
+ * field and **must stay in sync with it**, which is why they sit apart from the
+ * client: one file to review when that struct changes.
  *
  * The mapping is written out by hand rather than done by a generic
- * snake_case→camelCase walk, and that is not tedium: `body`, `vars` and `attrs`
- * are *captured user data*. A generic converter would silently rewrite a traced
- * payload's `{"user_id": 1}` into `{"userId": 1}`, so the trace would no longer
- * show what the flow actually carried. Only the field names we own are renamed.
+ * snake_case→camelCase walk, because `body`, `vars` and `attrs` are captured user
+ * data: a converter would rewrite a traced `{"user_id": 1}` into `{"userId": 1}`.
+ * Only the field names we own are renamed.
  */
 
 import type {

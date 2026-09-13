@@ -1,11 +1,6 @@
 /**
  * Go duration strings, which is what the stats service reports a step and a
  * sidecar's intervals as: "1s", "1h0m0s", "1m30s", "500ms".
- *
- * Nothing else in the app parses these, and the two places that need to are not
- * cosmetic. A chart divides a counter's growth by the interval it covers, and the
- * step is the divisor for the first point of a window; a pod's sampleInterval is
- * how the reader is told what resolution they are looking at.
  */
 
 /** The units Go's Duration.String() emits, in milliseconds. */
@@ -26,10 +21,9 @@ const TOKEN = /(-?\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/g;
 /**
  * Parse a Go duration to milliseconds, or null when it is not one.
  *
- * Null rather than zero, and the difference matters: zero is a legitimate
- * duration ("0s") and a caller dividing by a step must be able to tell a real
- * zero from a string it failed to read. Both are useless as a divisor, but only
- * one of them is a bug worth noticing.
+ * Null rather than zero, because zero is a legitimate duration ("0s") and a
+ * caller dividing by a step has to tell a real zero from a string it could not
+ * read.
  */
 export function parseGoDuration(input: string): number | null {
   const text = input.trim();
@@ -56,11 +50,9 @@ export function parseGoDuration(input: string): number | null {
 }
 
 /**
- * A duration in milliseconds, as short as it can be said.
- *
- * Deliberately coarser than parseGoDuration is precise: this labels an axis and a
- * status line, where "1h" is what the reader wants and "1h0m0s" is what the wire
- * happens to carry.
+ * A duration in milliseconds, as short as it can be said — coarser than
+ * parseGoDuration is precise, because this labels an axis and a status line where
+ * "1h" is what the reader wants and "1h0m0s" is what the wire carries.
  */
 export function formatStep(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "—";

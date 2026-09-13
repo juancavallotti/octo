@@ -11,11 +11,10 @@ import {
 /**
  * One page of the people on this platform, and the roles they can hold.
  *
- * Both are loaded together because the list is unreadable without the
- * catalogue: a row shows every role with the ones it holds turned on, so a role
- * nobody has yet still has to be offered. The catalogue is four constants and is
- * fetched once; the page is re-fetched whenever the filter or the position
- * changes.
+ * Both are loaded together because the list is unreadable without the catalogue:
+ * a row shows every role with the ones it holds turned on, so a role nobody has
+ * yet still has to be offered. The catalogue is fetched once; the page is
+ * re-fetched whenever the filter or the position changes.
  *
  * Paging is the server's. The cursors already handed out are kept here so
  * "previous" is a step back through them rather than a second kind of query —
@@ -23,7 +22,7 @@ import {
  * are exactly the answer.
  *
  * `loading` is tracked separately from `users` rather than inferred from it
- * being empty. Inferring it means a first load that fails stays "Loading…"
+ * being empty: inferring it means a first load that fails stays "Loading…"
  * forever, underneath the error explaining why it never will.
  */
 export interface UsersData {

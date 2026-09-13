@@ -17,10 +17,8 @@ import { turnLimitError } from "./AgentTurnLimit";
  * would carry; then the search key; then the two settings that live on the pods,
  * in a single call so they replace the pods once rather than twice.
  *
- * Saying what will happen matters more here than under the buttons this
- * replaced. "Apply" beside the turn limit was self-evidently about the
- * deployment; "Save" at the foot of a page is not, so when a pod-level field is
- * dirty the button says so before it is pressed rather than after.
+ * "Save" at the foot of a page does not say what it will touch, so when a
+ * pod-level field is dirty the button says so before it is pressed.
  */
 export default function AgentSaveBar() {
   const { draft, dirty, stored, busy, error, run } = useAgentForm();
@@ -29,8 +27,7 @@ export default function AgentSaveBar() {
   // a button that appears once the fetch lands moves everything under it, and
   // "there is nothing to save yet" is what disabled already means.
   // The one place an error from this page is shown, whether it came from a load,
-  // an action in a section, or this save. Two surfaces reading one value printed
-  // the same sentence twice.
+  // an action in a section, or this save.
   const message = error && (
     <p role="alert" className="text-sm text-red-500">
       {error}
@@ -62,10 +59,9 @@ export default function AgentSaveBar() {
   };
   const rolls = dirty.deployment && deployed;
 
-  // Validated here because the per-section buttons used to do it and something
-  // still must: a global Save that writes an empty model, or a turn limit
-  // outside the bounds, would fail at the orchestrator having already replaced
-  // the pods to find out.
+  // Validated here: a Save that writes an empty model, or a turn limit outside
+  // the bounds, would fail at the orchestrator having already replaced the pods
+  // to find out.
   const invalid =
     (dirty.llm && draft.model.trim() === "") ||
     (dirty.deployment && turnLimitError(draft.maxIterations) !== null);

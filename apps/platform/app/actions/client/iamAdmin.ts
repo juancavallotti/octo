@@ -1,11 +1,7 @@
 /**
  * The typed operations for administering people, as opposed to authenticating
- * them.
- *
- * Apart from `iam.ts` because the two need different things. The exchange runs
- * on the sign-in path and in the MCP endpoint, and has to stay free of anything
- * that assumes a session — these calls are the opposite: every one of them
- * presents the caller's own token, read from the session cookie.
+ * them. Every one of them presents the caller's own token, read from the session
+ * cookie, and so assumes a session.
  */
 
 import { requestJson, type ActionResult } from "@octo/http";
@@ -20,11 +16,9 @@ import type {
 } from "./iam";
 
 //
-// Everything below is behind iam's own administrator check, and every call
-// presents the caller's platform token so that iam can make it. The token is
-// read from the session cookie here rather than passed down from the action,
-// which keeps it out of the signature of every operation — and out of anything
-// that might one day log one.
+// Everything below is behind iam's own administrator check. The token is read
+// from the session cookie here rather than passed down, which keeps it out of the
+// signature of every operation — and out of anything that might one day log one.
 
 /** The roles that can be granted, from iam's catalogue rather than from usage. */
 export function listRoles(): Promise<ActionResult<RoleOption[]>> {

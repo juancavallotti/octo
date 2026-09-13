@@ -24,18 +24,15 @@ import type { Integration } from "@/app/model/orchestrator";
 export type MemoryTab = "conversations" | "facts" | "search";
 
 /**
- * Everything the memory viewer knows and every way it changes, so that the
- * component beside it is only rendering.
+ * Everything the memory viewer knows and every way it changes.
  *
- * Split out for the reason the object browser's `useObjects` was: the selection
- * cascades (integration → agent → conversation → person), each step invalidates
- * what is below it, and several reads can be in flight against a selection that
- * has already moved. That is a state machine, and reading it interleaved with
- * JSX made both halves harder to check.
+ * The selection cascades (integration → agent → conversation → person), each step
+ * invalidates what is below it, and several reads can be in flight against a
+ * selection that has already moved.
  *
- * Confirmation for destructive actions stays with the caller: asking is a
- * question put to a person, and a hook that opened a dialog would make every test
- * of this logic mount one.
+ * Confirmation for destructive actions stays with the caller: asking is a question
+ * put to a person, and a hook that opened a dialog would make every test of this
+ * logic mount one.
  */
 export function useAgentMemory(confirm: (opts: ConfirmOptions) => Promise<boolean>) {
   const [tab, setTab] = useState<MemoryTab>("conversations");
@@ -61,10 +58,7 @@ export function useAgentMemory(confirm: (opts: ConfirmOptions) => Promise<boolea
   // The current selection, readable from a callback that started before it
   // changed. State alone cannot serve that: a closure captures the value it was
   // created with, which is exactly the stale value a late response has to be
-  // compared against.
-  // Written by the change handlers, beside the state they mirror, rather than
-  // during render — React reserves render for producing output, and a ref written
-  // there is a side effect the linter is right to refuse.
+  // compared against. Written by the change handlers rather than during render.
   const integrationRef = useRef(integrationId);
   const agentRef = useRef(agentId);
   const stale = (forIntegration: string, forAgent: string) =>
@@ -74,9 +68,8 @@ export function useAgentMemory(confirm: (opts: ConfirmOptions) => Promise<boolea
    * Who this agent has talked to, taken from the conversations on hand.
    *
    * Derived rather than fetched because there is no route that enumerates an
-   * agent's people, and adding one to populate a dropdown would be a route whose
-   * answer is already in a response this page has. The cost is that it covers the
-   * page of conversations loaded rather than all of them, which the picker says.
+   * agent's people. The cost is that it covers the page of conversations loaded
+   * rather than all of them, which the picker says.
    */
   const people = useMemo(
     () => [...new Set(threads.map((t) => t.userId).filter((u): u is string => !!u))].sort(),
@@ -110,15 +103,13 @@ export function useAgentMemory(confirm: (opts: ConfirmOptions) => Promise<boolea
   /**
    * Choosing an integration clears everything below it and reloads the agents.
    *
-   * The cascade lives in the handler rather than in an effect on integrationId,
-   * because it is a response to something someone did — not a synchronization
-   * with an external system. An effect would also mean the stale agent list, the
-   * open conversation and the search results all survive for one render after the
-   * change, which is exactly long enough to be visible.
+   * The cascade lives in the handler rather than in an effect on integrationId:
+   * an effect would leave the stale agent list, the open conversation and the
+   * search results alive for one render after the change, which is long enough to
+   * be visible.
    *
    * Agents come from what has actually been stored rather than from parsing
-   * definitions: one appears here once it has remembered something, which is when
-   * there is anything to look at.
+   * definitions: one appears here once it has remembered something.
    */
   const changeIntegration = (next: string) => {
     integrationRef.current = next;
@@ -154,17 +145,15 @@ export function useAgentMemory(confirm: (opts: ConfirmOptions) => Promise<boolea
    * Read one conversation: the durable record and the live context together.
    *
    * The selection is captured before the first await and checked after each one.
-   * Without that, switching agent while a read is in flight lets the late
-   * response overwrite the cleared state — and the viewer then shows one agent's
-   * conversation under a different agent's name, which is the worst kind of wrong
-   * for a tool whose whole job is telling you what a particular agent knows.
+   * Without that, switching agent while a read is in flight lets the late response
+   * overwrite the cleared state, and one agent's conversation is then shown under a
+   * different agent's name.
    */
   const openThread = async (threadKey: string) => {
     const forIntegration = integrationId;
     const forAgent = agentId;
 
-    // Opening from a search hit means leaving the results, which is what somebody
-    // clicking one is asking for.
+    // Opening from a search hit means leaving the results.
     setTab("conversations");
     setBusy(true);
     setError(null);
@@ -172,8 +161,7 @@ export function useAgentMemory(confirm: (opts: ConfirmOptions) => Promise<boolea
     try {
       // Read together and shown together, because the interesting fact is the
       // DIFFERENCE between them: one is uncompacted and the other is whatever
-      // survived compaction. In parallel, since neither read depends on the other
-      // and this is a page someone is waiting on.
+      // survived compaction.
       const [transcript, live] = await Promise.all([
         readMemoryThread(forIntegration, forAgent, threadKey),
         readMemoryWorking(forIntegration, forAgent, threadKey),

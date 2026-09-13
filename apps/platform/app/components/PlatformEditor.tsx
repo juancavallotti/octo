@@ -22,12 +22,11 @@ import EditorHeader from "./EditorHeader";
 import IntegrationNameChip from "./IntegrationNameChip";
 
 /**
- * Platform wiring for the shared editor: supplies the orchestrator-backed
- * filesystem capability — but only once the orchestrator is reachable, so a
- * platform dev server without `ORCHESTRATOR_URL` shows just the editor + RUN —
- * and the BFF run transport. A client component so the capability objects never
- * cross the server/client boundary; the server-rendered account menu arrives as
- * a slot.
+ * Platform wiring for the shared editor: the orchestrator-backed filesystem
+ * capability — supplied only once the orchestrator is reachable, so a dev server
+ * without `ORCHESTRATOR_URL` shows just the editor + RUN — and the BFF run
+ * transport. A client component so the capability objects never cross the
+ * server/client boundary; the server-rendered account menu arrives as a slot.
  */
 export default function PlatformEditor({
   integrationId,
@@ -61,8 +60,8 @@ export default function PlatformEditor({
       : { ...orchestratorFileSystem, readOnly: CAPABILITY_REASONS.build }
     : null;
   // The authoritative integration id: seeded from the route and updated on save
-  // (the first save mints it). TagForm reads it through getIntegrationId so it
-  // never tags against a stale id captured before the save resolved.
+  // (the first save mints it), read through getIntegrationId so nothing works
+  // off an id captured before the save resolved.
   const idRef = useRef<string | null>(integrationId ?? null);
   /**
    * One counter per kind of file, because the editor does a different thing with

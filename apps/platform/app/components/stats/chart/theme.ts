@@ -49,18 +49,11 @@ export const GRID = {
 } as const;
 
 /**
- * Line styling. Animation is off everywhere and that is not a preference: the
- * page polls, so an animated redraw every five seconds is a chart that is never
- * still long enough to read.
- */
-/**
  * Below this many points, a line is drawn with its points marked.
  *
- * Not decoration. A series with a single point in the window has no segment to
- * draw, so with dots off it renders as nothing at all — an empty chart that
- * looks like a failure rather than like one reading. That is not a rare edge:
- * it is the ordinary state of the history tier at the short end of its range,
- * where a window may span one or two buckets.
+ * A series with a single point in the window has no segment to draw, so with
+ * dots off it renders as nothing at all — an empty chart that looks like a
+ * failure rather than like one reading.
  */
 export const SPARSE = 40;
 
@@ -69,6 +62,8 @@ export function dotFor(points: number): false | { r: number } {
   return points <= SPARSE ? { r: 2 } : false;
 }
 
+/** Line styling. Animation is off because the page polls: an animated redraw
+ * every few seconds is a chart never still long enough to read. */
 export const LINE = {
   type: "linear",
   dot: false,

@@ -10,8 +10,7 @@ import type { TraceRecord } from "@/app/model/traces";
  *
  * The runtime stamps a record when the thing it describes *finished* and carries
  * how long it took, so a span is exactly `[ts - durationNs, ts]` and no pairing
- * of a start record with an end record is needed. That is what makes a waterfall
- * reconstructible from a stream that has no span ids in it at all.
+ * of a start record with an end record is needed.
  */
 export const SPAN_KINDS = new Set([
   "block.post-invoke",
@@ -43,12 +42,6 @@ export const MODEL_KINDS = new Set(["llm.turn", "llm.embed"]);
  * for an *enclosing* block would hang it off whatever composite the agent sits
  * in — drawn as the agent's sibling, billed to the branch instead of to the
  * block that did it.
- *
- * A summarize compaction and the model call it makes therefore land as siblings
- * under the agent, both at its address. They are not double counted: only a
- * block.post-invoke can host a span, so the compaction has no children, and a
- * childless span is classified by its block — an ai-agent, which is control.
- * The call's own time is billed once, as the model call it is.
  */
 export const SELF_ADDRESSED_KINDS = new Set([
   ...MODEL_KINDS,
@@ -58,7 +51,7 @@ export const SELF_ADDRESSED_KINDS = new Set([
 /**
  * The key identifying one block's invocations: which message, and where.
  *
- * Neither half alone will do. A path repeats across the sub-invocations a
+ * Neither half alone will do: a path repeats across the sub-invocations a
  * flow-ref or a split creates, and one event id covers every block of one
  * invocation. A NUL joins them because neither can contain one, so the pair
  * cannot be spelled two ways.

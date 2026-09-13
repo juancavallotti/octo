@@ -47,9 +47,9 @@ function user(over: Partial<Person> = {}): Person {
 }
 
 /**
- * Stand in for iam: filtering and paging happen there now, so a fake that
- * ignored the query would let a test pass against a component that never sent
- * one. It answers the way the service does, cursor and all.
+ * Stand in for iam: filtering and paging happen there, so a fake that ignored the query
+ * would let a test pass against a component that never sent one. It answers the way the
+ * service does, cursor and all.
  */
 function serve(people: Person[], pageSize = 25) {
   listUsers.mockImplementation(
@@ -81,7 +81,7 @@ function renderManager(currentUserId = "somebody-else") {
   );
 }
 
-/** The open dialog, which is where every role change happens now. */
+/** The open dialog, which is where every role change happens. */
 function dialog() {
   return screen.getByRole("dialog");
 }
@@ -178,8 +178,7 @@ describe("the directory", () => {
 });
 
 describe("adding a person", () => {
-  // The point of the whole change: nobody types an OIDC subject any more, so
-  // there is no field for one to be typed into.
+  // Nobody types an OIDC subject, so there is no field for one to be typed into.
   it("asks for an address, a name and roles, and nothing else", async () => {
     const person = userEvent.setup();
     renderManager();
@@ -232,9 +231,9 @@ describe("adding a person", () => {
 });
 
 describe("editing a person", () => {
-  // Roles are not changeable from the table at all any more. That is the whole
-  // reason the dialog exists: a chip in a list somebody is scrolling is how
-  // platform:admin gets handed out by accident.
+  // Roles are not changeable from the table at all — which is why the dialog exists: a
+  // chip in a list somebody is scrolling is how platform:admin gets handed out by
+  // accident.
   it("offers no role control in the row", async () => {
     renderManager();
     await screen.findByText("Ada Lovelace");

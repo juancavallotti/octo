@@ -3,13 +3,6 @@
  * actions in `app/actions/retention.ts`, which read and write the aggregator's
  * retention API directly; these wrappers unwrap the ActionResult so callers keep
  * a value-or-throw contract.
- *
- * It sits beside `logs.ts` and `traces.ts` rather than inside `siteSettings.ts`
- * because it reaches the same service they do. The email and LLM settings live
- * on the orchestrator; retention lives on the aggregator, which owns the tables
- * a policy governs. The types live here for the same reason theirs do — the
- * client that shapes the wire is server-only, and nothing client-side should
- * have to import it to name what comes back.
  */
 
 import * as actions from "@/app/actions/retention";
@@ -24,9 +17,8 @@ export interface RetentionPolicy {
   /**
    * Days of alerting history kept — evaluations, and the episodes that have
    * closed. Zero means forever here too, but unlike the other two it is not the
-   * default: an installation that has never configured retention reads back 14,
-   * because a watch writes an evaluation row every time it runs whether or not
-   * anything happened.
+   * default: an unconfigured installation reads back 14, because a watch writes an
+   * evaluation row every time it runs whether or not anything happened.
    */
   alertsDays: number;
   /** RFC3339 timestamp of the last save; null if never configured. */

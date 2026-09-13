@@ -44,8 +44,8 @@ export default function EmailSettingsManager() {
     setReplyTo(next.replyTo);
   }, []);
 
-  // Shaped as a promise chain rather than an async body so nothing sets state in the
-  // synchronous part of the effect below — the same form the other managers use.
+  // Shaped as a promise chain rather than an async body, so nothing sets state in
+  // the synchronous part of the effect below.
   const load = useCallback(
     () => getEmailSettings().then(apply, (e) => setError((e as Error).message)),
     [apply],
@@ -75,9 +75,7 @@ export default function EmailSettingsManager() {
 
   /**
    * The draft, with apiKey present only when one was typed. Addresses are trimmed
-   * so what is sent is what was validated — the orchestrator trims before parsing
-   * too, but agreeing here keeps the test send and the save from disagreeing about
-   * a padded address.
+   * so that what is sent is what was validated.
    */
   const draft = (): EmailSettingsInput => ({
     fromEmail: fromEmail.trim(),
@@ -86,10 +84,8 @@ export default function EmailSettingsManager() {
     ...(apiKey ? { apiKey } : {}),
   });
 
-  // Gated on the settings having loaded as well as on the address being valid. The
-  // empty initial from-address happens to fail the pattern today, so this is belt
-  // and braces — but saving before the load resolves would overwrite the stored row
-  // with a blank form, and that should not depend on a coincidence.
+  // Gated on the settings having loaded as well as on the address being valid:
+  // saving before the load resolves would write a blank form over the stored row.
   const canSave = settings !== null && !busy && EMAIL_RE.test(fromEmail.trim());
 
   const save = () => {

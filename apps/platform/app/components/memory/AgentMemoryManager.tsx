@@ -13,28 +13,14 @@ import { useAgentMemory, type MemoryTab } from "./useAgentMemory";
 /**
  * What an agent remembers, for an operator.
  *
- * Read and delete only. There is no way to edit a remembered fact here, and that
- * is deliberate: an operator rewriting what an agent believes about a person, with
- * no audit trail and nothing in the conversation explaining the change, is a
- * feature that should be asked for explicitly.
- *
- * It is a top-level platform section rather than a page under an integration
- * because an operator opening this is usually asking "what does this agent know",
- * not "what does this one integration know" — and because the integrations route
- * is an optional catch-all that a nested page would collide with. It is not under
- * Admin either: admin is settings that belong to the installation, and this is
- * data that belongs to integrations, read the way logs and traces are.
- *
- * The shape is the object store's, and for the same reasons: the pickers that
- * scope everything sit in one compact row above the tabs, and the page fills the
- * width rather than sitting in a column. What is on this page is transcripts and
- * search hits — lines of prose, not fields — and a narrow column turned every one
- * of them into four wrapped lines.
+ * Read and delete only. There is no way to edit a remembered fact here: an
+ * operator rewriting what an agent believes about a person, with no audit trail
+ * and nothing in the conversation explaining the change, is a feature that should
+ * be asked for explicitly.
  *
  * Three tabs, because there are three questions and only one of them is about a
  * particular conversation: what was said, what is remembered about somebody, and
- * where is that thing I remember. Search used to sit above the list, where having
- * results pushed the conversation out of view.
+ * where is that thing I remember.
  *
  * The selection cascade and every read live in useAgentMemory; this renders.
  */

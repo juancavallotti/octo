@@ -36,11 +36,8 @@ export function bodyIsFirstOnly(record: TraceRecord): boolean {
 /**
  * How a row is named: the block's own label, the route a request came in on, or
  * the flow — whichever this record actually knows — with the fold's count on the
- * end when the row stands for more than itself.
- *
- * It lives here rather than beside the rest of the waterfall because the count is
- * part of the name. A folded row whose label said only "sse-event" would claim to
- * be one frame while spanning a thousand, and the two facts are decided together.
+ * end when the row stands for more than itself. The count is part of the name: a
+ * folded row labelled only "sse-event" would claim to be one frame of a thousand.
  */
 export function spanLabel(record: TraceRecord): string {
   if (record.path !== "") {

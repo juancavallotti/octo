@@ -3,16 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * The pod stats client, at the places it can quietly lie.
  *
- * The sharp one is the gap. A reading of null means the scrape did not report
- * that series at that moment — a removed flow, a restarting process, a metric
- * that has not been touched yet. The storage layer encodes it as null on purpose
- * and the service is built so it cannot become anything else. This is the last
- * layer that can throw the distinction away with a `?? 0` that looks like
- * defensive coding, and a chart handed a zero draws a cliff that never happened.
+ * A reading of null means the scrape did not report that series at that moment,
+ * and this is the last layer that can throw the distinction away with a `?? 0`:
+ * a chart handed a zero draws a cliff that never happened.
  *
- * The rest is the query string. `metric` is what bounds the whole read — rows are
- * stored positionally, so an unfiltered query reads every series of every pod —
- * and it is repeatable, which is exactly the shape a `set()` silently collapses.
+ * The rest is the query string. `metric` bounds the whole read and is repeatable,
+ * which is the shape a `set()` silently collapses.
  */
 
 const requestJson = vi.fn();

@@ -3,19 +3,16 @@ import AppLogo from "./AppLogo";
 /**
  * The shared platform top bar: the Octo mark on the left (linking back to the
  * dashboard), a flexible middle slot for page controls, and the account tile on
- * the right. The dashboard and file manager render this directly; the editor's
- * EditorHeader is a richer variant that composes the same AppLogo + account tile
- * so the logo and user badge are consistent on every screen (issue #48).
+ * the right.
  *
  * The middle slot owns its own horizontal layout (it is a `flex-1` flex row), so
  * a page can push an action to the far right with `ml-auto`.
  *
- * It is a container query context, because what the bar has room for is no longer
- * a question about the window: the agent panel can be docked beside the page, and
- * the bar has to give up its labels for the space it takes. Its children size
- * themselves against this header (`@max-*` variants) rather than the viewport,
- * which a media query would have them do — and which would be wrong by exactly the
- * panel's width.
+ * It is a container query context, because what the bar has room for is not a
+ * question about the window: a panel can be docked beside the page, and the bar
+ * has to give up its labels for the space it takes. Children size themselves
+ * against this header (`@max-*` variants) rather than the viewport, which would be
+ * wrong by exactly the panel's width.
  */
 export default function AppHeader({
   logoHref,

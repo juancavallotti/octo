@@ -26,14 +26,11 @@ import {
  *
  * Three windows rather than one because the streams have very different weights:
  * a ten-block flow emits a couple of dozen trace records, each able to carry a
- * captured body, where the same request produces a log line or two — and a watch
- * writes an evaluation every time it runs whether or not anything happened.
+ * captured body, where the same request produces a log line or two.
  *
- * Zero means keep forever, and on the two evidence streams it is also the
- * default, so an installation that never visits this page behaves as it always
- * did. The alerting window is the exception and defaults to a real number; the
- * fields render their meaning in words for exactly that reason — a bare 0 in a
- * box labelled "days" reads as a mistake rather than as a decision.
+ * Zero means keep forever, and is the default for logs and traces; the alerting
+ * window defaults to a real number. The fields render their meaning in words,
+ * because a bare 0 in a box labelled "days" reads as a mistake.
  */
 
 export default function RetentionSettingsManager() {
@@ -55,7 +52,7 @@ export default function RetentionSettingsManager() {
   }, []);
 
   // A promise chain rather than an async body, so nothing sets state in the
-  // synchronous part of the effect below — the form the other managers use.
+  // synchronous part of the effect below.
   const load = useCallback(
     () => getRetention().then(apply, (e) => setError((e as Error).message)),
     [apply],
@@ -70,10 +67,9 @@ export default function RetentionSettingsManager() {
     async (fn: () => Promise<unknown>) => {
       setBusy(true);
       setError(null);
-      // Both outcome messages are cleared up front, not just on success. A sweep's
-      // report is about the sweep that produced it, so leaving it up through the
-      // next action would pair a stale "deleted 120 events" with whatever that
-      // action reported — including an error.
+      // Both outcome messages are cleared up front, not just on success: a sweep's
+      // report is about the sweep that produced it, and leaving it up would pair a
+      // stale "deleted 120 events" with whatever the next action reported.
       setSaved(false);
       setLastRun(null);
       try {
@@ -120,10 +116,9 @@ export default function RetentionSettingsManager() {
     });
   };
 
-  // A sweep enforces what is stored, not what is on screen. Rather than quietly
-  // deleting to a policy the operator can see they have edited, the button waits
-  // for the save — otherwise the numbers in front of them would not be the ones
-  // the confirmation is about.
+  // A sweep enforces what is stored, not what is on screen, so the button waits
+  // for the save — otherwise the numbers in front of the operator are not the
+  // ones the confirmation is about.
   const sweeps =
     policy !== null &&
     (policy.logsDays > 0 || policy.tracesDays > 0 || policy.alertsDays > 0);
@@ -156,9 +151,8 @@ export default function RetentionSettingsManager() {
         </p>
 
         {/* Live regions, because every one of these appears after an await
-            rather than in response to a keystroke — without them a screen
-            reader user presses Delete now, hears nothing, and has no way to
-            tell a sweep that deleted 40 000 rows from one that was refused. */}
+            rather than in response to a keystroke: without them a screen reader
+            user presses Delete now and hears nothing at all. */}
         {error && (
           <p role="alert" className="mt-3 text-sm text-red-500">
             {error}

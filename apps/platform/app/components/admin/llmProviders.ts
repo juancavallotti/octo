@@ -1,17 +1,10 @@
 /**
  * The providers the runtime can talk to, and the model each one defaults to.
  *
- * Duplicated from the runtime connectors — runtime/core/llm.go for the provider
- * names, and the `defaultModel` in
- * runtime/connectors/llm/{anthropic,openai,gemini,openrouter} for the models. There
- * is no seam to share them through: the runtime is a separate Go module from the
- * orchestrator, which is a separate artifact again from this bundle. If a provider
- * or default changes there, it changes here.
- *
- * The model is a free-text field rather than a dropdown on purpose. Model names turn
- * over faster than releases of this app, and the connectors themselves treat it as a
- * plain string with a default — a fixed list here would be stale within months and
- * would block anyone pointing at a model we have not heard of.
+ * Duplicated from the runtime's LLM connectors, which are a separate artifact
+ * with no seam to share this through: if a provider or a default changes there,
+ * it changes here. The model stays a free-text field rather than a dropdown,
+ * since model names turn over faster than releases of this app.
  */
 
 export interface LlmProvider {
