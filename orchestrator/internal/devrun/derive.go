@@ -23,11 +23,9 @@ import (
 //   - **Two integrations are always two apps**, even when one is a copy of the
 //     other or they carry the same display name.
 //
-// The HMAC key is a per-install secret. Without one, a dev run's public host would
-// be a pure function of two values an outsider can often guess — and the hostname
-// is the only thing guarding a publicly reachable dev run. This mirrors
-// deriveNamespace (packages/run-host/src/namespace.ts), which keys on the half of
-// the namespace that never leaves the server, for the same reason.
+// The HMAC key is a per-install secret. Without one, a dev run's public host would be
+// a pure function of two values an outsider can often guess — and the hostname is the
+// only thing guarding a publicly reachable dev run.
 const (
 	// hostLabelLen is the length of a dev run's public host label. Eight characters
 	// of the slug alphabet is ~2.8e12 values, and matches run-host's namespace slug

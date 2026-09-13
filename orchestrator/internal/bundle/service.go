@@ -198,17 +198,10 @@ func (s *Service) Replace(ctx context.Context, integrationID string, data []byte
 // error is the one worth reporting — so a failed restore is logged loudly and
 // leaves a working copy the user can fix by replacing again.
 //
-// The restore writes are attributed to whoever attempted the replace, not to
-// whoever wrote the content originally. For updatedBy that is simply true: they
-// are the reason the file was written again. For a file the failed replace had
-// already deleted, recreating it here gives it a new createdBy, and the original
-// author is lost.
-//
-// That is accepted rather than fixed, because the fix is worse. Carrying
-// attribution through would mean putting user ids in Bundle, which is a portable
-// archive — it moves between installations, where those ids name nobody. A
-// rollback that already cannot promise to succeed is the wrong place to buy
-// perfect authorship at the cost of making the export format install-specific.
+// The restore writes are attributed to whoever attempted the replace, so a file the
+// failed replace had already deleted comes back with a new createdBy. Carrying the
+// original through would mean user ids in Bundle, which is a portable archive whose
+// ids name nobody on another installation.
 func (s *Service) restore(ctx context.Context, integrationID string, previous Bundle, actorID string) {
 	ctx, cancel := rollbackContext(ctx)
 	defer cancel()

@@ -79,31 +79,22 @@ func (c *Client) statsSidecarEnabled() bool {
 // statsSidecarContainer builds the sidecar as a native sidecar: an init
 // container with RestartPolicy Always, the same shape devrun.go uses.
 //
-// Native rather than an ordinary container for the ordering at the END of a
-// pod's life. Kubernetes terminates restartable init containers after the app
-// containers, so the sidecar is still running when the runtime stops and the
-// bucket it flushes on the way out is complete rather than truncated. Nothing
-// about the start ordering matters here, which is why there is no startup probe
-// — unlike the dev sidecar, whose whole purpose is to populate a directory
-// before the runtime looks at it.
+// Native rather than an ordinary container for the ordering at the END of a pod's
+// life: Kubernetes terminates restartable init containers after the app containers,
+// so the sidecar is still running when the workload stops and the bucket it flushes
+// on the way out is complete. Start ordering does not matter here, which is why there
+// is no startup probe.
 //
 // # No readiness probe
 //
-// This is the load-bearing omission, and it is deliberate rather than an
-// oversight. Kubernetes folds a restartable init container's readiness into the
-// POD's readiness. A readiness probe here would therefore mean that whenever the
-// stats sidecar was unhappy — a Redis outage, most obviously — every integration
-// pod in the namespace would leave its Service endpoints at once, and production
-// traffic would stop in order to protect the collection of statistics.
-//
-// The sidecar's own probes answer 200 unconditionally for the same reason
-// (sidecars/stats/internal/api). Both halves are needed: this one so the trade
-// cannot be made by configuration, that one so it cannot be made by accident.
+// Kubernetes folds a restartable init container's readiness into the POD's readiness.
+// A probe here would mean that whenever this sidecar was unhappy — a Redis outage,
+// most obviously — every pod in the namespace left its Service endpoints at once, and
+// traffic stopped to protect the collection of statistics.
 //
 // # No resources
 //
-// Consistent with containerResources: no integration pod has ever carried
-// requests or limits, and adding them for every deployment at once would
+// Consistent with containerResources: sizing every deployment at once would
 // reschedule an entire installation.
 func (c *Client) statsSidecarContainer(spec Spec) corev1.Container {
 	port := c.statsSidecarPort()
@@ -138,14 +129,12 @@ func (c *Client) statsSidecarContainer(spec Spec) corev1.Container {
 // statsSidecarEnv is the sidecar's environment; see sidecars/stats/config.go for
 // what each value means.
 //
-// It carries no token and no credential. The sidecar speaks to exactly two
-// peers — the runtime on the pod's own loopback, and Redis — and reaches neither
-// through anything it has to authenticate to. The pod keeps running on the
-// namespace default ServiceAccount with no cluster access, the same invariant a
-// dev run keeps.
+// It carries no token and no credential: the sidecar speaks to the pod's own
+// loopback and to Redis, and authenticates to neither, so the pod keeps running on
+// the namespace default ServiceAccount with no cluster access.
 //
-// The durations are emitted only when set, so an unconfigured installation gets
-// the sidecar's own defaults rather than a zero it would reject at startup.
+// The durations are emitted only when set, so an unconfigured installation gets the
+// sidecar's own defaults rather than a zero it would reject at startup.
 func (c *Client) statsSidecarEnv(spec Spec, port int32) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: envPort, Value: fmt.Sprintf("%d", port)},

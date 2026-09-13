@@ -211,18 +211,13 @@ func (r *Repo) UpdateMetadata(ctx context.Context, id string, metadata json.RawM
 // UpdateMetadataAndSettings replaces both jsonb columns and stamps last_updated.
 // Returns ErrNotFound if id does not exist.
 //
-// It is one statement rather than a call to UpdateMetadata followed by a call to
-// UpdateSettings, because a rollout changes both together — the new tag in
-// metadata, the new snapshot id and any replaced env or tracing in settings —
-// and the two describe one state transition. Written separately they can
-// half-land, leaving a row whose metadata names the version now running while
-// its settings still describe the one before it. The stored settings are the
-// *input* to the next rollout (nil preserves, present replaces), so a
-// half-landed write does not merely misreport the deployment: it feeds the
-// wrong thing forward.
+// One statement rather than two calls, because a rollout changes both together and
+// they describe one state transition. Written separately they can half-land, leaving
+// a row whose metadata names the version now running while its settings describe the
+// one before — and the settings are the *input* to the next rollout, so the mistake
+// feeds forward.
 //
-// No explicit transaction: a single UPDATE is already atomic, and wrapping it in
-// one would suggest to a reader that something here needs more than that.
+// No explicit transaction: a single UPDATE is already atomic.
 func (r *Repo) UpdateMetadataAndSettings(
 	ctx context.Context, id string, metadata, settings json.RawMessage,
 ) error {

@@ -12,10 +12,8 @@ import (
 // deploymentLookup resolves a deployment to the integration it belongs to.
 //
 // It is a query here rather than a call into the deployment package because that
-// package is only wired when the orchestrator has cluster access, and this
-// relation is needed whenever the runtime writes — which is exactly the case
-// where there IS a cluster, but the dependency would still tie one feature's
-// availability to another's. One column from one row does not justify that.
+// package is only wired when there is cluster access, and one column from one row
+// does not justify tying this feature's availability to that one's.
 //
 // The relation is immutable: a deployment is created for an integration and
 // never moves, which is what makes the Service's cache of this safe.

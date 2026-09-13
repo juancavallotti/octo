@@ -13,12 +13,10 @@ import (
 // routePublisher publishes endpoints as Gateway API HTTPRoutes attached to a
 // Gateway the cluster owner runs.
 //
-// It is markedly smaller than the Ingress publisher, and the difference is the
-// point of the whole exercise: the route says only which host goes to which
-// Service. Which proxy serves it, where its certificate comes from, and any
-// controller-specific behaviour all belong to the Gateway's listener, which is
-// somebody else's object — so none of it has to be handed to the orchestrator as
-// configuration and stamped onto every object it creates.
+// It is markedly smaller than the Ingress publisher: the route says only which host
+// goes to which Service. Which proxy serves it, where its certificate comes from and
+// any controller-specific behaviour belong to the Gateway's listener, so none of it
+// has to be handed to this orchestrator as configuration.
 type routePublisher struct {
 	client    gatewayclient.Interface
 	namespace string
@@ -46,12 +44,10 @@ func (p *routePublisher) withdraw(ctx context.Context, name string) error {
 // are genuinely independent — and without this the mismatch surfaces as the
 // first exposed deploy failing, long after the install that chose the mode.
 //
-// It deliberately does not check that the Gateway itself exists. That object
-// belongs to whoever runs the ingress infrastructure, its lifetime is not ours,
-// and coupling the orchestrator's startup to it would take the whole platform
-// down for the duration of somebody else's Gateway migration. A route that
-// attaches to nothing reports it on its own status; the chart's install notes
-// say where to look.
+// It does not check that the Gateway itself exists: that object belongs to whoever
+// runs the ingress infrastructure, and coupling this startup to its lifetime would
+// mean failing to start for the duration of somebody else's Gateway migration. A
+// route that attaches to nothing reports it on its own status.
 func (p *routePublisher) preflight(context.Context) error {
 	gv := gatewayv1.GroupVersion.String()
 	resources, err := p.client.Discovery().ServerResourcesForGroupVersion(gv)

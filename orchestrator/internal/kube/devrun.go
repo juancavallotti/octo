@@ -16,21 +16,19 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-// A dev run is the editor's "Run" workload: one pod per (user, integration), with
-// an octo runtime in hot-reload mode beside a sidecar that owns its workspace.
+// A dev run is one pod per (user, integration): an octo runtime in hot-reload mode
+// beside a sidecar that owns its workspace.
 //
-// It is deliberately NOT a deployment. A deployment ships a frozen snapshot from a
-// ConfigMap and is expected to outlive the session that created it; a dev run
-// follows one person's editing session, reloads from the live definition, and is
-// reclaimed when they stop touching it. The two share this package's plumbing —
+// It is NOT a deployment. A deployment ships a frozen snapshot from a ConfigMap and
+// outlives the session that created it; a dev run reloads from the live definition
+// and is reclaimed once nothing touches it. The two share this package's plumbing —
 // labels, probes, the endpoint publisher, the runtime-services env — and nothing
 // else.
 //
-// The other deliberate difference is that **the cluster is the only record**. There
-// is no dev_runs table: the workload's labels carry who owns it, one annotation
-// carries when it was last used, and its existence is its status. Every identifier
-// is derived from (user, integration) by the service layer, so nothing has to be
-// stored to be found again.
+// The other difference is that **the cluster is the only record**. There is no
+// dev_runs table: the workload's labels carry who owns it, one annotation carries
+// when it was last used, and its existence is its status. Every identifier is derived
+// from (user, integration), so nothing has to be stored to be found again.
 const (
 	// labelDevRunID marks a dev-run workload and carries its derived uuid. Its
 	// presence is also what distinguishes a dev run from a deployment, since both
@@ -66,13 +64,11 @@ const (
 	// the runtime watches it.
 	devWorkspaceDir = devWorkspaceRoot + "/" + devWorkspaceSubPath
 
-	// devRuntimePort is the port every dev run's runtime listens on. A platform
-	// constant, not a negotiated value: a dev pod owns its network namespace, so
-	// there is nothing to avoid colliding with. It is injected as HTTP_PORT, which
-	// the runtime resolves ahead of the definition's declared default (proved by
-	// TestParseConfigSubstitutesFromOSEnv, runtime/core/runtime/env_test.go:363) —
-	// so the Service can target one number forever and no port has to be recorded
-	// or reconciled.
+	// devRuntimePort is the port every dev run listens on. A constant rather than a
+	// negotiated value: a dev pod owns its network namespace, so there is nothing to
+	// collide with. It is injected as HTTP_PORT, which wins over the definition's
+	// declared default, so the Service can target one number forever and no port has
+	// to be recorded or reconciled.
 	devRuntimePort = 8080
 
 	// defaultSidecarPort is where the sidecar serves its command API when the
@@ -131,9 +127,9 @@ type DevRunSpec struct {
 // when the integration is networked.
 //
 // Unlike Apply, this is idempotent, and it has to be: the workload name is derived
-// from (user, integration), so a second editor tab clicking Run computes the same
-// name and should attach rather than fail. An existing workload yields
-// {@link ErrDevRunExists}, which the caller reports as "attached".
+// from (user, integration), so a second request for the same pair computes the same
+// name and should attach rather than fail. An existing workload yields ErrDevRunExists,
+// which the caller reports as "attached".
 func (c *Client) ApplyDevRun(ctx context.Context, spec DevRunSpec) error {
 	name := devRunName(spec.ID)
 	lbls := c.devRunLabels(spec)
@@ -279,10 +275,10 @@ func (c *Client) DeleteDevRun(ctx context.Context, devRunID string) error {
 // TouchDevRun records that the dev run was just used, which is what keeps the idle
 // reaper from collecting it.
 //
-// A merge patch of the one annotation, not a read-modify-write: two orchestrator
-// replicas can bump it concurrently and neither can lose the other's value or fail
-// on a conflict. A missing workload is reported, because a reload that touched
-// nothing is a dev run the caller thinks exists and does not.
+// A merge patch of the one annotation, not a read-modify-write, so two replicas can
+// bump it concurrently without losing a value or conflicting. A missing workload is
+// reported, because a reload that touched nothing is a dev run the caller believes
+// exists and does not.
 func (c *Client) TouchDevRun(ctx context.Context, devRunID string, at time.Time) error {
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%q}}}`,
 		annLastActivity, at.UTC().Format(time.RFC3339))
@@ -297,11 +293,9 @@ func (c *Client) TouchDevRun(ctx context.Context, devRunID string, at time.Time)
 // SetDevRunHost records (or clears) the external host a dev run publishes, for a
 // reload that flipped the integration between serving HTTP and not.
 //
-// A merge patch like TouchDevRun, for the same reason — two replicas must not be able
-// to conflict — and an empty host patches the key to null, which is how a JSON merge
-// patch removes it. Clearing rather than blanking matters: an empty-string annotation
-// and an absent one would then both mean "not published", and only one of them would
-// be what a reader expects.
+// A merge patch like TouchDevRun, for the same reason, and an empty host patches the
+// key to null, which is how a JSON merge patch removes it — so "not published" has
+// exactly one spelling.
 func (c *Client) SetDevRunHost(ctx context.Context, devRunID, host string) error {
 	value := "null"
 	if host != "" {
@@ -330,7 +324,7 @@ type DevRun struct {
 }
 
 // DevRunSelector narrows a dev-run listing. A zero selector lists every dev run in
-// the namespace, which is what the idle reaper wants; the editor sets both fields.
+// the namespace, which is what the idle reaper wants.
 type DevRunSelector struct {
 	UserID        string
 	IntegrationID string
@@ -479,17 +473,14 @@ func parseLastActivity(raw string) time.Time {
 // devRunDeployment builds the two-container pod: the sidecar that owns the
 // workspace and the runtime that watches it, sharing an emptyDir.
 //
-// The sidecar is a NATIVE sidecar — an initContainers entry with
-// restartPolicy: Always (GA in Kubernetes 1.29). That is not stylistic. `octo run
-// --watch` tolerates a missing config but not a missing directory: its watcher's
-// fsnotify Add fails and the process exits (runtime/octo/watch.go:29). Running the
-// sidecar as an init container with a startupProbe on its /readyz means the runtime
-// container does not start until the first pull has landed, so `octo` finds a
-// populated directory on its first look instead of racing it.
+// The sidecar is a NATIVE sidecar — an initContainers entry with restartPolicy:
+// Always (GA in Kubernetes 1.29). Hot reload tolerates a missing config but not a
+// missing directory: the file watcher fails to register and the process exits. An
+// init container with a startupProbe on its /readyz holds the runtime container back
+// until the first pull has landed, so the directory is populated on its first look.
 //
 // The subPath mount on the runtime container is the belt to that brace: kubelet
-// creates the subdirectory, so the directory exists even if the sidecar somehow
-// has not written it.
+// creates the subdirectory, so it exists even if the sidecar has not written it.
 func (c *Client) devRunDeployment(name string, lbls map[string]string, spec DevRunSpec) *appsv1.Deployment {
 	replicas := int32(1)
 	always := corev1.ContainerRestartPolicyAlways
@@ -607,20 +598,14 @@ func devRuntimePorts(spec DevRunSpec) []corev1.ContainerPort {
 // devRuntimeEnv is the runtime container's env, and it is short because a dev run
 // uses the STANDALONE runtime image.
 //
-// No RUNTIME_SERVICES_MODULE, no OCTO_DEPLOYMENT_ID, no NATS_URL, no
-// ServiceAccount: the standalone build ships only the standalone services provider
-// (runtime/octo/providers_standalone.go), so a dev run needs none of the cluster
-// wiring a deployment does. Everything that follows from that is a simplification —
-// it writes no kv_store rows, so there is nothing to clean up on stop; it ships no
-// logs to the aggregator, so its output is plain pod stdout, which is what
-// PodLogs streams anyway; and it needs no RBAC at all, so a dev pod runs with no
-// cluster credential of any kind.
+// No RUNTIME_SERVICES_MODULE, no OCTO_DEPLOYMENT_ID, no NATS_URL and no
+// ServiceAccount: that image carries only the standalone services provider, so a dev
+// run needs none of the cluster wiring a deployment does. It writes no rows to clean
+// up, its output is plain pod stdout, and it needs no cluster credential at all.
 //
-// It also makes the pull model coherent rather than merely workable: the standalone
-// provider's resource loader is rooted at the config directory, which is exactly the
-// directory the sidecar stages resources into. The k8s provider would instead fetch
-// resources from the orchestrator by snapshot id — a snapshot a dev run does not
-// have.
+// It also makes the pull model coherent: the standalone resource loader is rooted at
+// the config directory, which is exactly where the sidecar stages resources, whereas
+// the cluster provider would fetch them by a snapshot id a dev run does not have.
 func devRuntimeEnv(spec DevRunSpec) []corev1.EnvVar {
 	if !spec.Networked {
 		return nil

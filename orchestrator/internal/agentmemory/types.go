@@ -2,14 +2,11 @@
 // resumes from, the durable record of the conversations it has had, and the
 // curated facts it chose to keep about the people it talks to.
 //
-// It is keyed by the INTEGRATION, not by the deployment, and that is the reason
-// it exists apart from the kv store. An integration's stored working state
-// belongs to the deployment that wrote it and is purged with it, which is right
-// for a cache and wrong for a conversation somebody had: undeploy-then-deploy is
-// an ordinary recovery move, and it silently destroyed every conversation on the
-// installation (#362). The runtime never sends an integration id — a pod knows
-// its deployment and nothing else — so the handler resolves the one from the
-// other, the same immutable relation traces resolves at ingest.
+// It is keyed by the INTEGRATION, not by the deployment, and that is why it exists
+// apart from the kv store: what the kv store holds is purged with the deployment
+// that wrote it, which is right for a cache and wrong for a conversation somebody
+// had. A writing pod knows only its deployment, so the handler resolves the
+// integration from it — an immutable relation.
 package agentmemory
 
 import "time"

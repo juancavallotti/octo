@@ -63,9 +63,9 @@ type Update struct {
 	ReplyTo   string
 }
 
-// TestSend is the admin page's "send a test" request. It carries the whole draft
-// rather than reading storage, so what is verified is what is on screen — including
-// a key that has not been saved yet.
+// TestSend is a "send a test" request. It carries the whole draft rather than
+// reading storage, so what is verified is what the caller holds — including a key
+// that has not been saved yet.
 type TestSend struct {
 	To        string
 	APIKey    *string

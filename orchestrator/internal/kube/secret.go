@@ -92,14 +92,12 @@ func (c *Client) SecretKeyExists(ctx context.Context, name string) (bool, error)
 // and whether that Secret exists at all, from a single read. It reads only the
 // keys, never the values, so it cannot leak a secret.
 //
-// The two answers come back together because the reconciler needs both and must
-// not see them disagree. The Secret is created lazily by the first SetSecret, so
-// its absence is the ordinary state of an installation that has never stored one —
-// and is also what an externally managed Secret looks like for the moment between
-// being deleted and being recreated. Neither is evidence that any particular name
-// is gone, so a caller that asked two separate times could observe the Secret
-// present, then find it missing, and read the resulting empty list as "every name
-// was removed". One Get cannot produce that pair.
+// The two answers come back together because the reconciler needs both and must not
+// see them disagree. The Secret is created lazily by the first SetSecret, so its
+// absence is the ordinary state of an installation that has never stored one, and is
+// also what an externally managed Secret looks like between being deleted and
+// recreated. A caller asking twice could see it present, then missing, and read the
+// empty list as "every name was removed"; one Get cannot produce that pair.
 func (c *Client) StoredSecretNames(ctx context.Context) ([]string, bool, error) {
 	sec, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, secretsName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {

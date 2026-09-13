@@ -3,11 +3,9 @@
 // a file is, decided from its path, and how several config files fold into one
 // definition.
 //
-// Both rules already exist in the runtime (runtime/core/runtime/config.go). They
-// are restated here because the orchestrator is a separate Go module that
-// deliberately requires nothing from the runtime — the same reason
-// deployment/envports.go hand-rolls its minimal YAML parse. The duplication is
-// the price of that boundary; testdata/merge_cases is what keeps the two honest.
+// Both rules are restated here rather than imported, because this is a separate Go
+// module that requires nothing of the code that loads these files at run time.
+// testdata/merge_cases is what keeps the two honest.
 package projectfile
 
 import (

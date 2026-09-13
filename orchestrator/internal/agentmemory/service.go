@@ -282,12 +282,10 @@ func (s *Service) DeleteMemory(ctx context.Context, ref Ref, name string) error 
 // DeleteForIntegration removes everything an integration's agents remember, and
 // forgets the deployment mappings that pointed at it.
 //
-// Dropping the cache is what closes the window where a pod still finishing a run
-// writes memory for an integration that has just been deleted. It does not close
-// it completely — a write already past the lookup still lands, and the row is
-// then an orphan — but that is the same bargain logs, traces and kv_store all
-// make, and it is why cleanup here is explicit rather than a cascade. Without
-// this the window was the cache's whole hour.
+// Dropping the cache narrows the window where a pod still finishing a run writes
+// memory for an integration that has just been deleted. It does not close it — a
+// write already past the lookup still lands and leaves an orphan row — which is why
+// cleanup here is explicit rather than a cascade.
 func (s *Service) DeleteForIntegration(ctx context.Context, integrationID string) error {
 	s.forgetIntegration(integrationID)
 	return s.store.DeleteForIntegration(ctx, integrationID)

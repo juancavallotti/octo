@@ -125,10 +125,8 @@ func DigestFiles(files map[string]string) string {
 // orchestrator was built from.
 //
 // The bundle ships inside this binary, so "which agent is this" and "which octo is
-// this" are one question, and the release answers it in the form every other
-// version on the platform is already written in. The content digest this replaced
-// was unique and told a reader nothing — it is still the identity the installer
-// compares (see Digest), which is the job it was actually doing.
+// this" are one question, and the release answers it in the form every other version
+// is written in. The content digest is what the installer compares (see Digest).
 func Tag() string {
 	return "v" + version.Version
 }

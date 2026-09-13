@@ -107,14 +107,12 @@ var bypass = map[string]struct{}{
 // selfAuthenticated are routes that carry a credential of their own and check it
 // themselves, so this guard steps aside rather than refusing them.
 //
-// They are not open. A dev run's sidecar holds a token that authorises exactly
-// one run and nothing else, and the handler verifies it — which is an
-// authentication this service performs, just not with a platform token. Demanding
-// one as well would mean a pod needing two credentials for a route whose whole
-// design is that it needs a narrow one.
+// They are not open: a dev run's token authorises exactly one run and the handler
+// verifies it, so demanding a platform token as well would mean two credentials for
+// a route designed to need one narrow one.
 //
-// Matched on the whole path rather than a prefix: stepping aside is not something
-// to do for anything that merely starts the same way.
+// Matched on the whole path rather than a prefix, so nothing that merely starts the
+// same way is stepped aside for.
 var selfAuthenticated = []string{
 	"devruns/*/bundle",
 	"devruns/*/expire",
@@ -167,11 +165,9 @@ func required(method, path string) []string {
 // names a deployment. A person's token names none and is governed by roles alone,
 // which is what lets an operator look at any deployment they like.
 //
-// What this deliberately does NOT cover: `snapshots/{id}/resources`, which a pod
-// also reaches. Which snapshot a deployment runs is a fact in the database and
-// this package has none, so the constraint cannot be stated here. It is a narrower
-// exposure — frozen, read-only definition files rather than live data — and
-// closing it belongs at the handler, which can look it up.
+// What it does NOT cover: `snapshots/{id}/resources`, which a pod also reaches.
+// Which snapshot a deployment runs is a fact in the database and this package has
+// none, so that constraint belongs at the handler, which can look it up.
 func ownsTarget(principal Principal, path string) bool {
 	if principal.Deployment == "" {
 		return true

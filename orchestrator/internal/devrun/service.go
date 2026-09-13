@@ -128,9 +128,9 @@ func withSidecars(c sidecarCommander) Option {
 // reports ErrUnavailable — the caller should not register the routes then.
 //
 // hashSecret keys every derivation the feature makes. An empty one disables dev runs
-// outright rather than silently falling back to an unkeyed hash, because an unkeyed
-// hash makes every dev run's public hostname a pure function of two guessable values
-// — and the hostname is the only thing guarding it.
+// outright rather than falling back to an unkeyed hash, which would make every dev
+// run's public hostname — the only thing guarding it — a pure function of two
+// guessable values.
 func NewService(
 	cluster devRunCluster,
 	integrations integrationStore,
@@ -166,10 +166,10 @@ func (s *Service) IdleTimeout() time.Duration { return s.idleTimeout }
 // Ensure starts a dev run for (userID, integrationID), or attaches to the one
 // already running it.
 //
-// Idempotent because the workload's name is derived: a second editor tab clicking
-// Run computes the same name, and AlreadyExists from the API server is "attached",
+// Idempotent because the workload's name is derived: a second request for the same
+// pair computes the same name, and AlreadyExists from the API server is "attached",
 // not a failure. That is the whole of the concurrency control — there is no row to
-// check first and so no window between checking and creating.
+// check first, so no window between checking and creating.
 func (s *Service) Ensure(ctx context.Context, userID, integrationID string) (EnsureResult, error) {
 	if !s.Enabled() {
 		return EnsureResult{}, ErrUnavailable
@@ -275,12 +275,10 @@ func (s *Service) specFor(ctx context.Context, userID string, integ integration.
 // assertHostFree refuses a run whose derived public host is already published by a
 // different dev run.
 //
-// At 36^8 with a secret key this is unreachable, but "unreachable" is not a safety
-// property and the failure mode is severe: a silent collision routes one user's
-// public traffic to another user's pod. So it is refused with the conflict named,
-// and deliberately not resolved by advancing to a second label — a resolved
-// collision would have to be *remembered* to stay stable, and remembering it is the
-// storage this design does without.
+// At 36^8 with a secret key this is unreachable, but the failure mode is severe: a
+// silent collision routes one user's public traffic to another user's pod. It is not
+// resolved by advancing to a second label, because a resolved collision would have to
+// be remembered to stay stable, and this design stores nothing.
 func (s *Service) assertHostFree(ctx context.Context, devRunID, subdomain string) error {
 	host := s.cluster.ExternalHost(subdomain)
 	if host == "" {
@@ -300,12 +298,9 @@ func (s *Service) assertHostFree(ctx context.Context, devRunID, subdomain string
 
 // Stop tears down a dev run: its endpoint, Service and Deployment.
 //
-// That is genuinely all of it. A dev run writes no kv_store rows (the standalone
-// runtime build has no KV provider) and no database rows of any kind, so there is
-// nothing to clean up, and its identity is a derivation, so nothing has to be
-// preserved for the next Run to find. A Run is always a clean slate — the same
-// property a fresh local child process has, here for free rather than from a
-// teardown step that could be forgotten.
+// That is all of it: a dev run writes no database rows of any kind, and its identity
+// is a derivation, so nothing has to be preserved for the next one to find. Every run
+// starts from a clean slate.
 func (s *Service) Stop(ctx context.Context, userID, devRunID string) error {
 	if !s.Enabled() {
 		return ErrUnavailable
@@ -332,11 +327,11 @@ func (s *Service) stop(ctx context.Context, devRunID, reason string) error {
 
 // Reload makes a dev run pick up the integration's current saved state.
 //
-// Two things happen before the sidecar is told anything. The last-activity
-// annotation is bumped, which is what keeps the reaper off it; and the endpoint is
-// reconciled, because a save can flip an integration between serving HTTP and not.
-// The order matters in one direction: publish *before* forwarding, so a public host
-// never goes live pointing at a runtime that is not yet listening.
+// Two things happen before the sidecar is told anything: the last-activity annotation
+// is bumped, which keeps the reaper off it, and the endpoint is reconciled, because a
+// save can flip an integration between serving HTTP and not. The order matters in one
+// direction — publish *before* forwarding, so a public host never goes live pointing
+// at a pod that is not yet listening.
 func (s *Service) Reload(ctx context.Context, userID, devRunID string) error {
 	if !s.Enabled() {
 		return ErrUnavailable
@@ -425,9 +420,9 @@ func (s *Service) touch(ctx context.Context, run DevRun) error {
 // definition, with the dev-env resource declared, plus its live resources.
 //
 // Authorised by the presented token, not by a user. The integration id comes off the
-// *workload's* label rather than from the request, so a dev pod can only ever fetch
-// the integration it was created to run — and because the token's hash lives on that
-// workload, a token whose pod is gone authorises nothing at all.
+// *workload's* label rather than from the request, so a pod can only fetch the
+// integration it was created to run, and a token whose workload is gone authorises
+// nothing.
 func (s *Service) Bundle(ctx context.Context, devRunID, token string) (Bundle, error) {
 	run, err := s.authorize(ctx, devRunID, token)
 	if err != nil {
@@ -485,11 +480,10 @@ func (s *Service) authorize(ctx context.Context, devRunID, token string) (DevRun
 // Status reports one dev run's live state: the cluster's answer, plus the sidecar's
 // own view folded in when it answers promptly.
 //
-// The cluster half is the one that matters and it comes from the informer cache. The
-// sidecar half is fetched best-effort with a short timeout and left out on failure —
-// it carries which generation is actually applied, which is the only way a user can
-// tell "my save reached the pod" from "my save is still in Postgres", so it is worth
-// one in-cluster hop per poll.
+// The cluster half comes from the informer cache. The sidecar half is fetched
+// best-effort with a short timeout and left out on failure: it carries which
+// generation is actually applied, which is the only way to tell a save that reached
+// the pod from one that is still only stored.
 func (s *Service) Status(ctx context.Context, userID, devRunID string) (DevRun, error) {
 	if !s.Enabled() {
 		return DevRun{}, ErrUnavailable
@@ -519,10 +513,9 @@ func (s *Service) Status(ctx context.Context, userID, devRunID string) (DevRun, 
 // and — with follow — tailing until the caller closes the stream or the request goes
 // away.
 //
-// This is the whole log path: the runtime container writes to stdout and the
-// orchestrator streams the pod, so a dev run needs no log shipping, no ring buffer in
-// a BFF replica, and no per-run state anywhere. Replay-then-follow comes free from
-// Kubernetes, which is the other half of why the buffer this replaces is gone.
+// This is the whole log path: the container writes to stdout and this streams the
+// pod, so a dev run needs no log shipping and no per-run state anywhere.
+// Replay-then-follow comes free from Kubernetes.
 func (s *Service) PodLogs(
 	ctx context.Context, userID, devRunID string, follow bool, tail int64,
 ) (io.ReadCloser, error) {
@@ -565,8 +558,8 @@ func runtimePod(st kube.Status) string {
 	return ""
 }
 
-// ListByUser answers "what am I running?" — and, with integrationID set, the
-// editor's Run-vs-Attach question.
+// ListByUser answers "what am I running?" — and, with integrationID set, whether
+// this one is already running.
 //
 // This is the query that replaces a table, and it is a label lookup against a synced
 // informer cache: no database, no API call, and no way for the answer to disagree
@@ -592,16 +585,15 @@ func (s *Service) ListByUser(ctx context.Context, userID, integrationID string) 
 }
 
 // NotifyIntegrationChanged reloads every dev run for an integration whose stored
-// state just changed. It is the save→reload seam, and it is wired into the write
-// path rather than into the editor so that every writer is covered at once — the
-// editor's save, the integrations list, MCP's update_flow, any API-key client.
+// state just changed. It hangs off the write path so that every writer is covered at
+// once.
 //
-// Best-effort by contract, and the caller must never fail a write because of it. A
-// save that succeeded with a reload that did not is a stale running app, which the
-// status surface already reports; a save rolled back because a pod was unreachable
-// is data loss. It returns an error only so a caller can log it.
+// Best-effort by contract, and a caller must never fail a write because of it: a save
+// that succeeded with a reload that did not is a stale running pod, which Status
+// already reports, while a save rolled back because a pod was unreachable is data
+// loss. It returns an error only so a caller can log it.
 //
-// The common case — nobody is running this integration — costs no I/O at all,
+// The common case — nothing is running this integration — costs no I/O at all,
 // because the listing comes from the informer cache.
 func (s *Service) NotifyIntegrationChanged(ctx context.Context, integrationID string) error {
 	if !s.Enabled() || integrationID == "" {
@@ -632,10 +624,9 @@ func (s *Service) NotifyIntegrationChanged(ctx context.Context, integrationID st
 // ReapIdle stops every dev run that has not been reloaded within the idle timeout,
 // returning how many it collected.
 //
-// This is also the only thing that collects a dev run whose integration was deleted
-// or whose tab was simply abandoned. There is no delete hook for either: nobody is
-// watching an abandoned run, and a deleted integration's run is torn down sooner
-// anyway, the moment anything tries to reload it and its sidecar's pull 404s.
+// It is also the only thing that collects a dev run whose integration was deleted or
+// that was simply abandoned. Neither has a delete hook: a deleted integration's run
+// is torn down sooner anyway, the moment a reload's pull 404s.
 func (s *Service) ReapIdle(ctx context.Context) (int, error) {
 	if !s.Enabled() {
 		return 0, nil
@@ -678,10 +669,9 @@ func (s *Service) ReapIdle(ctx context.Context) (int, error) {
 // ownerScope is the selector that confines a user-facing operation to the caller's own
 // dev runs.
 //
-// It exists so that the one thing every such operation must not get wrong is decided
-// once. An empty user id in kube.DevRunSelector means "do not filter by user", which
-// for a listing is merely wrong and for Stop or Reload is one user acting on another's
-// pod — so the empty case is refused here rather than remembered at five call sites.
+// An empty user id in kube.DevRunSelector means "do not filter by user", which for a
+// listing is merely wrong and for Stop or Reload is one user acting on another's pod.
+// Refused here, once, rather than remembered at five call sites.
 func ownerScope(userID string) (kube.DevRunSelector, error) {
 	if userID == "" {
 		return kube.DevRunSelector{}, ErrUserRequired

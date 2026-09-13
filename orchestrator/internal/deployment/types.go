@@ -60,29 +60,25 @@ type Settings struct {
 	// owns — its key/value namespace, its objects, its agent memory.
 	//
 	// A set, and empty for almost every deployment. "developer" adds integrations,
-	// resources, snapshots and dev runs; "operator" adds deployments. They are
-	// independent because they are different jobs, and something that builds
-	// integrations and operates them is one thing that does both.
+	// resources, snapshots and dev runs; "operator" adds deployments, and the two are
+	// independent because they are different jobs.
 	//
-	// This is the credential an integration with no person behind it has — one
-	// woken by a queue message or a webhook, where there is no caller's token to
-	// borrow — so it is the whole of what such a flow may do.
+	// This is the credential a run with no person behind it has — one woken by a queue
+	// message or a webhook — so it is the whole of what such a flow may do.
 	Access []string `json:"access,omitempty"`
 	// Runner selects the image this deployment's pods run. Empty and "standard"
 	// are the generic octo-runtime: distroless, one static binary, no shell and
 	// nothing writable, which is what almost every integration wants.
 	//
-	// "agentic" is the heavier runner, which additionally carries a shell, curl,
-	// jq, the standalone octo CLI, dolphin and a scratch workspace at /workspace.
-	// It is for an integration built to drive the platform rather than serve it —
-	// one whose flows run local commands, invoke other flows, or execute a test
-	// suite. Dr. Octo is the first, and the reason it exists.
+	// "agentic" additionally carries a shell, curl, jq, the standalone octo CLI,
+	// dolphin and a scratch workspace at /workspace. It is for an integration built to
+	// drive the platform rather than serve it — one whose flows run local commands,
+	// invoke other flows, or execute a test suite.
 	//
-	// Treat it as a privileged choice rather than a bigger one. A pod with a shell
-	// and a runtime it can point at a definition it just wrote is a general
-	// execution environment, so the boundary it offers is the pod — not the
-	// `cli-run` allow list inside it. Do not grant it to an integration whose
-	// definition comes from somewhere you do not trust.
+	// It is a privileged choice rather than a bigger one: a pod with a shell and a
+	// runtime it can point at a definition it just wrote is a general execution
+	// environment, so the boundary it offers is the pod, not the `cli-run` allow list
+	// inside it. Do not grant it to a definition you do not trust.
 	Runner string `json:"runner,omitempty"`
 	// SnapshotID is the version tag (snapshot) to deploy. When the service is wired
 	// with a snapshot store (the production path) it is required, and the deploy

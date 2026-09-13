@@ -122,12 +122,9 @@ const runtimeContainer = "runtime"
 // the spec already names the new one while the old one is still serving. The
 // spec is the fallback for a deployment whose pods have not reported yet.
 //
-// A serving pod is asked first, and that ordering is the point rather than a
-// nicety. A rollout has both generations present at once, and the new pod — the
-// one that is unready, crash-looping, or stuck on a pull — is as likely to be
-// first in the list as the old one that is answering traffic. Reporting its image
-// would name a runtime that is not serving anything, on precisely the deployment
-// somebody is looking at because it is misbehaving.
+// A serving pod is asked first: a rollout has both generations present at once, and
+// the new pod — unready, crash-looping, or stuck on a pull — is as likely to be first
+// in the list as the old one answering traffic.
 func runtimeImage(dep *appsv1.Deployment, pods []*corev1.Pod) string {
 	if image := containerImage(pods, func(p *corev1.Pod) bool {
 		return p.Status.Phase == corev1.PodRunning && podReady(p)
@@ -314,9 +311,9 @@ func isTerminalWaiting(reason string) bool {
 //
 // It asks the API server for its version rather than listing anything in the
 // namespace: the version endpoint needs no RBAC beyond what any authenticated
-// client has, so a failure here means the connection is broken rather than that
-// this service account is missing a permission — which is a different problem
-// with a different fix, and one the admin page must not confuse it with.
+// client has, so a failure here means the connection is broken rather than that this
+// service account is missing a permission — a different problem with a different
+// fix.
 func (c *Client) Reachable(ctx context.Context) error {
 	// The discovery client takes no context, so the cancellation the caller set is
 	// honoured by racing it rather than by being passed down. Left unraced, a
@@ -340,24 +337,19 @@ func (c *Client) Reachable(ctx context.Context) error {
 // DeploymentIDs returns the id of every deployment this orchestrator has a
 // workload for, and whether the answer can be trusted.
 //
-// The selector is the load-bearing part and it has three clauses, not one.
-// Managed by us, carrying a deployment id, and — the one that matters —
-// explicitly NOT carrying a dev-run id. A dev run wears the same managed-by
-// label and an integration id, so a selector that stopped at the first two would
-// report every running dev run as an orphaned deployment, and the reconciler
-// would delete them. It is the inverse of devRunSelector, deliberately spelled
-// out here rather than derived from it, because the two are read together and a
-// reader has to be able to see that they partition the namespace.
+// The selector has three clauses, not one: managed by us, carrying a deployment id,
+// and — the one that matters — explicitly NOT carrying a dev-run id. A dev run wears
+// the same managed-by label and an integration id, so a selector stopping at the
+// first two would report every running dev run as an orphaned deployment. It is the
+// inverse of devRunSelector, spelled out rather than derived from it so a reader can
+// see the two partition the namespace.
 //
-// The second return says the list is authoritative, which is a stronger claim
-// than "it came back". It is false only when neither source could give a complete
-// answer; a caller deciding what to delete must not act on a list without it,
-// because an incomplete listing and an empty cluster are the same empty map.
+// The second return says the list is authoritative, which is stronger than "it came
+// back": a caller deciding what to delete must not act without it, because an
+// incomplete listing and an empty cluster are the same empty map.
 //
-// A cache that has not synced does not make the answer untrustworthy — it makes
-// this read fall back to the API server, which is authoritative by definition.
-// What the fallback costs is a full list rather than a cache read, and this runs
-// once every few minutes.
+// An unsynced cache does not make the answer untrustworthy — it makes this read fall
+// back to the API server, at the cost of a full list instead of a cache read.
 func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, error) {
 	sel, err := managedDeploymentSelector()
 	if err != nil {
@@ -399,18 +391,14 @@ func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, erro
 // DeploymentExists reports whether the workload for a deployment id is there,
 // asked by name rather than by label.
 //
-// It is the second opinion the reconciler takes before deleting a row, and the
-// difference between the two questions is the point. DeploymentIDs asks the
-// cluster "what do you have", which it answers from labels — metadata that any
-// principal with cluster access can edit, and that an admission controller can
-// rewrite. This asks about one object by the name derived from the row's own id,
-// which is the identity every other read here uses and the one thing about a
-// workload that cannot drift.
+// It is the second opinion the reconciler takes before deleting a row. DeploymentIDs
+// asks the cluster "what do you have", answered from labels — metadata anyone with
+// cluster access can edit and an admission controller can rewrite. This asks about
+// one object by the name derived from the row's own id, which cannot drift.
 //
-// Without it, a stripped label makes a live deployment invisible to the sweep,
-// which then deletes its row — irreversibly, taking the settings and env bindings
-// with it — while the workload keeps running and can never be collected either,
-// because it does not match the selector any more.
+// Without it, a stripped label makes a live deployment invisible to the sweep, which
+// deletes its row irreversibly while the workload keeps running and can never be
+// collected either.
 func (c *Client) DeploymentExists(ctx context.Context, deploymentID string) (bool, error) {
 	// Deliberately not the lister: this is the confirmation step for a destructive
 	// action, and a cache is a copy of what was true a moment ago.

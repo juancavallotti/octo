@@ -1,8 +1,6 @@
-// Command orchestrator is a small HTTP API that sits alongside the editor and
-// runtime in the local k3d dev cluster. This first iteration is intentionally
-// minimal: a health check and a read of the db_version row seeded into
-// site_settings by the schema Job. It exists so the cluster has a Go service
-// wired to Postgres that we can grow real orchestration responsibilities into.
+// Command orchestrator is the HTTP API that manages integrations, their
+// resources and snapshots, the workloads deployed from them, and the site-wide
+// settings the platform stores.
 package main
 
 import (
@@ -70,8 +68,7 @@ const (
 	reconcileTimeout = 2 * time.Minute
 	// devRunReapInterval is how often idle dev runs are swept. A minute against an
 	// idle timeout measured in tens of minutes: the sweep is a cache read plus a
-	// comparison, so its cost is not what sets this, and a coarser tick would only
-	// make the timeout less accurate.
+	// comparison, so a coarser tick would only make the timeout less accurate.
 	devRunReapInterval = time.Minute
 	// devRunReapTimeout bounds one sweep, so a wedged API server cannot leave the
 	// reaper's goroutine blocked until the process ends.
@@ -112,24 +109,14 @@ func run() error {
 		slog.Info("connected to database pool")
 	}
 
-	// Redis, opened here so the connection lives as long as the process and its
-	// Close is deferred alongside the database's.
+	// Redis, opened here so the connection lives as long as the process. Nothing is
+	// stored in it yet; the client exists so the health report can answer whether
+	// Redis is reachable, which is why a failure here is reported and not fatal.
 	//
-	// Unlike the aggregator — which folds trace records in Redis and refuses to
-	// start without one — the orchestrator keeps nothing here yet. It connects so
-	// the admin section can answer whether the cluster's Redis is reachable, which
-	// is the question an operator asks before the ones about anything built on it.
-	// So a failure is reported rather than fatal: an orchestrator that would not
-	// start because a dependency it does not use is down would be a worse outage
-	// than the one it is describing.
-	//
-	// The client is built without connecting, and that is what makes the health
-	// page honest. go-redis dials on its first command and reconnects on its own,
-	// so a client built against a server that is down is still the right object to
-	// hold: the page reports Redis as *unreachable* rather than as unconfigured,
-	// and starts reporting it as reachable again when it comes back. Discarding the
-	// client on a failed startup PING would collapse those two states into one and
-	// then never leave it.
+	// The client is built without connecting, and that is what makes the report
+	// honest: go-redis dials on its first command and reconnects on its own, so a
+	// client held against a server that is down reports Redis as *unreachable*
+	// rather than as unconfigured, and reports it reachable again when it returns.
 	var redisClient *redis.Client
 	if url := os.Getenv("REDIS_URL"); url == "" {
 		slog.Warn("REDIS_URL is not set; the platform services page will report redis as unconfigured")
@@ -140,9 +127,6 @@ func run() error {
 	} else {
 		defer func() { _ = c.Close() }()
 		redisClient = c
-		// Reported rather than required. The orchestrator keeps nothing here yet, so
-		// an unreachable Redis is something to say plainly at startup and to show on
-		// the page — not a reason to refuse to start.
 		if err := c.Ping(ctx).Err(); err != nil {
 			slog.Warn("redis is configured but not reachable", "error", err)
 		} else {
@@ -189,9 +173,8 @@ func kubeConfig() (kube.Config, error) {
 	// Which API publishes per-integration endpoints. Unset is Ingress; an
 	// unrecognised value is an error rather than a silent fall back to it.
 	//
-	// Read first because it decides which of the settings below even apply.
-	// Parsing INGRESS_ANNOTATIONS ahead of it meant a malformed Ingress-only
-	// value stopped a gateway-mode start, over a setting that mode ignores.
+	// Read first because it decides which of the settings below even apply, so a
+	// malformed Ingress-only value cannot stop a start in gateway mode.
 	endpointAPI, err := kube.ParseEndpointAPI(os.Getenv("ENDPOINT_API"))
 	if err != nil {
 		return kube.Config{}, err
@@ -221,25 +204,21 @@ func kubeConfig() (kube.Config, error) {
 		// The chart's answer to "which octo is that image", for the installs that
 		// pin it by digest and leave the reference with no tag to read.
 		RuntimeVersion: os.Getenv("RUNTIME_VERSION"),
-		// The agentic runner. Unset — with no default, unlike RUNTIME_IMAGE above —
-		// because an unconfigured runner has to be *refused*, and a default would make
-		// that impossible to detect: an agentic deploy would create pods from an image
-		// that was never published, and the failure would arrive as ImagePullBackOff
-		// rather than as a message naming the chart value. kube.RunnerEnabled reads it.
+		// The agentic runner. No default, unlike RUNTIME_IMAGE above, because an
+		// unconfigured runner has to be *refused*: a default would create pods from an
+		// image that was never published, surfacing as ImagePullBackOff rather than as
+		// a message naming the chart value. kube.RunnerEnabled reads it.
 		AgenticRunnerImage:         os.Getenv("AGENTIC_RUNNER_IMAGE"),
 		AgenticRunnerResources:     agenticResources,
 		AgenticRunnerWorkspaceSize: os.Getenv("AGENTIC_RUNNER_WORKSPACE_SIZE"),
 		// The dev-run images and this orchestrator's own in-cluster address. All three
-		// are unset on an install with dev runs off, which is a coherent state rather
-		// than a broken one: kube.DevRunsEnabled reads them together, because each one's
-		// absence alone would produce a pod that fails rather than a feature that
-		// degrades.
+		// are unset on an install with dev runs off: kube.DevRunsEnabled reads them
+		// together, because each one's absence alone would produce a pod that fails
+		// rather than a feature that degrades.
 		DevRuntimeImage: os.Getenv("DEV_RUNTIME_IMAGE"),
 		SidecarImage:    os.Getenv("DEV_SIDECAR_IMAGE"),
 		SidecarPort:     sidecarPort,
-		// The pod stats sidecar. Unset means no deployment gains a container, so
-		// an install that has not turned it on renders exactly the pod spec it
-		// renders today.
+		// The pod stats sidecar. Unset means no deployment gains a container.
 		StatsSidecar:    statsSidecar,
 		OrchestratorURL: os.Getenv("ORCHESTRATOR_URL"),
 		BaseDomain:      os.Getenv("BASE_DOMAIN"),
@@ -254,8 +233,7 @@ func kubeConfig() (kube.Config, error) {
 		IngressClass:     os.Getenv("INGRESS_CLASS"),
 		ExtraAnnotations: extraAnnotations,
 		// The Gateway per-integration HTTPRoutes attach to, in gateway mode. The
-		// namespace defaults to our own, which is the single-namespace install; a
-		// Gateway run by whoever owns ingress lives elsewhere and says so.
+		// namespace defaults to our own, which is the single-namespace install.
 		Gateway: kube.GatewayRef{
 			Name:        os.Getenv("GATEWAY_NAME"),
 			Namespace:   envOr("GATEWAY_NAMESPACE", namespace),
@@ -292,11 +270,9 @@ func ingressAnnotationsConfig() (map[string]string, error) {
 //
 //	{"requests":{"cpu":"200m","memory":"256Mi"},"limits":{"cpu":"1","memory":"1Gi"}}
 //
-// Unset means none, which is what every integration pod carries today. Malformed
-// JSON is a startup error rather than a silently-ignored one, following
-// INGRESS_ANNOTATIONS above: a resources block that failed to parse would
-// otherwise schedule the one workload whose whole purpose is running other
-// programs with no bound on what it may consume.
+// Unset means none. Malformed JSON is a startup error, because a resources block
+// that failed to parse would schedule the one workload whose purpose is running
+// other programs with no bound on what it may consume.
 func agenticRunnerResources() (corev1.ResourceRequirements, error) {
 	raw := os.Getenv("AGENTIC_RUNNER_RESOURCES")
 	if raw == "" {
@@ -311,10 +287,8 @@ func agenticRunnerResources() (corev1.ResourceRequirements, error) {
 	if err := dec.Decode(&res); err != nil {
 		return corev1.ResourceRequirements{}, fmt.Errorf("parse AGENTIC_RUNNER_RESOURCES: %w", err)
 	}
-	// A Decoder reads one value and stops, where Unmarshal refused anything after
-	// it — so moving to a Decoder for DisallowUnknownFields quietly gave up the
-	// check that a truncated or double-pasted value is rejected. Insisting on EOF
-	// keeps both.
+	// A Decoder reads one value and stops, so insisting on EOF is what rejects a
+	// truncated or double-pasted value.
 	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return corev1.ResourceRequirements{}, fmt.Errorf(
 			"parse AGENTIC_RUNNER_RESOURCES: unexpected data after the resources object")
@@ -326,12 +300,9 @@ func agenticRunnerResources() (corev1.ResourceRequirements, error) {
 // list of Secret names authenticating the pull of the runtime image on the pods
 // this orchestrator deploys. Unset means none, which is the public-image case.
 //
-// Comma-separated rather than JSON, unlike INGRESS_ANNOTATIONS above, because
-// these are names and not a map — the chart joins the same list it renders into
-// its own workloads' imagePullSecrets, and a name containing a comma is not a
-// legal Kubernetes object name. Blanks are dropped so a trailing comma, or the
-// empty string the chart emits for an empty list, does not become a Secret named
-// "" that the kubelet reports as missing on every pod.
+// Blanks are dropped so a trailing comma, or the empty string an empty list
+// renders as, does not become a Secret named "" that the kubelet then reports as
+// missing on every pod.
 func imagePullSecretsConfig() []string {
 	raw := os.Getenv("RUNTIME_IMAGE_PULL_SECRETS")
 	if raw == "" {
@@ -347,14 +318,11 @@ func imagePullSecretsConfig() []string {
 }
 
 // devRunSidecarPort reads DEV_RUN_SIDECAR_PORT, the port a dev run's sidecar serves
-// its command API on. Unset returns 0, which the kube client reads as its own default
-// — the same number the sidecar binary defaults to, so the two halves agree with
-// nothing configured.
+// its command API on. Unset returns 0, which the kube client reads as its own default.
 //
-// A value that is not a usable port stops startup naming the setting, rather than
-// being coerced: the failure it would otherwise produce is a dev run that starts,
-// reports ready, and then cannot be reloaded, because the Service's sidecar port routes
-// to a port nothing listens on.
+// A value that is not a usable port stops startup naming the setting rather than
+// being coerced: coerced, it yields a dev run that starts, reports ready, and cannot
+// be reloaded, because the Service's sidecar port routes to a port nothing listens on.
 func devRunSidecarPort() (int32, error) {
 	raw := os.Getenv("DEV_RUN_SIDECAR_PORT")
 	if raw == "" {
@@ -369,17 +337,14 @@ func devRunSidecarPort() (int32, error) {
 
 // statsSidecarConfig reads the pod stats sidecar's settings.
 //
-// STATS_SIDECAR_IMAGE unset is the off switch, and the only coherent way to
-// express it: every other value has a working default, so there is nothing else
-// whose absence could mean "no". The three durations are optional and left at
-// zero when unset, which the sidecar reads as "use your own defaults" rather
-// than as a value — one place owns each default, and it is the binary.
+// STATS_SIDECAR_IMAGE unset is the off switch: every other value has a working
+// default, so there is nothing else whose absence could mean "no". The three
+// durations are left at zero when unset, which the sidecar reads as "use your own
+// defaults", so each default has one owner.
 //
-// A malformed value stops startup naming the setting. The alternative is worse
-// than usual here: the sidecar validates its own environment and refuses to
-// start, so a coerced value would surface as a CrashLoopBackOff container inside
-// every production pod, which reads as a broken deployment rather than as a
-// mistyped chart value.
+// A malformed value stops startup naming the setting, because the sidecar
+// validates its own environment and refuses to start: coerced, the mistake would
+// surface as a CrashLoopBackOff container inside every deployed pod.
 func statsSidecarConfig() (kube.StatsSidecar, error) {
 	port, err := statsSidecarPort()
 	if err != nil {
@@ -411,8 +376,7 @@ func statsSidecarConfig() (kube.StatsSidecar, error) {
 }
 
 // statsSidecarPort reads STATS_SIDECAR_PORT. Unset returns 0, which the kube
-// client reads as its own default — the same number the sidecar binary defaults
-// to, so the two halves agree with nothing configured.
+// client reads as its own default.
 func statsSidecarPort() (int32, error) {
 	raw := os.Getenv("STATS_SIDECAR_PORT")
 	if raw == "" {
@@ -428,10 +392,9 @@ func statsSidecarPort() (int32, error) {
 // devRunIdleTimeout reads DEV_RUN_IDLE_TIMEOUT, how long a dev run survives without
 // being reloaded. Unset takes the service's own default.
 //
-// A malformed duration is a startup error rather than a silent fall back, because the
-// likely typos ("60", "60min") differ from the intent by a factor nobody would notice
-// from behaviour: too short reaps a run somebody is using, too long leaves pods
-// running for days, and both look like "the reaper is a bit off".
+// A malformed duration is a startup error rather than a silent fall back: the likely
+// typos ("60", "60min") differ from the intent by a factor that is invisible in
+// behaviour, reaping a run somebody is using or leaving pods up for days.
 func devRunIdleTimeout() (time.Duration, error) {
 	raw := os.Getenv("DEV_RUN_IDLE_TIMEOUT")
 	if raw == "" {
@@ -448,11 +411,8 @@ func devRunIdleTimeout() (time.Duration, error) {
 }
 
 // runtimeServicesConfig reads the runtime-services env injected into deployed
-// runtime pods. The orchestrator URL is the linchpin: without it the runtime has
-// no KV endpoint, so an empty URL disables injection entirely (Module left empty)
-// and the runtime falls back to its standalone default. With a URL set, the module
-// defaults to k8s (Lease-based leader election + orchestrator KV for the persistent
-// tier, Redis for the volatile one).
+// pods. The orchestrator URL is the linchpin: without it there is no KV endpoint
+// to name, so an empty URL disables injection entirely and leaves Module empty.
 func runtimeServicesConfig() kube.RuntimeServices {
 	orchestratorURL := os.Getenv("ORCHESTRATOR_URL")
 	if orchestratorURL == "" {
@@ -463,14 +423,14 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		OrchestratorURL: orchestratorURL,
 		ServiceAccount:  os.Getenv("RUNTIME_SERVICE_ACCOUNT"),
 		NATSURL:         os.Getenv("NATS_URL"),
-		// Redis, reached directly by the integration pod. Either a literal (the
-		// bundled server, which takes no credentials) or a reference to the Secret
-		// the chart bound this orchestrator's own REDIS_URL to — a managed Redis
-		// URL carries a password, and a password written into every integration
-		// Deployment would be readable by anyone who can read workloads.
 		// Where a deployment's pods renew their own token. Empty leaves a mounted
-		// token to stand until it expires, so it travels with the mint below.
-		IAMURL:   os.Getenv("IAM_URL"),
+		// token to stand until it expires.
+		IAMURL: os.Getenv("IAM_URL"),
+		// Redis, reached directly by the deployed pod. Either a literal (the bundled
+		// server, which takes no credentials) or a reference to the Secret holding this
+		// orchestrator's own REDIS_URL — a managed Redis URL carries a password, and a
+		// password written into every Deployment would be readable by anyone who can
+		// read workloads.
 		RedisURL: os.Getenv("REDIS_URL"),
 		RedisSecret: kube.SecretKeyRef{
 			Name: os.Getenv("REDIS_URL_SECRET_NAME"),
@@ -479,18 +439,14 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		// Only reaches the pods that were granted the observability API, so an
 		// orchestrator without it disables that grant rather than degrading anything.
 		ObservabilityURL: os.Getenv("OBSERVABILITY_URL"),
-		// The embedding server, reaching every pod rather than only the granted ones.
-		// An embedding reads nothing and writes nothing, so there is no boundary to
-		// gate — and every pod holding the URL is what makes it unnecessary for any
-		// pod to hold the provider key.
+		// The embedding server, reaching every pod rather than only the granted ones:
+		// an embedding reads nothing and writes nothing, so there is no boundary to
+		// gate, and the URL in every pod is what keeps the provider key out of them.
 		EmbeddingsURL: os.Getenv("EMBEDDINGS_URL"),
 	}
 }
 
 // healthz answers the liveness probe.
-//
-// A named function rather than a closure so it can carry its annotation: an
-// undocumented route is a route the API description quietly lies about having.
 //
 //	@Summary		Liveness
 //	@Description	Answers as soon as the process is serving, with no dependency on the
@@ -555,19 +511,17 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	mux.HandleFunc("GET /healthz", healthz)
 
 	// The API's own description, generated from the handler annotations and embedded
-	// at build time. Registered here rather than inside the database gate below: the
-	// description of a route is true whether or not its storage is wired, and an
-	// install still coming up is exactly when someone wants to read it.
+	// at build time. Registered outside the database gate below, because the
+	// description of a route is true whether or not its storage is wired.
 	openapi.NewHandler().Register(mux)
 	slog.Info("openapi routes registered",
 		"endpoints", "GET /openapi.json, GET /openapi/operations")
 
 	mux.HandleFunc("GET /db-version", dbVersion(database))
 
-	// Collected as the wiring below proceeds rather than built up front, because the
-	// two that need a live handle are created inside the database gate. A probe left
-	// nil reports "not configured", which is a different answer from "did not
-	// respond" — an orchestrator with no cluster access is a supported way to run.
+	// Collected as the wiring below proceeds, because the two that need a live handle
+	// are created inside the database gate. A probe left nil reports "not configured",
+	// which is a different answer from "did not respond".
 	var kubeProbe, natsProbe func(context.Context) error
 
 	if database != nil {
@@ -575,12 +529,10 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// wiring: the dev-run service reads integrations and their resources, while a
 		// write to either has to notify it so a running dev run picks the change up.
 		//
-		// It is broken by direction rather than with a setter. The dev-run service takes
-		// the two *repositories* — it only reads stored state, and both service methods
-		// it would otherwise call are pass-throughs — while the services that own the
-		// write path take the dev-run service as their notifier. So the graph is acyclic,
-		// nothing is configured after construction, and no service holds a reference back
-		// to one holding a reference to it.
+		// It is broken by direction rather than with a setter: the dev-run service takes
+		// the two *repositories*, since it only reads stored state, while the services
+		// that own the write path take the dev-run service as their notifier. The graph
+		// stays acyclic and nothing is configured after construction.
 		kubeClient, err := newKubeClient(ctx, kc)
 		if err != nil {
 			return nil, err
@@ -653,23 +605,18 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 				"POST /integrations/bundle, PUT /integrations/{id}/bundle")
 
 		// API keys need only the database, so they are registered outside the kube
-		// gate. Users themselves are not here: they belong to the iam service, which
-		// owns the identity this platform authorizes on. The `{userId}` in these
-		// paths is an id iam issued, and the orchestrator serves no /users
-		// collection of its own.
+		// gate. Users themselves are not here: the `{userId}` in these paths is an id
+		// the iam service issued, and there is no /users collection of our own.
 		apikey.NewHandler(apikey.NewService(apikey.NewRepo(database.Pool()))).Register(mux)
 		slog.Info("apikey routes registered",
 			"endpoints", "POST/GET /users/{userId}/apikeys, "+
 				"DELETE /users/{userId}/apikeys/{id}, POST /apikeys/verify")
 
-		// Deployment-scoped KV store the runtime's k8s services module calls. Values
-		// in a secret namespace are encrypted with KV_ENCRYPTION_KEY; without the key,
-		// secrets are rejected but plain KV still works.
-		//
-		// Volatile namespaces go to Redis instead of the database. Runtime pods write
-		// those keys themselves, so what comes through here for them is the object
-		// browser and undeploy cleanup. A nil client (no REDIS_URL) means they land in
-		// the database like everything else — see kv.NewService.
+		// Deployment-scoped KV store. Values in a secret namespace are encrypted with
+		// KV_ENCRYPTION_KEY; without the key, secrets are rejected but plain KV still
+		// works. Volatile namespaces go to Redis instead of the database; a nil client
+		// (no REDIS_URL) means they land in the database like everything else — see
+		// kv.NewService.
 		cipher, cipherErr := newCipher(os.Getenv("KV_ENCRYPTION_KEY"))
 		if cipherErr != nil {
 			return nil, cipherErr
@@ -682,39 +629,30 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"volatileTier", volatileRepo != nil,
 			"endpoints", "GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}")
 
-		// The user-facing object browser the platform UI calls: a JSON facade over
-		// the same store, fixed to the "user" namespace, adding the listing the raw
-		// KV routes lack.
+		// A JSON facade over the same store, fixed to the "user" namespace, adding the
+		// listing the raw KV routes lack.
 		kv.NewObjectHandler(kvSvc).Register(mux)
 		slog.Info("object routes registered",
 			"endpoints", "GET /deployments/{id}/objects, GET/PUT/DELETE /deployments/{id}/objects/{key}")
 
-		// Agent memory, keyed by the integration rather than the deployment — which
-		// is the whole reason it is not kv_store. Two route families over one
-		// service: the runtime names a deployment, because that is the only identity
-		// a pod has, and the platform names an integration, because that is what an
-		// operator is looking at and what the memory belongs to.
+		// Agent memory, keyed by the integration rather than the deployment — which is
+		// the whole reason it is not kv_store. Two route families over one service: one
+		// addressed by deployment, the identity a pod has, and one by integration, the
+		// identity the memory belongs to.
 		agentmemory.NewHandler(agentMemorySvc).Register(mux)
 
 		// The optional vector half. Everything above works without it; this only
-		// changes how a search ranks.
+		// changes how a search ranks. No credential and no provider code here: the
+		// embedding server holds both and is reached by URL alone.
 		//
-		// No credential and no provider code here. Both live on the embedding
-		// server, a small octo app the chart deploys when a key is configured, and
-		// this orchestrator reaches it by URL alone. That is what keeps the
-		// provider key in one pod instead of in every pod, and what keeps the
-		// runtime's own ai-embed block the single implementation of talking to an
-		// embeddings API.
-		//
-		// An installation with no embedding server sets nothing here and loses
-		// nothing but ranking: the sweep finds itself unconfigured and stops
-		// asking, and search matches text.
+		// An installation with no embedding server sets nothing here and loses nothing
+		// but ranking — the sweep finds itself unconfigured and stops asking, and
+		// search matches text.
 		embeddings := embedding.FromEnv()
 		agentMemorySvc.WithEmbedder(embeddings, agentMemoryRepo)
 		agentMemorySvc.StartBackfill(ctx)
-		// Read only. What it reports is whether there is a server, what it says it
-		// is using, and how far the backfill has got — there is nothing to write,
-		// because the provider, model and key are chart values on the server.
+		// Read only: whether there is a server, what it reports using, and how far the
+		// backfill has got. The provider, model and key are configured on the server.
 		embedding.NewHandler(embeddings, agentMemoryRepo).Register(mux)
 		if embeddings.Configured(ctx) {
 			slog.Info("embedding server configured", "url", os.Getenv("EMBEDDINGS_URL"))
@@ -726,15 +664,12 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"endpoints", "GET/PUT /deployments/{id}/agent-memory/..., "+
 				"GET /integrations/{id}/agent-memory/...")
 
-		// Site-wide settings: the email provider the platform sends through, and the
-		// LLM provider its agent reasons with. Both keep their API key encrypted with
-		// the same cipher the KV secret namespaces use; without it the routes still
-		// serve and the non-secret fields still save, but storing a key is refused
-		// rather than silently performed in the clear.
-		//
-		// Registered inside the database gate but outside the Kubernetes one below:
-		// neither feature needs a cluster, so an install without in-cluster access
-		// can still configure them.
+		// Site-wide settings: the email provider to send through, and the LLM provider
+		// to reason with. Both keep their API key encrypted with the same cipher the KV
+		// secret namespaces use; without it the routes still serve and the non-secret
+		// fields still save, but storing a key is refused rather than silently
+		// performed in the clear. Neither needs a cluster, so both are registered
+		// outside the Kubernetes gate below.
 		emailSvc := email.NewService(email.NewRepo(database.Pool()), mailer.NewResend(), cipher)
 		email.NewHandler(emailSvc).Register(mux)
 		slog.Info("email settings routes registered",
@@ -747,23 +682,19 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"encryption", cipher != nil,
 			"endpoints", "GET/PUT /settings/llm")
 
-		// The web search credential, beside the LLM one for the same reason: it is a
-		// site-wide key the platform agent uses, and it needs no cluster. Unlike the
-		// LLM settings it is optional — with no key stored the agent still installs,
-		// and the tool that would have searched reports itself unavailable.
+		// The web search credential, beside the LLM one and needing no cluster either.
+		// Unlike the LLM settings it is optional: with no key stored the agent still
+		// installs, and the tool that would have searched reports itself unavailable.
 		webSearchSvc := websearch.NewService(websearch.NewRepo(database.Pool()), cipher)
 		websearch.NewHandler(webSearchSvc).Register(mux)
 		slog.Info("web search settings routes registered",
 			"encryption", cipher != nil,
 			"endpoints", "GET/PUT /settings/websearch")
 
-		// The platform agent is registered after the Kubernetes block below, because
-		// it takes the deployment and secret services when a cluster is there. Its
-		// options are collected here so the registration reads as one thing.
-		//
-		// The web search credential is one of them, and it is here rather than a
-		// constructor parameter because the agent does not need it: without a key he
-		// installs, runs, and holds a web_search tool that reports itself unavailable.
+		// The platform agent is registered after the Kubernetes block below, because it
+		// takes the deployment and secret services when a cluster is there. Its options
+		// are collected here so the registration reads as one thing. Web search is an
+		// option rather than a parameter because the agent runs without it.
 		agentOpts := []agent.Option{agent.WithWebSearch(webSearchSvc)}
 
 		// The drift sweep needs all three services, and the agent's is built after
@@ -796,9 +727,8 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			// other. Wired here because it needs the deployment service, which
 			// exists only where there is a cluster to deploy to.
 			snapshotHandler.RestrictToOwnIntegration(deploymentSvc)
-			// Publish deployment status to NATS for cross-node fan-out; the BFF
-			// subscribes and serves the SSE. A noop publisher when NATS_URL is unset
-			// (local/standalone) leaves clients on the list-polling fallback.
+			// Publish deployment status to NATS for cross-node fan-out. A noop publisher
+			// when NATS_URL is unset leaves subscribers with nothing to read.
 			publisher, err := bus.NewPublisher(os.Getenv("NATS_URL"))
 			if err != nil {
 				return nil, err
@@ -830,7 +760,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 				"namespace", kubeClient.Namespace(), "runtimeImage", kc.RuntimeImage,
 				"baseDomain", kc.BaseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
 				// Which API publishes those endpoints, and — in gateway mode — what they
-				// attach to. Both are answers you otherwise get by reading the chart.
+				// attach to.
 				"endpointApi", kc.EndpointAPI, "gateway", kc.Gateway.Name,
 				"nats", os.Getenv("NATS_URL") != "",
 				"endpoints", "POST/GET /integrations/{id}/deployments, GET/DELETE /deployments/{id}")
@@ -849,8 +779,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			// its provider key without the key entering a deployment record.
 			agentOpts = append(agentOpts, agent.WithCluster(deploymentSvc, secretSvc))
 
-			// Dev runs: the editor's Run button, as a pod of its own rather than a child
-			// process of whichever platform replica answered the request.
+			// Dev runs: one pod per run, rather than a child process of this one.
 			if devrunSvc.Enabled() {
 				devrun.NewHandler(devrunSvc).Register(mux)
 				startDevRunReaper(ctx, devrunSvc)
@@ -862,8 +791,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 						"GET /devruns/{id}/bundle, POST /devruns/{id}/expire")
 			} else {
 				// Named individually, because the feature needs all three and any one
-				// missing disables it. A single "dev runs disabled" would leave the operator
-				// to guess which of the three values in their chart did not arrive.
+				// missing disables it.
 				slog.Info("dev runs disabled",
 					"devRuntimeImage", kc.DevRuntimeImage != "",
 					"devSidecarImage", kc.SidecarImage != "",
@@ -871,14 +799,13 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			}
 		}
 
-		// The platform agent: itself an integration, deployed through the same path
-		// as anything a user builds. Registered outside the Kubernetes gate above so
-		// GET /settings/agent answers everywhere and names what is missing — a route
-		// that vanished would leave the admin page with a 404 to interpret. Without
-		// a cluster the mutating routes refuse with 503.
-		// Both fields come from ORCHESTRATOR_URL today, so this is belt and braces —
-		// but the agent binds whichever it is given, and an empty one produces a pod
-		// that starts and cannot call back. The dev-run gate reads them the same way.
+		// The platform agent: itself an integration, deployed through the same path as
+		// anything a user builds. Registered outside the Kubernetes gate above so
+		// GET /settings/agent answers everywhere and names what is missing; without a
+		// cluster the mutating routes refuse with 503.
+		//
+		// Either URL field will do, but an empty one produces a pod that starts and
+		// cannot call back, so both are consulted.
 		agentOrchestratorURL := kc.RuntimeServices.OrchestratorURL
 		if agentOrchestratorURL == "" {
 			agentOrchestratorURL = kc.OrchestratorURL
@@ -908,9 +835,8 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	}
 
 	// Registered last and outside the database gate, for the same reason the agent's
-	// status route is: the page that reads this is the one somebody opens when the
-	// install is misbehaving, and a route that disappeared with its dependencies
-	// would answer 404 exactly when it was needed.
+	// status route is: a route that disappeared along with its dependencies would
+	// answer 404 exactly when it was needed.
 	health.NewHandler(health.NewService(
 		databaseProbe(database),
 		redisProbe(redisClient),
@@ -928,12 +854,9 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 }
 
 // guard wraps the API in the authorization policy, when this install has an iam
-// to verify tokens against.
-//
-// Without one it returns the mux untouched and says so, which is the same
-// decision newServer makes for every other absent dependency: an orchestrator
-// that cannot verify a token must not start refusing every request, because
-// there is no way for a caller to fix that from the outside.
+// to verify tokens against. Without one it returns the mux untouched and says so:
+// a process that cannot verify a token must not start refusing every request,
+// since there is no way for a caller to fix that from the outside.
 func guard(mux http.Handler) http.Handler {
 	issuer := os.Getenv("IAM_URL")
 	if issuer == "" {
@@ -946,14 +869,12 @@ func guard(mux http.Handler) http.Handler {
 
 // embeddingsProbe checks the embedding server, or nil when there is none.
 //
-// Nil rather than a probe that always fails, because those are different answers
-// and the page shows them differently: an installation with no embedding server
-// is running a supported way, not a broken one. Only a server that was deployed
-// and does not answer is a fault.
+// Nil rather than a probe that always fails: no embedding server is a supported
+// way to run, and only a server that was deployed and does not answer is a fault.
 //
-// The probe reads the server's /healthz, which reports what it is configured to
-// do without doing any of it. Embedding something to find out whether the
-// provider key is good would bill somebody every time the page refreshed.
+// The probe reads the server's /healthz, which reports what it is configured to do
+// without doing any of it — embedding something to check the provider key would
+// bill somebody on every refresh.
 func embeddingsProbe() func(context.Context) error {
 	client := embedding.FromEnv()
 	if !client.Configured(context.Background()) {
@@ -985,11 +906,11 @@ func redisProbe(client *redis.Client) func(context.Context) error {
 // newKubeClient builds the Kubernetes client, or reports a nil one when this
 // orchestrator is not running inside a cluster.
 //
-// The two failures here are deliberately different in kind. Not being in a cluster (a
-// local `go run`) is a legitimate way to run the orchestrator, so it warns and the
-// cluster features stay off. A cluster that cannot serve the endpoints this install is
-// configured for — gateway mode without the Gateway API CRDs — is a startup failure,
-// because the alternative is discovering it at somebody's first exposed deploy.
+// The two failures differ in kind. Not being in a cluster is a legitimate way to run,
+// so it warns and the cluster features stay off. A cluster that cannot serve the
+// endpoints this install is configured for — gateway mode without the Gateway API
+// CRDs — is a startup failure, because the alternative is discovering it at the first
+// exposed deploy.
 func newKubeClient(ctx context.Context, kc kube.Config) (*kube.Client, error) {
 	client, err := kube.New(kc)
 	if err != nil {
@@ -1006,17 +927,14 @@ func newKubeClient(ctx context.Context, kc kube.Config) (*kube.Client, error) {
 // configured (no cluster, or the images and orchestrator URL a dev pod needs are
 // unset). A nil service reports Enabled() == false, so the caller registers nothing.
 //
-// DEV_RUN_HASH_SECRET is required as soon as dev runs are otherwise configured, and its
-// absence stops startup naming it — the same posture newCipher takes for
-// KV_ENCRYPTION_KEY, for the same class of reason. Every dev run's identity and, more
-// to the point, its public hostname are HMACs keyed on this secret. Unkeyed they would
-// be pure functions of a user id and an integration id, which is to say that the
-// hostname is the only thing guarding a publicly reachable dev run and it would be
-// derivable by anyone who could guess two ids. Falling back silently is not an option
-// worth having.
+// DEV_RUN_HASH_SECRET is required as soon as dev runs are otherwise configured, and
+// its absence stops startup naming it: every dev run's identity and public hostname
+// are HMACs keyed on it, and unkeyed they are pure functions of a user id and an
+// integration id — which makes the hostname guarding a publicly reachable dev run
+// derivable by anyone who can guess two ids.
 //
-// It takes the repositories rather than the integration and resource services, which is
-// what keeps this wiring acyclic; see the comment at the call site.
+// It takes the repositories rather than the integration and resource services, which
+// is what keeps this wiring acyclic; see the comment at the call site.
 func newDevRunService(
 	cluster *kube.Client, integrations *integration.Repo, resources *resource.Repo,
 ) (*devrun.Service, error) {
@@ -1042,9 +960,8 @@ func newDevRunService(
 
 // startDevRunReaper sweeps idle dev runs until ctx ends.
 //
-// On the root context, so the sweep stops when the process drains rather than outliving
-// it. Every replica runs its own, and that needs no coordination: a reap deletes an
-// object whose name is derived, so two replicas collecting the same idle run produce one
+// Every replica runs its own, and that needs no coordination: a reap deletes an object
+// whose name is derived, so two replicas collecting the same idle run produce one
 // delete and one NotFound, which DeleteDevRun already ignores.
 func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 	go func() {
@@ -1072,20 +989,15 @@ func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 // startReconciler sweeps the database and the cluster back into agreement until
 // ctx ends.
 //
-// Once at startup and on a ticker after that. The startup pass is the one that
-// matters most and is the reason the whole thing exists: the state it repairs —
-// rows describing workloads a rebuilt cluster never had — is created while this
-// process is not running, so waiting a full interval to notice would mean the
-// deployments page is wrong for exactly as long as somebody is most likely to be
-// looking at it.
+// Once at startup and on a ticker after that. The startup pass is the reason the whole
+// thing exists: the state it repairs — rows describing workloads a rebuilt cluster
+// never had — arises while this process is not running.
 //
-// It waits for the informer caches first. Reconcile refuses to act on an untrusted
-// cluster view, so starting before they sync would spend the startup pass doing
-// nothing.
+// It waits for the informer caches first, because Reconcile refuses to act on an
+// untrusted cluster view and would otherwise spend the startup pass doing nothing.
 //
-// Every replica runs its own, and that needs no coordination for the same reason
-// the dev-run reaper does not: two replicas agreeing that a row is orphaned
-// produce one delete and one no-op.
+// Every replica runs its own, and that needs no coordination: two replicas agreeing
+// that a row is orphaned produce one delete and one no-op.
 func startReconciler(
 	ctx context.Context,
 	deployments *deployment.Service,
@@ -1117,13 +1029,11 @@ func startReconciler(
 // other.
 //
 // Deployments first, because the other two are about pointers into what it just
-// decided: the agent's stored id may name a row this pass deleted, and a sweep
-// that ran before it would have found that row still present and left the pointer
-// alone for another interval.
+// decided: the agent's stored id may name a row this pass deleted, and a sweep that
+// ran before it would leave the pointer alone for another interval.
 //
-// Each failure is logged and the next sweep still runs. They are independent
-// repairs — a cluster that cannot list Deployments may answer perfectly well about
-// Secrets — and skipping the rest would tie every repair to the least reliable one.
+// Each failure is logged and the next sweep still runs — they are independent repairs,
+// and stopping would tie every one of them to the least reliable.
 func reconcileOnce(
 	ctx context.Context,
 	deployments *deployment.Service,
@@ -1162,9 +1072,8 @@ func reconcileOnce(
 // key disables encryption (secret-namespace writes are then rejected); a malformed key
 // or an invalid key length is a startup error.
 //
-// The env var is still named KV_ENCRYPTION_KEY, though the cipher now also protects
-// the site-wide provider API keys. Renaming it would be a breaking chart change for a
-// cosmetic gain, so the name stays and this comment carries the correction.
+// KV_ENCRYPTION_KEY names the KV store, but the cipher it builds also protects the
+// site-wide provider API keys.
 func newCipher(b64 string) (*cryptox.Cipher, error) {
 	if b64 == "" {
 		slog.Warn("KV_ENCRYPTION_KEY not set; KV secret-namespace writes will be rejected")

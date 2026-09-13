@@ -64,7 +64,7 @@ type statusResponse struct {
 }
 
 // actorRequest carries the acting user's id, as every write route in this service
-// does: the orchestrator has no session and trusts the BFF as the auth boundary.
+// does: there is no session here, so attribution travels in the body.
 type actorRequest struct {
 	ActorID string `json:"actorId"`
 }
@@ -376,9 +376,8 @@ func (h *Handler) act(
 	httpx.WriteJSON(w, http.StatusOK, toResponse(status))
 }
 
-// writeError maps domain errors to statuses. These strings reach the operator
-// verbatim — the BFF passes the error envelope straight through — so each says what
-// to do rather than what went wrong.
+// writeError maps domain errors to statuses. These strings are read verbatim by
+// whoever hit the route, so each says what to do rather than what went wrong.
 func (h *Handler) writeError(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, ErrClusterUnavailable):
@@ -407,13 +406,10 @@ func (h *Handler) writeError(w http.ResponseWriter, op string, err error) {
 	default:
 		// Say what actually failed, both in the log and to the caller.
 		//
-		// The usual reason to answer "internal error" is that the caller is a
-		// browser that might be anyone's. This caller is not: these routes are
-		// admin operations behind the write roles, and the person reading the
-		// message is the one who has to fix whatever went wrong — an opaque reply
-		// sends them to the pod logs to find a line that, until this change, said
-		// no more than the reply did. The wrapped errors name the step and carry no
-		// key material.
+		// "Internal error" is the right answer when the caller might be anyone. These
+		// routes sit behind the write roles, so whoever reads the message is the one
+		// who has to fix what went wrong. The wrapped errors name the step and carry
+		// no key material.
 		slog.Error("agent operation failed", "operation", op, "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "could not "+op+" the agent: "+err.Error())
 	}

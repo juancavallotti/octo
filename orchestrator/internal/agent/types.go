@@ -31,8 +31,8 @@ const (
 )
 
 // What stops an install from proceeding, when something does. Reported rather than
-// returned as an error on the read path, so the admin page can explain the blockage
-// before anyone presses a button that cannot work.
+// returned as an error on the read path, so a reader can explain the blockage before
+// anything is attempted.
 const (
 	// BlockedKubernetes — this orchestrator has no in-cluster access.
 	BlockedKubernetes = "kubernetes"
@@ -57,17 +57,12 @@ const agenticRunner = "agentic"
 // deployment binds LLM_API_KEY to it by name, so the key itself never enters a
 // deployment record.
 //
-// UPPER_SNAKE_CASE because that is what a platform secret is: not a Kubernetes
-// Secret object of its own, but a data key inside the one shared `octo-secrets`
-// Secret, and the catalogue constrains those to the intersection of a valid env
-// var name and a valid Secret data key. A name in any other shape is refused —
-// which is what the first install of this agent did. TestLLMKeySecretIsAValidPlatformSecretName
-// holds it to that rule.
+// UPPER_SNAKE_CASE because a platform secret is a data key inside the one shared
+// `octo-secrets` Secret, and those are constrained to the intersection of a valid
+// env var name and a valid Secret data key; any other shape is refused.
 //
-// It is deliberately an ordinary platform secret, visible in the secrets list
-// alongside every other one, because the agent is deployed through the ordinary
-// path and this is how that path carries a credential. Uninstalling with purge
-// removes it.
+// An ordinary platform secret, listed alongside every other one, because the agent
+// is deployed through the ordinary path. Uninstalling with purge removes it.
 const llmKeySecret = "OCTO_AGENT_LLM_KEY"
 
 // webSearchKeySecret is the platform secret the agent's Parallel key is written
@@ -79,12 +74,10 @@ const webSearchKeySecret = "OCTO_AGENT_WEBSEARCH_KEY"
 // WebSearchUnconfigured is what PARALLEL_API_KEY is bound to when this
 // installation has no Parallel key.
 //
-// A sentinel rather than an empty string, and the reason is the same one OBSERVABILITY_URL
-// has: the agent declares a parallel connector, connectors start eagerly, and that
-// one refuses an empty API key — so an unconfigured install would crash-loop the
-// whole agent instead of losing one tool. His web_search tool compares against this
-// value and answers that it is unavailable, which costs no request and tells the
-// model something it can act on.
+// A sentinel rather than an empty string: the agent declares a parallel connector,
+// connectors start eagerly, and that one refuses an empty API key — so an
+// unconfigured install would crash-loop instead of losing one tool. The web_search
+// tool compares against this value and reports itself unavailable.
 //
 // It must match the default in orchestrator/agent/config.yaml, and
 // TestWebSearchSentinelMatchesTheAgentDefinition holds the two together.
@@ -130,15 +123,15 @@ type stored struct {
 	InstalledTag    string `json:"installedTag,omitempty"`
 	SnapshotID      string `json:"snapshotId,omitempty"`
 
-	// Tracing is the setting the last install or toggle applied. Kept here as well
-	// as on the deployment so the admin page can render the toggle without a cluster
-	// round trip, and so it survives a redeploy.
+	// Tracing is the setting the last install or toggle applied. Kept here as well as
+	// on the deployment, so it can be read without a cluster round trip and survives
+	// a redeploy.
 	Tracing bool `json:"tracing,omitempty"`
 
 	// MaxIterations is the operator's override for how many tool-calling turns one
 	// run may take, or zero to leave the definition's own default in force. Kept
-	// here for the same reasons Tracing is: the admin page renders it without asking
-	// the cluster, and a redeploy carries it forward.
+	// here for the same reasons Tracing is: readable without asking the cluster, and
+	// carried forward by a redeploy.
 	MaxIterations int `json:"maxIterations,omitempty"`
 
 	// AutoFix lets the troubleshooter change this installation when an alert wakes
@@ -154,8 +147,8 @@ type stored struct {
 	UpdatedAt   time.Time `json:"updatedAt,omitzero"`
 }
 
-// Status is what the admin page renders. It carries no key material and no
-// definition — only what is needed to decide which button to offer.
+// Status is the reported state of the installation. It carries no key material and
+// no definition — only what is needed to decide what may be done next.
 type Status struct {
 	State         string
 	IntegrationID string

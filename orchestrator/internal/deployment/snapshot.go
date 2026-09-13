@@ -3,9 +3,7 @@ package deployment
 import "encoding/json"
 
 // DeploymentsSubject is the NATS subject an integration's deployment snapshots are
-// published on; the platform BFF subscribes per integration and relays them as SSE.
-// Must stay in sync with the BFF's subject builder (apps/platform). Internal infra
-// subjects are namespaced under "internal." (like the runtime's internal.logs).
+// published on. Internal infrastructure subjects are namespaced under "internal."
 func DeploymentsSubject(integrationID string) string {
 	return "internal.deployments." + integrationID
 }

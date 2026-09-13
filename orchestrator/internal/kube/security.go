@@ -12,15 +12,12 @@ import corev1 "k8s.io/api/core/v1"
 // with, so a deployed integration holding NET_RAW is one interception away from
 // serving its own keyset and minting itself whatever roles it likes.
 //
-// Nothing here ever needed it. Serving HTTP is an ordinary socket: bind, listen,
-// accept, none of which is a capability, and all four images this orchestrator
-// runs already run as uid 65532 on a high port. Three of them are distroless and
-// hold no tool that could use a raw socket anyway; the agentic runner has a shell
-// but reaches programs through a `cli-run` allow list of absolute paths, which
-// resolveProgram will not follow a symlink out of.
+// Nothing here needs it. Serving HTTP is an ordinary socket — bind, listen, accept,
+// none of which is a capability — and every image this orchestrator runs already runs
+// as uid 65532 on a high port.
 //
-// Applied to the deployment pods and the dev-run pods alike: they share a
-// network, so an exception in either is an exception in both.
+// Applied to the deployment pods and the dev-run pods alike: they share a network, so
+// an exception in either is an exception in both.
 func restricted() *corev1.SecurityContext {
 	no := false
 	yes := true

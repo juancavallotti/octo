@@ -15,8 +15,7 @@ const (
 	// constant rather than a stored field because there is nothing to choose
 	// between: the agent's tool is a parallel-search block, so a second provider
 	// would be a second connector and a second tool, not a different value here.
-	// It is exported so a caller — the admin page, a future second provider's
-	// migration — can name it without restating the string.
+	// Exported so a caller can name it without restating the string.
 	Provider = "PARALLEL"
 
 	// minAPIKeyLen and maxAPIKeyLen bound a key the same way the LLM settings do:

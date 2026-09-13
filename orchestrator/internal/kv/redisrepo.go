@@ -10,24 +10,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// The volatile tier's storage, and the orchestrator's half of a two-module contract.
+// The volatile tier's storage, and one half of a two-module contract.
 //
-// Runtime pods write these keys themselves, straight to Redis, without passing
-// through here — the volatile tier has no database and no encryption key, so an
-// orchestrator hop would buy nothing and cost a round trip on the one tier whose
-// point is being cheap. What the orchestrator still needs Redis for is everything
-// the runtime does not do: serving the object browser, and sweeping a deployment's
-// keys when it is undeployed.
+// Deployed pods write these keys straight to Redis without passing through here: the
+// volatile tier has no database and no encryption key, so a hop through this API
+// would buy nothing on the one tier whose point is being cheap. What is left for this
+// side is the object listing and sweeping a deployment's keys on undeploy.
 //
-// So the key layout and the two scripts below are duplicated in
-// runtime/services/k8s/rediskv.go and must be changed together. They cannot be
-// shared: the orchestrator and the runtime do not share a go.mod. It is the same
-// hand-synced arrangement as redisx and the trace subject name.
+// So the key layout and the two scripts below are duplicated in the writer's own copy
+// and must be changed together; the two sides do not share a go.mod.
 //
 // Values here are stored in the clear and may be evicted at any time — the bundled
 // Redis runs with maxmemory-policy allkeys-lru and no persistence. That is what
-// volatile means, and it is why the service layer refuses a namespace that is both
-// secret and volatile.
+// volatile means, and why the service layer refuses a namespace that is both secret
+// and volatile.
 
 // redisPrefix, and the hash fields one object is stored in. Kept byte-identical
 // with the runtime's copy.
@@ -121,8 +117,8 @@ func deploymentPrefix(deploymentID string) string {
 // also report only the part before the first colon, so the aliasing would not even
 // be visible in the browser.
 //
-// The runtime only ever passes its own namespace constants, but the raw KV route
-// takes the namespace from the URL path, so this is reachable from outside.
+// The raw KV route takes the namespace from the URL path, so this is reachable from
+// outside rather than only from a caller using the known constants.
 func checkVolatileNamespace(namespace string) error {
 	if strings.ContainsRune(namespace, ':') {
 		return ErrInvalidNamespace
@@ -324,11 +320,10 @@ func (r *RedisRepo) DeleteByDeployment(ctx context.Context, deploymentID string)
 // size nothing here bounds. The bundled Redis has a memory ceiling; an external one
 // need not, and the caller's own memory is not what that ceiling protects.
 //
-// SCAN's guarantee is weaker than a snapshot: a key added or removed while the
-// cursor is open may or may not be visited, and a key present throughout may be
-// visited more than once — callers that build a list deduplicate. That is the right
-// trade for a troubleshooting listing and for a best-effort cleanup, and would be
-// the wrong one for anything on a correctness path. Nothing here is.
+// SCAN's guarantee is weaker than a snapshot: a key added or removed while the cursor
+// is open may or may not be visited, and a key present throughout may be visited more
+// than once, so callers that build a list deduplicate. That is the right trade for a
+// listing and a best-effort cleanup, and the wrong one for a correctness path.
 func (r *RedisRepo) scanPages(ctx context.Context, pattern string, visit func([]string) error) error {
 	var cursor uint64
 	for {

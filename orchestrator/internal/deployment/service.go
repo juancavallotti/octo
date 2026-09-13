@@ -163,15 +163,11 @@ func NewService(repo repository, integrations integrationStore, kube kubeClient,
 // authority of whoever is deploying it.
 //
 // Where there is an iam to mint from, a deployment gets an identity or the
-// operation fails. Carrying on without one would create pods refused by this
-// same API on every call they make — and on a rollout it would be worse than
-// that, because a deployment whose token cannot be minted has its existing one
-// withdrawn, so a moment's trouble at iam would strip a working deployment of a
-// credential it already had.
+// operation fails: carrying on would create pods this same API refuses, and on a
+// rollout it would withdraw a credential the deployment already had.
 //
-// Where there is no iam, a deployment has no identity and nothing asks it for
-// one. That is the whole of the empty case: never a fallback to a credential of
-// this service's own, and never one belonging to somebody who is not the caller.
+// Where there is no iam, a deployment has no identity — never a fallback to a
+// credential of this service's own, and never one belonging to somebody else.
 func (s *Service) identityFor(ctx context.Context, deploymentID string, access []string) (string, error) {
 	if s.identities == nil || !s.identities.Configured() {
 		return "", nil
@@ -192,10 +188,9 @@ func (s *Service) identityFor(ctx context.Context, deploymentID string, access [
 // refusing both a name that does not exist and one this installation cannot
 // serve.
 //
-// The two are separate errors because they are separate mistakes with separate
-// fixes: an unknown name is a typo in the request, and an unconfigured runner is
-// a chart that does not carry the image. Collapsing them into one message would
-// send whoever hit it to the wrong place.
+// The two are separate errors because they are separate mistakes: an unknown name
+// is a typo in the request, and an unconfigured runner is an install that does not
+// carry the image.
 func (s *Service) resolveRunner(name string) (kube.Runner, error) {
 	runner, err := kube.ParseRunner(name)
 	if err != nil {
@@ -208,14 +203,9 @@ func (s *Service) resolveRunner(name string) (kube.Runner, error) {
 }
 
 // RunnerAvailable reports whether a deployment could ask for this runner and be
-// served. It takes the settings spelling — the string a Settings carries — so a
-// caller deciding whether to offer the choice asks the same question in the same
-// words the deploy will be made in. An unknown name is not available, which is
-// the honest answer to "could I deploy this".
-//
-// It exists for the callers that need to say so *before* deploying: the agent
-// installer refuses an install it knows would crash-loop, and the deploy form can
-// grey out a runner this installation does not carry.
+// served, answering *before* anything is deployed. It takes the settings spelling —
+// the string a Settings carries — so the question is asked in the same words the
+// deploy will be made in. An unknown name is not available.
 func (s *Service) RunnerAvailable(name string) bool {
 	if s.kube == nil {
 		return false
@@ -261,13 +251,12 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		replicas = 1
 	}
 
-	// The runtime port (and the env the orchestrator supplies to bind it) come from
-	// the deployed definition. "Networked" is not "has an HTTP source" but "has one
-	// the injected address reaches": a connector that pins its own port or host wins
-	// over what is supplied here and is served by no Service (resolveRuntimeEnv holds
-	// the full rule). A definition that passes gets a Service, a unique internal
-	// slug/URL and the option of external exposure. Anything else — a timer, a
-	// scheduled job, a listener we cannot address — runs as a bare workload.
+	// The port, and the env supplied to bind it, come from the deployed definition.
+	// "Networked" is not "has an HTTP source" but "has one the injected address
+	// reaches": a connector that pins its own port or host wins over what is supplied
+	// here and is served by no Service (resolveRuntimeEnv holds the full rule). A
+	// definition that passes gets a Service, a unique internal slug/URL and the option
+	// of external exposure; anything else runs as a bare workload.
 	port, runtimeEnv, networked := resolveRuntimeEnv(definition)
 
 	// Resolve the per-deployment env bindings into the two maps the kube spec needs:
@@ -361,12 +350,9 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// bindings: they are what the next rollout starts from, and what a future access
 	// model reads to decide whether a call was ever meant to be allowed.
 	persisted.Access = settings.Access
-	// The runner is persisted for a reason worth naming, because this literal is a
-	// field-by-field copy rather than a re-marshal of the request: a rollout reads
-	// the stored row, so a runner that is not written here reaches the cluster on
-	// the first deploy and is silently demoted to the standard image on the first
-	// rollout — which for an agentic deployment means every one of its commands
-	// stops working after an upgrade nobody connected to it.
+	// The runner is persisted because a rollout reads the stored row: left out of
+	// this field-by-field copy it would reach the cluster on the first deploy and be
+	// demoted to the standard image on the first rollout.
 	persisted.Runner = settings.Runner
 	persisted.SnapshotID = snapID
 	settingsJSON, err := json.Marshal(persisted)
@@ -781,11 +767,12 @@ func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deploymen
 // Rollout upgrades a live deployment to a different version tag in place: it ships
 // the new snapshot's frozen definition as a rolling update, preserving the
 // deployment's id, address (slug/URLs), scale, env bindings and tracing setting,
-// and records the new tag. It is also the path that edits env or tracing on a live
-// deployment, since both only reach the runtime by replacing its pods.
-// A tag that changes the integration's HTTP source (networked vs not) would
-// change the Service/Ingress topology, which a rolling update cannot express, so it
-// is rejected — undeploy and redeploy instead.
+// and records the new tag. It is also the path that edits env or tracing, since both
+// only take effect by replacing the pods.
+//
+// A tag that changes the integration's HTTP source (networked vs not) would change
+// the Service/Ingress topology, which a rolling update cannot express, so it is
+// rejected — undeploy and redeploy instead.
 func (s *Service) Rollout(
 	ctx context.Context, id, snapshotID string, env map[string]EnvBinding, tracing *bool, runner *string,
 ) (Deployment, error) {
@@ -816,20 +803,16 @@ func (s *Service) Rollout(
 
 	// Same convention for tracing: nil leaves the deployment's stored setting alone
 	// (a plain version bump keeps whatever it was running with), a value sets it.
-	// Rollout is how tracing is switched on or off for a deployment that is already
-	// live — the runtime reads OCTO_TRACING from its process environment when it
-	// parses flags, so the change only reaches it by replacing the pods.
+	// OCTO_TRACING is read at pod startup, so the change only reaches a live
+	// deployment by replacing its pods.
 	if tracing != nil {
 		settings.Tracing = *tracing
 	}
 
-	// Same convention again, and it is what makes upgrading an existing deployment
-	// onto a runner-aware release work at all. A rollout normally leaves the
-	// workload's shape alone — but a deployment created before runners existed has
-	// no runner stored, so rolling a definition onto it that NEEDS one would deploy
-	// the distroless image and crash-loop on a definition it cannot even build.
-	// Passing a runner is how a caller that knows better says so; nil is still the
-	// ordinary version bump that changes nothing.
+	// Same convention again. A rollout normally leaves the workload's shape alone,
+	// but a deployment whose row names no runner would take the distroless image and
+	// crash-loop on a definition that needs one — so passing a runner is how a caller
+	// that knows better says so, and nil is the ordinary version bump.
 	if runner != nil {
 		settings.Runner = *runner
 	}
@@ -912,16 +895,13 @@ func (s *Service) Rollout(
 	// does), so reads and the SSE snapshot reflect what is now running.
 	//
 	// Both in one write, and the error returned rather than logged. The stored
-	// settings are not just a record of this rollout, they are the input to the
-	// next one: env and tracing both follow "nil preserves, present replaces", so
-	// a rollout that replaced either and then failed to persist leaves the pods on
-	// the new value and the row on the old — and the next plain version bump reads
-	// the stale row and quietly undoes the change. Reporting success there is the
-	// part that makes it invisible.
+	// settings are the input to the next rollout: env and tracing follow "nil
+	// preserves, present replaces", so a rollout that replaced either and failed to
+	// persist leaves the pods on the new value and the row on the old, and the next
+	// version bump silently undoes the change.
 	//
-	// The caller sees a failure for a rollout whose pods did roll. That is the
-	// honest report and the safe direction: the cluster is the harder thing to
-	// undo, and a rollout is idempotent, so retrying costs nothing.
+	// The caller sees a failure for a rollout whose pods did roll, which is the safe
+	// direction: a rollout is idempotent, so retrying costs nothing.
 	meta.SnapshotID = snap.ID
 	meta.Tag = snap.Tag
 	// A rollout is also where a deployment moves onto whatever runtime image the
@@ -953,9 +933,8 @@ func (s *Service) Rollout(
 // IntegrationOf answers which integration a deployment belongs to, reading the
 // row and nothing else.
 //
-// Separate from Get because Get refreshes the deployment against the cluster,
-// and this one sits in front of an authorization check on a hot path — the
-// runtime asks for its frozen resources whenever a pod starts.
+// Separate from Get because Get refreshes the deployment against the cluster, and
+// this one sits in front of an authorization check on a hot path.
 func (s *Service) IntegrationOf(ctx context.Context, deploymentID string) (string, error) {
 	dep, err := s.repo.Get(ctx, deploymentID)
 	if err != nil {

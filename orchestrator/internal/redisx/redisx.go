@@ -1,15 +1,9 @@
 // Package redisx opens the process's Redis connection.
 //
-// It is a byte-for-byte twin of observability/internal/redisx, and the two must be kept in
-// sync by hand: the orchestrator and the aggregator do not share a go.mod, so
-// neither can import the other's copy. The same arrangement holds for the trace
-// subject name (see the note on TraceSubject in observability/internal/ingest/trace.go).
-//
-// It is a package rather than a few lines in main because both callers need the
-// same three decisions — how the URL is parsed, how long the first connection is
-// given, and what a failure means — and because they disagree about the last one.
-// The aggregator cannot work without Redis; the orchestrator only reports on it.
-// Both use Open, and each decides for itself what to do with the error.
+// It is a package rather than a few lines in main because callers need the same three
+// decisions — how the URL is parsed, how long the first connection is given, and what
+// a failure means — and disagree about the last one. Both use Open, and each decides
+// for itself what to do with the error.
 package redisx
 
 import (
@@ -34,11 +28,10 @@ const dialTimeout = 30 * time.Second
 // usable even when the server is down, and becomes useful again when the server
 // comes back without anything having to rebuild it.
 //
-// That is what a caller wants when it is *reporting* on Redis rather than relying
-// on it: holding a live client is the difference between "unreachable" and
-// "unconfigured", and between a health page that recovers and one that keeps
-// reporting the failure it saw at boot. Callers that cannot work without Redis
-// want Open instead.
+// That is what a caller *reporting* on Redis wants rather than one relying on it:
+// holding a live client is the difference between "unreachable" and "unconfigured",
+// and between a report that recovers and one stuck on the failure it saw at boot.
+// Callers that cannot work without Redis want Open instead.
 func New(url string) (*redis.Client, error) {
 	opts, err := redis.ParseURL(url)
 	if err != nil {

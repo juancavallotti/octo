@@ -27,13 +27,10 @@ type Embedder interface {
 
 // Sweep pacing.
 //
-// The batch size and the interval together cap how fast a backfill spends
-// somebody's money. A large install turning this on has a history of hundreds of
-// thousands of rows, and a sweep with no pacing would send all of it to a paid API
-// in one burst — which is a bill nobody agreed to and a rate limit nobody
-// expected. At these numbers a hundred thousand rows takes a few hours, which is
-// the right tempo for something an operator turns on and then stops thinking
-// about.
+// The batch size and the interval together cap how fast a backfill spends somebody's
+// money: a large install has hundreds of thousands of rows, and an unpaced sweep
+// would send all of them to a paid API in one burst. At these numbers a hundred
+// thousand rows takes a few hours.
 const (
 	sweepBatch    = 64
 	sweepInterval = 5 * time.Second

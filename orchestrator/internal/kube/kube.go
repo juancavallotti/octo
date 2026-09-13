@@ -54,11 +54,9 @@ type RuntimeServices struct {
 	// the orchestrator like persistent ones.
 	RedisURL string
 	// RedisSecret names a Secret holding the Redis URL instead, for a managed Redis
-	// whose URL carries a password. A password written as a literal into every
-	// integration Deployment would be readable by anyone who can read workloads,
-	// which is a wider audience than anyone who can read Secrets — the same
-	// reasoning the chart's octo.redis.env helper spells out for the platform's own
-	// pods. When set it wins over RedisURL.
+	// whose URL carries a password: a literal in every Deployment would be readable
+	// by anyone who can read workloads, a wider audience than anyone who can read
+	// Secrets. When set it wins over RedisURL.
 	RedisSecret SecretKeyRef
 	// ObservabilityURL is the observability service's API. Unlike the others it is injected
 	// only into deployments that were granted the observability API, so an empty
@@ -71,12 +69,10 @@ type RuntimeServices struct {
 	// EmbeddingsURL is the embedding server: text in, vectors out. Empty omits it,
 	// which is what an installation with no embedding server has.
 	//
-	// Injected into EVERY pod, unlike ObservabilityURL beside it, and the difference is the
-	// point. OBSERVABILITY_URL is a grant because stored telemetry is other integrations'
-	// data and handing it out would cross a boundary. An embedding crosses none: it
-	// reads nothing, writes nothing, and costs a fraction of a cent. Giving every
-	// pod the URL is what makes it unnecessary to give any pod the provider API
-	// key, which is the trade this server exists to make.
+	// Injected into EVERY pod, unlike ObservabilityURL beside it, which is a grant
+	// because stored telemetry is other integrations' data. An embedding crosses no
+	// such boundary: it reads nothing and writes nothing, and the URL in every pod is
+	// what keeps the provider API key out of all of them.
 	EmbeddingsURL string
 }
 
@@ -159,14 +155,11 @@ type corelisterDeployments = appslisters.DeploymentNamespaceLister
 
 // Runner names the image a deployment's pods run.
 //
-// There are two because an integration's needs genuinely differ in kind, not in
-// degree. Almost every one wants the smallest possible thing that can run a flow,
-// and gets it: a distroless image with one static binary, no shell and nothing
-// writable. A few are built to *drive* the platform rather than serve it — they
-// run local commands, invoke flows, or execute a test suite — and for those the
-// distroless image is not merely minimal, it is empty of the programs the flow
-// names. Handing every deployment the larger image to spare those few would be
-// the wrong trade in exactly the place it matters most.
+// There are two because the needs differ in kind. Almost every deployment wants the
+// smallest thing that can run a flow: a distroless image with one static binary, no
+// shell and nothing writable. A few are built to *drive* the platform — running local
+// commands, invoking flows, executing a suite — and for those the distroless image is
+// empty of the programs the flow names.
 type Runner string
 
 const (
@@ -253,15 +246,13 @@ type GatewayRef struct {
 // IngressClass — so a caller supplies only what its cluster actually has. The
 // per-field meanings are the Client's, documented above.
 //
-// It is a struct rather than parameters because these are settings of the same
-// kind (cluster facts read from the environment), several of them adjacent
-// strings, and a call site passing five strings positionally is one
-// transposition away from deploying with the ClusterIssuer as its ingress class.
+// A struct rather than parameters because several fields are adjacent strings, and
+// a positional call is one transposition away from deploying with the ClusterIssuer
+// as its ingress class.
 //
-// The Ingress fields (ClusterIssuer through ExtraAnnotations) and the Gateway
-// field are alternatives, selected by EndpointAPI; whichever set does not apply
-// is ignored rather than rejected, because a values file that carries both is a
-// cluster in the middle of moving between them.
+// The Ingress fields (ClusterIssuer through ExtraAnnotations) and the Gateway field
+// are alternatives, selected by EndpointAPI; whichever set does not apply is ignored
+// rather than rejected, because carrying both is a cluster mid-move between them.
 type Config struct {
 	Namespace    string
 	RuntimeImage string
@@ -416,22 +407,19 @@ func (c *Client) ExternalEnabled() bool { return c.baseDomain != "" }
 // All three parts are required, and each one's absence produces a pod that fails
 // rather than a feature that degrades: without the standalone runtime image there is
 // nothing to run the integration, without the sidecar image nothing populates the
-// workspace, and without the orchestrator URL the sidecar refuses to start at all
-// (it treats a missing ORCHESTRATOR_URL as a hard failure, correctly, since it would
-// otherwise sit there healthy and never pull). Reporting it here turns three
-// different CrashLoopBackOffs into one startup log line.
+// workspace, and without the orchestrator URL the sidecar has nowhere to pull from.
+// Reporting it here turns three CrashLoopBackOffs into one startup log line.
 func (c *Client) DevRunsEnabled() bool {
 	return c.devRuntimeImage != "" && c.sidecarImage != "" && c.orchestratorURL != ""
 }
 
 // RunnerEnabled reports whether a runner can be deployed on this install.
 //
-// The standard runner always can — it is the image the orchestrator has always
-// used. The agentic one needs a chart that configures it, and a deployment that
-// asks for one it cannot have is refused up front with the setting named. The
-// alternative, falling back to the standard image, is the failure this exists to
-// prevent: the pod comes up healthy, and then every command the flow runs fails
-// with "not found" — a symptom that points at the flow rather than at the chart.
+// The standard runner always can. The agentic one has to be configured, and a
+// deployment asking for one it cannot have is refused up front with the setting
+// named: falling back to the standard image produces a pod that comes up healthy and
+// then fails every command with "not found", a symptom that points at the flow
+// rather than at the configuration.
 func (c *Client) RunnerEnabled(r Runner) bool {
 	if r == RunnerAgentic {
 		return c.agenticRunnerImage != ""
@@ -443,9 +431,8 @@ func (c *Client) RunnerEnabled(r Runner) bool {
 // Empty when nothing said, which is the signal to fall back to whatever tag the
 // image reference carries.
 //
-// It is not per-runner: the standard runtime and the agentic runner are built
-// from one release and shipped together, so a deployment on either is on that
-// release.
+// It is not per-runner: both images are built from one release, so a deployment on
+// either is on that release.
 func (c *Client) RuntimeVersion() string { return c.runtimeVersion }
 
 // RunnerImage is the image a spec's runner runs. Callers reach it only after
@@ -454,8 +441,8 @@ func (c *Client) RuntimeVersion() string { return c.runtimeVersion }
 // value and for a Runner that somehow bypassed ParseRunner.
 //
 // Exported because a deploy records the image it shipped in the deployment's
-// metadata: which runtime a workload was put on is a fact about that deploy, and
-// the cluster stops being able to answer it the moment the workload is gone.
+// metadata — a fact the cluster stops being able to answer once the workload is
+// gone.
 func (c *Client) RunnerImage(r Runner) string {
 	if r == RunnerAgentic && c.agenticRunnerImage != "" {
 		return c.agenticRunnerImage
@@ -466,13 +453,10 @@ func (c *Client) RunnerImage(r Runner) string {
 // parseWorkspaceSize turns the configured workspace cap into a Quantity, falling
 // back to the default when it is unset or unparseable.
 //
-// Unparseable falls back rather than failing, which is the opposite of how this
-// package treats an unknown endpoint API or runner — and for a reason worth
-// stating. Those name a thing that either exists or does not, so a typo means the
-// operator asked for something impossible. This is a bound on scratch space: a
-// mistyped one still wants a bound, and the default is a better answer than
-// refusing to start the orchestrator over the size of a temp directory. Config
-// .Validate reports it, so the mistake is still said out loud.
+// Unparseable falls back rather than failing, unlike an unknown endpoint API or
+// runner: those name something that either exists or does not, while a mistyped
+// bound on scratch space still wants a bound. Config.Validate reports it, so the
+// mistake is still said out loud.
 func parseWorkspaceSize(s string) resource.Quantity {
 	if s != "" {
 		// Positive, not merely parseable. "0" is a valid Quantity and kubelet reads a

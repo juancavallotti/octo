@@ -20,11 +20,8 @@ type Operation struct {
 // Index returns every operation in the description as a flat, sorted list.
 //
 // It exists so a caller can find out what the API offers without reading the
-// description itself. The full document is tens of kilobytes of schemas; this is a
-// few, and it carries the two things needed to narrow the next request — the path
-// and the tag. A client that reads the index first and then one filtered slice sees
-// a fraction of what it would have had to read otherwise, which for a caller paying
-// per token is the difference between usable and not.
+// description itself: the full document is tens of kilobytes of schemas, and this
+// carries the two things needed to narrow the next request — the path and the tag.
 //
 // Sorted by path then method, so the output is stable across regenerations and a
 // diff of two indexes reads as a list of route changes.

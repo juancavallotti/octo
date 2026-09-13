@@ -22,17 +22,14 @@ type Counter interface {
 
 // Handler serves the embedding status.
 //
-// READ ONLY, and that is the whole design rather than an omission. Embedding
-// configuration is deploy-time — the provider, the model and the key are chart
-// values on the embedding server — because the model cannot be changed once
-// anything has been embedded and a control that must never be touched does not
-// belong behind a Save button. What an operator wants from a page is therefore
-// not a form but an answer: is it on, what is it using, and how much of the
-// store has it got through.
+// READ ONLY by design. Embedding configuration is deploy-time — the provider, model
+// and key are configured on the embedding server — because the model cannot change
+// once anything has been embedded. What is left to answer is whether it is on, what
+// it is using, and how much of the store it has got through.
 //
-// No credential passes through here in either direction. There is none to
-// expose: this orchestrator holds a URL, and the server it asks reports what it
-// is configured to do without reporting what it authenticates with.
+// No credential passes through in either direction: this orchestrator holds a URL,
+// and the server reports what it is configured to do without reporting what it
+// authenticates with.
 type Handler struct {
 	client  *Client
 	counter Counter
@@ -49,7 +46,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings/embedding", h.get)
 }
 
-// statusResponse is what the admin page renders.
+// statusResponse is the reported state of the embedding server.
 type statusResponse struct {
 	Status
 	// Pending is what is left of the backfill. Configuring a provider does not

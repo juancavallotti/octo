@@ -67,12 +67,9 @@ func (s *Store) Put(ctx context.Context, key string, value json.RawMessage) erro
 // lock across the read and the write.
 //
 // A settings save is a read-modify-write: it reads the stored row to carry the
-// existing API key forward, then writes the whole row back. Done with a plain Get
-// then Put, two concurrent saves interleave and the second silently discards the
-// first — and because the key is the thing being carried forward, the value most
-// likely to be lost is a key rotation. That is precisely the failure
-// SecretField.Apply exists to prevent, so it should not be reachable by another
-// route.
+// existing API key forward, then writes the whole row back. With a plain Get then
+// Put, two concurrent saves interleave and the second discards the first — and since
+// the key is what is carried forward, the value most likely lost is a key rotation.
 //
 // fn receives the stored JSON and whether the row already existed.
 func (s *Store) Mutate(
