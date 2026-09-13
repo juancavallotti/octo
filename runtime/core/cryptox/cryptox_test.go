@@ -266,6 +266,41 @@ func TestRSARejectsPlaintextLargerThanTheModulus(t *testing.T) {
 	}
 }
 
+// Two keys that are not halves of one pair would start fine and then fail to open
+// what they sealed, which looks like corrupted data rather than a typo.
+func TestRSARejectsAMismatchedKeypair(t *testing.T) {
+	publicPEM, _ := rsaKeys(t)
+	_, otherPrivatePEM := rsaKeys(t)
+
+	_, err := NewRSAOAEP(publicPEM, otherPrivatePEM)
+	if err == nil {
+		t.Fatal("two unrelated keys were accepted as a pair")
+	}
+	if !strings.Contains(err.Error(), "one pair") {
+		t.Errorf("got %q", err)
+	}
+}
+
+// Go parses a 1024-bit key happily. We do not accept one.
+func TestRSARejectsASmallModulus(t *testing.T) {
+	//nolint:gosec // G403: a deliberately weak key, which is the thing under test
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	public, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: public})
+
+	if _, err := NewRSAOAEP(publicPEM, nil); err == nil {
+		t.Fatal("a 1024-bit key was accepted")
+	} else if !strings.Contains(err.Error(), "1024 bits") {
+		t.Errorf("the error should say how many bits the key had, got %q", err)
+	}
+}
+
 func TestRSARejectsUnusableKeyMaterial(t *testing.T) {
 	if _, err := NewRSAOAEP(nil, nil); err == nil {
 		t.Error("a cipher with no keys at all was built")

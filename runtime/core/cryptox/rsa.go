@@ -9,8 +9,14 @@ import (
 	"fmt"
 )
 
-// rsaAlgName prefixes every error this file produces.
-const rsaAlgName = "rsa-oaep"
+const (
+	// rsaAlgName prefixes every error this file produces.
+	rsaAlgName = "rsa-oaep"
+	// minModulusBits is the smallest RSA key we will use. Go parses a 1024-bit key
+	// happily and NIST has not considered one adequate for years, so refusing it
+	// here is the only place the choice gets made.
+	minModulusBits = 2048
+)
 
 // rsaCipher seals with RSA-OAEP over SHA-256. Unlike the symmetric ciphers the
 // two directions use different keys, and either may be absent: a holder of only
@@ -44,15 +50,24 @@ func NewRSAOAEP(publicPEM, privatePEM []byte) (Cipher, error) {
 			return nil, err
 		}
 		ret.private = private
-		// A private key carries its public half, so a keypair supplied as one PEM
-		// can still seal.
-		if ret.public == nil {
+		switch {
+		case ret.public == nil:
+			// A private key carries its public half, so a keypair supplied as one PEM
+			// can still seal.
 			ret.public = &private.PublicKey
+		case !ret.public.Equal(&private.PublicKey):
+			// Two keys that are not halves of one pair start fine and then cannot open
+			// what they sealed, which is a configuration mistake worth catching here
+			// rather than leaving to look like corrupted data later.
+			return nil, fmt.Errorf("%s: the public and private keys are not two halves of one pair", rsaAlgName)
 		}
 	}
 
 	if ret.public == nil {
 		return nil, fmt.Errorf("%s: needs a public key to encrypt with, a private key to decrypt with, or both", rsaAlgName)
+	}
+	if bits := ret.public.N.BitLen(); bits < minModulusBits {
+		return nil, fmt.Errorf("%s: the key is %d bits; %d is the minimum", rsaAlgName, bits, minModulusBits)
 	}
 	return ret, nil
 }

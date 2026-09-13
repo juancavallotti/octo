@@ -65,7 +65,10 @@ flows:
         settings:
           value: '{"name": body.name, "ssn": vars.openedSsn}'
 
+      # Deliberately not toJson(body): the plaintext is back in the body by now, and
+      # a sample is the worst place to teach logging one. The length is enough to see
+      # that the real number came back — the suite asserts the value itself.
       - type: log
         name: log-opened
         settings:
-          message: '"opened: " + toJson(body)'
+          message: '"opened: " + body.name + ", ssn " + string(body.ssn.size()) + " chars"'

@@ -505,9 +505,11 @@ Reverses `toAes`. The result is bytes: wrap it in `string()` for text, and
 
 AES-GCM is authenticated, so a value sealed under a different key, or altered
 since it was sealed, fails the expression rather than decoding into something
-plausible. That failure fails the block, which is the right default — guard it
-with a [validate](/reference/blocks/control-flow#validate) rule where the
-ciphertext arrives from outside.
+plausible. That failure fails the block, which is the right default. No rule ahead
+of it can screen for it either — whether a value is authentic is what `fromAes`
+runs to find out — so where the ciphertext arrives from outside, wrap the block in
+[`handle-errors`](/reference/blocks/control-flow#handle-errors) and answer from its
+error chain.
 
 ```yaml
 - type: set-payload

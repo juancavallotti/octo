@@ -52,9 +52,18 @@ bytes here, so AES-256. A key of the wrong length fails at startup, not on the
 first message that needed it.
 
 <Callout>
-  The connector owns the algorithm. A block that references it never learns which
-  cipher it got, so moving to `chacha20-poly1305`, or to an asymmetric
-  `rsa-oaep` keypair, is an edit here and no flow changes.
+  The connector owns the algorithm, so no block has to name one: switching
+  ciphers is an edit here and no flow changes.
+</Callout>
+
+<Callout type="warn">
+  What that does not do is convert anything already sealed. Ciphertext is bound to
+  the algorithm and key that produced it, and the algorithms are not
+  interchangeable — a value sealed with `aes-gcm` fails to open under
+  `chacha20-poly1305`, and the same is true of a rotated key. Anything still
+  sitting in a queue, a column or a cache when you change either becomes
+  unreadable. Migrate it first, or declare a second connector and read through
+  the old one until nothing is left.
 </Callout>
 
 ## Encrypt one field
@@ -122,16 +131,36 @@ it was sealed, fails to open rather than decrypting into plausible-looking
 garbage. The `decrypt` block reports that and the flow fails.
 
 That is the right default, but it means an endpoint that accepts ciphertext from
-outside answers 500 to a value someone mangled. Reject it first instead:
+outside answers 500 to a value someone mangled — a caller's mistake reported as
+yours.
+
+A `validate` rule cannot help here: whether a value is authentic is exactly what
+`decrypt` had to run to find out, so no rule ahead of it can know. Catch the
+failure instead, with [`handle-errors`](/reference/blocks/control-flow#handle-errors) around the
+block:
 
 ```yaml
-- type: validate
-  name: check-shape
-  rejectStatus: 400
-  rules:
-    - expr: 'has(body.sealed) && size(body.sealed) > 0'
-      message: sealed value is missing
+- type: handle-errors
+  name: open-or-reject
+  process:
+    - type: decrypt
+      settings:
+        crypto: vault
+        value: body.sealed
+        target: opened
+  error:
+    - type: set-variable
+      settings:
+        name: httpStatus
+        value: "400"
+    - type: set-payload
+      settings:
+        value: '{"error": "the sealed value could not be read"}'
 ```
+
+`vars.error.message` carries what went wrong, which is worth logging and not worth
+returning: the difference between "not base64" and "failed to authenticate" tells
+a caller something about your key that they have no business learning.
 
 ## Without a connector
 
@@ -174,7 +203,7 @@ Every five seconds the sample logs the same record twice, sealed and opened:
 
 ```
 msg="sealed: {\"name\":\"Ada\",\"ssn\":\"Z5xSygDKV2t+Csc51iml6M20sx0NnyN15kZ7ZjfEgazDTsD9AfMx\"}"
-msg="opened: {\"name\":\"Ada\",\"ssn\":\"078-05-1120\"}"
+msg="opened: Ada, ssn 11 chars"
 ```
 
 The sealed line is different on every tick even though the record is the same.

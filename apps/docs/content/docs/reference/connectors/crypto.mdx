@@ -30,16 +30,17 @@ Provides a source: no, it is a service connector. Blocks that bind to it:
 | `algorithm` | enum: `aes-gcm` \| `chacha20-poly1305` \| `rsa-oaep` | No | `aes-gcm` | Cipher this connector's key is for. |
 | `key` | string | For the symmetric algorithms | — | The symmetric key. Source it from an env var. |
 | `keyEncoding` | enum: `base64` \| `hex` \| `utf8` | No | `base64` | How `key` is written. |
-| `publicKey` | string | For `rsa-oaep` | — | PEM public key, used to encrypt. |
-| `privateKey` | string | For `rsa-oaep` | — | PEM private key, used to decrypt. |
+| `publicKey` | string | For `rsa-oaep` | — | PEM public key, used to encrypt. PKIX or PKCS#1, at least 2048 bits. |
+| `privateKey` | string | For `rsa-oaep` | — | PEM private key, used to decrypt. PKCS#8 or PKCS#1; supplying it alone is enough, since it carries its public half. |
 
 `aes-gcm` takes 16, 24 or 32 decoded bytes, and the length is what selects
 AES-128, AES-192 or AES-256. `chacha20-poly1305` takes 32. `utf8` reads the
 setting verbatim, which suits a passphrase-shaped key; base64 or hex are easier
 to get to an exact length.
 
-A wrong key length, or a public key that is not PEM, fails at startup rather than
-on the first message that needed it.
+A wrong key length, a key below 2048 bits, two RSA keys that are not halves of one
+pair, or a PEM that will not parse: each fails at startup rather than on the first
+message that needed it.
 
 <Callout type="warn">
   Never write a key into a flow file. [Declare the
@@ -53,6 +54,12 @@ on the first message that needed it.
 you. `chacha20-poly1305` is an equivalent alternative where AES has no hardware
 acceleration. Both are authenticated: a value altered after it was sealed fails
 to open rather than decrypting into something plausible.
+
+Changing the algorithm, or rotating the key, does not convert anything already
+sealed: ciphertext is bound to what produced it, and the two symmetric algorithms
+are not interchangeable. Whatever is still in a queue, a column or a cache becomes
+unreadable. Migrate it first, or keep the old connector declared and read through
+it until nothing is left.
 
 `rsa-oaep` (over SHA-256) uses two keys instead of one, which is the point of
 reaching for it: a connector given only `publicKey` can encrypt and not decrypt,
@@ -101,10 +108,12 @@ was sealed as JSON, follow the block with a `set-payload` and `fromJson`:
     value: fromJson(vars.opened)
 ```
 
-A value sealed under a different key, or altered since, fails the block. Where
-the ciphertext arrives from outside, reject it with a
-[validate](/reference/blocks/control-flow#validate) rule first rather than
-letting the failure become a 500.
+A value sealed under a different key, or altered since, fails the block. No rule
+ahead of it can screen for that — whether a value is authentic is what `decrypt`
+runs to find out — so where the ciphertext arrives from outside, wrap the block in
+[`handle-errors`](/reference/blocks/control-flow#handle-errors) and answer 400 from its error
+chain rather than letting the failure become a 500. The
+[Encrypting Data guide](/guides/encrypting-data) shows the shape.
 
 ## Example
 
