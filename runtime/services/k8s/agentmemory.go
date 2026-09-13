@@ -108,11 +108,9 @@ func (c *agentMemory) markUnavailable() {
 // same conversation on every write — and a user segment would give it a second
 // address that a write with a different user could mint a duplicate under.
 //
-// It has to be sent, though, and for a while it was not: the orchestrator records
-// who a conversation is with on the first write that names one, and the platform
-// lists a person's conversations by exactly that attribution. Omitting it stored
-// every conversation attributed to nobody, so an agent kept a complete history
-// that its own chat panel then showed as empty.
+// It must still be sent on every write that has one: the server attributes a
+// conversation to the person named on its first write, and a conversation stored
+// with nobody named is one nothing can list back by user.
 func (c *agentMemory) threadURL(ref core.MemoryRef, suffix string) string {
 	u := fmt.Sprintf("%s/deployments/%s/agent-memory/%s/threads/%s%s",
 		c.baseURL,

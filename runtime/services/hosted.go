@@ -77,7 +77,7 @@ func Hosted() []HostedService {
 }
 
 // HostedUsage returns every registered service's help section, concatenated in
-// registration order, for appending to the CLI's usage page. It is empty when
+// registration order, for appending to the binary's usage page. It is empty when
 // nothing registered or nothing documents itself.
 func HostedUsage() string {
 	var b strings.Builder

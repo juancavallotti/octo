@@ -28,19 +28,13 @@ import (
 //	agent-memory/{agent}/threads/{thread}/turns.jsonl     one completed turn a line
 //	agent-memory/{agent}/users/{user}.json                curated memories + version
 //
-// Listing a conversation is therefore a ReadDir, and there is no second file to
-// keep in step with the first. That is worth stating because the thing this
-// store replaces had to maintain an index by hand — an agent storing its own
-// history in KV has get, set and delete and no way to ask what it has written,
-// so it kept a list object beside the data and capped it to stop it growing.
-// Neither problem exists once the store can enumerate.
+// Listing a conversation is therefore a ReadDir, with no second index to keep in
+// step with the data.
 //
-// Concurrency is in-process only, and deliberately. The standalone module is one
-// process — its leader election grants unconditionally because there is nothing
-// to elect — so a per-thread mutex is the complete answer rather than a
-// degraded one. Two standalone replicas over a shared volume is not a supported
-// shape, and pretending otherwise would mean a multi-writer append protocol on
-// a filesystem where O_APPEND is not even atomic.
+// Concurrency is in-process only. This module is one process, so a per-thread
+// mutex is the complete answer rather than a degraded one; two replicas over a
+// shared volume is not a supported shape, and would need a multi-writer append
+// protocol on a filesystem where O_APPEND is not even atomic.
 type agentMemory struct {
 	root string
 

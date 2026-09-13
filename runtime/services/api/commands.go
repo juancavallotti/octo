@@ -16,14 +16,13 @@ import (
 	"github.com/juancavallotti/octo/runtime/services/api/openapi"
 )
 
-// The two CLI commands this module brings with it.
+// The two subcommands this module brings with it.
 //
-// They live here, and reach the CLI through the module's own registration,
-// because both are about a contract only a binary carrying this module can
-// speak. A standalone runtime that offered to print the platform API contract
-// would be inviting somebody to implement an interface it has no provider for —
-// and they would find out only after writing a server. Registering from here
-// means the commands exist exactly where they are useful, with no build-tagged
+// They register from here because both are about a contract only a binary
+// carrying this module can speak: a runtime that offered to print the platform
+// API contract without a provider for it would invite somebody to implement an
+// interface it cannot talk to. Registering from here means the commands exist
+// exactly where they are useful, with no build-tagged
 // case in package main deciding it on their behalf.
 //
 // Somebody still deciding whether to implement the contract reads it on the

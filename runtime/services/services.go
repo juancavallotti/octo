@@ -18,10 +18,6 @@
 // it owns CLI flags rather than YAML settings, starts before the first flow
 // generation and stops after the last. Hosted services call RegisterHosted and are
 // not module-selected, so every one compiled in runs. See HostedService.
-//
-// New capability belongs in one of these two facets, in a connector, or in the
-// engine. It does not belong in a third registry: a reader looking for how the
-// runtime is extended should find two answers, not four.
 package services
 
 import (
