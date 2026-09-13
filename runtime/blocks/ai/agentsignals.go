@@ -1,22 +1,19 @@
 // Reaching an ai-agent run that is already in flight.
 //
-// An agent run is otherwise a closed loop: a request goes in, an answer comes
-// out, and nothing in between can change its mind or end it early. That is right
-// for a transformation and wrong for a conversation, where a person changes what
-// they wanted — or stops wanting it — while the agent is still working.
+// A run is otherwise a closed loop: a request goes in, an answer comes out, and
+// nothing in between can redirect it or end it early.
 //
 // A run with a signalId puts itself in a registry for the length of its run. A
-// second invocation that resolves the same id finds it there and hands its
-// message over instead of starting a run of its own, which is what stops one
-// person getting two answers on two streams. There is no transport and no
-// message in flight: the lookup and the handover happen under one lock, so
-// "somebody took this" is a fact rather than a hopeful timeout.
+// second invocation resolving the same id finds it there and hands its message
+// over instead of starting a run of its own, so one person cannot get two answers
+// on two streams. There is no transport and no message in flight: the lookup and
+// the handover happen under one lock, making "somebody took this" a fact rather
+// than a timeout.
 //
-// The map is per process, and a deployment is not. So the map is the fast path
-// rather than the answer: when it misses, the conversation is claimed
-// cluster-wide and the message is delivered to whichever replica holds it. That
-// part lives in agentclaim.go; this file is the mechanics of a run and the lock
-// that makes a handover atomic.
+// The map is per process, so it is the fast path rather than the answer: on a miss
+// the conversation is claimed cluster-wide and the message delivered to whichever
+// replica holds it, which is agentclaim.go. This file is the mechanics of a run
+// and the lock that makes a handover atomic.
 package ai
 
 import (
@@ -152,20 +149,14 @@ func (r *runRegistry) take(key string, mine *agentRun) {
 //
 // A claim key is `<block address>\x00<thread id>`, so two keys that differ only
 // in the address are two agents on one conversation — and one stored transcript,
-// since a transcript is keyed by the thread alone. That is not a corner case: a
-// tool branch runs on the agent's own message, so an ai-agent standing in another
-// one's tool slot sees the caller's variables, and `vars.threadId` in both is the
-// obvious thing to write in both.
+// since a transcript is keyed by the thread alone. A nested agent sees its
+// caller's variables, so writing `vars.threadId` in both is an easy way to get
+// there.
 //
-// It is reported and not prevented, deliberately. Prevention would mean the
-// runtime inventing a second namespace out of where the block sits, and then a
-// rename or a move — an edit that changes nothing about the conversation — would
-// silently lose it. The thread expression is the identity; this says when two
-// agents have picked the same one, so it can be fixed in the file rather than
-// discovered in a transcript.
-//
-// Only this process is visible, which is enough for the case worth catching: a
-// nested agent runs inside its caller's own run, on the same replica.
+// It is reported, not prevented: the thread expression is the identity, so the
+// collision is fixed in the file rather than by the runtime inventing a second
+// namespace. Only this process is visible, which covers the case worth catching —
+// a nested agent runs inside its caller's own run, on the same replica.
 func (r *runRegistry) sharingThread(key string) (string, bool) {
 	_, thread, ok := strings.Cut(key, "\x00")
 	if !ok {

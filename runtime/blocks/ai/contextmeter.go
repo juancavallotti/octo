@@ -28,9 +28,8 @@ const (
 // identical on every turn of a run, so they are a constant: dropping a message
 // does not shrink them. The conversation is the part that varies. Fitting one
 // ratio over the sum of both would fold the constant into the per-message rate,
-// which over-credits every dropped message by its share of the overhead — so
-// compaction stops cutting while the prompt is still too big, which is the one
-// outcome this whole mechanism exists to prevent.
+// which over-credits every dropped message by its share of the overhead, so
+// compaction stops cutting while the prompt is still too big.
 //
 // Two turns of one run are enough to separate them, because the difference
 // between consecutive prompts is pure conversation:

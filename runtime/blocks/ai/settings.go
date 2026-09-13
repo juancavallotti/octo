@@ -63,26 +63,26 @@ type agentSettings struct {
 	// memory.
 	MemoryThreadID string `json:"memoryThreadId" octo:"label=Memory thread ID,type=cel"`
 	// Stable name for the logical agent. Setting it opts the block into the
-	// runtime's first-class memory: durable conversation history the platform can
-	// list and replay, working memory checkpointed during the run, and — with user
+	// runtime's first-class memory: durable conversation history that can be listed
+	// and replayed, working memory checkpointed during the run, and — with user
 	// memory on — curated facts about a person. It is stated rather than derived
 	// because a derived name is a position in a file, and renaming the block would
-	// destroy the conversations stored under it (issue #359).
+	// destroy the conversations stored under it.
 	//
 	// It must be unique across the agents that share a deployment. Two blocks
 	// declaring the same agentId share one memory, which is what replicas of one
 	// logical agent want and what two different agents almost never do.
 	AgentID string `json:"agentId" octo:"label=Agent ID"`
 	// CEL expression for the person the agent is talking to. Scopes user memory and
-	// labels stored conversations so the platform can list one person's threads.
+	// labels stored conversations, so one person's threads can be listed back.
 	UserID string `json:"userId" octo:"label=User ID,type=cel"`
 	// Whether completed turns are recorded to durable conversation history. Unlike
 	// working memory this record is never compacted, so it stays readable after the
 	// agent has summarized its own context away. Requires an agent ID.
 	//
-	// Deliberately carries NO schema default, though the runtime's default is
-	// "record". The editor seeds a new block with every field that declares one, so
-	// a default here would write `history: record` into a block that has no agentId
+	// Carries NO schema default, though the runtime's default is "record". A new
+	// block is seeded with every field that declares one, so a default here would
+	// write `history: record` into a block that has no agentId
 	// yet — which is a flow that does not build, produced by dropping a block on a
 	// canvas. The runtime applies the default in configureAgentStore instead, where
 	// it can see whether there is an agent to record under.

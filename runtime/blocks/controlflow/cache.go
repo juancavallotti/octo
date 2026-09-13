@@ -6,9 +6,8 @@
 //
 // Volatile is the whole point of a cache and so is not configurable here. A cache
 // entry already carries its own expiry, and losing one costs a recompute rather
-// than correctness — which is exactly the contract the volatile tier offers. It is
-// also what keeps memoized bodies out of the platform database, where they would be
-// a row and a transaction apiece for a value that expires in a minute.
+// than correctness, which is exactly the contract the volatile tier offers — and
+// it keeps a value that expires in a minute out of durable storage.
 //
 // The KV store has no native TTL, so cache-scope encodes the expiry inside the
 // stored value (cacheEnvelope) and checks it on read; an expired entry is treated

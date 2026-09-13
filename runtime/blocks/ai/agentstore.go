@@ -1,24 +1,19 @@
 // First-class agent memory: what an ai-agent does when it has been given an
 // agentId and the runtime has a store to put things in.
 //
-// This sits beside agentmemory.go rather than replacing it. That file is the
-// older arrangement — one compacted transcript per thread, in KV — and it is
-// still the whole story for an agent with no agentId. The two differ in what
-// they promise:
+// An agent without an agentId is served by agentmemory.go instead: one compacted
+// transcript per thread, keyed by thread alone. This file keys on (agent, thread)
+// and keeps working memory, an uncompacted turn record and user memory, each
+// versioned and listable.
 //
-//	agentmemory.go   one blob, compacted to a budget, keyed by thread alone
-//	this file        working memory AND an uncompacted turn record AND user
-//	                 memory, keyed by (agent, thread), versioned, listable
+// The split that matters is between working memory and history. Working memory is
+// what the model re-reads, so it is pruned or summarized to fit a budget; history
+// is what a person re-reads, so it is never touched again once written. Storing
+// one thing and calling it both makes "the agent summarized its context" and "the
+// conversation is gone" the same event.
 //
-// The split that matters is between working memory and history. Working memory
-// is what the model re-reads, so it is pruned or summarized to fit a budget;
-// history is what a person re-reads, so it is never touched again once written.
-// Storing one thing and calling it both is what made "the agent summarized its
-// context" and "the conversation is gone" the same event.
-//
-// Why agentId is opt-in rather than derived: see the AgentID doc comment in
-// runtime/types/flow.go. Short version — a derived name is a position in a file,
-// and renaming a block would destroy the conversations stored under it.
+// agentId is opt-in rather than derived; see the AgentID doc comment in
+// runtime/types/flow.go.
 package ai
 
 import (
@@ -92,8 +87,8 @@ type turnAttrs struct {
 //
 // It exists because the version of a working-memory object is per-run state and
 // aiAgent is shared by every message the block handles at once. Threading it
-// through the run's own call chain — where a bare threadID used to travel — is
-// what keeps two concurrent conversations from writing each other's versions.
+// through the run's own call chain is what keeps two concurrent conversations
+// from writing each other's versions.
 //
 // A session is always non-nil while a run is executing, even for an agent with
 // no memory at all: thread is then empty and every method is a no-op, so the
@@ -394,12 +389,11 @@ func (s *memorySession) recordTurn(
 // is not a judgement about anything and is only there so a list has something to
 // show.
 //
-// The WRITE is the engine's either way, and that is the whole point of the slot
-// being a slot. The engine is holding the conversation's reference; the store
-// knows how to record a title on whichever tier it is — standalone renames it on
-// disk, the platform calls the orchestrator. A chain that had to do the writing
-// would need the reference handed to it, would have to reassemble a key it never
-// composed, and would be addressing the store the engine is already inside.
+// The WRITE is the engine's either way, which is the point of the slot being a
+// slot: the engine is holding the conversation's reference, and the store knows
+// how to record a title on whatever is behind it. A chain that had to do the
+// writing would need the reference handed to it and would have to reassemble a key
+// it never composed.
 //
 // Failure names nothing and says so quietly. A conversation without a title is
 // listed by its key, which is worse to read and no worse to use — and taking the
@@ -565,8 +559,8 @@ func (s *memorySession) memoryPreamble(ctx context.Context) []core.LLMMessage {
 }
 
 // titleFor mints a conversation's label from its first turn: the first line,
-// trimmed to something that fits a list. A model-written title is better and is
-// the platform's job — this is what a conversation is called until one arrives.
+// trimmed to something that fits a list. It is what a conversation is called until
+// something writes it a better title.
 func titleFor(opening string) string {
 	title := strings.TrimSpace(opening)
 	if i := strings.IndexByte(title, '\n'); i >= 0 {

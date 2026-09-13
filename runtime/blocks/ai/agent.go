@@ -1453,10 +1453,8 @@ func (a *aiAgent) runTool(
 	// attributes too, so filtering by tool still works.
 	slog.Info("ai-agent tool call: "+call.Name, "block", a.name, "tool", call.Name)
 	// The arguments stay at DEBUG. They are the model's, but they are built out of
-	// the message, so they carry whatever the flow carries — and on the platform the
-	// log viewer is readable by anyone signed in. That is the same reason a deployed
-	// pod no longer captures trace bodies by default, and this line would put the
-	// payload back on the other path. The events path exposes the full input to a
+	// the message, so they carry whatever the flow carries, and a log is read more
+	// widely than a payload should be. The events path exposes the full input to a
 	// flow that asks for it.
 	slog.Debug("ai-agent tool input", "block", a.name, "tool", call.Name, "input", truncForLog(string(call.Input)))
 	started := time.Now()
@@ -1533,16 +1531,10 @@ const branchScopeBlockLen = 16
 //     agent never share.
 //
 // The block's address means a scope moves when the block does: rename the agent,
-// or move it into another branch, and its tools start again somewhere new. That
-// is the trade this makes deliberately, and it is why the docs pair a scope with
-// memoryVolatile and describe it as somewhere for state whose loss is cheap. A
-// conversation a person will ask to see again is named by memoryThreadId, which
-// is the author's to write and nothing derives.
-//
-// Minting rather than asking for configuration is the point. Nothing in a
-// definition should have to anticipate what a tool branch will want to keep —
-// the runtime knows which call it is making, from where, and in what
-// conversation, so composing the three is its job.
+// or move it into another branch, and its tools start again somewhere new. So a
+// scope is for state whose loss is cheap. A conversation a person will ask to see
+// again is named by memoryThreadId, which is the author's to write and nothing
+// derives.
 func branchScopeBase(threadID, runScope string) string {
 	if threadID == "" {
 		buf := make([]byte, branchScopeIDLen)
