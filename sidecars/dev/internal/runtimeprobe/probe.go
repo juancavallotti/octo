@@ -1,16 +1,13 @@
 // Package runtimeprobe reads the octo runtime's admin endpoints over loopback.
 //
-// The two containers share a network namespace, so the runtime's admin port is
-// reachable at 127.0.0.1 and needs no service, no credential and no exposure. What
-// it offers is documented at runtime/services/observability/observability.go:119 —
-// GET /healthz is unconditional liveness, GET /readyz answers 200 with the state
-// name once every connector and flow of the current generation started and 503
-// with the state name otherwise, and GET /metrics is Prometheus exposition when
+// The two containers share a network namespace, so the admin port is reachable at
+// 127.0.0.1 and needs no service, no credential and no exposure. Three endpoints
+// are read: GET /healthz is unconditional liveness, GET /readyz answers 200 or 503
+// with the state name in its body, and GET /metrics is Prometheus exposition when
 // the runtime was started with metrics enabled.
 //
-// /readyz putting the reason in its body is what makes this package worth having:
-// "why is this pod not ready" is the next question after "is it ready", and the
-// runtime already answers both in one call.
+// /readyz carrying the reason in its body is what makes this worth reading: "why is
+// this not ready" is answered in the same call as "is it".
 package runtimeprobe
 
 import (
@@ -23,8 +20,8 @@ import (
 )
 
 const (
-	// probeTimeout bounds a probe. Short on purpose: this is loopback, and a
-	// diagnostic that hangs is worse than one that reports a timeout.
+	// probeTimeout bounds a probe. Short, since this is loopback and a diagnostic
+	// that hangs is worse than one that reports a timeout.
 	probeTimeout = 3 * time.Second
 	// maxBodyBytes bounds what a probe reads. /readyz answers with a state name;
 	// /metrics is larger, and has its own limit at the call site.
@@ -35,10 +32,9 @@ const (
 
 // Status is what the sidecar can say about the runtime beside it.
 //
-// Reachable is reported separately from Live because they answer different
-// questions and conflating them loses the useful one: an unreachable admin port
-// during startup is expected, while an unreachable one after the runtime has been
-// serving means it died.
+// Reachable is reported separately from Live: an unreachable admin port during
+// startup is expected, while an unreachable one after the runtime has been serving
+// means it died.
 type Status struct {
 	Reachable bool `json:"reachable"`
 	Live      bool `json:"live"`
@@ -66,10 +62,9 @@ func (p *Prober) Addr() string { return p.addr }
 
 // Status probes liveness and readiness.
 //
-// It returns no error, and that is the contract rather than an omission: an
-// unreachable runtime is an answer to the question being asked, not a failure to
-// answer it. A caller rendering /status wants "not reachable, here is why", never
-// a 500 that says nothing about the runtime at all.
+// It returns no error, by contract: an unreachable runtime is an answer to the
+// question being asked rather than a failure to answer it, so the reason is
+// reported in Status.Error.
 func (p *Prober) Status(ctx context.Context) Status {
 	if _, err := p.get(ctx, "/healthz"); err != nil {
 		return Status{Error: err.Error()}
@@ -90,8 +85,7 @@ func (p *Prober) Status(ctx context.Context) Status {
 }
 
 // Metrics returns the runtime's Prometheus exposition verbatim, with its content
-// type. Passed through rather than parsed: the sidecar has no opinion about the
-// metrics, and re-serialising them would only be a chance to corrupt them.
+// type. Passed through rather than parsed, so nothing here can corrupt it.
 func (p *Prober) Metrics(ctx context.Context) (body []byte, contentType string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url("/metrics"), nil)
 	if err != nil {

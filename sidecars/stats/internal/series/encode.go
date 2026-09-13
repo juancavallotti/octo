@@ -9,11 +9,10 @@ import (
 )
 
 const (
-	// bucketSuffix, sumSuffix and countSuffix are the series a histogram or
-	// summary decomposes into, exactly as the exposition format already writes
-	// them. Decomposing rather than modelling a histogram as one object is what
-	// keeps the encoder, the collapse rules and the stored shape uniform: after
-	// this point every series is a single float64 obeying one Kind.
+	// bucketSuffix, sumSuffix and countSuffix are the series a histogram or summary
+	// decomposes into, exactly as the exposition format writes them. Decomposing
+	// rather than modelling a histogram as one object leaves every series a single
+	// float64 obeying one Kind.
 	bucketSuffix = "_bucket"
 	sumSuffix    = "_sum"
 	countSuffix  = "_count"
@@ -42,17 +41,14 @@ const (
 // dictionary length for the generation the sample names.
 //
 // Growing the dictionary advances the generation HERE, before the sample is
-// stamped, so a sample's Gen always names a dictionary that contains every
-// index the sample uses. Bumping afterwards would stamp the sample with the
-// generation before the one that gained its new series, and a reader resolving
-// that generation would come up short — which is exactly the mismatch this
-// ordering exists to prevent.
+// stamped, so a sample's Gen always names a dictionary containing every index the
+// sample uses. Bumping afterwards would stamp it with the generation before the one
+// that gained its new series.
 func (d *Dictionary) Encode(families map[string]*dto.MetricFamily, timeMS int64) Sample {
 	grewFrom := len(d.entries)
 
-	// Interning happens first and in a deterministic order, so two pods that
-	// scrape the same runtime build the same dictionary and a replay of one
-	// scrape is byte-identical to the original.
+	// Interning happens first and in a deterministic order, so two pods scraping the
+	// same runtime build the same dictionary.
 	values := make(map[int]float64)
 	for _, name := range sortedNames(families) {
 		d.encodeFamily(families[name], values)
@@ -107,11 +103,10 @@ func (d *Dictionary) encodeFamily(f *dto.MetricFamily, values map[int]float64) {
 	}
 }
 
-// encodeHistogram decomposes a histogram into its cumulative buckets plus _sum
-// and _count. All three are counters: a bucket holds the number of observations
-// at or below its bound since the process started, so the quantity that matters
-// over a window is how much each grew. Collapsing them that way is what keeps
-// the shape of the distribution instead of flattening it to one average.
+// encodeHistogram decomposes a histogram into its cumulative buckets plus _sum and
+// _count. All three are counters: a bucket holds the observations at or below its
+// bound since the process started, so what matters over a window is how much each
+// grew, which is what preserves the shape of the distribution.
 func (d *Dictionary) encodeHistogram(name string, m *dto.Metric, values map[int]float64) {
 	h := m.GetHistogram()
 	base := labelsOf(m)
@@ -130,10 +125,9 @@ func (d *Dictionary) encodeHistogram(name string, m *dto.Metric, values map[int]
 
 // encodeSummary decomposes a summary into its quantiles plus _sum and _count.
 //
-// The quantiles are gauges, not counters. A quantile is a rank over the
-// process's whole lifetime rather than a running total, so differencing two
-// readings of it is meaningless; averaging them at least reports the typical
-// value the process was showing. _sum and _count are cumulative as usual.
+// The quantiles are gauges, not counters: a quantile is a rank over the process's
+// whole lifetime rather than a running total, so differencing two readings of it is
+// meaningless. _sum and _count are cumulative as usual.
 func (d *Dictionary) encodeSummary(name string, m *dto.Metric, values map[int]float64) {
 	s := m.GetSummary()
 	base := labelsOf(m)

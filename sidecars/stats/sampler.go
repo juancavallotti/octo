@@ -33,10 +33,9 @@ type sampler struct {
 	store     *store.Store
 	counters  api.Counters
 
-	// mu guards the fields the status endpoint reads that are not counters.
-	// The dictionary and the collector themselves are NOT shared — the sampler
-	// goroutine owns both — so what the status page needs from them is copied
-	// out under this lock rather than read from them directly.
+	// mu guards the non-counter fields the status endpoint reads. The dictionary and
+	// the collector are NOT shared — the sampler goroutine owns both — so what the
+	// status needs from them is copied out under this lock.
 	mu         sync.Mutex
 	generation int
 	seriesLen  int
@@ -63,11 +62,9 @@ func newSampler(cfg config, st *store.Store) *sampler {
 
 // Run samples until ctx is cancelled, then flushes the open bucket.
 //
-// The flush at the end is the reason this sidecar is a native sidecar rather
-// than an ordinary container: Kubernetes terminates restartable init containers
-// after the app containers, so by the time this returns the runtime has already
-// stopped and the bucket being written is complete rather than truncated
-// mid-shutdown.
+// The flush at the end is why this runs as a native sidecar: restartable init
+// containers are terminated after the app containers, so the bucket being written
+// is complete rather than truncated mid-shutdown.
 func (s *sampler) Run(ctx context.Context) {
 	// Meta first, so a reader can find the pod and learn its tier configuration
 	// before any rows exist. Best effort: a Redis that is down at startup is a
@@ -79,9 +76,8 @@ func (s *sampler) Run(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.sample)
 	defer ticker.Stop()
 
-	// One sample immediately, so a pod that is about to be killed still leaves a
-	// trace and so a misconfiguration surfaces in the first second rather than
-	// after a full interval.
+	// One sample immediately, so a short-lived pod still leaves a trace and a
+	// misconfiguration surfaces within the first second.
 	s.tick(ctx)
 	for {
 		select {
@@ -96,10 +92,9 @@ func (s *sampler) Run(ctx context.Context) {
 
 // tick performs one scrape-encode-write cycle.
 //
-// Nothing in here is fatal. A failed scrape means this second has no sample; a
-// failed write means it was not stored. Both are counted, reported on /status,
-// and retried on the next tick — the sidecar's whole failure model is that it
-// loses data rather than taking the pod down with it.
+// Nothing in here is fatal. A failed scrape means this second has no sample and a
+// failed write means it was not stored; both are counted, reported on /status, and
+// retried on the next tick.
 func (s *sampler) tick(ctx context.Context) {
 	families, err := s.scraper.Scrape(ctx)
 	if err != nil {
@@ -125,10 +120,8 @@ func (s *sampler) tick(ctx context.Context) {
 	s.recordOpenBucket()
 }
 
-// recordOpenBucket copies the collector's progress somewhere the status
-// endpoint can read it. The collector is not safe for concurrent use and is not
-// made so for this: a status page is not worth putting a lock in the sampling
-// path's way.
+// recordOpenBucket copies the collector's progress somewhere the status endpoint
+// can read it, rather than putting a lock in the sampling path.
 func (s *sampler) recordOpenBucket() {
 	start, rows := s.collector.Open()
 	s.mu.Lock()
@@ -144,10 +137,10 @@ func (s *sampler) recordOpenBucket() {
 // resolve. Encode has already advanced the generation if this scrape grew the
 // dictionary; this only persists it.
 //
-// A failed write leaves the generation dirty and the next tick retries it. The
-// samples written in between name that same generation and stay correct once it
-// lands, because a dictionary is always written whole and indices are
-// append-only, so every later generation is a superset of every earlier one.
+// A failed write leaves the generation dirty and the next tick retries it. Samples
+// written in between name that same generation and stay correct once it lands: a
+// dictionary is written whole and its indices are append-only, so every later
+// generation is a superset of every earlier one.
 func (s *sampler) persistDictionary(ctx context.Context) {
 	if !s.dict.Dirty() {
 		return
@@ -159,12 +152,10 @@ func (s *sampler) persistDictionary(ctx context.Context) {
 		return
 	}
 
-	// Meta names the newest generation, so a reader can find it without parsing
-	// a row first. Marked clean only once both halves have landed: a dictionary
-	// written without the meta that names it leaves a reader falling back to a
-	// stale generation, and marking clean first means the next tick has nothing
-	// to retry — the pair would stay split until some later reload happened to
-	// grow the dictionary again.
+	// Meta names the newest generation, so a reader finds it without parsing a row
+	// first. Marked clean only once both halves have landed: a dictionary written
+	// without the meta naming it leaves a reader on a stale generation, and marking
+	// clean first would leave the next tick nothing to retry.
 	if err := s.store.WriteMeta(ctx, gen, s.startedAt); err != nil {
 		s.counters.WriteFailed(err)
 		slog.Warn("could not update pod metadata", "gen", gen, "error", err)

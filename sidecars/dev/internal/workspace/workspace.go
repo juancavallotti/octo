@@ -1,24 +1,16 @@
 // Package workspace owns the one directory the octo runtime watches, and is the
 // only writer to it.
 //
-// Three primitives here are Go ports of ones that already exist in
-// packages/run-host, where the editor's local runner solves the same problem
-// against a per-namespace directory. Their reasoning is carried over rather than
-// rediscovered:
+// Four rules hold the directory together:
 //
-//   - Atomic write (write a sibling temp file, then rename) so the runtime's
-//     watcher observes a single event per file rather than a partially written
-//     one — writeConfig, packages/run-host/src/session.ts:339.
-//   - Resources staged BESIDE the config, because the runtime's resource loader
-//     is rooted at the config directory — resolveAndStage,
-//     packages/run-host/src/resources.ts.
-//   - Path containment on every declared resource name, mirroring the runtime's
-//     own loader: clean the name as an absolute path so '..' cannot climb out,
-//     then assert the result is still under the workspace — stagedPathFor, same
-//     file.
+//   - Every write is atomic (a sibling temp file, then a rename), so a watcher
+//     observes one event per file rather than a partially written one.
+//   - Resources are staged BESIDE the config, which is where a resource loader
+//     rooted at the config directory looks for them.
+//   - Every declared resource name is contained: cleaned as an absolute path so
+//     '..' cannot climb out, then asserted to still be under the workspace.
 //   - Files no longer declared are pruned, because env resources hold secrets and
-//     a leftover one is a credential nobody knows is on disk — sync,
-//     packages/run-host/src/session.ts:482-493.
+//     a leftover one is a credential nobody knows is on disk.
 package workspace
 
 import (
@@ -33,17 +25,15 @@ import (
 
 // ConfigFileName is what the integration's definition is written as.
 //
-// The runtime is pointed at the workspace DIRECTORY, and a directory config
-// merges every *.yaml/*.yml file in it into one document
-// (runtime/core/runtime/config.go:36). That is what makes the prune in Apply a
-// correctness requirement and not just hygiene: a leftover config file from an
-// earlier generation would not be ignored, it would be merged into the next one.
-// The name deliberately avoids the runtime's _test suffix, which it skips.
+// A directory config merges every *.yaml/*.yml file in it into one document, which
+// makes the prune in Apply a correctness requirement rather than hygiene: a
+// leftover config file from an earlier generation would be merged into the next
+// one. The name avoids the _test suffix, which a directory load skips.
 const ConfigFileName = "integration.yaml"
 
 // filePerm is the mode staged files get. Env resources carry an integration's
-// secrets, so nothing wider than owner-only is appropriate; the runtime container
-// beside us runs as the same uid, which is what makes owner-only sufficient.
+// secrets, so nothing wider than owner-only is appropriate; everything that reads
+// them runs as the same uid.
 const filePerm fs.FileMode = 0o600
 
 // dirPerm is the mode created directories get: owner-only for the same reason,
@@ -91,13 +81,9 @@ func (w *Workspace) Dir() string { return w.dir }
 
 // Ensure creates the workspace directory if it is missing.
 //
-// This must happen before the runtime container starts, and it is not a
-// convenience. `octo run --watch` tolerates a missing or invalid CONFIG — it logs
-// the load error, goes to a reloading state, and waits for the next change
-// (runtime/octo/runcmd.go:180). It does not tolerate a missing DIRECTORY: the
-// watcher's fsnotify Add fails and the process exits (runtime/octo/watch.go:29).
-// So an empty workspace is a working starting point and an absent one is a
-// crash-loop.
+// A watcher tolerates a missing or invalid config — it logs the load error and
+// waits for the next change — but not a missing directory, which fails its fsnotify
+// Add. So an empty workspace is a working starting point and an absent one is not.
 func (w *Workspace) Ensure() error {
 	if err := os.MkdirAll(w.dir, dirPerm); err != nil {
 		return fmt.Errorf("create workspace %q: %w", w.dir, err)
@@ -109,22 +95,17 @@ func (w *Workspace) Ensure() error {
 //
 // The order of operations is load-bearing:
 //
-//  1. Prune first. A stale *.yaml would otherwise be merged into the very
-//     generation step 3 triggers, and a stale env file would still be readable by
-//     it. Doing this before the new config lands means the reload in step 3 reads
-//     a directory with nothing extra in it.
+//  1. Prune first, so the reload step 3 triggers reads a directory with nothing
+//     extra in it: a stale *.yaml would be merged into the new generation, and a
+//     stale env file would still be readable by it.
 //  2. Stage the resources, so they are in place before anything reads them.
-//  3. Write the config LAST. Every write is an event on the watched directory and
-//     the runtime debounces them for 200ms (runtime/octo/watch.go:19), so the
-//     config write is both the final event and the one that guarantees a reload
-//     happens after the workspace is complete.
+//  3. Write the config LAST, so the event that triggers a reload is the one that
+//     completes the workspace.
 //
 // The window between steps 1 and 3 is the one place this can be observed
-// mid-flight: if a burst of writes outlasts the debounce, the runtime may load an
-// old config whose resources have just been removed. That load fails, the runtime
-// logs it and waits, and step 3 then drives a correct reload — which is precisely
-// the failure mode `--watch` is built to absorb, and the reason to prefer it over
-// leaving a stale config readable.
+// mid-flight: a watcher may load an old config whose resources have just been
+// removed. That load fails and is retried by the reload step 3 drives, which is
+// the failure mode a watching loader absorbs.
 //
 // A failed Apply leaves the workspace usable rather than half-built: prune only
 // removes what the new bundle does not declare, and each write is atomic, so the
@@ -168,9 +149,8 @@ func (w *Workspace) Apply(definition string, files []File) (Report, error) {
 }
 
 // RemoveConfig deletes the config, leaving the workspace present but empty of
-// anything to run. That is a "stop" the runtime can observe without the pod being
-// killed: the watcher fires, the load finds no config, and the runtime reloads to
-// an empty generation and waits. Absent config is not an error.
+// anything to run: a watcher fires, finds no config, and reloads to an empty
+// generation. An already-absent config is not an error.
 func (w *Workspace) RemoveConfig() error {
 	path := filepath.Join(w.dir, ConfigFileName)
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -179,9 +159,8 @@ func (w *Workspace) RemoveConfig() error {
 	return nil
 }
 
-// List returns the workspace-relative paths of every file present, sorted. For
-// diagnostics: "what does the runtime actually see?" is the first question when a
-// reload did not do what someone expected.
+// List returns the workspace-relative paths of every file present, sorted, for
+// answering what a reload was given.
 func (w *Workspace) List() ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(w.dir, func(path string, d fs.DirEntry, err error) error {
@@ -208,20 +187,15 @@ func (w *Workspace) List() ([]string, error) {
 	return out, nil
 }
 
-// resolve maps a declared resource name to an absolute path inside the workspace,
-// mirroring the runtime loader's containment: clean the name as if it were
-// absolute (which strips any leading '..' segments), rejoin it under the
-// workspace, then assert the result really is under it.
+// resolve maps a declared resource name to an absolute path inside the workspace:
+// clean the name as if it were absolute (which strips any leading '..' segments),
+// rejoin it under the workspace, then assert the result really is under it.
 //
-// A name that resolves onto the config file is rejected too. Nothing legitimate
-// does that, and allowing it would let a resource silently replace the definition
-// between the prune and the config write.
-//
-// Any other *.yaml/*.yml name is rejected for the same reason one step removed: the
-// runtime merges every *.yaml/*.yml in the directory into the generation (see
-// ConfigFileName), so such a resource would not sit beside the config as data — it
-// would become part of the config. Keeping the definition the only YAML the runtime
-// loads is the invariant this preserves.
+// A name that resolves onto the config file is rejected, or a resource could
+// replace the definition between the prune and the config write. Any other
+// *.yaml/*.yml name is rejected one step removed: every *.yaml/*.yml in the
+// directory is merged into the generation (see ConfigFileName), so such a resource
+// would become part of the config rather than sit beside it as data.
 func (w *Workspace) resolve(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {

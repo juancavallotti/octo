@@ -2,27 +2,20 @@
 // identities plus a flat vector of float64 values, and keeps that dictionary
 // stable across scrapes.
 //
-// Why a dictionary at all. This sidecar captures everything the runtime's
-// /metrics serves — the go_* set, the process_* set and every octo_* family —
-// which is 60 to 100 series once a couple of flows are running. Written as
-// self-describing JSON, one sample of that is 3-6 KiB, so an hour of one-second
-// samples is 11-22 MiB for a single pod. The Redis those samples go to is the
-// same 256Mi allkeys-lru instance the trace-fold pipeline and the volatile KV
-// tier share (helm/values.yaml), so a handful of pods sampling that way would
-// evict the folds. Interning each identity once and writing samples as
-// [gen, tMs, v0, v1, ...] costs about 700 bytes a sample instead.
+// Why a dictionary at all. A scrape is 60 to 100 series once a couple of flows are
+// running, which as self-describing JSON is 3-6 KiB a sample, or 11-22 MiB an hour
+// for one pod — enough, on a shared allkeys-lru cache, to evict somebody else's
+// data. Interning each identity once and writing samples as [gen, tMs, v0, v1, ...]
+// costs about 700 bytes a sample instead.
 //
-// What that costs is reading a raw sample with redis-cli: the numbers mean
-// nothing without the dictionary. The dictionary is a plain hash stored beside
-// the samples under the same pod, and store.Layout says where.
+// What that costs is reading a raw sample: the numbers mean nothing without the
+// dictionary, which is a plain hash stored beside the samples under the same pod
+// (store.Layout says where).
 //
 // Why generations. The series set is not fixed for the life of a pod: a config
-// reload adds a flow, and octo_flow_messages_total gains a label value that has
-// never been seen. Rather than rewrite history, the dictionary appends the new
-// identities and bumps its generation, and every sample records the generation
-// it was encoded against. A reader that holds dict:3 can decode a gen-3 sample
-// exactly, and older samples stay readable against the dictionary they were
-// written with.
+// reload adds a flow and a metric gains a label value never seen before. Rather
+// than rewrite history, the dictionary appends the new identities and bumps its
+// generation, and every sample records the generation it was encoded against.
 //
 // Indices are only ever appended, never reused or renumbered, which is what
 // makes a dictionary a superset of every earlier one and lets a reader that

@@ -2,17 +2,14 @@
 // parses it into metric families.
 //
 // The two containers share a network namespace, so the runtime's admin port is
-// reachable at 127.0.0.1 and needs no service, no credential and no exposure —
-// the same relationship sidecars/dev/internal/runtimeprobe describes. What
-// differs is what happens to the bytes: the dev sidecar passes /metrics through
-// verbatim because it has no opinion about the contents, and this one parses,
-// because the collapse rules downstream turn on whether a series is a counter or
-// a gauge and only the exposition's TYPE lines carry that.
+// reachable at 127.0.0.1 and needs no service, no credential and no exposure. The
+// bytes are parsed rather than passed through, because the collapse rules
+// downstream turn on whether a series is a counter or a gauge and only the
+// exposition's TYPE lines carry that.
 //
 // The endpoint exists only when the runtime was started with --metrics
-// (OCTO_METRICS), which defaults to off; the orchestrator sets it on any pod it
-// gives this sidecar to. A 404 is therefore a misconfiguration rather than a
-// transient fault, and is reported as its own error so the log says which.
+// (OCTO_METRICS), which defaults to off, so a 404 is a misconfiguration rather than
+// a transient fault and is reported as its own error.
 package scrape
 
 import (

@@ -2,13 +2,11 @@
 //
 // # Why deployment-first
 //
-// Every key starts with the deployment id and only then names the pod. The
-// question this data exists to answer is "how is this deployment behaving",
-// and a deployment is a set of pods that come and go: a rollout replaces all of
-// them, an autoscale adds one, a crash loop cycles one. A reader that starts
-// from a deployment id must be able to find every pod that ever reported
-// without knowing any pod's name in advance, which is what the pods index gives
-// it. Pod-first keys would have made the common question a full keyspace scan.
+// Every key starts with the deployment id and only then names the pod, because a
+// deployment is a set of pods that come and go and a reader holding only the
+// deployment id must still find every pod that ever reported. The pods index is
+// what gives it that; pod-first keys would make the common question a keyspace
+// scan.
 //
 // # Layout
 //
@@ -21,24 +19,19 @@
 // Reading a deployment is therefore: ZRANGE the pods index, then for each pod
 // LRANGE the tier you want and HGETALL the dictionary generation its rows name.
 // The ZSET score doubles as a liveness hint, so a reader can ignore pods that
-// stopped reporting without having to fetch their rows to find out.
+// stopped reporting without fetching their rows to find out.
 //
-// v0 is in the keys because this is a first cut whose shape is expected to
-// change once we see how it behaves. A later version writes under v1 and the v0
+// The version segment is in the keys so a later layout writes under v1 and the v0
 // keys expire on their own rather than needing a migration.
 //
 // # Bounds
 //
 // Both tiers are capped lists, trimmed on every write, and every key carries a
-// TTL refreshed as it is written. Pods are ephemeral and nothing else will clean
-// up after them, so a key that stops being written has to disappear by itself.
-// The TTLs are what make that automatic: a pod deleted an hour ago stops
-// occupying the cache without any sweeper needing to know it existed.
+// TTL refreshed as it is written. Pods are ephemeral and nothing else cleans up
+// after them, so a key that stops being written has to disappear by itself.
 //
-// This matters more than usual because the Redis being written to is shared. It
-// is the same instance the trace-fold pipeline and the volatile KV tier use, at
-// 256Mi with allkeys-lru, so stats that grew without bound would not fail — they
-// would silently evict someone else's data.
+// The Redis instance is shared and runs allkeys-lru, so stats that grew without
+// bound would not fail — they would evict somebody else's data.
 package store
 
 import (
@@ -55,11 +48,9 @@ import (
 )
 
 const (
-	// Layout is the key shape, as a single string, so the one place that
-	// documents it is also the thing a contract test can assert. The same device
-	// as volatileKeyLayout in runtime/services/k8s/rediskv_contract_test.go: the
-	// layout is read by things outside this module, and a silent change to it is
-	// a silent break.
+	// Layout is the key shape, as a single string, so the one place that documents
+	// it is also the thing a contract test can assert. Anything reading these keys
+	// depends on it, and a silent change to it is a silent break.
 	Layout = "octo:stats:v0:{deployment}:{pod}:{tier}"
 
 	// prefix and the segment names Layout is built from.
@@ -71,9 +62,8 @@ const (
 	rollupKey  = "rollup"
 	keySepChar = ":"
 
-	// writeTimeout bounds one write. Short: a write that has not landed by now
-	// has missed its sample, and the next one is a second away. Matching the
-	// 5s the runtime's volatile KV tier uses (runtime/services/k8s/rediskv.go).
+	// writeTimeout bounds one write. Short, because a write that has not landed by
+	// now has missed its sample and the next one is a second away.
 	writeTimeout = 5 * time.Second
 
 	// liveTTLFactor multiplies the rollup interval to give the live tier's TTL.
@@ -81,10 +71,9 @@ const (
 	// not lose the bucket it was in the middle of before anything can read it.
 	liveTTLFactor = 2
 
-	// retentionSlack is added to the retention window for the TTL of everything
-	// but the live tier. Without it the oldest row expires at the instant it
-	// becomes the oldest row, and a reader asking for exactly a week gets
-	// whatever survived the race.
+	// retentionSlack is added to the retention window for the TTL of every tier but
+	// the live one. Without it the oldest row expires at the instant it becomes the
+	// oldest row, and a reader asking for the full window races it.
 	retentionSlack = time.Hour
 )
 
@@ -174,10 +163,9 @@ func (s *Store) WriteMeta(ctx context.Context, gen int, startedAt time.Time) err
 
 // WriteDictionary persists a generation of the series dictionary.
 //
-// Generations are written whole rather than appended to, because a reader
-// holding one generation must be able to decode every index a sample of that
-// generation names, and a partially written dictionary cannot. Whole is cheap:
-// this happens at startup and on a config reload, not per sample.
+// Generations are written whole rather than appended to, because a reader holding
+// one must be able to decode every index a sample of that generation names. It
+// happens at startup and on a config reload, not per sample.
 func (s *Store) WriteDictionary(ctx context.Context, gen int, entries []series.Entry) error {
 	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()

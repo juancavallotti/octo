@@ -2,53 +2,39 @@
 // tier as scraped, and a history tier where each completed bucket is one
 // collapsed row.
 //
-// The shape of the problem. A week of one-second samples is 604,800 rows per
-// pod, which is not storable in the cache this sidecar writes to and not
-// readable by anything either. A week of hourly rows is 168. So the live tier
-// keeps full resolution for the current bucket and the history tier keeps one
-// row per elapsed bucket, and the bucket width is configuration rather than a
-// constant because the useful width is an open question — at fifteen minutes a
-// week is still only 672 rows, which is a lot more resolution for very little
-// more space.
+// A week of one-second samples is 604,800 rows per pod and a week of hourly rows
+// is 168, so the live tier keeps full resolution for the current bucket and the
+// history tier keeps one row per elapsed bucket. The bucket width is configuration
+// rather than a constant: at fifteen minutes a week is still only 672 rows.
 //
-// Bucket boundaries are aligned to wall-clock multiples of the interval since
-// the Unix epoch, NOT to when the pod started. Pods of one deployment start at
-// different moments and are replaced at different moments, so start-relative
-// buckets would give every pod its own grid and make the rows of a deployment
-// impossible to line up. Epoch-aligned, every pod that ever runs produces the
-// same boundaries.
+// Bucket boundaries are aligned to wall-clock multiples of the interval since the
+// Unix epoch, NOT to when the pod started: pods of one deployment start and are
+// replaced at different moments, and start-relative buckets would give each its own
+// grid and leave the rows impossible to line up.
 //
 // # Collapsing
 //
-// The rule per series follows from what the series means, and two of the four
-// are not the obvious choice:
+// The rule per series follows from what the series means:
 //
 //   - Counters collapse to the DELTA across the bucket, not the sum of their
-//     readings. A Prometheus counter is cumulative — octo_flow_messages_total is
-//     every message since the process started — so summing 3600 readings of it
-//     would report an hour of traffic multiplied by about 1800. What is wanted
-//     is how much it grew. The closing absolute value is kept alongside, because
-//     that is the number that stitches consecutive buckets together.
+//     readings: a Prometheus counter is cumulative, so summing its readings
+//     multiplies the traffic it reports. The closing absolute value is kept
+//     alongside, as that is what stitches consecutive buckets together.
 //
-//   - Histogram buckets are counters and collapse the same way, which is what
-//     preserves the distribution. Averaging a histogram's buckets would report
-//     the mean height of a cumulative curve, which is not a quantity.
+//   - Histogram buckets are counters and collapse the same way, which preserves
+//     the distribution.
 //
-//   - Gauges collapse to the mean, plus min, max and last. The extras are nearly
-//     free and are the difference between a bucket that hides a spike and one
-//     that shows it.
+//   - Gauges collapse to the mean, plus min, max and last, so a bucket shows a
+//     spike rather than hiding it.
 //
-//   - Untyped series are treated as gauges. Averaging something that turns out
-//     to be cumulative is merely uninformative; differencing something that
-//     turns out not to be can go negative.
+//   - Untyped series are treated as gauges: averaging something cumulative is
+//     uninformative, while differencing something that is not can go negative.
 //
 // # Counter resets
 //
-// A counter that reads lower than the previous sample means the process
-// restarted and started counting from zero again. The standard handling applies:
-// the drop is not a negative delta, it is a reset, and the new reading is added
-// in whole. Without it a restart mid-bucket would record a large negative number
-// for every counter at once.
+// A counter that reads lower than the previous sample means the process restarted
+// and began counting from zero: the drop is a reset rather than a negative delta,
+// and the new reading is added in whole.
 //
 // NaN marks a series the dictionary knows but the scrape did not report. It is
 // skipped rather than treated as zero, so a flow removed by a config reload
