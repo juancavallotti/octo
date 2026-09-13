@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.4](https://github.com/juancavallotti/octo/compare/v0.11.3...v0.11.4) (2026-09-13)
+
+
+### Bug Fixes
+
+* **desktop:** attach the update manifest to the release ([523affd](https://github.com/juancavallotti/octo/commit/523affd599c8d1c5f64d3e72aad920b1aef7a070))
+* **desktop:** attach the update manifest to the release ([9a382c7](https://github.com/juancavallotti/octo/commit/9a382c77021cff4c9a4fe61de694f31619755de9))
+* **platform:** let the image optimizer write its cache ([cee8c11](https://github.com/juancavallotti/octo/commit/cee8c11d467e92a781c114f5d441b89eb553cadc))
+* **platform:** let the image optimizer write its cache ([26e19e9](https://github.com/juancavallotti/octo/commit/26e19e912454d06233a07fd76a3a696109ed71a0))
+* **platform:** read the session cookie under the name https gave it ([9aa3ab5](https://github.com/juancavallotti/octo/commit/9aa3ab52f26391cd22d1f6ec462d792688354150))
+* **platform:** read the session cookie under the name https gave it ([306d65c](https://github.com/juancavallotti/octo/commit/306d65c82c1378433bdf35ac615566a70155aa01))
+
 ## [0.11.3](https://github.com/juancavallotti/octo/compare/v0.11.2...v0.11.3) (2026-09-13)
 
 
