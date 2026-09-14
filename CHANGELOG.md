@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.5](https://github.com/juancavallotti/octo/compare/v0.11.4...v0.11.5) (2026-09-14)
+
+
+### Features
+
+* **connectors:** add the crypto connector and its encrypt/decrypt blocks ([d78d0b6](https://github.com/juancavallotti/octo/commit/d78d0b630194cd4def093a0fc0132a622ebd9224))
+* **core:** add the cryptox encryption primitives ([9b938f5](https://github.com/juancavallotti/octo/commit/9b938f5eeb38aa408dbbf578a919cc63d438bef5))
+* **core:** add the toAes/fromAes and toChacha/fromChacha expressions ([16ad0c6](https://github.com/juancavallotti/octo/commit/16ad0c62112b9be2edef7bcfcfc1287c6f56fc0e))
+* encryption for flows — a crypto connector, encrypt/decrypt blocks, and cipher expressions ([b452473](https://github.com/juancavallotti/octo/commit/b452473fa6212493eeca54a502876191de3437dd))
+
+
+### Bug Fixes
+
+* **core:** reject RSA keys that cannot do the job, and stop overclaiming ([cc9164e](https://github.com/juancavallotti/octo/commit/cc9164ea1b5b13024bd579616dff035e681b57be))
+* **platform:** classify the encrypt and decrypt blocks ([3b2f457](https://github.com/juancavallotti/octo/commit/3b2f4575ddcc60ecc1db2d4f39267493a9298d15))
+
+
+### Documentation
+
+* document the crypto connector and the cipher expressions ([f309930](https://github.com/juancavallotti/octo/commit/f3099302da3310d124e52de8c4571c0c0bd12864))
+* the key must be random, and rsa-oaep needs one key not two ([3473a48](https://github.com/juancavallotti/octo/commit/3473a48d1670821b9edd4480dbf87e75d833bb2b))
+
 ## [0.11.4](https://github.com/juancavallotti/octo/compare/v0.11.3...v0.11.4) (2026-09-13)
 
 

@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "productName": "Octo",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "private": true,
   "description": "Octo Desktop — the standalone editor as a native app with a working folder",
   "main": "dist/main/index.js",
