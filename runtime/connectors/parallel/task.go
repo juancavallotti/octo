@@ -166,7 +166,7 @@ func (p *taskRunProcessor) applySchemaAndMetadata(payload, activation map[string
 	if schema != nil {
 		payload["task_spec"] = map[string]any{"output_schema": schema}
 	}
-	metadata, err := evalObject(p.metadata, activation)
+	metadata, err := expr.EvalMap(p.metadata, activation)
 	if err != nil {
 		return fmt.Errorf("parallel-task-run metadata: %w", err)
 	}
@@ -205,21 +205,4 @@ func evalOutputSchema(program *expr.Program, activation map[string]any) (any, er
 	default:
 		return nil, fmt.Errorf("must evaluate to a JSON Schema object or a description string, got %T", raw)
 	}
-}
-
-// evalObject evaluates an optional expression that must yield an object,
-// returning nil when the program is unset.
-func evalObject(program *expr.Program, activation map[string]any) (map[string]any, error) {
-	if program == nil {
-		return nil, nil
-	}
-	raw, err := program.Eval(activation)
-	if err != nil {
-		return nil, err
-	}
-	obj, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("must evaluate to an object, got %T", raw)
-	}
-	return obj, nil
 }

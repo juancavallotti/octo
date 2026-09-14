@@ -312,9 +312,9 @@ func underPrefix(path, prefix string) bool {
 
 // buildQuery evaluates the query expression to a map of parameters.
 func (p *dynamicProcessor) buildQuery(activation map[string]any) (url.Values, error) {
-	entries, err := evalStringMap(p.query, activation, "query")
+	entries, err := expr.EvalStringMap(p.query, activation)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rest-dynamic query: %w", err)
 	}
 	if entries == nil {
 		return nil, nil
@@ -335,42 +335,12 @@ func (p *dynamicProcessor) buildQuery(activation map[string]any) (url.Values, er
 // that sets none gets the connector's. Where that credential can be sent is
 // bounded by the connector's baseURL, allowMethods and pathPrefix.
 func (p *dynamicProcessor) applyHeaders(req *http.Request, activation map[string]any) error {
-	entries, err := evalStringMap(p.headers, activation, "headers")
+	entries, err := expr.EvalStringMap(p.headers, activation)
 	if err != nil {
-		return err
+		return fmt.Errorf("rest-dynamic headers: %w", err)
 	}
 	for name, value := range entries {
 		req.Header.Set(name, value)
 	}
 	return nil
-}
-
-// evalStringMap evaluates one expression expected to produce a map, rendering each
-// value as a string the way EvalString does — verbatim for a string, compact JSON
-// for anything else. A nil program yields no entries.
-func evalStringMap(program *expr.Program, activation map[string]any, what string) (map[string]string, error) {
-	if program == nil {
-		return nil, nil
-	}
-	value, err := program.Eval(activation)
-	if err != nil {
-		return nil, fmt.Errorf("rest-dynamic %s: %w", what, err)
-	}
-	if value == nil {
-		return nil, nil
-	}
-	entries, ok := value.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("rest-dynamic %s: expression produced %T, want a map", what, value)
-	}
-
-	out := make(map[string]string, len(entries))
-	for name, raw := range entries {
-		rendered, err := renderValue(raw)
-		if err != nil {
-			return nil, fmt.Errorf("rest-dynamic %s %q: %w", what, name, err)
-		}
-		out[name] = rendered
-	}
-	return out, nil
 }

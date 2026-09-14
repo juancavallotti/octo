@@ -117,13 +117,9 @@ func toStringSlice(raw any) ([]string, error) {
 // evalMetadataFilter evaluates a compiled filter expression to a Pinecone
 // metadata filter, shared by pinecone-query and pinecone-delete.
 func evalMetadataFilter(program *expr.Program, activation map[string]any) (*sdk.MetadataFilter, error) {
-	raw, err := program.Eval(activation)
+	m, err := expr.EvalMap(program, activation)
 	if err != nil {
 		return nil, fmt.Errorf("filter: %w", err)
-	}
-	m, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("filter must evaluate to an object, got %T", raw)
 	}
 	filter, err := sdk.NewMetadataFilter(m)
 	if err != nil {

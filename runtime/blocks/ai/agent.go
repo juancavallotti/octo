@@ -561,6 +561,9 @@ type aiAgent struct {
 	// userID resolves the person the agent is talking to. Nil when the block names
 	// nobody, which also means user memory is unavailable.
 	userID *expr.Program
+	// forwardContext resolves the opaque context forwarded with every memory call.
+	// Nil when the block forwards nothing, which is every agent that has not asked.
+	forwardContext *expr.Program
 	// history is historyRecord or historyOff: whether completed turns reach the
 	// durable conversation record.
 	history string
@@ -998,8 +1001,7 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	// writing against, which cannot live on the block: aiAgent is shared by every
 	// message it handles at once, and two conversations sharing a version would
 	// each report the other's write as a conflict.
-	sess := a.newMemorySession(ctx, msg, threadID)
-	messages, meter, err := a.initConversation(ctx, msg, sess)
+	sess, messages, meter, err := a.initConversation(ctx, msg, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -1313,21 +1315,29 @@ func (a *aiAgent) halt(
 	return current, nil
 }
 
-// initConversation seeds the LLM message list with the opening user turn,
-// prepending the thread's prior transcript when memory is enabled. It returns the
-// resolved thread id (empty when memory is disabled) and a context meter carrying
+// initConversation opens this run's memory session and seeds the LLM message list
+// with the opening user turn, prepending the thread's prior transcript when memory
+// is enabled. It returns the session, the messages, and a context meter carrying
 // whatever the last run measured for that transcript.
+//
+// The session is built here rather than by the caller because everything that
+// needs one needs the conversation too: there is no point in the run where a
+// session exists and the transcript it belongs to does not.
 func (a *aiAgent) initConversation(
-	ctx context.Context, msg *types.Message, sess *memorySession,
-) (messages []core.LLMMessage, meter *contextMeter, err error) {
+	ctx context.Context, msg *types.Message, threadID string,
+) (sess *memorySession, messages []core.LLMMessage, meter *contextMeter, err error) {
+	sess, err = a.newMemorySession(ctx, msg, threadID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	opening, err := a.openingTurn(msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	sess.noteOpening(opening)
 	stored, err := sess.loadWorking(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	messages = make([]core.LLMMessage, 0, len(stored.Messages)+1)
 	messages = append(messages, stored.Messages...)
@@ -1338,7 +1348,7 @@ func (a *aiAgent) initConversation(
 	// an answer: the first measured turn of this run replaces it.
 	meter = newContextMeter()
 	meter.seed(estimateTokens(stored.Messages), stored.Tokens)
-	return messages, meter, nil
+	return sess, messages, meter, nil
 }
 
 // openingTurn is the text of the agent's first user message.

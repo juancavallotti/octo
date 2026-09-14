@@ -309,6 +309,45 @@ Give [clear-agent-memory](/reference/blocks/ai#clear-agent-memory) the same
 `agentId` and it removes the working memory, the recorded turns and the thread
 itself.
 
+### Forwarding context to the store
+
+Everything above is written by the runtime on its own behalf. No block in your
+flow sees working memory or a recorded turn, so there is nothing to wrap them
+in — which is a problem when the memory service needs something only the flow
+knows.
+
+`forwardContext` is the channel for that. It is an expression evaluating to a
+map, resolved once per run against the inbound message, and sent with every
+memory call the run makes:
+
+```yaml
+- type: ai-agent
+  name: assistant
+  connector: claude
+  agentId: support
+  memoryThreadId: 'vars.conversationId'
+  forwardContext: '{"key": vars.dataKey, "tenant": vars.tenant}'
+  prompt: You are a support agent.
+  tools: []
+```
+
+It resolves from the message in flight rather than from configuration, and the
+runtime keeps no copy of it. That is the point: a value that has to reach the
+store on every call — a per-tenant encryption key, say — can travel with the
+request that carries it instead of being cached somewhere it would outlive the
+run.
+
+Two things follow from where it is evaluated. It is read from the **inbound**
+message, so a variable a tool branch sets later is not in it. And a
+`forwardContext` that does not resolve to a map fails the run rather than
+carrying on: the flow asked for something to travel with every write, and
+writing without it is not the same operation.
+
+What the memory service does with the map is the service's business. The
+runtime only carries it, and an agent that declares no `forwardContext` sends
+nothing at all.
+
+
 ## The second layer: durable facts
 
 <Callout>

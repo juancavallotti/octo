@@ -1659,6 +1659,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "requestBody": {
@@ -1732,6 +1740,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -1770,6 +1786,14 @@
                         "in": "path",
                         "name": "threadKey",
                         "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
                         "schema": {
                             "type": "string"
                         }
@@ -1829,6 +1853,14 @@
                         "in": "path",
                         "name": "threadKey",
                         "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
                         "schema": {
                             "type": "string"
                         }
@@ -1900,6 +1932,14 @@
                         "description": "Who the conversation is with; attributed on first write",
                         "in": "query",
                         "name": "userId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
                         "schema": {
                             "type": "string"
                         }
@@ -1976,6 +2016,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -2042,6 +2090,14 @@
                         "name": "X-Object-Version",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],
@@ -2123,6 +2179,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -2184,6 +2248,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -2241,6 +2313,14 @@
                         "name": "X-Object-Version",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it.",
+                        "in": "header",
+                        "name": "X-Octo-Agent-Context",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],

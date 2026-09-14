@@ -89,14 +89,23 @@ type Query struct {
 	Text      string `json:"text"`
 	Scope     string `json:"scope,omitempty"`
 	Limit     int    `json:"limit,omitempty"`
+	// Forwarded is what the flow sent with this search. It is json:"-" on purpose:
+	// it arrives in a header and must not be settable from a request body, where a
+	// caller could name a context it was never given.
+	Forwarded map[string]string `json:"-"`
 }
 
 // Ref addresses one agent's memory within an integration.
+//
+// Forwarded is what the flow sent along with this particular call, and is empty
+// for one that sent nothing. It is not part of the address: two calls that differ
+// only in what they forwarded are about the same memory.
 type Ref struct {
 	IntegrationID string
 	AgentID       string
 	ThreadKey     string
 	UserID        string
+	Forwarded     map[string]string
 }
 
 // Page is a keyset cursor into a listing.

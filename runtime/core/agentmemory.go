@@ -20,6 +20,8 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -269,3 +271,57 @@ var noopMemory AgentMemory = noopAgentMemory{}
 //
 //nolint:ireturn // returns the AgentMemory interface intentionally
 func NoopAgentMemory() AgentMemory { return noopMemory }
+
+// memoryContextKey is the context key the forwarded agent-memory context travels
+// under. Unexported and of its own type, so nothing outside this package can
+// collide with it or set one.
+type memoryContextKey struct{}
+
+// WithMemoryContext carries opaque context alongside an agent-memory call: what a
+// flow chose to forward with everything its agent remembers.
+//
+// It rides on the context rather than on MemoryRef or a widened signature
+// because no store interprets it. A store that has no use for it — every store
+// in-process — should not have to name it in thirteen method signatures to pass
+// it along, and a store that does want it is reading transport metadata, which
+// is the one thing a context value is for.
+//
+// The map belongs to the caller and must not be mutated after it is attached.
+func WithMemoryContext(ctx context.Context, forwarded map[string]string) context.Context {
+	if len(forwarded) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, memoryContextKey{}, forwarded)
+}
+
+// MemoryContextFrom returns the context a flow forwarded with this call, or nil
+// when it forwarded none.
+func MemoryContextFrom(ctx context.Context) map[string]string {
+	forwarded, _ := ctx.Value(memoryContextKey{}).(map[string]string)
+	return forwarded
+}
+
+// MemoryContextHeader carries the forwarded agent-memory context to a remote
+// store. It is one header holding an encoded map rather than one header per
+// entry, because the keys are the flow author's and neither an arbitrary key nor
+// an arbitrary value is safe as a header name or as a header value.
+//
+// It is a credential: it carries whatever a flow chose to forward, which is the
+// kind of thing worth forwarding precisely because it is sensitive. It must be
+// stripped on a cross-host redirect and must never be logged.
+const MemoryContextHeader = "X-Octo-Agent-Context"
+
+// EncodeMemoryContext renders a forwarded context for MemoryContextHeader, and
+// returns empty for a context with nothing in it.
+func EncodeMemoryContext(forwarded map[string]string) string {
+	if len(forwarded) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(forwarded)
+	if err != nil {
+		// map[string]string always marshals. Returning empty rather than panicking
+		// keeps an impossible failure from taking a run down.
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
+}

@@ -87,6 +87,12 @@ type agentSettings struct {
 	// canvas. The runtime applies the default in configureAgentStore instead, where
 	// it can see whether there is an agent to record under.
 	History string `json:"history" octo:"label=Conversation history,type=enum,enum=record|off"`
+	// CEL expression evaluating to a map forwarded with every agent memory call,
+	// as opaque context the memory service reads. It is evaluated once per run
+	// against the inbound message, which is the point: a value the flow already
+	// holds — an encryption key, a tenant — reaches the store without the runtime
+	// keeping a copy of it anywhere. Requires an agent ID.
+	ForwardContext string `json:"forwardContext" octo:"label=Forward context,type=cel"`
 	// Give the agent remember/forget/search_memory tools so it can keep curated
 	// facts about the person it is talking to and carry them into later
 	// conversations. Requires an agent ID and a user ID.

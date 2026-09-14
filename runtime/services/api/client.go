@@ -134,7 +134,12 @@ func newClient(cfg Config) (*client, error) {
 //
 // With nothing configured to protect, redirects are left alone.
 func (c *client) checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) == 0 || !c.carriesCredentials() {
+	// The forwarded agent-memory context is a credential too, but a per-request one:
+	// it is attached from the call's context rather than configured on the client,
+	// so it is read off this request instead of going through credentialHeaders. A
+	// client that forwards nothing is left exactly as unguarded as it was.
+	forwarding := req.Header.Get(core.MemoryContextHeader) != ""
+	if len(via) == 0 || (!forwarding && !c.carriesCredentials()) {
 		return nil
 	}
 	to := req.URL
@@ -147,6 +152,7 @@ func (c *client) checkRedirect(req *http.Request, via []*http.Request) error {
 			req.Header.Del(name)
 		}
 		req.Header.Del("Authorization")
+		req.Header.Del(core.MemoryContextHeader)
 	}
 	return nil
 }
@@ -285,6 +291,12 @@ func (c *client) attempt(
 		req.Header.Set(name, value)
 	}
 	req.Header.Set("X-Octo-Request-Id", requestID())
+	// Whatever the flow asked to forward with this call. Attached here rather than
+	// at the eleven agent-memory call sites because six of them send no body, so a
+	// header is the only carrier they all have.
+	if forwarded := core.EncodeMemoryContext(core.MemoryContextFrom(ctx)); forwarded != "" {
+		req.Header.Set(core.MemoryContextHeader, forwarded)
+	}
 	if token := c.bearer(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

@@ -11,6 +11,14 @@ var (
 	// ErrNotFound is returned for a conversation that does not exist. The handler
 	// maps it to 404.
 	ErrNotFound = errors.New("agent memory: not found")
+	// ErrInvalidForwardedContext is returned for a forwarded-context header that is
+	// present and cannot be read. The handler maps it to 400.
+	//
+	// It is separate from "no header at all", which is not an error and is what
+	// most calls look like. A header that arrived mangled means a caller meant to
+	// forward something and this service did not get it, and the whole reason to
+	// forward anything is that the call cannot be served correctly without it.
+	ErrInvalidForwardedContext = errors.New("agent memory: unreadable forwarded context")
 	// ErrInvalidRef is returned for an agent id, thread key or user id that cannot
 	// be stored — empty, too long, or carrying control characters. Refused rather
 	// than trimmed: a key a caller reads back must be the one it wrote.

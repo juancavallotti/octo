@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -341,4 +343,63 @@ func TestWorkingMemoryToleratesMissingCounters(t *testing.T) {
 	if got.Iteration != 0 || got.Tokens != 0 {
 		t.Fatalf("counters = (%d, %d), want the zero values to round-trip", got.Iteration, got.Tokens)
 	}
+}
+
+// The forwarded context has to reach a call that sends no body — which is six of
+// the eleven agent-memory calls — so it travels as a header rather than as a
+// field the GETs have nowhere to put.
+func TestForwardedContextRidesOnBodylessCalls(t *testing.T) {
+	svc, f, _ := newMemoryFixture(t)
+	ctx := core.WithMemoryContext(t.Context(), map[string]string{"key": "s3cret", "tenant": "acme"})
+	ref := testRef()
+	mem := svc.AgentMemory()
+
+	if _, _, err := mem.LoadWorking(ctx, ref); err != nil {
+		t.Fatalf("LoadWorking: %v", err)
+	}
+	if _, err := mem.Memories(ctx, ref); err != nil {
+		t.Fatalf("Memories: %v", err)
+	}
+
+	for _, suffix := range []string{"/working", "/memories"} {
+		got := f.last(suffix).header.Get(core.MemoryContextHeader)
+		if got == "" {
+			t.Errorf("%s carried no forwarded context", suffix)
+			continue
+		}
+		decoded, err := decodeMemoryContextForTest(got)
+		if err != nil {
+			t.Errorf("%s: %v", suffix, err)
+			continue
+		}
+		if decoded["key"] != "s3cret" || decoded["tenant"] != "acme" {
+			t.Errorf("%s decoded to %v, want what the caller forwarded", suffix, decoded)
+		}
+	}
+}
+
+// A call with nothing forwarded must look exactly like one made before the
+// header existed, so a store cannot tell the two apart.
+func TestNoForwardedContextSendsNoHeader(t *testing.T) {
+	svc, f, _ := newMemoryFixture(t)
+	if _, _, err := svc.AgentMemory().LoadWorking(t.Context(), testRef()); err != nil {
+		t.Fatalf("LoadWorking: %v", err)
+	}
+	if got := f.last("/working").header.Get(core.MemoryContextHeader); got != "" {
+		t.Errorf("carried %q, want no header at all", got)
+	}
+}
+
+// decodeMemoryContextForTest is the reader's half of the wire contract, written
+// out here because the orchestrator is a separate module and implements its own.
+func decodeMemoryContextForTest(value string) (map[string]string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
