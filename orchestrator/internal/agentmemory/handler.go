@@ -82,6 +82,14 @@ func (h *Handler) runtimeRef(w http.ResponseWriter, r *http.Request, ctx context
 		h.writeError(w, err)
 		return Ref{}, false
 	}
+	// Only the runtime family carries it. The integration-scoped routes serve the
+	// platform's own views, which have no flow behind them to forward anything.
+	forwarded, err := forwardedContext(r)
+	if err != nil {
+		h.writeError(w, err)
+		return Ref{}, false
+	}
+	ref.Forwarded = forwarded
 	return ref, true
 }
 
@@ -125,6 +133,7 @@ func (h *Handler) platformRef(w http.ResponseWriter, r *http.Request) (Ref, bool
 //	@Param			id			path		string	true	"Deployment id"
 //	@Param			agentId		path		string	true	"Agent id"
 //	@Param			threadKey	path		string	true	"Conversation thread key"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success		200			{string}	string	"the working memory payload"
 //	@Header			200			{integer}	X-Object-Version	"the version to send back on a conditional write"
 //	@Failure		404			"no working memory for this conversation"
@@ -165,6 +174,7 @@ func (h *Handler) getWorking(w http.ResponseWriter, r *http.Request) {
 //	@Param			agentId				path	string	true	"Agent id"
 //	@Param			threadKey			path	string	true	"Conversation thread key"
 //	@Param			X-Object-Version	header	integer	false	"Expected version; omit to create"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success		200					"written"
 //	@Header			200					{integer}	X-Object-Version	"the version the write produced"
 //	@Failure		409					{object}	httpx.ErrorResponse	"the version did not match"
@@ -220,6 +230,7 @@ type turnsRequest struct {
 //	@Param			threadKey	path	string			true	"Conversation thread key"
 //	@Param			userId		query	string			false	"Who the conversation is with; attributed on first write"
 //	@Param			body		body	turnsRequest	true	"The turns to append"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success		200			{object}	map[string]int64	"the conversation's new version"
 //	@Router			/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/turns [post]
 func (h *Handler) postTurns(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +271,7 @@ type titleRequest struct {
 //	@Param			id			path		string	true	"Deployment id"
 //	@Param			agentId		path		string	true	"Agent id"
 //	@Param			threadKey	path		string	true	"Conversation thread key"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success		200			{object}	Thread
 //	@Failure		404			{object}	httpx.ErrorResponse	"no such conversation"
 //	@Router			/deployments/{id}/agent-memory/{agentId}/threads/{threadKey} [get]
@@ -291,6 +303,7 @@ func (h *Handler) getRuntimeThread(w http.ResponseWriter, r *http.Request) {
 //	@Param		agentId		path	string			true	"Agent id"
 //	@Param		threadKey	path	string			true	"Conversation thread key"
 //	@Param		body		body	titleRequest	true	"The title"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success	204			"named"
 //	@Router		/deployments/{id}/agent-memory/{agentId}/threads/{threadKey}/title [put]
 func (h *Handler) putRuntimeTitle(w http.ResponseWriter, r *http.Request) {
@@ -322,6 +335,7 @@ func (h *Handler) putRuntimeTitle(w http.ResponseWriter, r *http.Request) {
 //	@Param			id			path	string	true	"Deployment id"
 //	@Param			agentId		path	string	true	"Agent id"
 //	@Param			threadKey	path	string	true	"Conversation thread key"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success		204			"erased"
 //	@Router			/deployments/{id}/agent-memory/{agentId}/threads/{threadKey} [delete]
 func (h *Handler) deleteRuntimeThread(w http.ResponseWriter, r *http.Request) {
@@ -347,6 +361,7 @@ func (h *Handler) deleteRuntimeThread(w http.ResponseWriter, r *http.Request) {
 //	@Param		id		path	string	true	"Deployment id"
 //	@Param		agentId	path	string	true	"Agent id"
 //	@Param		userId	path	string	true	"User id"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success	200		{array}	UserMemory
 //	@Router		/deployments/{id}/agent-memory/{agentId}/users/{userId}/memories [get]
 func (h *Handler) getRuntimeMemories(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +399,7 @@ type memoryRequest struct {
 //	@Param			name				path	string			true	"The memory's name"
 //	@Param			X-Object-Version	header	integer			false	"Expected version; omit to create"
 //	@Param			body				body	memoryRequest	true	"The memory's value"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success		200					{object}	map[string]int64	"the new version"
 //	@Failure		409					{object}	httpx.ErrorResponse	"the version did not match"
 //	@Router			/deployments/{id}/agent-memory/{agentId}/users/{userId}/memories/{name} [put]
@@ -421,6 +437,7 @@ func (h *Handler) putRuntimeMemory(w http.ResponseWriter, r *http.Request) {
 //	@Param		agentId	path	string	true	"Agent id"
 //	@Param		userId	path	string	true	"User id"
 //	@Param		name	path	string	true	"The memory's name"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success	204		"forgotten"
 //	@Router		/deployments/{id}/agent-memory/{agentId}/users/{userId}/memories/{name} [delete]
 func (h *Handler) deleteRuntimeMemory(w http.ResponseWriter, r *http.Request) {
@@ -449,6 +466,7 @@ func (h *Handler) deleteRuntimeMemory(w http.ResponseWriter, r *http.Request) {
 //	@Param			id		path	string	true	"Deployment id"
 //	@Param			agentId	path	string	true	"Agent id"
 //	@Param			body	body	Query	true	"The query"
+//	@Param			X-Octo-Agent-Context	header	string	false	"Opaque context the flow forwarded with this call: base64url of a compact JSON object of string to string. Treat it as a credential; do not log it."
 //	@Success		200		{array}	Hit
 //	@Router			/deployments/{id}/agent-memory/{agentId}/search [post]
 func (h *Handler) postRuntimeSearch(w http.ResponseWriter, r *http.Request) {
@@ -460,6 +478,13 @@ func (h *Handler) postRuntimeSearch(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	q.AgentID = r.PathValue("agentId")
+	// Search does not go through runtimeRef, so it reads the header itself.
+	forwarded, err := forwardedContext(r)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	q.Forwarded = forwarded
 	integrationID, err := h.svc.integrationFor(ctx, r.PathValue("id"))
 	if err != nil {
 		h.writeError(w, err)
@@ -786,7 +811,7 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict, "version conflict")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, ErrInvalidRef):
+	case errors.Is(err, ErrInvalidRef), errors.Is(err, ErrInvalidForwardedContext):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	default:
 		httpx.WriteError(w, http.StatusInternalServerError, "agent memory unavailable")

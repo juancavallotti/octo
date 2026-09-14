@@ -105,7 +105,13 @@ func NewRef(integrationID, agentID, threadKey, userID string) (Ref, error) {
 	if err := validIdentifier("userId", userID, false); err != nil {
 		return Ref{}, err
 	}
-	return Ref{IntegrationID: integrationID, AgentID: agentID, ThreadKey: threadKey, UserID: userID}, nil
+	// Forwarded is empty rather than nil so a reader never has to tell "the flow
+	// forwarded nothing" from "nobody built this ref with a flow behind it". There
+	// is no behaviour that should differ between the two.
+	return Ref{
+		IntegrationID: integrationID, AgentID: agentID, ThreadKey: threadKey, UserID: userID,
+		Forwarded: map[string]string{},
+	}, nil
 }
 
 // validIdentifier rejects a key that cannot be stored. required says whether an

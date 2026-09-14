@@ -1071,9 +1071,14 @@ components:
         on every call that needs it.
 
         Treat it as a credential: do not log it, and do not persist it beside
-        what you use it for. Absent means the flow forwards nothing, which is
-        the default and must behave exactly as this contract did before the
-        header existed.
+        what you use it for.
+
+        Absent means the flow forwards nothing. That is the default and must
+        behave exactly as this contract did before the header existed. Present
+        but unreadable is NOT the same thing and must be refused with 400: the
+        caller meant to forward something and you did not get it, and serving
+        the call as though nobody had asked is the silent wrong answer for the
+        kind of value worth forwarding.
       schema: {type: string}
       example: eyJrZXkiOiJzM2NyZXQifQ
     ExpectedVersion:
