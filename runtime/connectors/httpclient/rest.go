@@ -388,21 +388,6 @@ func multipartBody(value any, block string) (requestBody, error) {
 	return requestBody{reader: strings.NewReader(body), contentType: contentType}, nil
 }
 
-// renderValue turns one evaluated value into the string that goes on the wire,
-// following the same rule Program.EvalString uses: a string verbatim, anything else
-// as compact JSON. It exists because rest-dynamic evaluates a whole map at once and
-// so renders its values itself, rather than getting one string per expression.
-func renderValue(value any) (string, error) {
-	if s, ok := value.(string); ok {
-		return s, nil
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return "", fmt.Errorf("encode value: %w", err)
-	}
-	return string(raw), nil
-}
-
 // applyHeaders renders and sets each configured request header.
 func (p *processor) applyHeaders(req *http.Request, activation map[string]any) error {
 	for name, program := range p.headers {
