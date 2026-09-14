@@ -30,6 +30,10 @@ type FakeMemory struct {
 	FailLoad bool
 	// Semantic is what Capabilities reports.
 	Semantic bool
+	// forwarded records the context that arrived with each call, by operation, so a
+	// test can assert what a flow chose to forward reached the store. A real store
+	// reads it off the wire; here the call's own context is the wire.
+	forwarded map[string]map[string]string
 }
 
 type fakeThread struct {
@@ -48,6 +52,25 @@ func NewFakeMemory() *FakeMemory {
 
 func threadID(ref core.MemoryRef) string  { return ref.AgentID + "\x00" + ref.ThreadKey }
 func userScope(ref core.MemoryRef) string { return ref.AgentID + "\x00" + ref.UserID }
+
+// noteContext records the forwarded context this call arrived with. Every method
+// calls it, so a test can name any operation and ask what travelled with it.
+func (m *FakeMemory) noteContext(ctx context.Context, op string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.forwarded == nil {
+		m.forwarded = map[string]map[string]string{}
+	}
+	m.forwarded[op] = core.MemoryContextFrom(ctx)
+}
+
+// ForwardedContext returns the context that arrived with the named operation, and
+// nil for one that was never called or carried none.
+func (m *FakeMemory) ForwardedContext(op string) map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.forwarded[op]
+}
 
 func (m *FakeMemory) Enabled() bool { return true }
 
@@ -72,7 +95,8 @@ func (m *FakeMemory) thread(ref core.MemoryRef) *fakeThread {
 	return t
 }
 
-func (m *FakeMemory) LoadWorking(_ context.Context, ref core.MemoryRef) (core.WorkingMemory, bool, error) {
+func (m *FakeMemory) LoadWorking(ctx context.Context, ref core.MemoryRef) (core.WorkingMemory, bool, error) {
+	m.noteContext(ctx, "LoadWorking")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.FailLoad {
@@ -87,7 +111,8 @@ func (m *FakeMemory) LoadWorking(_ context.Context, ref core.MemoryRef) (core.Wo
 	return wm, true, nil
 }
 
-func (m *FakeMemory) SaveWorking(_ context.Context, ref core.MemoryRef, wm core.WorkingMemory) (int64, error) {
+func (m *FakeMemory) SaveWorking(ctx context.Context, ref core.MemoryRef, wm core.WorkingMemory) (int64, error) {
+	m.noteContext(ctx, "SaveWorking")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.FailWorking {
@@ -109,7 +134,8 @@ func (m *FakeMemory) SaveWorking(_ context.Context, ref core.MemoryRef, wm core.
 	return wm.Version, nil
 }
 
-func (m *FakeMemory) AppendTurns(_ context.Context, ref core.MemoryRef, turns []core.Turn) (int64, error) {
+func (m *FakeMemory) AppendTurns(ctx context.Context, ref core.MemoryRef, turns []core.Turn) (int64, error) {
+	m.noteContext(ctx, "AppendTurns")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t := m.thread(ref)
@@ -125,8 +151,9 @@ func (m *FakeMemory) AppendTurns(_ context.Context, ref core.MemoryRef, turns []
 }
 
 func (m *FakeMemory) ListThreads(
-	_ context.Context, agentID, userID string, _ core.Page,
+	ctx context.Context, agentID, userID string, _ core.Page,
 ) ([]core.Thread, string, error) {
+	m.noteContext(ctx, "ListThreads")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var rows []core.Thread
@@ -141,8 +168,9 @@ func (m *FakeMemory) ListThreads(
 }
 
 func (m *FakeMemory) ReadThread(
-	_ context.Context, ref core.MemoryRef, _ core.Page,
+	ctx context.Context, ref core.MemoryRef, _ core.Page,
 ) (core.Thread, []core.Turn, string, error) {
+	m.noteContext(ctx, "ReadThread")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.threads[threadID(ref)]
@@ -152,21 +180,24 @@ func (m *FakeMemory) ReadThread(
 	return t.meta, append([]core.Turn(nil), t.turns...), "", nil
 }
 
-func (m *FakeMemory) DeleteThread(_ context.Context, ref core.MemoryRef) error {
+func (m *FakeMemory) DeleteThread(ctx context.Context, ref core.MemoryRef) error {
+	m.noteContext(ctx, "DeleteThread")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.threads, threadID(ref))
 	return nil
 }
 
-func (m *FakeMemory) SetTitle(_ context.Context, ref core.MemoryRef, title string) error {
+func (m *FakeMemory) SetTitle(ctx context.Context, ref core.MemoryRef, title string) error {
+	m.noteContext(ctx, "SetTitle")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.thread(ref).meta.Title = title
 	return nil
 }
 
-func (m *FakeMemory) Memories(_ context.Context, ref core.MemoryRef) ([]core.UserMemory, error) {
+func (m *FakeMemory) Memories(ctx context.Context, ref core.MemoryRef) ([]core.UserMemory, error) {
+	m.noteContext(ctx, "Memories")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	stored := m.memories[userScope(ref)]
@@ -179,8 +210,9 @@ func (m *FakeMemory) Memories(_ context.Context, ref core.MemoryRef) ([]core.Use
 }
 
 func (m *FakeMemory) PutMemory(
-	_ context.Context, ref core.MemoryRef, name, value string, expectedVersion int64,
+	ctx context.Context, ref core.MemoryRef, name, value string, expectedVersion int64,
 ) (int64, error) {
+	m.noteContext(ctx, "PutMemory")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	scope := userScope(ref)
@@ -198,7 +230,8 @@ func (m *FakeMemory) PutMemory(
 	return current.Version, nil
 }
 
-func (m *FakeMemory) DeleteMemory(_ context.Context, ref core.MemoryRef, name string) error {
+func (m *FakeMemory) DeleteMemory(ctx context.Context, ref core.MemoryRef, name string) error {
+	m.noteContext(ctx, "DeleteMemory")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.memories[userScope(ref)], name)
@@ -207,7 +240,8 @@ func (m *FakeMemory) DeleteMemory(_ context.Context, ref core.MemoryRef, name st
 
 // Search is the keyword fallback every store owes, so the engine's tool path can
 // be tested without an embedding provider.
-func (m *FakeMemory) Search(_ context.Context, q core.MemoryQuery) ([]core.MemoryHit, error) {
+func (m *FakeMemory) Search(ctx context.Context, q core.MemoryQuery) ([]core.MemoryHit, error) {
+	m.noteContext(ctx, "Search")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	needle := strings.ToLower(q.Text)

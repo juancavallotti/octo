@@ -118,6 +118,10 @@ type memorySession struct {
 	// blind says the stored working memory could not be read, so this run is
 	// carrying on without knowing what was there. See loadWorking.
 	blind bool
+	// forwarded is the opaque context this run sends with every memory call. It is
+	// resolved once, from the inbound message, and held for the run because the
+	// terminal saves outlive the request's context. See newMemorySession.
+	forwarded map[string]string
 
 	// Checkpoint debounce state. lastAt and lastSize describe the last write.
 	mu        sync.Mutex
@@ -148,10 +152,12 @@ func (s *memorySession) noteIteration(iter int) {
 
 // newMemorySession builds the session for a run. store is nil unless the agent
 // named itself and the module actually has somewhere to put things.
-func (a *aiAgent) newMemorySession(ctx context.Context, msg *types.Message, thread string) *memorySession {
+func (a *aiAgent) newMemorySession(
+	ctx context.Context, msg *types.Message, thread string,
+) (*memorySession, error) {
 	sess := &memorySession{agent: a, thread: thread}
 	if a.agentID == "" || thread == "" {
-		return sess
+		return sess, nil
 	}
 	store := core.RuntimeServicesFromContext(ctx).AgentMemory()
 	if !store.Enabled() {
@@ -160,11 +166,31 @@ func (a *aiAgent) newMemorySession(ctx context.Context, msg *types.Message, thre
 		// Said once per run at debug, because for standalone-in-memory it is normal.
 		slog.Debug("ai-agent has an agentId but the runtime keeps no agent memory",
 			"block", a.name, "agent", a.agentID)
-		return sess
+		return sess, nil
 	}
+	forwarded, err := expr.EvalStringMap(a.forwardContext, expr.MessageActivation(msg, a.env))
+	if err != nil {
+		// Louder than resolveUser, and deliberately. Not knowing the user costs user
+		// memory. Not resolving the forwarded context costs whatever the flow put in
+		// it — and the reason to forward anything is that the memory service cannot do
+		// its job without it, so carrying on would write under conditions the author
+		// did not ask for.
+		return nil, fmt.Errorf("ai-agent forwardContext: %w", err)
+	}
+	sess.forwarded = forwarded
 	sess.store = store
 	sess.ref = core.MemoryRef{AgentID: a.agentID, ThreadKey: thread, UserID: a.resolveUser(msg)}
-	return sess
+	return sess, nil
+}
+
+// with attaches this run's forwarded context to a call's context. Every store
+// call goes through it, rather than the session wrapping one context up front,
+// because the terminal saves run on a context of their own.
+func (s *memorySession) with(ctx context.Context) context.Context {
+	if s == nil {
+		return ctx
+	}
+	return core.WithMemoryContext(ctx, s.forwarded)
 }
 
 // resolveUser evaluates who the agent is talking to, or returns empty when the
@@ -203,7 +229,7 @@ func (s *memorySession) loadWorking(ctx context.Context) (memoryEnvelope, error)
 	if !s.active() {
 		return s.agent.loadHistory(ctx, s.thread)
 	}
-	wm, ok, err := s.store.LoadWorking(ctx, s.ref)
+	wm, ok, err := s.store.LoadWorking(s.with(ctx), s.ref)
 	if err != nil {
 		// A store that cannot be read must not take the conversation with it: the run
 		// carries on from nothing rather than failing.
@@ -298,9 +324,9 @@ func (s *memorySession) writeWorking(ctx context.Context, env memoryEnvelope, it
 		Tokens:    env.Tokens,
 		Payload:   payload,
 	}
-	next, err := s.store.SaveWorking(ctx, s.ref, wm)
+	next, err := s.store.SaveWorking(s.with(ctx), s.ref, wm)
 	if errors.Is(err, core.ErrVersionConflict) {
-		current, ok, loadErr := s.store.LoadWorking(ctx, s.ref)
+		current, ok, loadErr := s.store.LoadWorking(s.with(ctx), s.ref)
 		if loadErr != nil {
 			return loadErr
 		}
@@ -309,7 +335,7 @@ func (s *memorySession) writeWorking(ctx context.Context, env memoryEnvelope, it
 		} else {
 			wm.Version = 0
 		}
-		next, err = s.store.SaveWorking(ctx, s.ref, wm)
+		next, err = s.store.SaveWorking(s.with(ctx), s.ref, wm)
 	}
 	if err != nil {
 		return err
@@ -371,7 +397,7 @@ func (s *memorySession) recordTurn(
 		s.nameThread(ctx, msg, answered, iterations)
 		s.fresh = false
 	}
-	if _, err := s.store.AppendTurns(ctx, s.ref, turns); err != nil {
+	if _, err := s.store.AppendTurns(s.with(ctx), s.ref, turns); err != nil {
 		// History is the durable record, so a failure here is louder than a lost
 		// checkpoint — but it still must not fail the run: the person got their answer,
 		// and taking the flow down after the fact would not give them a better one.
@@ -422,7 +448,7 @@ func (s *memorySession) nameThread(
 		// which is worse to read and no worse to use.
 		return
 	}
-	if err := s.store.SetTitle(ctx, s.ref, title); err != nil {
+	if err := s.store.SetTitle(s.with(ctx), s.ref, title); err != nil {
 		slog.Debug("ai-agent could not title the new conversation",
 			"block", s.agent.name, "thread", s.thread, "error", err)
 		return
@@ -522,7 +548,7 @@ func (s *memorySession) memoryPreamble(ctx context.Context) []core.LLMMessage {
 	if !s.active() || !s.agent.userMemory || s.ref.UserID == "" {
 		return nil
 	}
-	memories, err := s.store.Memories(ctx, s.ref)
+	memories, err := s.store.Memories(s.with(ctx), s.ref)
 	if err != nil {
 		slog.Warn("ai-agent could not load user memory", "block", s.agent.name, "error", err)
 		return nil
@@ -603,6 +629,10 @@ func validateAgentMemoryConfig(cfg agentSettings) error {
 		case cfg.UserMemory:
 			return errors.New(
 				"ai-agent userMemory requires an agentId to store the memories under")
+		case strings.TrimSpace(cfg.ForwardContext) != "":
+			return errors.New(
+				"ai-agent forwardContext requires an agentId: there is nothing to forward " +
+					"to until the agent has a store of its own")
 		}
 		return nil
 	}
@@ -639,6 +669,13 @@ func (b *builder) configureAgentStore(block *aiAgent, cfg agentSettings) error {
 		} else {
 			block.history = historyRecord
 		}
+	}
+	if forwarded := strings.TrimSpace(cfg.ForwardContext); forwarded != "" {
+		program, err := expr.CompileMessage(b.deps.Resources, forwarded)
+		if err != nil {
+			return fmt.Errorf("ai-agent forwardContext: %w", err)
+		}
+		block.forwardContext = program
 	}
 	if strings.TrimSpace(cfg.UserID) == "" {
 		return nil
@@ -767,13 +804,13 @@ func (s *memorySession) remember(
 	if s.ref.UserID == "" {
 		return errorResult(call, "there is no identified person to remember this about")
 	}
-	_, err := s.store.PutMemory(ctx, s.ref, name, value, 0)
+	_, err := s.store.PutMemory(s.with(ctx), s.ref, name, value, 0)
 	if errors.Is(err, core.ErrVersionConflict) {
 		existing, findErr := s.findMemory(ctx, name)
 		if findErr != nil {
 			return errorResult(call, findErr.Error())
 		}
-		_, err = s.store.PutMemory(ctx, s.ref, name, value, existing)
+		_, err = s.store.PutMemory(s.with(ctx), s.ref, name, value, existing)
 	}
 	if err != nil {
 		slog.Warn("ai-agent could not store a user memory",
@@ -786,7 +823,7 @@ func (s *memorySession) remember(
 
 // findMemory returns the current version of a named memory.
 func (s *memorySession) findMemory(ctx context.Context, name string) (int64, error) {
-	memories, err := s.store.Memories(ctx, s.ref)
+	memories, err := s.store.Memories(s.with(ctx), s.ref)
 	if err != nil {
 		return 0, errors.New("could not read existing memories")
 	}
@@ -806,7 +843,7 @@ func (s *memorySession) forget(ctx context.Context, call core.LLMToolCall, name 
 	if name == "" {
 		return errorResult(call, "name is required")
 	}
-	if err := s.store.DeleteMemory(ctx, s.ref, name); err != nil {
+	if err := s.store.DeleteMemory(s.with(ctx), s.ref, name); err != nil {
 		slog.Warn("ai-agent could not forget a user memory",
 			"block", s.agent.name, "name", name, "error", err)
 		return errorResult(call, "could not forget that memory")
@@ -826,7 +863,7 @@ func (s *memorySession) searchMemory(
 	if query == "" {
 		return errorResult(call, "query is required")
 	}
-	hits, err := s.store.Search(ctx, core.MemoryQuery{
+	hits, err := s.store.Search(s.with(ctx), core.MemoryQuery{
 		AgentID: s.ref.AgentID,
 		UserID:  s.ref.UserID,
 		Text:    query,
