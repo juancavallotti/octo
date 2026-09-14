@@ -20,6 +20,8 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -297,4 +299,29 @@ func WithMemoryContext(ctx context.Context, forwarded map[string]string) context
 func MemoryContextFrom(ctx context.Context) map[string]string {
 	forwarded, _ := ctx.Value(memoryContextKey{}).(map[string]string)
 	return forwarded
+}
+
+// MemoryContextHeader carries the forwarded agent-memory context to a remote
+// store. It is one header holding an encoded map rather than one header per
+// entry, because the keys are the flow author's and neither an arbitrary key nor
+// an arbitrary value is safe as a header name or as a header value.
+//
+// It is a credential: it carries whatever a flow chose to forward, which is the
+// kind of thing worth forwarding precisely because it is sensitive. It must be
+// stripped on a cross-host redirect and must never be logged.
+const MemoryContextHeader = "X-Octo-Agent-Context"
+
+// EncodeMemoryContext renders a forwarded context for MemoryContextHeader, and
+// returns empty for a context with nothing in it.
+func EncodeMemoryContext(forwarded map[string]string) string {
+	if len(forwarded) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(forwarded)
+	if err != nil {
+		// map[string]string always marshals. Returning empty rather than panicking
+		// keeps an impossible failure from taking a run down.
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
 }

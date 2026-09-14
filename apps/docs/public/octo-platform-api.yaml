@@ -687,6 +687,7 @@ paths:
       - $ref: "#/components/parameters/AgentID"
       - $ref: "#/components/parameters/ThreadKey"
       - $ref: "#/components/parameters/UserIDQuery"
+      - $ref: "#/components/parameters/ForwardedAgentContext"
     get:
       tags: [agentMemory]
       operationId: loadWorkingMemory
@@ -750,6 +751,7 @@ paths:
       - $ref: "#/components/parameters/AgentID"
       - $ref: "#/components/parameters/ThreadKey"
       - $ref: "#/components/parameters/UserIDQuery"
+      - $ref: "#/components/parameters/ForwardedAgentContext"
     post:
       tags: [agentMemory]
       operationId: appendTurns
@@ -783,7 +785,9 @@ paths:
         default: {$ref: "#/components/responses/Error"}
 
   /v1/agent-memory/{agentId}/threads:
-    parameters: [{$ref: "#/components/parameters/AgentID"}]
+    parameters:
+      - $ref: "#/components/parameters/AgentID"
+      - $ref: "#/components/parameters/ForwardedAgentContext"
     get:
       tags: [agentMemory]
       operationId: listThreads
@@ -810,6 +814,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/AgentID"
       - $ref: "#/components/parameters/ThreadKey"
+      - $ref: "#/components/parameters/ForwardedAgentContext"
     get:
       tags: [agentMemory]
       operationId: readThread
@@ -848,6 +853,7 @@ paths:
       - $ref: "#/components/parameters/AgentID"
       - $ref: "#/components/parameters/ThreadKey"
       - $ref: "#/components/parameters/UserIDQuery"
+      - $ref: "#/components/parameters/ForwardedAgentContext"
     put:
       tags: [agentMemory]
       operationId: setThreadTitle
@@ -870,6 +876,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/AgentID"
       - $ref: "#/components/parameters/UserIDPath"
+      - $ref: "#/components/parameters/ForwardedAgentContext"
     get:
       tags: [agentMemory]
       operationId: listMemories
@@ -926,7 +933,9 @@ paths:
         default: {$ref: "#/components/responses/Error"}
 
   /v1/agent-memory/{agentId}/search:
-    parameters: [{$ref: "#/components/parameters/AgentID"}]
+    parameters:
+      - $ref: "#/components/parameters/AgentID"
+      - $ref: "#/components/parameters/ForwardedAgentContext"
     post:
       tags: [agentMemory]
       operationId: searchMemory
@@ -1047,6 +1056,26 @@ components:
         not a path segment.
       schema: {type: string}
       example: cache/orders/A-1
+    ForwardedAgentContext:
+      name: X-Octo-Agent-Context
+      in: header
+      required: false
+      description: |
+        Opaque context the flow chose to forward with this agent-memory call:
+        base64url (unpadded) of a compact JSON object of string keys to string
+        values.
+
+        It is resolved per run from the message the agent was invoked with and
+        is NOT stored by the runtime, which is the point — it is how a value the
+        runtime must not keep, such as a per-tenant encryption key, reaches you
+        on every call that needs it.
+
+        Treat it as a credential: do not log it, and do not persist it beside
+        what you use it for. Absent means the flow forwards nothing, which is
+        the default and must behave exactly as this contract did before the
+        header existed.
+      schema: {type: string}
+      example: eyJrZXkiOiJzM2NyZXQifQ
     ExpectedVersion:
       name: X-Object-Version
       in: header

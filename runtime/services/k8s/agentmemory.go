@@ -426,6 +426,12 @@ func (c *agentMemory) do(
 	for name, value := range headers {
 		req.Header.Set(name, value)
 	}
+	// Whatever the flow asked to forward with this call. See the api client: this
+	// module talks to the same orchestrator over its own HTTP client, so the
+	// header has to be attached in both places.
+	if forwarded := core.EncodeMemoryContext(core.MemoryContextFrom(ctx)); forwarded != "" {
+		req.Header.Set(core.MemoryContextHeader, forwarded)
+	}
 	c.cred.authorize(req)
 	resp, err := c.http.Do(req) //nolint:bodyclose // the caller closes it; cancel rides along
 	if err != nil {
