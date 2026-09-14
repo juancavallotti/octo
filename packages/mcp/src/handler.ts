@@ -21,7 +21,7 @@ import { OCTO_ICON_DATA_URI } from "./icon";
  * trailing annotation marks the line release automation rewrites. Every host reports the
  * same release unless it overrides {@link OctoMcpServerInfo.version}.
  */
-export const OCTO_MCP_VERSION = "0.11.5"; // x-release-please-version
+export const OCTO_MCP_VERSION = "0.11.6"; // x-release-please-version
 
 /**
  * Identity reported to clients during the MCP `initialize` handshake. Without a
