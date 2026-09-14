@@ -165,7 +165,9 @@ a caller something about your key that they have no business learning.
 ## Without a connector
 
 Where the key is already in the environment and a whole connector is more than the
-job needs, the expression functions do the same work inline:
+job needs, the expression functions do the same work inline —
+[`samples/crypto-inline.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-inline.yaml)
+is this guide's flow written that way:
 
 ```yaml
 - type: set-variable
@@ -192,6 +194,32 @@ and back:
 
 The functions cover the symmetric algorithms only. For an asymmetric keypair, or
 to keep the key out of the flow file entirely, use the connector.
+
+## Sealing something you cannot read back
+
+Everything above uses one key for both directions. `rsa-oaep` uses two, which is
+the reason to reach for it: give the connector only a `publicKey` and the flow can
+encrypt and not decrypt, so it can hand a value to whoever holds the private half
+without ever being able to read it itself.
+
+```yaml
+connectors:
+  - name: recipient
+    type: crypto
+    settings:
+      algorithm: rsa-oaep
+      publicKey: |
+        -----BEGIN PUBLIC KEY-----
+        ...
+        -----END PUBLIC KEY-----
+```
+
+A public key is not a secret, so it can sit in the flow file; a private key still
+belongs in an env var. RSA carries at most the modulus minus its padding — 190
+bytes for a 2048-bit key — so it suits a token or a key, not a document. For
+anything larger, seal the document with `aes-gcm` and use RSA to seal that key.
+[`samples/crypto-asymmetric.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-asymmetric.yaml)
+is a flow that does exactly this.
 
 ## Run it
 

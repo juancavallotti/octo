@@ -1,0 +1,56 @@
+# Encrypting without a connector, using the cipher expressions directly.
+#
+# The companion to samples/crypto-roundtrip.yaml, which does the same work with
+# the crypto connector and its encrypt/decrypt blocks. The difference is who holds
+# the key: there it belongs to the operator and the flow never names it, here it
+# is an argument like any other value.
+#
+# Note base64.decode around the key in every call. A CEL function sees only what
+# it is passed, so a key written as base64 has to be decoded into the bytes it
+# stands for — pass it straight through and its 44-character TEXT becomes the key,
+# which is not a length any of these algorithms accept.
+#
+# Try it:
+#   CRYPTO_KEY=$(openssl rand -base64 32) bin/octo invoke \
+#     --config samples/crypto-inline.yaml --flow seal-inline \
+#     --data '{"name": "Ada", "ssn": "078-05-1120"}'
+service:
+  name: crypto-inline
+
+env:
+  - name: CRYPTO_KEY
+    required: true
+
+flows:
+  - name: seal-inline
+    process:
+      - type: multi-transform
+        name: seal-and-open
+        settings:
+          transforms:
+            # toAes returns raw bytes, so base64.encode renders them into something
+            # a JSON body can carry. hexEncode is there for a counterparty that
+            # wants hex instead; which one is a question about the reader, not the
+            # cipher, which is why rendering is a separate step.
+            - setVar: sealed
+              value: 'base64.encode(toAes(body.ssn, base64.decode(env.CRYPTO_KEY)))'
+
+            # And back. fromAes also returns bytes, so string() reads them as text.
+            # A value sealed under another key, or altered since, fails here rather
+            # than decoding into something that looks plausible.
+            - setVar: opened
+              value: 'string(fromAes(base64.decode(vars.sealed), base64.decode(env.CRYPTO_KEY)))'
+
+            # The same pair for ChaCha20-Poly1305, which takes a 32-byte key and
+            # nothing else. The two algorithms are not interchangeable: opening
+            # these bytes with fromAes fails.
+            - setVar: sealedChacha
+              value: 'base64.encode(toChacha(body.ssn, base64.decode(env.CRYPTO_KEY)))'
+
+            - setBody: |
+                {
+                  "name": body.name,
+                  "sealed": vars.sealed,
+                  "sealedChacha": vars.sealedChacha,
+                  "opened": vars.opened
+                }

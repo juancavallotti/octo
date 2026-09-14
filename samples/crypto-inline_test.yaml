@@ -1,0 +1,28 @@
+flow: seal-inline
+
+# A fake key, and fake is all it has to be: nothing here authenticates against
+# anything, the cipher only needs 32 decoded bytes to exist. The env is resolved
+# when the config is LOADED, so without this the flow cannot be built.
+env:
+  CRYPTO_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+
+inputs:
+  record:
+    data: { name: "Ada", ssn: "078-05-1120" }
+
+cases:
+  # What can be asserted about a to* function is not its output — a fresh nonce per
+  # call means the bytes differ on every run — but that the round-trip closes and
+  # that the sealed form is not the plaintext wearing a different coat.
+  - name: the expressions seal the ssn and open it again
+    input: record
+    expect:
+      that:
+        - 'body.opened == "078-05-1120"'
+        - 'body.sealed != "078-05-1120"'
+        - 'body.name == "Ada"'
+        # base64 of a 12-byte nonce, the 11-byte plaintext and a 16-byte tag.
+        - 'body.sealed.size() == 52'
+        # The two algorithms produce their own ciphertext, not a shared one.
+        - 'body.sealedChacha != body.sealed'
+        - 'body.sealedChacha.size() == 52'

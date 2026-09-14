@@ -115,9 +115,17 @@ runs to find out — so where the ciphertext arrives from outside, wrap the bloc
 chain rather than letting the failure become a 500. The
 [Encrypting Data guide](/guides/encrypting-data) shows the shape.
 
-## Example
+## Examples
 
-From `samples/crypto-roundtrip.yaml`, sealing one field and opening it again:
+Three runnable samples:
+[`crypto-roundtrip.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-roundtrip.yaml)
+seals a field and opens it again with the blocks,
+[`crypto-inline.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-inline.yaml)
+does the same with the expression functions and no connector, and
+[`crypto-asymmetric.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-asymmetric.yaml)
+seals a token under a public key the flow cannot decrypt.
+
+From the first of them:
 
 ```yaml
 service:
