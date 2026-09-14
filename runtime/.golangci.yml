@@ -169,6 +169,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/cron/cron\.go$
         linters: [gochecknoinits]
+      - path: ^connectors/crypto/crypto\.go$
+        linters: [gochecknoinits]
       - path: ^connectors/database/database\.go$
         linters: [gochecknoinits]
       - path: ^connectors/events/events\.go$

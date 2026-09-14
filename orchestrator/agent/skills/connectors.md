@@ -12,6 +12,7 @@ does not exist.
 | `queue` | Platform Queue | yes — queue subscription | `queue-dispatch` |
 | `events` | Platform Events | yes — event subscription | `publish-event` |
 | `logger` | Logger | no | `log` |
+| `crypto` | Crypto | no | `encrypt`, `decrypt` |
 | `file` | File | no | `file-read`, `file-write` |
 | `mongodb` | MongoDB | no | `mongodb-*` |
 | `pinecone` | Pinecone | no | `pinecone-*` |

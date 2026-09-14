@@ -1,0 +1,207 @@
+---
+title: "Crypto"
+description: "Encryption: the crypto connector and the encrypt and decrypt blocks."
+octo_types:
+  - crypto
+  - encrypt
+  - decrypt
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `crypto` connector owns a key and the algorithm it is for. The `encrypt` and
+`decrypt` blocks bind to it by name and never learn which cipher they got, so
+changing algorithms is an edit to the connector and no flow changes.
+
+Use these where the key belongs to the operator and a flow author should never
+see it. Where the key is just another value in the expression, the
+[`toAes`/`fromAes` functions](/reference/cel/octo-extensions#toaes) do the same
+work inline.
+
+## `crypto` connector
+
+Provides a source: no, it is a service connector. Blocks that bind to it:
+`encrypt`, `decrypt`.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `algorithm` | enum: `aes-gcm` \| `chacha20-poly1305` \| `rsa-oaep` | No | `aes-gcm` | Cipher this connector's key is for. |
+| `key` | string | For the symmetric algorithms | — | The symmetric key. Source it from an env var. |
+| `keyEncoding` | enum: `base64` \| `hex` \| `utf8` | No | `base64` | How `key` is written. |
+| `publicKey` | string | For `rsa-oaep`, to encrypt | — | PEM public key, PKIX or PKCS#1, at least 2048 bits. |
+| `privateKey` | string | For `rsa-oaep`, to decrypt | — | PEM private key, PKCS#8 or PKCS#1. |
+
+`rsa-oaep` needs at least one of the two, not both. A connector given only
+`publicKey` can encrypt and not decrypt, which is the arrangement that makes an
+asymmetric key worth having. `privateKey` alone is enough for both, since it
+carries its public half — so do not configure a private key a flow has no reason
+to decrypt with.
+
+`aes-gcm` takes 16, 24 or 32 decoded bytes, and the length is what selects
+AES-128, AES-192 or AES-256. `chacha20-poly1305` takes 32.
+
+<Callout type="warn">
+  Whatever the encoding, the key has to be **randomly generated**. `utf8` reads
+  the setting's characters as the key bytes and derives nothing, so a memorable
+  passphrase that happens to be 32 characters long is a 32-character key with a
+  passphrase's entropy, not a 256-bit one — and because the ciphertext is
+  authenticated, an attacker who holds some can test guesses offline, as fast as
+  their hardware allows. Generate with `openssl rand -base64 32` and keep the
+  encoding that produced it.
+</Callout>
+
+A wrong key length, a key below 2048 bits, two RSA keys that are not halves of one
+pair, or a PEM that will not parse: each fails at startup rather than on the first
+message that needed it.
+
+<Callout type="warn">
+  Never write a key into a flow file. [Declare the
+  variable](/reference/flow-file#env) and reference it: `key: ${CRYPTO_KEY}`.
+  Generate one with `openssl rand -base64 32`.
+</Callout>
+
+### Choosing an algorithm
+
+`aes-gcm` is the default and the right answer unless something else is asked of
+you. `chacha20-poly1305` is an equivalent alternative where AES has no hardware
+acceleration. Both are authenticated: a value altered after it was sealed fails
+to open rather than decrypting into something plausible.
+
+Changing the algorithm, or rotating the key, does not convert anything already
+sealed: ciphertext is bound to what produced it, and the two symmetric algorithms
+are not interchangeable. Whatever is still in a queue, a column or a cache becomes
+unreadable. Migrate it first, or keep the old connector declared and read through
+it until nothing is left.
+
+`rsa-oaep` (over SHA-256) uses two keys instead of one, which is the point of
+reaching for it: a connector given only `publicKey` can encrypt and not decrypt,
+so a flow can seal something it cannot read back. It carries at most a few
+hundred bytes — the modulus, minus the padding — so it suits a key or a token,
+not a document.
+
+## `encrypt` block
+
+**Encrypt** evaluates an expression, encrypts the result, and stores the
+ciphertext in a variable or the message body.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `crypto` | string | Yes | — | The `crypto` connector whose key the value is encrypted with. |
+| `value` | expression | No | `body` | CEL expression for the value to encrypt. |
+| `encoding` | enum: `base64` \| `hex` | No | `base64` | How the ciphertext is rendered. |
+| `target` | string | No | — | Variable to store the ciphertext in. Leave empty to replace the message body. |
+
+A non-string value is encrypted as its compact JSON, so `value: body` on a
+structured body seals that body's JSON text. Ciphertext is rendered as text
+because it travels through a JSON body.
+
+## `decrypt` block
+
+**Decrypt** is the mirror: it reads rendered ciphertext, decrypts it, and stores
+the plaintext.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `crypto` | string | Yes | — | The `crypto` connector whose key the value is decrypted with. |
+| `value` | expression | No | `body` | CEL expression for the ciphertext to decrypt. |
+| `encoding` | enum: `base64` \| `hex` | No | `base64` | How the ciphertext being read is encoded. |
+| `target` | string | No | — | Variable to store the plaintext in. Leave empty to replace the message body. |
+
+The plaintext lands as text. To get a structured body back from something that
+was sealed as JSON, follow the block with a `set-payload` and `fromJson`:
+
+```yaml
+- type: decrypt
+  settings:
+    crypto: vault
+    target: opened
+- type: set-payload
+  settings:
+    value: fromJson(vars.opened)
+```
+
+A value sealed under a different key, or altered since, fails the block. No rule
+ahead of it can screen for that — whether a value is authentic is what `decrypt`
+runs to find out — so where the ciphertext arrives from outside, wrap the block in
+[`handle-errors`](/reference/blocks/control-flow#handle-errors) and answer 400 from its error
+chain rather than letting the failure become a 500. The
+[Encrypting Data guide](/guides/encrypting-data) shows the shape.
+
+## Examples
+
+Three runnable samples:
+[`crypto-roundtrip.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-roundtrip.yaml)
+seals a field and opens it again with the blocks,
+[`crypto-inline.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-inline.yaml)
+does the same with the expression functions and no connector, and
+[`crypto-asymmetric.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-asymmetric.yaml)
+seals a token under a public key the flow cannot decrypt.
+
+From the first of them:
+
+```yaml
+service:
+  name: crypto-roundtrip-demo
+
+env:
+  - name: CRYPTO_KEY
+    required: true
+
+connectors:
+  - name: ticker
+    type: cron
+  - name: vault
+    type: crypto
+    settings:
+      algorithm: aes-gcm
+      key: ${CRYPTO_KEY}
+      keyEncoding: base64
+
+flows:
+  - name: seal-and-open
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 5s"
+        payload: '{"name": "Ada", "ssn": "078-05-1120"}'
+    process:
+      # Encrypt just the one sensitive field, leaving the rest of the body alone.
+      - type: encrypt
+        name: seal-ssn
+        settings:
+          crypto: vault
+          value: body.ssn
+          target: sealedSsn
+
+      - type: set-payload
+        name: seal-body
+        settings:
+          value: '{"name": body.name, "ssn": vars.sealedSsn}'
+
+      # The ssn in this line is base64 ciphertext, and different on every tick.
+      - type: log
+        name: log-sealed
+        settings:
+          message: '"sealed: " + toJson(body)'
+
+      - type: decrypt
+        name: open-ssn
+        settings:
+          crypto: vault
+          value: body.ssn
+          target: openedSsn
+
+      - type: set-payload
+        name: open-body
+        settings:
+          value: '{"name": body.name, "ssn": vars.openedSsn}'
+```
+
+Run it with a key in the environment:
+
+```bash
+CRYPTO_KEY=$(openssl rand -base64 32) bin/octo run samples/crypto-roundtrip.yaml
+```

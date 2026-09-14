@@ -4,7 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Globe, HardDrive, KeyRound, Leaf, MessageSquare, Puzzle, Radar, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, UserCheck, Wand, Waypoints } from 'lucide-react';
+import { Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Globe, HardDrive, KeyRound, Leaf, Lock, MessageSquare, Puzzle, Radar, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, UserCheck, Wand, Waypoints } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -43,6 +43,9 @@ zero setup beyond the `octo` binary.
   </Card>
   <Card icon={<KeyRound />} href="/guides/verifying-webhooks" title="Verifying Webhooks">
     Authenticate a signed webhook from any provider with HMAC in CEL.
+  </Card>
+  <Card icon={<Lock />} href="/guides/encrypting-data" title="Encrypting Data">
+    Keep a field secret through a queue, a column or a log line, and read it back.
   </Card>
   <Card icon={<Bug />} href="/guides/debugging-flows" title="Debugging a Flow">
     Stop at any block and inspect the message, or learn the block was never reached.

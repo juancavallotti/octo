@@ -13,6 +13,7 @@ import (
 	_ "github.com/juancavallotti/octo/runtime/blocks/cli"         // registers the "cli-run" block
 	_ "github.com/juancavallotti/octo/runtime/blocks/controlflow" // registers if, switch, foreach, fork, handle-errors, enrich, validate, cache-scope, split, aggregate
 	_ "github.com/juancavallotti/octo/runtime/connectors/cron"
+	_ "github.com/juancavallotti/octo/runtime/connectors/crypto"   // registers the "crypto" connector and the "encrypt"/"decrypt" blocks
 	_ "github.com/juancavallotti/octo/runtime/connectors/database" // registers the "database" connector and "sql" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/events"   // registers the "events" connector + source and the "publish-event" block
 	_ "github.com/juancavallotti/octo/runtime/connectors/file"     // registers the "file" connector and the "file-read"/"file-write" blocks

@@ -37,6 +37,8 @@ put everything under `settings`.
 | `multi-transform` | An ordered list of additive CEL edits in one block. |
 | `template-resource` | `resource` (alias), and where to write the rendered output. |
 | `log` | `logger`, `message` — a wire-tap; passes the message through unchanged. |
+| `encrypt` | `crypto` (connector ref), `value` — CEL, defaults to the body; `encoding` base64/hex; `target` variable, or the body when empty. |
+| `decrypt` | The mirror of `encrypt`. Plaintext lands as text; use `fromJson` on it for a structured body. |
 
 ## Integration
 

@@ -29,6 +29,7 @@ import {
   Terminal,
   Box,
   ScatterChart,
+  KeyRound,
   Leaf,
   type LucideIcon,
 } from "lucide-react";
@@ -112,6 +113,7 @@ const ICONS: Record<string, LucideIcon> = {
   FileText,
   Terminal,
   ScatterChart,
+  KeyRound,
   Slack: SlackIcon,
   Notion: NotionIcon,
   Mcp: McpIcon,

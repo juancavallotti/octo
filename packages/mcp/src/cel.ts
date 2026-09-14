@@ -14,6 +14,8 @@
  *   - toEnv/fromEnv: runtime/core/expr/env.go
  *   - templateResource: runtime/core/expr/template.go
  *   - hmacSha256/hmacSha1/hexEncode/secureCompare: runtime/core/expr/crypto.go
+ *   - toAes/fromAes/toChacha/fromChacha: runtime/core/expr/cipher.go
+ *   - uuid: runtime/core/expr/uuid.go
  *   - the cel-go extension libraries and their pinned versions, which decide
  *     which of their functions exist: runtime/core/expr/stdext.go
  */
@@ -94,8 +96,8 @@ export const CEL_VARIABLES: CelVariable[] = [
 ];
 
 /**
- * Every function available on top of the CEL standard library: the runtime's own
- * thirteen, then the cel-go extension libraries it enables. Receiver-style entries are
+ * Every function available on top of the CEL standard library: the runtime's own,
+ * then the cel-go extension libraries it enables. Receiver-style entries are
  * named bare (`upperAscii`) with the receiver shown in the signature; namespaced
  * entries carry their namespace (`math.round`).
  */
@@ -235,6 +237,46 @@ export const CEL_FUNCTIONS: CelFunction[] = [
     summary:
       "Compare two values without a content-dependent early return. Always use this for a signature: == stops at the first differing byte, and the timing of that is observable, which over enough requests leaks the expected value a byte at a time. Guard the header read with `\"Name\" in vars &&` — an absent variable is an evaluation error, which fails the flow and answers 500 rather than rejecting.",
     example: `"X-Signature" in vars && secureCompare(vars["X-Signature"], hexEncode(hmacSha256(env.WEBHOOK_SECRET, vars.rawBody)))`,
+  },
+  {
+    name: "toAes",
+    library: "octo",
+    signature: "toAes(dyn, dyn) -> bytes",
+    summary:
+      "Encrypt a value with AES-GCM under a key. The result is raw bytes carrying their own nonce, so it is different every time the same plaintext is sealed; render it with base64.encode or hexEncode before it travels. The key is 16, 24 or 32 bytes and its length selects AES-128/192/256 — a key held as base64 in an env var has to be base64.decode'd first, or its text is used as the key. A CEL binding cannot reach a connector, so the key is always an argument.",
+    example: `base64.encode(toAes(body.ssn, base64.decode(env.CRYPTO_KEY)))`,
+  },
+  {
+    name: "fromAes",
+    library: "octo",
+    signature: "fromAes(dyn, dyn) -> bytes",
+    summary:
+      "Decrypt what toAes produced, as raw bytes — wrap it in string() for text, and fromJson(string(...)) for a structured body. AES-GCM is authenticated, so a value sealed under a different key or altered since fails the expression instead of decoding to something plausible; that failure fails the flow, so guard it where the input is untrusted.",
+    example: `string(fromAes(base64.decode(body.ssn), base64.decode(env.CRYPTO_KEY)))`,
+  },
+  {
+    name: "toChacha",
+    library: "octo",
+    signature: "toChacha(dyn, dyn) -> bytes",
+    summary:
+      "The same as toAes with ChaCha20-Poly1305, which takes a 32-byte key and nothing else. Choose it where AES has no hardware acceleration, or where a counterparty asked for it; otherwise toAes is the default.",
+    example: `base64.encode(toChacha(body.ssn, base64.decode(env.CRYPTO_KEY)))`,
+  },
+  {
+    name: "fromChacha",
+    library: "octo",
+    signature: "fromChacha(dyn, dyn) -> bytes",
+    summary:
+      "Decrypt what toChacha produced. The two algorithms are not interchangeable: opening AES-GCM bytes with this fails, as it should.",
+    example: `string(fromChacha(base64.decode(body.ssn), base64.decode(env.CRYPTO_KEY)))`,
+  },
+  {
+    name: "uuid",
+    library: "octo",
+    signature: "uuid() -> string",
+    summary:
+      "A fresh random identifier, for the places a message needs one and nothing upstream supplied it: a correlation id on an outbound request, an idempotency key, a synthetic id for a record that arrived without one. Non-deterministic like now, so a replayed trace does not reproduce and a cache key built from it never hits — never use it to name something that has to be found again.",
+    example: `"req-" + uuid()`,
   },
 
   // --- strings ---

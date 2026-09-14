@@ -1,0 +1,52 @@
+# Sealing something this flow cannot read back.
+#
+# The other crypto samples use one key for both directions. RSA-OAEP uses two, and
+# that is the reason to reach for it: a connector given only a public key can
+# encrypt and not decrypt, so a flow can hand a value to whoever holds the private
+# half without ever being able to read it itself.
+#
+# The key below is a throwaway generated for this sample. It is a PUBLIC key, which
+# is not a secret — publishing it is what a public key is for. The matching private
+# key is deliberately not in this repository: its absence is the thing being
+# demonstrated, and a private key does not belong in a sample either way.
+#
+# RSA carries at most a few hundred bytes (the modulus, minus the padding), so it
+# suits a token or a key and not a document. For anything larger, seal the document
+# with aes-gcm and use this to seal that key.
+#
+# Try it:
+#   bin/octo invoke --config samples/crypto-asymmetric.yaml --flow seal-for-recipient \
+#     --data '{"token": "ghp_exampletokenvalue"}'
+service:
+  name: crypto-asymmetric
+
+connectors:
+  - name: recipient
+    type: crypto
+    settings:
+      algorithm: rsa-oaep
+      publicKey: |
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1AQxlABa8iV8Tl/RgGcc
+        3/WlML0Y9MeySjRL/nCPb+R1daYh8G/DyK6Ehv9zVY0KxWuUrQoLkWWDO603GC52
+        swvf65D+8JzmP1El0UD+wNYbgTkC8rsVJ9WyGZHUl5XZXVIp5bLOD/4DBe9LDlNa
+        lS0hfX1TJ2q+CQq2zbDt9ZLZyRkB8c/HQReOGG2F7N2YrTzvoWW4Q/fT0Up6yWew
+        m7hJ+KO/9jDO2CD146adIpJ94kITPYXKYCqS57DKO40syZjjzEJ6LxJ9mo9neKth
+        C46HKxkG8XFrmk3Cm8nw5JixSMgSCs1ATeAh123DBo5R7MapJEUgtp1kMBGQcy0x
+        FwIDAQAB
+        -----END PUBLIC KEY-----
+
+flows:
+  - name: seal-for-recipient
+    process:
+      - type: encrypt
+        name: seal-token
+        settings:
+          crypto: recipient
+          value: body.token
+          target: sealedToken
+
+      - type: set-payload
+        name: build-handoff
+        settings:
+          value: '{"sealedToken": vars.sealedToken}'

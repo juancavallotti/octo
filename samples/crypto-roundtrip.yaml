@@ -1,0 +1,74 @@
+# Encrypting a field on the way in and reading it back on the way out.
+#
+# The flow encrypts a record's ssn into a variable, logs the message to show that
+# what got logged is ciphertext and not the number, then decrypts it again and
+# rebuilds the body. Run it with a key in the environment:
+#
+#   CRYPTO_KEY=$(openssl rand -base64 32) bin/octo run samples/crypto-roundtrip.yaml
+service:
+  name: crypto-roundtrip-demo
+
+env:
+  - name: CRYPTO_KEY
+    required: true
+
+connectors:
+  - name: ticker
+    type: cron
+  # The connector holds the key and the algorithm. A block referencing it never
+  # learns which cipher it got, so switching algorithms is an edit here.
+  - name: vault
+    type: crypto
+    settings:
+      algorithm: aes-gcm
+      key: ${CRYPTO_KEY}
+      keyEncoding: base64
+
+flows:
+  - name: seal-and-open
+    source:
+      connector: ticker
+      type: cron
+      settings:
+        schedule: "@every 5s"
+        payload: '{"name": "Ada", "ssn": "078-05-1120"}'
+    process:
+      # Encrypt just the one sensitive field, leaving the rest of the body alone.
+      - type: encrypt
+        name: seal-ssn
+        settings:
+          crypto: vault
+          value: body.ssn
+          target: sealedSsn
+
+      - type: set-payload
+        name: seal-body
+        settings:
+          value: '{"name": body.name, "ssn": vars.sealedSsn}'
+
+      # The ssn in this line is base64 ciphertext, and different on every tick.
+      - type: log
+        name: log-sealed
+        settings:
+          message: '"sealed: " + toJson(body)'
+
+      # And back again, into a variable the next block reads.
+      - type: decrypt
+        name: open-ssn
+        settings:
+          crypto: vault
+          value: body.ssn
+          target: openedSsn
+
+      - type: set-payload
+        name: open-body
+        settings:
+          value: '{"name": body.name, "ssn": vars.openedSsn}'
+
+      # Deliberately not toJson(body): the plaintext is back in the body by now, and
+      # a sample is the worst place to teach logging one. The length is enough to see
+      # that the real number came back — the suite asserts the value itself.
+      - type: log
+        name: log-opened
+        settings:
+          message: '"opened: " + body.name + ", ssn " + string(body.ssn.size()) + " chars"'

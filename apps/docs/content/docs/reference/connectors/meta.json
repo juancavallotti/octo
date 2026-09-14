@@ -8,6 +8,7 @@
     "mongodb",
     "file",
     "logger",
+    "crypto",
     "slack",
     "notion",
     "llm",

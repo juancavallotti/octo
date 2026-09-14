@@ -1,0 +1,28 @@
+flow: seal-for-recipient
+
+inputs:
+  handoff:
+    data: { token: "ghp_exampletokenvalue" }
+
+cases:
+  # The public key alone is enough to seal. Nothing about the ciphertext can be
+  # pinned — OAEP pads with fresh randomness, so the bytes differ every run — and
+  # nothing in this repository can open it, which is the arrangement on purpose.
+  - name: the token is sealed for whoever holds the private key
+    input: handoff
+    expect:
+      that:
+        - 'body.sealedToken != "ghp_exampletokenvalue"'
+        # base64 of a 2048-bit modulus: 256 bytes, which is 344 base64 characters.
+        - 'body.sealedToken.size() == 344'
+        # The plaintext is gone from the message, not merely alongside the sealed form.
+        - '!has(body.token)'
+
+  # RSA carries at most the modulus minus the padding — 190 bytes for a 2048-bit
+  # key with SHA-256. A document-sized value has to fail here rather than be
+  # silently truncated, and the error says what the limit is.
+  - name: a value larger than the modulus is refused, with the limit named
+    input:
+      data: { token: "the same twenty chars---the same twenty chars---the same twenty chars---the same twenty chars---the same twenty chars---the same twenty chars---the same twenty chars---the same twenty chars---the same twenty chars---" }
+    expect:
+      error: "this key holds at most 190"

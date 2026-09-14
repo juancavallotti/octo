@@ -211,6 +211,46 @@ export const OCTO_FUNCTIONS: CelEntry[] = [
     example:
       'secureCompare(vars["X-Hub-Signature-256"], "sha256=" + hexEncode(hmacSha256(env.SECRET, vars.rawBody)))',
   },
+  {
+    name: "toAes",
+    kind: "function",
+    signature: "toAes(dyn, dyn) -> bytes",
+    summary:
+      "Encrypt a value with AES-GCM under a key, as raw bytes carrying their own nonce. The key is 16, 24 or 32 bytes and its length selects AES-128/192/256; render the result with base64.encode or hexEncode.",
+    example: "base64.encode(toAes(body.ssn, base64.decode(env.CRYPTO_KEY)))",
+  },
+  {
+    name: "fromAes",
+    kind: "function",
+    signature: "fromAes(dyn, dyn) -> bytes",
+    summary:
+      "Decrypt what toAes produced, as raw bytes — wrap it in string() for text. A value sealed under a different key, or altered since, fails the expression rather than decoding to something plausible.",
+    example: "string(fromAes(base64.decode(body.ssn), base64.decode(env.CRYPTO_KEY)))",
+  },
+  {
+    name: "toChacha",
+    kind: "function",
+    signature: "toChacha(dyn, dyn) -> bytes",
+    summary:
+      "The same as toAes with ChaCha20-Poly1305, which takes a 32-byte key. Choose it where AES has no hardware acceleration, or where a counterparty asked for it.",
+    example: "base64.encode(toChacha(body.ssn, base64.decode(env.CRYPTO_KEY)))",
+  },
+  {
+    name: "fromChacha",
+    kind: "function",
+    signature: "fromChacha(dyn, dyn) -> bytes",
+    summary:
+      "Decrypt what toChacha produced. The two algorithms are not interchangeable: opening AES-GCM bytes with this fails.",
+    example: "string(fromChacha(base64.decode(body.ssn), base64.decode(env.CRYPTO_KEY)))",
+  },
+  {
+    name: "uuid",
+    kind: "function",
+    signature: "uuid() -> string",
+    summary:
+      "A fresh random identifier, for a correlation id, an idempotency key, or a record that arrived without one. Non-deterministic like now, so never use it to name something that has to be found again.",
+    example: '"req-" + uuid()',
+  },
 ];
 
 /**

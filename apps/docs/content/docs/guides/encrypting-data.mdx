@@ -1,0 +1,244 @@
+---
+title: "Encrypting Data"
+description: "Keep a field secret on its way through a queue, a column, or a log line, and read it back."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A flow that handles a national ID, a token, or a customer's document usually has
+somewhere to put it that you would rather not trust completely: a queue another
+service reads, a column in a shared database, a log line that ends up in an
+aggregator. Encrypting the field before it leaves the flow, and decrypting it when
+it comes back, keeps the rest of the pipeline from having to be trusted.
+
+Octo offers two ways to do it, and the choice is about who holds the key:
+
+- the [`crypto` connector](/reference/connectors/crypto) with the `encrypt` and
+  `decrypt` blocks, where the key is the operator's and a flow author never sees
+  it;
+- the [`toAes`/`fromAes` functions](/reference/cel/octo-extensions#toaes), where
+  the key is an argument in the expression.
+
+This guide builds
+[`samples/crypto-roundtrip.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-roundtrip.yaml)
+with the first, then shows the second.
+
+## Declare the key
+
+Generate one and declare the variable that carries it. A key never goes in a flow
+file:
+
+```bash
+openssl rand -base64 32
+```
+
+```yaml
+env:
+  - name: CRYPTO_KEY
+    required: true
+
+connectors:
+  - name: vault
+    type: crypto
+    settings:
+      algorithm: aes-gcm
+      key: ${CRYPTO_KEY}
+      keyEncoding: base64
+```
+
+`aes-gcm` is the default and the right answer unless something else is asked of
+you. The decoded key's length is what selects AES-128, AES-192 or AES-256 — 32
+bytes here, so AES-256. A key of the wrong length fails at startup, not on the
+first message that needed it.
+
+<Callout>
+  The connector owns the algorithm, so no block has to name one: switching
+  ciphers is an edit here and no flow changes.
+</Callout>
+
+<Callout type="warn">
+  What that does not do is convert anything already sealed. Ciphertext is bound to
+  the algorithm and key that produced it, and the algorithms are not
+  interchangeable — a value sealed with `aes-gcm` fails to open under
+  `chacha20-poly1305`, and the same is true of a rotated key. Anything still
+  sitting in a queue, a column or a cache when you change either becomes
+  unreadable. Migrate it first, or declare a second connector and read through
+  the old one until nothing is left.
+</Callout>
+
+## Encrypt one field
+
+Point `encrypt` at the value and give it somewhere to put the result:
+
+```yaml
+- type: encrypt
+  name: seal-ssn
+  settings:
+    crypto: vault
+    value: body.ssn
+    target: sealedSsn
+```
+
+`value` is a CEL expression, so the block encrypts exactly what you name — here
+one field, leaving the rest of the body readable. With `target` set the ciphertext
+lands in a variable and the body is untouched; leave `target` out and the
+ciphertext replaces the body.
+
+Rebuild the body with the sealed value in place of the plaintext:
+
+```yaml
+- type: set-payload
+  name: seal-body
+  settings:
+    value: '{"name": body.name, "ssn": vars.sealedSsn}'
+```
+
+Anything downstream — a log block, a queue dispatch, a SQL insert — now sees
+base64 ciphertext where the number used to be, and a different string on every
+message, because each one is sealed with a fresh nonce.
+
+## Decrypt it again
+
+The mirror image:
+
+```yaml
+- type: decrypt
+  name: open-ssn
+  settings:
+    crypto: vault
+    value: body.ssn
+    target: openedSsn
+```
+
+The plaintext lands as text. That is exactly what went in when you encrypted a
+single string field. When you encrypt a whole structured body, what was sealed is
+that body's JSON, so read it back with `fromJson`:
+
+```yaml
+- type: decrypt
+  settings:
+    crypto: vault
+    target: opened
+- type: set-payload
+  settings:
+    value: fromJson(vars.opened)
+```
+
+## What happens when it fails
+
+AES-GCM is authenticated: a value sealed under a different key, or altered since
+it was sealed, fails to open rather than decrypting into plausible-looking
+garbage. The `decrypt` block reports that and the flow fails.
+
+That is the right default, but it means an endpoint that accepts ciphertext from
+outside answers 500 to a value someone mangled — a caller's mistake reported as
+yours.
+
+A `validate` rule cannot help here: whether a value is authentic is exactly what
+`decrypt` had to run to find out, so no rule ahead of it can know. Catch the
+failure instead, with [`handle-errors`](/reference/blocks/control-flow#handle-errors) around the
+block:
+
+```yaml
+- type: handle-errors
+  name: open-or-reject
+  process:
+    - type: decrypt
+      settings:
+        crypto: vault
+        value: body.sealed
+        target: opened
+  error:
+    - type: set-variable
+      settings:
+        name: httpStatus
+        value: "400"
+    - type: set-payload
+      settings:
+        value: '{"error": "the sealed value could not be read"}'
+```
+
+`vars.error.message` carries what went wrong, which is worth logging and not worth
+returning: the difference between "not base64" and "failed to authenticate" tells
+a caller something about your key that they have no business learning.
+
+## Without a connector
+
+Where the key is already in the environment and a whole connector is more than the
+job needs, the expression functions do the same work inline —
+[`samples/crypto-inline.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-inline.yaml)
+is this guide's flow written that way:
+
+```yaml
+- type: set-variable
+  settings:
+    name: sealedSsn
+    value: base64.encode(toAes(body.ssn, base64.decode(env.CRYPTO_KEY)))
+```
+
+and back:
+
+```yaml
+- type: set-variable
+  settings:
+    name: openedSsn
+    value: string(fromAes(base64.decode(body.ssn), base64.decode(env.CRYPTO_KEY)))
+```
+
+<Callout type="warn">
+  Note the `base64.decode` around the key. A CEL function sees only what it is
+  passed, so a key held as base64 has to be decoded before it is used as one —
+  pass it straight through and its 44-character *text* becomes the key, which is
+  not a valid length and fails.
+</Callout>
+
+The functions cover the symmetric algorithms only. For an asymmetric keypair, or
+to keep the key out of the flow file entirely, use the connector.
+
+## Sealing something you cannot read back
+
+Everything above uses one key for both directions. `rsa-oaep` uses two, which is
+the reason to reach for it: give the connector only a `publicKey` and the flow can
+encrypt and not decrypt, so it can hand a value to whoever holds the private half
+without ever being able to read it itself.
+
+```yaml
+connectors:
+  - name: recipient
+    type: crypto
+    settings:
+      algorithm: rsa-oaep
+      publicKey: |
+        -----BEGIN PUBLIC KEY-----
+        ...
+        -----END PUBLIC KEY-----
+```
+
+A public key is not a secret, so it can sit in the flow file; a private key still
+belongs in an env var. RSA carries at most the modulus minus its padding — 190
+bytes for a 2048-bit key — so it suits a token or a key, not a document. For
+anything larger, seal the document with `aes-gcm` and use RSA to seal that key.
+[`samples/crypto-asymmetric.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/crypto-asymmetric.yaml)
+is a flow that does exactly this.
+
+## Run it
+
+```bash
+CRYPTO_KEY=$(openssl rand -base64 32) bin/octo run samples/crypto-roundtrip.yaml
+```
+
+Every five seconds the sample logs the record sealed, then confirms it opened:
+
+```
+msg="sealed: {\"name\":\"Ada\",\"ssn\":\"Z5xSygDKV2t+Csc51iml6M20sx0NnyN15kZ7ZjfEgazDTsD9AfMx\"}"
+msg="opened: Ada, ssn 11 chars"
+```
+
+The second line says the length rather than the number, because a sample is a bad
+place to learn to log a decrypted value; the suite is where the round-trip is
+actually asserted.
+
+The sealed line is different on every tick even though the record is the same.
+That is the nonce doing its job: identical ciphertexts would tell a reader the
+values were identical, which for a field like this is most of what they wanted to
+know.

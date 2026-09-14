@@ -97,6 +97,10 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   // reach the network, but once — the key set is fetched lazily and cached — so
   // classing the block by that one call would misread every later request.
   "jwt-validate": "cpu",
+  // The key is resolved when the connector starts, so a message only pays for
+  // the cipher itself: arithmetic here, with nothing to wait on.
+  encrypt: "cpu",
+  decrypt: "cpu",
 
   // --- holds other work -----------------------------------------------------
   fork: "control",

@@ -1,0 +1,64 @@
+flow: seal-and-open
+
+# A fake key, and fake is all it has to be: nothing here authenticates against
+# anything, the cipher only needs 32 decoded bytes to exist. The connector's key is
+# read when the config is LOADED, so without this the flow cannot even be built.
+env:
+  CRYPTO_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+
+# The `@every 5s` cron source does not run under `invoke`, so the record its payload
+# expression would have produced is seeded here.
+inputs:
+  record:
+    data: { name: "Ada", ssn: "078-05-1120" }
+
+cases:
+  # The property worth testing is the round-trip: nothing about the ciphertext in
+  # between can be pinned, because AES-GCM seals with a fresh nonce every time and
+  # the bytes are different on every run. What can be pinned is that the plaintext
+  # came back, and that it really left — the ssn the log block saw is not the number.
+  - name: the ssn is sealed on the way through and opened again
+    input: record
+    expect:
+      body: { name: "Ada", ssn: "078-05-1120" }
+      that:
+        # Both directions ran and left their working values behind.
+        - 'vars.sealedSsn != "078-05-1120"'
+        - 'vars.openedSsn == "078-05-1120"'
+        # base64 of a 12-byte nonce, the 11-byte plaintext and a 16-byte tag.
+        - 'vars.sealedSsn.size() == 52'
+    spies:
+      # What the log line carried is the whole point of the sample: the body that
+      # reached it has ciphertext where the number used to be.
+      seal-and-open.log-sealed:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.ssn != "078-05-1120"'
+                - 'body.name == "Ada"'
+      seal-and-open.log-opened:
+        count: 1
+        records:
+          - input:
+              body: { name: "Ada", ssn: "078-05-1120" }
+
+  # Pins that decrypt is really decrypting rather than passing text through: a body
+  # whose ssn was never sealed fails the block, it does not arrive as itself.
+  - name: a value that was never sealed fails to open
+    input:
+      data: { name: "Ada", ssn: "078-05-1120" }
+    mocks:
+      # Neutralize the encrypt block so what reaches decrypt is the plaintext,
+      # exactly as if a caller had sent an unsealed record.
+      seal-and-open.seal-ssn:
+        default:
+          body: { name: "Ada", ssn: "078-05-1120" }
+          vars: { sealedSsn: "078-05-1120" }
+    expect:
+      error: decrypt
+    spies:
+      seal-and-open.open-ssn:
+        count: 1
+        records:
+          - error: decrypt
