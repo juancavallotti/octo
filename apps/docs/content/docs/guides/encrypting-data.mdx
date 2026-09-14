@@ -227,12 +227,16 @@ is a flow that does exactly this.
 CRYPTO_KEY=$(openssl rand -base64 32) bin/octo run samples/crypto-roundtrip.yaml
 ```
 
-Every five seconds the sample logs the same record twice, sealed and opened:
+Every five seconds the sample logs the record sealed, then confirms it opened:
 
 ```
 msg="sealed: {\"name\":\"Ada\",\"ssn\":\"Z5xSygDKV2t+Csc51iml6M20sx0NnyN15kZ7ZjfEgazDTsD9AfMx\"}"
 msg="opened: Ada, ssn 11 chars"
 ```
+
+The second line says the length rather than the number, because a sample is a bad
+place to learn to log a decrypted value; the suite is where the round-trip is
+actually asserted.
 
 The sealed line is different on every tick even though the record is the same.
 That is the nonce doing its job: identical ciphertexts would tell a reader the

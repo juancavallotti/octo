@@ -30,13 +30,27 @@ Provides a source: no, it is a service connector. Blocks that bind to it:
 | `algorithm` | enum: `aes-gcm` \| `chacha20-poly1305` \| `rsa-oaep` | No | `aes-gcm` | Cipher this connector's key is for. |
 | `key` | string | For the symmetric algorithms | — | The symmetric key. Source it from an env var. |
 | `keyEncoding` | enum: `base64` \| `hex` \| `utf8` | No | `base64` | How `key` is written. |
-| `publicKey` | string | For `rsa-oaep` | — | PEM public key, used to encrypt. PKIX or PKCS#1, at least 2048 bits. |
-| `privateKey` | string | For `rsa-oaep` | — | PEM private key, used to decrypt. PKCS#8 or PKCS#1; supplying it alone is enough, since it carries its public half. |
+| `publicKey` | string | For `rsa-oaep`, to encrypt | — | PEM public key, PKIX or PKCS#1, at least 2048 bits. |
+| `privateKey` | string | For `rsa-oaep`, to decrypt | — | PEM private key, PKCS#8 or PKCS#1. |
+
+`rsa-oaep` needs at least one of the two, not both. A connector given only
+`publicKey` can encrypt and not decrypt, which is the arrangement that makes an
+asymmetric key worth having. `privateKey` alone is enough for both, since it
+carries its public half — so do not configure a private key a flow has no reason
+to decrypt with.
 
 `aes-gcm` takes 16, 24 or 32 decoded bytes, and the length is what selects
-AES-128, AES-192 or AES-256. `chacha20-poly1305` takes 32. `utf8` reads the
-setting verbatim, which suits a passphrase-shaped key; base64 or hex are easier
-to get to an exact length.
+AES-128, AES-192 or AES-256. `chacha20-poly1305` takes 32.
+
+<Callout type="warn">
+  Whatever the encoding, the key has to be **randomly generated**. `utf8` reads
+  the setting's characters as the key bytes and derives nothing, so a memorable
+  passphrase that happens to be 32 characters long is a 32-character key with a
+  passphrase's entropy, not a 256-bit one — and because the ciphertext is
+  authenticated, an attacker who holds some can test guesses offline, as fast as
+  their hardware allows. Generate with `openssl rand -base64 32` and keep the
+  encoding that produced it.
+</Callout>
 
 A wrong key length, a key below 2048 bits, two RSA keys that are not halves of one
 pair, or a PEM that will not parse: each fails at startup rather than on the first

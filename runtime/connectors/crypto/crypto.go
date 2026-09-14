@@ -137,10 +137,12 @@ func buildCipher(set connectorSettings) (cryptox.Cipher, error) {
 	}
 }
 
-// decodeKey reads the key into the bytes the cipher will use. utf8 takes the
-// setting verbatim, which is convenient for a passphrase-shaped key and is why it
-// is not the default: a key that has to be a specific number of bytes is easier
-// to get right in base64 or hex.
+// decodeKey reads the key into the bytes the cipher will use.
+//
+// utf8 takes the setting's characters as the key bytes and derives nothing, so it
+// is for a randomly generated key that happens to be written as text — not for a
+// passphrase, whose entropy is its own however many bytes long it is. That is why
+// base64 is the default: it is what a generator hands you.
 func decodeKey(key, encoding string) ([]byte, error) {
 	if key == "" {
 		return nil, fmt.Errorf("crypto connector requires a key; source it from an env var, e.g. ${CRYPTO_KEY}")
