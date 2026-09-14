@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.11.6](https://github.com/juancavallotti/octo/compare/v0.11.5...v0.11.6) (2026-09-14)
+
+
+### Features
+
+* **ai:** forward per-run context to the agent memory services ([ded22bc](https://github.com/juancavallotti/octo/commit/ded22bc4b5007a2653dca8f2fb4532f04b3857f3))
+* **ai:** forward per-run context to the agent memory store ([ad3a72c](https://github.com/juancavallotti/octo/commit/ad3a72cb1eb619d6ae05187d4ccae8293675d542))
+* **orchestrator:** read the context a flow forwards with its memory calls ([a9b3523](https://github.com/juancavallotti/octo/commit/a9b35237aa75247ae5a9a989fa368e702420eb3a)), closes [#504](https://github.com/juancavallotti/octo/issues/504)
+* **services:** carry the forwarded agent context to a remote store ([46c934f](https://github.com/juancavallotti/octo/commit/46c934fdda7c90a1c8afef6de6b269de2ba76aa4))
+
+
+### Bug Fixes
+
+* refuse a null forwarded value, and keep it off another host ([1956a04](https://github.com/juancavallotti/octo/commit/1956a04aae79f5cc8143cdbe3054e629e00d5989))
+
+
+### Refactoring
+
+* **expr:** one evaluator for settings that take a whole map ([d846da0](https://github.com/juancavallotti/octo/commit/d846da06c693ae43de017d5bb7b17b659b0198f3))
+
 ## [0.11.5](https://github.com/juancavallotti/octo/compare/v0.11.4...v0.11.5) (2026-09-14)
 
 
