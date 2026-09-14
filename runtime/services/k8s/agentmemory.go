@@ -53,8 +53,30 @@ func newAgentMemory(baseURL, deploymentID string, cred *credential) *agentMemory
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		deploymentID: deploymentID,
 		cred:         cred,
-		http:         &http.Client{Timeout: memorySearchTimeout},
+		http: &http.Client{
+			Timeout:       memorySearchTimeout,
+			CheckRedirect: dropForwardedContextOffHost,
+		},
 	}
+}
+
+// dropForwardedContextOffHost strips the forwarded agent-memory context when a
+// redirect leaves the host the call was aimed at.
+//
+// net/http already does this for Authorization on its own, but it only knows the
+// headers it knows: X-Octo-Agent-Context carries whatever a flow chose to
+// forward, which is the kind of value worth forwarding precisely because it is
+// sensitive. The api client strips it in its own checkRedirect; this module talks
+// to the same orchestrator over an HTTP client of its own, so it strips it here
+// or the two deployment shapes disagree about where a key may be sent.
+func dropForwardedContextOffHost(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil
+	}
+	if req.URL.Host != via[0].URL.Host {
+		req.Header.Del(core.MemoryContextHeader)
+	}
+	return nil
 }
 
 func (c *agentMemory) close() { c.http.CloseIdleConnections() }

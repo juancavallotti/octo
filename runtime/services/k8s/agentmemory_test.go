@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
 )
@@ -329,5 +330,53 @@ func TestK8sMemoryAuthorizes(t *testing.T) {
 
 	if seen != "Bearer secret-token" {
 		t.Errorf("want the bearer token on the request, got %q", seen)
+	}
+}
+
+// A redirect that leaves the host must not carry the forwarded context with it.
+// net/http strips Authorization on its own but knows nothing about this header,
+// and it holds whatever the flow chose to forward.
+func TestForwardedContextDoesNotFollowACrossHostRedirect(t *testing.T) {
+	var landed http.Header
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		landed = r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer final.Close()
+
+	var sameHostLanded http.Header
+	var start *httptest.Server
+	start = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/off":
+			http.Redirect(w, r, final.URL+"/done", http.StatusTemporaryRedirect)
+		case "/same":
+			http.Redirect(w, r, start.URL+"/landed", http.StatusTemporaryRedirect)
+		case "/landed":
+			sameHostLanded = r.Header.Clone()
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer start.Close()
+
+	c := newAgentMemory(start.URL, "dep-1", &credential{})
+	ctx := core.WithMemoryContext(t.Context(), map[string]string{"key": "s3cret"})
+
+	resp, err := c.do(ctx, http.MethodGet, start.URL+"/off", nil, nil, time.Second)
+	if err != nil {
+		t.Fatalf("cross-host: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := landed.Get(core.MemoryContextHeader); got != "" {
+		t.Errorf("the forwarded context followed a redirect to another host: %q", got)
+	}
+
+	resp, err = c.do(ctx, http.MethodGet, start.URL+"/same", nil, nil, time.Second)
+	if err != nil {
+		t.Fatalf("same-host: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := sameHostLanded.Get(core.MemoryContextHeader); got == "" {
+		t.Error("a same-host redirect should still carry the forwarded context")
 	}
 }

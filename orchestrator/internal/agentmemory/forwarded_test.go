@@ -52,6 +52,9 @@ func TestUnreadableForwardedContextIsRefused(t *testing.T) {
 		"not base64":    "!!!not base64!!!",
 		"not an object": base64.RawURLEncoding.EncodeToString([]byte(`["a","list"]`)),
 		"null":          base64.RawURLEncoding.EncodeToString([]byte(`null`)),
+		// {"k":null} decodes into map[string]string as {"k":""} without complaint, so
+		// a key whose value went missing would arrive as an empty one.
+		"a null value": base64.RawURLEncoding.EncodeToString([]byte(`{"k":null}`)),
 		"values are not strings": base64.RawURLEncoding.EncodeToString(
 			[]byte(`{"k":{"nested":"object"}}`)),
 		"oversized": base64.RawURLEncoding.EncodeToString(

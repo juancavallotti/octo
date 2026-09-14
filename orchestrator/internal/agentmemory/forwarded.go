@@ -49,16 +49,28 @@ func forwardedContext(r *http.Request) (map[string]string, error) {
 		return nil, fmt.Errorf("%w: %s is not unpadded base64url",
 			ErrInvalidForwardedContext, forwardedContextHeader)
 	}
-	var forwarded map[string]string
-	if err := json.Unmarshal(raw, &forwarded); err != nil {
+	// Decoded through *string rather than string so a null VALUE is distinguishable.
+	// Into a map[string]string, {"k":null} lands as {"k":""} without complaint, and
+	// a key whose value quietly became the empty string is the failure this refusal
+	// exists to prevent — an empty key is not a key.
+	var decoded map[string]*string
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("%w: %s does not hold a JSON object of strings",
 			ErrInvalidForwardedContext, forwardedContextHeader)
 	}
-	if forwarded == nil {
+	if decoded == nil {
 		// JSON null unmarshals into a nil map without complaint, and nil is the shape
 		// this promised never to return.
 		return nil, fmt.Errorf("%w: %s holds null, not an object",
 			ErrInvalidForwardedContext, forwardedContextHeader)
+	}
+	forwarded := make(map[string]string, len(decoded))
+	for name, value := range decoded {
+		if value == nil {
+			return nil, fmt.Errorf("%w: %s entry %q is null",
+				ErrInvalidForwardedContext, forwardedContextHeader, name)
+		}
+		forwarded[name] = *value
 	}
 	return forwarded, nil
 }
