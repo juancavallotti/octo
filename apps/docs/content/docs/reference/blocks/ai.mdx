@@ -19,7 +19,7 @@ Reference for the AI block family. For narrative guides see the [AI section](/ai
 
 ## ai-agent
 
-Lets an LLM accomplish a task by calling flow branches as tools in a loop. Each tool is wired to the model as a callable function: the model's arguments become the branch's message body and the branch's output body is returned as the tool result. Tool branches share the message, so variables they set accumulate across the loop.
+Lets an LLM accomplish a task by calling flow branches as tools in a loop. Each tool is wired to the model as a callable function: the model's arguments become the branch's message body and the branch's output body is returned as the tool result. The calls of one turn run concurrently, each on its own copy of the message, so a variable a tool sets is that call's own; what carries across the loop is the model's answer and each tool's result. Set `maxParallelTools: 1` for branches that must hand each other state through the message — see [tool calls run together](#tool-calls-run-together).
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -29,6 +29,7 @@ Lets an LLM accomplish a task by calling flow branches as tools in a loop. Each 
 | `input` | `expression` (string) | No | none | The agent's opening user turn. Empty hands the model the whole input body as a JSON document to work from. |
 | `answer` | enum `json` \| `text` | No | `json` | The shape the model is told to reply in. `json` suits an agent whose answer is the next block's body; `text` leaves the format to your `prompt`. |
 | `maxIterations` | int | No | `8` | Cap on tool-calling turns (one model call each) before falling back to the guardrail. |
+| `maxParallelTools` | int | No | `10` | How many of one turn's tool calls run at the same time. The calls go on a queue drained by this many consumers, each on its own copy of the message — so nothing a tool branch writes to the message reaches the next call. Set it to `1` for an agent whose tools hand each other state; see [tool calls run together](#tool-calls-run-together). |
 | `memoryThreadId` | `expression` (string) | No | none | Conversation thread id. When set, the agent loads the thread's prior transcript before the run and saves it after. Empty disables memory. It is also what a run is claimed on while it is in flight, so a later message on the same thread [joins it](/ai/agent-signals) rather than starting a rival that would overwrite its memory. Claims are scoped to this block, so two agents whose expressions agree do not collide. |
 | `stopWhen` | `expression` (bool) | No | none | Ends the run already working on this message's conversation instead of starting one. Requires `memoryThreadId`, which is what names the conversation. A stop that finds nothing running is a no-op, so a client can send one blind. |
 | `authorizeId` | `expression` (string) | No | none | Which [tool authorization](/ai/tool-authorization) an incoming message answers: the id the `tool_authorization` event carried. A non-empty result makes the invocation an answer rather than a message, handed to the run working on this conversation, and the flow stops. Requires `memoryThreadId`, and is required by any tool that declares `authorize`. |
@@ -132,6 +133,7 @@ Behavior notes:
 - **Set `answer: text` for an agent a person reads.** The default adds "respond with the final result as JSON only (no prose, no markdown code fences)" ahead of your `prompt`, which contradicts a prompt asking for Markdown. A model handed both instructions picks one, and which one is the provider's choice rather than yours. The reply is parsed the same way either way.
 - The events path cannot fail the run: an error inside it is logged and the agent carries on. Only a stop travels back.
 - A tool-branch error or dropped message becomes an error result fed back to the model rather than aborting the agent.
+- The tool calls of one turn run concurrently, up to `maxParallelTools`; the model is answered in the order it asked, whatever order the answers arrived in.
 - On refusal or `maxIterations`, the `default` flow runs; **with no `default` configured, the block errors** so the failure reaches a recovery path.
 - With skills configured, the agent gets an implicit `load_skill(name)` tool; skill bodies are rendered against the current message like any template.
 - Memory is saved best-effort (a save failure logs, it does not fail the flow); wipe a thread with [clear-agent-memory](#clear-agent-memory).
@@ -360,6 +362,29 @@ Protects a process chain with an LLM-driven retry loop. When the chain fails, th
       settings:
         value: '{"status": "degraded", "reason": vars.error.message}'
 ```
+
+### Tool calls run together
+
+A model that wants three lookups asks for all three in one turn. The agent runs
+them concurrently — a queue of the turn's calls drained by `maxParallelTools`
+consumers (ten by default) — so the turn costs the slowest call rather than the
+sum of them.
+
+Each call runs on **its own copy of the message**. That is what makes running
+them at the same time safe, and it is the whole of the trade:
+
+- A variable a tool branch sets is not visible to the other calls of that turn,
+  and does not survive to the next one. Across turns nothing changed: the model's
+  own answer, and each tool's result, are what carry forward.
+- A branch that requests stop still halts the run. The flag is collected back out
+  of the copies deliberately, because a branch stopping the run means the run.
+- The [authorization gate](/ai/tool-authorization) still runs in call order,
+  before anything is dispatched. Two gated calls in one turn ask a person one
+  after the other, not both at once.
+
+Set `maxParallelTools: 1` to put the sequential loop back, which is the right
+answer for an agent whose tools deliberately hand each other state through the
+message.
 
 ### What a tool branch is told
 
