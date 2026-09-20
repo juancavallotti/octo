@@ -22,6 +22,17 @@ export interface EditorPrefsView {
   autoLearn: boolean;
 }
 
+/** Where the shell got to in fetching a new version of itself. */
+export interface UpdateStatusView {
+  stage: "idle" | "checking" | "downloading" | "ready" | "error";
+  /** The version on offer, once a check has found one. */
+  version: string | null;
+  /** The version running now. */
+  current: string;
+  /** Whole percent of the download, while one is in flight. */
+  percent: number | null;
+}
+
 export interface DesktopBridge {
   platform: string;
   mcpUrl(): Promise<string | null>;
@@ -33,6 +44,9 @@ export interface DesktopBridge {
   copyMcpUrl(): Promise<void>;
   prefs(): Promise<EditorPrefsView>;
   onPrefsChanged(listener: (prefs: EditorPrefsView) => void): () => void;
+  updateStatus(): Promise<UpdateStatusView>;
+  onUpdateStatus(listener: (status: UpdateStatusView) => void): () => void;
+  installUpdate(): Promise<void>;
 }
 
 /** The bridge, or null when this is a browser rather than the desktop shell. */

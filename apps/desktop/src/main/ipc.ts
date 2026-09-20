@@ -1,6 +1,6 @@
 import { app, ipcMain, type IpcMainInvokeEvent } from "electron";
 import path from "node:path";
-import { copyMcpUrl, mcpUrl, revealVault } from "./menu";
+import { buildMenu, copyMcpUrl, mcpUrl, revealVault } from "./menu";
 import { sameOrigin } from "./origin";
 import { current } from "./server";
 import { binaryStatus, settings, updateSettings } from "./settings";
@@ -9,7 +9,14 @@ import {
   pickBinaryFile,
   settingsWebContentsId,
 } from "./settingsWindow";
-import { canUpdate, checkForUpdates } from "./update";
+import {
+  canUpdate,
+  checkForUpdates,
+  onUpdateStatus,
+  restartToUpdate,
+  updateStatus,
+  type UpdateStatus,
+} from "./update";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
 
@@ -72,6 +79,16 @@ function publishPrefs(): void {
   mainWindow()?.webContents.send("octo:prefs:changed", editorPrefs());
 }
 
+/**
+ * Tell the open editor where the update got to, so its restart button can appear the
+ * moment one is ready rather than on the next reload. The menu is rebuilt from the
+ * same event: both of them show the one state and neither may lag the other.
+ */
+function publishUpdate(status: UpdateStatus): void {
+  mainWindow()?.webContents.send("octo:update:changed", status);
+  buildMenu();
+}
+
 /** The Settings window's whole view of the world, rebuilt after every change. */
 async function settingsView() {
   return {
@@ -98,7 +115,13 @@ async function setRuntime(name: "octo" | "dolphin", file: string | null) {
 }
 
 export function registerIpc(): void {
+  onUpdateStatus(publishUpdate);
+
   handle("octo:mcp:url", () => mcpUrl());
+  handle("octo:update:status", () => updateStatus());
+  // The page may ask for the restart, not perform it: the shell still shuts the
+  // server down on the way out and decides whether an update is there to install.
+  handle("octo:update:install", () => restartToUpdate());
   handle("octo:mcp:copy", () => copyMcpUrl());
   handle("octo:vault:get", () => openVault());
   handle("octo:vault:recents", () =>

@@ -13,6 +13,14 @@ export interface EditorPrefsView {
   autoLearn: boolean;
 }
 
+/** Where the shell got to in fetching a new version of itself. */
+export interface UpdateStatusView {
+  stage: "idle" | "checking" | "downloading" | "ready" | "error";
+  version: string | null;
+  current: string;
+  percent: number | null;
+}
+
 export interface OctoDesktopBridge {
   /** Marks this as the desktop shell; the editor gates its UI on this object existing. */
   readonly platform: NodeJS.Platform;
@@ -34,6 +42,12 @@ export interface OctoDesktopBridge {
   prefs(): Promise<EditorPrefsView>;
   /** Hear about a preference changing while this page is open. Returns the unsubscribe. */
   onPrefsChanged(listener: (prefs: EditorPrefsView) => void): () => void;
+  /** Where the shell got to in fetching a new version of itself. */
+  updateStatus(): Promise<UpdateStatusView>;
+  /** Hear about that changing while this page is open. Returns the unsubscribe. */
+  onUpdateStatus(listener: (status: UpdateStatusView) => void): () => void;
+  /** Ask the shell to quit into the downloaded update. */
+  installUpdate(): Promise<void>;
 }
 
 const bridge: OctoDesktopBridge = {
@@ -52,6 +66,13 @@ const bridge: OctoDesktopBridge = {
     ipcRenderer.on("octo:prefs:changed", handler);
     return () => ipcRenderer.off("octo:prefs:changed", handler);
   },
+  updateStatus: () => ipcRenderer.invoke("octo:update:status"),
+  onUpdateStatus: (listener) => {
+    const handler = (_event: unknown, status: UpdateStatusView) => listener(status);
+    ipcRenderer.on("octo:update:changed", handler);
+    return () => ipcRenderer.off("octo:update:changed", handler);
+  },
+  installUpdate: () => ipcRenderer.invoke("octo:update:install"),
 };
 
 contextBridge.exposeInMainWorld("octoDesktop", bridge);

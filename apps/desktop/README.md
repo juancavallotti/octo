@@ -118,6 +118,12 @@ get is on the `quit` event, which this app's shutdown (`preventDefault`, stop th
 server, `app.exit`) never reaches. The flag is left on anyway because on macOS what it
 really controls is whether Squirrel stages the update while the app is still running.
 
+`update.ts` owns one state (`idle → checking → downloading → ready`) and everything
+that shows it subscribes through `onUpdateStatus`: the app menu's one update item, and
+the editor's **Restart to update** button, over the preload bridge. The button is what
+makes the update visible at all — nothing else in Octo ever asks to be restarted, so a
+downloaded update with no standing invitation to install it just sits there.
+
 ## Not done yet
 
 - **Windows and Linux targets.**
