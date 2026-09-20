@@ -376,6 +376,10 @@ them at the same time safe, and it is the whole of the trade:
 - A variable a tool branch sets is not visible to the other calls of that turn,
   and does not survive to the next one. Across turns nothing changed: the model's
   own answer, and each tool's result, are what carry forward.
+- A copy is a copy of the message, not of everything a variable points at. Two
+  branches handed the same nested value in a variable and mutating it **in
+  place** still race — the same limit [`fork`](/reference/blocks/control-flow#fork)
+  has. Have a tool return its finding rather than write into something shared.
 - A branch that requests stop still halts the run. The flag is collected back out
   of the copies deliberately, because a branch stopping the run means the run.
 - The [authorization gate](/ai/tool-authorization) still runs in call order,

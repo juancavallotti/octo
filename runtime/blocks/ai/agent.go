@@ -1412,6 +1412,14 @@ func (a *aiAgent) drainToolQueue(
 		go func() {
 			defer wg.Done()
 			for i := range queue {
+				// Clone and not Scoped: these leave the goroutine. It gives the branch
+				// its own variables and its own body, which is the isolation two
+				// branches running at once need. What it does not give — see its doc —
+				// is a deep copy of a value stored INSIDE a variable, so two branches
+				// handed the same nested map and mutating it in place still race. That
+				// is a property of the platform's copy, shared with every other block
+				// that scatters (fork included), and not something an agent gets to
+				// redefine for everybody by walking every variable on every turn.
 				branchMsg := (*current).Clone()
 				res, out := a.runTool(ctx, calls[i], branchMsg, branchBase, sess)
 				// The flag is read off the clone as well as the result: RequestStop
