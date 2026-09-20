@@ -22,15 +22,27 @@ export default function UpdateChip() {
     // other, not compiled together.
     if (!bridge || typeof bridge.updateStatus !== "function") return;
     let cancelled = false;
+    let pushed = false;
+
+    // Subscribed as well as read: the download usually finishes long after the page
+    // loaded, and the whole point is to notice without a reload.
+    const off = bridge.onUpdateStatus((s) => {
+      pushed = true;
+      setStatus(s);
+    });
     bridge
       .updateStatus()
       .then((s) => {
-        if (!cancelled) setStatus(s);
+        // A push that already arrived wins. The reply and the push travel separate
+        // IPC paths with no ordering between them, and this reply was read before
+        // that push was sent — so letting it land would put a stale stage back. It
+        // is a one-way loss: "ready" is the last thing the shell ever says, so
+        // nothing would come along afterwards to correct it, and the button this
+        // whole change exists to show would stay hidden until a reload.
+        if (!cancelled && !pushed) setStatus(s);
       })
       .catch(() => {});
-    // Subscribed as well as read: the download usually finishes long after the page
-    // loaded, and the whole point is to notice without a reload.
-    const off = bridge.onUpdateStatus((s) => setStatus(s));
+
     return () => {
       cancelled = true;
       off();
