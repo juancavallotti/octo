@@ -533,3 +533,136 @@ func TestProviderNamesTheVendorFamily(t *testing.T) {
 	}
 	var _ core.LLMProvider = (*Connector)(nil)
 }
+
+func TestUserContentPutsAttachmentsBeforeText(t *testing.T) {
+	content, err := userContent(core.LLMMessage{
+		Role: core.LLMRoleUser,
+		Text: "what is this?",
+		Attachments: []core.LLMAttachment{
+			{MimeType: "image/png", Data: []byte("png"), Name: "shot.png"},
+			{MimeType: "audio/mpeg", Data: []byte("ID3"), Name: "note.mp3"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("userContent: %v", err)
+	}
+	if len(content.Parts) != 3 {
+		t.Fatalf("parts = %d, want 3", len(content.Parts))
+	}
+	if blob := content.Parts[0].InlineData; blob == nil || blob.MIMEType != "image/png" {
+		t.Errorf("part 0 = %+v, want the png", content.Parts[0])
+	}
+	if blob := content.Parts[1].InlineData; blob == nil || string(blob.Data) != "ID3" {
+		t.Errorf("part 1 = %+v, want the audio bytes", content.Parts[1])
+	}
+	if content.Parts[2].Text != "what is this?" {
+		t.Error("the text does not come last")
+	}
+	if content.Role != genai.RoleUser {
+		t.Errorf("role = %q, want user", content.Role)
+	}
+}
+
+// Gemini takes bytes inline, so nothing here is base64 — that is the one place
+// the four connectors genuinely differ.
+func TestUserContentSendsRawBytes(t *testing.T) {
+	raw := []byte{0x89, 'P', 'N', 'G', 0x00, 0xff}
+	content, err := userContent(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "image/png", Data: raw}},
+	})
+	if err != nil {
+		t.Fatalf("userContent: %v", err)
+	}
+	if got := content.Parts[0].InlineData.Data; string(got) != string(raw) {
+		t.Errorf("data = %v, want the bytes unchanged", got)
+	}
+}
+
+// A family entry accepts everything under it; the specific types within a family
+// move faster than a list here would.
+func TestSendableMediaMatchesFamiliesByPrefix(t *testing.T) {
+	for _, mime := range []string{"image/heic", "audio/flac", "video/webm", "application/pdf", "text/plain"} {
+		if !sendableMedia(mime) {
+			t.Errorf("sendableMedia(%q) = false, want true", mime)
+		}
+	}
+	for _, mime := range []string{"text/csv", "application/zip", "application/x-video"} {
+		if sendableMedia(mime) {
+			t.Errorf("sendableMedia(%q) = true, want false", mime)
+		}
+	}
+}
+
+func TestUserContentRejectsUnsupportedMedia(t *testing.T) {
+	_, err := userContent(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "application/zip", Data: []byte("PK"), Name: "bundle.zip"}},
+	})
+	if err == nil {
+		t.Fatal("expected an error for an unsupported mime type")
+	}
+	for _, want := range []string{"llm-gemini", "bundle.zip", "application/zip", "image/"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// LLMResponse.Raw goes straight back onto the conversation, so a non-user turn
+// must never fail to translate over a field the provider did not set.
+func TestToContentsIgnoresAttachmentsOnNonUserRoles(t *testing.T) {
+	bad := core.LLMAttachment{MimeType: "application/zip", Data: []byte("PK")}
+	if _, err := toContents([]core.LLMMessage{
+		{Role: core.LLMRoleAssistant, Text: "ok", Attachments: []core.LLMAttachment{bad}},
+	}); err != nil {
+		t.Errorf("toContents: %v, want attachments ignored off a user turn", err)
+	}
+}
+
+func TestTranslateResponseCarriesGeneratedMedia(t *testing.T) {
+	raw := []byte{0x89, 'P', 'N', 'G'}
+	resp := translateResponse(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{Content: &genai.Content{Parts: []*genai.Part{
+			{Text: "here it is"},
+			{InlineData: &genai.Blob{MIMEType: "image/png", Data: raw, DisplayName: "chart.png"}},
+		}}}},
+	}, "gemini-3-pro")
+	if len(resp.Media) != 1 {
+		t.Fatalf("media = %d, want 1", len(resp.Media))
+	}
+	got := resp.Media[0]
+	if got.MimeType != "image/png" || string(got.Data) != string(raw) || got.Name != "chart.png" {
+		t.Errorf("media = %+v, want the inline blob", got)
+	}
+	if resp.Text != "here it is" {
+		t.Errorf("text = %q, want the answer without the image", resp.Text)
+	}
+	// Generated media never rides Raw: nothing requires it echoed, and carrying it
+	// would re-bill the bytes on every later turn.
+	if len(resp.Raw.Attachments) != 0 {
+		t.Error("generated media leaked onto the echoed assistant turn")
+	}
+}
+
+// The stream folds parts back into the shape translateResponse consumes, so a
+// streamed turn reports media without a second translation.
+func TestStreamedTurnCarriesGeneratedMedia(t *testing.T) {
+	f := &streamFold{}
+	f.seen = true
+	f.appendPart(&genai.Part{Text: "here"})
+	f.appendPart(&genai.Part{InlineData: &genai.Blob{MIMEType: "image/png", Data: []byte("png")}})
+	resp := translateResponse(f.response(), "gemini-3-pro")
+	if len(resp.Media) != 1 || string(resp.Media[0].Data) != "png" {
+		t.Errorf("media = %+v, want the folded blob", resp.Media)
+	}
+}
+
+func TestGeminiAcceptsMediaIsACopy(t *testing.T) {
+	got := (&Connector{}).AcceptsMedia()
+	got[0] = "mutated"
+	if acceptedMedia[0] == "mutated" {
+		t.Error("AcceptsMedia() handed out the package's own slice")
+	}
+	var _ core.LLMMedia = (*Connector)(nil)
+}
