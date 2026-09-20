@@ -138,9 +138,51 @@ body after the block; ask for a specific JSON shape (as the example does) and
 downstream blocks can rely on it. A markdown code fence around the answer is
 stripped before parsing.
 
+## Sending files
+
+An agent can be handed a screenshot, a scanned invoice or a voice note instead of
+a description of one. Two settings do it — `input` states the question, and
+`attachments` says which part of the body holds the files:
+
+```yaml
+- type: ai-agent
+  name: describe-file
+  connector: claude
+  answer: text
+  input: body.question
+  attachments: 'has(body.files) ? body.files : []'
+  prompt: Answer the user's question about the attached files.
+  tools: [...]
+```
+
+Each file is a `{mimeType, data, name}` map whose `data` is base64, or a
+`data:image/png;base64,...` URL — which is what a browser gives you when somebody
+pastes a screenshot.
+
+`input` is required here rather than optional. The default opening turn is the
+whole body as a JSON document, so a flow that left it unset would send every file
+twice: once as a file the model can read, and once as a base64 string in the
+middle of the prompt. The block refuses to build instead, because that version
+works and quietly bills for every byte twice.
+
+The files ride **one turn**. The model reads them on the first model call and
+they are dropped from the transcript as soon as it returns, so tool calls and
+follow-ups are text and a stored conversation never holds the bytes. See
+[attachments](/reference/blocks/ai#attachments) for `keepAttachments`,
+`responseMedia`, and which files each provider accepts.
+
+The full sample is `samples/ai-agent-attachments.yaml`:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+octo invoke --config samples/ai-agent-attachments.yaml --flow describe \
+  --data '{"question":"What is in this image?","files":[{"mimeType":"image/png","name":"shot.png","data":"iVBORw0KGgo="}]}'
+```
+
 ## Next steps
 
 - [Memory across invocations](/ai/agent-memory).
+- [Sending files to an agent](#sending-files), and what each provider accepts.
 - [Steer or stop a run in flight](/ai/agent-signals).
 - [Skills and reusable flow-backed tools](/ai/agent-skills-and-tools) for larger agents.
 - A production agent end to end: the [Slack agent capstone](/ai/slack-agent).
