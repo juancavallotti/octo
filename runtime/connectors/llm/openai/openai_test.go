@@ -2,10 +2,12 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
@@ -509,4 +511,146 @@ func TestProviderNamesTheVendorFamily(t *testing.T) {
 		t.Errorf("Provider() = %q, want OPENAI", got)
 	}
 	var _ core.LLMProvider = (*Connector)(nil)
+}
+
+func TestUserItemPutsAttachmentsBeforeText(t *testing.T) {
+	item, err := userItem(core.LLMMessage{
+		Role: core.LLMRoleUser,
+		Text: "what is this?",
+		Attachments: []core.LLMAttachment{
+			{MimeType: "image/png", Data: []byte("png"), Name: "shot.png"},
+			{MimeType: "application/pdf", Data: []byte("%PDF"), Name: "invoice.pdf"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("userItem: %v", err)
+	}
+	content := item.OfMessage.Content.OfInputItemContentList
+	if len(content) != 3 {
+		t.Fatalf("content parts = %d, want 3", len(content))
+	}
+	if content[0].OfInputImage == nil {
+		t.Error("part 0 is not the image")
+	}
+	if content[1].OfInputFile == nil {
+		t.Fatal("part 1 is not the file")
+	}
+	if name := content[1].OfInputFile.Filename.Or(""); name != "invoice.pdf" {
+		t.Errorf("filename = %q, want the attachment's name", name)
+	}
+	if content[2].OfInputText == nil || content[2].OfInputText.Text != "what is this?" {
+		t.Error("the text does not come last")
+	}
+}
+
+// An image goes as a data URL, which is the only inline form the API takes.
+func TestUserItemSendsAnImageAsADataURL(t *testing.T) {
+	item, err := userItem(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "image/png", Data: []byte("hello")}},
+	})
+	if err != nil {
+		t.Fatalf("userItem: %v", err)
+	}
+	got := item.OfMessage.Content.OfInputItemContentList[0].OfInputImage.ImageURL.Or("")
+	want := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("hello"))
+	if got != want {
+		t.Errorf("imageURL = %q, want %q", got, want)
+	}
+}
+
+// The API reads a file's type off its name, so a file sent without one is
+// refused — an unnamed attachment has to be named here rather than there.
+func TestUserItemNamesAnUnnamedFile(t *testing.T) {
+	item, err := userItem(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "application/pdf", Data: []byte("%PDF")}},
+	})
+	if err != nil {
+		t.Fatalf("userItem: %v", err)
+	}
+	if name := item.OfMessage.Content.OfInputItemContentList[0].OfInputFile.Filename.Or(""); name == "" {
+		t.Error("an unnamed file was sent with no filename")
+	}
+}
+
+// A turn with nothing attached keeps the plain-string shape every request had
+// before attachments existed.
+func TestUserItemWithoutAttachmentsStaysAString(t *testing.T) {
+	item, err := userItem(core.LLMMessage{Role: core.LLMRoleUser, Text: "hi"})
+	if err != nil {
+		t.Fatalf("userItem: %v", err)
+	}
+	if got := item.OfMessage.Content.OfString.Or(""); got != "hi" {
+		t.Errorf("content = %q, want the plain string", got)
+	}
+}
+
+func TestUserItemRejectsUnsupportedMedia(t *testing.T) {
+	_, err := userItem(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "audio/mpeg", Data: []byte("ID3"), Name: "note.mp3"}},
+	})
+	if err == nil {
+		t.Fatal("expected an error for an unsupported mime type")
+	}
+	for _, want := range []string{"llm-openai", "note.mp3", "audio/mpeg", "image/png"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// LLMResponse.Raw goes straight back onto the conversation, so a non-user turn
+// must never fail to translate over a field the provider did not set.
+func TestToInputIgnoresAttachmentsOnNonUserRoles(t *testing.T) {
+	bad := core.LLMAttachment{MimeType: "video/mp4", Data: []byte("x")}
+	if _, err := toInput([]core.LLMMessage{
+		{Role: core.LLMRoleAssistant, Text: "ok", Attachments: []core.LLMAttachment{bad}},
+	}); err != nil {
+		t.Errorf("toInput: %v, want attachments ignored off a user turn", err)
+	}
+}
+
+func TestTranslateResponseCarriesAGeneratedImage(t *testing.T) {
+	raw := []byte{0x89, 'P', 'N', 'G'}
+	resp, err := translateResponse(&responses.Response{
+		Model: "gpt-5",
+		Output: []responses.ResponseOutputItemUnion{
+			{Type: "image_generation_call", ID: "ig_1", Result: base64.StdEncoding.EncodeToString(raw)},
+		},
+	}, "gpt-5")
+	if err != nil {
+		t.Fatalf("translateResponse: %v", err)
+	}
+	if len(resp.Media) != 1 {
+		t.Fatalf("media = %d, want 1", len(resp.Media))
+	}
+	if got := resp.Media[0]; got.MimeType != "image/png" || string(got.Data) != string(raw) {
+		t.Errorf("media = %+v, want the decoded PNG", got)
+	}
+	// Generated media never rides Raw: nothing requires it echoed, and carrying it
+	// would re-bill the bytes on every later turn.
+	if len(resp.Raw.Attachments) != 0 {
+		t.Error("generated media leaked onto the echoed assistant turn")
+	}
+}
+
+func TestTranslateResponseRejectsUndecodableGeneratedImage(t *testing.T) {
+	_, err := translateResponse(&responses.Response{
+		Output: []responses.ResponseOutputItemUnion{
+			{Type: "image_generation_call", ID: "ig_1", Result: "not base64!!"},
+		},
+	}, "gpt-5")
+	if err == nil || !strings.Contains(err.Error(), "ig_1") {
+		t.Errorf("error = %v, want one naming the image generation call", err)
+	}
+}
+
+func TestOpenAIAcceptsMediaIsStableAndSorted(t *testing.T) {
+	got := (&Connector{}).AcceptsMedia()
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("AcceptsMedia() = %v, want sorted", got)
+	}
+	var _ core.LLMMedia = (*Connector)(nil)
 }
