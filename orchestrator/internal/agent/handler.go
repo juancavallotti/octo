@@ -56,6 +56,11 @@ type statusResponse struct {
 	// default is in force. Omitted rather than zero because zero is not a limit
 	// anyone set — it is the absence of one.
 	MaxIterations int `json:"maxIterations,omitempty"`
+	// ConnectorType and Model name the LLM behind the agent, so a client can tell
+	// what he can be sent — a chat window does not offer to attach a file to a
+	// text-only model. Read from settings metadata, so no key is decrypted.
+	ConnectorType string `json:"connectorType,omitempty"`
+	Model         string `json:"model,omitempty"`
 	// Blocked is empty, or names what stands in the way: kubernetes, encryption or
 	// llm_key.
 	Blocked          string `json:"blocked,omitempty"`
@@ -115,6 +120,8 @@ func toResponse(s Status) statusResponse {
 		Tracing:          s.Tracing,
 		AutoFix:          s.AutoFix,
 		MaxIterations:    s.MaxIterations,
+		ConnectorType:    s.ConnectorType,
+		Model:            s.Model,
 		Blocked:          s.Blocked,
 		DeploymentStatus: s.DeploymentStatus,
 		Reason:           s.Reason,

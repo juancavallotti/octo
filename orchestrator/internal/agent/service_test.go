@@ -1955,3 +1955,49 @@ func TestSetDeploymentSettingsLeavesOmittedFieldsAlone(t *testing.T) {
 		t.Errorf("%d rollouts after one real change and one empty call, want 1", rolled)
 	}
 }
+
+// A client has to be able to tell what the agent can be sent — a chat window
+// does not offer to attach a file to a text-only model — and the only thing that
+// knows which model is behind him is here.
+//
+// Reported before he is installed, too: the question is about the site's LLM
+// settings, which exist before he does.
+func TestStatusNamesTheModelTheAgentRunsAgainst(t *testing.T) {
+	h := newHarness(t, true)
+
+	got, err := h.svc.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.Model != "claude-sonnet-4-6" {
+		t.Errorf("model = %q, want the configured model", got.Model)
+	}
+	if got.ConnectorType != "llm-anthropic" {
+		t.Errorf("connectorType = %q, want llm-anthropic", got.ConnectorType)
+	}
+	// The point of reading Get rather than Reveal: this runs on every poll of a
+	// status page, and decrypting a provider key to answer which model is
+	// configured would put the plaintext in memory hundreds of times for a question
+	// the metadata already answers.
+	if h.credentials.reveals != 0 {
+		t.Errorf("reveals = %d, want the status to decrypt nothing", h.credentials.reveals)
+	}
+}
+
+// A provider this build has no connector for names no connector type rather than
+// guessing one, and still reports whatever model was configured.
+func TestStatusNamesNoConnectorForAnUnknownProvider(t *testing.T) {
+	h := newHarness(t, true)
+	h.credentials.creds.Provider = "MISTRAL"
+
+	got, err := h.svc.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.ConnectorType != "" {
+		t.Errorf("connectorType = %q, want empty for a provider with no connector", got.ConnectorType)
+	}
+	if got.Model != "claude-sonnet-4-6" {
+		t.Errorf("model = %q, want the configured model reported anyway", got.Model)
+	}
+}

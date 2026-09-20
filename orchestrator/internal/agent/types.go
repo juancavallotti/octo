@@ -181,6 +181,18 @@ type Status struct {
 	// actually running under.
 	MaxIterations int
 
+	// ConnectorType and Model name the LLM the agent is deployed against —
+	// "llm-anthropic" and the model id the site configured. They are read from the
+	// LLM settings metadata, never from the key, so reporting them decrypts
+	// nothing.
+	//
+	// They exist so a client can tell what the agent can be *sent*. A chat window
+	// offering to attach a file to a text-only model offers something that will be
+	// refused, and the only place that knows which model is behind the agent is
+	// here.
+	ConnectorType string
+	Model         string
+
 	// Blocked names what prevents installing or rolling out, or is empty.
 	Blocked string
 

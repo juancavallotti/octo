@@ -55,6 +55,10 @@
                         "description": "Blocked is empty, or names what stands in the way: kubernetes, encryption or\nllm_key.",
                         "type": "string"
                     },
+                    "connectorType": {
+                        "description": "ConnectorType and Model name the LLM behind the agent, so a client can tell\nwhat he can be sent — a chat window does not offer to attach a file to a\ntext-only model. Read from settings metadata, so no key is decrypted.",
+                        "type": "string"
+                    },
                     "deploymentId": {
                         "type": "string"
                     },
@@ -76,6 +80,9 @@
                     "maxIterations": {
                         "description": "MaxIterations is the operator's override, omitted when the definition's own\ndefault is in force. Omitted rather than zero because zero is not a limit\nanyone set — it is the absence of one.",
                         "type": "integer"
+                    },
+                    "model": {
+                        "type": "string"
                     },
                     "reason": {
                         "type": "string"
