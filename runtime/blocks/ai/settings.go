@@ -58,6 +58,19 @@ type agentSettings struct {
 	Answer string `json:"answer" octo:"label=Answer format,type=enum,enum=json|text,default=json"`
 	// Cap on tool-calling turns before falling back to the guardrail.
 	MaxIterations int `json:"maxIterations" octo:"label=Max iterations"`
+	// How many of one turn's tool calls may run at the same time. The calls are
+	// dispatched to a queue drained by this many consumers, each running on its
+	// own copy of the message.
+	//
+	// The default is ten because a model asking for four lookups in one breath
+	// means it wants four lookups, and running them down a list turns a turn that
+	// should take as long as the slowest into one that takes as long as all of
+	// them. The copy per call is what makes that safe, and it is also the whole of
+	// the trade: a tool branch's writes to the message no longer reach the branch
+	// that runs next, because there is no "next". Set it to 1 for an agent whose
+	// tools hand each other state, which puts the sequential loop back.
+	//nolint:lll // the tag carries a label and a default and is longer than 120 cols
+	MaxParallelTools int `json:"maxParallelTools" octo:"label=Max parallel tools,default=10"`
 	// CEL expression for the conversation thread id. When set, the agent loads the
 	// thread's prior transcript before its run and saves it after; empty disables
 	// memory.

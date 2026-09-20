@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/blocks/internal/observe"
@@ -513,6 +514,26 @@ func buildRetrySystem(prompt string) string {
 // falling back to the guardrail. Each turn is one model call.
 const defaultAgentIterations = 8
 
+// defaultToolWorkers is how many of one turn's tool calls run at once when the
+// block does not say. Ten rather than one because the calls of a single turn are
+// the ones a model asked for together, and rather than unbounded because a model
+// that asks for fifty should not open fifty connections at once on the strength
+// of it. See agentSettings.MaxParallelTools.
+const defaultToolWorkers = 10
+
+// orDefault reads an optional int setting: an unset field decodes to zero, and
+// zero is not a number anybody means for either of the two that use this.
+//
+// The defaults are applied here rather than left to the schema's, which only
+// seeds a block somebody is creating on a canvas: a flow written before a field
+// existed has no value for it and still has to run.
+func orDefault(value, fallback int) int {
+	if value == 0 {
+		return fallback
+	}
+	return value
+}
+
 // skillLoadToolName is the implicit tool an ai-agent with skills exposes to load
 // a skill's content on demand. It is reserved: no user tool or skill may use it.
 const skillLoadToolName = "load_skill"
@@ -538,8 +559,13 @@ type aiAgent struct {
 	branches      map[string]core.MessageProcessor
 	guardrail     core.MessageProcessor
 	maxIterations int
-	name          string
-	connector     string
+	// toolWorkers is how many of one turn's tool calls may be in flight at once.
+	// One is the sequential loop, where every call runs on the message the call
+	// before it returned; above one each call runs on its own copy. See
+	// agentSettings.MaxParallelTools.
+	toolWorkers int
+	name        string
+	connector   string
 	// skills are named instruction resources the agent can load on demand via
 	// the implicit load_skill tool. skillRegistry renders a skill's template
 	// resource against the current message when it is loaded.
@@ -619,6 +645,9 @@ func validateAgentConfig(cfg agentSettings) error {
 	if strings.TrimSpace(cfg.Prompt) == "" {
 		return errors.New("ai-agent block requires a prompt")
 	}
+	if cfg.MaxParallelTools < 0 {
+		return fmt.Errorf("ai-agent maxParallelTools must be at least 1, got %d", cfg.MaxParallelTools)
+	}
 	if cfg.Answer != "" && cfg.Answer != answerJSON && cfg.Answer != answerText {
 		return fmt.Errorf("ai-agent answer must be %q or %q, got %q",
 			answerJSON, answerText, cfg.Answer)
@@ -673,13 +702,11 @@ func newAIAgent(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 		branches:      branches,
 		skills:        skills,
 		skillRegistry: expr.NewTemplateRegistry(deps.Resources),
-		maxIterations: max(cfg.MaxIterations, 0),
+		maxIterations: orDefault(max(cfg.MaxIterations, 0), defaultAgentIterations),
+		toolWorkers:   orDefault(cfg.MaxParallelTools, defaultToolWorkers),
 		name:          deps.Address.Name,
 		connector:     cfg.Connector,
 		env:           expr.EnvActivation(deps.Env),
-	}
-	if block.maxIterations == 0 {
-		block.maxIterations = defaultAgentIterations
 	}
 	// The optional halves, each of which is a no-op for a block that declares none.
 	// They run from a list rather than as four consecutive checks so that adding the
@@ -1257,10 +1284,17 @@ func (a *aiAgent) completeTurn(
 
 // runTools dispatches one turn's tool calls, reporting each call and its result,
 // and says whether the events path asked to stop.
+//
+// The calls run one after another unless the block asked for more, in which case
+// they are queued and drained concurrently; see runToolsParallel for what
+// changes when they are.
 func (a *aiAgent) runTools(
 	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message, branchBase string,
 	sess *memorySession, run *agentRun,
 ) ([]core.LLMToolResult, bool) {
+	if a.toolWorkers > 1 && len(calls) > 1 {
+		return a.runToolsParallel(ctx, iter, calls, current, branchBase, sess, run)
+	}
 	results := make([]core.LLMToolResult, 0, len(calls))
 	stopped := false
 	for _, call := range calls {
@@ -1277,6 +1311,130 @@ func (a *aiAgent) runTools(
 		stopped = a.report(ctx, *current, iter, eventToolResult, resultFields(call, res)) || stopped
 	}
 	return results, stopped
+}
+
+// toolOutcome is one finished tool call on its way back from a consumer: which
+// call it answers, what to tell the model, and whether the branch asked the run
+// to stop.
+type toolOutcome struct {
+	index   int
+	result  core.LLMToolResult
+	stopped bool
+}
+
+// runToolsParallel dispatches a turn's tool calls through a queue drained by at
+// most toolWorkers consumers, and is what runTools does when the block asked for
+// more than one.
+//
+// Three things stay on this goroutine, and each is deliberate:
+//
+//   - The events. Every call and every result is reported from here, so the
+//     observer path still has one caller — it is a sub-flow, and a sub-flow run
+//     from four goroutines at once is a different promise than the one the block
+//     makes. Results are reported as they land rather than after the join, so a
+//     panel watching a slow turn still sees each tool finish when it finishes.
+//   - The authorization gate, in call order. A person answering two prompts at
+//     once is a worse question than the same two asked in turn, and the gate is
+//     the one part of a call that should never be racing anything.
+//   - The results slice, indexed by call. The model is told what it asked for in
+//     the order it asked, whatever order the answers arrived in.
+//
+// What the consumers get is a clone each: branches running at the same time
+// cannot share a message, so nothing a branch writes to it carries to the next
+// call the way it does in the sequential loop. A stop does carry — it is the one
+// thing collected back out — because a branch stopping the run means the run,
+// not the branch.
+func (a *aiAgent) runToolsParallel(
+	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message, branchBase string,
+	sess *memorySession, run *agentRun,
+) ([]core.LLMToolResult, bool) {
+	results := make([]core.LLMToolResult, len(calls))
+	queue, stopped := a.queueTools(ctx, iter, calls, current, run, results)
+	if len(queue) == 0 {
+		return results, stopped
+	}
+
+	for outcome := range a.drainToolQueue(ctx, calls, current, branchBase, sess, queue) {
+		results[outcome.index] = outcome.result
+		stopped = stopped || outcome.stopped
+		stopped = a.report(
+			ctx, *current, iter, eventToolResult, resultFields(calls[outcome.index], outcome.result)) || stopped
+	}
+	return results, stopped
+}
+
+// queueTools reports each call of the turn, puts it in front of a person when
+// the block gates it, and returns the queue of the ones that may run — closed,
+// because the whole turn's work is known by the time it returns and there is
+// nothing for a consumer to wait on but the calls themselves.
+//
+// A denied call never reaches the queue, so its result is written into results
+// here, which is the only part of that slice this function fills.
+func (a *aiAgent) queueTools(
+	ctx context.Context, iter int, calls []core.LLMToolCall, current **types.Message,
+	run *agentRun, results []core.LLMToolResult,
+) (chan int, bool) {
+	queue := make(chan int, len(calls))
+	stopped := false
+	for i, call := range calls {
+		stopped = a.report(ctx, *current, iter, eventToolCall, callFields(call)) || stopped
+		res, denied, halted := a.gate(ctx, iter, call, *current, run)
+		stopped = stopped || halted
+		if denied {
+			results[i] = res
+			stopped = a.report(ctx, *current, iter, eventToolResult, resultFields(call, res)) || stopped
+			continue
+		}
+		queue <- i
+	}
+	close(queue)
+	return queue, stopped
+}
+
+// drainToolQueue starts the consumers and hands back the channel their outcomes
+// arrive on, closed when the last of them is done.
+//
+// They are consumers of our own rather than the flow's worker pool. A tool call
+// is a whole flow that may wait minutes on a model or an API, and parking that
+// many of the pool's few workers on one agent's turn would starve every other
+// block sharing it — including a fork inside one of these very branches, which
+// would then be waiting for a worker its own caller is holding.
+func (a *aiAgent) drainToolQueue(
+	ctx context.Context, calls []core.LLMToolCall, current **types.Message, branchBase string,
+	sess *memorySession, queue chan int,
+) <-chan toolOutcome {
+	done := make(chan toolOutcome, len(queue))
+	// No more consumers than there is work: a turn of two calls has no use for ten.
+	workers := min(a.toolWorkers, len(queue))
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for i := range queue {
+				// Clone and not Scoped: these leave the goroutine. It gives the branch
+				// its own variables and its own body, which is the isolation two
+				// branches running at once need. What it does not give — see its doc —
+				// is a deep copy of a value stored INSIDE a variable, so two branches
+				// handed the same nested map and mutating it in place still race. That
+				// is a property of the platform's copy, shared with every other block
+				// that scatters (fork included), and not something an agent gets to
+				// redefine for everybody by walking every variable on every turn.
+				branchMsg := (*current).Clone()
+				res, out := a.runTool(ctx, calls[i], branchMsg, branchBase, sess)
+				// The flag is read off the clone as well as the result: RequestStop
+				// writes it into the message it was called on, so a branch that stops
+				// and then fails carries it on the clone while returning nothing.
+				stop := branchMsg.StopRequested() || (out != nil && out.StopRequested())
+				done <- toolOutcome{index: i, result: res, stopped: stop}
+			}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
 }
 
 // report sends one event, stamping the iteration every event carries, and says
