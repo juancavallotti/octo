@@ -1,8 +1,13 @@
 package openrouter
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
 
 	sdk "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/packages/param"
@@ -18,6 +23,7 @@ const (
 	fieldReasoning        = "reasoning"
 	fieldReasoningDetails = "reasoning_details"
 	fieldCost             = "cost"
+	fieldImages           = "images"
 	// A count of tokens, not a credential, whatever the name looks like.
 	fieldCacheWriteTokens = "cache_write_tokens" //nolint:gosec // G101 false positive
 )
@@ -48,10 +54,14 @@ type turn struct {
 	// get wrong.
 	reasoningDetails json.RawMessage
 	toolCalls        []core.LLMToolCall
-	finishReason     string
-	refused          bool
-	model            string
-	usage            *core.LLMUsage
+	// media is the files the model produced, already decoded. OpenRouter reports
+	// them on a field the OpenAI schema does not have, so they arrive the same way
+	// reasoning and cost do: off the raw JSON the SDK kept.
+	media        []core.LLMAttachment
+	finishReason string
+	refused      bool
+	model        string
+	usage        *core.LLMUsage
 }
 
 // translateTurn folds a gathered turn into the agnostic response.
@@ -69,6 +79,7 @@ func translateTurn(t turn, configuredModel string) *core.LLMResponse {
 	out := &core.LLMResponse{
 		Text:       t.text,
 		ToolCalls:  t.toolCalls,
+		Media:      t.media,
 		StopReason: mapStopReason(t.finishReason, len(t.toolCalls) > 0, t.refused),
 		Usage:      t.usage,
 		Model:      servedBy(t.model, configuredModel),
@@ -105,6 +116,7 @@ func turnFromCompletion(resp *sdk.ChatCompletion) (turn, error) {
 	if raw := msg.JSON.ExtraFields[fieldReasoningDetails].Raw(); raw != "" && raw != jsonNull {
 		t.reasoningDetails = json.RawMessage(raw)
 	}
+	t.media = decodeImages(msg.JSON.ExtraFields[fieldImages].Raw())
 
 	for _, tc := range msg.ToolCalls {
 		fn := tc.Function
@@ -115,6 +127,65 @@ func turnFromCompletion(resp *sdk.ChatCompletion) (turn, error) {
 		t.toolCalls = append(t.toolCalls, core.LLMToolCall{ID: tc.ID, Name: fn.Name, Input: input})
 	}
 	return t, nil
+}
+
+// wireImage is one entry of OpenRouter's images array: the shape of an OpenAI
+// image content part, reused to carry a generated image back rather than to send
+// one.
+type wireImage struct {
+	ImageURL struct {
+		URL string `json:"url"`
+	} `json:"image_url"`
+}
+
+// decodeImages reads generated images off the non-standard images array.
+//
+// Every failure is silent and yields nothing. This is a field outside the schema
+// the SDK models, reported by some upstreams and not others in a shape none of
+// them promise to keep; a turn whose answer arrived is not worth failing because
+// a picture alongside it did not parse. The reasoning fields next door are read
+// on exactly these terms.
+func decodeImages(raw string) []core.LLMAttachment {
+	if raw == "" || raw == jsonNull {
+		return nil
+	}
+	var wire []wireImage
+	if err := json.Unmarshal([]byte(raw), &wire); err != nil {
+		slog.Debug("llm-openrouter could not read the generated images", "error", err)
+		return nil
+	}
+	out := make([]core.LLMAttachment, 0, len(wire))
+	for _, img := range wire {
+		mime, data, ok := decodeDataURL(img.ImageURL.URL)
+		if !ok {
+			continue
+		}
+		out = append(out, core.LLMAttachment{MimeType: mime, Data: data})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// decodeDataURL splits a base64 data URL into its type and its bytes. A URL that
+// is not one — an http link to an image hosted elsewhere, which some upstreams
+// return instead — is not decoded here: fetching it is a network call, and a
+// translation function is the wrong place to make one.
+func decodeDataURL(url string) (mime string, data []byte, ok bool) {
+	const marker = ";base64,"
+	if !strings.HasPrefix(url, "data:") {
+		return "", nil, false
+	}
+	at := strings.Index(url, marker)
+	if at < 0 {
+		return "", nil, false
+	}
+	raw, err := base64.StdEncoding.DecodeString(url[at+len(marker):])
+	if err != nil {
+		return "", nil, false
+	}
+	return url[len("data:"):at], raw, true
 }
 
 // translateUsage converts the reported accounting, reporting nil when the
@@ -198,7 +269,11 @@ func toMessages(system string, msgs []core.LLMMessage) ([]sdk.ChatCompletionMess
 	for i, m := range msgs {
 		switch m.Role {
 		case core.LLMRoleUser:
-			out = append(out, sdk.UserMessage(m.Text))
+			user, err := userMessage(m)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, user)
 		case core.LLMRoleAssistant:
 			out = append(out, assistantMessage(m))
 		case core.LLMRoleTool:
@@ -214,6 +289,97 @@ func toMessages(system string, msgs []core.LLMMessage) ([]sdk.ChatCompletionMess
 		}
 	}
 	return out, nil
+}
+
+// acceptedMedia is what this connector can encode onto a Chat Completions turn.
+//
+// It is the shape check, not the truth. OpenRouter fans out to many upstreams and
+// what a file is actually accepted by is a property of the model the request is
+// routed to, which this connector does not know. A type listed here is one this
+// code can put on the wire; an upstream that will not take it answers with a
+// provider error, which is the right place for that refusal to come from.
+var acceptedMedia = map[string]struct{}{
+	"image/png":       {},
+	"image/jpeg":      {},
+	"image/webp":      {},
+	"application/pdf": {},
+}
+
+// AcceptsMedia reports the content types this connector can send, satisfying
+// core.LLMMedia.
+func (c *Connector) AcceptsMedia() []string { return acceptedMediaList() }
+
+// acceptedMediaList renders the accepted set in a stable order, for the
+// advertisement and for the sentence an unsupported type is refused with.
+func acceptedMediaList() []string {
+	out := make([]string, 0, len(acceptedMedia))
+	for mime := range acceptedMedia {
+		out = append(out, mime)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// userMessage builds one user turn: its attachments, then its text. A turn with
+// nothing attached stays the plain string it has always been.
+func userMessage(m core.LLMMessage) (sdk.ChatCompletionMessageParamUnion, error) {
+	if len(m.Attachments) == 0 {
+		return sdk.UserMessage(m.Text), nil
+	}
+	parts := make([]sdk.ChatCompletionContentPartUnionParam, 0, len(m.Attachments)+1)
+	for i, a := range m.Attachments {
+		part, err := mediaPart(a, i)
+		if err != nil {
+			return sdk.ChatCompletionMessageParamUnion{}, err
+		}
+		parts = append(parts, part)
+	}
+	// Appended only when there is text: an attachment with nothing said about it
+	// is a legitimate turn, and an empty part says nothing on the wire.
+	if m.Text != "" {
+		parts = append(parts, sdk.ChatCompletionContentPartUnionParam{
+			OfText: &sdk.ChatCompletionContentPartTextParam{Text: m.Text},
+		})
+	}
+	return sdk.UserMessage(parts), nil
+}
+
+// mediaPart renders one attachment as the content part its type calls for: an
+// image as a data URL, a document as base64 file data.
+func mediaPart(a core.LLMAttachment, i int) (sdk.ChatCompletionContentPartUnionParam, error) {
+	if _, ok := acceptedMedia[a.MimeType]; !ok {
+		return sdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf(
+			"llm-openrouter: cannot send attachment %s (%q): this connector can encode %s",
+			describeAttachment(a, i), a.MimeType, strings.Join(acceptedMediaList(), ", "))
+	}
+	encoded := "data:" + a.MimeType + ";base64," + base64.StdEncoding.EncodeToString(a.Data)
+	if strings.HasPrefix(a.MimeType, "image/") {
+		return sdk.ChatCompletionContentPartUnionParam{
+			OfImageURL: &sdk.ChatCompletionContentPartImageParam{
+				ImageURL: sdk.ChatCompletionContentPartImageImageURLParam{URL: encoded},
+			},
+		}, nil
+	}
+	file := sdk.ChatCompletionContentPartFileFileParam{FileData: param.NewOpt(encoded)}
+	// A filename is how an upstream tells what it was handed, so one is always
+	// sent — named after its type when the flow did not name it.
+	if a.Name != "" {
+		file.Filename = param.NewOpt(a.Name)
+	} else {
+		file.Filename = param.NewOpt(fmt.Sprintf("attachment-%d.pdf", i))
+	}
+	return sdk.ChatCompletionContentPartUnionParam{
+		OfFile: &sdk.ChatCompletionContentPartFileParam{File: file},
+	}, nil
+}
+
+// describeAttachment names an attachment in an error the way its author will
+// recognize it: by filename where there is one, and by position otherwise.
+func describeAttachment(a core.LLMAttachment, i int) string {
+	if a.Name != "" {
+		return strconv.Quote(a.Name)
+	}
+	return fmt.Sprintf("at index %d", i)
 }
 
 // assistantMessage builds one assistant turn: its text, its tool calls, and the

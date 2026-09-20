@@ -2,10 +2,12 @@ package openrouter
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
@@ -586,4 +588,166 @@ func TestEmbedRejectsAShortResponse(t *testing.T) {
 // so an ai-embed block may name it.
 func TestConnectorSatisfiesEmbedClient(t *testing.T) {
 	var _ core.EmbedClient = (*Connector)(nil)
+}
+
+func TestUserMessagePutsAttachmentsBeforeText(t *testing.T) {
+	msg, err := userMessage(core.LLMMessage{
+		Role: core.LLMRoleUser,
+		Text: "what is this?",
+		Attachments: []core.LLMAttachment{
+			{MimeType: "image/png", Data: []byte("png"), Name: "shot.png"},
+			{MimeType: "application/pdf", Data: []byte("%PDF"), Name: "invoice.pdf"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("userMessage: %v", err)
+	}
+	parts := msg.OfUser.Content.OfArrayOfContentParts
+	if len(parts) != 3 {
+		t.Fatalf("parts = %d, want 3", len(parts))
+	}
+	if parts[0].OfImageURL == nil {
+		t.Error("part 0 is not the image")
+	}
+	if parts[1].OfFile == nil {
+		t.Fatal("part 1 is not the file")
+	}
+	if name := parts[1].OfFile.File.Filename.Or(""); name != "invoice.pdf" {
+		t.Errorf("filename = %q, want the attachment's name", name)
+	}
+	if parts[2].OfText == nil || parts[2].OfText.Text != "what is this?" {
+		t.Error("the text does not come last")
+	}
+}
+
+func TestUserMessageSendsAnImageAsADataURL(t *testing.T) {
+	msg, err := userMessage(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "image/png", Data: []byte("hello")}},
+	})
+	if err != nil {
+		t.Fatalf("userMessage: %v", err)
+	}
+	got := msg.OfUser.Content.OfArrayOfContentParts[0].OfImageURL.ImageURL.URL
+	want := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("hello"))
+	if got != want {
+		t.Errorf("url = %q, want %q", got, want)
+	}
+}
+
+// A turn with nothing attached keeps the plain-string shape every request had
+// before attachments existed.
+func TestUserMessageWithoutAttachmentsStaysAString(t *testing.T) {
+	msg, err := userMessage(core.LLMMessage{Role: core.LLMRoleUser, Text: "hi"})
+	if err != nil {
+		t.Fatalf("userMessage: %v", err)
+	}
+	if got := msg.OfUser.Content.OfString.Or(""); got != "hi" {
+		t.Errorf("content = %q, want the plain string", got)
+	}
+}
+
+// The refusal says "this connector can encode", not "this provider accepts":
+// OpenRouter fans out, and what an upstream model takes is not knowable here.
+func TestUserMessageRejectsUnencodableMedia(t *testing.T) {
+	_, err := userMessage(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "audio/mpeg", Data: []byte("ID3"), Name: "note.mp3"}},
+	})
+	if err == nil {
+		t.Fatal("expected an error for a type this connector cannot encode")
+	}
+	for _, want := range []string{"llm-openrouter", "note.mp3", "audio/mpeg", "can encode"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// LLMResponse.Raw goes straight back onto the conversation, so a non-user turn
+// must never fail to translate over a field the provider did not set.
+func TestToMessagesIgnoresAttachmentsOnNonUserRoles(t *testing.T) {
+	bad := core.LLMAttachment{MimeType: "audio/mpeg", Data: []byte("x")}
+	if _, err := toMessages("", []core.LLMMessage{
+		{Role: core.LLMRoleAssistant, Text: "ok", Attachments: []core.LLMAttachment{bad}},
+	}); err != nil {
+		t.Errorf("toMessages: %v, want attachments ignored off a user turn", err)
+	}
+}
+
+func TestDecodeImagesReadsDataURLs(t *testing.T) {
+	raw := []byte{0x89, 'P', 'N', 'G'}
+	body := `[{"image_url":{"url":"data:image/png;base64,` +
+		base64.StdEncoding.EncodeToString(raw) + `"}}]`
+	got := decodeImages(body)
+	if len(got) != 1 {
+		t.Fatalf("images = %d, want 1", len(got))
+	}
+	if got[0].MimeType != "image/png" || string(got[0].Data) != string(raw) {
+		t.Errorf("image = %+v, want the decoded PNG", got[0])
+	}
+}
+
+// This field sits outside the schema the SDK models and no upstream promises to
+// keep its shape, so a turn whose answer arrived is never failed because a
+// picture alongside it did not parse.
+func TestDecodeImagesIsSilentOnAnythingUnreadable(t *testing.T) {
+	for name, raw := range map[string]string{
+		"empty":       "",
+		"null":        jsonNull,
+		"not json":    "{{{",
+		"wrong shape": `[{"image_url":42}]`,
+		"http url":    `[{"image_url":{"url":"https://example.test/a.png"}}]`,
+		"bad base64":  `[{"image_url":{"url":"data:image/png;base64,!!!"}}]`,
+	} {
+		if got := decodeImages(raw); got != nil {
+			t.Errorf("decodeImages(%s) = %+v, want nil", name, got)
+		}
+	}
+}
+
+func TestStreamedTurnCarriesGeneratedMedia(t *testing.T) {
+	f := &streamFold{calls: map[int]*toolCallFold{}}
+	delta := sdk.ChatCompletionChunkChoiceDelta{Content: "here"}
+	if err := json.Unmarshal([]byte(`{"content":"here","images":[{"image_url":`+
+		`{"url":"data:image/png;base64,`+base64.StdEncoding.EncodeToString([]byte("png"))+
+		`"}}]}`), &delta); err != nil {
+		t.Fatalf("unmarshal delta: %v", err)
+	}
+	if err := f.absorbDelta(delta, func(core.LLMStreamEvent) error { return nil }); err != nil {
+		t.Fatalf("absorbDelta: %v", err)
+	}
+	resp := translateTurn(f.turn(), "some-model")
+	if len(resp.Media) != 1 || string(resp.Media[0].Data) != "png" {
+		t.Errorf("media = %+v, want the folded image", resp.Media)
+	}
+}
+
+// Streaming emits no media event: there is no canonical kind for it, and the
+// finished response is where LLMStreamKind says the caller reads it. See #517.
+func TestStreamedMediaEmitsNoEvent(t *testing.T) {
+	f := &streamFold{calls: map[int]*toolCallFold{}}
+	var delta sdk.ChatCompletionChunkChoiceDelta
+	if err := json.Unmarshal([]byte(`{"images":[{"image_url":`+
+		`{"url":"data:image/png;base64,cG5n"}}]}`), &delta); err != nil {
+		t.Fatalf("unmarshal delta: %v", err)
+	}
+	var events []core.LLMStreamEvent
+	if err := f.absorbDelta(delta, func(e core.LLMStreamEvent) error {
+		events = append(events, e)
+		return nil
+	}); err != nil {
+		t.Fatalf("absorbDelta: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("events = %+v, want none", events)
+	}
+}
+
+func TestOpenRouterAcceptsMediaIsStableAndSorted(t *testing.T) {
+	got := (&Connector{}).AcceptsMedia()
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("AcceptsMedia() = %v, want sorted", got)
+	}
+	var _ core.LLMMedia = (*Connector)(nil)
 }
