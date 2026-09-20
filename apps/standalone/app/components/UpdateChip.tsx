@@ -39,15 +39,27 @@ export default function UpdateChip() {
 
   if (!bridge || status?.stage !== "ready" || !status.version) return null;
 
+  const label = "Restart to update";
+
   return (
     <button
       type="button"
       onClick={() => void bridge.installUpdate()}
+      aria-label={label}
       title={`Octo ${status.version} is ready — you have ${status.current}`}
-      className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1 text-[13px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
+      // Save's and Run's shape exactly — it sits beside them and is the same kind
+      // of thing: a filled button that acts on the window. Violet rather than their
+      // sky and emerald, because it is neither of those actions and the one button
+      // here that takes the app away from under you.
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-sm font-medium text-white hover:bg-violet-500"
     >
-      <ArrowUpCircle size={14} className="shrink-0" />
-      Restart to update
+      <ArrowUpCircle className="h-3.5 w-3.5 shrink-0" />
+      {/* Dropped below 1100px, where the bar's centred view tabs reach this far
+          across: the window goes down to 900, and the mark is legible on its own
+          with the label still in the tooltip and on the button's accessible name.
+          Hiding the button itself is not the trade — an update nobody is told
+          about is the bug this whole thing fixes. */}
+      <span className="hidden min-[1100px]:inline">{label}</span>
     </button>
   );
 }
