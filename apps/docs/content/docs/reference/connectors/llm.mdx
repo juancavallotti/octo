@@ -84,6 +84,39 @@ Traced OpenRouter calls report the provider `OPENROUTER`, not the vendor behind 
 OpenRouter serves an OpenAI-compatible embeddings endpoint, so an [ai-embed](/reference/blocks/ai#ai-embed) block may name an `llm-openrouter` connector. Embedding model ids are vendor-prefixed like every other model here: `openai/text-embedding-3-small`, `google/gemini-embedding-001`.
 </Callout>
 
+## Attachments and generated media
+
+An [ai-agent](/reference/blocks/ai#attachments) or
+[ai-mapping](/reference/blocks/ai#ai-mapping) can send files as well as text, and
+what a connector accepts is the provider's business. The sets differ, and the
+differences are real rather than incidental:
+
+| | Images | Documents | Audio / video | Returns files |
+|---|---|---|---|---|
+| `llm-anthropic` | jpeg, png, gif, webp | pdf, plain text | — | no |
+| `llm-openai` | png, jpeg, gif, webp | pdf | — | generated images |
+| `llm-gemini` | `image/*` | pdf, plain text | `audio/*`, `video/*` | yes |
+| `llm-openrouter` | png, jpeg, webp | pdf | — | generated images |
+
+`llm-gemini` is the only one that reads a voice note or a clip, so a
+transcribe-this flow names it.
+
+A type the connector cannot send **errors** rather than being quietly dropped. A
+model answering confidently about a file it never received is a failure nothing
+downstream can detect, so it is not an outcome the runtime allows.
+
+<Callout type="warn">
+`llm-openrouter`'s row is what this connector can *encode*, not what will be
+accepted. OpenRouter fronts many vendors and what a file is actually taken by is
+a property of whichever model the request routes to; a model that refuses it
+answers with a provider error.
+</Callout>
+
+`llm-anthropic` returns no files at all — the Messages API has no content block
+for one — so `responseMedia` against it is always empty. Generated media reaches
+a flow only when the turn finishes, never progressively
+([#517](https://github.com/juancavallotti/octo/issues/517)).
+
 ## Streaming and thinking
 
 All four connectors stream, and an [ai-agent](/reference/blocks/ai#ai-agent) with
