@@ -74,6 +74,26 @@ const memoryWriteAttempts = 5
 // transcripts. There is no tokenizer in the runtime, so this is an approximation.
 const charsPerToken = 4
 
+// mediaCharsPerToken is the divisor for attachment bytes, applied instead of
+// charsPerToken above.
+//
+// Media is not billed by its size. A provider tiles an image and charges for the
+// tiles, so a megabyte of PNG costs on the order of a thousand tokens where a
+// megabyte of prose costs a quarter of a million — the chars/4 ratio next door is
+// wrong here by more than two orders of magnitude.
+//
+// Neither is counting nothing, which is what this replaces. The context meter
+// fits its scale from the change in the estimate against the change in what the
+// provider measured, and attachments ride one turn: turn one carries the image
+// and turn two does not, so a measured prompt that drops while the estimate does
+// not move produces a nonsense scale for the rest of the run.
+//
+// Like the estimate itself, it only has to be proportional. 750 puts a
+// one-megabyte image in the low thousands of tokens, which is the right order for
+// every provider this runtime talks to, and the meter's fitted scale absorbs the
+// rest.
+const mediaCharsPerToken = 750
+
 func registerClearAgentMemory() {
 	core.MustRegisterBlock("clear-agent-memory", newClearAgentMemory)
 
@@ -196,6 +216,11 @@ func estimateTokens(msgs []core.LLMMessage) int {
 		}
 		for _, r := range m.ToolResults {
 			chars += len(r.Content)
+		}
+		// Scaled into the same accumulator, so the function keeps its single divide
+		// and media stays comparable with text rather than becoming a second unit.
+		for _, a := range m.Attachments {
+			chars += len(a.Data) * charsPerToken / mediaCharsPerToken
 		}
 	}
 	return chars / charsPerToken
