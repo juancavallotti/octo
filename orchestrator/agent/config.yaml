@@ -364,6 +364,18 @@ flows:
         # and it is the reason `authToken` is a name worth recognising: redacting
         # credentials at the trace sink starts by knowing what they are called.
         headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth, X-Agent-Caller-Token]
+        # Sixteen mebibytes, because this route carries files now.
+        #
+        # Required rather than tuning: the default is one mebibyte, which a single
+        # phone screenshot exceeds — the request would be refused by the body
+        # reader before any of the attachment handling ran, and the person pasting
+        # it would see a failure with nothing to do about it.
+        #
+        # The platform refuses more than eight mebibytes of files in one message,
+        # and base64 inflates by about a third, so eleven is the most a legitimate
+        # request carries. The rest is headroom for the route catalogue and the
+        # question itself.
+        maxBodyBytes: 16777216
         # On an SSE route this bounds the wait for the FIRST frame only. An agent
         # takes a moment to produce its first token.
         timeout: 60s
@@ -426,7 +438,8 @@ flows:
               "message": has(body.message) ? body.message : "",
               "page": has(body.page) ? body.page : "",
               "routes": has(body.routes) ? body.routes : [],
-              "user": has(body.user) && has(body.user.name) ? {"name": body.user.name} : {}
+              "user": has(body.user) && has(body.user.name) ? {"name": body.user.name} : {},
+              "attachments": has(body.attachments) ? body.attachments : []
             }
 
       - type: ai-agent
@@ -449,6 +462,18 @@ flows:
               toJson({"routes": body.routes, "user": body.user})
             : body.message
 
+        # The files somebody pasted, dropped or picked in the chat window.
+        #
+        # Unqualified because the set-payload above guarantees the key: it is
+        # always at least an empty list, so there is nothing to guard against.
+        #
+        # They ride ONE turn. The model reads them on the first model call and the
+        # runtime drops them from the transcript as soon as it returns, so the
+        # tools he calls afterwards, the rest of the conversation and the memory
+        # stored under the thread below are all text. That is what stops a
+        # screenshot from being re-sent and re-billed on every later message in a
+        # conversation that may run for an hour.
+        attachments: body.attachments
         memoryThreadId: vars.threadKey
         contextMaxTokens: ${AGENT_MEMORY_TOKENS}
         memoryCompaction: summarize
