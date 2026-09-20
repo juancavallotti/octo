@@ -6,7 +6,7 @@ import { buildMenu } from "./menu";
 import { choosePort, pinnedPort } from "./port";
 import { current, onServerCrash, start, stop } from "./server";
 import { openSettings } from "./settingsWindow";
-import { checkOnLaunch } from "./update";
+import { checkOnLaunch, installIfReady } from "./update";
 import { initialVault, rememberVault } from "./vault";
 import { confineTo, createWindow, mainWindow, splashHint } from "./window";
 
@@ -128,6 +128,13 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     shuttingDown = true;
     retract(current()?.vault);
-    void stop().finally(() => app.exit(0));
+    // A downloaded update is installed here, at the end of the shutdown rather than
+    // by electron-updater's own install-on-quit: that hook hangs off the `quit`
+    // event, which app.exit() never emits, and on macOS it does not exist at all.
+    // installIfReady answers whether it took the process over; when it did, exiting
+    // would kill the installer mid-swap.
+    void stop().finally(() => {
+      if (!installIfReady()) app.exit(0);
+    });
   });
 }

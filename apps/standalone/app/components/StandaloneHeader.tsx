@@ -8,6 +8,7 @@ import {
   ViewModeToggle,
 } from "@octo/editor";
 import ModeBadge from "./ModeBadge";
+import UpdateChip from "./UpdateChip";
 import VaultChip from "./VaultChip";
 
 /* onSaved (URL sync) lives on EditorRoot — see StandaloneEditor — so all save
@@ -49,6 +50,9 @@ export default function StandaloneHeader() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {/* Before the file's own controls: it is about the app, not the document,
+            and it is only ever there when there is something to say. */}
+        <UpdateChip />
         <SaveButton />
         <RunBar />
         {/* Last on the bar, VS Code's corner: these are about the window, not about
