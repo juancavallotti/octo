@@ -17,12 +17,30 @@ import (
 	"github.com/juancavallotti/octo/runtime/core/expr"
 )
 
-// The keys one attachment is written with.
+// The keys one attachment is written with, in both directions: the list a block
+// reads its attachments out of, and the list it writes the model's own files to.
+// One set, so what the runtime writes can be fed straight back into what it
+// reads.
 const (
 	attachmentMimeType = "mimeType"
 	attachmentData     = "data"
 	attachmentName     = "name"
+	// attachmentSize is written but never read: it lets a flow decide what to do
+	// with a file — store it, refuse it — without decoding the base64 first.
+	attachmentSize = "size"
 )
+
+// mediaFields renders one file the model produced, in the shape a message
+// variable carries it: JSON-native, with the bytes base64 because a variable is
+// copied, traced and read from CEL, none of which can hold a []byte.
+func mediaFields(file core.LLMAttachment) map[string]any {
+	return map[string]any{
+		attachmentName:     file.Name,
+		attachmentMimeType: file.MimeType,
+		attachmentSize:     len(file.Data),
+		attachmentData:     base64.StdEncoding.EncodeToString(file.Data),
+	}
+}
 
 // evalAttachments evaluates an attachments expression into the DTOs the
 // providers take. A nil program is a setting nobody set, and yields nothing.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1623,12 +1622,7 @@ func (a *aiAgent) collectMedia(msg *types.Message, resp *core.LLMResponse) {
 	out := make([]any, 0, len(existing)+len(resp.Media))
 	out = append(out, existing...)
 	for _, file := range resp.Media {
-		out = append(out, map[string]any{
-			"name":     file.Name,
-			"mimeType": file.MimeType,
-			"size":     len(file.Data),
-			"data":     base64.StdEncoding.EncodeToString(file.Data),
-		})
+		out = append(out, mediaFields(file))
 	}
 	msg.Variables.Set(a.responseMedia, out)
 }

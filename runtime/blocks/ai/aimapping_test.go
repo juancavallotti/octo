@@ -171,3 +171,133 @@ func TestBuildSystemPrompt(t *testing.T) {
 		}
 	}
 }
+
+// AcceptsMedia makes the double a multimodal provider, so a mapping configured
+// to send attachments against it builds.
+func (f *fakeLLM) AcceptsMedia() []string { return []string{"image/png"} }
+
+// textOnlyMapper is a provider that reads no media at all.
+type textOnlyMapper struct{ fakeLLM }
+
+func (t *textOnlyMapper) AcceptsMedia() []string { return nil }
+
+// mappingSettingsWith is an ai-mapping that states its turn and sends whatever
+// the body put under `files`.
+func mappingSettingsWith(extra types.Settings) types.Settings {
+	cfg := types.Settings{
+		"connector":   "claude",
+		"prompt":      "describe the picture",
+		"input":       "body.question",
+		"attachments": "body.files",
+	}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	return cfg
+}
+
+const mappingFileBody = `{"question":"what is this?","files":[` +
+	`{"mimeType":"image/png","name":"shot.png","data":"UE5HQllURVM="}]}`
+
+func TestAIMappingSendsAttachments(t *testing.T) {
+	fake := &fakeLLM{resp: textResponse(`{"seen":"a screenshot"}`)}
+	proc, err := newAIMapping(mappingSettingsWith(nil), depsLLM(fake))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if _, err := proc.Process(context.Background(), newMessageWith(t, mappingFileBody)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	sent := fake.gotReq.Messages[0]
+	if sent.Text != "what is this?" {
+		t.Errorf("turn = %q, want the stated input and not the whole body", sent.Text)
+	}
+	if len(sent.Attachments) != 1 || sent.Attachments[0].MimeType != "image/png" {
+		t.Fatalf("attachments = %+v, want the png", sent.Attachments)
+	}
+	if got := string(sent.Attachments[0].Data); got != "PNGBYTES" {
+		t.Errorf("data = %q, want the decoded bytes", got)
+	}
+}
+
+// Without input the turn is still the whole body, exactly as it was before this
+// block could send anything but text.
+func TestAIMappingWithoutInputStillSendsTheBody(t *testing.T) {
+	fake := &fakeLLM{resp: textResponse(`{"ok":true}`)}
+	proc, err := newAIMapping(types.Settings{
+		"connector": "claude", "prompt": "reshape",
+	}, depsLLM(fake))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if _, err := proc.Process(context.Background(), newMessageWith(t, `{"name":"Ada"}`)); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if !strings.Contains(fake.gotReq.Messages[0].Text, "Ada") {
+		t.Errorf("turn = %q, want the whole body", fake.gotReq.Messages[0].Text)
+	}
+}
+
+// The default turn is the body, so a flow that put its files there would send
+// each of them twice — once as a file, once as base64 in the prompt. Stating the
+// turn is how an author says which half of the body is which.
+func TestAIMappingRefusesAttachmentsWithoutInput(t *testing.T) {
+	cfg := mappingSettingsWith(nil)
+	delete(cfg, "input")
+	_, err := newAIMapping(cfg, depsLLM(&fakeLLM{}))
+	if err == nil {
+		t.Fatal("expected a build error")
+	}
+	for _, want := range []string{"attachments requires input", "base64"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+func TestAIMappingRefusesAttachmentsAgainstATextOnlyModel(t *testing.T) {
+	_, err := newAIMapping(mappingSettingsWith(nil), depsLLM(&textOnlyMapper{}))
+	if err == nil {
+		t.Fatal("expected a build error")
+	}
+	if !strings.Contains(err.Error(), "reads only text") {
+		t.Errorf("error = %v, want one naming the text-only connector", err)
+	}
+}
+
+func TestAIMappingWritesGeneratedMedia(t *testing.T) {
+	resp := textResponse(`{"ok":true}`)
+	resp.Media = []core.LLMAttachment{{MimeType: "image/png", Data: []byte("CHART"), Name: "chart.png"}}
+	fake := &fakeLLM{resp: resp}
+	proc, err := newAIMapping(mappingSettingsWith(types.Settings{"responseMedia": "art"}), depsLLM(fake))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	out, err := proc.Process(context.Background(), newMessageWith(t, mappingFileBody))
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	files, ok := out.Variables["art"].([]any)
+	if !ok || len(files) != 1 {
+		t.Fatalf("vars.art = %#v, want one file", out.Variables["art"])
+	}
+	file, _ := files[0].(map[string]any)
+	if file["mimeType"] != "image/png" || file["name"] != "chart.png" || file["size"] != len("CHART") {
+		t.Errorf("file = %#v", file)
+	}
+}
+
+func TestAIMappingWritesNoMediaVariableWhenThereIsNone(t *testing.T) {
+	fake := &fakeLLM{resp: textResponse(`{"ok":true}`)}
+	proc, err := newAIMapping(mappingSettingsWith(types.Settings{"responseMedia": "art"}), depsLLM(fake))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	out, err := proc.Process(context.Background(), newMessageWith(t, mappingFileBody))
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if _, present := out.Variables["art"]; present {
+		t.Errorf("vars.art = %#v, want the variable left unwritten", out.Variables["art"])
+	}
+}
