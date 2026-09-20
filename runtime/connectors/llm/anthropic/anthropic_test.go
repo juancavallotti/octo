@@ -2,10 +2,12 @@ package anthropic
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
@@ -530,4 +532,142 @@ func TestProviderNamesTheVendorFamily(t *testing.T) {
 		t.Errorf("Provider() = %q, want ANTHROPIC", got)
 	}
 	var _ core.LLMProvider = (*Connector)(nil)
+}
+
+func TestUserBlocksPutAttachmentsBeforeText(t *testing.T) {
+	blocks, err := userBlocks(core.LLMMessage{
+		Role: core.LLMRoleUser,
+		Text: "what is this?",
+		Attachments: []core.LLMAttachment{
+			{MimeType: "image/png", Data: []byte{0x89, 'P', 'N', 'G'}, Name: "shot.png"},
+			{MimeType: "application/pdf", Data: []byte("%PDF-1.4"), Name: "invoice.pdf"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("userBlocks: %v", err)
+	}
+	if len(blocks) != 3 {
+		t.Fatalf("blocks = %d, want 3", len(blocks))
+	}
+	if blocks[0].OfImage == nil {
+		t.Error("block 0 is not the image")
+	}
+	if blocks[1].OfDocument == nil {
+		t.Fatal("block 1 is not the document")
+	}
+	if title := blocks[1].OfDocument.Title.Or(""); title != "invoice.pdf" {
+		t.Errorf("document title = %q, want the filename", title)
+	}
+	if blocks[2].OfText == nil || blocks[2].OfText.Text != "what is this?" {
+		t.Error("the text does not come last")
+	}
+}
+
+// An attachment with nothing said about it is a whole turn, and an empty text
+// block is rejected by the server — so the turn must not carry one.
+func TestUserBlocksOmitEmptyText(t *testing.T) {
+	blocks, err := userBlocks(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "image/png", Data: []byte("x")}},
+	})
+	if err != nil {
+		t.Fatalf("userBlocks: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].OfImage == nil {
+		t.Fatalf("blocks = %d, want the image alone", len(blocks))
+	}
+}
+
+func TestUserBlocksBase64EncodeImageData(t *testing.T) {
+	blocks, err := userBlocks(core.LLMMessage{
+		Role:        core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{{MimeType: "image/png", Data: []byte("hello")}},
+	})
+	if err != nil {
+		t.Fatalf("userBlocks: %v", err)
+	}
+	src := blocks[0].OfImage.Source.OfBase64
+	if src == nil {
+		t.Fatal("image source is not base64")
+	}
+	if src.Data != base64.StdEncoding.EncodeToString([]byte("hello")) {
+		t.Errorf("data = %q, want the base64 of the bytes", src.Data)
+	}
+	if string(src.MediaType) != "image/png" {
+		t.Errorf("mediaType = %q, want image/png", src.MediaType)
+	}
+}
+
+// An unsendable type errors rather than being dropped: a model answering about a
+// file it never received is the failure nobody can see.
+func TestUserBlocksRejectUnsupportedMedia(t *testing.T) {
+	_, err := userBlocks(core.LLMMessage{
+		Role: core.LLMRoleUser,
+		Text: "transcribe this",
+		Attachments: []core.LLMAttachment{
+			{MimeType: "audio/mpeg", Data: []byte("ID3"), Name: "note.mp3"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected an error for an unsupported mime type")
+	}
+	for _, want := range []string{"llm-anthropic", "note.mp3", "audio/mpeg", "application/pdf"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// Without a filename the error still has to say which attachment it means.
+func TestUserBlocksNameUnnamedAttachmentByIndex(t *testing.T) {
+	_, err := userBlocks(core.LLMMessage{
+		Role: core.LLMRoleUser,
+		Attachments: []core.LLMAttachment{
+			{MimeType: "image/png", Data: []byte("x")},
+			{MimeType: "video/mp4", Data: []byte("y")},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected an error for an unsupported mime type")
+	}
+	if !strings.Contains(err.Error(), "index 1") {
+		t.Errorf("error %q does not name the offending index", err)
+	}
+}
+
+// A turn with no attachments must translate exactly as it did before they
+// existed: one text block, nothing else.
+func TestUserBlocksWithoutAttachmentsAreOneTextBlock(t *testing.T) {
+	blocks, err := userBlocks(core.LLMMessage{Role: core.LLMRoleUser, Text: "hi"})
+	if err != nil {
+		t.Fatalf("userBlocks: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].OfText == nil || blocks[0].OfText.Text != "hi" {
+		t.Errorf("blocks = %+v, want a single text block", blocks)
+	}
+}
+
+// Attachments on an assistant or tool turn are ignored rather than refused:
+// LLMResponse.Raw is appended straight back onto the conversation, so a turn must
+// never fail to translate over a field the provider did not set.
+func TestToMessagesIgnoreAttachmentsOnNonUserRoles(t *testing.T) {
+	bad := core.LLMAttachment{MimeType: "video/mp4", Data: []byte("x")}
+	if _, err := toMessages([]core.LLMMessage{
+		{Role: core.LLMRoleAssistant, Text: "ok", Attachments: []core.LLMAttachment{bad}},
+		{Role: core.LLMRoleTool, Attachments: []core.LLMAttachment{bad},
+			ToolResults: []core.LLMToolResult{{ToolCallID: "t1", Content: "{}"}}},
+	}); err != nil {
+		t.Errorf("toMessages: %v, want attachments ignored off a user turn", err)
+	}
+}
+
+func TestAcceptsMediaIsStableAndSorted(t *testing.T) {
+	got := (&Connector{}).AcceptsMedia()
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("AcceptsMedia() = %v, want sorted", got)
+	}
+	if len(got) != len(acceptedMedia) {
+		t.Errorf("AcceptsMedia() = %d types, want %d", len(got), len(acceptedMedia))
+	}
+	var _ core.LLMMedia = (*Connector)(nil)
 }

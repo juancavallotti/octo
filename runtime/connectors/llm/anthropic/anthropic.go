@@ -13,10 +13,13 @@ package anthropic
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
@@ -308,7 +311,11 @@ func toMessages(msgs []core.LLMMessage) ([]sdk.MessageParam, error) {
 	for i, m := range msgs {
 		switch m.Role {
 		case core.LLMRoleUser:
-			out = append(out, sdk.NewUserMessage(sdk.NewTextBlock(m.Text)))
+			blocks, err := userBlocks(m)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, sdk.NewUserMessage(blocks...))
 		case core.LLMRoleAssistant:
 			out = append(out, sdk.NewAssistantMessage(assistantBlocks(m)...))
 		case core.LLMRoleTool:
@@ -322,6 +329,113 @@ func toMessages(msgs []core.LLMMessage) ([]sdk.MessageParam, error) {
 		}
 	}
 	return out, nil
+}
+
+// acceptedMedia is what the Messages API takes as content, and so what this
+// connector advertises and enforces. It is a map rather than a slice because the
+// enforcement is a lookup per attachment and the advertisement is once at
+// startup; sorting for the advertisement is the cheaper half.
+var acceptedMedia = map[string]struct{}{
+	"image/jpeg":      {},
+	"image/png":       {},
+	"image/gif":       {},
+	"image/webp":      {},
+	"application/pdf": {},
+	"text/plain":      {},
+}
+
+// AcceptsMedia reports the content types this connector can send, satisfying
+// core.LLMMedia.
+//
+// The model is not consulted. Anthropic's published models all read the set
+// above, and a connector that answered from a model-id table would be a table to
+// keep in step with a vendor's releases — which is the sort of staleness that
+// blocks a flow from building for no reason at all.
+func (c *Connector) AcceptsMedia() []string { return acceptedMediaList() }
+
+// acceptedMediaList renders the accepted set in a stable order, for the
+// advertisement and for the sentence an unsupported type is refused with.
+func acceptedMediaList() []string {
+	out := make([]string, 0, len(acceptedMedia))
+	for mime := range acceptedMedia {
+		out = append(out, mime)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// userBlocks builds one user turn's content: attachments, then the text.
+//
+// Attachments lead because Anthropic's own guidance is that an image should come
+// before the question about it, and because one order across all four connectors
+// is worth more than four locally optimal ones.
+func userBlocks(m core.LLMMessage) ([]sdk.ContentBlockParamUnion, error) {
+	if len(m.Attachments) == 0 {
+		return []sdk.ContentBlockParamUnion{sdk.NewTextBlock(m.Text)}, nil
+	}
+	blocks := make([]sdk.ContentBlockParamUnion, 0, len(m.Attachments)+1)
+	for i, a := range m.Attachments {
+		block, err := mediaBlock(a, i)
+		if err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, block)
+	}
+	// An attachment with nothing said about it is a legitimate turn — "here, look
+	// at this" — and an empty text block is rejected by the server, so the text is
+	// appended only when there is some.
+	if m.Text != "" {
+		blocks = append(blocks, sdk.NewTextBlock(m.Text))
+	}
+	return blocks, nil
+}
+
+// mediaBlock renders one attachment as the content block its type calls for.
+//
+// A type the API does not take is an error rather than a silent omission. The
+// alternative failure is the worst one available here: the model answers
+// confidently about a file it was never sent, and neither the flow author nor the
+// person reading the answer can tell from the answer that it happened.
+func mediaBlock(a core.LLMAttachment, i int) (sdk.ContentBlockParamUnion, error) {
+	if _, ok := acceptedMedia[a.MimeType]; !ok {
+		return sdk.ContentBlockParamUnion{}, fmt.Errorf(
+			"llm-anthropic: cannot send attachment %s (%q): this provider accepts %s",
+			describeAttachment(a, i), a.MimeType, strings.Join(acceptedMediaList(), ", "))
+	}
+	encoded := base64.StdEncoding.EncodeToString(a.Data)
+	switch a.MimeType {
+	case "application/pdf":
+		doc := sdk.NewDocumentBlock(sdk.Base64PDFSourceParam{Data: encoded})
+		titleDocument(&doc, a.Name)
+		return doc, nil
+	case "text/plain":
+		// Plain text goes as a document rather than being folded into the turn's
+		// own text: it keeps the file's boundaries visible to the model, and it is
+		// the only shape that can carry the filename.
+		doc := sdk.NewDocumentBlock(sdk.PlainTextSourceParam{Data: string(a.Data)})
+		titleDocument(&doc, a.Name)
+		return doc, nil
+	default:
+		return sdk.NewImageBlockBase64(a.MimeType, encoded), nil
+	}
+}
+
+// titleDocument names a document block for the model, when the attachment came
+// with a name. An image block has no equivalent field, so an image's name is not
+// sent at all.
+func titleDocument(block *sdk.ContentBlockParamUnion, name string) {
+	if name != "" && block.OfDocument != nil {
+		block.OfDocument.Title = param.NewOpt(name)
+	}
+}
+
+// describeAttachment names an attachment in an error the way its author will
+// recognize it: by filename where there is one, and by position otherwise.
+func describeAttachment(a core.LLMAttachment, i int) string {
+	if a.Name != "" {
+		return strconv.Quote(a.Name)
+	}
+	return fmt.Sprintf("at index %d", i)
 }
 
 // assistantBlocks builds one assistant turn's content: thinking, then text, then
@@ -467,6 +581,9 @@ func translateResponse(message *sdk.Message, configuredModel string) *core.LLMRe
 			})
 		}
 	}
+	// Media is left nil, and the switch above has no arm that would fill it: the
+	// Messages API returns text, thinking and tool_use, and there is no content
+	// block for a file the model made. A provider that gains one gains an arm here.
 	resp := &core.LLMResponse{
 		Text:       text.String(),
 		ToolCalls:  calls,
