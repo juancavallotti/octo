@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.7](https://github.com/juancavallotti/octo/compare/v0.11.6...v0.11.7) (2026-09-20)
+
+
+### Features
+
+* **ai:** run an agent's tool calls in parallel ([5f1a472](https://github.com/juancavallotti/octo/commit/5f1a4727b9c507f9c1d52026fffccdfa4052fb94))
+* **ai:** run an agent's tool calls in parallel ([ade2326](https://github.com/juancavallotti/octo/commit/ade23267de0cbeb63e8ced828d087b759d1138ac))
+* **desktop:** offer the restart a downloaded update is waiting for ([efd9b5a](https://github.com/juancavallotti/octo/commit/efd9b5a547eebc3d1e3fbe8f93b1064dbd9697b9))
+
+
+### Bug Fixes
+
+* **desktop:** actually install the update, and say one is waiting ([4fef9d6](https://github.com/juancavallotti/octo/commit/4fef9d69f4f502570575c88f9eba9ba35b357554))
+* **desktop:** install the downloaded update instead of discarding it ([b03e27c](https://github.com/juancavallotti/octo/commit/b03e27cefb061205b46194c6895dbd29a3474ea9))
+* **desktop:** let a pushed update status outrank the read that raced it ([f47dd37](https://github.com/juancavallotti/octo/commit/f47dd37f18083c6052b1e0f0ab3aa7b150239562))
+
+
+### Documentation
+
+* **ai:** name what a per-call copy does not isolate ([c11868f](https://github.com/juancavallotti/octo/commit/c11868f27fa8fb0292afc0057658f8873fdf79a0))
+* **ai:** say that a turn's tool calls run together ([2b57e4e](https://github.com/juancavallotti/octo/commit/2b57e4e9942064cf02c4aa3873497d611a9c8b51))
+
 ## [0.11.6](https://github.com/juancavallotti/octo/compare/v0.11.5...v0.11.6) (2026-09-14)
 
 
