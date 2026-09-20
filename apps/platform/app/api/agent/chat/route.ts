@@ -5,6 +5,15 @@ import { currentWriteUserId } from "@/app/actions/_auth";
 import { AuthError, ForbiddenError } from "@/app/auth/guard";
 import { resolveAgentUrl, forgetAgentUrl, orchestratorConfigured } from "@/app/actions/client/agentUrl";
 import { callerToken } from "@/app/auth/callerToken";
+import { MAX_FILES, MAX_TOTAL_BYTES } from "@/app/components/agent/attachments";
+
+/**
+ * The cap on the encoded bytes, which is what this route can measure: base64
+ * inflates by about a third, and rounding that up leaves a little room for the
+ * filenames without letting a request through that the agent's own HTTP source
+ * would then refuse.
+ */
+const MAX_ENCODED_BYTES = Math.ceil(MAX_TOTAL_BYTES * 1.4);
 
 /**
  * POST /api/agent/chat — the browser's end of a conversation with Dr. Octo.
@@ -24,6 +33,35 @@ import { callerToken } from "@/app/auth/callerToken";
  * holding in front of them, and it reaches the run the same way: addressed to the
  * conversation, wherever it is being worked on.
  */
+/**
+ * Why these attachments may not be forwarded, or null.
+ *
+ * This route is the auth boundary and the only cheap place to refuse: a body
+ * that gets past here has already been read into the agent's pod, where the
+ * runtime's own limit answers with an error the caller cannot act on. The
+ * numbers mirror the composer's, which is the client-side half of the same
+ * bargain — this is the half that holds when the request did not come from it.
+ *
+ * Shape only. Which content *types* a model reads is the runtime's to enforce,
+ * and it does, per connector: duplicating that table here would be a second
+ * answer that could disagree with the first.
+ */
+function refuseAttachments(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value)) return "attachments must be a list";
+  if (value.length > MAX_FILES) return `up to ${MAX_FILES} files per message`;
+  let total = 0;
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) return "each attachment must be an object";
+    const { mimeType, data } = entry as { mimeType?: unknown; data?: unknown };
+    if (typeof mimeType !== "string" || !mimeType) return "each attachment needs a mimeType";
+    if (typeof data !== "string") return "each attachment needs base64 data";
+    total += data.length;
+  }
+  if (total > MAX_ENCODED_BYTES) return "that is more than one message may carry";
+  return null;
+}
+
 export async function POST(req: Request) {
   // Authorization first, before anything that would describe this installation to
   // whoever asked. The write roles, not merely a session: Dr. Octo holds full
@@ -61,6 +99,11 @@ export async function POST(req: Request) {
     body = parsed as Record<string, unknown>;
   } catch {
     return Response.json({ error: "invalid request body" }, { status: 400 });
+  }
+
+  const tooBig = refuseAttachments(body.attachments);
+  if (tooBig) {
+    return Response.json({ error: tooBig }, { status: 413 });
   }
 
   const agent = await resolveAgentUrl();

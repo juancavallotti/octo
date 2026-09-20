@@ -615,3 +615,112 @@ describe("useAgentChat", () => {
   });
 
 });
+
+describe("useAgentChat attachments", () => {
+  const PNG = {
+    id: "a1",
+    name: "shot.png",
+    mimeType: "image/png",
+    data: "cG5n",
+    size: 3,
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  /** The body of the nth request this hook made. */
+  function sent(n = 0): Record<string, unknown> {
+    return JSON.parse((fetchMock.mock.calls[n][1] as RequestInit).body as string);
+  }
+
+  it("carries the files, without the local bookkeeping", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "a terminal" })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("what is this?", [PNG]));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    // The id and the decoded size are this window's own; the runtime reads
+    // neither, so neither is sent.
+    expect(sent().attachments).toEqual([
+      { name: "shot.png", mimeType: "image/png", data: "cG5n" },
+    ]);
+  });
+
+  // A text-only message must be byte-identical on the wire to what it was before
+  // files existed — an empty key is still a key.
+  it("leaves the field off entirely when there are no files", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "three." })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("how many"));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect("attachments" in sent()).toBe(false);
+  });
+
+  // "Look at this" with no words is a whole question.
+  it("sends a message that is only a file", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "a terminal" })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("", [PNG]));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("still refuses a message that is neither words nor files", () => {
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("   "));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The transcript lives in React state for the life of the session. Keeping the
+   * base64 in it would hold every screenshot of the conversation in memory long
+   * after the run that needed it.
+   */
+  it("names the files on the local turn and does not hold them", async () => {
+    fetchMock.mockResolvedValue(sseResponse(frames({ type: "text", text: "a terminal" })));
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => result.current.send("what is this?", [PNG]));
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    const question = result.current.turns[0];
+    expect(question.files).toEqual(["shot.png"]);
+    expect(JSON.stringify(question)).not.toContain("cG5n");
+  });
+
+  /**
+   * A steered message is injected mid-run, at an iteration with no defined point
+   * to shed attachments at, so files on one would ride into working memory. The
+   * composer does not offer them while a run is in flight; this is the belt to
+   * that brace. See #516.
+   */
+  it("drops files off a message handed to a run already in flight", async () => {
+    fetchMock
+      .mockResolvedValueOnce(sseResponse(frames({ type: "text", text: "ok" })))
+      .mockResolvedValue(handedOver());
+    const { result } = renderHook(() => useAgentChat("u-1", "/platform", () => {}));
+
+    act(() => {
+      result.current.send("first", [PNG]);
+      result.current.send("second", [PNG]);
+    });
+
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    expect(sent(0).attachments).toBeTruthy();
+    expect(Object.keys(sent(1)).sort()).toEqual(["message", "threadId"]);
+  });
+});

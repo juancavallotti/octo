@@ -45,6 +45,13 @@ export interface AgentReachability {
    * history needs this rather than the address.
    */
   integrationId?: string;
+  /**
+   * The LLM behind the agent: the connector type the orchestrator deployed him
+   * with, and the model id the site configured. They say what he can be *sent* —
+   * a chat window does not offer to attach a file to a text-only model.
+   */
+  connectorType?: string;
+  model?: string;
 }
 
 export type ResolveResult =

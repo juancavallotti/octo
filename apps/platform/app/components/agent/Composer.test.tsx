@@ -167,3 +167,130 @@ describe("Composer", () => {
     );
   });
 });
+
+describe("Composer attachments", () => {
+  const PNG = { id: "a1", name: "shot.png", mimeType: "image/png", data: "cG5n", size: 3 };
+  const ACCEPTS = ["image/png"] as const;
+
+  function file(name = "shot.png", type = "image/png") {
+    return new File(["bytes"], name, { type });
+  }
+
+  /** Mount with attachment plumbing, which the base helper deliberately omits. */
+  function drawWithFiles(
+    props: Partial<React.ComponentProps<typeof Composer>> = {},
+  ) {
+    const onAttach = vi.fn();
+    const onRemove = vi.fn();
+    const onSubmit = vi.fn();
+    render(
+      <Composer
+        draft=""
+        onDraft={vi.fn()}
+        onSubmit={onSubmit}
+        busy={false}
+        onStop={vi.fn()}
+        accepted={ACCEPTS}
+        onAttach={onAttach}
+        onRemove={onRemove}
+        {...props}
+      />,
+    );
+    return { onAttach, onRemove, onSubmit };
+  }
+
+  it("takes a pasted file", () => {
+    const { onAttach } = drawWithFiles();
+
+    fireEvent.paste(screen.getByLabelText("Message"), {
+      clipboardData: { files: [file()] },
+    });
+
+    expect(onAttach).toHaveBeenCalledOnce();
+    expect(onAttach.mock.calls[0][0][0].name).toBe("shot.png");
+  });
+
+  // Most pastes are text. Taking the event for those would break pasting
+  // altogether, which is why the handler checks for files first.
+  it("leaves a plain text paste alone", () => {
+    const { onAttach } = drawWithFiles();
+
+    fireEvent.paste(screen.getByLabelText("Message"), {
+      clipboardData: { files: [] },
+    });
+
+    expect(onAttach).not.toHaveBeenCalled();
+  });
+
+  it("takes a dropped file", () => {
+    const { onAttach } = drawWithFiles();
+
+    fireEvent.drop(screen.getByLabelText("Message").closest("form")!, {
+      dataTransfer: { files: [file()] },
+    });
+
+    expect(onAttach).toHaveBeenCalledOnce();
+  });
+
+  it("takes a picked file, and lets the same one be picked twice", () => {
+    const { onAttach } = drawWithFiles();
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(picker, { target: { files: [file()] } });
+
+    expect(onAttach).toHaveBeenCalledOnce();
+    // Reset after the change, so picking the same file again still fires one —
+    // an input that kept its value reports no change the second time.
+    expect(picker.value).toBe("");
+  });
+
+  it("shows each attachment with a way to remove it", () => {
+    const { onRemove } = drawWithFiles({ attachments: [PNG] });
+
+    expect(screen.getByText("shot.png")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Remove shot.png"));
+
+    expect(onRemove).toHaveBeenCalledWith("a1");
+  });
+
+  // "Look at this" with no words is a whole question.
+  it("sends a message that is only a file", () => {
+    const { onSubmit } = drawWithFiles({ attachments: [PNG] });
+
+    const send = screen.getByLabelText("Send") as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+    fireEvent.click(send);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  // A screenshot that lands nowhere reads as a broken panel. Naming the model
+  // says what to change.
+  it("says so when the model reads no files, rather than doing nothing", () => {
+    const { onAttach } = drawWithFiles({ accepted: [] });
+
+    fireEvent.paste(screen.getByLabelText("Message"), {
+      clipboardData: { files: [file()] },
+    });
+
+    expect(onAttach).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toMatch(/does not accept attachments/);
+  });
+
+  // Shown and disabled rather than hidden: a missing button reads as a missing
+  // feature, where one that is there with this title names the thing to change.
+  it("offers the paperclip, titled with the reason, for a text-only model", () => {
+    drawWithFiles({ accepted: [] });
+
+    expect(screen.getByTitle(/does not accept attachments/)).toBeTruthy();
+  });
+
+  // A panel with no attachment plumbing at all is the shape every other caller
+  // had before this existed, and must still render.
+  it("renders without any attachment props", () => {
+    render(
+      <Composer draft="hi" onDraft={vi.fn()} onSubmit={vi.fn()} busy={false} onStop={vi.fn()} />,
+    );
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+  });
+});

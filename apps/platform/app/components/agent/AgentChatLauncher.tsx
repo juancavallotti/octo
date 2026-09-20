@@ -54,6 +54,10 @@ export default function AgentChatLauncher({
   children: React.ReactNode;
 }) {
   const [available, setAvailable] = useState(false);
+  // What the site's model reads, as the status route reports it. Empty until it
+  // answers, and empty for a model that reads nothing — so the composer offers no
+  // paperclip rather than one that would be refused on the first turn.
+  const [accepted, setAccepted] = useState<readonly string[]>([]);
   const [open, setOpen] = useState(false);
   // Whether the panel has ever been opened. Separate from `open` because the panel
   // stays mounted once it exists, and this is what keeps it from existing at all
@@ -69,7 +73,10 @@ export default function AgentChatLauncher({
     const controller = new AbortController();
     fetch("/api/agent/status", { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : { available: false }))
-      .then((body: { available?: boolean }) => setAvailable(Boolean(body.available)))
+      .then((body: { available?: boolean; attachments?: string[] }) => {
+        setAvailable(Boolean(body.available));
+        setAccepted(body.attachments ?? []);
+      })
       .catch(() => {
         // An unreachable probe means no chat, which is what the initial state
         // already says.
@@ -125,6 +132,7 @@ export default function AgentChatLauncher({
             onResize={resize}
             onResizeEnd={commitWidth}
             onBusy={setBusy}
+            accepted={accepted}
           />
         </div>
       )}

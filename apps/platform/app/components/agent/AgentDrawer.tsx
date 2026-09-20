@@ -6,6 +6,7 @@ import { ArrowDown, MessageSquarePlus, Pin, PinOff, X } from "lucide-react";
 import AgentMessage from "./AgentMessage";
 import ContextGauge from "./ContextGauge";
 import Composer from "./Composer";
+import { useAttachments } from "./useAttachments";
 import ConversationList from "./ConversationList";
 import WorkingStatus from "./WorkingStatus";
 import { useAgentChat } from "./useAgentChat";
@@ -38,6 +39,7 @@ export default function AgentDrawer({
   onResize,
   onResizeEnd,
   onBusy,
+  accepted = [],
 }: {
   userKey: string;
   onCollapse: () => void;
@@ -47,10 +49,13 @@ export default function AgentDrawer({
   onResize: (width: number) => void;
   onResizeEnd: (width: number) => void;
   onBusy: (busy: boolean) => void;
+  /** Content types the site's model reads; empty means it reads none. */
+  accepted?: readonly string[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const [draft, setDraft] = useState("");
+  const files = useAttachments(accepted);
 
   const chat = useAgentChat(userKey, pathname, (target) => {
     // The path was already checked against this app's shape when the frame was
@@ -69,8 +74,9 @@ export default function AgentDrawer({
   const open = chat.turns.findLast((turn) => turn.role === "agent");
 
   const submit = () => {
-    chat.send(draft);
+    chat.send(draft, files.files);
     setDraft("");
+    files.clear();
   };
 
   // Tears down whatever a drag in progress installed. Held in a ref so that a
@@ -200,6 +206,9 @@ export default function AgentDrawer({
           ))}
 
           {chat.error && <p className="text-xs text-red-500">{chat.error}</p>}
+          {files.rejected && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">{files.rejected}</p>
+          )}
         </div>
 
         {/* Offered only when following is off, so it is a way back rather than a
@@ -225,6 +234,10 @@ export default function AgentDrawer({
         onSubmit={submit}
         busy={chat.busy}
         onStop={chat.stop}
+        attachments={files.files}
+        accepted={accepted}
+        onAttach={files.add}
+        onRemove={files.remove}
       />
     </aside>
   );

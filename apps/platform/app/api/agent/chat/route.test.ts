@@ -151,3 +151,78 @@ describe("POST /api/agent/chat", () => {
     expect(sent.user).toEqual({ id: "u-1", name: "Ada" });
   });
 });
+
+/**
+ * This route is the auth boundary, and the only cheap place to refuse a body
+ * that is too big: one that gets past here has already been read into the
+ * agent's pod, where the runtime answers with an error the caller cannot act on.
+ *
+ * Shape only. Which content *types* a model reads is the runtime's to enforce,
+ * per connector, and a second copy of that table here could disagree with it.
+ */
+describe("POST /api/agent/chat attachments", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(upstream());
+    auth.currentWriteUserId.mockResolvedValue({ id: "u-1", name: "Ada" });
+  });
+
+  /** The body this route forwarded upstream. */
+  function sentBody(): Record<string, unknown> {
+    return JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+  }
+
+  function oneFile(overrides: Record<string, unknown> = {}) {
+    return { mimeType: "image/png", name: "shot.png", data: "cG5n", ...overrides };
+  }
+
+  it("passes a well-formed attachment through untouched", async () => {
+    const res = await POST(ask({ threadId: "t-1", message: "look", attachments: [oneFile()] }));
+
+    expect(res.status).toBe(200);
+    expect(sentBody().attachments).toEqual([oneFile()]);
+    // And the identity is still written over last, as it is for every other body.
+    expect(sentBody().user).toEqual({ id: "u-1", name: "Ada" });
+  });
+
+  it("forwards a message with no attachments exactly as before", async () => {
+    await POST(ask({ threadId: "t-1", message: "hello" }));
+
+    expect("attachments" in sentBody()).toBe(false);
+  });
+
+  it("refuses more files than a message may carry", async () => {
+    const res = await POST(
+      ask({ threadId: "t-1", message: "look", attachments: Array(6).fill(oneFile()) }),
+    );
+
+    expect(res.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a body over the size a message may carry", async () => {
+    const res = await POST(
+      ask({
+        threadId: "t-1",
+        message: "look",
+        attachments: [oneFile({ data: "x".repeat(12 * 1024 * 1024) })],
+      }),
+    );
+
+    expect(res.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["not a list", "nope"],
+    ["an entry that is not an object", ["nope"]],
+    ["an entry with no mimeType", [{ data: "cG5n" }]],
+    ["an entry whose data is not a string", [{ mimeType: "image/png", data: 42 }]],
+  ])("refuses %s", async (_name, attachments) => {
+    const res = await POST(ask({ threadId: "t-1", message: "look", attachments }));
+
+    expect(res.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
