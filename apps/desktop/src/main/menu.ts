@@ -3,7 +3,7 @@ import path from "node:path";
 import { logPath } from "./log";
 import { current } from "./server";
 import { openSettings } from "./settingsWindow";
-import { checkForUpdates } from "./update";
+import { checkForUpdates, restartToUpdate, updateStatus } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
 
 /**
@@ -40,6 +40,19 @@ export function revealVault(): void {
   if (vault) void shell.openPath(vault.path);
 }
 
+/**
+ * The update entry: one item that either offers the restart a downloaded update is
+ * waiting for, or the check that might find one. Two items would mean one of them is
+ * always the wrong thing to click.
+ */
+function updateItem(): MenuItemConstructorOptions {
+  const { stage, version } = updateStatus();
+  if (stage === "ready" && version) {
+    return { label: `Restart to Update to ${version}`, click: restartToUpdate };
+  }
+  return { label: "Check for Updates…", click: () => void checkForUpdates(false) };
+}
+
 export function buildMenu(): void {
   const isMac = process.platform === "darwin";
 
@@ -56,10 +69,7 @@ export function buildMenu(): void {
               enabled: mcpUrl() !== null,
               click: copyMcpUrl,
             },
-            {
-              label: "Check for Updates…",
-              click: () => void checkForUpdates(false),
-            },
+            updateItem(),
             { type: "separator" },
             {
               label: "Settings…",
@@ -96,7 +106,7 @@ export function buildMenu(): void {
               { label: "Copy MCP Endpoint URL", enabled: mcpUrl() !== null, click: copyMcpUrl },
               { type: "separator" },
               { label: "Settings…", accelerator: "CmdOrCtrl+,", click: openSettings },
-              { label: "Check for Updates…", click: () => void checkForUpdates(false) },
+              updateItem(),
               { type: "separator" },
               { role: "quit" },
             ] satisfies MenuItemConstructorOptions[])),
