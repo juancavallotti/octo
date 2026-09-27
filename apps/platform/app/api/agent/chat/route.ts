@@ -34,7 +34,7 @@ const MAX_ENCODED_BYTES = Math.ceil(MAX_TOTAL_BYTES * 1.4);
  * conversation, wherever it is being worked on.
  */
 /**
- * Why these attachments may not be forwarded, or null.
+ * Why these attachments may not be forwarded, and with which status, or null.
  *
  * This route is the auth boundary and the only cheap place to refuse: a body
  * that gets past here has already been read into the agent's pod, where the
@@ -42,23 +42,36 @@ const MAX_ENCODED_BYTES = Math.ceil(MAX_TOTAL_BYTES * 1.4);
  * numbers mirror the composer's, which is the client-side half of the same
  * bargain — this is the half that holds when the request did not come from it.
  *
+ * The status is carried alongside the reason because the two failures are not
+ * the same thing. A body that is too big is 413; one whose attachments are the
+ * wrong shape is a malformed request, and answering 413 for it tells a client
+ * to send less when the problem is what it sent — which is the same 400 the
+ * unparseable-body gate above already returns.
+ *
  * Shape only. Which content *types* a model reads is the runtime's to enforce,
  * and it does, per connector: duplicating that table here would be a second
  * answer that could disagree with the first.
  */
-function refuseAttachments(value: unknown): string | null {
+function refuseAttachments(value: unknown): { error: string; status: number } | null {
+  const malformed = (error: string) => ({ error, status: 400 });
+  const tooMuch = (error: string) => ({ error, status: 413 });
+
   if (value === undefined) return null;
-  if (!Array.isArray(value)) return "attachments must be a list";
-  if (value.length > MAX_FILES) return `up to ${MAX_FILES} files per message`;
+  if (!Array.isArray(value)) return malformed("attachments must be a list");
+  if (value.length > MAX_FILES) return tooMuch(`up to ${MAX_FILES} files per message`);
   let total = 0;
   for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) return "each attachment must be an object";
+    if (typeof entry !== "object" || entry === null) {
+      return malformed("each attachment must be an object");
+    }
     const { mimeType, data } = entry as { mimeType?: unknown; data?: unknown };
-    if (typeof mimeType !== "string" || !mimeType) return "each attachment needs a mimeType";
-    if (typeof data !== "string") return "each attachment needs base64 data";
+    if (typeof mimeType !== "string" || !mimeType) {
+      return malformed("each attachment needs a mimeType");
+    }
+    if (typeof data !== "string") return malformed("each attachment needs base64 data");
     total += data.length;
   }
-  if (total > MAX_ENCODED_BYTES) return "that is more than one message may carry";
+  if (total > MAX_ENCODED_BYTES) return tooMuch("that is more than one message may carry");
   return null;
 }
 
@@ -101,9 +114,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "invalid request body" }, { status: 400 });
   }
 
-  const tooBig = refuseAttachments(body.attachments);
-  if (tooBig) {
-    return Response.json({ error: tooBig }, { status: 413 });
+  const refused = refuseAttachments(body.attachments);
+  if (refused) {
+    return Response.json({ error: refused.error }, { status: refused.status });
   }
 
   const agent = await resolveAgentUrl();

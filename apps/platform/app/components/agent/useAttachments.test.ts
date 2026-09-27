@@ -69,6 +69,36 @@ describe("useAttachments", () => {
     expect(result.current.rejected).toBeNull();
   });
 
+  /**
+   * Two drops in quick succession each read their files with an await, so both
+   * would see the state as it was before either finished. The limit is about the
+   * message, so the second has to see the first one's files — which is why the
+   * check reads a ref rather than the React state.
+   */
+  it("counts a concurrent drop's files against the same limits", async () => {
+    const { result } = renderHook(() => useAttachments(ACCEPTS));
+
+    act(() => {
+      result.current.add(Array.from({ length: 3 }, (_, i) => png(`a${i}.png`)));
+      result.current.add(Array.from({ length: 4 }, (_, i) => png(`b${i}.png`)));
+    });
+
+    await waitFor(() => expect(result.current.rejected).toBeTruthy());
+    expect(result.current.files).toHaveLength(MAX_FILES);
+  });
+
+  // Keeping the files is the point: hold says why without touching them.
+  it("reports a reason without dropping what is held", async () => {
+    const { result } = renderHook(() => useAttachments(ACCEPTS));
+    act(() => result.current.add([png("a.png")]));
+    await waitFor(() => expect(result.current.files).toHaveLength(1));
+
+    act(() => result.current.hold("He is working."));
+
+    expect(result.current.files).toHaveLength(1);
+    expect(result.current.rejected).toBe("He is working.");
+  });
+
   it("takes nothing when the model reads no files", async () => {
     const { result } = renderHook(() => useAttachments([]));
 

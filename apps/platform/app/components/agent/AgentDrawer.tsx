@@ -6,6 +6,7 @@ import { ArrowDown, MessageSquarePlus, Pin, PinOff, X } from "lucide-react";
 import AgentMessage from "./AgentMessage";
 import ContextGauge from "./ContextGauge";
 import Composer from "./Composer";
+import EmptyTranscript from "./EmptyTranscript";
 import { useAttachments } from "./useAttachments";
 import ConversationList from "./ConversationList";
 import WorkingStatus from "./WorkingStatus";
@@ -74,6 +75,14 @@ export default function AgentDrawer({
   const open = chat.turns.findLast((turn) => turn.role === "agent");
 
   const submit = () => {
+    // The composer refuses to attach while he is working, but `busy` can also
+    // turn true from another tab writing into this conversation — so files may
+    // already be here when a steer is all this send can be. Kept, never sent to
+    // be dropped: see useAgentChat's steer branch and #516.
+    if (chat.busy && files.files.length) {
+      files.hold("He is working. Send the files once he has answered.");
+      return;
+    }
     chat.send(draft, files.files);
     setDraft("");
     files.clear();
@@ -199,7 +208,7 @@ export default function AgentDrawer({
           ref={scroller}
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3"
         >
-          {chat.turns.length === 0 && <Empty />}
+          {chat.turns.length === 0 && <EmptyTranscript />}
 
           {chat.turns.map((turn) => (
             <AgentMessage key={turn.id} turn={turn} onAuthorize={chat.authorize} />
@@ -240,17 +249,5 @@ export default function AgentDrawer({
         onRemove={files.remove}
       />
     </aside>
-  );
-}
-
-function Empty() {
-  return (
-    <div className="m-auto max-w-[22rem] text-center text-xs text-zinc-500">
-      <p>
-        Ask about this installation — an integration, a deployment that will not
-        start, or a flow you are writing.
-      </p>
-      <p className="mt-2">He knows which page you are on, and can take you to another one.</p>
-    </div>
   );
 }

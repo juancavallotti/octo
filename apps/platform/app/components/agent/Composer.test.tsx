@@ -285,6 +285,41 @@ describe("Composer attachments", () => {
     expect(screen.getByTitle(/does not accept attachments/)).toBeTruthy();
   });
 
+  /**
+   * The finding this pins: a steered message cannot carry files, so offering to
+   * attach one while he is working offers something that is then thrown away.
+   * The hook's comment claimed the composer prevented this before it did.
+   */
+  it("refuses a file while a run is in flight, and says why", () => {
+    const { onAttach } = drawWithFiles({ busy: true });
+
+    fireEvent.paste(screen.getByLabelText("Message"), {
+      clipboardData: { files: [file()] },
+    });
+
+    expect(onAttach).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toMatch(/He is working/);
+  });
+
+  it("refuses a dropped file while a run is in flight", () => {
+    const { onAttach } = drawWithFiles({ busy: true });
+
+    fireEvent.drop(screen.getByLabelText("Message").closest("form")!, {
+      dataTransfer: { files: [file()] },
+    });
+
+    expect(onAttach).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toMatch(/He is working/);
+  });
+
+  // The two refusals are different problems with different remedies, so they must
+  // not share a sentence: one says change the model, the other says wait.
+  it("names the run, not the model, when he is merely busy", () => {
+    drawWithFiles({ busy: true });
+
+    expect(screen.getByTitle(/He is working/)).toBeTruthy();
+  });
+
   // A panel with no attachment plumbing at all is the shape every other caller
   // had before this existed, and must still render.
   it("renders without any attachment props", () => {

@@ -13,8 +13,15 @@ import { useAutoGrow } from "./useAutoGrow";
  */
 const MAX_ROWS = 4;
 
-/** What a model that reads no files is refused with, in one place. */
+/** Why attaching something was refused, each said in one place. */
 const NO_MEDIA = "This model does not accept attachments.";
+/**
+ * A message handed to a run already in flight is injected mid-turn, at an
+ * iteration with no defined point to shed attachments at — so files on one would
+ * ride into working memory. Refused here rather than dropped in the hook, which
+ * is what this said before and did not do. See #516.
+ */
+const BUSY_NO_MEDIA = "He is working. Files can only go on a new message.";
 
 /** The message box, and the keyboard conventions that go with it. */
 export default function Composer({
@@ -51,7 +58,10 @@ export default function Composer({
   const [refused, setRefused] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
 
-  const takesFiles = accepted.length > 0 && !!onAttach;
+  // Not while a run is in flight: a steered message cannot carry files, so
+  // offering to attach one would be offering something that is then thrown away.
+  const takesFiles = accepted.length > 0 && !!onAttach && !busy;
+  const refusal = accepted.length === 0 ? NO_MEDIA : BUSY_NO_MEDIA;
 
   // The one rule both ways in are held to: a draft that is only whitespace is
   // not a message — unless it carries a file, because "look at this" with no
@@ -67,12 +77,13 @@ export default function Composer({
   };
 
   /**
-   * The refusal the composer makes itself: a model that reads no files at all.
+   * The refusals the composer makes itself: a model that reads no files, and a
+   * run already in flight.
    *
-   * Said out loud rather than swallowed. A screenshot that lands nowhere reads
-   * as a broken panel; naming the model says what to change.
+   * Said out loud rather than swallowed. A screenshot that lands nowhere reads as
+   * a broken panel; naming the reason says what to do instead.
    */
-  const refuse = () => setRefused(NO_MEDIA);
+  const refuse = () => setRefused(refusal);
 
   // The height is owned by the hook, so there is no max-height class below — a
   // class and a measured cap would be two answers to one question.
@@ -190,7 +201,7 @@ export default function Composer({
               // Shown and disabled rather than hidden: a missing button reads as a
               // missing feature, where a disabled one with this title names the
               // thing to change.
-              title={takesFiles ? "Attach files" : NO_MEDIA}
+              title={takesFiles ? "Attach files" : refusal}
               aria-label="Attach files"
               className="rounded-md p-2 text-zinc-600 hover:bg-black/5 disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-300 dark:hover:bg-white/10"
             >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { acceptable, readAttachment, type Attachment } from "./attachments";
 
@@ -14,6 +14,8 @@ export interface Attachments {
   remove: (id: string) => void;
   /** Called once the message is sent. */
   clear: () => void;
+  /** Report why the files are staying put, without touching them. */
+  hold: (reason: string) => void;
 }
 
 /**
@@ -26,42 +28,72 @@ export interface Attachments {
 export function useAttachments(accepted: readonly string[]): Attachments {
   const [files, setFiles] = useState<Attachment[]>([]);
   const [rejected, setRejected] = useState<string | null>(null);
+  /**
+   * What is on the message, read synchronously.
+   *
+   * The limits are about the message, and reading them off React state cannot
+   * enforce that: `add` reads each file with an await, so two drops in quick
+   * succession both see the state as it was before either of them finished and
+   * both decide there is room. A ref is updated the moment a decision is taken,
+   * so the second drop sees the first one's files even though React has not
+   * rendered them yet.
+   *
+   * It is the authority for the limit check; the state is what renders.
+   */
+  const held = useRef<Attachment[]>([]);
+
+  const commit = useCallback((next: Attachment[]) => {
+    held.current = next;
+    setFiles(next);
+  }, []);
 
   const add = useCallback(
     (picked: File[]) => {
       void (async () => {
         let reason: string | null = null;
-        const added: Attachment[] = [];
         for (const file of picked) {
-          // Checked against what is already there *plus* what this drop has
-          // already taken — the limits are about the message, so five files that
-          // each fit can still be four too many, and reading the React state here
-          // would let every file in one drop pass the same "is there room" test.
-          const refusal = acceptable(file, [...files, ...added], accepted);
+          // Checked twice, and the second one is the one that counts.
+          //
+          // This one is the cheap refusal: a type the model cannot read, or a file
+          // over the per-file limit, decided before spending the read on it.
+          //
+          // The first reason, not the last: a person fixes one thing at a time,
+          // and the first refusal is the one they can act on.
+          const refusal = acceptable(file, held.current, accepted);
           if (refusal) {
-            // The first reason, not the last: a person fixes one thing at a time,
-            // and the first refusal is the one they can act on.
             reason ??= refusal;
             continue;
           }
-          added.push(await readAttachment(file));
+          const read = await readAttachment(file);
+          // And this one decides. It is synchronous with the commit below — no
+          // await between them — which is what makes the pair atomic: a
+          // concurrent drop can commit while this one is reading a file off disk,
+          // so a decision taken before the read has already gone stale by the
+          // time it is acted on.
+          const late = acceptable(file, held.current, accepted);
+          if (late) {
+            reason ??= late;
+            continue;
+          }
+          commit([...held.current, read]);
         }
-        if (added.length) setFiles((prev) => [...prev, ...added]);
         setRejected(reason);
       })();
     },
-    [files, accepted],
+    [accepted, commit],
   );
 
   const remove = useCallback(
-    (id: string) => setFiles((prev) => prev.filter((a) => a.id !== id)),
-    [],
+    (id: string) => commit(held.current.filter((a) => a.id !== id)),
+    [commit],
   );
 
   const clear = useCallback(() => {
-    setFiles([]);
+    commit([]);
     setRejected(null);
-  }, []);
+  }, [commit]);
 
-  return { files, rejected, add, remove, clear };
+  const hold = useCallback((reason: string) => setRejected(reason), []);
+
+  return { files, rejected, add, remove, clear, hold };
 }

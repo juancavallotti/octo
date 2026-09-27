@@ -192,7 +192,7 @@ describe("POST /api/agent/chat attachments", () => {
     expect("attachments" in sentBody()).toBe(false);
   });
 
-  it("refuses more files than a message may carry", async () => {
+  it("refuses more files than a message may carry, as too large", async () => {
     const res = await POST(
       ask({ threadId: "t-1", message: "look", attachments: Array(6).fill(oneFile()) }),
     );
@@ -201,7 +201,7 @@ describe("POST /api/agent/chat attachments", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("refuses a body over the size a message may carry", async () => {
+  it("refuses a body over the size a message may carry, as too large", async () => {
     const res = await POST(
       ask({
         threadId: "t-1",
@@ -214,15 +214,20 @@ describe("POST /api/agent/chat attachments", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  /**
+   * A malformed body is 400, not 413. Answering "payload too large" for a shape
+   * error tells a client to send less when the problem is *what* it sent — and
+   * 400 is what the unparseable-body gate above already returns.
+   */
   it.each([
     ["not a list", "nope"],
     ["an entry that is not an object", ["nope"]],
     ["an entry with no mimeType", [{ data: "cG5n" }]],
     ["an entry whose data is not a string", [{ mimeType: "image/png", data: 42 }]],
-  ])("refuses %s", async (_name, attachments) => {
+  ])("refuses %s as malformed", async (_name, attachments) => {
     const res = await POST(ask({ threadId: "t-1", message: "look", attachments }));
 
-    expect(res.status).toBe(413);
+    expect(res.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

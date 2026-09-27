@@ -177,8 +177,13 @@ export function useAgentChat(
       if (busy || abort.current) {
         // Text only. A steered message is injected mid-run, at an iteration with
         // no defined point to shed attachments at, so files on one would ride into
-        // working memory — see #516. The composer does not offer them while a run
-        // is in flight, so this is the belt to that brace.
+        // working memory — see #516.
+        //
+        // Not the place that decides, though. Dropping them here is silent, and a
+        // screenshot that disappears without a word is worse than one that waits:
+        // the composer refuses to attach while a run is in flight, and the panel
+        // keeps whatever was already attached rather than sending it to be thrown
+        // away. This is the floor under both of them.
         steer(text);
         return;
       }

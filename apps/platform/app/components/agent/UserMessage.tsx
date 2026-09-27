@@ -45,9 +45,12 @@ function Files({ names }: { names?: string[] }) {
   if (!names?.length) return null;
   return (
     <ul className="flex max-w-[85%] flex-wrap justify-end gap-1">
-      {names.map((name) => (
+      {/* Keyed by position as well as name: two pasted screenshots are both
+          called image.png, and a duplicate key is a rendering bug rather than a
+          cosmetic one. */}
+      {names.map((name, i) => (
         <li
-          key={name}
+          key={`${i}-${name}`}
           className="flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
         >
           <Paperclip size={10} />
