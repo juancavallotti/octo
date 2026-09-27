@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.11.7](https://github.com/juancavallotti/octo/compare/v0.11.6...v0.11.7) (2026-09-27)
+
+
+### Features
+
+* **agent:** let somebody show Dr. Octo what they are asking about ([e9ed09b](https://github.com/juancavallotti/octo/commit/e9ed09b2a1cdf713fb1ab32ee9d17f11865cc7e1)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **ai-agent:** send attachments on the opening turn, shed them after it ([3319f91](https://github.com/juancavallotti/octo/commit/3319f91ae272e9fd82abba8beadd49a5e981b18e)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **ai-mapping:** state the input turn, send attachments, receive media ([61e4e4b](https://github.com/juancavallotti/octo/commit/61e4e4bcdce13a19220f9ffa10cf20336513341b)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **ai:** multimodal agents — attachments in, generated media out ([d17fe53](https://github.com/juancavallotti/octo/commit/d17fe53e1454e2f0a5325c69f0802c1395ad29f0))
+* **ai:** read attachments out of CEL, and count them toward the budget ([7703c4e](https://github.com/juancavallotti/octo/commit/7703c4ede583856a21e17133158733ea094b9023)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **ai:** run an agent's tool calls in parallel ([5f1a472](https://github.com/juancavallotti/octo/commit/5f1a4727b9c507f9c1d52026fffccdfa4052fb94))
+* **ai:** run an agent's tool calls in parallel ([ade2326](https://github.com/juancavallotti/octo/commit/ade23267de0cbeb63e8ced828d087b759d1138ac))
+* **core:** carry non-text content in the LLM contract ([d25dd41](https://github.com/juancavallotti/octo/commit/d25dd41df58f102ddd85672af8b1091296fde1ff)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **desktop:** offer the restart a downloaded update is waiting for ([efd9b5a](https://github.com/juancavallotti/octo/commit/efd9b5a547eebc3d1e3fbe8f93b1064dbd9697b9))
+* **llm-anthropic:** send images, PDFs and text files on a user turn ([b8fc2dc](https://github.com/juancavallotti/octo/commit/b8fc2dc12568cd078fb15d37c65c3ee800c3abd9)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **llm-gemini:** send attachments, and carry generated media back ([8afd2bb](https://github.com/juancavallotti/octo/commit/8afd2bb0fbbb79b2d141f1dc7f48552360470be5)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **llm-openai:** send attachments, and carry a generated image back ([aded4d8](https://github.com/juancavallotti/octo/commit/aded4d893d4854e7ddbd4a77b43bce0aaeb4305b)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **llm-openrouter:** send attachments, and carry a generated image back ([e49db9a](https://github.com/juancavallotti/octo/commit/e49db9a7a07ba4f6d0ed069b5b4aedf571bdfd29)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **orchestrator:** name the LLM the agent runs against on its status ([a3f899f](https://github.com/juancavallotti/octo/commit/a3f899fb62dd62ba0eaab01d97aa6f538493f013)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **platform:** let Dr. Octo be shown a file, not told about one ([05d8587](https://github.com/juancavallotti/octo/commit/05d85874d99218d77cfe4097abc25b74fee795cc)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+
+
+### Bug Fixes
+
+* **ai:** match media families by prefix, and fix the sample's own command ([89dd0c7](https://github.com/juancavallotti/octo/commit/89dd0c7915083c11813a201e7f2bde7d504fd49d))
+* **desktop:** actually install the update, and say one is waiting ([4fef9d6](https://github.com/juancavallotti/octo/commit/4fef9d69f4f502570575c88f9eba9ba35b357554))
+* **desktop:** install the downloaded update instead of discarding it ([b03e27c](https://github.com/juancavallotti/octo/commit/b03e27cefb061205b46194c6895dbd29a3474ea9))
+* **desktop:** let a pushed update status outrank the read that raced it ([f47dd37](https://github.com/juancavallotti/octo/commit/f47dd37f18083c6052b1e0f0ab3aa7b150239562))
+* **dolphin:** quiet gosec's G703 on the $OCTO_PATH override ([eda9483](https://github.com/juancavallotti/octo/commit/eda9483ae869d806eae1b334f35deacb37e9068c))
+* **platform:** never take a file the message cannot carry ([938367b](https://github.com/juancavallotti/octo/commit/938367b2dd2b2d426452eccfbf5ea19d9e10b67c))
+
+
+### Documentation
+
+* **ai:** a multimodal sample, and the guide section that explains it ([7ba290a](https://github.com/juancavallotti/octo/commit/7ba290a9339403ec3c5abb2537ca6c8373743851)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **ai:** attachments, the one-turn rule, and what each provider accepts ([189471f](https://github.com/juancavallotti/octo/commit/189471f70cb0b78cf735308251c55199934ec407)), closes [#507](https://github.com/juancavallotti/octo/issues/507)
+* **ai:** name what a per-call copy does not isolate ([c11868f](https://github.com/juancavallotti/octo/commit/c11868f27fa8fb0292afc0057658f8873fdf79a0))
+* **ai:** say that a turn's tool calls run together ([2b57e4e](https://github.com/juancavallotti/octo/commit/2b57e4e9942064cf02c4aa3873497d611a9c8b51))
+
 ## [0.11.6](https://github.com/juancavallotti/octo/compare/v0.11.5...v0.11.6) (2026-09-14)
 
 
