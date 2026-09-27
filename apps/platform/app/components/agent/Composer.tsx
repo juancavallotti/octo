@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Paperclip, Send, Square, X } from "lucide-react";
 
-import { type Attachment, humanSize } from "./attachments";
+import { acceptAttribute, type Attachment, humanSize } from "./attachments";
 import { useAutoGrow } from "./useAutoGrow";
 
 /**
@@ -181,7 +181,7 @@ export default function Composer({
               ref={picker}
               type="file"
               multiple
-              accept={accepted.join(",")}
+              accept={acceptAttribute(accepted)}
               // Deliberately unlabelled and hidden from the tree: it is driven by
               // the button beside it, and two controls announcing "Attach files"
               // is one more than a screen reader should find.

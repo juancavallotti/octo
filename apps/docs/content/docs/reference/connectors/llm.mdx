@@ -99,7 +99,9 @@ differences are real rather than incidental:
 | `llm-openrouter` | png, jpeg, webp | pdf | — | generated images |
 
 `llm-gemini` is the only one that reads a voice note or a clip, so a
-transcribe-this flow names it.
+transcribe-this flow names it. It accepts those by **family**: `image/`, `audio/`
+and `video/` match anything under them, so a format nobody thought to enumerate —
+`video/quicktime`, `image/heif` — is still sent.
 
 A type the connector cannot send **errors** rather than being quietly dropped. A
 model answering confidently about a file it never received is a failure nothing

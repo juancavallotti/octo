@@ -17,8 +17,8 @@ service:
 # that has to look at the file again after its tools have run.
 #
 #   export ANTHROPIC_API_KEY=sk-ant-...
-#   go run ./cli invoke -config ../samples/ai-agent-attachments.yaml -flow describe \
-#     -data '{"question":"What is in this image?","files":[{"mimeType":"image/png","name":"shot.png","data":"iVBORw0KGgo="}]}'
+#   octo invoke --config samples/ai-agent-attachments.yaml --flow describe \
+#     --data '{"question":"What is in this image?","files":[{"mimeType":"image/png","name":"red.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}]}'
 
 env:
   - name: ANTHROPIC_API_KEY

@@ -56,6 +56,29 @@ export const ACCEPTED = [
   "application/pdf",
 ] as const;
 
+/**
+ * Whether `accepted` covers this content type, matching a `type/` entry against
+ * the whole family and anything else exactly.
+ *
+ * The same rule the Gemini connector applies to its own list, and deliberately so:
+ * that connector accepts `video/` by prefix, so exact matching here would turn
+ * away a .mov the model would have read.
+ */
+export function sendable(mime: string, accepted: readonly string[]): boolean {
+  return accepted.some((entry) => (entry.endsWith("/") ? mime.startsWith(entry) : mime === entry));
+}
+
+/**
+ * The accept attribute for a file input.
+ *
+ * A family is written `video/*`, which is the spelling a browser understands —
+ * the table holds `video/` because that is the runtime's spelling, and this is the
+ * one place the two differ.
+ */
+export function acceptAttribute(accepted: readonly string[]): string {
+  return accepted.map((entry) => (entry.endsWith("/") ? `${entry}*` : entry)).join(",");
+}
+
 /** Render a size the way a chip should show it. */
 export function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -77,7 +100,7 @@ export function acceptable(
   if (accepted.length === 0) {
     return "This model does not accept attachments.";
   }
-  if (!accepted.includes(file.type)) {
+  if (!sendable(file.type, accepted)) {
     return `${file.name}: ${file.type || "that kind of file"} is not accepted here.`;
   }
   if (file.size > MAX_FILE_BYTES) {

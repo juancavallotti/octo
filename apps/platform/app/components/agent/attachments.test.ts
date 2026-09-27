@@ -9,8 +9,10 @@ import {
   ACCEPTED,
   MAX_FILES,
   MAX_FILE_BYTES,
+  acceptAttribute,
   acceptable,
   humanSize,
+  sendable,
   readAttachment,
   wireAttachments,
   type Attachment,
@@ -100,12 +102,43 @@ describe("humanSize", () => {
   });
 });
 
+/**
+ * The runtime matches a family by prefix, so exact matching here would turn away
+ * a .mov the model would have read. That drift is what cost video/quicktime.
+ */
+describe("sendable", () => {
+  it("matches a family by prefix and anything else exactly", () => {
+    const families = ["image/", "video/", "application/pdf"];
+    for (const mime of ["image/png", "image/heif", "video/quicktime", "video/mp4"]) {
+      expect(sendable(mime, families)).toBe(true);
+    }
+    expect(sendable("application/pdf", families)).toBe(true);
+    expect(sendable("application/zip", families)).toBe(false);
+    expect(sendable("audio/mpeg", families)).toBe(false);
+  });
+
+  it("does not let an exact entry match a whole family", () => {
+    expect(sendable("image/png", ["image/png"])).toBe(true);
+    expect(sendable("image/gif", ["image/png"])).toBe(false);
+  });
+});
+
+describe("acceptAttribute", () => {
+  // The table holds the runtime's spelling; a browser reads video/*. This is the
+  // one place the two differ.
+  it("writes a family the way a browser reads it", () => {
+    expect(acceptAttribute(["video/", "application/pdf"])).toBe("video/*,application/pdf");
+  });
+});
+
 describe("acceptedFor", () => {
   it("names what each shipped connector reads", () => {
     expect(acceptedFor("llm-anthropic")).toContain("application/pdf");
-    // The one connector that reads a voice note or a clip.
-    expect(acceptedFor("llm-gemini")).toContain("audio/mpeg");
-    expect(acceptedFor("llm-openai")).not.toContain("audio/mpeg");
+    // The one connector that reads a voice note or a clip — by family, as the
+    // connector itself does, so a type nobody enumerated still gets through.
+    expect(sendable("audio/mpeg", acceptedFor("llm-gemini"))).toBe(true);
+    expect(sendable("video/quicktime", acceptedFor("llm-gemini"))).toBe(true);
+    expect(sendable("audio/mpeg", acceptedFor("llm-openai"))).toBe(false);
   });
 
   /**
@@ -122,7 +155,7 @@ describe("acceptedFor", () => {
   it("keeps the fallback set inside every connector's own", () => {
     for (const connector of ["llm-anthropic", "llm-openai", "llm-gemini", "llm-openrouter"]) {
       for (const mime of ACCEPTED) {
-        expect(acceptedFor(connector)).toContain(mime);
+        expect(sendable(mime, acceptedFor(connector))).toBe(true);
       }
     }
   });

@@ -14,25 +14,23 @@
  * runtime/connectors/llm/*; a row that drifts wide offers a file that is refused
  * on the first turn, and one that drifts narrow hides a file the model would
  * have read.
+ *
+ * A `type/` entry stands for the whole family, exactly as the Gemini connector's
+ * own list does. That is not a shorthand — it is what keeps the narrow drift from
+ * being inevitable: the connector accepts `video/` by prefix, so any enumeration
+ * here is a list of the video types somebody happened to think of, and
+ * video/quicktime was the one it cost. Browsers read `video/*` natively in a file
+ * input's accept attribute, so the same entry serves both jobs.
  */
 
 /** Connector types, as the orchestrator reports them on the agent's status. */
 export const MEDIA_BY_CONNECTOR: Record<string, readonly string[]> = {
   "llm-anthropic": ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf", "text/plain"],
   "llm-openai": ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"],
-  "llm-gemini": [
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/heic",
-    "application/pdf",
-    "text/plain",
-    "audio/mpeg",
-    "audio/wav",
-    "audio/ogg",
-    "video/mp4",
-    "video/webm",
-  ],
+  // Families, mirroring the connector's own list: it accepts image/, audio/ and
+  // video/ by prefix, and enumerating them here is how a .mov gets turned away by
+  // a picker for a model that would have read it.
+  "llm-gemini": ["image/", "audio/", "video/", "application/pdf", "text/plain"],
   "llm-openrouter": ["image/png", "image/jpeg", "image/webp", "application/pdf"],
 };
 
