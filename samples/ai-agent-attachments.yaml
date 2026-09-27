@@ -1,0 +1,85 @@
+service:
+  name: ai-agent-attachments
+
+# Demonstrates multimodal input: the agent is handed FILES alongside its
+# question, instead of a description of them.
+#
+# Two settings do the work. `input` states the question — which is required here,
+# and not a style choice: the default opening turn is the whole body as a JSON
+# document, so a flow that left it unset would send every attachment twice, once
+# as a file the model can read and once as a base64 string in the middle of the
+# prompt. `attachments` says which part of the body holds the files.
+#
+# The attachments ride ONE turn. The model reads them on the first model call and
+# they are dropped from the transcript as soon as it returns, so the tool call
+# below and every later turn are text, and the conversation stored under
+# memoryThreadId never holds the bytes. Set keepAttachments: true for an agent
+# that has to look at the file again after its tools have run.
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   octo invoke --config samples/ai-agent-attachments.yaml --flow describe \
+#     --data '{"question":"What is in this image?","files":[{"mimeType":"image/png","name":"red.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}]}'
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: describe
+    process:
+      - type: ai-agent
+        name: describe-file
+        connector: claude
+        answer: text
+        maxIterations: 4
+
+        # The question, stated. Everything else on the body is context or files.
+        input: body.question
+
+        # A list of {mimeType, data, name} maps. `data` is base64 — CEL has no
+        # bytes type, so that is the only shape a file can take through an
+        # expression — and a `data:image/png;base64,...` URL is accepted too,
+        # which is what a browser hands you when someone pastes a screenshot.
+        #
+        # Guarded, so a message with no files is an ordinary text question rather
+        # than an error.
+        attachments: 'has(body.files) ? body.files : []'
+
+        prompt: >
+          Answer the user's question about the attached files. Use the
+          file_notes tool to record anything worth keeping about a file before
+          you answer.
+        guardrail: >
+          If the files do not contain enough to answer with confidence, take the
+          default path.
+
+        tools:
+          - name: file_notes
+            description: Record a note about one of the attached files.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["file", "note"],
+                "properties": {
+                  "file": { "type": "string" },
+                  "note": { "type": "string" }
+                }
+              }
+            process:
+              # A real tool would store the note; here we echo it back so the
+              # sample runs without external dependencies.
+              - type: set-payload
+                settings:
+                  value: '{"recorded": true}'
+
+        default:
+          process:
+            - type: set-payload
+              settings:
+                value: '{"status": "cannot-read-the-files"}'

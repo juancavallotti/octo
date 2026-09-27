@@ -16,10 +16,13 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 
 	sdk "github.com/openai/openai-go/v2"
@@ -395,7 +398,11 @@ func toInput(msgs []core.LLMMessage) (responses.ResponseInputParam, error) {
 	for i, m := range msgs {
 		switch m.Role {
 		case core.LLMRoleUser:
-			out = append(out, responses.ResponseInputItemParamOfMessage(m.Text, responses.EasyInputMessageRoleUser))
+			item, err := userItem(m)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, item)
 		case core.LLMRoleAssistant:
 			out = append(out, assistantItems(m)...)
 		case core.LLMRoleTool:
@@ -411,6 +418,100 @@ func toInput(msgs []core.LLMMessage) (responses.ResponseInputParam, error) {
 		}
 	}
 	return out, nil
+}
+
+// acceptedMedia is what the Responses API takes as input content, and so what
+// this connector advertises and enforces.
+var acceptedMedia = map[string]struct{}{
+	"image/png":       {},
+	"image/jpeg":      {},
+	"image/gif":       {},
+	"image/webp":      {},
+	"application/pdf": {},
+}
+
+// AcceptsMedia reports the content types this connector can send, satisfying
+// core.LLMMedia.
+func (c *Connector) AcceptsMedia() []string { return acceptedMediaList() }
+
+// acceptedMediaList renders the accepted set in a stable order, for the
+// advertisement and for the sentence an unsupported type is refused with.
+func acceptedMediaList() []string {
+	out := make([]string, 0, len(acceptedMedia))
+	for mime := range acceptedMedia {
+		out = append(out, mime)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// userItem builds one user turn: its attachments, then its text.
+//
+// A turn with nothing attached stays a plain string, which is the shape every
+// request had before attachments existed — the content list is the exception, not
+// the new normal.
+func userItem(m core.LLMMessage) (responses.ResponseInputItemUnionParam, error) {
+	if len(m.Attachments) == 0 {
+		return responses.ResponseInputItemParamOfMessage(m.Text, responses.EasyInputMessageRoleUser), nil
+	}
+	content := make(responses.ResponseInputMessageContentListParam, 0, len(m.Attachments)+1)
+	for i, a := range m.Attachments {
+		part, err := mediaContent(a, i)
+		if err != nil {
+			return responses.ResponseInputItemUnionParam{}, err
+		}
+		content = append(content, part)
+	}
+	// Appended only when there is text: an attachment with nothing said about it is
+	// a legitimate turn, and an empty text part says nothing on the wire either.
+	if m.Text != "" {
+		content = append(content, responses.ResponseInputContentUnionParam{
+			OfInputText: &responses.ResponseInputTextParam{Text: m.Text},
+		})
+	}
+	return responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleUser), nil
+}
+
+// mediaContent renders one attachment as the input content part its type calls
+// for: an image as a base64 data URL, everything else as file data.
+//
+// A type the API does not take is an error rather than a silent omission — see
+// the same decision, with the same reasoning, in every connector here.
+func mediaContent(a core.LLMAttachment, i int) (responses.ResponseInputContentUnionParam, error) {
+	if _, ok := acceptedMedia[a.MimeType]; !ok {
+		return responses.ResponseInputContentUnionParam{}, fmt.Errorf(
+			"llm-openai: cannot send attachment %s (%q): this provider accepts %s",
+			describeAttachment(a, i), a.MimeType, strings.Join(acceptedMediaList(), ", "))
+	}
+	encoded := base64.StdEncoding.EncodeToString(a.Data)
+	if strings.HasPrefix(a.MimeType, "image/") {
+		return responses.ResponseInputContentUnionParam{
+			OfInputImage: &responses.ResponseInputImageParam{
+				ImageURL: param.NewOpt("data:" + a.MimeType + ";base64," + encoded),
+				Detail:   responses.ResponseInputImageDetailAuto,
+			},
+		}, nil
+	}
+	file := &responses.ResponseInputFileParam{
+		FileData: param.NewOpt("data:" + a.MimeType + ";base64," + encoded),
+	}
+	// The API reads the type off the filename, so a file sent without one is
+	// refused. Name it after its type when the flow did not name it.
+	if a.Name != "" {
+		file.Filename = param.NewOpt(a.Name)
+	} else {
+		file.Filename = param.NewOpt(fmt.Sprintf("attachment-%d.pdf", i))
+	}
+	return responses.ResponseInputContentUnionParam{OfInputFile: file}, nil
+}
+
+// describeAttachment names an attachment in an error the way its author will
+// recognize it: by filename where there is one, and by position otherwise.
+func describeAttachment(a core.LLMAttachment, i int) string {
+	if a.Name != "" {
+		return strconv.Quote(a.Name)
+	}
+	return fmt.Sprintf("at index %d", i)
 }
 
 // assistantItems builds one assistant turn's items: reasoning, then text, then the
@@ -524,6 +625,7 @@ func translateResponse(resp *responses.Response, configuredModel string) (*core.
 		text     strings.Builder
 		calls    []core.LLMToolCall
 		thinking []core.LLMThinkingBlock
+		media    []core.LLMAttachment
 		refused  bool
 	)
 	for _, item := range resp.Output {
@@ -537,13 +639,16 @@ func translateResponse(resp *responses.Response, configuredModel string) (*core.
 				Redacted:  []byte(item.EncryptedContent),
 			})
 		case "message":
-			for _, part := range item.Content {
-				switch part.Type {
-				case "output_text":
-					text.WriteString(part.Text)
-				case "refusal":
-					refused = true
-				}
+			if messageText(&text, item) {
+				refused = true
+			}
+		case "image_generation_call":
+			file, ok, err := generatedImage(item)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				media = append(media, file)
 			}
 		case "function_call":
 			var input json.RawMessage
@@ -557,6 +662,7 @@ func translateResponse(resp *responses.Response, configuredModel string) (*core.
 	out := &core.LLMResponse{
 		Text:       text.String(),
 		ToolCalls:  calls,
+		Media:      media,
 		StopReason: mapStopReason(resp, len(calls) > 0, refused),
 		Usage:      translateUsage(resp.Usage),
 		Model:      servedBy(resp.Model, configuredModel),
@@ -578,6 +684,40 @@ func summaryText(parts []responses.ResponseReasoningItemSummary) string {
 		b.WriteString(p.Text)
 	}
 	return b.String()
+}
+
+// messageText appends one message item's answer text to out, and reports whether
+// the item carried a refusal.
+func messageText(out *strings.Builder, item responses.ResponseOutputItemUnion) bool {
+	refused := false
+	for _, part := range item.Content {
+		switch part.Type {
+		case "output_text":
+			out.WriteString(part.Text)
+		case "refusal":
+			refused = true
+		}
+	}
+	return refused
+}
+
+// generatedImage reads an image the model made off an image_generation_call
+// item. ok is false for a call that produced nothing, which is what an item in
+// any state but completed looks like.
+//
+// PNG is stated rather than read: the item carries no content type, and the API
+// returns PNG unless the request asked for something else. The arm fires only
+// when the flow gave the model the image tool, so an ordinary turn never reaches
+// it.
+func generatedImage(item responses.ResponseOutputItemUnion) (core.LLMAttachment, bool, error) {
+	if item.Result == "" {
+		return core.LLMAttachment{}, false, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(item.Result)
+	if err != nil {
+		return core.LLMAttachment{}, false, fmt.Errorf("llm-openai: generated image %s: %w", item.ID, err)
+	}
+	return core.LLMAttachment{MimeType: "image/png", Data: raw, Name: item.ID + ".png"}, true, nil
 }
 
 // servedBy is the model that answered, preferring what the provider echoed over

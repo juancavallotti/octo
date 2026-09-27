@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { currentWriteUserId } from "@/app/actions/_auth";
 import { fetchAgentStatus, type AgentReachability } from "@/app/actions/client/agentUrl";
+import { acceptedFor } from "@/app/components/agent/media";
 
 /**
  * GET /api/agent/status — whether the chat launcher should render at all.
@@ -13,6 +14,10 @@ import { fetchAgentStatus, type AgentReachability } from "@/app/actions/client/a
  *
  * It applies the same write-role gate the chat route does, so "available" means
  * available *to you*.
+ *
+ * It also answers what he can be *sent*: `attachments` is the content types the
+ * site's model reads, and an empty list means it reads none. The composer needs
+ * that before anybody picks a file, so it cannot be learned from a failed run.
  */
 export async function GET() {
   try {
@@ -20,11 +25,14 @@ export async function GET() {
   } catch {
     // Unauthenticated and forbidden answer the same: reporting which would tell an
     // unauthorized caller whether the agent exists.
-    return Response.json({ available: false }, { status: 200 });
+    return Response.json({ available: false, attachments: [] }, { status: 200 });
   }
 
   const status = await fetchAgentStatus();
-  return Response.json({ available: canChat(status) });
+  return Response.json({
+    available: canChat(status),
+    attachments: acceptedFor(status?.connectorType),
+  });
 }
 
 /**

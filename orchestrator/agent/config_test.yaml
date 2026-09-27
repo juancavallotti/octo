@@ -275,6 +275,61 @@ cases:
               that:
                 - 'size(body.routes) == 0'
 
+  # A screenshot somebody pasted into the chat window reaches the agent as a file
+  # rather than as prose about a file.
+  #
+  # The spy sees the reshaped body, which is the flow's own doing and is what
+  # this pins. It cannot see the model request, so it cannot show that the file
+  # was sent once and then shed — that is the one-turn rule, and it lives in the
+  # runtime, where runtime/blocks/ai/agentattachments_test.go pins it.
+  - name: a pasted file reaches the agent alongside the question
+    input:
+      data:
+        threadId: t-3
+        message: What is in this image?
+        attachments:
+          - mimeType: image/png
+            name: shot.png
+            data: iVBORw0KGgo=
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: A terminal. }
+    expect:
+      body: { answer: A terminal. }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'size(body.attachments) == 1'
+                - 'body.attachments[0].mimeType == "image/png"'
+                - 'body.attachments[0].name == "shot.png"'
+
+  # A message with no files at all is the ordinary case and must stay one: the
+  # reshaped body always carries the key, as an empty list, so the expression on
+  # the agent block needs no guard of its own.
+  - name: a message with no files carries an empty list rather than nothing
+    input:
+      data:
+        threadId: t-4
+        message: how many integrations
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: Three. }
+    expect:
+      body: { answer: Three. }
+    spies:
+      chat.dr-octo:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'has(body.attachments)'
+                - 'size(body.attachments) == 0'
+
   # A stop ends the run this conversation already has and returns nothing of its
   # own — the answer, or the lack of one, is going to whoever is reading the
   # stream that run opened. No model is called: the whole point is to stop paying

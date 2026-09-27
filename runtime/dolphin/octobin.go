@@ -69,6 +69,12 @@ func fromOverride(raw string) (octoBin, error) {
 	if err != nil {
 		return octoBin{}, fmt.Errorf("%s=%q: %w", octoPathEnv, raw, err)
 	}
+	//nolint:gosec // G703: the tainted value is $OCTO_PATH, which the person running
+	// dolphin set to choose which octo build to drive — resolving it is this
+	// function's whole purpose, not a traversal to be prevented. There is nothing to
+	// escape from: dolphin is a local developer CLI, the path is the user's own, and
+	// executable() below confirms whatever it names is a runnable binary before
+	// anything is run.
 	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
 		path = filepath.Join(path, octoBinaryName())
 	}

@@ -23,6 +23,8 @@ import (
 	"log/slog"
 	"math"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 
 	"google.golang.org/genai"
@@ -411,6 +413,74 @@ func (c *Connector) Embed(ctx context.Context, req core.EmbedRequest) (*core.Emb
 	return &core.EmbedResponse{Vectors: vectors, Model: req.Model}, nil
 }
 
+// acceptedMedia is what the Gemini API takes as inline content — by far the
+// widest set of the four providers, and the only one that reads audio and video.
+//
+// Whole families are listed as prefixes rather than enumerated, because Gemini
+// accepts the family and the specific types within it move faster than this list
+// would. A prefix entry matches any type under it; an exact entry matches only
+// itself.
+var acceptedMedia = []string{
+	"image/",
+	"audio/",
+	"video/",
+	"application/pdf",
+	"text/plain",
+}
+
+// AcceptsMedia reports the content types this connector can send, satisfying
+// core.LLMMedia.
+func (c *Connector) AcceptsMedia() []string { return slices.Clone(acceptedMedia) }
+
+// sendableMedia reports whether a type is one the API takes, matching a family
+// entry by prefix and anything else exactly.
+func sendableMedia(mime string) bool {
+	for _, accepted := range acceptedMedia {
+		if strings.HasSuffix(accepted, "/") {
+			if strings.HasPrefix(mime, accepted) {
+				return true
+			}
+			continue
+		}
+		if mime == accepted {
+			return true
+		}
+	}
+	return false
+}
+
+// userContent builds one user turn: its attachments as inline-data parts, then
+// its text.
+func userContent(m core.LLMMessage) (*genai.Content, error) {
+	if len(m.Attachments) == 0 {
+		return genai.NewContentFromText(m.Text, genai.RoleUser), nil
+	}
+	parts := make([]*genai.Part, 0, len(m.Attachments)+1)
+	for i, a := range m.Attachments {
+		if !sendableMedia(a.MimeType) {
+			return nil, fmt.Errorf(
+				"llm-gemini: cannot send attachment %s (%q): this provider accepts %s",
+				describeAttachment(a, i), a.MimeType, strings.Join(acceptedMedia, ", "))
+		}
+		parts = append(parts, genai.NewPartFromBytes(a.Data, a.MimeType))
+	}
+	// Appended only when there is text: an attachment with nothing said about it
+	// is a legitimate turn, and an empty part says nothing on the wire.
+	if m.Text != "" {
+		parts = append(parts, genai.NewPartFromText(m.Text))
+	}
+	return genai.NewContentFromParts(parts, genai.RoleUser), nil
+}
+
+// describeAttachment names an attachment in an error the way its author will
+// recognize it: by filename where there is one, and by position otherwise.
+func describeAttachment(a core.LLMAttachment, i int) string {
+	if a.Name != "" {
+		return strconv.Quote(a.Name)
+	}
+	return fmt.Sprintf("at index %d", i)
+}
+
 // toContents converts the conversation to SDK contents. Assistant turns map to
 // the "model" role with function-call parts; tool turns map to a "user" role with
 // function-response parts (Gemini's convention), correlated by function name.
@@ -419,7 +489,11 @@ func toContents(msgs []core.LLMMessage) ([]*genai.Content, error) {
 	for i, m := range msgs {
 		switch m.Role {
 		case core.LLMRoleUser:
-			out = append(out, genai.NewContentFromText(m.Text, genai.RoleUser))
+			content, err := userContent(m)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, content)
 		case core.LLMRoleAssistant:
 			parts := make([]*genai.Part, 0, 1+len(m.ToolCalls))
 			if m.Text != "" {
@@ -528,6 +602,7 @@ func translateResponse(resp *genai.GenerateContentResponse, configuredModel stri
 	var text strings.Builder
 	var calls []core.LLMToolCall
 	var thinking []core.LLMThinkingBlock
+	var media []core.LLMAttachment
 	var sig []byte // most recent thought signature; may sit on a thought part before the call
 	for _, part := range cand.Content.Parts {
 		if len(part.ThoughtSignature) > 0 {
@@ -546,6 +621,14 @@ func translateResponse(resp *genai.GenerateContentResponse, configuredModel stri
 			}
 		case part.Text != "":
 			text.WriteString(part.Text)
+		case part.InlineData != nil:
+			// A file the model made. Gemini returns it the same way it is sent, which
+			// is why this is one arm rather than a second translation.
+			media = append(media, core.LLMAttachment{
+				MimeType: part.InlineData.MIMEType,
+				Data:     part.InlineData.Data,
+				Name:     part.InlineData.DisplayName,
+			})
 		}
 		if fc := part.FunctionCall; fc != nil {
 			input, _ := json.Marshal(fc.Args)
@@ -559,6 +642,7 @@ func translateResponse(resp *genai.GenerateContentResponse, configuredModel stri
 	out := &core.LLMResponse{
 		Text:       text.String(),
 		ToolCalls:  calls,
+		Media:      media,
 		StopReason: mapFinishReason(cand.FinishReason, len(calls) > 0),
 		Usage:      usage,
 		Model:      servedBy(resp.ModelVersion, configuredModel),

@@ -1,0 +1,78 @@
+flow: describe
+
+# HONEST LIMITS, the same ones samples/ai-agent_test.yaml states and for the same
+# reason: the turn loop lives inside the ai-agent block, and mocking a composite
+# replaces the block AND its branches. So nothing here can prove that the first
+# request carried the attachment and the second did not — that is the one-turn
+# rule, and it is pinned where it can be, in
+# runtime/blocks/ai/agentattachments_test.go.
+#
+# What IS pinned here: that a block declaring `input` and `attachments` builds
+# against a real connector, that it drives the model, and that the question and
+# the files reach it as the flow wrote them.
+
+cases:
+  # Not mocked, so the agent is built and run for real with the model
+  # UNREACHABLE: the SDK honours ANTHROPIC_BASE_URL, and 127.0.0.1:9 (discard)
+  # refuses the connection offline, in milliseconds. No network, no cost.
+  #
+  # Reaching "llm-anthropic complete" proves the block was constructed from this
+  # config — an attachments expression that would not compile, or one declared
+  # without `input`, fails the build instead, earlier and with a different
+  # sentence — and that it really does call the model.
+  - name: the block builds with attachments and calls the model
+    input:
+      data:
+        question: What is in this image?
+        files:
+          - mimeType: image/png
+            name: shot.png
+            data: iVBORw0KGgo=
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      # The discard port named in full ON PURPOSE: a looser assertion would also
+      # be satisfied by a 401 from the real api.anthropic.com, so a regression
+      # that stopped honouring the base URL would stay green while calling out
+      # from CI.
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'
+
+  # A message with no files at all is an ordinary text question, not an error —
+  # which is what the has() guard on the expression buys.
+  - name: a message with no files is still a question
+    input:
+      data:
+        question: What is in this image?
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'
+
+  # The spy's input is the flow's own doing and is a real assertion: the question
+  # and the files reach the agent exactly as they arrived. The result body is the
+  # mock's, asserted only to pin that the agent's answer is the flow's answer.
+  - name: the question and its files reach the agent untouched
+    input:
+      data:
+        question: What is in this image?
+        files:
+          - mimeType: image/png
+            name: shot.png
+            data: iVBORw0KGgo=
+    mocks:
+      describe.describe-file:
+        default:
+          body: { answer: a screenshot of a terminal }
+    expect:
+      body: { answer: a screenshot of a terminal }
+    spies:
+      describe.describe-file:
+        count: 1
+        records:
+          - input:
+              body:
+                question: What is in this image?
+                files:
+                  - mimeType: image/png
+                    name: shot.png
+                    data: iVBORw0KGgo=

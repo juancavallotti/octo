@@ -95,10 +95,15 @@ type scriptedLLM struct {
 	calls     []core.LLMRequest
 }
 
+// AcceptsMedia makes the double a multimodal provider, so a block configured to
+// send attachments against it builds. textOnlyLLM is the counterpart that does
+// not implement core.LLMMedia at all.
+func (s *scriptedLLM) AcceptsMedia() []string { return []string{"image/png", "application/pdf"} }
+
 func (s *scriptedLLM) Start(context.Context, types.ConnectorConfig) error { return nil }
 func (s *scriptedLLM) Stop(context.Context) error                         { return nil }
 func (s *scriptedLLM) Complete(_ context.Context, req core.LLMRequest) (*core.LLMResponse, error) {
-	s.calls = append(s.calls, req)
+	s.calls = append(s.calls, snapshotRequest(req))
 	if s.i < len(s.responses) {
 		r := s.responses[s.i]
 		s.i++
@@ -108,6 +113,18 @@ func (s *scriptedLLM) Complete(_ context.Context, req core.LLMRequest) (*core.LL
 		return s.repeat, nil
 	}
 	return &core.LLMResponse{StopReason: core.LLMStopEndTurn}, nil
+}
+
+// snapshotRequest copies what a call was actually sent, so a later turn cannot
+// change what an earlier one is recorded as having carried.
+//
+// The agent sheds attachments by clearing them in place, on the same backing
+// array a recorded request's Messages slice points at — which is correct in the
+// runtime, where the loop is the only holder, and a trap for a double that keeps
+// the header and reads it after the run.
+func snapshotRequest(req core.LLMRequest) core.LLMRequest {
+	req.Messages = append([]core.LLMMessage(nil), req.Messages...)
+	return req
 }
 
 // toolCallResp builds a single-tool-call assistant response.

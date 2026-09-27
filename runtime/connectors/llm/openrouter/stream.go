@@ -33,7 +33,10 @@ type streamFold struct {
 	reasoning []byte
 	// details is latched rather than concatenated: OpenRouter sends the block
 	// whole, and the last one it sends is the complete one.
-	details      json.RawMessage
+	details json.RawMessage
+	// media is latched for the same reason details is: a generated image arrives
+	// whole, on one delta, rather than in fragments.
+	media        []core.LLMAttachment
 	calls        map[int]*toolCallFold
 	finishReason string
 	refused      bool
@@ -107,6 +110,12 @@ func (f *streamFold) absorbDelta(
 	if raw := delta.JSON.ExtraFields[fieldReasoningDetails].Raw(); raw != "" && raw != jsonNull {
 		f.details = json.RawMessage(raw)
 	}
+	// Latched, not emitted. There is no canonical stream kind for media and this
+	// connector does not invent one — the finished response carries it, which is
+	// the contract LLMStreamKind states. See #517.
+	if media := decodeImages(delta.JSON.ExtraFields[fieldImages].Raw()); len(media) > 0 {
+		f.media = media
+	}
 
 	// A refusal is content, but it is not the answer, so it is not text. There is
 	// no canonical kind for it and inventing one would grow the vocabulary for a
@@ -165,6 +174,7 @@ func (f *streamFold) turn() turn {
 		text:             string(f.text),
 		reasoning:        string(f.reasoning),
 		reasoningDetails: f.details,
+		media:            f.media,
 		toolCalls:        f.toolCalls(),
 		finishReason:     f.finishReason,
 		refused:          f.refused,

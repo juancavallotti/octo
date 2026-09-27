@@ -27,6 +27,9 @@ Lets an LLM accomplish a task by calling flow branches as tools in a loop. Each 
 | `prompt` | string | Yes | none | Task instruction; the model calls tools as needed, then stops. |
 | `guardrail` | string | No | none | Describes when the model should fall back to the `default` path. |
 | `input` | `expression` (string) | No | none | The agent's opening user turn. Empty hands the model the whole input body as a JSON document to work from. |
+| `attachments` | `expression` (list) | No | none | Files the opening turn carries: a list of `{mimeType, data, name}` maps whose `data` is base64 or a `data:` URL. Requires `input`, and a connector whose model reads media — a block missing either **fails to build**. See [attachments](#attachments). |
+| `keepAttachments` | `bool` | No | `false` | Hold the attachments on every turn of the run, and in the memory it saves, instead of shedding them once the model has read them. See [attachments ride one turn](#attachments-ride-one-turn). |
+| `responseMedia` | string | No | none | Message variable the files the model produced are written to, as a list of `{name, mimeType, size, data}` maps whose `data` is base64. Empty writes nothing. See [generated media](#generated-media). |
 | `answer` | enum `json` \| `text` | No | `json` | The shape the model is told to reply in. `json` suits an agent whose answer is the next block's body; `text` leaves the format to your `prompt`. |
 | `maxIterations` | int | No | `8` | Cap on tool-calling turns (one model call each) before falling back to the guardrail. |
 | `maxParallelTools` | int | No | `10` | How many of one turn's tool calls run at the same time. The calls go on a queue drained by this many consumers, each on its own copy of the message — so nothing a tool branch writes to the message reaches the next call. Set it to `1` for an agent whose tools hand each other state; see [tool calls run together](#tool-calls-run-together). |
@@ -68,6 +71,109 @@ Each `skills` entry (see [Agent skills and tools](/ai/agent-skills-and-tools)):
 | `name` | string | Yes | Skill name; unique, must not collide with a tool name or `load_skill`. |
 | `description` | string | Yes | Advertised to the model up front, with the name. |
 | `resource` | string | Yes | Template resource (its `resources.templates` alias) whose rendered content the implicit `load_skill` tool returns on demand. |
+
+### Attachments
+
+An agent can be handed files — a screenshot to look at, a scanned invoice to
+read, a voice note to transcribe — instead of a description of them. The
+`attachments` expression yields a list, one entry per file:
+
+```yaml
+- type: ai-agent
+  name: look
+  connector: claude
+  input: body.question
+  attachments: has(body.files) ? body.files : []
+  prompt: Answer the question about the attached files.
+  tools: [...]
+```
+
+Each entry is a map:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `mimeType` | string | Yes* | IANA type, e.g. `image/png`. *Optional when `data` is a `data:` URL that states one; a stated type wins. |
+| `data` | string | Yes | The file, base64. A `data:<mime>;base64,<payload>` URL is accepted and unwrapped, which is what a browser hands you. |
+| `name` | string | No | Filename to show the model, where the provider has somewhere to put one. |
+
+`data` is a string rather than bytes because CEL has no bytes type — a value
+reaching a block through an expression goes through JSON, and base64 is what
+survives that.
+
+Which types are accepted is the provider's business, and they differ; see
+[LLM connectors](/reference/connectors/llm). A type the connector cannot send is
+an **error**, never a silent omission — a model answering confidently about a
+file it never received is a failure nothing downstream can see.
+
+Two things fail the **build** rather than a turn, for the same reason:
+
+- A connector whose model reads only text.
+- `attachments` without `input`. The default opening turn is the whole body as
+  JSON, so a flow that put its files on the body would send each of them twice:
+  once as a file the model can read, and once as a base64 string in the middle of
+  the prompt. The text copy is the expensive half — it is prose, not an
+  attachment, so nothing sheds it and it persists into memory to be re-read on
+  every later turn. It works, and it bills quietly, which is why it is refused.
+
+<Callout type="warn">
+A tool branch cannot return a file. `ai-agent` tool results are text, so a tool
+that renders a chart or screenshots a page can only describe what it produced
+([#512](https://github.com/juancavallotti/octo/issues/512)).
+</Callout>
+
+### Attachments ride one turn
+
+The model reads the attachments on the agent's **first** model call. They are
+dropped from the transcript as soon as that call returns, so every later turn of
+the run is text, working memory never stores the bytes, and a follow-up on the
+same conversation does not re-send them.
+
+That is what keeps a screenshot from costing you its own size on every turn for
+the rest of the conversation. The model has read the file by then, and what it
+understood is in its own answer.
+
+Set `keepAttachments: true` for an agent that has to look at the file *again*
+after its tools have run — measuring something, checking a detail its own summary
+would have lost — and accept that every turn re-sends and re-pays for it, and
+that the next run loads it out of memory and pays again.
+
+Durable conversation history is text either way: reopening a stored thread shows
+the question without its picture
+([#513](https://github.com/juancavallotti/octo/issues/513)). A message sent while
+a run is already in flight cannot carry attachments
+([#516](https://github.com/juancavallotti/octo/issues/516)).
+
+### Generated media
+
+Some models return files as well as text. Name a variable in `responseMedia` and
+they are written to it:
+
+```yaml
+- type: ai-agent
+  name: chartist
+  connector: gemini
+  input: body.question
+  responseMedia: art
+  prompt: Draw the chart the user asks for.
+  tools: [...]
+```
+
+`vars.art` is then a list of `{name, mimeType, size, data}` maps, `data` base64 —
+the same shape `attachments` reads, so one agent's output feeds another's input.
+Files produced on any turn are collected, not just the last one: a model that
+draws something and then calls a tool to do something with it drew it on a turn
+that was not the last.
+
+<Callout type="warn">
+`responseMedia` is meant for the **very next block** — store the file, attach it
+to an email — not for carrying down a long flow. It is bytes on a message
+variable, and everything downstream copies it. With variable capture on, a file
+over the trace payload cap also costs you every *other* variable on that record
+([#515](https://github.com/juancavallotti/octo/issues/515)).
+</Callout>
+
+A streamed turn reports its media only when the turn ends, not progressively
+([#517](https://github.com/juancavallotti/octo/issues/517)).
 
 ### Agent events
 
@@ -268,6 +374,9 @@ Leaf block: reshapes the message body to a target shape described by a prompt, o
 |---|---|---|---|---|
 | `connector` | string | Yes | none | Name of the LLM connector to use. |
 | `prompt` | string | Yes | none | Instruction describing how to reshape the body. |
+| `input` | `expression` (string) | No | none | What the model is handed, replacing the default — the whole body as a JSON document. Needed only to send `attachments`; see [attachments](#attachments). |
+| `attachments` | `expression` (list) | No | none | Files sent alongside the input, in the same shape `ai-agent` takes. Requires `input`, and a connector whose model reads media. |
+| `responseMedia` | string | No | none | Message variable the files the model produced are written to. Empty writes nothing. |
 | `inputExample` | JSON | No | none | Example input payload that guides recognition. Written as an inline JSON string (block scalar) or a native YAML map. |
 | `outputExample` | JSON | No | none | Example output payload that shapes the result. Same formats. |
 | `outputSchema` | JSON | No | none | JSON Schema the result is validated against; also recorded on the message as its body schema. |

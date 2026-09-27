@@ -51,6 +51,35 @@ type agentSettings struct {
 	// transforming a payload wants; a conversational one states its question here so
 	// the model answers it rather than replying in the shape it was handed.
 	Input string `json:"input" octo:"label=Opening turn,type=cel"`
+	// CEL expression for the non-text content the opening turn carries: a list of
+	// {mimeType, data, name} maps whose data is base64, or a data: URL. Empty sends
+	// a text-only turn.
+	//
+	// The block fails to build when the connector's model reads no media, so an
+	// agent pointed at a text-only model says so while it is being edited rather
+	// than on the first file somebody attaches.
+	Attachments string `json:"attachments" octo:"label=Attachments,type=cel"`
+	// Keep the attachments on every turn of the run, and in the memory it saves,
+	// instead of shedding them once the model has read them.
+	//
+	// Off, and off is what almost every agent wants. The model has read the image
+	// by the time its first answer comes back, and what it understood is in that
+	// answer; left on, every later turn re-sends and re-pays for bytes that teach
+	// it nothing new, and the next run loads them out of memory and pays again.
+	//
+	// Turn it on for an agent that has to look at the file again after its tools
+	// have run — measuring something, checking a detail its own summary would have
+	// lost — and accept the bill for it.
+	//nolint:lll // the tag carries a label longer than 120 cols
+	KeepAttachments bool `json:"keepAttachments" octo:"label=Keep attachments for the whole run"`
+	// Message variable the files the model produced are written to, as a list of
+	// {name, mimeType, size, data} maps whose data is base64.
+	//
+	// Empty writes nothing, which is what an agent that produces no media wants.
+	// What is written is meant for the very next block — stored somewhere, attached
+	// to something — and not carried down a long flow: it is bytes on a message
+	// variable, and everything downstream copies it.
+	ResponseMedia string `json:"responseMedia" octo:"label=Response media variable"`
 	// The shape the model is told to answer in. "json" suits an agent whose answer
 	// is the next block's body; "text" suits one whose answer a person reads and
 	// leaves the format to the prompt. The reply is parsed the same way either way.

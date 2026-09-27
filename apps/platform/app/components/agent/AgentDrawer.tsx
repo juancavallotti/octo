@@ -6,6 +6,8 @@ import { ArrowDown, MessageSquarePlus, Pin, PinOff, X } from "lucide-react";
 import AgentMessage from "./AgentMessage";
 import ContextGauge from "./ContextGauge";
 import Composer from "./Composer";
+import EmptyTranscript from "./EmptyTranscript";
+import { useAttachments } from "./useAttachments";
 import ConversationList from "./ConversationList";
 import WorkingStatus from "./WorkingStatus";
 import { useAgentChat } from "./useAgentChat";
@@ -38,6 +40,7 @@ export default function AgentDrawer({
   onResize,
   onResizeEnd,
   onBusy,
+  accepted = [],
 }: {
   userKey: string;
   onCollapse: () => void;
@@ -47,10 +50,13 @@ export default function AgentDrawer({
   onResize: (width: number) => void;
   onResizeEnd: (width: number) => void;
   onBusy: (busy: boolean) => void;
+  /** Content types the site's model reads; empty means it reads none. */
+  accepted?: readonly string[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const [draft, setDraft] = useState("");
+  const files = useAttachments(accepted);
 
   const chat = useAgentChat(userKey, pathname, (target) => {
     // The path was already checked against this app's shape when the frame was
@@ -69,8 +75,17 @@ export default function AgentDrawer({
   const open = chat.turns.findLast((turn) => turn.role === "agent");
 
   const submit = () => {
-    chat.send(draft);
+    // The composer refuses to attach while he is working, but `busy` can also
+    // turn true from another tab writing into this conversation — so files may
+    // already be here when a steer is all this send can be. Kept, never sent to
+    // be dropped: see useAgentChat's steer branch and #516.
+    if (chat.busy && files.files.length) {
+      files.hold("He is working. Send the files once he has answered.");
+      return;
+    }
+    chat.send(draft, files.files);
     setDraft("");
+    files.clear();
   };
 
   // Tears down whatever a drag in progress installed. Held in a ref so that a
@@ -193,13 +208,16 @@ export default function AgentDrawer({
           ref={scroller}
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3"
         >
-          {chat.turns.length === 0 && <Empty />}
+          {chat.turns.length === 0 && <EmptyTranscript />}
 
           {chat.turns.map((turn) => (
             <AgentMessage key={turn.id} turn={turn} onAuthorize={chat.authorize} />
           ))}
 
           {chat.error && <p className="text-xs text-red-500">{chat.error}</p>}
+          {files.rejected && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">{files.rejected}</p>
+          )}
         </div>
 
         {/* Offered only when following is off, so it is a way back rather than a
@@ -225,19 +243,11 @@ export default function AgentDrawer({
         onSubmit={submit}
         busy={chat.busy}
         onStop={chat.stop}
+        attachments={files.files}
+        accepted={accepted}
+        onAttach={files.add}
+        onRemove={files.remove}
       />
     </aside>
-  );
-}
-
-function Empty() {
-  return (
-    <div className="m-auto max-w-[22rem] text-center text-xs text-zinc-500">
-      <p>
-        Ask about this installation — an integration, a deployment that will not
-        start, or a flow you are writing.
-      </p>
-      <p className="mt-2">He knows which page you are on, and can take you to another one.</p>
-    </div>
   );
 }

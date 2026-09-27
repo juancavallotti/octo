@@ -574,6 +574,15 @@ type aiAgent struct {
 	// input states the opening user turn, or is nil to hand the model the whole
 	// input body as a JSON document. See initConversation.
 	input *expr.Program
+	// attachments resolves the non-text content the opening turn carries. Nil for
+	// a block that sends none, which is every text-only agent.
+	attachments *expr.Program
+	// keepAttachments holds the attachments on the transcript for the whole run
+	// instead of shedding them after the first model call. See shedAttachments.
+	keepAttachments bool
+	// responseMedia is the message variable the model's generated files are written
+	// to, empty for a block that writes none.
+	responseMedia string
 	// Conversation memory (optional). When memoryThreadID is nil, memory is
 	// disabled and the agent is stateless across invocations. When set, the agent
 	// loads the thread's transcript before its run and saves the accumulated
@@ -713,6 +722,7 @@ func newAIAgent(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 	// next one is a line here rather than another branch in an already long builder.
 	for _, configure := range []func(*aiAgent, agentSettings) error{
 		b.configureAgentInput,
+		b.configureAgentAttachments,
 		b.configureAgentMemory,
 		b.configureAgentStore,
 		b.configureAgentSignals,
@@ -801,6 +811,51 @@ func (b *builder) configureAgentInput(block *aiAgent, cfg agentSettings) error {
 		return fmt.Errorf("ai-agent input: %w", err)
 	}
 	block.input = input
+	return nil
+}
+
+// configureAgentAttachments wires the non-text content the agent sends and the
+// variable its generated media is written to.
+//
+// It refuses an attachments setting against a connector whose model reads only
+// text, and refuses it here rather than at the first call. A flow that cannot
+// work should not deploy: the build error reaches the editor while somebody is
+// looking at the block, where "this model does not read files" is something they
+// can act on, and a turn-time failure reaches them as an errored run some time
+// later.
+func (b *builder) configureAgentAttachments(block *aiAgent, cfg agentSettings) error {
+	block.keepAttachments = cfg.KeepAttachments
+	block.responseMedia = strings.TrimSpace(cfg.ResponseMedia)
+	if strings.TrimSpace(cfg.Attachments) == "" {
+		return nil
+	}
+	// An opening turn has to be stated when files are sent, because the default one
+	// hands the model the whole input body as a JSON document — and a flow that put
+	// its files on the body has just sent every one of them twice: once as a file
+	// the model can read, and once as a base64 string in the middle of the prompt.
+	//
+	// The text copy is the expensive half. It is not shed after the first turn,
+	// because it is not an attachment — it is prose — so it persists into working
+	// memory and is re-read and re-billed on every turn of every later run.
+	//
+	// Refused rather than documented: it costs money quietly and it works, which is
+	// the combination nobody catches. An agent being handed a file is being asked
+	// about something, so it has a question to state.
+	if strings.TrimSpace(cfg.Input) == "" {
+		return errors.New(
+			"ai-agent attachments requires input: without it the agent's opening turn is the " +
+				"whole body as JSON, which sends any attachment on the body a second time as base64")
+	}
+	if accepted := block.caller.acceptsMedia(); len(accepted) == 0 {
+		return fmt.Errorf(
+			"ai-agent attachments: connector %q reads only text, so it cannot be sent files",
+			cfg.Connector)
+	}
+	attachments, err := expr.CompileMessage(b.deps.Resources, cfg.Attachments)
+	if err != nil {
+		return fmt.Errorf("ai-agent attachments: %w", err)
+	}
+	block.attachments = attachments
 	return nil
 }
 
@@ -1062,12 +1117,13 @@ func (a *aiAgent) Process(ctx context.Context, msg *types.Message) (*types.Messa
 		// conversation that varies.
 		sent := estimateTokens(messages)
 		resp, callErr := a.callModel(runCtx, iter, current, messages, preamble)
+		// Before the error branch on purpose; see shedAttachments.
+		messages = a.shedAttachments(messages, iter)
 		if callErr != nil {
 			return a.callFailed(saveCtx, sess, stoppedTranscript(messages, resp),
 				current, iter, meter, run, callErr)
 		}
-		meter.observeResponse(sent, resp)
-		messages = append(messages, resp.Raw)
+		messages = a.absorbResponse(current, messages, meter, sent, resp)
 
 		if resp.StopReason == core.LLMStopRefusal {
 			sess.recordTurn(saveCtx, msg, "", iter+1, "refused")
@@ -1492,14 +1548,22 @@ func (a *aiAgent) initConversation(
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	// Text only: the durable record has nowhere to put bytes, and a conversation
+	// that replays without its picture is the gap named in #513.
 	sess.noteOpening(opening)
+	files, err := a.openingAttachments(msg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	stored, err := sess.loadWorking(ctx)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	messages = make([]core.LLMMessage, 0, len(stored.Messages)+1)
 	messages = append(messages, stored.Messages...)
-	messages = append(messages, core.LLMMessage{Role: core.LLMRoleUser, Text: opening})
+	messages = append(messages, core.LLMMessage{
+		Role: core.LLMRoleUser, Text: opening, Attachments: files,
+	})
 
 	// The stored size was measured by the run that saved it, so seeding from it
 	// gives the first turn back a rate learned from real tokens. It is a rate, not
@@ -1507,6 +1571,87 @@ func (a *aiAgent) initConversation(
 	meter = newContextMeter()
 	meter.seed(estimateTokens(stored.Messages), stored.Tokens)
 	return sess, messages, meter, nil
+}
+
+// openingAttachments is the non-text content the agent's first user message
+// carries, and nothing for a block that sends none.
+func (a *aiAgent) openingAttachments(msg *types.Message) ([]core.LLMAttachment, error) {
+	files, err := evalAttachments(a.attachments, expr.MessageActivation(msg, a.env))
+	if err != nil {
+		return nil, fmt.Errorf("ai-agent attachments: %w", err)
+	}
+	return files, nil
+}
+
+// absorbResponse takes everything the loop keeps from one model turn: what the
+// provider says it read, whatever files the turn produced, and the assistant turn
+// itself appended to the transcript.
+//
+// The three travel together because they are one idea — this turn happened — and
+// because every one of them has to happen before the next turn is built.
+func (a *aiAgent) absorbResponse(
+	msg *types.Message, messages []core.LLMMessage,
+	meter *contextMeter, sent int, resp *core.LLMResponse,
+) []core.LLMMessage {
+	meter.observeResponse(sent, resp)
+	a.collectMedia(msg, resp)
+	return append(messages, resp.Raw)
+}
+
+// collectMedia appends whatever files this turn produced to the block's response
+// media variable, and does nothing for a block that names none.
+//
+// It accumulates across the run rather than reading the last response, because a
+// model that makes an image and then calls a tool to do something with it made
+// that image on a turn that was not the last one. Reading only the final turn
+// would lose it, and lose it silently.
+//
+// The value is JSON-native — a list of maps with base64 data — because it lands
+// in msg.Variables, which is copied, traced and read from CEL. Those bytes are
+// why this is meant for the very next block rather than for carrying down a long
+// flow: see the field's own documentation, and #515.
+func (a *aiAgent) collectMedia(msg *types.Message, resp *core.LLMResponse) {
+	if a.responseMedia == "" || resp == nil || len(resp.Media) == 0 {
+		return
+	}
+	// Whatever is already there, so two turns that both produced a file are both
+	// reported. A variable holding something else is replaced rather than appended
+	// to: the block owns this name, and guessing at a foreign shape is worse than
+	// taking the name.
+	existing, _ := msg.Variables[a.responseMedia].([]any)
+	out := make([]any, 0, len(existing)+len(resp.Media))
+	out = append(out, existing...)
+	for _, file := range resp.Media {
+		out = append(out, mediaFields(file))
+	}
+	msg.Variables.Set(a.responseMedia, out)
+}
+
+// shedAttachments drops the attachments off the transcript once the model has
+// read them, and returns it.
+//
+// This is the whole of the one-turn rule, and it is one line of the loop because
+// every consumer downstream reads the same slice: the checkpoint, the terminal
+// save, the compaction and the estimate all see a transcript that no longer
+// carries bytes, without any of them knowing attachments exist.
+//
+// It runs after the first model call and before that call's error is handled.
+// Deliberately before: callFailed leads to halt, which persists the transcript,
+// so a shed that only ran on success would write the bytes into working memory
+// on every failed first turn — the one path where it matters most, because a
+// failed turn is the one most likely to be retried.
+//
+// The model has read the file by now and what it understood is in its own answer,
+// which is why this is the default. An agent that has to look again sets
+// keepAttachments and pays for every turn.
+func (a *aiAgent) shedAttachments(messages []core.LLMMessage, iter int) []core.LLMMessage {
+	if iter != 0 || a.keepAttachments {
+		return messages
+	}
+	for i := range messages {
+		messages[i].Attachments = nil
+	}
+	return messages
 }
 
 // openingTurn is the text of the agent's first user message.
@@ -2028,9 +2173,15 @@ func resolveLLM(kind, name string, deps core.BlockDeps) (*llmCaller, error) {
 	// asserted here so "does this provider stream" is answered in the same place
 	// "is this a provider at all" is.
 	streamer, _ := connector.(core.LLMStreamClient)
+	// So is the media half, asserted on the same terms. A connector predating
+	// core.LLMMedia reports nothing, which is the same answer a text-only model
+	// gives and the right one: a block that wants to send a file against it fails
+	// to build rather than failing a turn later.
+	media, _ := connector.(core.LLMMedia)
 	return &llmCaller{
 		client:   client,
 		streamer: streamer,
+		media:    media,
 		who:      newIdentity(kind, name, providerOf(connector), deps),
 	}, nil
 }

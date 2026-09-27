@@ -66,6 +66,14 @@ export interface Turn {
    * streaming underneath it is the acknowledgement.
    */
   delivery?: Delivery;
+  /**
+   * The files this question carried, by name.
+   *
+   * Names only, never the bytes: the transcript lives in React state for the life
+   * of the session, and a megabyte of base64 kept in it is a megabyte held long
+   * after the run that needed it.
+   */
+  files?: string[];
   /** Set when the agent declined the question or the run failed. */
   note?: string;
   /** How full the context was at the last model turn, when one reported it. */
@@ -86,11 +94,12 @@ export const HANDED_OVER_NOTE =
   "rather than starting a new one. The answer is going to whoever is reading it.";
 
 /** A fresh turn, for the hook and for replaying a stored conversation. */
-export function newTurn(id: string, role: Turn["role"], text = ""): Turn {
+export function newTurn(id: string, role: Turn["role"], text = "", files?: string[]): Turn {
   return {
     id,
     role,
     segments: text ? [{ kind: "text", iter: 0, text }] : [],
+    ...(files?.length ? { files } : {}),
     streaming: false,
   };
 }

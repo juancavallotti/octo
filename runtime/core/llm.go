@@ -45,6 +45,44 @@ const (
 	ProviderOpenRouter = "OPENROUTER"
 )
 
+// LLMMedia is the optional half of a provider connector that can carry non-text
+// content: images, documents, audio. A connector that does not implement it
+// accepts no attachments at all, and a block configured to send them against one
+// fails to build rather than discovering it a turn later.
+//
+// It is answered per connector instance, not per vendor, because that is the
+// question a caller actually has. A vendor whose flagship model reads images also
+// publishes ones that do not, and the connector is the only thing that knows
+// which model it was pointed at.
+type LLMMedia interface {
+	// AcceptsMedia returns the mime types this connector's configured model can
+	// read. Empty means none, which is also what a connector that does not
+	// implement this interface reports.
+	//
+	// It is the advertisement, not the enforcement: a connector still rejects a
+	// type it cannot encode when the call is made, because a caller is free not to
+	// ask first.
+	AcceptsMedia() []string
+}
+
+// LLMAttachment is one piece of non-text content in a conversation: a document or
+// an image a user turn hands the model, or a file a model turn produced.
+//
+// One type serves both directions because the wire shape is the same in both, and
+// two would be two places to spell a mime type.
+type LLMAttachment struct {
+	// MimeType is the IANA type of Data ("image/png", "application/pdf"). It is
+	// required: every provider routes on it and none of them sniff.
+	MimeType string
+	// Data is the content itself, raw. Each connector encodes it the way its own
+	// API wants — base64 for three of them, a data URL for the fourth — so the DTO
+	// holds bytes and the encoding stays a translation detail.
+	Data []byte
+	// Name is the filename to show the model, where the provider has somewhere to
+	// put one. Optional; a provider with no field for it ignores it.
+	Name string
+}
+
 // LLMStreamClient is the optional streaming half of a provider. A connector that
 // implements it can report a turn's output as it is produced instead of only when
 // it is finished; one that does not is driven through Complete.
@@ -154,6 +192,17 @@ const (
 type LLMMessage struct {
 	Role LLMRole
 	Text string
+	// Attachments are the documents and images this turn hands the model.
+	//
+	// Only a user turn carries them, and a connector ignores them on any other
+	// role rather than erroring: LLMResponse.Raw is appended straight back onto
+	// Messages to drive a tool loop, so a turn must never fail to translate
+	// because of a field the provider did not set.
+	//
+	// A connector sends them ahead of Text. The order within a turn is a
+	// convention rather than something a caller states, because these are two
+	// fields and not a list of parts.
+	Attachments []LLMAttachment
 	// Thinking is the assistant turn's reasoning blocks, in the order the provider
 	// produced them. See LLMThinkingBlock: this exists for correctness, not
 	// observability, and callers driving a tool loop must carry it back untouched.
@@ -309,6 +358,14 @@ type LLMResponse struct {
 	ToolCalls  []LLMToolCall
 	StopReason LLMStopReason
 	Raw        LLMMessage
+	// Media is the files the model produced this turn — a generated image, a
+	// rendered chart. Empty for the ordinary text turn and for every provider that
+	// cannot produce one.
+	//
+	// Deliberately here and not on Raw: no provider requires generated media
+	// echoed back on the next turn, and carrying it there would re-send and re-bill
+	// the bytes for the rest of the conversation.
+	Media []LLMAttachment
 	// Usage is the turn's token accounting, or nil when the provider reported none.
 	Usage *LLMUsage
 	// Model is the model that actually served the turn, as the provider reported

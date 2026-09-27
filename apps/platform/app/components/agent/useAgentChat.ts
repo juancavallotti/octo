@@ -8,6 +8,7 @@ import { newTurn, type Turn } from "./turns";
 import { useTranscript } from "./useTranscript";
 import { post } from "./instruct";
 import { randomId, readThreadId, threadKey } from "./thread";
+import { attachmentNames, wireAttachments, type Attachment } from "./attachments";
 
 export type { Segment, ToolRun, Turn } from "./turns";
 
@@ -25,7 +26,7 @@ export interface AgentChat {
    * Ask, or steer. A message sent while a run is in flight is handed to that run
    * rather than starting a second one — see {@link steer}.
    */
-  send: (message: string) => void;
+  send: (message: string, attachments?: Attachment[]) => void;
   stop: () => void;
   /**
    * Answer a tool call the run is holding. Nothing is added to the transcript
@@ -165,14 +166,24 @@ export function useAgentChat(
   );
 
   const send = useCallback(
-    (message: string) => {
+    (message: string, attachments: Attachment[] = []) => {
       const text = message.trim();
-      if (!text) return;
+      // A file with nothing said about it is a whole question — "look at this".
+      if (!text && !attachments.length) return;
       // A run in flight takes the message rather than a second run starting.
       // The controller ref as well as `busy`, because state is only true after
       // React commits: two sends in one tick would both read a stale `busy`, and
       // the second would replace the controller the first is holding.
       if (busy || abort.current) {
+        // Text only. A steered message is injected mid-run, at an iteration with
+        // no defined point to shed attachments at, so files on one would ride into
+        // working memory — see #516.
+        //
+        // Not the place that decides, though. Dropping them here is silent, and a
+        // screenshot that disappears without a word is worse than one that waits:
+        // the composer refuses to attach while a run is in flight, and the panel
+        // keeps whatever was already attached rather than sending it to be thrown
+        // away. This is the floor under both of them.
         steer(text);
         return;
       }
@@ -186,7 +197,10 @@ export function useAgentChat(
       // closes it and opens another. Held in an object so the reader can move it
       // and the finally below still ends the right one.
       const target: RunTarget = { turn: randomId() };
-      append(newTurn(randomId(), "user", text), {
+      // The local turn names the files and never holds them: the transcript lives
+      // in React state for the life of the session, and a megabyte of base64 in it
+      // is a megabyte held long after the run that needed it.
+      append(newTurn(randomId(), "user", text, attachmentNames(attachments)), {
         ...newTurn(target.turn, "agent"),
         streaming: true,
       });
@@ -201,6 +215,9 @@ export function useAgentChat(
               message: text,
               page,
               routes: ROUTE_CATALOGUE,
+              // Left off entirely when there are none, so a text-only message is
+              // byte-identical on the wire to what it was before files existed.
+              ...(attachments.length ? { attachments: wireAttachments(attachments) } : {}),
             }),
             signal: controller.signal,
           });

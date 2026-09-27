@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2, MessageSquareOff } from "lucide-react";
+import { Check, Loader2, MessageSquareOff, Paperclip } from "lucide-react";
 import { answerOf, type Turn } from "./turns";
 
 /**
@@ -28,8 +28,36 @@ export default function UserMessage({ turn }: { turn: Turn }) {
       >
         {answerOf(turn)}
       </div>
+      <Files names={turn.files} />
       <DeliveryNote delivery={turn.delivery} />
     </div>
+  );
+}
+
+/**
+ * The files the question carried, by name.
+ *
+ * Names and not thumbnails: the transcript never holds the bytes, so there is
+ * nothing here to draw a picture from — and keeping them to draw one would mean
+ * holding every screenshot of the session in memory for the life of the tab.
+ */
+function Files({ names }: { names?: string[] }) {
+  if (!names?.length) return null;
+  return (
+    <ul className="flex max-w-[85%] flex-wrap justify-end gap-1">
+      {/* Keyed by position as well as name: two pasted screenshots are both
+          called image.png, and a duplicate key is a rendering bug rather than a
+          cosmetic one. */}
+      {names.map((name, i) => (
+        <li
+          key={`${i}-${name}`}
+          className="flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+        >
+          <Paperclip size={10} />
+          <span className="max-w-[10rem] truncate">{name}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

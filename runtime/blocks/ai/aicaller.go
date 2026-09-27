@@ -173,11 +173,27 @@ type llmCaller struct {
 	// streamer is the same connector as client, asserted to its streaming half. It
 	// is nil for a provider that has none.
 	streamer core.LLMStreamClient
-	who      callerIdentity
+	// media is the same connector asserted to its media half. It is nil for a
+	// provider that has none, and for one whose configured model reads only text.
+	media core.LLMMedia
+	who   callerIdentity
 }
 
 // streams reports whether the provider behind this caller can stream.
 func (c *llmCaller) streams() bool { return c.streamer != nil }
+
+// acceptsMedia reports the content types the provider behind this caller can be
+// sent, and nothing for one that takes none.
+//
+// It is what lets a block refuse an attachments setting while it is being built,
+// naming the model, rather than letting the flow deploy and fail on its first
+// file.
+func (c *llmCaller) acceptsMedia() []string {
+	if c.media == nil {
+		return nil
+	}
+	return c.media.AcceptsMedia()
+}
 
 // complete runs one blocking model turn and records what it cost.
 func (c *llmCaller) complete(

@@ -171,6 +171,13 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 
+	// Read once and passed down, because both the blocked check and the reported
+	// model want it and this runs on every poll of a status page. Deliberately Get
+	// and not Reveal: decrypting a provider key to ask which model is configured
+	// would put the plaintext in memory hundreds of times for a question the
+	// metadata already answers.
+	settings, settingsErr := s.credentials.Get(ctx)
+
 	out := Status{
 		State:           StateNotInstalled,
 		IntegrationID:   cur.IntegrationID,
@@ -182,7 +189,13 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		Tracing:         cur.Tracing,
 		AutoFix:         cur.AutoFix,
 		MaxIterations:   cur.MaxIterations,
-		Blocked:         s.blocked(ctx),
+		Blocked:         s.blocked(ctx, settings, settingsErr),
+	}
+	// Reported whether or not the agent is installed: a page asking what he could
+	// be sent is asking about the site's LLM settings, which exist before he does.
+	out.Model = settings.Model
+	if connectorType, ok := ConnectorTypeFor(settings.Provider); ok {
+		out.ConnectorType = connectorType
 	}
 	if cur.IntegrationID == "" {
 		return out, nil
@@ -236,16 +249,12 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 // blocked reports what would stop an install, in the order an operator would fix
 // them: no cluster is unfixable from the UI, no encryption key is a chart value, a
 // missing provider key is one page away.
-func (s *Service) blocked(ctx context.Context) string {
+func (s *Service) blocked(ctx context.Context, settings llm.Settings, readErr error) string {
 	if s.deployments == nil || s.secrets == nil {
 		return BlockedKubernetes
 	}
-	// Deliberately not Reveal. This runs on every poll of a status page, and
-	// decrypting a provider key to ask whether one exists would put the plaintext in
-	// memory hundreds of times for a question the metadata already answers.
-	settings, err := s.credentials.Get(ctx)
-	if err != nil {
-		slog.Warn("agent status: cannot read the llm settings", "error", err)
+	if readErr != nil {
+		slog.Warn("agent status: cannot read the llm settings", "error", readErr)
 		return BlockedLLMKey
 	}
 	if !settings.Configured {
