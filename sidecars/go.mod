@@ -2,6 +2,8 @@ module github.com/juancavallotti/octo/sidecars
 
 go 1.27.0
 
+toolchain go1.27.2
+
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/prometheus/client_model v0.6.2

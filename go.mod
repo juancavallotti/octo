@@ -2,6 +2,8 @@ module github.com/juancavallotti/octo
 
 go 1.27.0
 
+toolchain go1.27.2
+
 require (
 	cloud.google.com/go/compute/metadata v0.9.0
 	github.com/anthropics/anthropic-sdk-go v1.66.0
