@@ -62,6 +62,6 @@ and `deploy/terraform/`; extend `customManagers` in `renovate.json5` to add a pa
 `govulncheck` over each Go module daily and on any PR that changes a `go.mod`. It
 catches what Renovate cannot fix by bumping a dependency — a vulnerability in the
 Go standard library or toolchain — and fails only when the vulnerable code is
-reachable from octo's own. A failure on the schedule means: bump the `go`
-directive and the `golang:` images (the *Go toolchain* Renovate group), or
+reachable from octo's own. A failure on the schedule means: bump the
+`toolchain` directive in each `go.mod` (the *Go toolchain* Renovate group), or
 upgrade the module it names.
