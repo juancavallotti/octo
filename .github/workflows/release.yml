@@ -415,6 +415,7 @@ jobs:
       - uses: azure/setup-helm@v4
         with:
           # Pinned, and kept in step with validate.yml and cloudbuild.yaml.
+          # renovate: datasource=github-releases depName=helm/helm
           version: v3.21.3
       # release-please stamps the chart versions into the commit being tagged, so
       # a mismatch means a version stopped being stamped and the release would

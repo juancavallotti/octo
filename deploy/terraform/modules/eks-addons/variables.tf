@@ -16,7 +16,8 @@ variable "oidc_provider_arn" {
 variable "lb_controller_version" {
   type        = string
   description = "aws-load-balancer-controller chart version. Pinned so a cluster rebuild installs the controller that was tested, not whatever is newest."
-  default     = "1.11.0"
+  # renovate: datasource=helm depName=aws-load-balancer-controller registryUrl=https://aws.github.io/eks-charts
+  default = "1.11.0"
 }
 
 variable "gp3_is_default" {

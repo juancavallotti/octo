@@ -195,6 +195,7 @@ steps:
         # so the version it installed could change with no commit here — and how
         # Helm treats a library chart vendored under charts/ is exactly what this
         # step relies on. Keep in step with .github/workflows/validate.yml.
+        # renovate: datasource=github-releases depName=helm/helm
         HELM_VERSION=v3.21.3
         curl -fsSL "https://get.helm.sh/helm-$${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm
         install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
@@ -232,6 +233,7 @@ steps:
           exit 0
         fi
         # Matches the version CI validates with (.github/workflows/validate.yml).
+        # renovate: datasource=github-releases depName=hashicorp/terraform extractVersion=^v(?<version>.*)$
         TF_VERSION=1.10.5
         curl -fsSL "https://releases.hashicorp.com/terraform/$${TF_VERSION}/terraform_$${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
         # The gcloud image has no `unzip`, but it ships python3; extract with stdlib.
