@@ -51,13 +51,15 @@ variable "dns_managed_zone" {
 variable "ingress_nginx_version" {
   type        = string
   description = "ingress-nginx chart version. Pinned so a cluster rebuild installs the controller that was tested, not whatever is newest."
-  default     = "4.12.1"
+  # renovate: datasource=helm depName=ingress-nginx registryUrl=https://kubernetes.github.io/ingress-nginx
+  default = "4.12.1"
 }
 
 variable "cert_manager_version" {
   type        = string
   description = "cert-manager chart version. Pinned for the same reason as ingress-nginx."
-  default     = "v1.17.1"
+  # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
+  default = "v1.17.1"
 }
 
 variable "ingress_nginx_extra_set" {

@@ -1,0 +1,162 @@
+// Renovate keeps every pinned dependency in the repo current and raises a PR the
+// moment one of them has a known vulnerability. What it watches, and why the rules
+// below are shaped the way they are, is in docs/dependency-updates.md.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    // chore(deps) for everything except runtime dependencies, which get fix(deps):
+    // release-please hides chore from the changelog and cuts a patch for fix.
+    ':semanticCommits',
+    ':semanticPrefixFixDepsChoreOthers',
+  ],
+  timezone: 'UTC',
+  // Routine updates arrive once a week, in a batch CI can chew through before
+  // Monday. Security PRs ignore the schedule and open immediately.
+  schedule: ['* 0-6 * * 1'],
+  prConcurrentLimit: 15,
+  prHourlyLimit: 0,
+  labels: ['dependencies'],
+  dependencyDashboard: true,
+  dependencyDashboardTitle: 'Dependency Dashboard',
+
+  // Only accept a version once it has been public for three days: most
+  // compromised or yanked releases are pulled inside that window.
+  minimumReleaseAge: '3 days',
+  internalChecksFilter: 'strict',
+
+  // CI fails on an untidy go.mod or a stale lockfile, so the PR has to arrive with
+  // both already regenerated.
+  postUpdateOptions: ['gomodTidy', 'gomodUpdateImportPaths', 'pnpmDedupe'],
+
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ['* 0-6 * * 1'],
+  },
+
+  // Known CVEs: GitHub's Dependabot alerts (enable them under Settings → Code
+  // security) and the OSV database, which also covers Go and Docker images.
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: ['dependencies', 'security'],
+    semanticCommitType: 'fix',
+    minimumReleaseAge: null,
+    schedule: [],
+    prCreation: 'immediate',
+  },
+  osvVulnerabilityAlerts: true,
+
+  // Major bumps wait for a tick on the Dependency Dashboard instead of opening
+  // a PR straight away: they are migrations, not maintenance.
+  major: {
+    dependencyDashboardApproval: true,
+  },
+
+  // The octo chart vendors octo-common in-tree; release-please owns its version.
+  ignoreDeps: ['octo-common'],
+
+  packageRules: [
+    // ── Toolchains: one PR moves every place a toolchain is pinned ─────────────
+    {
+      description: 'Go: the go directive in every module and the golang build images',
+      groupName: 'Go toolchain',
+      matchDatasources: ['golang-version', 'docker'],
+      matchPackageNames: ['go', 'golang'],
+    },
+    {
+      // A Go minor (1.27 → 1.28) is a language/toolchain change; treat it like a major.
+      matchDatasources: ['golang-version', 'docker'],
+      matchPackageNames: ['go', 'golang'],
+      matchUpdateTypes: ['minor'],
+      dependencyDashboardApproval: true,
+    },
+    {
+      description: 'Node: .nvmrc, the node images and @types/node move together',
+      groupName: 'Node.js',
+      matchPackageNames: ['node', '@types/node'],
+    },
+    {
+      // Odd-numbered Node majors never reach LTS.
+      matchPackageNames: ['node'],
+      allowedVersions: '/^\\d*[02468](\\.|-|$)/',
+    },
+    {
+      description: 'Helm, Terraform and kubeconform CLIs pinned in CI and Cloud Build',
+      groupName: 'CI tooling',
+      matchDepNames: ['helm/helm', 'hashicorp/terraform', 'yannh/kubeconform', 'golang.org/x/vuln'],
+    },
+
+    // ── Stateful third-party images: majors are data migrations ────────────────
+    {
+      description: 'Postgres majors need a dump/restore; pgvector tags track the Postgres major',
+      matchPackageNames: ['postgres', 'pgvector/pgvector'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+    {
+      // Redis 8 is AGPL-licensed; moving to it (or to Valkey) is a decision, not a bump.
+      matchPackageNames: ['redis'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+
+    // ── Grouping to keep the PR count sane ─────────────────────────────────────
+    {
+      groupName: 'GitHub Actions',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
+    },
+    {
+      groupName: 'Terraform providers',
+      matchDatasources: ['terraform-provider'],
+      matchUpdateTypes: ['minor', 'patch'],
+    },
+    {
+      groupName: 'Kubernetes Go libraries',
+      matchDatasources: ['go'],
+      matchPackageNames: ['k8s.io/**', 'sigs.k8s.io/**'],
+    },
+    {
+      groupName: 'NATS Go libraries',
+      matchDatasources: ['go'],
+      matchPackageNames: ['github.com/nats-io/**'],
+    },
+    {
+      description: 'golang.org/x/* release together and are routinely CVE-fixed together',
+      groupName: 'golang.org/x',
+      matchDatasources: ['go'],
+      matchPackageNames: ['golang.org/x/**'],
+    },
+    {
+      description: 'Non-major npm dev tooling in one weekly PR',
+      groupName: 'npm dev dependencies (non-major)',
+      matchManagers: ['npm'],
+      matchDepTypes: ['devDependencies'],
+      matchUpdateTypes: ['minor', 'patch'],
+    },
+    {
+      groupName: 'Cluster add-on charts',
+      matchDatasources: ['helm'],
+      matchPackageNames: ['ingress-nginx', 'cert-manager', 'aws-load-balancer-controller'],
+      matchUpdateTypes: ['minor', 'patch'],
+    },
+  ],
+
+  // Versions Renovate cannot find on its own are annotated in place:
+  //   # renovate: datasource=<datasource> depName=<name> [registryUrl=<url>]
+  //   SOME_VERSION=1.2.3      (or  key: 1.2.3  /  key = "1.2.3")
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Inline-annotated versions in workflows, Cloud Build and Terraform variables',
+      managerFilePatterns: [
+        '/^\\.github/workflows/.+\\.ya?ml$/',
+        '/^cloudbuild\\.yaml$/',
+        '/^deploy/terraform/.+\\.tf$/',
+      ],
+      matchStrings: [
+        '#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+registryUrl=(?<registryUrl>\\S+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*\\n\\s*[\\w.-]+\\s*[:=]\\s*"?(?<currentValue>[^"\\s]+)"?',
+      ],
+    },
+  ],
+}
