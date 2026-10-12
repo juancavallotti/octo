@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.8](https://github.com/juancavallotti/octo/compare/v0.11.7...v0.11.8) (2026-10-12)
+
+
+### Bug Fixes
+
+* **deps:** build with go1.27.2 via a toolchain directive in every module ([47b2539](https://github.com/juancavallotti/octo/commit/47b2539d6aa3538454b719f93351d225d2437488))
+* **deps:** bump golang.org/x/net and golang.org/x/text for reachable CVEs ([498cf46](https://github.com/juancavallotti/octo/commit/498cf468f1c7379e1fc3fc691422395d5e813dc4))
+
+
+### Documentation
+
+* document dependency updates and the vulnerability scan ([7c662de](https://github.com/juancavallotti/octo/commit/7c662de70caa372d6dde1723437d183d82966bf6))
+
 ## [0.11.7](https://github.com/juancavallotti/octo/compare/v0.11.6...v0.11.7) (2026-09-27)
 
 
