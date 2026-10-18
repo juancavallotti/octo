@@ -5,7 +5,9 @@
  */
 
 import * as integrationActions from "@/app/actions/integrations";
+import { EDITOR_META_RESOURCE } from "@/app/run/editorMetaStore";
 import { unwrap } from "./bff";
+import { createResource, listResources } from "./resources";
 import type { ConfigFile, Integration } from "./orchestratorTypes";
 
 /** Every config file of an integration, with its content. */
@@ -41,11 +43,32 @@ export async function createIntegrationWithFiles(
   return created;
 }
 
-/** Create "`name`" holding a copy of every config file of the integration `sourceId`. */
+/**
+ * Create "`name`" holding a copy of the integration `sourceId`: every config file, and
+ * every resource — the templates and env files its config loads and the test suites
+ * that check it. A copy missing a template its config names would not run.
+ *
+ * The editor's metadata file is left behind: it is keyed by the integration's id, so
+ * the copy's editor would never read what the source's held. A resource that fails to
+ * copy deletes the copy, as a refused config does, rather than leaving half of one.
+ */
 export async function duplicateIntegration(sourceId: string, name: string): Promise<Integration> {
-  const files = await getConfigFiles(sourceId);
-  return createIntegrationWithFiles(
+  const [files, resources] = await Promise.all([
+    getConfigFiles(sourceId),
+    listResources(sourceId),
+  ]);
+  const created = await createIntegrationWithFiles(
     name,
     files.map(({ path, content }) => ({ path, content })),
   );
+  try {
+    for (const r of resources) {
+      if (r.name === EDITOR_META_RESOURCE) continue;
+      await createResource(created.id, r.kind, r.name, r.content);
+    }
+  } catch (err) {
+    await integrationActions.deleteIntegration(created.id);
+    throw err;
+  }
+  return created;
 }

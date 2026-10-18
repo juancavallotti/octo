@@ -5,9 +5,10 @@ import { unwrap } from "@/app/model/bff";
 /**
  * The editor-meta resource name (mirrors the editor's EDITOR_META_RESOURCE). Inlined
  * rather than imported so this client-reachable module doesn't drag the editor barrel
- * into the browser bundle, the same reason bffDevEnvStore inlines `.env.dev`.
+ * into the browser bundle, the same reason bffDevEnvStore inlines `.env.dev`; the
+ * platform's other readers of the file take the name from here.
  */
-const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
+export const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
 
 /**
  * The platform editor-meta store: the integration's `.octo/editor-meta.json` resource in

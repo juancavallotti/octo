@@ -9,6 +9,9 @@ import type {
 import type { ActionResult } from "@octo/http";
 import type { Resource } from "@/app/model/orchestrator";
 import { publishIntegrationEvent } from "@/app/lib/integrationEvents";
+// The same file the canvas reads, or the mocks an agent places through this store
+// will not be there when the user looks.
+import { EDITOR_META_RESOURCE } from "@/app/run/editorMetaStore";
 import * as client from "@/app/actions/_client";
 import {
   deleteSuiteFile,
@@ -113,13 +116,6 @@ export const orchestratorResourceStore: ResourceStore = {
     unwrap(await client.deleteResource(integrationId, resourceId));
   },
 };
-
-/**
- * The editor-meta resource name, mirroring the editor's own EDITOR_META_RESOURCE —
- * the store an agent writes through has to be the same file the canvas reads, or the
- * mocks it places will not be there when the user looks.
- */
-const EDITOR_META_RESOURCE = ".octo/editor-meta.json";
 
 /**
  * The platform host's {@link MetaStore}: the integration's `.octo/editor-meta.json`,
