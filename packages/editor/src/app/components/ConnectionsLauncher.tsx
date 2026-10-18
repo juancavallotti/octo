@@ -5,14 +5,16 @@ import { Cable, Plus, X } from "lucide-react";
 import { getConnectorSpec, listConnectors, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import { useLayout } from "../state/layout";
+import { useProjectFiles, useRevealNode } from "../state/useProject";
 import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 /**
  * The connections launcher in the document bar. The button opens a popover
- * listing the document's connections (connector instances); clicking one
+ * listing the project's connections (connector instances) — every file's, since
+ * any flow may use any of them; clicking one opens the file that declares it and
  * selects it so its settings open in the right panel. An "Add connection" row
  * expands a menu of connector types — picking one creates and selects a new
- * connection, mirroring how SourcePicker adds a source.
+ * connection in the open file, mirroring how SourcePicker adds a source.
  */
 export default function ConnectionsLauncher() {
   const { state, dispatch } = useEditorState();
@@ -24,7 +26,11 @@ export default function ConnectionsLauncher() {
   const [adding, setAdding] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const connections = state.document.connectors;
+  const files = useProjectFiles();
+  const reveal = useRevealNode();
+  const connections = files.flatMap((f) =>
+    f.document.connectors.map((c) => ({ ...c, path: f.path })),
+  );
   // Derived on render (not at module load) so a schema injected at boot via
   // setCapabilities is reflected — a module-level const would freeze the fallback.
   const connectors = listConnectors();
@@ -83,6 +89,7 @@ export default function ConnectionsLauncher() {
                     <button
                       type="button"
                       onClick={() => {
+                        reveal(c.id);
                         dispatch({
                           type: EditorActionType.SELECT_CONNECTION,
                           data: { id: c.id },
@@ -106,22 +113,26 @@ export default function ConnectionsLauncher() {
                         </span>
                         <span className="text-xs text-zinc-400 dark:text-zinc-500">
                           {spec?.label ?? c.type}
+                          {c.path !== state.activePath && ` · ${c.path}`}
                         </span>
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${c.name}`}
-                      onClick={() =>
-                        dispatch({
-                          type: EditorActionType.REMOVE_CONNECTION,
-                          data: { id: c.id },
-                        })
-                      }
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-zinc-400 opacity-0 transition-opacity hover:text-red-500 group-hover/row:opacity-100"
-                    >
-                      <X size={14} />
-                    </button>
+                    {/* Removed from the file that declares it, so only from the open one. */}
+                    {c.path === state.activePath && (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${c.name}`}
+                        onClick={() =>
+                          dispatch({
+                            type: EditorActionType.REMOVE_CONNECTION,
+                            data: { id: c.id },
+                          })
+                        }
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-zinc-400 opacity-0 transition-opacity hover:text-red-500 group-hover/row:opacity-100"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
                   </li>
                 );
               })}

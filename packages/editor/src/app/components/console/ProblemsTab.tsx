@@ -2,12 +2,14 @@
 
 import { CircleCheck, TriangleAlert } from "lucide-react";
 import { EditorActionType, useEditorState } from "../../state/editorState";
+import { useRevealNode } from "../../state/useProject";
 import type { Issue } from "../../model/validate";
 
 /**
- * Everything standing between the document and a run: the validation issues, plus the
- * errors the last manual run reported. Clicking an issue that knows which block it
- * belongs to selects that block, so a problem is one click from its cause.
+ * Everything standing between the project and a run: the validation issues across every
+ * file, plus the errors the last manual run reported. Clicking an issue that knows which
+ * block it belongs to opens that block's file and selects it, so a problem is one click
+ * from its cause.
  *
  * Validation is recomputed on every document edit (RunContext memoizes it), so this is
  * always current without anything polling.
@@ -21,6 +23,8 @@ export default function ProblemsTab({
   runErrors: string[];
 }) {
   const { dispatch } = useEditorState();
+  // Problems are found across the project, so the block may be in another file.
+  const reveal = useRevealNode();
 
   if (issues.length === 0 && runErrors.length === 0) {
     return (
@@ -42,6 +46,7 @@ export default function ProblemsTab({
             disabled={!selectable}
             onClick={() => {
               if (issue.blockId) {
+                reveal(issue.blockId);
                 dispatch({
                   type: EditorActionType.SELECT_BLOCK,
                   data: { blockId: issue.blockId },
