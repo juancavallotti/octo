@@ -17,6 +17,7 @@ import {
   updateStatus,
   type UpdateStatus,
 } from "./update";
+import { setEditorStatus } from "./editorStatus";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
 
@@ -118,6 +119,11 @@ export function registerIpc(): void {
   onUpdateStatus(publishUpdate);
 
   handle("octo:mcp:url", () => mcpUrl());
+  // The editor's report about itself, which the menu is drawn from. Rebuilt only on a
+  // change: the page reports on every render, and most renders change nothing here.
+  handle("octo:menu:status", (_event, status) => {
+    if (setEditorStatus(status)) buildMenu();
+  });
   handle("octo:update:status", () => updateStatus());
   // The page may ask for the restart, not perform it: the shell still shuts the
   // server down on the way out and decides whether an update is there to install.

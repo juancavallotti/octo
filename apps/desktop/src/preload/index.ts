@@ -49,8 +49,13 @@ export interface OctoDesktopBridge {
   onUpdateStatus(listener: (status: UpdateStatusView) => void): () => void;
   /** Ask the shell to quit into the downloaded update. */
   installUpdate(): Promise<void>;
-  /** Hear File → New asking for a new flow, config file, resource or test suite. */
-  onNewItem(listener: (kind: "flow" | "file" | "resource" | "suite") => void): () => void;
+  /** Hear a menu item asking the editor to carry out a command. Returns the unsubscribe. */
+  onMenuCommand(listener: (command: string) => void): () => void;
+  /**
+   * Tell the shell what the editor can do right now, which its menu then shows. Null
+   * when the page stops reporting.
+   */
+  reportMenuStatus(status: unknown): Promise<void>;
 }
 
 const bridge: OctoDesktopBridge = {
@@ -76,12 +81,12 @@ const bridge: OctoDesktopBridge = {
     return () => ipcRenderer.off("octo:update:changed", handler);
   },
   installUpdate: () => ipcRenderer.invoke("octo:update:install"),
-  onNewItem: (listener) => {
-    const handler = (_event: unknown, kind: "flow" | "file" | "resource" | "suite") =>
-      listener(kind);
-    ipcRenderer.on("octo:menu:new", handler);
-    return () => ipcRenderer.off("octo:menu:new", handler);
+  onMenuCommand: (listener) => {
+    const handler = (_event: unknown, command: string) => listener(command);
+    ipcRenderer.on("octo:menu:command", handler);
+    return () => ipcRenderer.off("octo:menu:command", handler);
   },
+  reportMenuStatus: (status) => ipcRenderer.invoke("octo:menu:status", status),
 };
 
 contextBridge.exposeInMainWorld("octoDesktop", bridge);
