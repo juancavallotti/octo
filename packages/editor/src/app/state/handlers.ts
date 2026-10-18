@@ -12,9 +12,11 @@ import {
 import { flowNames } from "../model/identity";
 import { projectView } from "../model/project";
 import { projectFiles } from "./projectHandlers";
+import { currentFlowId } from "./currentFlow";
 import type { EditorState } from "./reducer";
 import type {
   AddBlockPayload,
+  NewItemPayload,
   LoadDocumentPayload,
   MoveBlockAcrossPayload,
   MoveBlockPayload,
@@ -239,4 +241,21 @@ export function loadDocument(
     selectedSourceFlowId: null,
     selectedConnectionId: null,
   };
+}
+
+/**
+ * Open the view that makes a new item of `kind` and leave it a
+ * {@link EditorState.pendingNew} to begin — a suite for the current flow, when there
+ * is one. The document is untouched; the view makes the item once it has a name.
+ */
+export function newItem(state: EditorState, kind: NewItemPayload): EditorState {
+  if (kind === "file") {
+    return { ...state, viewMode: "flows", pendingNew: { kind } };
+  }
+  if (kind === "resource") {
+    return { ...state, viewMode: "resources", pendingNew: { kind } };
+  }
+  const flowId = currentFlowId(state);
+  const flow = flowId ? findFlow(state.document, flowId)?.name : undefined;
+  return { ...state, viewMode: "testing", pendingNew: flow ? { kind, flow } : { kind } };
 }

@@ -386,9 +386,18 @@ function Toolbar({
   onCreateFile: (name: string) => void;
   onCreateFolder: (path: string) => void;
 }) {
+  const { state, dispatch } = useEditorState();
   const [mode, setMode] = useState<"file" | "folder" | null>(null);
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // A "new resource" asked for from outside (a host's menu) opens the name input.
+  useEffect(() => {
+    if (state.pendingNew?.kind !== "resource") return;
+    setName("");
+    setMode("file");
+    dispatch({ type: EditorActionType.CONSUME_NEW_ITEM });
+  }, [state.pendingNew, dispatch]);
 
   useEffect(() => {
     if (mode) inputRef.current?.focus();

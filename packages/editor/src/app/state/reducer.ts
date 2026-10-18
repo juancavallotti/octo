@@ -37,6 +37,8 @@ import {
   RenameFilePayload,
   DeleteFilePayload,
   SetFlowsViewPayload,
+  NewItemPayload,
+  PendingNew,
   SetViewModePayload,
 } from "./actions";
 import * as handlers from "./handlers";
@@ -85,6 +87,8 @@ export interface EditorState {
   viewMode: ViewMode;
   /** How the flows view shows the open file, kept while another view is open. */
   flowsView: FlowsView;
+  /** A "new" waiting for the view that makes it to begin it; see NEW_ITEM. */
+  pendingNew: PendingNew | null;
   /** Target flow for click-to-add; also highlighted on the canvas. */
   activeFlowId: string | null;
   /** Currently selected block on the canvas, or null. */
@@ -107,6 +111,7 @@ function makeInitialState(): EditorState {
     activePath: projectHandlers.FIRST_FILE,
     viewMode: "flows",
     flowsView: "canvas",
+    pendingNew: null,
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,
@@ -249,6 +254,10 @@ export function reducer(
       return { ...state, viewMode: action.data as SetViewModePayload };
     case EditorActionType.SET_FLOWS_VIEW:
       return { ...state, flowsView: action.data as SetFlowsViewPayload };
+    case EditorActionType.NEW_ITEM:
+      return handlers.newItem(state, action.data as NewItemPayload);
+    case EditorActionType.CONSUME_NEW_ITEM:
+      return { ...state, pendingNew: null };
     case EditorActionType.SELECT_COMPONENT:
       return { ...state, selectedComponentId: action.data as string };
     case EditorActionType.CLEAR_SELECTION:

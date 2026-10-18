@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, Plus } from "lucide-react";
 import { useProjectView } from "../../state/useProject";
+import { EditorActionType, useEditorState } from "../../state/editorState";
 import { useTestSuites } from "../../providers/TestSuiteProvider";
 import { parseSuite } from "../../suite/parse";
 import { suiteFileName } from "../../suite/naming";
@@ -41,6 +42,20 @@ export default function TestingView() {
   // suite that produced it, so the report is the last RUN's — like the logs and a flow's
   // output — and navigating is not a reason to destroy it. The clear button is.
   const select = (flow: string) => setSelected(flow);
+
+  // A "new suite" asked for from outside (a host's menu): open the current flow's
+  // suite, starting one when it has none. Waits for the suites to load, since before
+  // then every flow looks untested and a starter would overwrite a real suite.
+  const { state, dispatch } = useEditorState();
+  const pending = state.pendingNew;
+  useEffect(() => {
+    if (pending?.kind !== "suite" || !suites?.loaded) return;
+    dispatch({ type: EditorActionType.CONSUME_NEW_ITEM });
+    const flow = pending.flow;
+    if (!flow || !suites.canPersist) return;
+    if (suites.suiteFor(flow) === undefined) suites.setSuite(flow, scaffoldSuite(flow));
+    setSelected(flow);
+  }, [pending, suites, dispatch]);
 
   // Top-level flows only: those are what `octo invoke` — and so a suite — addresses.
   const flowNames = useMemo(

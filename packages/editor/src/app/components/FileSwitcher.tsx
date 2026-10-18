@@ -25,6 +25,14 @@ export default function FileSwitcher() {
     setDraft(null);
   };
 
+  // A "new file" asked for from outside (a host's menu) opens the menu on the name.
+  useEffect(() => {
+    if (state.pendingNew?.kind !== "file") return;
+    setOpen(true);
+    setDraft({ mode: "create", name: "" });
+    dispatch({ type: EditorActionType.CONSUME_NEW_ITEM });
+  }, [state.pendingNew, dispatch]);
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {

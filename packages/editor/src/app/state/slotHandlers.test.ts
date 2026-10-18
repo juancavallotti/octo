@@ -17,6 +17,7 @@ function stateWithSwitch(): { state: EditorState; blockId: string } {
     document: { ...blankDocument(), flows: [flow] },
     viewMode: "flows",
     flowsView: "canvas",
+    pendingNew: null,
     activeFlowId: flow.id,
     selectedBlockId: null,
     selectedSourceFlowId: null,

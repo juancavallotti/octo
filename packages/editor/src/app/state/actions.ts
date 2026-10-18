@@ -82,6 +82,8 @@ export enum EditorActionType {
   /** Switch the editor body between the visual canvas and the YAML preview. */
   SET_VIEW_MODE = "SET_VIEW_MODE",
   SET_FLOWS_VIEW = "SET_FLOWS_VIEW",
+  NEW_ITEM = "NEW_ITEM",
+  CONSUME_NEW_ITEM = "CONSUME_NEW_ITEM",
   /** Highlight a palette component. */
   SELECT_COMPONENT = "SELECT_COMPONENT",
   /** Clear the palette highlight. */
@@ -238,6 +240,24 @@ export type SetViewModePayload = "flows" | "resources" | "testing";
 
 /** How the flows view shows the open file: drawn on the canvas, or as its YAML. */
 export type SetFlowsViewPayload = "canvas" | "yaml";
+
+/**
+ * Something to begin a new one of from outside the view that makes it — a host's
+ * menu, say. Each needs a name or a choice, so NEW_ITEM opens the view that owns it
+ * and leaves a {@link PendingNew} for that view to begin. (A new flow needs neither and
+ * is ADD_FLOW; see useNewItem, which offers all four.)
+ */
+export type NewItemPayload = "file" | "resource" | "suite";
+
+/**
+ * A "new" begun by NEW_ITEM and not yet taken up by the view that makes it: the file
+ * menu (a config file), the Resources toolbar (a resource), or the Testing tab (a
+ * suite, for `flow` when one was current). That view clears it with CONSUME_NEW_ITEM.
+ */
+export interface PendingNew {
+  kind: NewItemPayload;
+  flow?: string;
+}
 
 export interface SetEnvPayload {
   env: EnvVar[];

@@ -14,6 +14,7 @@ function baseState(): EditorState {
     document: blankDocument(),
     viewMode: "flows",
     flowsView: "canvas",
+    pendingNew: null,
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,
