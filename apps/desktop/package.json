@@ -22,5 +22,8 @@
     "esbuild": "^0.28.2",
     "typescript": "^5",
     "vitest": "4.1.11"
+  },
+  "dependencies": {
+    "node-pty": "1.1.0"
   }
 }

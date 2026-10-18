@@ -4,8 +4,8 @@ import { contextBridge, ipcRenderer } from "electron";
  * The only channel between the page and the shell. Everything here is a request to
  * the shell about the shell — which folder is open, which were open before, what the
  * MCP URL is — or the shell's menu asking the page to act, which the page carries out
- * itself. Nothing here reaches the folder's contents; the page already has the server
- * it was loaded from for that.
+ * itself, or a terminal the shell runs for the page. Nothing here reads the folder's
+ * contents; the page already has the server it was loaded from for that.
  */
 
 /** How the person using the editor has said it should behave. Set in Settings. */
@@ -20,6 +20,25 @@ export interface UpdateStatusView {
   version: string | null;
   current: string;
   percent: number | null;
+}
+
+/** A shell the shell started for this page. */
+export interface TerminalSessionView {
+  id: string;
+  /** The shell's name, "zsh" say. */
+  title: string;
+}
+
+/** Shells in the open folder, with the editor's octo and dolphin first on PATH. */
+export interface TerminalBridge {
+  open(cols: number, rows: number): Promise<TerminalSessionView>;
+  write(id: string, data: string): void;
+  resize(id: string, cols: number, rows: number): void;
+  kill(id: string): void;
+  /** Every session's output, tagged with its id. Returns the unsubscribe. */
+  onData(listener: (id: string, chunk: string) => void): () => void;
+  /** A session ending, however it ended. Returns the unsubscribe. */
+  onExit(listener: (id: string, code: number) => void): () => void;
 }
 
 export interface OctoDesktopBridge {
@@ -56,6 +75,7 @@ export interface OctoDesktopBridge {
    * when the page stops reporting.
    */
   reportMenuStatus(status: unknown): Promise<void>;
+  terminal: TerminalBridge;
 }
 
 const bridge: OctoDesktopBridge = {
@@ -87,6 +107,22 @@ const bridge: OctoDesktopBridge = {
     return () => ipcRenderer.off("octo:menu:command", handler);
   },
   reportMenuStatus: (status) => ipcRenderer.invoke("octo:menu:status", status),
+  terminal: {
+    open: (cols, rows) => ipcRenderer.invoke("octo:term:open", cols, rows),
+    write: (id, data) => ipcRenderer.send("octo:term:write", id, data),
+    resize: (id, cols, rows) => ipcRenderer.send("octo:term:resize", id, cols, rows),
+    kill: (id) => ipcRenderer.send("octo:term:kill", id),
+    onData: (listener) => {
+      const handler = (_event: unknown, id: string, chunk: string) => listener(id, chunk);
+      ipcRenderer.on("octo:term:data", handler);
+      return () => ipcRenderer.off("octo:term:data", handler);
+    },
+    onExit: (listener) => {
+      const handler = (_event: unknown, id: string, code: number) => listener(id, code);
+      ipcRenderer.on("octo:term:exit", handler);
+      return () => ipcRenderer.off("octo:term:exit", handler);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("octoDesktop", bridge);
