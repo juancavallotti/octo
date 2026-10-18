@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FlaskConical, Plus } from "lucide-react";
-import { useEditorState } from "../../state/editorState";
+import { useProjectView } from "../../state/useProject";
 import { useTestSuites } from "../../providers/TestSuiteProvider";
 import { parseSuite } from "../../suite/parse";
 import { suiteFileName } from "../../suite/naming";
@@ -12,7 +12,7 @@ import EmptyState from "./EmptyState";
 import { scaffoldSuite } from "./scaffold";
 
 /**
- * The Testing tab: the dolphin suites for this document's flows, and a YAML editor for
+ * The Testing tab: the dolphin suites for the project's flows, and a YAML editor for
  * the selected one.
  *
  * Three states that look similar and are not, so each says which it is:
@@ -32,7 +32,8 @@ import { scaffoldSuite } from "./scaffold";
  * opened.
  */
 export default function TestingView() {
-  const { state } = useEditorState();
+  // Suites address flows and blocks by name, and names span every file.
+  const project = useProjectView();
   const suites = useTestSuites();
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -43,8 +44,8 @@ export default function TestingView() {
 
   // Top-level flows only: those are what `octo invoke` — and so a suite — addresses.
   const flowNames = useMemo(
-    () => state.document.flows.map((f) => f.name).filter(Boolean),
-    [state.document.flows],
+    () => project.flows.map((f) => f.name).filter(Boolean),
+    [project.flows],
   );
 
   const rows = useMemo<RailFlow[]>(

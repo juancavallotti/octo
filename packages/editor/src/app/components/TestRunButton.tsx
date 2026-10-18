@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
-import { useEditorState } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
 import { useRun } from "../run/RunContext";
 import { useSuiteRun } from "../run/SuiteRunContext";
 import { useTestSuites } from "../providers/TestSuiteProvider";
@@ -10,7 +10,7 @@ import { NO_TEST_RUNNER } from "../run/testTransport";
 import { planRunAll, type SkippedSuite } from "../suite/runAll";
 
 /**
- * Run every suite this document has, from the header. It is what the RUN control becomes
+ * Run every suite the project has, from the header. It is what the RUN control becomes
  * on the Testing tab — see RunBar.
  *
  * Which suites those are is {@link planRunAll}'s decision, and it holds back the ones
@@ -26,14 +26,15 @@ import { planRunAll, type SkippedSuite } from "../suite/runAll";
 const NAME_LIMIT = 6;
 
 export default function TestRunButton() {
-  const { state } = useEditorState();
+  // Suites address flows and blocks by name, and names span every file.
+  const project = useProjectView();
   const run = useRun();
   const suiteRun = useSuiteRun();
   const suites = useTestSuites();
 
   const flowNames = useMemo(
-    () => state.document.flows.map((f) => f.name).filter(Boolean),
-    [state.document.flows],
+    () => project.flows.map((f) => f.name).filter(Boolean),
+    [project.flows],
   );
   // `suites` is memoized by its provider on the stored suites, so these recompute exactly
   // when a suite changes rather than on every render.

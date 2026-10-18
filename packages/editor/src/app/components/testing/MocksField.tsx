@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { AlertCircle, Trash2 } from "lucide-react";
-import { useEditorState } from "../../state/editorState";
+import { useProjectView } from "../../state/useProject";
 import { blockIdAddresses } from "../../run/address";
 import type { MockSpec } from "../../suite/types";
 import AddressPicker from "./AddressPicker";
@@ -46,10 +46,11 @@ export default function MocksField({
   label: string;
   hint?: React.ReactNode;
 }) {
-  const { state } = useEditorState();
+  // Suites address flows and blocks by name, and names span every file.
+  const project = useProjectView();
   const known = useMemo(
-    () => new Set(blockIdAddresses(state.document).values()),
-    [state.document],
+    () => new Set(blockIdAddresses(project).values()),
+    [project],
   );
 
   const entries = Object.entries(value ?? {});

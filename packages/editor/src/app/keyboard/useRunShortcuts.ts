@@ -7,6 +7,7 @@ import { useRun } from "../run/RunContext";
 import { useSuiteRun } from "../run/SuiteRunContext";
 import { currentFlowId } from "../state/currentFlow";
 import { useEditorState } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
 import { planRunAll } from "../suite/runAll";
 import { isTypingTarget } from "./typing";
 
@@ -22,6 +23,7 @@ import { isTypingTarget } from "./typing";
  */
 export function useRunShortcuts(): void {
   const { state } = useEditorState();
+  const project = useProjectView();
   const run = useRun();
   const flowRun = useFlowRun();
   const suiteRun = useSuiteRun();
@@ -39,7 +41,7 @@ export function useRunShortcuts(): void {
     // The Testing tab's RUN is the suites, and nothing on it is about a live runner.
     if (state.viewMode === "testing") {
       if (!suiteRun || suiteRun.running || !suites?.loaded) return;
-      const names = state.document.flows.map((f) => f.name).filter(Boolean);
+      const names = project.flows.map((f) => f.name).filter(Boolean);
       const plan = planRunAll(suites.all(), names);
       if (plan.targets.length > 0) void suiteRun.run(plan.targets, plan.skipped);
       return;

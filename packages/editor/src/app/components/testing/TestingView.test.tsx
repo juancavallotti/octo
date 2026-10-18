@@ -13,6 +13,7 @@ import {
   type TestSuiteStore,
 } from "../../providers/TestSuiteProvider";
 import { blankDocument, emptyFlow } from "../../model/document";
+import { parseProject } from "../../model/project";
 import type { EditorDocument } from "../../model/document";
 import TestingView from "./TestingView";
 
@@ -112,6 +113,34 @@ describe("TestingView", () => {
     expect(
       within(rail).getByRole("button", { name: "Add tests for refunds" }),
     ).toBeInTheDocument();
+  });
+
+  // A suite addresses its flow by name, and flow names span the project's files.
+  it("lists the flows of every file, not only the open one", async () => {
+    const { store } = fakeStore();
+    function Seed() {
+      const { dispatch } = useEditorState();
+      useEffect(() => {
+        const files = parseProject([
+          { path: "audit.yaml", content: "flows:\n  - name: audit\n    process: []\n" },
+          { path: "orders.yaml", content: "flows:\n  - name: intake\n    process: []\n" },
+        ]);
+        dispatch({ type: EditorActionType.LOAD_PROJECT, data: { id: "one", name: "shop", folderId: null, files } });
+      }, [dispatch]);
+      return null;
+    }
+    render(
+      <EditorStateProvider>
+        <Seed />
+        <TestSuiteProvider store={store}>
+          <TestingView />
+        </TestSuiteProvider>
+      </EditorStateProvider>,
+    );
+
+    const rail = await screen.findByRole("navigation", { name: "Flows" });
+    expect(within(rail).getByText("audit")).toBeInTheDocument();
+    expect(within(rail).getByText("intake")).toBeInTheDocument();
   });
 
   it("shows a suite's YAML when its flow is selected", async () => {
