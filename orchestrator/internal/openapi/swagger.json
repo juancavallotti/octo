@@ -1061,6 +1061,87 @@
                 },
                 "type": "object"
             },
+            "integration.createRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "definition": {
+                        "description": "Definition, when not empty, becomes the integration's one config file,\nintegration.yaml.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.fileEntry": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "Path is the file's name at the project root, such as \"orders.yaml\".",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.fileRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "content": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.fileResponse": {
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "Path is the file's name at the project root, such as \"orders.yaml\".",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.fileSummaryResponse": {
+                "properties": {
+                    "lastUpdated": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "Path is the file's name at the project root, such as \"orders.yaml\".",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.filesRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "files": {
+                        "description": "Files is every config file the integration should have afterwards; config\nfiles not listed are deleted.",
+                        "items": {
+                            "$ref": "#/components/schemas/integration.fileEntry"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "integration.iconRequest": {
                 "properties": {
                     "actorId": {
@@ -1068,20 +1149,6 @@
                     },
                     "icon": {
                         "description": "Icon is a chosen icon name, or \"\" to go back to deriving one from the\ndefinition.",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "integration.integrationRequest": {
-                "properties": {
-                    "actorId": {
-                        "type": "string"
-                    },
-                    "definition": {
-                        "type": "string"
-                    },
-                    "name": {
                         "type": "string"
                     }
                 },
@@ -1099,6 +1166,7 @@
                         "type": "string"
                     },
                     "definition": {
+                        "description": "Definition is the integration's config files merged into one config.",
                         "type": "string"
                     },
                     "icon": {
@@ -1120,6 +1188,17 @@
                         "type": "string"
                     },
                     "updatedByName": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "integration.updateRequest": {
+                "properties": {
+                    "actorId": {
+                        "type": "string"
+                    },
+                    "name": {
                         "type": "string"
                     }
                 },
@@ -3913,7 +3992,7 @@
         },
         "/integrations": {
             "get": {
-                "description": "Every integration in the install, each with its full definition.",
+                "description": "Every integration in the install, each with its definition: its config files merged.",
                 "responses": {
                     "200": {
                         "content": {
@@ -3945,7 +4024,7 @@
                 ]
             },
             "post": {
-                "description": "Stores a new integration definition under a name unique across the install (case-insensitively).",
+                "description": "Stores a new integration under a name unique across the install (case-insensitively).\nA definition, when given, is stored as its one config file, integration.yaml.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3955,7 +4034,7 @@
                                         "type": "object"
                                     },
                                     {
-                                        "$ref": "#/components/schemas/integration.integrationRequest",
+                                        "$ref": "#/components/schemas/integration.createRequest",
                                         "summary": "body",
                                         "description": "Name and definition"
                                     }
@@ -4006,7 +4085,7 @@
         },
         "/integrations/bundle": {
             "post": {
-                "description": "The request body is the zip itself. A bundle written by this API names the integration\nthrough its manifest; for one without a manifest, the `name` query parameter names the\nimport (the caller usually passes the uploaded filename's stem). A name already in use\nis suffixed rather than rejected.",
+                "description": "The request body is the zip itself. A bundle written by this API names the integration\nthrough its manifest; for one without a manifest, the `name` query parameter names the\nimport (the caller usually passes the uploaded filename's stem). A name already in use\nis suffixed rather than rejected. Without a manifest, every root-level .yaml or .yml\nthat does not end in _test is a config file and everything else is a resource.",
                 "parameters": [
                     {
                         "description": "Name for an archive that carries no manifest",
@@ -4064,7 +4143,7 @@
                                 }
                             }
                         },
-                        "description": "no free name could be found for the import"
+                        "description": "no free name could be found, or the config files do not merge"
                     },
                     "413": {
                         "content": {
@@ -4166,7 +4245,7 @@
                 ]
             },
             "put": {
-                "description": "Overwrites the name and definition. This is the live working copy, not a\nversion tag: a running deployment keeps serving its own frozen snapshot\nuntil it is rolled out.",
+                "description": "Changes the name. Config content is written one file at a time through\n/integrations/{id}/files/content.",
                 "parameters": [
                     {
                         "description": "Integration id",
@@ -4187,15 +4266,15 @@
                                         "type": "object"
                                     },
                                     {
-                                        "$ref": "#/components/schemas/integration.integrationRequest",
+                                        "$ref": "#/components/schemas/integration.updateRequest",
                                         "summary": "body",
-                                        "description": "Name and definition"
+                                        "description": "Name"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Name and definition",
+                    "description": "Name",
                     "required": true
                 },
                 "responses": {
@@ -4240,7 +4319,7 @@
                         "description": "the name is taken"
                     }
                 },
-                "summary": "Replace an integration",
+                "summary": "Rename an integration",
                 "tags": [
                     "integrations"
                 ]
@@ -4745,7 +4824,7 @@
         },
         "/integrations/{id}/bundle": {
             "get": {
-                "description": "A zip holding the integration's definition and every resource it owns, laid out the\nway the runtime reads them from disk: the definition at the root, each resource at its\nown path-like name, plus an `octo-bundle.json` manifest carrying the display name and\neach resource's kind.",
+                "description": "A zip holding the integration's config files and every resource it owns, laid out the\nway the runtime reads them from disk: each config file at the root under its own name,\neach resource at its own path-like name, plus an `octo-bundle.json` manifest carrying\nthe display name, the config file paths and each resource's kind.",
                 "parameters": [
                     {
                         "description": "Integration id",
@@ -4781,7 +4860,7 @@
                 ]
             },
             "put": {
-                "description": "Overwrites the addressed integration's definition and resource set with the archive's,\nkeeping its id, name, folder, version tags and deployments. Resources are reconciled by\nname: shared names are updated in place, new ones added, and any the bundle no longer\ncarries are deleted. The bundle's own name is ignored — a replace is not a rename.",
+                "description": "Overwrites the addressed integration's config files and resource set with the archive's,\nkeeping its id, name, folder, version tags and deployments. The config files are replaced\nas a set: any the bundle does not carry are deleted. Resources are reconciled by\nname: shared names are updated in place, new ones added, and any the bundle no longer\ncarries are deleted. The bundle's own name is ignored — a replace is not a rename.",
                 "parameters": [
                     {
                         "description": "Integration id",
@@ -4850,7 +4929,7 @@
                                 }
                             }
                         },
-                        "description": "a resource name in the bundle conflicts"
+                        "description": "a resource name conflicts, or the config files do not merge"
                     },
                     "413": {
                         "content": {
@@ -5076,6 +5155,342 @@
                 "summary": "What a deploy of this integration would need",
                 "tags": [
                     "deployments"
+                ]
+            }
+        },
+        "/integrations/{id}/files": {
+            "get": {
+                "description": "The root-level YAML files the runtime merges into one config, ordered by\npath. Metadata only; the content route serves each file.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/integration.fileSummaryResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration"
+                    }
+                },
+                "summary": "List an integration's config files",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "put": {
+                "description": "Makes the listed files the integration's whole set of config files in one write:\neach is created or overwritten, and every config file not listed is deleted. The set\nis checked once, so a flow can move from one file to another, which writing the two\nfiles one at a time would refuse. A set that does not merge into one config is\nrefused. Answers with the resulting listing.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/integration.filesRequest",
+                                        "summary": "body",
+                                        "description": "Every config file and the acting user"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Every config file and the acting user",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/integration.fileSummaryResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "a path is not a config file, or is listed twice"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the files would not merge"
+                    }
+                },
+                "summary": "Replace every config file",
+                "tags": [
+                    "integrations"
+                ]
+            }
+        },
+        "/integrations/{id}/files/content": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The file's path, such as orders.yaml",
+                        "in": "query",
+                        "name": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The acting user's id",
+                        "in": "query",
+                        "name": "actorId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the path is not a config file"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration or file"
+                    }
+                },
+                "summary": "Delete one config file",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The file's path, such as orders.yaml",
+                        "in": "query",
+                        "name": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.fileResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the path is not a config file"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration or file"
+                    }
+                },
+                "summary": "Get one config file",
+                "tags": [
+                    "integrations"
+                ]
+            },
+            "put": {
+                "description": "Creates the file or replaces its content. The path must be a .yaml or .yml\nfile at the project root that does not end in _test. A write that would\nleave the files unable to merge into one config — a connector, processor\nor flow name used in two files, or a second service — is refused.",
+                "parameters": [
+                    {
+                        "description": "Integration id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The file's path, such as orders.yaml",
+                        "in": "query",
+                        "name": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/integration.fileRequest",
+                                        "summary": "body",
+                                        "description": "Content and acting user"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Content and acting user",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/integration.fileResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the path is not a config file"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no such integration"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the files would not merge"
+                    }
+                },
+                "summary": "Write one config file",
+                "tags": [
+                    "integrations"
                 ]
             }
         },
@@ -6725,7 +7140,7 @@
         },
         "/snapshots/{id}/bundle": {
             "get": {
-                "description": "The same archive as an integration's bundle, built from the tag's frozen definition and\nfrozen resources rather than the working copy.",
+                "description": "The same archive as an integration's bundle, built from the tag's frozen config files and\nfrozen resources rather than the working copy.",
                 "parameters": [
                     {
                         "description": "Snapshot id",
