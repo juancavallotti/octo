@@ -4,6 +4,7 @@ import { useEditorState } from "../state/editorState";
 import { useLayout } from "../state/layout";
 import { useHistoryShortcuts } from "../keyboard/useHistoryShortcuts";
 import { useRunShortcuts } from "../keyboard/useRunShortcuts";
+import { useTerminalShortcuts } from "../keyboard/useTerminalShortcuts";
 import ComponentPalette from "./ComponentPalette";
 import DndProvider from "./DndProvider";
 import DocumentBar from "./DocumentBar";
@@ -41,6 +42,7 @@ export default function EditorBody({ files }: { files?: React.ReactNode }) {
   // Here rather than in the canvas for the opposite reason: what Cmd+Enter runs
   // depends on which view you are in, so it has to be mounted across all of them.
   useRunShortcuts();
+  useTerminalShortcuts();
 
   const body = () => {
     // No drawers here, so the bar spans the view — it is still directly above the

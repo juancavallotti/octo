@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
@@ -19,6 +19,11 @@ import ProblemsTab from "./console/ProblemsTab";
 import { useSave } from "../save/SaveContext";
 import ResultsTab from "./console/ResultsTab";
 import TestsTab from "./console/TestsTab";
+import { useTerminal } from "../providers/TerminalProvider";
+
+// Loaded when first shown, so a host without a terminal never fetches it or xterm's
+// stylesheet.
+const TerminalTab = lazy(() => import("./console/TerminalTab"));
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
@@ -33,6 +38,7 @@ const CLEAR_LABEL: Partial<Record<ConsoleTab, string>> = {
   results: "Clear output",
   tests: "Clear test results",
   cel: "Clear evaluations",
+  terminal: "Clear terminal",
 };
 
 /** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
@@ -55,8 +61,8 @@ function readStoredHeight(): number {
 const NO_LOGS: RunLogLine[] = [];
 
 /**
- * The docked bottom console: Problems, Logs, Results, the CEL tester, and the Dev
- * .env editor. It only
+ * The docked bottom console: Problems, Logs, Results, the CEL tester, the Dev .env
+ * editor, and a terminal when the host supplies one. It only
  * renders when a runner is available. Height is adjustable by dragging the top divider,
  * and the panel collapses to its header.
  *
@@ -90,6 +96,7 @@ export default function LogPanel({
   const results = flowRun?.results ?? [];
   const suiteRun = useSuiteRun();
   const cel = useCelTester();
+  const terminal = useTerminal();
   // The badge counts what went WRONG, so a green run is quiet and a bad one is not.
   const testFailures = suiteRun?.outcome
     ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
@@ -112,10 +119,15 @@ export default function LogPanel({
   // host can provide saving and no way to run. Without this the whole panel goes
   // with the controller and a failed save is silent, since the button that
   // triggered it stopped showing the reason when it moved here.
-  if (!run || !run.available) {
+  const runner = run?.available ? run : null;
+  if (!runner && !terminal) {
     return saveError ? <SaveFailure error={saveError} /> : null;
   }
-  const { version, testUrl, clearLogs } = run;
+  // A terminal does not need the runner, and is how a user finds out why a runtime
+  // will not run; without one, the panel is the terminal alone.
+  const shown: ConsoleTab = runner ? tab : "terminal";
+  const version = runner?.version;
+  const testUrl = runner?.testUrl;
 
   // The last run's failure, shown under the validation issues: a document can be
   // perfectly valid and still fail the moment it actually runs.
@@ -182,7 +194,8 @@ export default function LogPanel({
           className={`h-2 w-2 rounded-full ${running ? "bg-emerald-500" : "bg-zinc-400"}`}
         />
         <ConsoleTabs
-          active={tab}
+          active={shown}
+          only={runner ? undefined : ["terminal"]}
           running={running}
           counts={{
             problems: issues.length + (saveError ? 1 : 0),
@@ -200,7 +213,7 @@ export default function LogPanel({
             — {version}
           </span>
         )}
-        {tab === "logs" && running && testUrl && (
+        {shown === "logs" && running && testUrl && (
           <>
             <a
               href={testUrl}
@@ -247,21 +260,23 @@ export default function LogPanel({
           >
             {actions}
           </div>
-          {(tab === "logs" ||
-            tab === "results" ||
-            tab === "tests" ||
-            tab === "cel") && (
+          {(shown === "logs" ||
+            shown === "results" ||
+            shown === "tests" ||
+            shown === "cel" ||
+            (shown === "terminal" && terminal)) && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (tab === "logs") clearLogs();
-                else if (tab === "tests") suiteRun?.clear();
-                else if (tab === "cel") cel.clear();
+                if (shown === "logs") runner?.clearLogs();
+                else if (shown === "tests") suiteRun?.clear();
+                else if (shown === "cel") cel.clear();
+                else if (shown === "terminal") terminal?.clear();
                 else flowRun?.clear();
               }}
-              aria-label={CLEAR_LABEL[tab] ?? "Clear"}
-              title={CLEAR_LABEL[tab] ?? "Clear"}
+              aria-label={CLEAR_LABEL[shown] ?? "Clear"}
+              title={CLEAR_LABEL[shown] ?? "Clear"}
               className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -286,16 +301,23 @@ export default function LogPanel({
         </div>
       </div>
 
-      {!collapsed && tab === "problems" && (
+      {/* Problems, where a failed save is reported, is not offered without a runner. */}
+      {!runner && saveError && <SaveFailure error={saveError} />}
+      {!collapsed && shown === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && (
+      {!collapsed && shown === "logs" && (
         <LogsTab logs={logs} running={running} />
       )}
-      {!collapsed && tab === "results" && <ResultsTab results={results} />}
-      {!collapsed && tab === "tests" && <TestsTab />}
-      {!collapsed && tab === "cel" && <CelTester />}
-      {!collapsed && tab === "env" && <DevEnvPanel />}
+      {!collapsed && shown === "results" && <ResultsTab results={results} />}
+      {!collapsed && shown === "tests" && <TestsTab />}
+      {!collapsed && shown === "cel" && <CelTester />}
+      {!collapsed && shown === "env" && <DevEnvPanel />}
+      {!collapsed && shown === "terminal" && terminal && (
+        <Suspense fallback={null}>
+          <TerminalTab />
+        </Suspense>
+      )}
     </section>
   );
 }

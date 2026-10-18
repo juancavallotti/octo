@@ -44,6 +44,32 @@ Switching folders restarts the embedded server rather than repointing it, so a
 run started in one folder can never show up in another. That also means one
 folder is open at a time.
 
+## Terminal
+
+The console has a **Terminal** tab, which works like VS Code's integrated terminal.
+It runs your login shell in the open folder, with the app's `octo` and `dolphin`
+first on `PATH`. These are the binaries the editor itself runs, including any you
+chose in Settings. So `octo validate --config .` or `dolphin test` in the terminal
+checks exactly what the editor checks.
+
+- Press <kbd>Ctrl</kbd> + <kbd>&#96;</kbd>, or choose **View → Terminal**, to show the
+  terminal. Press it again from inside the terminal to hide the console.
+- Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>&#96;</kbd>, or choose
+  **View → New Terminal**, to start another shell. Each one is listed on the right
+  of the tab; hover a row and click its bin icon to end it.
+- Switching tabs or collapsing the console keeps your shells and their scrollback.
+  Opening another folder or quitting the app ends them.
+
+The shell reads your usual startup files, so Homebrew and anything else they set up
+are on `PATH`. In zsh and bash the app's binaries go in front after those files have
+run, so an `octo` you installed yourself does not shadow the editor's. Other shells,
+such as fish, run your configuration after the app sets `PATH`, so anything it
+prepends comes first. `TERM_PROGRAM` is `Octo`, if your prompt wants to tell this
+terminal apart.
+
+The Terminal tab is only in the desktop app. The [Docker editor](/editor/docker)
+runs in a browser, which has nowhere to start a shell.
+
 ## The MCP endpoint
 
 The app serves the editor's own [MCP endpoint](/ai/mcp-server), unauthenticated
@@ -216,6 +242,7 @@ downloaded only if you agree, and installs the next time you quit.
 | Application state, endpoint record | `~/Library/Application Support/Octo` |
 | Server log | `~/Library/Logs/Octo/server.log` |
 | Editor server, `octo`, `dolphin` | inside `Octo.app/Contents/Resources` |
+| Links the terminal puts on `PATH` | `~/Library/Application Support/Octo/term-bin` |
 
 The server log is the first place to look if a window comes up empty: it is the
 standalone server's own output.

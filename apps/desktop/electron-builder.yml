@@ -8,14 +8,22 @@ directories:
   output: dist/release
   buildResources: build
 
-# Only the esbuild bundle: this app declares no runtime dependencies, so there is no
-# production dependency tree to resolve.
+# The esbuild bundle, plus the one runtime dependency it leaves out: node-pty, which
+# electron-builder adds from the production dependency tree.
 files:
   - dist/main/**
   - dist/preload/**
   - package.json
 
 asar: true
+# node-pty spawns its spawn-helper as a real file and dlopens pty.node; neither can be
+# read out of an asar archive.
+asarUnpack:
+  - node_modules/node-pty/**
+# node-pty ships N-API prebuilds for both macOS architectures, which load under
+# Electron as they are. A rebuild would compile it from source with node-gyp instead,
+# and for the x64 build on an arm64 runner, cross-compile it.
+npmRebuild: false
 
 # Version-free, so a published link keeps working across releases: gives
 # Octo_mac_arm64.dmg / Octo_mac_x64.dmg.

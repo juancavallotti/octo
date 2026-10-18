@@ -26,7 +26,8 @@ export type ConsoleTab =
   | "results"
   | "tests"
   | "cel"
-  | "env";
+  | "env"
+  | "terminal";
 
 interface ConsoleValue {
   tab: ConsoleTab;

@@ -28,7 +28,9 @@ export type EditorCommand =
   | "new:flow"
   | "new:file"
   | "new:resource"
-  | "new:suite";
+  | "new:suite"
+  | "terminal:toggle"
+  | "terminal:new";
 
 /**
  * What the editor page reports about itself, so the menu can show it: which commands
@@ -40,6 +42,7 @@ export interface EditorStatus {
   flowsView: "canvas" | "yaml";
   hasResources: boolean;
   hasTests: boolean;
+  hasTerminal: boolean;
   editingText: boolean;
   canUndo: boolean;
   canRedo: boolean;
@@ -271,6 +274,18 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
               type: "checkbox",
               checked: status.panels.console,
               click: command("toggle:console"),
+            },
+            { type: "separator" },
+          ] satisfies MenuItemConstructorOptions[])
+        : []),
+      // Ctrl, not Cmd, as in VS Code: Cmd+` is the Mac's own switch-window key.
+      ...(editor && status.hasTerminal
+        ? ([
+            { label: "Terminal", accelerator: "Ctrl+`", click: command("terminal:toggle") },
+            {
+              label: "New Terminal",
+              accelerator: "Ctrl+Shift+`",
+              click: command("terminal:new"),
             },
             { type: "separator" },
           ] satisfies MenuItemConstructorOptions[])

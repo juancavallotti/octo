@@ -59,6 +59,14 @@ export {
   type FolderCapability,
 } from "./app/providers/FileSystemProvider";
 
+// Terminal capability: shells a desktop host starts for the person editing
+export {
+  TerminalProvider,
+  useTerminal,
+  type TerminalTransport,
+  type TerminalSession,
+} from "./app/providers/TerminalProvider";
+
 // Run capability
 export { RunProvider, useRun, type RunLogLine } from "./app/run/RunContext";
 export {

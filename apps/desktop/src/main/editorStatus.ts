@@ -18,6 +18,7 @@ const FLOWS_VIEWS = new Set(["canvas", "yaml"]);
 const FLAGS = [
   "hasResources",
   "hasTests",
+  "hasTerminal",
   "editingText",
   "canUndo",
   "canRedo",

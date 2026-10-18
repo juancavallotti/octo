@@ -6,10 +6,11 @@ import esbuild from "esbuild";
 /**
  * Bundle the main and preload processes into dist/.
  *
- * Bundling rather than compiling to loose files is what lets this app declare no
- * runtime dependencies at all: everything it needs is in these bundles, in Electron
- * itself, or in extraResources — electron-updater included, which is why that is a
- * devDependency.
+ * Bundling rather than compiling to loose files is what keeps this app's runtime
+ * dependencies down to node-pty: everything else it needs is in these bundles, in
+ * Electron itself, or in extraResources — electron-updater included, which is why
+ * that is a devDependency. node-pty cannot be bundled: it loads a native addon and a
+ * helper executable from paths relative to its own package.
  *
  *   node esbuild.config.mjs          build once
  *   node esbuild.config.mjs --run    watch, and (re)start Electron on each build
@@ -29,8 +30,8 @@ const common = {
   target: "node22",
   format: "cjs",
   sourcemap: true,
-  // Provided by the runtime, never bundled.
-  external: ["electron"],
+  // Provided by the runtime, or shipped as a package beside the bundle.
+  external: ["electron", "node-pty"],
   logLevel: "info",
 };
 

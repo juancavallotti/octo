@@ -7,6 +7,7 @@ const status: EditorStatus = {
   flowsView: "canvas",
   hasResources: true,
   hasTests: true,
+  hasTerminal: true,
   editingText: false,
   canUndo: true,
   canRedo: false,
@@ -125,6 +126,18 @@ describe("menuTemplate", () => {
     const { menu } = build({ status: { ...status, hasResources: false } });
     expect(() => item(menu, "View", "Resources")).toThrow();
     expect(item(menu, "File", "New", "Resource…").enabled).toBe(false);
+  });
+
+  it("offers the terminal on VS Code's keys when the editor has one", () => {
+    const { menu, act } = build();
+    expect(item(menu, "View", "Terminal").accelerator).toBe("Ctrl+`");
+    click(item(menu, "View", "Terminal"));
+    click(item(menu, "View", "New Terminal"));
+    expect(act.command).toHaveBeenNthCalledWith(1, "terminal:toggle");
+    expect(act.command).toHaveBeenNthCalledWith(2, "terminal:new");
+
+    const without = build({ status: { ...status, hasTerminal: false } });
+    expect(() => item(without.menu, "View", "Terminal")).toThrow();
   });
 
   // The canvas binds the zoom keys while it shows; elsewhere they zoom the page.

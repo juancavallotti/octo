@@ -1,4 +1,4 @@
-import { app, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import { buildMenu, copyMcpUrl, mcpUrl, revealVault } from "./menu";
 import { sameOrigin } from "./origin";
@@ -21,6 +21,7 @@ import { setEditorStatus } from "./editorStatus";
 import * as container from "./container/controller";
 import { refreshDocker } from "./container/status";
 import { containerWebContentsId, onContainerClosed } from "./containerWindow";
+import * as terminal from "./terminal";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
 
@@ -31,7 +32,7 @@ import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault"
  */
 
 /** Reject calls from any frame that is not the editor page we loaded. */
-function fromEditor(event: IpcMainInvokeEvent): boolean {
+function fromEditor(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
   const origin = current()?.url;
   if (!origin) return false;
   const url = event.senderFrame?.url ?? "";
@@ -65,6 +66,17 @@ function guarded(channel: string, allow: (e: IpcMainInvokeEvent) => boolean, fn:
 
 function handle(channel: string, fn: Handler): void {
   guarded(channel, fromEditor, fn);
+}
+
+/**
+ * A one-way message from the editor: keystrokes and resizes, which are too frequent
+ * to round-trip and have no answer. Refused the same way, but silently — there is no
+ * caller to throw at.
+ */
+function listen(channel: string, fn: (event: IpcMainEvent, ...args: unknown[]) => void): void {
+  ipcMain.on(channel, (event, ...args) => {
+    if (fromEditor(event)) fn(event, ...args);
+  });
 }
 
 function handleSettings(channel: string, fn: Handler): void {
@@ -165,6 +177,17 @@ export function registerIpc(): void {
     const known = recents().some((v) => v.path === target);
     return known ? switchTo(target) : false;
   });
+
+  handle("octo:term:open", (event, cols, rows) => {
+    const size = (n: unknown, fallback: number) =>
+      Number.isInteger(n) && (n as number) > 0 ? (n as number) : fallback;
+    return terminal.open(event.sender, size(cols, 80), size(rows, 24));
+  });
+  listen("octo:term:write", (event, id, data) => terminal.write(event.sender, id, data));
+  listen("octo:term:resize", (event, id, cols, rows) =>
+    terminal.resize(event.sender, id, cols, rows),
+  );
+  listen("octo:term:kill", (event, id) => terminal.close(event.sender, id));
 
   handleSettings("octo:settings:get", () => settingsView());
   handleSettings("octo:settings:setBinary", (_event, name, file) => {

@@ -6,6 +6,7 @@ packages:
 # Electron's postinstall is the one that downloads the actual Electron binary for
 # this platform, so apps/desktop cannot start without it. Deliberately the only
 # entry: electron-winstaller also wants a script, and it is only needed to build
-# Windows installers, which we do not yet do.
+# Windows installers, which we do not yet do. node-pty's is left out too: it only
+# checks for the prebuilds the package already ships, and falls back to node-gyp.
 onlyBuiltDependencies:
   - electron
