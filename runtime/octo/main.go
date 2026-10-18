@@ -90,6 +90,7 @@ Usage:
   octo invoke --config <path> --flow <name> [--data <json>] [--vars <json>]
                                                              Call one flow and print its result
   octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
+  octo validate --config <path> [--format json]              Check a config's references without running it
   octo schema [--out <path>]                                 Print the editor capability schema as JSON
   octo version                                               Print the version and build date
   octo --help                                                Show this help
@@ -207,6 +208,16 @@ Eval flags:
   --vars <json>      JSON object bound to vars
   --env <json>       JSON object bound to env
 
+Validate flags:
+  --config <path>    path to the runtime config (file or directory)
+  --format <fmt>     text (default) or json
+
+  validate loads the config the way run does — a directory's files merged into one
+  — and checks that every type is registered, every source binds to one connector,
+  and every connector, flow, processor and template a setting names is declared.
+  Nothing is started, so it needs no credentials; CEL is not compiled. It exits
+  non-zero when it finds an issue.
+
 Schema flags:
   --kind <kind>      which schema: capabilities (default) or debug-config
   --format <fmt>     json (default) or yaml
@@ -270,6 +281,8 @@ func run(args []string) error {
 		return invokeCommand(args)
 	case "eval":
 		return evalCommand(args)
+	case "validate":
+		return validateCommand(args)
 	case "schema", "capabilities":
 		return schemaCommand(args)
 	default:
@@ -287,7 +300,7 @@ func run(args []string) error {
 // compiled-in modules registered. The error naming them is the only place a
 // reader finds out that this build has, say, no platform API commands.
 func knownCommands() string {
-	names := append([]string{commandRun, "invoke", "eval", "schema", "version"}, services.CommandNames()...)
+	names := append([]string{commandRun, "invoke", "eval", "validate", "schema", "version"}, services.CommandNames()...)
 	sort.Strings(names)
 	return strings.Join(names, ", ")
 }
