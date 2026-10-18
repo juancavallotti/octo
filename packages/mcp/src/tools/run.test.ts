@@ -145,11 +145,9 @@ function stubRunHost(opts: { available?: boolean; startError?: string } = {}) {
   return { host, calls };
 }
 
-const REC = {
-  id: "a",
-  name: "Alpha",
-  definition: "service:\n  name: Alpha\nconnectors:\n  - type: http\n    HTTP_PORT: 8080\n",
-};
+const DEF = "service:\n  name: Alpha\nconnectors:\n  - type: http\n    HTTP_PORT: 8080\n";
+
+const REC = { id: "a", name: "Alpha", files: [{ path: "octo.yaml", content: DEF }] };
 
 /**
  * Connect a client to the run tools.
@@ -508,7 +506,7 @@ describe("run tools", () => {
         timeoutMs: 5000,
       },
     });
-    expect(calls.invoked?.yaml).toBe(REC.definition);
+    expect(calls.invoked?.yaml).toBe(DEF);
     expect(calls.invoked?.flow).toBe("greet");
     expect(calls.invoked?.opts).toEqual({
       data: '{"x":1}',

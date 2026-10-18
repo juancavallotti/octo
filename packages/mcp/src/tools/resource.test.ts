@@ -11,7 +11,7 @@ import type {
   ResourceStore,
 } from "../backend";
 
-/** A minimal in-memory IntegrationStore exposing a single definition. */
+/** A minimal in-memory IntegrationStore. */
 function fakeStore(seed: IntegrationRecord[] = []): OctoMcpConfig["store"] {
   const rows = new Map(seed.map((r) => [r.id, { ...r }]));
   return {
@@ -21,14 +21,14 @@ function fakeStore(seed: IntegrationRecord[] = []): OctoMcpConfig["store"] {
       if (!r) throw new Error(`no such integration: ${id}`);
       return { ...r };
     },
-    create: async (name, definition) => {
-      const r = { id: `id-${rows.size + 1}`, name, definition };
+    create: async (name, files) => {
+      const r = { id: `id-${rows.size + 1}`, name, files };
       rows.set(r.id, r);
       return { ...r };
     },
-    update: async (id, name, definition) => {
+    update: async (id, name, files) => {
       const r = rows.get(id)!;
-      const next = { id, name: name ?? r.name, definition };
+      const next = { id, name: name ?? r.name, files };
       rows.set(id, next);
       return { ...next };
     },
@@ -117,7 +117,7 @@ const ENV_DEF = [
 
 describe("resource tools", () => {
   it("lists resources as { id, kind, name } (no content)", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: "x" }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: "x" }] }]);
     const rs = fakeResourceStore([
       { id: "r1", integrationId: "a", kind: "env", name: ".env.dev", content: "K=v" },
       { id: "r2", integrationId: "b", kind: "template", name: "t.tmpl", content: "hi" },
@@ -131,7 +131,7 @@ describe("resource tools", () => {
   });
 
   it("opens a resource with its content", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: "x" }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: "x" }] }]);
     const rs = fakeResourceStore([
       { id: "r1", integrationId: "a", kind: "env", name: ".env.dev", content: "K=v" },
     ]);
@@ -144,7 +144,7 @@ describe("resource tools", () => {
   });
 
   it("creates a resource", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: "x" }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: "x" }] }]);
     const rs = fakeResourceStore();
     const client = await connect(config(store, rs));
     const res = (await client.callTool({
@@ -157,7 +157,7 @@ describe("resource tools", () => {
   });
 
   it("updates content while keeping kind/name when omitted (merge)", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: "x" }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: "x" }] }]);
     const rs = fakeResourceStore([
       { id: "r1", integrationId: "a", kind: "env", name: ".env.dev", content: "old" },
     ]);
@@ -175,7 +175,7 @@ describe("resource tools", () => {
   });
 
   it("deletes a resource", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: "x" }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: "x" }] }]);
     const rs = fakeResourceStore([
       { id: "r1", integrationId: "a", kind: "env", name: ".env.dev", content: "x" },
     ]);
@@ -189,7 +189,7 @@ describe("resource tools", () => {
   });
 
   it("lists declared env keys from the definition", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: ENV_DEF }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: ENV_DEF }] }]);
     const client = await connect(config(store, fakeResourceStore()));
     const res = (await client.callTool({
       name: "list_env_keys",
@@ -202,7 +202,7 @@ describe("resource tools", () => {
   });
 
   it("unions declared env keys with keys from env resources", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: ENV_DEF }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: ENV_DEF }] }]);
     const rs = fakeResourceStore([
       {
         id: "r1",
@@ -228,7 +228,7 @@ describe("resource tools", () => {
   });
 
   it("registers only list_env_keys when no resourceStore is configured", async () => {
-    const store = fakeStore([{ id: "a", name: "Demo", definition: ENV_DEF }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: [{ path: "octo.yaml", content: ENV_DEF }] }]);
     const client = await connect(config(store, undefined));
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();

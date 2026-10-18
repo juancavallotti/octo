@@ -14,6 +14,7 @@ import {
   type SuiteIssue,
 } from "@octo/editor/runtime";
 import type { OctoMcpConfig, SuiteStore } from "../backend";
+import { definitionOf } from "../project";
 import type { NamespaceResolver } from "../namespace";
 import type { RunHostPort } from "../run-host";
 import { mockSpecSchema } from "../mocks";
@@ -213,7 +214,7 @@ export function registerSuiteTools(
         }
 
         const outcome = await runHost.test(resolveNamespace(extra.sessionId), {
-          yaml: rec.definition,
+          yaml: definitionOf(rec),
           suites: chosen.map((s) => ({ name: s.flow, content: s.content })),
           resources: config.resources?.(id),
         });

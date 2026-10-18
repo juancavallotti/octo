@@ -44,7 +44,7 @@ function fakeStore(): OctoMcpConfig["store"] {
     list: async () => [{ id: "a", name: "Demo" }],
     get: async (id) => {
       if (id !== "a") throw new Error(`no such integration: ${id}`);
-      return { id, name: "Demo", definition: DEF };
+      return { id, name: "Demo", files: [{ path: "octo.yaml", content: DEF }] };
     },
     create: async () => {
       throw new Error("unused");

@@ -16,6 +16,7 @@ import {
 } from "@octo/editor/runtime";
 import { flowNames } from "../flows";
 import type { IntegrationStore, MetaStore, OctoMcpConfig } from "../backend";
+import { definitionOf } from "../project";
 import { fromStoredCase, mockCaseSchema, toStoredCase } from "../mocks";
 import { guard, jsonResult } from "../result";
 
@@ -128,8 +129,8 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
         const rec = await store.get(id);
         requireFlow(
           flow,
-          [...blockIdAddresses(fromDefinitionYaml(rec.definition)).values()],
-          rec.definition,
+          [...blockIdAddresses(fromDefinitionYaml(definitionOf(rec))).values()],
+          definitionOf(rec),
         );
         const input: TestInput = {
           id: inputId ?? crypto.randomUUID(),
@@ -310,7 +311,7 @@ function flowOf(address: string): string {
 /** Every address the integration's blocks answer to. */
 async function addressesOf(store: IntegrationStore, id: string): Promise<string[]> {
   const rec = await store.get(id);
-  return [...blockIdAddresses(fromDefinitionYaml(rec.definition)).values()];
+  return [...blockIdAddresses(fromDefinitionYaml(definitionOf(rec))).values()];
 }
 
 /**

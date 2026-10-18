@@ -17,7 +17,7 @@ export function exampleUri(slug: string): string {
  * Publish the runtime capability catalogue as a read-only resource. The schema is
  * resolved from the runtime (the host generates it from the `octo` binary), so a
  * consumer LLM reads exactly what the runner supports before authoring a
- * definition with `create_integration`.
+ * integration with `create_integration`.
  */
 export function registerRuntimeSchemaResource(
   server: McpServer,

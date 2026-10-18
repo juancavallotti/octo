@@ -7,28 +7,36 @@
  */
 
 import type { ResourceProvider } from "@octo/run-host";
+import type { StoredFile } from "@octo/editor/runtime";
 
-/** A stored integration: its id, display name, and runtime-YAML definition. */
+export type { StoredFile };
+
+/**
+ * A stored integration: its id, display name, and its config files — the root-level
+ * YAML files the runtime merges into one application. A flow in one file may use a
+ * connection, a processor or a flow declared in another.
+ */
 export interface IntegrationRecord {
   id: string;
   name: string;
-  /** The runtime YAML the `octo` binary loads (already a runnable config). */
-  definition: string;
+  files: StoredFile[];
 }
 
 /**
  * CRUD over the host's integration store, which the host adapts from whatever data
- * layer it already has. `update` renames when `name` is given and its slug changes —
- * the host decides — and returns the possibly-new record.
+ * layer it already has. `create` and `update` take the integration's whole set of
+ * config files: a file it had that is not given is removed, so a change spanning
+ * files — a flow moved from one to another — lands as one write. `update` renames
+ * when `name` is given — the host decides how — and returns the possibly-new record.
  */
 export interface IntegrationStore {
   list(): Promise<{ id: string; name: string }[]>;
   get(id: string): Promise<IntegrationRecord>;
-  create(name: string, definition: string): Promise<IntegrationRecord>;
+  create(name: string, files: StoredFile[]): Promise<IntegrationRecord>;
   update(
     id: string,
     name: string | undefined,
-    definition: string,
+    files: StoredFile[],
   ): Promise<IntegrationRecord>;
 }
 
@@ -104,7 +112,7 @@ export interface SuiteStore {
   remove(integrationId: string, flow: string): Promise<void>;
 }
 
-/** The outcome of validating a definition before a run. */
+/** The outcome of validating an integration's files before a run or a save. */
 export interface ValidationOutcome {
   valid: boolean;
   errors: string[];
@@ -136,16 +144,24 @@ export interface OctoMcpConfig {
   /** The integration store backing list/open/create/update. */
   store: IntegrationStore;
   /**
-   * Validate a stored definition (the host wraps `@octo/editor`'s document
-   * validation). Used by `can_start_integration` before a run is attempted, and by
-   * every mutating flow tool before it saves.
+   * Validate an integration's config files together, as the runtime merges them (the
+   * host wraps `@octo/editor`'s validation and, where it can, `octo validate`). Used
+   * by `can_start_integration` before a run is attempted, and by every mutating tool
+   * before it saves.
    *
    * May be async: validation is only as good as the capability catalogue behind it, and
    * that catalogue comes from an async probe of the `octo` binary (see
    * {@link OctoMcpConfig.runtimeSchema}). Validating against the bundled fallback instead
    * reports every block type unknown.
    */
-  validate(definition: string): ValidationOutcome | Promise<ValidationOutcome>;
+  validate(
+    files: StoredFile[],
+    /**
+     * The integration the files belong to, when they belong to a saved one — so the
+     * host can stage the resources they declare. Absent for a draft.
+     */
+    integrationId?: string,
+  ): ValidationOutcome | Promise<ValidationOutcome>;
   /**
    * The runtime capability catalogue (blocks/connectors) served as the
    * `octo://runtime/schema` resource and the `getSchema` tool. The runtime is the

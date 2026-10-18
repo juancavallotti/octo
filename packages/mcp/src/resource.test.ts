@@ -15,9 +15,9 @@ import type { OctoMcpConfig } from "./backend";
 
 const noopStore: OctoMcpConfig["store"] = {
   list: async () => [],
-  get: async () => ({ id: "", name: "", definition: "" }),
-  create: async () => ({ id: "", name: "", definition: "" }),
-  update: async () => ({ id: "", name: "", definition: "" }),
+  get: async () => ({ id: "", name: "", files: [] }),
+  create: async () => ({ id: "", name: "", files: [] }),
+  update: async () => ({ id: "", name: "", files: [] }),
 };
 
 async function connect(runtimeSchema: unknown): Promise<Client> {
