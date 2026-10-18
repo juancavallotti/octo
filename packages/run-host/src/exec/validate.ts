@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { namespaceDir, stageProject, type ProjectFile } from "../staging";
 import type { ResourceProvider } from "../resources";
 import { octoBin, splitLines, terminate } from "../child";
+import { isValidNamespace } from "../namespace";
 
 /**
  * One-shot `octo validate`: check a project's references the way the runtime would
@@ -53,6 +54,9 @@ export async function validate(
     timeoutMs?: number;
   },
 ): Promise<ValidateResult> {
+  // The namespace becomes a directory name, so a malformed one is refused before it
+  // reaches a path.
+  if (!isValidNamespace(ns)) throw new Error(`invalid run namespace: ${ns}`);
   const bin = octoBin();
   const dir = join(namespaceDir(ns), `validate-${randomUUID()}`);
   await mkdir(dir, { recursive: true });

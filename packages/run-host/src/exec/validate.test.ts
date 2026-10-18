@@ -13,6 +13,9 @@ async function fakeBin(dir: string, name: string, body: string): Promise<string>
   return path;
 }
 
+/** A well-formed run namespace. */
+const NS = "testns01";
+
 const files = [
   { path: "orders.yaml", content: "flows:\n  - name: orders\n    process: []\n" },
   { path: "octo.yaml", content: "service:\n  name: shop\n" },
@@ -42,7 +45,7 @@ dev=$(grep -l '.env.dev' "$3"/*.yaml | xargs -n1 basename | tr '\\n' ' ')
 printf '{"ok":false,"issues":[{"message":"%s"},{"message":"%s"}]}' "$files" "$dev"
 exit 1`,
     );
-    const r = await validate("ns", files);
+    const r = await validate(NS, files);
     expect(r.ok).toBe(true);
     expect(r.issues.map((i) => i.message.trim())).toEqual(["octo.yaml orders.yaml", "octo.yaml"]);
   });
@@ -54,7 +57,7 @@ exit 1`,
       `printf '{"ok":false,"issues":[{"where":"orders.ref","message":"flow: flow \\\\"audit\\\\" is not defined"}],"unsetEnv":["API_KEY"]}'
 exit 1`,
     );
-    const r = await validate("ns", files);
+    const r = await validate(NS, files);
     expect(r).toMatchObject({
       ok: true,
       valid: false,
@@ -65,16 +68,20 @@ exit 1`,
 
   it("is not ok when the runner prints no envelope", async () => {
     process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-crash", 'echo "boom" >&2\nexit 2');
-    const r = await validate("ns", files);
+    const r = await validate(NS, files);
     expect(r.ok).toBe(false);
     expect(r.error).toBe("boom");
+  });
+
+  it("refuses a malformed namespace before touching the disk", async () => {
+    await expect(validate("../escape", files)).rejects.toThrow("invalid run namespace");
   });
 
   it.each([["flows/orders.yaml"], ["orders_test.yaml"], ["README.md"]])(
     "refuses %s, which the runtime would not load as config",
     async (path) => {
       process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-unused", "exit 0");
-      await expect(validate("ns", [{ path, content: "" }])).rejects.toThrow(path);
+      await expect(validate(NS, [{ path, content: "" }])).rejects.toThrow(path);
     },
   );
 });
