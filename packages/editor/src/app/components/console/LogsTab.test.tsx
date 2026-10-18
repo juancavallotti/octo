@@ -27,4 +27,13 @@ describe("LogsTab", () => {
     expect(screen.queryByText(/starting the integration/i)).not.toBeInTheDocument();
     expect(container.querySelector(".animate-spin")).toBeNull();
   });
+
+  it("pins each emoji to two cells so framed output keeps its columns", () => {
+    const { container } = render(
+      <LogsTab logs={[line(0, "│ 🐙  ready  🐙 │")]} running={true} />,
+    );
+    const cells = container.querySelectorAll("span.w-\\[2ch\\]");
+    expect([...cells].map((c) => c.textContent)).toEqual(["🐙", "🐙"]);
+    expect(container.textContent).toContain("│ 🐙  ready  🐙 │");
+  });
 });

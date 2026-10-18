@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ScrollText, Trash2, X } from "lucide-react";
+import { TerminalText } from "@octo/editor";
 
 /**
  * Dockable, resizable panel that live-tails one pod's logs, styled after the
@@ -205,7 +206,7 @@ export default function PodLogPanel({
         ) : (
           lines.map((line, i) => (
             <div key={i} className="whitespace-pre-wrap break-words">
-              {line || " "}
+              {line ? <TerminalText text={line} /> : " "}
             </div>
           ))
         )}
