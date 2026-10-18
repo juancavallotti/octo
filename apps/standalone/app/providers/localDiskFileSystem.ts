@@ -14,10 +14,10 @@ export const localDiskFileSystem: FileSystemCapability = {
     return unwrap(await loadProject());
   },
 
-  async save(_id, input) {
+  async save(id, input) {
     // The project's name lives in its `service.name`, which the editor has already
-    // written into the files.
-    return unwrap(await saveProject(input.files));
+    // written into the files. The id is checked server-side against the folder.
+    return unwrap(await saveProject(id, input.files));
   },
 
   async list() {

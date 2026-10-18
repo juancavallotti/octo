@@ -29,8 +29,18 @@ export async function loadProject(): Promise<ActionResult<ProjectDoc>> {
   }
 }
 
-/** Make `files` the project's config files, removing any it no longer has. */
-export async function saveProject(files: ConfigFile[]): Promise<ActionResult<ProjectDoc>> {
+/**
+ * Make `files` the project's config files, removing any it no longer has. `id` must name
+ * the project this app serves: a save from an editor that never loaded it — a load that
+ * failed — would otherwise replace every file in the folder with whatever it holds.
+ */
+export async function saveProject(
+  id: string | null,
+  files: ConfigFile[],
+): Promise<ActionResult<ProjectDoc>> {
+  if (id !== store.projectId()) {
+    return { ok: false, error: "this project was not loaded, so it is not saved over the folder" };
+  }
   if (!Array.isArray(files) || files.length === 0) {
     return { ok: false, error: "a project needs at least one config file" };
   }
