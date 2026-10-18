@@ -1,3 +1,5 @@
+import type { NewItemKind } from "@octo/editor";
+
 /**
  * The bridge a hosting shell may expose to the page, as the browser sees it.
  *
@@ -47,6 +49,8 @@ export interface DesktopBridge {
   updateStatus(): Promise<UpdateStatusView>;
   onUpdateStatus(listener: (status: UpdateStatusView) => void): () => void;
   installUpdate(): Promise<void>;
+  /** Hear the shell's File → New asking for something new. Returns the unsubscribe. */
+  onNewItem(listener: (kind: NewItemKind) => void): () => void;
 }
 
 /** The bridge, or null when this is a browser rather than the desktop shell. */

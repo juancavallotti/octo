@@ -10,6 +10,7 @@ import {
 import ModeBadge from "./ModeBadge";
 import UpdateChip from "./UpdateChip";
 import VaultChip from "./VaultChip";
+import { useDesktopMenu } from "./useDesktopMenu";
 
 /* onSaved (URL sync) lives on EditorRoot — see StandaloneEditor — so all save
    triggers (button, ⌘S, Enter in the rename field) share it. */
@@ -20,6 +21,8 @@ import VaultChip from "./VaultChip";
  * the document bar below, not here.
  */
 export default function StandaloneHeader() {
+  // Here because the header is the shell's piece of the window, and inside the editor.
+  useDesktopMenu();
   return (
     <header className="relative flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
       {/* h-6 w-auto controls both axes so Tailwind's `img { height: auto }`

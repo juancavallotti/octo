@@ -5,6 +5,7 @@ import { current } from "./server";
 import { openSettings } from "./settingsWindow";
 import { checkForUpdates, restartToUpdate, updateStatus } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
+import { mainWindow } from "./window";
 
 /**
  * The application menu, rebuilt from current state on every change rather than
@@ -22,6 +23,35 @@ function recentsSubmenu(): MenuItemConstructorOptions[] {
     toolTip: v.path,
     click: () => void switchTo(v.path),
   }));
+}
+
+/** What File → New can start; the editor's own names for them (useNewItem). */
+type NewItemKind = "flow" | "file" | "resource" | "suite";
+
+/**
+ * Ask the editor page to start something new. The shell only names what; making it —
+ * which file it goes in, what it is called — is the editor's, and it answers on the
+ * page the user is looking at.
+ */
+function requestNew(kind: NewItemKind): void {
+  mainWindow()?.webContents.send("octo:menu:new", kind);
+}
+
+function newSubmenu(): MenuItemConstructorOptions[] {
+  // Without a running editor there is no page to answer.
+  const enabled = current() !== null;
+  return [
+    { label: "Flow", accelerator: "CmdOrCtrl+N", enabled, click: () => requestNew("flow") },
+    {
+      label: "Config File…",
+      accelerator: "CmdOrCtrl+Shift+N",
+      enabled,
+      click: () => requestNew("file"),
+    },
+    { type: "separator" },
+    { label: "Resource…", enabled, click: () => requestNew("resource") },
+    { label: "Test Suite", enabled, click: () => requestNew("suite") },
+  ];
 }
 
 /** The MCP endpoint, which is the editor's own URL plus /mcp. */
@@ -87,6 +117,8 @@ export function buildMenu(): void {
     {
       label: "File",
       submenu: [
+        { label: "New", submenu: newSubmenu() },
+        { type: "separator" },
         {
           label: "Open Folder…",
           accelerator: "CmdOrCtrl+Shift+O",
