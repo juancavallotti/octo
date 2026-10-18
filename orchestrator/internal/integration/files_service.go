@@ -124,8 +124,6 @@ func withFile(current []ConfigFile, path, content string) []projectfile.File {
 
 // ensureMerges refuses a set of config files that does not fold into one config.
 func ensureMerges(files []projectfile.File) error {
-	if _, err := projectfile.Merge(files); err != nil {
-		return fmt.Errorf("%w: %w", ErrFilesConflict, err)
-	}
-	return nil
+	_, err := projectfile.Merge(files)
+	return err
 }
