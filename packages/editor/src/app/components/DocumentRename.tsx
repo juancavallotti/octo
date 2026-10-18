@@ -33,25 +33,25 @@ export default function DocumentRename({
   const save = useSave();
   const [renaming, setRenaming] = useState(false);
   // What the name was when the rename started, so Escape can put it back.
-  const before = useRef(state.integration.name);
+  const before = useRef(state.project.name);
 
   const rename = (name: string) =>
-    dispatch({ type: EditorActionType.SET_INTEGRATION_TITLE, data: { name } });
+    dispatch({ type: EditorActionType.SET_PROJECT_TITLE, data: { name } });
 
   const commit = () => {
     setRenaming(false);
-    if (!state.integration.name.trim()) rename(before.current);
+    if (!state.project.name.trim()) rename(before.current);
     else void save?.save({ force: true });
   };
 
   return (
-    <div className="flex items-center">
+    <div className="flex min-w-0 items-center">
       {renaming ? (
         <input
           type="text"
           autoFocus
           aria-label={label}
-          value={state.integration.name}
+          value={state.project.name}
           placeholder={placeholder}
           onChange={(e) => rename(e.target.value)}
           onBlur={commit}
@@ -63,7 +63,7 @@ export default function DocumentRename({
               setRenaming(false);
             }
           }}
-          className="w-48 rounded-md border border-black/20 bg-transparent px-2 py-1 text-[13px] outline-none dark:border-white/25"
+          className="w-48 min-w-0 rounded-md border border-black/20 bg-transparent px-2 py-1 text-[13px] outline-none dark:border-white/25"
         />
       ) : (
         children
@@ -73,7 +73,7 @@ export default function DocumentRename({
         type="button"
         aria-label={label}
         onClick={() => {
-          before.current = state.integration.name;
+          before.current = state.project.name;
           setRenaming(true);
         }}
         className={`${BAR_BUTTON} px-1`}

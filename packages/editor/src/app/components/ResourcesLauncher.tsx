@@ -48,11 +48,11 @@ export default function ResourcesLauncher() {
       <button
         type="button"
         aria-label="Resources"
+        title="Resources"
         onClick={() => setOpen((o) => !o)}
         className={BAR_BUTTON}
       >
         <FileText size={15} />
-        Resources
         {count > 0 && (
           <span className={BAR_COUNT}>
             {count}
@@ -95,7 +95,10 @@ function ResourcesEditor() {
           return out;
         }),
     };
-    dispatch({ type: EditorActionType.SET_RESOURCES, data: { resources } });
+    dispatch({
+      type: EditorActionType.SET_RESOURCES,
+      data: { changes: [{ path: state.activePath, resources }] },
+    });
   }
 
   const setEnvAt = (i: number, value: string) =>

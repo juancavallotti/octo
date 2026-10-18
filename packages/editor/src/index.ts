@@ -16,6 +16,12 @@ export {
   EditorActionType,
   type EditorState,
 } from "./app/state/editorState";
+export {
+  useEditorCommands,
+  isEditorCommand,
+  type EditorCommand,
+  type EditorCommandStatus,
+} from "./app/commands/useEditorCommands";
 
 // Editor controls (composed by an app's header)
 export { default as RunBar } from "./app/components/RunBar";
@@ -24,7 +30,7 @@ export { useSave, type SaveController } from "./app/save/SaveContext";
 export { default as ViewModeToggle } from "./app/components/ViewModeToggle";
 // The document bar's trigger look, so a host filling the `files` slot matches the
 // launchers standing next to it.
-export { BAR_BUTTON, BAR_COUNT } from "./app/components/barButton";
+export { BAR_BUTTON, BAR_COUNT, HEADER_LABEL } from "./app/components/barButton";
 // Process output on a terminal's grid, for a host that shows its own logs.
 export { default as TerminalText } from "./app/components/console/TerminalText";
 export { default as LayoutToggles } from "./app/components/LayoutToggles";
@@ -38,14 +44,16 @@ export {
   type PickerItem,
 } from "./app/components/WorkspacePicker";
 export { default as IntegrationTitle } from "./app/components/IntegrationTitle";
-export { default as IntegrationLoader } from "./app/components/IntegrationLoader";
+export { default as ProjectLoader } from "./app/components/ProjectLoader";
 
 // Filesystem capability (load/save)
 export {
   FileSystemProvider,
   useFileSystem,
   type FileSystemCapability,
-  type StoredDocument,
+  type StoredProject,
+  type StoredFile,
+  type ProjectSummary,
   type SaveInput,
   type FolderNode,
   type FolderCapability,
@@ -77,6 +85,7 @@ export type {
   FlowRunRequest,
   FlowRunOutcome,
   BreakOutcome,
+  RuntimeIssue,
 } from "./app/run/transport";
 // The Testing tab's half of the transport contract — a host implements `test()` with
 // these, and maps them onto whatever @octo/run-host returns.
@@ -122,9 +131,20 @@ export {
 // Document model + serialization (handy for apps building loaders/savers)
 export {
   toRunnableYaml,
-  toDefinitionYaml,
+  toFileYaml,
   fromDefinitionYaml,
 } from "./app/model/runConfig";
+export {
+  parseProject,
+  projectView,
+  serializeProject,
+  serializeFile,
+  serviceFile,
+  mergeConfigFiles,
+  isConfigFileName,
+  byPath,
+  type ProjectFile,
+} from "./app/model/project";
 export {
   validateDocument,
   issueMessages,

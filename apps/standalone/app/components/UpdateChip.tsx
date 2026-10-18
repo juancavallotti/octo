@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUpCircle } from "lucide-react";
+import { HEADER_LABEL } from "@octo/editor";
 import { desktopBridge, type UpdateStatusView } from "../desktop";
 
 /**
@@ -66,12 +67,10 @@ export default function UpdateChip() {
       className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-sm font-medium text-white hover:bg-violet-500"
     >
       <ArrowUpCircle className="h-3.5 w-3.5 shrink-0" />
-      {/* Dropped below 1100px, where the bar's centred view tabs reach this far
-          across: the window goes down to 900, and the mark is legible on its own
-          with the label still in the tooltip and on the button's accessible name.
+      {/* Icon-only on a narrow header, like the controls beside it (HEADER_LABEL).
           Hiding the button itself is not the trade — an update nobody is told
           about is the bug this whole thing fixes. */}
-      <span className="hidden min-[1100px]:inline">{label}</span>
+      <span className={HEADER_LABEL}>{label}</span>
     </button>
   );
 }

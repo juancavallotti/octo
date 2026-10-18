@@ -1,0 +1,15 @@
+# The intake: price an order, then hand it to the audit trail. `audit` is declared
+# in audit.yaml and ORDER_CURRENCY in octo.yaml; the runtime resolves both across
+# the folder.
+flows:
+  - name: intake
+    process:
+      - type: set-payload
+        name: price
+        settings:
+          value: '{"id": body.id, "total": body.qty * body.price, "currency": env.ORDER_CURRENCY}'
+
+      - type: flow-ref
+        name: record
+        settings:
+          flow: audit

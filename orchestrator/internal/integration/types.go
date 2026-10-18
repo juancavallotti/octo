@@ -19,7 +19,9 @@ type Integration struct {
 	Name string
 	// Icon is a deliberately chosen icon name, or "" to leave it derived from the
 	// definition. Stored because it is a choice rather than something inferred.
-	Icon        string
+	Icon string
+	// Definition is the integration's config files merged into one config. It is
+	// read-only here: the files are written one at a time.
 	Definition  string
 	LastUpdated time.Time
 
@@ -29,4 +31,13 @@ type Integration struct {
 	CreatedByName  *string
 	UpdatedByEmail *string
 	UpdatedByName  *string
+}
+
+// ConfigFile is one of an integration's config files: a root-level YAML file the
+// runtime merges with its siblings into one config. Path is the file's name
+// within the project folder.
+type ConfigFile struct {
+	Path        string
+	Content     string
+	LastUpdated time.Time
 }

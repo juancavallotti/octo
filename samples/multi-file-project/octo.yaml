@@ -1,0 +1,18 @@
+# The project file. `octo run --config samples/multi-file-project` merges every
+# .yaml in this folder into one integration, so what is declared here — the
+# service, the environment, the connections — serves the flows in every other
+# file. Nothing requires this layout; it gives the integration one obvious place
+# for its identity and the configuration its flows share.
+service:
+  name: order-intake
+
+env:
+  - name: ORDER_CURRENCY
+    default: USD
+
+connectors:
+  - name: audit-log
+    type: logger
+    settings:
+      format: json
+      level: info

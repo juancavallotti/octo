@@ -7,6 +7,7 @@ import { useEditorPrefs } from "../prefs/prefs";
 import { useEditorMeta } from "../providers/EditorMetaProvider";
 import { currentFlowId } from "../state/currentFlow";
 import { useEditorState } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
 import { isPureFlow } from "./pure";
 import type { RunTransport } from "./transport";
 
@@ -38,11 +39,12 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
   const { autoLearn } = useEditorPrefs();
   const { state } = useEditorState();
   const meta = useEditorMeta();
-  const doc = state.document;
+  // The project merged: a flow-ref reaches flows in other files, so a run needs them.
+  const doc = useProjectView();
   // The same "which flow does the user mean" rule Cmd+Enter follows, so the editor
   // never learns about one flow while the user is working in another.
   const flowId = currentFlowId(state);
-  const integrationId = state.integration.id;
+  const integrationId = state.project.id;
 
   /**
    * What was last run, so an edit elsewhere in the document — or simply moving between

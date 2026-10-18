@@ -1,4 +1,5 @@
 import type { EditorDocument, EnvVar, Resources } from "../model/document";
+import type { ProjectFile } from "../model/project";
 
 /**
  * Editor reducer actions. The payload travels on the action's `data` field (per
@@ -60,18 +61,29 @@ export enum EditorActionType {
   SET_RESOURCES = "SET_RESOURCES",
   /** Replace the whole document (file load or "new"). */
   LOAD_DOCUMENT = "LOAD_DOCUMENT",
-  /** Record the persisted id after the integration is first saved. */
-  SET_INTEGRATION_ID = "SET_INTEGRATION_ID",
-  /** Set the current integration's display title. */
-  SET_INTEGRATION_TITLE = "SET_INTEGRATION_TITLE",
-  /** Set the current integration's folder (null = unfiled). */
-  SET_INTEGRATION_FOLDER = "SET_INTEGRATION_FOLDER",
-  /** Load a saved integration: replace the document and set its metadata. */
-  LOAD_INTEGRATION = "LOAD_INTEGRATION",
-  /** Start a fresh, unsaved integration (clear metadata + document). */
-  NEW_INTEGRATION = "NEW_INTEGRATION",
+  /** Record the persisted id after the project is first saved. */
+  SET_PROJECT_ID = "SET_PROJECT_ID",
+  /** Set the current project's display title. */
+  SET_PROJECT_TITLE = "SET_PROJECT_TITLE",
+  /** Set the current project's folder (null = unfiled). */
+  SET_PROJECT_FOLDER = "SET_PROJECT_FOLDER",
+  /** Load a saved project: replace every file and set its metadata. */
+  LOAD_PROJECT = "LOAD_PROJECT",
+  /** Start a fresh, unsaved project (clear metadata, one blank file). */
+  NEW_PROJECT = "NEW_PROJECT",
+  /** Make another of the project's files the one being edited. */
+  SWITCH_FILE = "SWITCH_FILE",
+  /** Add a config file to the project and open it. */
+  CREATE_FILE = "CREATE_FILE",
+  /** Rename one of the project's config files. */
+  RENAME_FILE = "RENAME_FILE",
+  /** Remove one of the project's config files. */
+  DELETE_FILE = "DELETE_FILE",
   /** Switch the editor body between the visual canvas and the YAML preview. */
   SET_VIEW_MODE = "SET_VIEW_MODE",
+  SET_FLOWS_VIEW = "SET_FLOWS_VIEW",
+  NEW_ITEM = "NEW_ITEM",
+  CONSUME_NEW_ITEM = "CONSUME_NEW_ITEM",
   /** Highlight a palette component. */
   SELECT_COMPONENT = "SELECT_COMPONENT",
   /** Clear the palette highlight. */
@@ -220,38 +232,84 @@ export interface SetFlowMetaPayload {
 }
 
 /**
- * Which view the editor body shows. `resources` and `testing` are capability-backed —
- * the toggle only offers them when the host mounted the store behind them.
+ * Which view the editor body shows: the open file's flows, or the project's resources
+ * or test suites. `resources` and `testing` are capability-backed — the toggle only
+ * offers them when the host mounted the store behind them.
  */
-export type SetViewModePayload = "canvas" | "yaml" | "resources" | "testing";
+export type SetViewModePayload = "flows" | "resources" | "testing";
+
+/** How the flows view shows the open file: drawn on the canvas, or as its YAML. */
+export type SetFlowsViewPayload = "canvas" | "yaml";
+
+/**
+ * Something to begin a new one of from outside the view that makes it — a host's
+ * menu, say. Each needs a name or a choice, so NEW_ITEM opens the view that owns it
+ * and leaves a {@link PendingNew} for that view to begin. (A new flow needs neither and
+ * is ADD_FLOW; see useNewItem, which offers all four.)
+ */
+export type NewItemPayload = "file" | "resource" | "suite";
+
+/**
+ * A "new" begun by NEW_ITEM and not yet taken up by the view that makes it: the file
+ * menu (a config file), the Resources toolbar (a resource), or the Testing tab (a
+ * suite, for `flow` when one was current). That view clears it with CONSUME_NEW_ITEM.
+ */
+export interface PendingNew {
+  kind: NewItemPayload;
+  flow?: string;
+}
 
 export interface SetEnvPayload {
   env: EnvVar[];
 }
 
+/**
+ * New `resources:` blocks for some of the project's files, by path — the open one or
+ * any other. Resources are project-wide, so one change (removing a resource declared
+ * in two files) can touch several, and is one undo step.
+ */
 export interface SetResourcesPayload {
-  resources: Resources;
+  changes: { path: string; resources: Resources }[];
 }
 
 export interface LoadDocumentPayload {
   document: EditorDocument;
 }
 
-export interface SetIntegrationIdPayload {
+export interface SetProjectIdPayload {
   id: string;
 }
 
-export interface SetIntegrationTitlePayload {
+export interface SetProjectTitlePayload {
   name: string;
 }
 
-export interface SetIntegrationFolderPayload {
+export interface SetProjectFolderPayload {
   folderId: string | null;
 }
 
-export interface LoadIntegrationPayload {
+export interface LoadProjectPayload {
   id: string;
   name: string;
   folderId: string | null;
-  document: EditorDocument;
+  files: ProjectFile[];
+  /** The file to open; defaults to the first that holds a flow. */
+  activePath?: string;
+}
+
+export interface SwitchFilePayload {
+  path: string;
+}
+
+export interface CreateFilePayload {
+  path: string;
+}
+
+export interface RenameFilePayload {
+  from: string;
+  to: string;
+}
+
+export interface DeleteFilePayload {
+  path: string;
 }

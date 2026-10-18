@@ -8,8 +8,22 @@
 export {
   fromDefinitionYaml,
   toRunnableYaml,
-  toDefinitionYaml,
+  toFileYaml,
 } from "./app/model/runConfig";
+// A project — a folder of config files the runtime merges — as the editor reads and
+// writes it, so a headless host parses and serializes files the way the editor does.
+export {
+  parseProject,
+  projectView,
+  serializeProject,
+  serializeFile,
+  serviceFile,
+  mergeConfigFiles,
+  isConfigFileName,
+  byPath,
+  type ProjectFile,
+  type StoredFile,
+} from "./app/model/project";
 // The dolphin test-suite model: how a suite is named, read, written, and how a case
 // resolves against the file it lives in. Pure, so an MCP server can author a suite
 // without the React editor — and shared, because both hosts and every consumer must

@@ -12,13 +12,17 @@ import {
 function baseState(): EditorState {
   return {
     document: blankDocument(),
-    viewMode: "canvas",
+    viewMode: "flows",
+    flowsView: "canvas",
+    pendingNew: null,
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,
     selectedConnectionId: null,
     selectedComponentId: null,
-    integration: { id: null, name: "", folderId: null },
+    files: [],
+    activePath: "octo.yaml",
+    project: { id: null, name: "", folderId: null },
   };
 }
 

@@ -12,7 +12,9 @@ vi.mock("../state/editorState", () => ({
   useEditorState: () => ({
     state: {
       document: { connectors: [], flows: [], processors: [], env: [] },
-      integration: { id: undefined, name: "test" },
+      files: [],
+      activePath: "octo.yaml",
+      project: { id: undefined, name: "test" },
     },
     dispatch: () => {},
   }),

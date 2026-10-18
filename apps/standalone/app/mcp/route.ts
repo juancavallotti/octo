@@ -1,12 +1,14 @@
 import { createOctoMcpHandler, OCTO_MCP_VERSION } from "@octo/mcp";
-import { probeSchema } from "@octo/run-host";
+import { probeSchema, validate as validateWithRuntime } from "@octo/run-host";
 import {
   CAPABILITIES,
-  fromDefinitionYaml,
   issueMessages,
+  parseProject,
+  projectView,
   setCapabilities,
   validateDocument,
   type Capabilities,
+  type StoredFile,
 } from "@octo/editor/runtime";
 import { fsResourceProvider } from "../run/resources";
 import { localMcpRunHost } from "./run-host";
@@ -44,18 +46,34 @@ async function primeCapabilities(): Promise<unknown> {
   return schema;
 }
 
-/** Validate a stored definition with the editor's pre-flight (best-effort). */
-async function validate(
-  definition: string,
-): Promise<{ valid: boolean; errors: string[] }> {
+/**
+ * Validate an integration's files with the editor's pre-flight over the merged project,
+ * then — once that passes — with `octo validate`, which knows what the editor cannot: a
+ * type the binary does not register, a binding the merge resolves differently. With no
+ * runner to ask, the editor's verdict stands.
+ */
+async function validate(files: StoredFile[]): Promise<{ valid: boolean; errors: string[] }> {
   await primeCapabilities();
   try {
-    const result = validateDocument(fromDefinitionYaml(definition));
-    return { valid: result.ok, errors: issueMessages(result) };
+    const result = validateDocument(projectView(parseProject(files)));
+    if (!result.ok) return { valid: false, errors: issueMessages(result) };
   } catch (err) {
     return { valid: false, errors: [(err as Error).message] };
   }
+  const checked = await validateWithRuntime(MCP_VALIDATE_NS, files, { resources: fsResourceProvider });
+  if (!checked.ok) return { valid: true, errors: [] };
+  return {
+    valid: checked.valid,
+    errors: checked.issues.map((i) => (i.where ? `${i.where}: ${i.message}` : i.message)),
+  };
 }
+
+/**
+ * The run namespace validation stages into. Every check gets a folder of its own
+ * beneath it, so concurrent checks never share one; it only has to be a well-formed
+ * slug.
+ */
+const MCP_VALIDATE_NS = "mcpcheck";
 
 const handler = createOctoMcpHandler(
   {

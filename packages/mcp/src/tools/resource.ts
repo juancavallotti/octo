@@ -2,6 +2,7 @@ import { z } from "zod";
 import { parse as parseYaml } from "yaml";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OctoMcpConfig, ResourceRecord } from "../backend";
+import { definitionOf } from "../project";
 import { guard, jsonResult } from "../result";
 
 /**
@@ -32,7 +33,7 @@ export function registerResourceTools(
       guard(async () => {
         const rec = await store.get(id);
         const resources = resourceStore ? await resourceStore.list(id) : [];
-        return jsonResult(listEnvKeys(rec.definition, resources));
+        return jsonResult(listEnvKeys(definitionOf(rec), resources));
       }),
   );
 

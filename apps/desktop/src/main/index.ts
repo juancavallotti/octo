@@ -2,7 +2,7 @@ import { app, dialog, shell } from "electron";
 import { publish, reapOrphan, retract } from "./endpoint";
 import { registerIpc } from "./ipc";
 import { logPath, recent } from "./log";
-import { buildMenu } from "./menu";
+import { buildMenu, followEditorPage } from "./menu";
 import { choosePort, pinnedPort } from "./port";
 import { current, onServerCrash, start, stop } from "./server";
 import { openSettings } from "./settingsWindow";
@@ -41,7 +41,7 @@ async function reportStartFailure(err: unknown): Promise<void> {
 }
 
 async function boot(): Promise<void> {
-  createWindow();
+  followEditorPage(createWindow());
   const vault = initialVault();
 
   try {
@@ -116,6 +116,7 @@ if (!app.requestSingleInstanceLock()) {
     const server = current();
     if (!server) return void boot();
     const win = createWindow();
+    followEditorPage(win);
     confineTo(win, server.url);
     void win.loadURL(server.url);
   });

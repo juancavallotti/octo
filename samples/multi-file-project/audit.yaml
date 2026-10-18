@@ -1,0 +1,10 @@
+# The audit trail, callable by name from any flow in the project. Its logger is
+# the `audit-log` connection octo.yaml declares.
+flows:
+  - name: audit
+    process:
+      - type: log
+        name: write-it
+        settings:
+          logger: audit-log
+          message: '"order " + string(body.id) + " totals " + string(body.total) + " " + body.currency'

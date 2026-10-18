@@ -8,6 +8,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 const (
@@ -22,12 +24,13 @@ const (
 
 // Read parses a zip archive into a Bundle.
 //
-// A manifest is authoritative when present: it names the definition entry and
+// A manifest is authoritative when present: it lists the config entries and
 // states each resource's kind, so a bundle this orchestrator wrote round-trips
 // exactly. Without one — a hand-made zip, or a directory someone zipped up — the
-// layout is read instead: the single root-level YAML is the definition, every
-// other file is a resource, and its kind is guessed from its name. Name is empty
-// for a manifest-less archive; the caller supplies one.
+// layout is read instead, the way the runtime reads a directory: every root-level,
+// non-test YAML is a config file, every other file is a resource, and its kind is
+// guessed from its name. Name is empty for a manifest-less archive; the caller
+// supplies one.
 func Read(data []byte) (Bundle, error) {
 	files, err := readEntries(data)
 	if err != nil {
@@ -122,23 +125,34 @@ func safeEntryName(name string) error {
 
 // fromManifest builds the bundle the manifest describes. Every entry it names
 // must be present: a manifest that promises a file the archive does not carry
-// describes an integration that would import with a resource silently missing.
+// describes an integration that would import with a file silently missing.
 func fromManifest(doc string, files map[string]string) (Bundle, error) {
 	var m manifest
 	if err := json.Unmarshal([]byte(doc), &m); err != nil {
 		return Bundle{}, fmt.Errorf("%w: %s does not parse", ErrInvalid, manifestName)
 	}
-	if m.Version != manifestVersion {
-		return Bundle{}, fmt.Errorf("%w: unsupported bundle version %d (this install writes %d)",
-			ErrInvalid, m.Version, manifestVersion)
+	configs, err := manifestConfigs(m)
+	if err != nil {
+		return Bundle{}, err
 	}
-	definition, ok := files[m.Definition]
-	if !ok {
-		return Bundle{}, fmt.Errorf("%w: the manifest names %q as the definition, which the archive does not contain",
-			ErrInvalid, m.Definition)
+	// Refused for the reason a manifest-less archive without one is: it would import
+	// as an integration that does nothing and give no hint why.
+	if len(configs) == 0 {
+		return Bundle{}, fmt.Errorf("%w: the manifest lists no config file", ErrInvalid)
 	}
 
-	out := Bundle{Name: strings.TrimSpace(m.Name), Tag: m.Tag, Definition: definition}
+	out := Bundle{Name: strings.TrimSpace(m.Name), Tag: m.Tag}
+	for _, p := range configs {
+		content, ok := files[p]
+		if !ok {
+			return Bundle{}, fmt.Errorf("%w: the manifest lists config file %q, which the archive does not contain",
+				ErrInvalid, p)
+		}
+		if err := checkConfigPath(p); err != nil {
+			return Bundle{}, err
+		}
+		out.Configs = append(out.Configs, projectfile.File{Path: p, Content: content})
+	}
 	for _, e := range m.Resources {
 		content, ok := files[e.Name]
 		if !ok {
@@ -153,47 +167,54 @@ func fromManifest(doc string, files map[string]string) (Bundle, error) {
 	return out, nil
 }
 
-// fromLayout reads an archive that carries no manifest, inferring the roles from
-// the file layout: the one root-level YAML is the definition and everything else
-// is a resource. Zero or several candidates is ambiguous, and guessing which
-// document is the integration is exactly the kind of guess that imports the wrong
-// thing without saying so.
-func fromLayout(files map[string]string) (Bundle, error) {
-	var candidates []string
-	for name := range files {
-		if isRootYAML(name) {
-			candidates = append(candidates, name)
-		}
+// manifestConfigs returns the config entries a manifest names, in the form its
+// version writes them.
+func manifestConfigs(m manifest) ([]string, error) {
+	switch m.Version {
+	case manifestVersion:
+		return m.Configs, nil
+	case singleDefinitionVersion:
+		return []string{m.Definition}, nil
+	default:
+		return nil, fmt.Errorf("%w: unsupported bundle version %d (this install writes %d)",
+			ErrInvalid, m.Version, manifestVersion)
 	}
-	sort.Strings(candidates)
-	if len(candidates) != 1 {
-		return Bundle{}, fmt.Errorf(
-			"%w: expected exactly one .yaml at the archive root to be the definition, found %d",
-			ErrInvalid, len(candidates))
-	}
-	definitionName := candidates[0]
+}
 
-	out := Bundle{Definition: files[definitionName]}
+// fromLayout reads an archive that carries no manifest, inferring the roles from
+// the file layout the way the runtime loads a directory: each root-level, non-test
+// YAML is a config file and everything else is a resource. An archive with no
+// config file at all is refused, since importing one would produce an integration
+// that does nothing and give no hint why.
+func fromLayout(files map[string]string) (Bundle, error) {
 	names := make([]string, 0, len(files))
 	for name := range files {
-		if name != definitionName {
-			names = append(names, name)
-		}
+		names = append(names, name)
 	}
 	sort.Strings(names)
+
+	var out Bundle
 	for _, name := range names {
+		if projectfile.Classify(name) == projectfile.RoleConfig {
+			out.Configs = append(out.Configs, projectfile.File{Path: name, Content: files[name]})
+			continue
+		}
 		out.Resources = append(out.Resources, File{Kind: guessKind(name), Name: name, Content: files[name]})
+	}
+	if len(out.Configs) == 0 {
+		return Bundle{}, fmt.Errorf("%w: expected at least one .yaml config file at the archive root", ErrInvalid)
 	}
 	return out, nil
 }
 
-// isRootYAML reports whether an entry is a YAML document directly at the archive
-// root. Nested YAML is a resource (a template can be YAML), so only the root is
-// considered.
-func isRootYAML(name string) bool {
-	if strings.Contains(name, "/") {
-		return false
+// checkConfigPath rejects a config entry that would escape on extraction or that
+// the runtime would not load as config.
+func checkConfigPath(p string) error {
+	if err := safeEntryName(p); err != nil {
+		return err
 	}
-	lower := strings.ToLower(name)
-	return strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")
+	if role := projectfile.Classify(p); role != projectfile.RoleConfig {
+		return fmt.Errorf("%w: %q is listed as a config file but would be a %s file", ErrInvalid, p, role)
+	}
+	return nil
 }

@@ -5,6 +5,7 @@
  * a transport only moves bytes.
  */
 
+import type { StoredFile } from "../model/project";
 import type { ObservedAtAddress, TestRunOutcome, TestRunRequest } from "./testTransport";
 
 // The Testing tab's types are part of this contract, so they are re-exported here.
@@ -250,4 +251,19 @@ export interface RunTransport {
    * the verdict.
    */
   test(req: TestRunRequest): Promise<TestRunOutcome>;
+  /**
+   * Check the project's files the way the runtime loads them (`octo validate`): every
+   * name a file references resolves somewhere in the project, every type is
+   * registered. Optional — without it the editor's own checks are all there is.
+   * Resolves with the problems found, empty when there are none; rejects when the
+   * check could not be made.
+   */
+  validate?(req: RunTarget & { files: StoredFile[] }): Promise<RuntimeIssue[]>;
+}
+
+/** One problem the runtime found in a project. Mirrors run-host's `ValidationIssue`. */
+export interface RuntimeIssue {
+  /** The block address, flow, or connection it sits on; absent for the whole project. */
+  where?: string;
+  message: string;
 }

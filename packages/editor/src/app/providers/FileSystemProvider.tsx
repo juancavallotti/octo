@@ -1,33 +1,48 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import type { StoredFile } from "../model/project";
+
+export type { StoredFile };
 
 /**
- * The editor's load/save capability, decoupled from where documents live. The
- * platform backs it with the orchestrator (via the BFF); a standalone app backs
- * it with the local disk. Editor components read it through `useFileSystem()`;
- * when it is null the load/save controls render nothing. Folder organization is
- * an optional sub-capability — absent it, the folder picker hides.
+ * The editor's load/save capability, decoupled from where projects live. The
+ * platform backs it with the orchestrator (via the BFF); a standalone app backs it
+ * with a folder on the local disk. Editor components read it through
+ * `useFileSystem()`; when it is null the load/save controls render nothing. Folder
+ * organization is an optional sub-capability — absent it, the folder picker hides.
+ *
+ * The unit is a project: a set of config files the runtime merges into one
+ * application. A host loads all of them and saves all of them, so a change that
+ * spans files — a flow moved from one to another — lands as one write and never
+ * passes through a state the runtime would refuse.
  */
 
-/** A stored document: a named flow definition (runtime YAML) plus bookkeeping. */
-export interface StoredDocument {
-  /** Platform: the integration id. Standalone: the file path. */
+/** A stored project: its config files plus bookkeeping. */
+export interface StoredProject {
+  /** Platform: the integration id. Standalone: the project folder's id. */
   id: string;
   name: string;
-  /** The flow definition, as the runtime YAML the editor serializes. */
-  definition: string;
-  /** Owning folder, when the backend organizes documents into folders. */
+  /** Every config file, as the runtime YAML the editor serializes. */
+  files: StoredFile[];
+  /** Owning folder, when the backend organizes projects into folders. */
   folderId?: string | null;
   /** RFC3339 timestamp of the last update, when known. */
   lastUpdated?: string;
 }
 
-/** Body for creating/updating a document. */
+/** A project as a listing shows it, without its files. */
+export type ProjectSummary = Omit<StoredProject, "files">;
+
+/** Body for creating/updating a project. */
 export interface SaveInput {
   name: string;
-  definition: string;
-  /** Folder to file a newly created document under, when supported. */
+  /**
+   * The project's whole set of config files. A file the project had that is not
+   * here is removed.
+   */
+  files: StoredFile[];
+  /** Folder to file a newly created project under, when supported. */
   folderId?: string | null;
 }
 
@@ -43,28 +58,27 @@ export interface FolderNode {
 export interface FolderCapability {
   /** The folder tree. */
   list(): Promise<FolderNode[]>;
-  /** File a document under a folder (single-membership: replaces any prior). */
-  assign(folderId: string, documentId: string): Promise<void>;
-  /** Remove a document from a folder. */
-  unassign(folderId: string, documentId: string): Promise<void>;
+  /** File a project under a folder (single-membership: replaces any prior). */
+  assign(folderId: string, projectId: string): Promise<void>;
+  /** Remove a project from a folder. */
+  unassign(folderId: string, projectId: string): Promise<void>;
 }
 
-/** What the editor needs to load and persist documents. */
+/** What the editor needs to load and persist projects. */
 export interface FileSystemCapability {
   /**
    * Why this backend will not accept a save, when it will not — a sentence for
    * the control that offers one. Absent means writable.
    *
-   * Documents still load and read: a backend that declines writes is not the
-   * same as no capability at all, which hides the load and save controls
-   * together.
+   * Projects still load and read: a backend that declines writes is not the same
+   * as no capability at all, which hides the load and save controls together.
    */
   readOnly?: string;
-  load(id: string): Promise<StoredDocument>;
-  /** Create when `id` is null, update otherwise; returns the stored record. */
-  save(id: string | null, input: SaveInput): Promise<StoredDocument>;
-  /** List stored documents, when the backend supports browsing. */
-  list?(): Promise<StoredDocument[]>;
+  load(id: string): Promise<StoredProject>;
+  /** Create when `id` is null, update otherwise; returns the stored project. */
+  save(id: string | null, input: SaveInput): Promise<StoredProject>;
+  /** List stored projects, when the backend supports browsing. */
+  list?(): Promise<ProjectSummary[]>;
   /** Folder organization, when supported. */
   folders?: FolderCapability;
 }

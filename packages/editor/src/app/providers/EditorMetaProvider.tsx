@@ -12,6 +12,7 @@ import {
 } from "react";
 import { newId } from "../model/document";
 import { useEditorState } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
 import { fileMetaFor, parseEditorMeta, serializeEditorMeta, withFileMeta } from "../meta/parse";
 import { byFlow, mergeObserved, pruneObserved } from "../meta/observed";
 import { blockIdAddresses } from "../run/address";
@@ -118,8 +119,9 @@ export function EditorMetaProvider({
   children: ReactNode;
 }) {
   const { state } = useEditorState();
-  const doc = state.document;
-  const documentKey = state.integration.id;
+  // Entries are per project and keyed by flow name, so every file's flows are here.
+  const doc = useProjectView();
+  const documentKey = state.project.id;
 
   const [meta, setMeta] = useState<EditorMeta>(emptyMeta);
   // The names the flows had when we last looked, so a rename can be detected by the id

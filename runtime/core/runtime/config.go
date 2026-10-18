@@ -20,18 +20,40 @@ import (
 // IsTestFile.
 const TestFileSuffix = "_test"
 
+// LoadOption adjusts how LoadConfig resolves a config.
+type LoadOption func(*loadOptions)
+
+type loadOptions struct {
+	// unsetEnv, when set, makes a declared variable nothing supplied resolve to the
+	// empty string instead of failing the load, and receives each required one.
+	unsetEnv func(name string)
+}
+
+// WithUnsetEnv makes a declared environment variable that nothing supplies — not
+// the OS, a .env file, an env resource or a default — resolve to the empty string
+// instead of failing the load, and reports each required one to report: those are
+// the ones a run would refuse. It is for checking a config's shape where its
+// secrets are not available, as `octo validate` does, and never for running one.
+func WithUnsetEnv(report func(name string)) LoadOption {
+	return func(o *loadOptions) { o.unsetEnv = report }
+}
+
 // LoadConfig reads and parses the runtime config at path. When path is a
 // directory, every *.yaml/*.yml file in it is parsed and merged into one config
 // (see MergeConfigs), skipping test files (see IsTestFile); otherwise the single
 // file is parsed. loader supplies the declared env resources (resources.env)
 // combined into the environment.
-func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
+func LoadConfig(path string, loader core.ResourceLoader, opts ...LoadOption) (types.Config, error) {
+	var o loadOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return types.Config{}, fmt.Errorf("stat config path %q: %w", path, err)
 	}
 
-	var docs []*yaml.Node
+	var docs []document
 	if info.IsDir() {
 		docs, err = loadDir(path)
 	} else {
@@ -41,7 +63,7 @@ func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 		return types.Config{}, err
 	}
 
-	cfg, err := resolveDocuments(docs, loader)
+	cfg, err := resolveDocuments(docs, loader, o)
 	if err != nil {
 		return types.Config{}, err
 	}
@@ -62,7 +84,15 @@ func ParseConfig(data []byte) (types.Config, error) {
 	}
 	// The byte-parse entrypoint has no config directory, so declared env resources
 	// cannot be resolved; the no-op loader reports them missing (which is skipped).
-	return resolveDocuments([]*yaml.Node{doc}, core.NoopResourceLoader{})
+	return resolveDocuments([]document{{node: doc}}, core.NoopResourceLoader{}, loadOptions{})
+}
+
+// document is one parsed config file, kept with the path it came from so a merge
+// collision can name both files. The path is empty when the config was parsed from
+// bytes.
+type document struct {
+	path string
+	node *yaml.Node
 }
 
 // resolveDocuments turns parsed config documents into one typed, fully resolved
@@ -75,26 +105,26 @@ func ParseConfig(data []byte) (types.Config, error) {
 // a settings value. And declarations are gathered across every document first, so
 // a variable declared in one file still serves a reference in another, exactly as
 // it did when the merge came first.
-func resolveDocuments(docs []*yaml.Node, loader core.ResourceLoader) (types.Config, error) {
+func resolveDocuments(docs []document, loader core.ResourceLoader, o loadOptions) (types.Config, error) {
 	decls, err := mergeEnvDecls(docs)
 	if err != nil {
 		return types.Config{}, err
 	}
-	resolved, declared, err := resolveDeclared(decls, loader)
+	resolved, declared, err := resolveDeclared(decls, loader, o)
 	if err != nil {
 		return types.Config{}, err
 	}
 
-	configs := make([]types.Config, 0, len(docs))
+	configs := make([]ConfigFile, 0, len(docs))
 	for _, doc := range docs {
-		if err := substituteDocument(doc, resolved, declared); err != nil {
+		if err := substituteDocument(doc.node, resolved, declared); err != nil {
 			return types.Config{}, err
 		}
-		cfg, decodeErr := dsl.Decode(doc)
+		cfg, decodeErr := dsl.Decode(doc.node)
 		if decodeErr != nil {
 			return types.Config{}, decodeErr
 		}
-		configs = append(configs, cfg)
+		configs = append(configs, ConfigFile{Path: doc.path, Config: cfg})
 	}
 
 	cfg, err := MergeConfigs(configs)
@@ -108,8 +138,8 @@ func resolveDocuments(docs []*yaml.Node, loader core.ResourceLoader) (types.Conf
 	return cfg, nil
 }
 
-// loadOne parses a single config file into its document node.
-func loadOne(path string) ([]*yaml.Node, error) {
+// loadOne parses a single config file into its document.
+func loadOne(path string) ([]document, error) {
 	data, err := dsl.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -118,12 +148,12 @@ func loadOne(path string) ([]*yaml.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []*yaml.Node{doc}, nil
+	return []document{{path: filepath.Base(path), node: doc}}, nil
 }
 
 // loadDir parses every YAML config file in dir, skipping test files. Files are
 // parsed in lexical order so duplicate-name errors are deterministic.
-func loadDir(dir string) ([]*yaml.Node, error) {
+func loadDir(dir string) ([]document, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read config dir %q: %w", dir, err)
@@ -141,7 +171,7 @@ func loadDir(dir string) ([]*yaml.Node, error) {
 	}
 	sort.Strings(paths)
 
-	docs := make([]*yaml.Node, 0, len(paths))
+	docs := make([]document, 0, len(paths))
 	for _, p := range paths {
 		doc, loadErr := loadOne(p)
 		if loadErr != nil {
@@ -156,16 +186,16 @@ func loadDir(dir string) ([]*yaml.Node, error) {
 // ahead of substitution. Duplicate variable declarations across files are allowed
 // and the first wins, matching how the decoded merge treats them; env resources
 // keep first-seen order so the combined load order stays deterministic.
-func mergeEnvDecls(docs []*yaml.Node) (envDecls, error) {
+func mergeEnvDecls(docs []document) (envDecls, error) {
 	var merged envDecls
 	seenVar := make(map[string]struct{})
 	seenRes := make(map[string]struct{})
 	for _, doc := range docs {
-		if doc == nil || doc.Kind == 0 {
+		if doc.node == nil || doc.node.Kind == 0 {
 			continue
 		}
 		var decls envDecls
-		if err := doc.Decode(&decls); err != nil {
+		if err := doc.node.Decode(&decls); err != nil {
 			return envDecls{}, fmt.Errorf("parse config: %w", err)
 		}
 		for _, v := range decls.Env {
@@ -213,37 +243,45 @@ func IsTestFile(name string) bool {
 	return strings.HasSuffix(base, TestFileSuffix)
 }
 
+// ConfigFile is one parsed config and the file it came from. Path names the file
+// in a collision error; it may be empty for a config that never was a file.
+type ConfigFile struct {
+	Path   string
+	Config types.Config
+}
+
 // MergeConfigs combines multiple parsed configs into one: it concatenates
 // connectors, processors, and flows, rejecting duplicate names so every
 // connector, processor, and flow stays uniquely addressable. The service
 // identity may be declared in at most one file.
-func MergeConfigs(configs []types.Config) (types.Config, error) {
+func MergeConfigs(files []ConfigFile) (types.Config, error) {
 	m := newConfigMerger()
-	for _, cfg := range configs {
-		if err := m.add(cfg); err != nil {
+	for _, file := range files {
+		if err := m.add(file); err != nil {
 			return types.Config{}, err
 		}
 	}
 	return m.merged, nil
 }
 
-// configMerger accumulates configs while enforcing unique names per kind.
+// configMerger accumulates configs while enforcing unique names per kind. Each
+// claimed name remembers the file that claimed it, so a collision names both.
 type configMerger struct {
-	merged     types.Config
-	serviceSet bool
-	connectors map[string]struct{}
-	processors map[string]struct{}
-	flows      map[string]struct{}
-	env        map[string]struct{}
-	envRes     map[string]struct{}
-	tplRes     map[string]struct{}
+	merged      types.Config
+	serviceFile *string
+	connectors  map[string]string
+	processors  map[string]string
+	flows       map[string]string
+	env         map[string]struct{}
+	envRes      map[string]struct{}
+	tplRes      map[string]struct{}
 }
 
 func newConfigMerger() *configMerger {
 	return &configMerger{
-		connectors: make(map[string]struct{}),
-		processors: make(map[string]struct{}),
-		flows:      make(map[string]struct{}),
+		connectors: make(map[string]string),
+		processors: make(map[string]string),
+		flows:      make(map[string]string),
 		env:        make(map[string]struct{}),
 		envRes:     make(map[string]struct{}),
 		tplRes:     make(map[string]struct{}),
@@ -252,27 +290,28 @@ func newConfigMerger() *configMerger {
 
 // add folds one config into the merge, rejecting duplicate names and a second
 // service declaration.
-func (m *configMerger) add(cfg types.Config) error {
-	if err := m.addService(cfg.Service); err != nil {
+func (m *configMerger) add(file ConfigFile) error {
+	cfg := file.Config
+	if err := m.addService(cfg.Service, file.Path); err != nil {
 		return err
 	}
 	m.addEnv(cfg.Env)
 	m.addResources(cfg.Resources)
 	for _, c := range cfg.Connectors {
-		if err := claimName(m.connectors, c.Name, "connector"); err != nil {
+		if err := claimName(m.connectors, c.Name, "connector", file.Path); err != nil {
 			return err
 		}
 		m.merged.Connectors = append(m.merged.Connectors, c)
 	}
 	for _, p := range cfg.Processors {
-		if err := claimName(m.processors, p.Name, "processor"); err != nil {
+		if err := claimName(m.processors, p.Name, "processor", file.Path); err != nil {
 			return err
 		}
 		m.merged.Processors = append(m.merged.Processors, p)
 	}
 	for _, f := range cfg.Flows {
 		if f.Name != "" {
-			if err := claimName(m.flows, f.Name, "flow"); err != nil {
+			if err := claimName(m.flows, f.Name, "flow", file.Path); err != nil {
 				return err
 			}
 		}
@@ -321,24 +360,37 @@ func (m *configMerger) addResources(res types.ResourcesConfig) {
 }
 
 // addService records the service identity, rejecting a second declaration.
-func (m *configMerger) addService(svc types.ServiceConfig) error {
+func (m *configMerger) addService(svc types.ServiceConfig, path string) error {
 	if svc == (types.ServiceConfig{}) {
 		return nil
 	}
-	if m.serviceSet {
-		return fmt.Errorf("service identity is declared in more than one config file")
+	if m.serviceFile != nil {
+		return fmt.Errorf("service identity is declared %s", whereTwice(*m.serviceFile, path))
 	}
 	m.merged.Service = svc
-	m.serviceSet = true
+	m.serviceFile = &path
 	return nil
 }
 
-// claimName records name in seen, erroring if it was already present. kind labels
-// the error.
-func claimName(seen map[string]struct{}, name, kind string) error {
-	if _, dup := seen[name]; dup {
-		return fmt.Errorf("%s %q is defined more than once", kind, name)
+// claimName records which file claimed name, erroring if one already had. kind
+// labels the error.
+func claimName(seen map[string]string, name, kind, path string) error {
+	if first, dup := seen[name]; dup {
+		return fmt.Errorf("%s %q is defined %s", kind, name, whereTwice(first, path))
 	}
-	seen[name] = struct{}{}
+	seen[name] = path
 	return nil
+}
+
+// whereTwice says where a second declaration collided with the first, naming the
+// files when they are known.
+func whereTwice(first, second string) string {
+	switch {
+	case first == "" || second == "":
+		return "more than once"
+	case first == second:
+		return fmt.Sprintf("more than once in %s", first)
+	default:
+		return fmt.Sprintf("in both %s and %s", first, second)
+	}
 }

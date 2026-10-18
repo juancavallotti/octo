@@ -378,7 +378,7 @@ func invokeFlow(ctx context.Context, req invokeRequest) (*types.Message, error) 
 	}
 	defer func() {
 		cancel()
-		<-done
+		awaitStopped(done)
 	}()
 
 	msg, err := buildMessage(req.body, req.vars, req.contentType)
@@ -408,7 +408,7 @@ func awaitReady(ctx context.Context, service *runtime.Service, done <-chan error
 		}
 		return false, errors.New("service stopped before the flow could be invoked")
 	case <-ctx.Done():
-		<-done
+		awaitStopped(done)
 		return false, nil
 	}
 }
@@ -479,4 +479,12 @@ func resolveData(data string) ([]byte, error) {
 		return nil, errors.New("stdin is not valid JSON")
 	}
 	return raw, nil
+}
+
+// awaitStopped waits for a cancelled service to finish stopping, and logs the error
+// it stopped with unless that is the cancellation itself.
+func awaitStopped(done <-chan error) {
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+		slog.Warn("service stopped with error", "error", err)
+	}
 }

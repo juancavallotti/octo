@@ -1,13 +1,15 @@
 import { withMcpAuth } from "mcp-handler";
 import { createOctoMcpHandler, OCTO_MCP_VERSION } from "@octo/mcp";
-import { probeSchema } from "@octo/run-host";
+import { probeSchema, validate as validateWithRuntime } from "@octo/run-host";
 import {
   CAPABILITIES,
-  fromDefinitionYaml,
   issueMessages,
+  parseProject,
+  projectView,
   setCapabilities,
   validateDocument,
   type Capabilities,
+  type StoredFile,
 } from "@octo/editor/runtime";
 import { orchestratorResourceProvider } from "@/app/lib/runResources";
 import {
@@ -61,18 +63,41 @@ async function primeCapabilities(): Promise<unknown> {
   return schema;
 }
 
-/** Validate a stored definition with the editor's pre-flight (best-effort). */
+/**
+ * Validate an integration's files with the editor's pre-flight over the merged project,
+ * then — once that passes, for a saved integration — with `octo validate`, which knows
+ * what the editor cannot. A draft is not asked of the runtime: the resources its files
+ * declare live with a saved integration, and loading it without them would report every
+ * declared template missing.
+ */
 async function validate(
-  definition: string,
+  files: StoredFile[],
+  integrationId?: string,
 ): Promise<{ valid: boolean; errors: string[] }> {
   await primeCapabilities();
   try {
-    const result = validateDocument(fromDefinitionYaml(definition));
-    return { valid: result.ok, errors: issueMessages(result) };
+    const result = validateDocument(projectView(parseProject(files)));
+    if (!result.ok) return { valid: false, errors: issueMessages(result) };
   } catch (err) {
     return { valid: false, errors: [(err as Error).message] };
   }
+  if (!integrationId) return { valid: true, errors: [] };
+  const checked = await validateWithRuntime(MCP_VALIDATE_NS, files, {
+    resources: orchestratorResourceProvider(integrationId),
+  });
+  if (!checked.ok) return { valid: true, errors: [] };
+  return {
+    valid: checked.valid,
+    errors: checked.issues.map((i) => (i.where ? `${i.where}: ${i.message}` : i.message)),
+  };
 }
+
+/**
+ * The run namespace validation stages into. Every check gets a folder of its own
+ * beneath it, so concurrent checks never share one; it only has to be a well-formed
+ * slug.
+ */
+const MCP_VALIDATE_NS = "mcpcheck";
 
 const handler = createOctoMcpHandler(
   {

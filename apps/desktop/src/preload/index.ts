@@ -3,8 +3,9 @@ import { contextBridge, ipcRenderer } from "electron";
 /**
  * The only channel between the page and the shell. Everything here is a request to
  * the shell about the shell — which folder is open, which were open before, what the
- * MCP URL is. Nothing here reaches the folder's contents; the page already has the
- * server it was loaded from for that.
+ * MCP URL is — or the shell's menu asking the page to act, which the page carries out
+ * itself. Nothing here reaches the folder's contents; the page already has the server
+ * it was loaded from for that.
  */
 
 /** How the person using the editor has said it should behave. Set in Settings. */
@@ -48,6 +49,13 @@ export interface OctoDesktopBridge {
   onUpdateStatus(listener: (status: UpdateStatusView) => void): () => void;
   /** Ask the shell to quit into the downloaded update. */
   installUpdate(): Promise<void>;
+  /** Hear a menu item asking the editor to carry out a command. Returns the unsubscribe. */
+  onMenuCommand(listener: (command: string) => void): () => void;
+  /**
+   * Tell the shell what the editor can do right now, which its menu then shows. Null
+   * when the page stops reporting.
+   */
+  reportMenuStatus(status: unknown): Promise<void>;
 }
 
 const bridge: OctoDesktopBridge = {
@@ -73,6 +81,12 @@ const bridge: OctoDesktopBridge = {
     return () => ipcRenderer.off("octo:update:changed", handler);
   },
   installUpdate: () => ipcRenderer.invoke("octo:update:install"),
+  onMenuCommand: (listener) => {
+    const handler = (_event: unknown, command: string) => listener(command);
+    ipcRenderer.on("octo:menu:command", handler);
+    return () => ipcRenderer.off("octo:menu:command", handler);
+  },
+  reportMenuStatus: (status) => ipcRenderer.invoke("octo:menu:status", status),
 };
 
 contextBridge.exposeInMainWorld("octoDesktop", bridge);

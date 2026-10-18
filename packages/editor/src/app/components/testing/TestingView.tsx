@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, Plus } from "lucide-react";
-import { useEditorState } from "../../state/editorState";
+import { useProjectView } from "../../state/useProject";
+import { EditorActionType, useEditorState } from "../../state/editorState";
 import { useTestSuites } from "../../providers/TestSuiteProvider";
 import { parseSuite } from "../../suite/parse";
 import { suiteFileName } from "../../suite/naming";
@@ -12,7 +13,7 @@ import EmptyState from "./EmptyState";
 import { scaffoldSuite } from "./scaffold";
 
 /**
- * The Testing tab: the dolphin suites for this document's flows, and a YAML editor for
+ * The Testing tab: the dolphin suites for the project's flows, and a YAML editor for
  * the selected one.
  *
  * Three states that look similar and are not, so each says which it is:
@@ -32,7 +33,8 @@ import { scaffoldSuite } from "./scaffold";
  * opened.
  */
 export default function TestingView() {
-  const { state } = useEditorState();
+  // Suites address flows and blocks by name, and names span every file.
+  const project = useProjectView();
   const suites = useTestSuites();
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -41,10 +43,24 @@ export default function TestingView() {
   // output — and navigating is not a reason to destroy it. The clear button is.
   const select = (flow: string) => setSelected(flow);
 
+  // A "new suite" asked for from outside (a host's menu): open the current flow's
+  // suite, starting one when it has none. Waits for the suites to load, since before
+  // then every flow looks untested and a starter would overwrite a real suite.
+  const { state, dispatch } = useEditorState();
+  const pending = state.pendingNew;
+  useEffect(() => {
+    if (pending?.kind !== "suite" || !suites?.loaded) return;
+    dispatch({ type: EditorActionType.CONSUME_NEW_ITEM });
+    const flow = pending.flow;
+    if (!flow || !suites.canPersist) return;
+    if (suites.suiteFor(flow) === undefined) suites.setSuite(flow, scaffoldSuite(flow));
+    setSelected(flow);
+  }, [pending, suites, dispatch]);
+
   // Top-level flows only: those are what `octo invoke` — and so a suite — addresses.
   const flowNames = useMemo(
-    () => state.document.flows.map((f) => f.name).filter(Boolean),
-    [state.document.flows],
+    () => project.flows.map((f) => f.name).filter(Boolean),
+    [project.flows],
   );
 
   const rows = useMemo<RailFlow[]>(

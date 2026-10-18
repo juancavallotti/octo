@@ -50,7 +50,7 @@ func tokenDecls() envDecls {
 func TestResolveDeclaredCombinesResources(t *testing.T) {
 	unsetEnv(t, "TOKEN")
 	loader := fakeEnvLoader{".env.dev": []byte("TOKEN=abc")}
-	resolved, _, err := resolveDeclared(tokenDecls(), loader)
+	resolved, _, err := resolveDeclared(tokenDecls(), loader, loadOptions{})
 	if err != nil {
 		t.Fatalf("resolveDeclared: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestResolveDeclaredCombinesResources(t *testing.T) {
 func TestResolveDeclaredResourceLosesToOSEnv(t *testing.T) {
 	t.Setenv("TOKEN", "from-os")
 	loader := fakeEnvLoader{".env.dev": []byte("TOKEN=from-resource")}
-	resolved, _, err := resolveDeclared(tokenDecls(), loader)
+	resolved, _, err := resolveDeclared(tokenDecls(), loader, loadOptions{})
 	if err != nil {
 		t.Fatalf("resolveDeclared: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestResolveDeclaredMissingResourceSkipped(t *testing.T) {
 	t.Setenv("TOKEN", "from-os")
 	// The declared resource does not exist: it is skipped, not an error, and TOKEN
 	// still resolves from the OS environment.
-	resolved, _, err := resolveDeclared(tokenDecls(), fakeEnvLoader{})
+	resolved, _, err := resolveDeclared(tokenDecls(), fakeEnvLoader{}, loadOptions{})
 	if err != nil {
 		t.Fatalf("resolveDeclared with missing resource: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestResolveDeclaredRequiredMissingStillCrashes(t *testing.T) {
 	unsetEnv(t, "TOKEN")
 	// The resource is missing and TOKEN is supplied nowhere else: the required
 	// variable is genuinely unset, so resolveDeclared must fail.
-	if _, _, err := resolveDeclared(tokenDecls(), fakeEnvLoader{}); err == nil {
+	if _, _, err := resolveDeclared(tokenDecls(), fakeEnvLoader{}, loadOptions{}); err == nil {
 		t.Fatal("expected resolveDeclared to fail for an unset required variable")
 	}
 }
@@ -98,7 +98,7 @@ func TestResolveDeclaredUnparseableResourceFallsBack(t *testing.T) {
 	// A malformed env resource is warned and skipped (not fatal); TOKEN falls back
 	// to the OS environment.
 	loader := fakeEnvLoader{".env.dev": []byte("this is : not = valid env\n=bad")}
-	resolved, _, err := resolveDeclared(tokenDecls(), loader)
+	resolved, _, err := resolveDeclared(tokenDecls(), loader, loadOptions{})
 	if err != nil {
 		t.Fatalf("resolveDeclared with unparseable resource: %v", err)
 	}

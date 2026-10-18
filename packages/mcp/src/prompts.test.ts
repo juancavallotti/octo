@@ -10,9 +10,9 @@ async function connect(over: Partial<OctoMcpConfig> = {}): Promise<Client> {
   const config: OctoMcpConfig = {
     store: {
       list: async () => [],
-      get: async () => ({ id: "", name: "", definition: "" }),
-      create: async () => ({ id: "", name: "", definition: "" }),
-      update: async () => ({ id: "", name: "", definition: "" }),
+      get: async () => ({ id: "", name: "", files: [] }),
+      create: async () => ({ id: "", name: "", files: [] }),
+      update: async () => ({ id: "", name: "", files: [] }),
     },
     validate: () => ({ valid: true, errors: [] }),
     runtimeSchema: {},

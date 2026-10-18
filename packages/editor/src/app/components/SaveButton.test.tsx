@@ -11,8 +11,8 @@ import { SaveProvider } from "../save/SaveContext";
 // A fake capability injected via context — no module mocking needed, which is
 // the point of the FileSystemProvider seam.
 const fakeFs: FileSystemCapability = {
-  load: async () => ({ id: "x", name: "n", definition: "" }),
-  save: async () => ({ id: "x", name: "n", definition: "" }),
+  load: async () => ({ id: "x", name: "n", files: [] }),
+  save: async () => ({ id: "x", name: "n", files: [] }),
 };
 
 function renderWith(value: FileSystemCapability | null) {

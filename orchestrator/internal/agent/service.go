@@ -14,6 +14,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/llm"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
@@ -32,7 +33,8 @@ type (
 		Create(ctx context.Context, name, definition, actorID string) (integration.Integration, error)
 		Get(ctx context.Context, id string) (integration.Integration, error)
 		List(ctx context.Context) ([]integration.Integration, error)
-		Update(ctx context.Context, id, name, definition, actorID string) (integration.Integration, error)
+		Update(ctx context.Context, id, name, actorID string) (integration.Integration, error)
+		ReplaceFiles(ctx context.Context, id string, files []projectfile.File, actorID string) error
 		Delete(ctx context.Context, id string) error
 	}
 
@@ -836,15 +838,20 @@ func (s *Service) deploymentExists(ctx context.Context, deploymentID string) (bo
 	}
 }
 
-// republish writes the bundle's definition and skills over the integration. This is
-// what "rolling out replaces local edits" means, and it is only ever called from a
-// roll-out — an install must not overwrite a definition on a retry.
+// republish writes the bundle's name, definition and skills over the integration,
+// the definition as its only config file. This is what "rolling out replaces local
+// edits" means, and it is only ever called from a roll-out — an install must not
+// overwrite a definition on a retry.
 func (s *Service) republish(ctx context.Context, integrationID, actorID string) error {
 	definition, err := agentapp.Definition()
 	if err != nil {
 		return err
 	}
-	if _, err := s.integrations.Update(ctx, integrationID, agentapp.Name, definition, actorID); err != nil {
+	if _, err := s.integrations.Update(ctx, integrationID, agentapp.Name, actorID); err != nil {
+		return err
+	}
+	files := []projectfile.File{{Path: integration.DefaultConfigPath, Content: definition}}
+	if err := s.integrations.ReplaceFiles(ctx, integrationID, files, actorID); err != nil {
 		return err
 	}
 	return s.syncResources(ctx, integrationID, actorID)

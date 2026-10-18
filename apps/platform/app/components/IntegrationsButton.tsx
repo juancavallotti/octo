@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { LayoutGrid } from "lucide-react";
+import { HEADER_LABEL } from "@octo/editor";
 
 /**
  * Editor-header button that opens the integration management route. It says
@@ -33,7 +34,7 @@ export default function IntegrationsButton({
       className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-3 py-1 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/[0.04] hover:text-zinc-900 dark:border-white/15 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
     >
       <LayoutGrid className="h-3.5 w-3.5" />
-      Manage
+      <span className={HEADER_LABEL}>Manage</span>
     </button>
   );
 }

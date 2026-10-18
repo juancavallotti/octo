@@ -5,6 +5,7 @@ import { fromDefinitionYaml } from "@octo/editor";
 import {
   createIntegration,
   deleteIntegration,
+  duplicateIntegration,
   exportBundle,
   exportSnapshotBundle,
   importBundle,
@@ -125,31 +126,24 @@ export function useIntegrationActions({
     });
   };
 
-  // Duplicate the selected integration into a fresh "Copy of …" record, then
-  // select the copy. Its definition is already loaded in the list, so no fetch.
+  // Duplicate the selected integration — its config files and resources — into a fresh
+  // "Copy of …" record, then select the copy.
   const copySelected = () => {
     if (!selected) return;
     run(async () => {
-      const created = await createIntegration({
-        name: `Copy of ${selected.name}`,
-        definition: selected.definition,
-      });
+      const created = await duplicateIntegration(selected.id, `Copy of ${selected.name}`);
       selectIntegration(created.id);
     });
   };
 
-  // Rename the selected integration (its name is effectively its filename),
-  // preserving the definition. Returns whether it succeeded; failures also
-  // surface in the inline error banner.
+  // Rename the selected integration, leaving its files as they are. Returns whether
+  // it succeeded; failures also surface in the inline error banner.
   const renameSelected = async (name: string): Promise<boolean> => {
     if (!selected) return false;
     setBusy(true);
     setError(null);
     try {
-      await updateIntegration(selected.id, {
-        name,
-        definition: selected.definition,
-      });
+      await updateIntegration(selected.id, { name });
       await refresh();
       return true;
     } catch (e) {

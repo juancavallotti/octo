@@ -43,7 +43,7 @@ async function openSettings(content: string) {
           document: { ...blankDocument(), flows: [{ ...emptyFlow(), name: "orders" }] },
         },
       });
-      dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "one" } });
+      dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: "one" } });
     }, [dispatch]);
     return <>{children}</>;
   }

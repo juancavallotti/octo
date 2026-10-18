@@ -1,13 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useTestSuites } from "../providers/TestSuiteProvider";
-import { useFlowRun } from "../run/FlowRunContext";
-import { useRun } from "../run/RunContext";
-import { useSuiteRun } from "../run/SuiteRunContext";
-import { currentFlowId } from "../state/currentFlow";
+import { useRunCommands } from "../commands/useRunCommands";
 import { useEditorState } from "../state/editorState";
-import { planRunAll } from "../suite/runAll";
 import { isTypingTarget } from "./typing";
 
 /**
@@ -22,43 +17,17 @@ import { isTypingTarget } from "./typing";
  */
 export function useRunShortcuts(): void {
   const { state } = useEditorState();
-  const run = useRun();
-  const flowRun = useFlowRun();
-  const suiteRun = useSuiteRun();
-  const suites = useTestSuites();
+  const commands = useRunCommands();
 
   // Held in a ref so the listener registers once but always sees the current closure,
-  // as SaveContext's Cmd+S does.
+  // as SaveContext's Cmd+S does. What each one does — and when it is a no-op — is
+  // useRunCommands', shared with a host's Run menu.
   const act = useRef<(kind: "run" | "run-flow" | "stop") => void>(() => {});
   act.current = (kind) => {
-    if (kind === "stop") {
-      if (run?.running && !run.busy) run.stop();
-      return;
-    }
-
-    // The Testing tab's RUN is the suites, and nothing on it is about a live runner.
-    if (state.viewMode === "testing") {
-      if (!suiteRun || suiteRun.running || !suites?.loaded) return;
-      const names = state.document.flows.map((f) => f.name).filter(Boolean);
-      const plan = planRunAll(suites.all(), names);
-      if (plan.targets.length > 0) void suiteRun.run(plan.targets, plan.skipped);
-      return;
-    }
-
-    if (kind === "run-flow") {
-      if (!flowRun || flowRun.busy) return;
-      const flowId = currentFlowId(state);
-      // No flow to run is not an error worth reporting: there is nothing on the
-      // canvas, or nothing selected in a document with several.
-      if (flowId) void flowRun.runFlow(flowId);
-      return;
-    }
-
-    // Starting is the only thing Enter does. `validation.ok` is what the RUN button
-    // disables itself on, and pressing a shortcut past it would start a run the
-    // runner is about to refuse.
-    if (!run || run.running || run.busy || !run.validation.ok) return;
-    run.start();
+    if (kind === "stop") commands.stop();
+    // The Testing tab's RUN is the suites, with or without Shift.
+    else if (kind === "run-flow" && state.viewMode !== "testing") commands.runFlow();
+    else commands.run();
   };
 
   useEffect(() => {

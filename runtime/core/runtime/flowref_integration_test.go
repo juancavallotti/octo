@@ -35,7 +35,9 @@ func startService(t *testing.T, svc *Service) func() {
 	}
 	return func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Errorf("service stopped with error: %v", err)
+		}
 	}
 }
 

@@ -6,7 +6,7 @@ import { Copy } from "lucide-react";
 import { useSave } from "@octo/editor";
 import { useRoles } from "@/app/auth/RolesContext";
 import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
-import { createIntegration, getIntegration } from "@/app/model/orchestrator";
+import { duplicateIntegration, getIntegration } from "@/app/model/orchestrator";
 
 /**
  * Duplicates the current integration into a fresh "Copy of …" record and opens the
@@ -45,10 +45,7 @@ export default function DuplicateMenuItem({
       const id = getIntegrationId();
       if (!id) return;
       const source = await getIntegration(id);
-      const created = await createIntegration({
-        name: `Copy of ${source.name}`,
-        definition: source.definition,
-      });
+      const created = await duplicateIntegration(id, `Copy of ${source.name}`);
       onDone?.();
       router.push(`/platform/i/${encodeURIComponent(created.id)}`);
     } finally {

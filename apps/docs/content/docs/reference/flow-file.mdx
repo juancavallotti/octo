@@ -12,8 +12,10 @@ expressions are [CEL](/reference/cel), evaluated per message.
 
 `--config` can also point at a **directory**: every `.yaml`/`.yml` file
 directly inside it (sorted by name, subdirectories ignored) is loaded and
-merged into a single config. The config's directory is the resource root that
-relative [resource](#resources) ids resolve against.
+merged into a single config. See
+[Splitting a config across files](#splitting-a-config-across-files). The
+config's directory is the resource root that relative [resource](#resources)
+ids resolve against.
 
 Files ending in `_test.yaml` are **not** config. They are test suites for the
 flows beside them, and the loader skips them.
@@ -37,6 +39,34 @@ flows:       # the pipelines
 | `connectors` | list | no | Connector instances flows reference by name. Required in practice for any flow with a real source. |
 | `processors` | list | no | Reusable named block definitions, referenced with `ref`. |
 | `flows` | list | no | The flows themselves. |
+
+## Splitting a config across files
+
+A directory of config files is one integration. The runtime merges the files
+before it resolves any name, so a flow in one file can use a connector, a
+processor, a template or a `flow-ref` target declared in another. Nothing is
+scoped to the file that declares it.
+
+The merge follows these rules:
+
+| What | Rule |
+| --- | --- |
+| `connectors`, `processors`, `flows` | Concatenated. A name declared twice, in the same file or in two, fails the load and names both files. |
+| `service` | Declared in at most one file. |
+| `env` | A variable may be declared in several files; the first declaration (by file name) wins. A variable declared in one file can be referenced as `${NAME}` in any other. |
+| `resources.env`, `resources.templates` | Folded together; a repeated entry keeps its first declaration. |
+
+Run [`octo validate`](/reference/cli#octo-validate) on the directory to check
+that every cross-file reference resolves before you run or deploy it.
+
+<Callout type="info" title="Recommended layout">
+  Keep one project file, conventionally `octo.yaml`, that holds `service`,
+  `env`, `resources` and the connectors shared across flows, and split the
+  flows by domain into sibling files: `orders.yaml`, `billing.yaml`. Nothing
+  enforces this layout: the runtime and the editor accept any split. It gives
+  the integration one obvious place for its identity and its shared
+  configuration.
+</Callout>
 
 ## service
 

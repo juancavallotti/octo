@@ -44,11 +44,11 @@ export default function EnvLauncher() {
       <button
         type="button"
         aria-label="Environment variables"
+        title="Environment variables"
         onClick={() => setOpen((o) => !o)}
         className={BAR_BUTTON}
       >
         <Variable size={15} />
-        Environment
         {count > 0 && (
           <span className={BAR_COUNT}>
             {count}

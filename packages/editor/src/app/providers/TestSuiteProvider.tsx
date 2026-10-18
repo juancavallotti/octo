@@ -82,7 +82,7 @@ export function TestSuiteProvider({
   children: ReactNode;
 }) {
   const { state } = useEditorState();
-  const documentKey = state.integration.id;
+  const documentKey = state.project.id;
 
   const [suites, setSuites] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);

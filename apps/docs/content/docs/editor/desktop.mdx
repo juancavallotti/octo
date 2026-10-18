@@ -34,9 +34,11 @@ Windows and Linux builds are not published yet. On those platforms run the
 ## One folder at a time
 
 The app opens the folder you used last; **File → Open Folder…** picks another.
-Everything in it is plain YAML on disk — the same files the CLI runs, so a flow
-you build here runs unchanged with `octo run`, commits to git, and opens in the
-Docker editor.
+A folder is one project: its `*.yaml` files are the config files the runtime
+merges into one integration, and the editor's file switcher moves between them.
+Everything in it is plain YAML on disk — the same files the CLI runs, so a
+project you build here runs unchanged with `octo run --config <folder>`, commits
+to git, and opens in the Docker editor.
 
 Switching folders restarts the embedded server rather than repointing it, so a
 run started in one folder can never show up in another. That also means one

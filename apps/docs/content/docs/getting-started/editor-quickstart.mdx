@@ -19,9 +19,10 @@ that executes them in the container. No build, no database, no account.
 docker run -p 3000:3000 -v "$PWD:/work" juancavallotti/octo
 ```
 
-The editor reads and writes flow YAML as plain `*.yaml` files under `/work`, so
-`-v "$PWD:/work"` makes your current directory the flow store; the files stay on
-your disk for `octo run` or a git commit. Mount an empty directory to start
+The editor treats `/work` as one project: its `*.yaml` files are the config files
+`octo run --config /work` would merge, so `-v "$PWD:/work"` makes your current
+directory the project; the files stay on your disk for `octo run` or a git
+commit. Mount an empty directory to start
 fresh, or the cloned repo to browse its `samples/`.
 
 </Step>
@@ -29,10 +30,12 @@ fresh, or the cloned repo to browse its `samples/`.
 
 ### Open the editor
 
-Go to [http://localhost:3000](http://localhost:3000). The file menu in the
-header lists every YAML file in the mounted directory. Open one or create a new
-flow: the canvas shows the flow's sources and blocks, the palette on the left
-holds the available blocks, and selecting a block edits its settings.
+Go to [http://localhost:3000](http://localhost:3000). The file switcher at the
+left of the document bar lists every config file in the mounted directory. Open
+one or add a new one: the canvas shows the open file's flows, the palette on the
+left holds the available blocks, and selecting a block edits its settings. A flow
+can use a connection or call a flow declared in any other file; see
+[Splitting an Integration Across Files](/guides/multi-file-projects).
 
 ![The hello-world sample open in the visual editor](/screenshots/sample-hello-world.png)
 
@@ -41,9 +44,8 @@ holds the available blocks, and selecting a block edits its settings.
 
 ### Save and run
 
-**Save** writes the flow back as a `.yaml` file in the mounted directory. Hit
-**Run** and the bundled `octo` binary starts the flow in the container with hot
-reload; logs stream into the editor. If the flow serves HTTP, the editor proxies
+**Save** writes every file back to the mounted directory. Hit **Run** and the
+bundled `octo` binary starts the whole project in the container with hot reload; logs stream into the editor. If the flow serves HTTP, the editor proxies
 it and a test URL appears in the console, so publishing a port (for example
 `-p 8080:8080`) is only needed when you run `octo run` yourself inside the
 container.

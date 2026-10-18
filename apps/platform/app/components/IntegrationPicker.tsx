@@ -6,7 +6,7 @@ import {
   WorkspacePicker,
   useEditorState,
   useFileSystem,
-  type StoredDocument,
+  type ProjectSummary,
 } from "@octo/editor";
 
 /**
@@ -25,16 +25,16 @@ export default function IntegrationPicker() {
   const fs = useFileSystem();
   const { state } = useEditorState();
   const router = useRouter();
-  const [items, setItems] = useState<StoredDocument[]>([]);
+  const [items, setItems] = useState<ProjectSummary[]>([]);
 
   if (!fs?.list) return null;
 
-  const current = state.integration.id;
+  const current = state.project.id;
 
   return (
     <WorkspacePicker
       label="Integration"
-      current={state.integration.name || "Untitled integration"}
+      current={state.project.name || "Untitled integration"}
       // Refreshed on open rather than once, so an integration created elsewhere
       // (or the one just saved) shows up without a reload.
       onOpen={() => {

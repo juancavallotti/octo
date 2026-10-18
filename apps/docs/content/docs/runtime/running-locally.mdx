@@ -27,7 +27,7 @@ octo run --config my-flow.yaml --watch  # reload on change
 
 Flags accept one or two dashes (`--config` or `-config`).
 
-When the config path is a directory, the runtime loads every `.yaml`/`.yml` file in it as one combined config. The config directory also becomes the **resource root**: declared [resources](/concepts/resources) (env files, templates) resolve relative to it.
+When the config path is a directory, the runtime loads every `.yaml`/`.yml` file in it as one combined config, so a flow in one file can use a connector declared in another; see [Splitting a config across files](/reference/flow-file#splitting-a-config-across-files). The config directory also becomes the **resource root**: declared [resources](/concepts/resources) (env files, templates) resolve relative to it.
 
 Once every connector and flow has started, the CLI prints a ready banner. Stop the runtime with `Ctrl-C` (SIGINT) or SIGTERM; shutdown is graceful and unwinds in strict reverse order: sources stop first, channels close, in-flight messages drain, then connectors release their resources.
 
@@ -143,7 +143,7 @@ The result is a JSON envelope: `{"ok": true, "result": ...}` on success, `{"ok":
 
 Because no config is loaded, `templateResource()` is unavailable in `eval`; expressions over `body`, `vars`, `env`, `eventID`, `correlationID`, and `now` all work.
 
-Two more subcommands round out the CLI. `octo schema` prints the editor capability schema as JSON (`--out <path>` writes it to a file), and `octo version` prints the version and build date. See the [CLI reference](/reference/cli).
+Three more subcommands round out the CLI. `octo validate --config <path>` checks that every connector, flow, processor and template the config references is declared, without starting anything or needing its secrets. `octo schema` prints the editor capability schema as JSON (`--out <path>` writes it to a file), and `octo version` prints the version and build date. See the [CLI reference](/reference/cli).
 
 ## Concurrency tuning
 

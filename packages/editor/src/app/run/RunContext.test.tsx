@@ -97,7 +97,7 @@ function Harness({ integrationId }: { integrationId?: string }) {
     // Set alongside the document rather than once on mount, so a test observes the
     // provider going from "a draft" to "a saved integration" the way the editor does.
     if (integrationId) {
-      dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: integrationId } });
+      dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: integrationId } });
     }
     dispatch({
       type: EditorActionType.LOAD_DOCUMENT,
@@ -236,7 +236,7 @@ describe("RunProvider and switching the open integration", () => {
       const run = useRun()!;
       const { dispatch } = useEditorState();
       const open = (id: string) =>
-        dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id } });
+        dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id } });
       return (
         <>
           <button onClick={() => open("int-a")}>open-a</button>

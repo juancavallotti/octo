@@ -63,7 +63,9 @@ type envDecls struct {
 // against the .env chain and the declared env resources, returning the resolved
 // values and the set of declared names. decls arrive already merged across files,
 // so a variable declared in one file serves a reference in another.
-func resolveDeclared(decls envDecls, loader core.ResourceLoader) (map[string]string, map[string]struct{}, error) {
+func resolveDeclared(
+	decls envDecls, loader core.ResourceLoader, o loadOptions,
+) (map[string]string, map[string]struct{}, error) {
 	dotenv, err := loadDotEnv()
 	if err != nil {
 		return nil, nil, err
@@ -74,6 +76,9 @@ func resolveDeclared(decls envDecls, loader core.ResourceLoader) (map[string]str
 	// has. A genuinely missing required variable is still caught by resolveEnv below.
 	for k, v := range loadEnvResources(loader, decls.Resources.Env) {
 		dotenv[k] = v
+	}
+	if o.unsetEnv != nil {
+		standInUnset(decls.Env, dotenv, o.unsetEnv)
 	}
 	resolved, err := resolveEnv(decls.Env, dotenv)
 	if err != nil {
@@ -165,6 +170,25 @@ func resolveEnv(decls []types.EnvVar, dotenv map[string]string) (map[string]stri
 		}
 	}
 	return resolved, nil
+}
+
+// standInUnset supplies the empty string for every declared variable that would
+// otherwise resolve to nothing — a required one nobody set, or an optional one with
+// no default — and reports the required ones, the only ones a run would refuse. A
+// default is not overridden: it is the value the variable really has.
+func standInUnset(decls []types.EnvVar, dotenv map[string]string, report func(name string)) {
+	for _, decl := range decls {
+		if _, supplied := lookupEnv(decl.Name, dotenv); supplied {
+			continue
+		}
+		switch {
+		case decl.Required:
+			dotenv[decl.Name] = ""
+			report(decl.Name)
+		case decl.Default == nil:
+			dotenv[decl.Name] = ""
+		}
+	}
 }
 
 // lookupEnv finds a variable's externally supplied value, preferring the OS

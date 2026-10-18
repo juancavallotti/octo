@@ -79,9 +79,9 @@ func TestExportUnknownIntegrationIs404(t *testing.T) {
 func TestImportCreatesAnIntegration(t *testing.T) {
 	mux, ints, res, _ := newTestServer()
 	data, err := Write(Bundle{
-		Name:       "Order Sync",
-		Definition: "name: order-sync\n",
-		Resources:  []File{{Kind: kindEnv, Name: ".env.dev", Content: "A=1\n"}},
+		Name:      "Order Sync",
+		Configs:   configs("integration.yaml", "name: order-sync\n"),
+		Resources: []File{{Kind: kindEnv, Name: ".env.dev", Content: "A=1\n"}},
 	})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -156,7 +156,7 @@ func TestReplaceOverwritesTheIntegration(t *testing.T) {
 	if _, err := res.Create(ctx, it.ID, "template", "templates/gone.tmpl", "bye\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	data, err := Write(Bundle{Name: "Whatever", Definition: "definition: new\n"})
+	data, err := Write(Bundle{Name: "Whatever", Configs: configs("integration.yaml", "definition: new\n")})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestReplaceOverwritesTheIntegration(t *testing.T) {
 
 func TestReplaceUnknownIntegrationIs404(t *testing.T) {
 	mux, _, _, _ := newTestServer()
-	data, err := Write(Bundle{Name: "x", Definition: "a: b\n"})
+	data, err := Write(Bundle{Name: "x", Configs: configs("integration.yaml", "a: b\n")})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestReplaceUnknownIntegrationIs404(t *testing.T) {
 func TestImportReportsANameItCannotFreeAsAConflict(t *testing.T) {
 	mux, ints, _, _ := newTestServer()
 	ctx := context.Background()
-	data, err := Write(Bundle{Name: "Order Sync", Definition: "a: b\n"})
+	data, err := Write(Bundle{Name: "Order Sync", Configs: configs("integration.yaml", "a: b\n")})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}

@@ -31,7 +31,7 @@ export default function LayoutToggles() {
 
   if (!layout) return null;
 
-  const canvas = state.viewMode === "canvas";
+  const canvas = state.viewMode === "flows" && state.flowsView === "canvas";
   const hasConsole = Boolean(run?.available);
   if (!canvas && !hasConsole) return null;
 

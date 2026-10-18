@@ -64,8 +64,8 @@ function Load({ doc }: { doc: EditorDocument }) {
   const { dispatch } = useEditorState();
   useEffect(() => {
     dispatch({
-      type: EditorActionType.LOAD_INTEGRATION,
-      data: { id: "orders.yaml", name: "orders", document: doc, folderId: null },
+      type: EditorActionType.LOAD_PROJECT,
+      data: { id: "orders.yaml", name: "orders", files: [{ path: "orders.yaml", document: doc, declaresService: true }], folderId: null },
     });
     dispatch({
       type: EditorActionType.SET_ACTIVE_FLOW,

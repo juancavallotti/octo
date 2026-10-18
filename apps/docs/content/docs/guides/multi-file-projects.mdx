@@ -1,0 +1,156 @@
+---
+title: "Splitting an Integration Across Files"
+description: "Keep a growing integration readable by giving each domain its own file, with one project file for what they share."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An integration doesn't have to live in one YAML file. Point the runtime at a
+folder and it merges every config file in it into one application, so you can
+give each domain its own file and keep the shared configuration in one place.
+This guide builds
+[`samples/multi-file-project`](https://github.com/juancavallotti/octo/tree/main/samples/multi-file-project):
+three files, one integration.
+
+## How a folder becomes one integration
+
+When `--config` names a directory, the runtime reads every `.yaml` and `.yml`
+file directly inside it, in name order, and merges them before it resolves any
+name. Two things follow from that:
+
+- **Every name is global to the project.** A flow in one file can bind a
+  connection, call a flow with `flow-ref`, use a processor, or read an env
+  variable that another file declares.
+- **Every name is declared once.** A connection, processor or flow name used in
+  two files fails the load, and the error names both files. `service` goes in
+  exactly one file.
+
+Files ending in `_test.yaml` are test suites, not config, and subdirectories
+are ignored. The full rules are in
+[Splitting a config across files](/reference/flow-file#splitting-a-config-across-files).
+
+## Lay out the project
+
+Keep a project file, `octo.yaml`, for what the whole integration shares: its
+`service` identity, its `env` declarations, its `resources`, and the
+connections more than one flow uses. Then give each domain its own file.
+
+<Callout type="info" title="A convention, not a rule">
+  Nothing enforces this layout: the runtime, the editor and the platform accept
+  any split. It gives the integration one obvious place for its identity and its
+  shared configuration, so a reader never has to search for where a connection
+  is declared.
+</Callout>
+
+The project file declares the service, an environment variable and a logger:
+
+```yaml title="samples/multi-file-project/octo.yaml"
+service:
+  name: order-intake
+
+env:
+  - name: ORDER_CURRENCY
+    default: USD
+
+connectors:
+  - name: audit-log
+    type: logger
+    settings:
+      format: json
+      level: info
+```
+
+The intake flow prices an order with `env.ORDER_CURRENCY` from `octo.yaml`, then
+calls a flow that lives in another file:
+
+```yaml title="samples/multi-file-project/orders.yaml"
+flows:
+  - name: intake
+    process:
+      - type: set-payload
+        name: price
+        settings:
+          value: '{"id": body.id, "total": body.qty * body.price, "currency": env.ORDER_CURRENCY}'
+
+      - type: flow-ref
+        name: record
+        settings:
+          flow: audit
+```
+
+The audit trail is a sourceless flow that writes through the `audit-log`
+connection `octo.yaml` declares:
+
+```yaml title="samples/multi-file-project/audit.yaml"
+flows:
+  - name: audit
+    process:
+      - type: log
+        name: write-it
+        settings:
+          logger: audit-log
+          message: '"order " + string(body.id) + " totals " + string(body.total) + " " + body.currency'
+```
+
+## Check the references
+
+Run [`octo validate`](/reference/cli#octo-validate) on the folder before you run
+or deploy it. It loads the files the way `octo run` does and reports every name
+that doesn't resolve, without starting anything:
+
+```bash
+octo validate --config samples/multi-file-project
+```
+
+Rename `audit` in `audit.yaml` and run it again: the `flow-ref` in another file
+is reported at its address.
+
+```text
+intake.record: flow: flow "audit" is not defined
+```
+
+## Run and test it
+
+Run the folder, or call one flow:
+
+```bash
+octo invoke --config samples/multi-file-project --flow intake \
+  --data '{"id": 7, "qty": 3, "price": 5}'
+```
+
+A test suite beside the files runs against the whole folder, so the flows and
+connections from every file are loaded:
+
+```yaml title="samples/multi-file-project/intake_test.yaml"
+flow: intake
+
+cases:
+  - name: prices the order and records it
+    input:
+      data: { id: 7, qty: 3, price: 5 }
+    expect:
+      body: { id: 7, total: 15, currency: "USD" }
+    spies:
+      audit.write-it: { count: 1 }
+```
+
+```bash
+dolphin test samples/multi-file-project/intake_test.yaml
+```
+
+## In the editor
+
+The editor treats a project's files the same way. The file switcher at the left
+of the document bar lists them; picking one opens it without losing unsaved
+edits in the others, and **Save** writes every file at once. Reference pickers
+offer what any file declares, the connections list names the file each one lives
+in, and the Problems tab opens the file a problem is in.
+
+- **Standalone and desktop:** the folder the app serves is the project. Add,
+  rename and remove its files from the switcher.
+- **Platform:** an integration is a project, and its files are stored together.
+  A deployment runs them merged, exactly as the runtime merges a folder.
+
+Agents working through the [Octo MCP server](/ai/platform-mcp) see the same files:
+`list_files`, `get_file` and `write_file` address one file, and `update_flow`
+finds the file that declares a flow.

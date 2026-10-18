@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // maxNameLen bounds an integration name; the column is unconstrained varchar so
@@ -18,10 +20,17 @@ type repository interface {
 	Create(ctx context.Context, name, definition, actorID string) (Integration, error)
 	Get(ctx context.Context, id string) (Integration, error)
 	List(ctx context.Context) ([]Integration, error)
-	Update(ctx context.Context, id, name, definition, actorID string) (Integration, error)
+	Update(ctx context.Context, id, name, actorID string) (Integration, error)
 	SetIcon(ctx context.Context, id, icon, actorID string) (Integration, error)
 	Delete(ctx context.Context, id string) error
 	NameExists(ctx context.Context, name, excludeID string) (bool, error)
+
+	ConfigFiles(ctx context.Context, integrationID string) ([]ConfigFile, error)
+	PutConfigFile(
+		ctx context.Context, integrationID, path, content, actorID string, check func([]ConfigFile) error,
+	) (ConfigFile, error)
+	ReplaceConfigFiles(ctx context.Context, integrationID string, files []projectfile.File, actorID string) error
+	DeleteConfigFile(ctx context.Context, integrationID, path, actorID string) error
 }
 
 // reloadNotifier is told that an integration's stored state changed, so anything
@@ -97,7 +106,8 @@ func (s *Service) notifyChanged(ctx context.Context, id string) {
 
 // Create validates the name and persists a new integration. actorID is the
 // creating user's id, or "" when unknown (e.g. the MCP path or local dev without
-// SSO); it is recorded as both created_by and updated_by.
+// SSO); it is recorded as both created_by and updated_by. A non-empty definition
+// becomes the integration's one config file, at DefaultConfigPath.
 func (s *Service) Create(ctx context.Context, name, definition, actorID string) (Integration, error) {
 	if err := validateName(name); err != nil {
 		return Integration{}, err
@@ -119,10 +129,11 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 	return s.repo.List(ctx)
 }
 
-// Update validates the name and persists changes to an existing integration.
-// actorID is the editing user's id, or "" when unknown; it is recorded as
-// updated_by (created_by is left untouched).
-func (s *Service) Update(ctx context.Context, id, name, definition, actorID string) (Integration, error) {
+// Update validates the name and renames an existing integration. actorID is the
+// editing user's id, or "" when unknown; it is recorded as updated_by (created_by
+// is left untouched). A rename changes nothing a running app loads, so nothing is
+// notified.
+func (s *Service) Update(ctx context.Context, id, name, actorID string) (Integration, error) {
 	if err := validateName(name); err != nil {
 		return Integration{}, err
 	}
@@ -130,12 +141,7 @@ func (s *Service) Update(ctx context.Context, id, name, definition, actorID stri
 	if err := s.ensureNameFree(ctx, trimmed, id); err != nil {
 		return Integration{}, err
 	}
-	updated, err := s.repo.Update(ctx, id, trimmed, definition, actorID)
-	if err != nil {
-		return Integration{}, err
-	}
-	s.notifyChanged(ctx, id)
-	return updated, nil
+	return s.repo.Update(ctx, id, trimmed, actorID)
 }
 
 // SetIcon records an integration's chosen icon. An empty icon clears the choice,

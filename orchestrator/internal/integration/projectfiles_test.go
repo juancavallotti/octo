@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 )
@@ -69,70 +68,6 @@ func TestDefinitionIgnoresNonConfigFiles(t *testing.T) {
 	}
 }
 
-// A whole definition has no single file it belongs to once a project has
-// several, and collapsing them to answer that would destroy the others.
-func TestUpdateRefusesAnAmbiguousDefinition(t *testing.T) {
-	r := newTestRepo(t)
-	ctx := context.Background()
-
-	created := createIntegration(t, r, "ambiguous-definition", "flows:\n  - name: intake\n")
-	addFile(t, r, created.ID, "extra.yaml", "config", "flows:\n  - name: dispatch\n")
-
-	_, err := r.Update(ctx, created.ID, "ambiguous-definition", "flows:\n  - name: replaced\n", "")
-	if !errors.Is(err, ErrAmbiguousDefinition) {
-		t.Fatalf("update err = %v, want ErrAmbiguousDefinition", err)
-	}
-
-	// and the refusal left both files alone
-	got, err := r.Get(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if strings.Contains(got.Definition, "replaced") {
-		t.Errorf("a refused write still landed:\n%s", got.Definition)
-	}
-	if !strings.Contains(got.Definition, "dispatch") {
-		t.Errorf("a refused write lost a file:\n%s", got.Definition)
-	}
-}
-
-// Updating rewrites the file the definition already lives in rather than
-// appending a second one.
-func TestUpdateRewritesTheSameFile(t *testing.T) {
-	r := newTestRepo(t)
-	ctx := context.Background()
-
-	created := createIntegration(t, r, "rewrites-same-file", "flows:\n  - name: intake\n")
-	if _, err := r.Update(ctx, created.ID, "rewrites-same-file", "flows:\n  - name: changed\n", ""); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-
-	paths := configPaths(t, r, created.ID)
-	if len(paths) != 1 || paths[0] != defaultConfigPath {
-		t.Errorf("config files = %v, want just %q", paths, defaultConfigPath)
-	}
-}
-
-// A definition written to an integration that has none yet creates the file
-// instead of failing — the path bundle import and the agent installer take.
-func TestUpdateCreatesTheConfigFileWhenThereIsNone(t *testing.T) {
-	r := newTestRepo(t)
-	ctx := context.Background()
-
-	created := createIntegration(t, r, "creates-config-file", "")
-	if paths := configPaths(t, r, created.ID); len(paths) != 0 {
-		t.Fatalf("expected no config files, got %v", paths)
-	}
-
-	updated, err := r.Update(ctx, created.ID, "creates-config-file", "flows:\n  - name: intake\n", "")
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if !strings.Contains(updated.Definition, "intake") {
-		t.Errorf("definition = %q, want the written body", updated.Definition)
-	}
-}
-
 // addFile writes a file straight to the table, standing in for the paths that
 // will put more than one config file on an integration.
 func addFile(t *testing.T, r *Repo, integrationID, path, role, content string) {
@@ -144,26 +79,4 @@ func addFile(t *testing.T, r *Repo, integrationID, path, role, content string) {
 	if err != nil {
 		t.Fatalf("add file %s: %v", path, err)
 	}
-}
-
-// configPaths lists an integration's config files, ordered.
-func configPaths(t *testing.T, r *Repo, integrationID string) []string {
-	t.Helper()
-	rows, err := r.pool.Query(context.Background(),
-		`SELECT path FROM integration_files
-		  WHERE integration_id = $1 AND role = 'config' ORDER BY path`, integrationID)
-	if err != nil {
-		t.Fatalf("list config files: %v", err)
-	}
-	defer rows.Close()
-
-	var ret []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			t.Fatalf("scan path: %v", err)
-		}
-		ret = append(ret, p)
-	}
-	return ret
 }

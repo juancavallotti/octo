@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OctoMcpConfig } from "../backend";
+import { definitionOf } from "../project";
 import type { RunHostPort, RunKey, RunStateLike } from "../run-host";
 import type { NamespaceResolver } from "../namespace";
 import { parseEnv } from "../env";
@@ -56,7 +57,7 @@ export function registerRunTools(
     ({ id }) =>
       guard(async () => {
         const rec = await store.get(id);
-        const { valid, errors } = await config.validate(rec.definition);
+        const { valid, errors } = await config.validate(rec.files, id);
         return jsonResult({
           available: runHost.binaries().available,
           valid,
@@ -97,7 +98,7 @@ export function registerRunTools(
           if (!sane) return errorResult("invalid env (names must match [A-Za-z_][A-Za-z0-9_]* with string values)");
           parsedEnv = sane;
         }
-        const st = await runHost.start(key, rec.definition, parsedEnv, {
+        const st = await runHost.start(key, definitionOf(rec), parsedEnv, {
           resources: config.resources?.(id),
         });
         const testUrl = buildTestUrl(config, st);
@@ -185,7 +186,7 @@ export function registerRunTools(
           return errorResult("provide exactly one of id or definition");
         }
         const yaml =
-          definition !== undefined ? definition : (await store.get(id!)).definition;
+          definition !== undefined ? definition : definitionOf(await store.get(id!));
         const ns = resolveNamespace(extra.sessionId);
         if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");

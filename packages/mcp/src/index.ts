@@ -13,6 +13,7 @@ export type {
   OctoMcpConfig,
   ResourceRecord,
   ResourceStore,
+  StoredFile,
   SuiteStore,
   ValidationOutcome,
 } from "./backend";
@@ -23,4 +24,5 @@ export type {
   RunLogLine,
 } from "./run-host";
 export { createOctoMcpHandler, OCTO_MCP_VERSION } from "./handler";
+export { definitionOf } from "./project";
 export type { OctoMcpHandlerOptions, OctoMcpServerInfo } from "./handler";

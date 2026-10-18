@@ -3,6 +3,7 @@
 import { Save } from "lucide-react";
 import { useEditorState } from "../state/editorState";
 import { useSave } from "../save/SaveContext";
+import { HEADER_LABEL } from "./barButton";
 
 /**
  * The Save control. All the persistence logic lives in the shared save
@@ -40,7 +41,7 @@ export default function SaveButton() {
       ? "Nothing to save yet"
       : saved
         ? "No changes to save"
-        : state.integration.id
+        : state.project.id
           ? "Save changes (⌘/Ctrl+S)"
           : "Save as a new integration (⌘/Ctrl+S)";
 
@@ -57,7 +58,7 @@ export default function SaveButton() {
         className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Save className="h-3.5 w-3.5" />
-        Save
+        <span className={HEADER_LABEL}>Save</span>
       </button>
       {/* A disabled button cannot take keyboard focus and a title is not
           reachable by touch, so the one reason a person cannot act on by

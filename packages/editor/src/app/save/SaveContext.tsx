@@ -12,31 +12,37 @@ import {
 import { useEditorState, EditorActionType } from "../state/editorState";
 import {
   useFileSystem,
-  type StoredDocument,
+  type StoredProject,
 } from "../providers/FileSystemProvider";
-import type { EditorDocument } from "../model/document";
-import { toDefinitionYaml } from "../model/runConfig";
+import {
+  isEmptyProject,
+  sameFiles,
+  serializeProject,
+  type ProjectFile,
+} from "../model/project";
+import { useProjectFiles } from "../state/useProject";
 
 /**
- * Shared save controller. Persisting the document is triggered from several
+ * Shared save controller. Persisting the project is triggered from several
  * places — the Save button, the ⌘/Ctrl+S shortcut, and Enter in the title field —
  * so the logic lives here once and those consumers read it via `useSave()`. The
- * first save creates the document; later saves update it (and may re-id it when a
- * backend renames on save). Saving never requires a valid document — a work in
- * progress can be saved at any time — but is a no-op when there is nothing to save
- * (empty document) or nothing changed since the last save.
+ * first save creates the project; later saves update it (and may re-id it when a
+ * backend renames on save). A save writes every file, the open one with its
+ * unsaved edits and the others with theirs. Saving never requires a valid project —
+ * a work in progress can be saved at any time — but is a no-op when there is
+ * nothing to save (empty project) or nothing changed since the last save.
  *
  * `onSaved` lets the host react to a save (e.g. promote the URL to the newly
- * created/renamed document) without coupling the editor to any app's routing.
+ * created/renamed project) without coupling the editor to any app's routing.
  */
 const DEFAULT_NAME = "Untitled integration";
 
 export interface SaveController {
   /**
-   * Persist the current document; a no-op while busy or when nothing changed.
+   * Persist the project; a no-op while busy or when nothing changed.
    *
    * `force` overrides only the "nothing worth persisting yet" guard, for a caller that
-   * means the file itself: naming a brand-new flow is a request for a file on disk.
+   * means the files themselves: naming a brand-new flow is a request for a file on disk.
    */
   save: (opts?: { force?: boolean }) => Promise<void>;
   busy: boolean;
@@ -47,9 +53,9 @@ export interface SaveController {
   blocked: boolean;
   /** Why the backend declines writes, when it does. */
   readOnly?: string;
-  /** The document is empty (nothing worth persisting yet). */
+  /** The project is empty (nothing worth persisting yet). */
   empty: boolean;
-  /** The current document/name matches what was last saved. */
+  /** The current files/name match what was last saved. */
   saved: boolean;
   error: string | null;
 }
@@ -65,36 +71,31 @@ export function SaveProvider({
   onSaved,
   children,
 }: {
-  onSaved?: (stored: StoredDocument) => void;
+  onSaved?: (stored: StoredProject) => void;
   children: ReactNode;
 }) {
   const { state, dispatch } = useEditorState();
   const fs = useFileSystem();
-  const { id, name, folderId } = state.integration;
-  const doc = state.document;
+  const { id, name, folderId } = state.project;
+  const files = useProjectFiles();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Snapshot of what was last saved; the "Saved" note shows only while the
-  // current document/name/folder still match it (no effect needed — editing
+  // current files/name/folder still match it (no effect needed — editing
   // produces a fresh document reference, which clears the match).
   const [savedSnapshot, setSavedSnapshot] = useState<{
-    doc: EditorDocument;
+    files: ProjectFile[];
     name: string;
     folderId: string | null;
   } | null>(null);
   const saved =
     savedSnapshot !== null &&
-    savedSnapshot.doc === doc &&
+    sameFiles(savedSnapshot.files, files) &&
     savedSnapshot.name === name &&
     savedSnapshot.folderId === folderId;
 
-  // "Empty" = nothing worth persisting yet: no flow has a source or a step, and
-  // there are no connections or env vars.
-  const empty =
-    doc.flows.every((f) => !f.source && f.process.length === 0) &&
-    doc.connectors.length === 0 &&
-    doc.env.length === 0;
+  const empty = isEmptyProject(files);
   const readOnly = fs?.readOnly;
   const blocked = empty || saved || Boolean(readOnly);
 
@@ -105,10 +106,9 @@ export function SaveProvider({
     setError(null);
     const saveName = name.trim() || DEFAULT_NAME;
     try {
-      const definition = toDefinitionYaml(doc, saveName);
       const stored = await fs.save(id || null, {
         name: saveName,
-        definition,
+        files: serializeProject(files, saveName),
         folderId,
       });
       // Adopt the persisted id whenever it changes: on the first save (null → new
@@ -116,7 +116,7 @@ export function SaveProvider({
       // filename from the name, so renaming the flow renames — and re-ids — it).
       if (stored.id !== id) {
         dispatch({
-          type: EditorActionType.SET_INTEGRATION_ID,
+          type: EditorActionType.SET_PROJECT_ID,
           data: { id: stored.id },
         });
       }
@@ -124,11 +124,11 @@ export function SaveProvider({
       // stored (and so the saved-snapshot comparison holds).
       if (saveName !== name) {
         dispatch({
-          type: EditorActionType.SET_INTEGRATION_TITLE,
+          type: EditorActionType.SET_PROJECT_TITLE,
           data: { name: saveName },
         });
       }
-      setSavedSnapshot({ doc, name: saveName, folderId });
+      setSavedSnapshot({ files, name: saveName, folderId });
       // Let the host promote its URL / reflect the (possibly new) id.
       onSaved?.(stored);
     } catch (e) {
@@ -136,7 +136,7 @@ export function SaveProvider({
     } finally {
       setBusy(false);
     }
-  }, [fs, busy, empty, saved, name, doc, id, folderId, dispatch, onSaved]);
+  }, [fs, busy, empty, saved, name, files, id, folderId, dispatch, onSaved]);
 
   // Cmd/Ctrl+S saves. The handler is kept in a ref so the window listener
   // registers once but always sees the latest save closure.

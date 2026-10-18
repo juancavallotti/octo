@@ -31,24 +31,38 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /integrations/{id}", h.update)
 	mux.HandleFunc("PUT /integrations/{id}/icon", h.setIcon)
 	mux.HandleFunc("DELETE /integrations/{id}", h.delete)
+	mux.HandleFunc("GET /integrations/{id}/files", h.listFiles)
+	mux.HandleFunc("PUT /integrations/{id}/files", h.replaceFiles)
+	mux.HandleFunc("GET /integrations/{id}/files/content", h.getFile)
+	mux.HandleFunc("PUT /integrations/{id}/files/content", h.putFile)
+	mux.HandleFunc("DELETE /integrations/{id}/files/content", h.deleteFile)
 }
 
-// integrationRequest is the create/update payload. ActorID is the acting user's id,
-// empty when unknown: it is attribution carried in the body, not a verified
-// credential.
-type integrationRequest struct {
-	Name       string `json:"name"`
+// createRequest is the create payload. ActorID is the acting user's id, empty when
+// unknown: it is attribution carried in the body, not a verified credential.
+type createRequest struct {
+	Name string `json:"name"`
+	// Definition, when not empty, becomes the integration's one config file,
+	// integration.yaml.
 	Definition string `json:"definition"`
 	ActorID    string `json:"actorId"`
+}
+
+// updateRequest is the update payload: the integration's name. Config content is
+// written through the file routes.
+type updateRequest struct {
+	Name    string `json:"name"`
+	ActorID string `json:"actorId"`
 }
 
 // integrationResponse is the wire representation of an integration. The
 // attribution fields are omitted when unknown. Its field layout mirrors the
 // domain Integration so toResponse is a direct conversion.
 type integrationResponse struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Icon        string    `json:"icon"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Icon string `json:"icon"`
+	// Definition is the integration's config files merged into one config.
 	Definition  string    `json:"definition"`
 	LastUpdated time.Time `json:"lastUpdated"`
 
@@ -70,17 +84,18 @@ func toResponse(it Integration) integrationResponse {
 // create godoc
 //
 //	@Summary		Create an integration
-//	@Description	Stores a new integration definition under a name unique across the install (case-insensitively).
+//	@Description	Stores a new integration under a name unique across the install (case-insensitively).
+//	@Description	A definition, when given, is stored as its one config file, integration.yaml.
 //	@Tags			integrations
 //	@Accept			json
 //	@Produce		json
-//	@Param			body	body		integrationRequest	true	"Name and definition"
+//	@Param			body	body		createRequest	true	"Name and definition"
 //	@Success		201		{object}	integrationResponse
 //	@Failure		400		{object}	httpx.ErrorResponse	"invalid name or body"
 //	@Failure		409		{object}	httpx.ErrorResponse	"the name is taken"
 //	@Router			/integrations [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	var req integrationRequest
+	var req createRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -100,7 +115,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 // list godoc
 //
 //	@Summary		List integrations
-//	@Description	Every integration in the install, each with its full definition.
+//	@Description	Every integration in the install, each with its definition: its config files merged.
 //	@Tags			integrations
 //	@Produce		json
 //	@Success		200	{array}		integrationResponse
@@ -189,22 +204,21 @@ func (h *Handler) setIcon(w http.ResponseWriter, r *http.Request) {
 
 // update godoc
 //
-//	@Summary		Replace an integration
-//	@Description	Overwrites the name and definition. This is the live working copy, not a
-//	@Description	version tag: a running deployment keeps serving its own frozen snapshot
-//	@Description	until it is rolled out.
+//	@Summary		Rename an integration
+//	@Description	Changes the name. Config content is written one file at a time through
+//	@Description	/integrations/{id}/files/content.
 //	@Tags			integrations
 //	@Accept			json
 //	@Produce		json
-//	@Param			id		path		string				true	"Integration id"
-//	@Param			body	body		integrationRequest	true	"Name and definition"
+//	@Param			id		path		string			true	"Integration id"
+//	@Param			body	body		updateRequest	true	"Name"
 //	@Success		200		{object}	integrationResponse
 //	@Failure		400		{object}	httpx.ErrorResponse
 //	@Failure		404		{object}	httpx.ErrorResponse
 //	@Failure		409		{object}	httpx.ErrorResponse	"the name is taken"
 //	@Router			/integrations/{id} [put]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
-	var req integrationRequest
+	var req updateRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -213,7 +227,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	it, err := h.svc.Update(ctx, r.PathValue("id"), req.Name, req.Definition, req.ActorID)
+	it, err := h.svc.Update(ctx, r.PathValue("id"), req.Name, req.ActorID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -249,6 +263,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrNameTaken):
 		httpx.WriteError(w, http.StatusConflict, "an integration with this name already exists")
+	case errors.Is(err, ErrFilesConflict):
+		httpx.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrFileNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "config file not found")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
 	default:

@@ -1,5 +1,5 @@
 import YAML from "yaml";
-import type { EditorDocument } from "./document";
+import type { ConnectorInstance, EditorDocument } from "./document";
 import { fromConfig, toConfig, type RuntimeConfig } from "./serialize";
 
 /**
@@ -19,20 +19,29 @@ export function toRunnableYaml(doc: EditorDocument): string {
 }
 
 /**
- * Serializes the document as the YAML stored for a saved integration. It is the
- * same shape as {@link toRunnableYaml} but stamps the integration's own name in
- * the `service` block (falling back to {@link RUN_SERVICE_NAME} when unnamed) so
- * the runner's banner/logs identify the integration.
+ * Serializes one config file of a project as the YAML stored for it.
+ *
+ * `service`, when given, is written as the file's `service.name`; it is given only
+ * for the one file of the project that declares the identity, because the runtime
+ * refuses a project in which two files do. `connectors` are the project's connections
+ * (see {@link toConfig}).
  */
-export function toDefinitionYaml(doc: EditorDocument, name: string): string {
-  const service = { name: name.trim() || RUN_SERVICE_NAME };
-  const config = { service, ...toConfig(doc) };
-  return YAML.stringify(config);
+export function toFileYaml(
+  doc: EditorDocument,
+  opts: { service?: string; connectors?: ConnectorInstance[] } = {},
+): string {
+  const config = toConfig(doc, opts.connectors);
+  const out =
+    opts.service === undefined
+      ? config
+      : { service: { name: opts.service.trim() || RUN_SERVICE_NAME }, ...config };
+  return YAML.stringify(out);
 }
 
 /**
- * Parses a stored integration definition back into an editor document. The
- * `service` block is cosmetic and ignored by {@link fromConfig}.
+ * Parses one config — a single file, or a project's files already merged — into an
+ * editor document. The `service` block is ignored by {@link fromConfig}; to edit a
+ * project's files, parse them together with `parseProject`.
  */
 export function fromDefinitionYaml(definition: string): EditorDocument {
   const config = (YAML.parse(definition) ?? {}) as RuntimeConfig;

@@ -8,7 +8,12 @@
  * the model layer unwraps the ActionResult.
  */
 
-import type { Integration, IntegrationInput } from "@/app/model/orchestrator";
+import type {
+  ConfigFile,
+  Integration,
+  IntegrationInput,
+  IntegrationRename,
+} from "@/app/model/orchestrator";
 import { withRead, withWrite } from "./_auth";
 import * as client from "./_client";
 import type { ActionResult } from "./_client";
@@ -34,11 +39,22 @@ export async function createIntegration(
 
 export async function updateIntegration(
   id: string,
-  input: IntegrationInput,
+  input: IntegrationRename,
 ): Promise<ActionResult<Integration>> {
   return withWrite((session) =>
     client.updateIntegration(id, input, session.user.id),
   );
+}
+
+export async function readConfigFiles(id: string): Promise<ActionResult<ConfigFile[]>> {
+  return withRead(() => client.readConfigFiles(id));
+}
+
+export async function replaceConfigFiles(
+  id: string,
+  files: { path: string; content: string }[],
+): Promise<ActionResult<Omit<ConfigFile, "content">[]>> {
+  return withWrite((session) => client.replaceConfigFiles(id, files, session.user.id));
 }
 
 export async function setIntegrationIcon(

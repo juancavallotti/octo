@@ -4,7 +4,7 @@ import { emptyFlow, newBlock, type EditorDocument } from "./document";
 import {
   RUN_SERVICE_NAME,
   fromDefinitionYaml,
-  toDefinitionYaml,
+  toFileYaml,
   toRunnableYaml,
 } from "./runConfig";
 
@@ -37,19 +37,23 @@ describe("toRunnableYaml", () => {
   });
 });
 
-describe("integration definition YAML", () => {
-  it("stamps the integration name as the service name", () => {
-    const parsed = YAML.parse(toDefinitionYaml(doc(), "Order Sync"));
+describe("file YAML", () => {
+  it("stamps the service name when given one", () => {
+    const parsed = YAML.parse(toFileYaml(doc(), { service: "Order Sync" }));
     expect(parsed.service.name).toBe("Order Sync");
   });
 
-  it("falls back to the run service name when unnamed", () => {
-    const parsed = YAML.parse(toDefinitionYaml(doc(), "  "));
+  it("falls back to the run service name when the given name is blank", () => {
+    const parsed = YAML.parse(toFileYaml(doc(), { service: "  " }));
     expect(parsed.service.name).toBe(RUN_SERVICE_NAME);
   });
 
-  it("round-trips a document through definition YAML", () => {
-    const restored = fromDefinitionYaml(toDefinitionYaml(doc(), "Order Sync"));
+  it("writes no service when not given one", () => {
+    expect(YAML.parse(toFileYaml(doc())).service).toBeUndefined();
+  });
+
+  it("round-trips a document", () => {
+    const restored = fromDefinitionYaml(toFileYaml(doc(), { service: "Order Sync" }));
     expect(restored.flows).toHaveLength(1);
     expect(restored.flows[0].name).toBe("ticker");
     expect(restored.flows[0].source).toMatchObject({
@@ -60,7 +64,7 @@ describe("integration definition YAML", () => {
     expect(restored.flows[0].process[0].type).toBe("log");
   });
 
-  it("parses an empty definition into an empty document", () => {
-    expect(fromDefinitionYaml("").flows).toHaveLength(1);
+  it("parses an empty definition into a document with no flows", () => {
+    expect(fromDefinitionYaml("").flows).toHaveLength(0);
   });
 });

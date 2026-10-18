@@ -103,7 +103,7 @@ function renderBar({
           },
         },
       });
-      dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "one" } });
+      dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: "one" } });
       if (testing) {
         dispatch({ type: EditorActionType.SET_VIEW_MODE, data: "testing" });
       }

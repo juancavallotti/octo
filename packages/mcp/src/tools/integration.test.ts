@@ -4,7 +4,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { registerIntegrationTools } from "./integration";
-import type { IntegrationRecord, MetaStore, OctoMcpConfig } from "../backend";
+import type { IntegrationRecord, MetaStore, OctoMcpConfig, StoredFile } from "../backend";
+
+/** One config file, the shape a single-file integration takes. */
+const one = (content: string): StoredFile[] => [{ path: "octo.yaml", content }];
 
 /** A trivial in-memory IntegrationStore for exercising the tools end to end. */
 function fakeStore(seed: IntegrationRecord[] = []) {
@@ -19,16 +22,16 @@ function fakeStore(seed: IntegrationRecord[] = []) {
       if (!r) throw new Error(`no such integration: ${id}`);
       return { ...r };
     },
-    create: async (name: string, definition: string) => {
+    create: async (name: string, files: StoredFile[]) => {
       const id = `id-${++seq}`;
-      const r = { id, name, definition };
+      const r = { id, name, files };
       rows.set(id, r);
       return { ...r };
     },
-    update: async (id: string, name: string | undefined, definition: string) => {
+    update: async (id: string, name: string | undefined, files: StoredFile[]) => {
       const r = rows.get(id);
       if (!r) throw new Error(`no such integration: ${id}`);
-      const next = { id, name: name ?? r.name, definition };
+      const next = { id, name: name ?? r.name, files };
       rows.set(id, next);
       return { ...next };
     },
@@ -43,6 +46,11 @@ async function connect(config: OctoMcpConfig): Promise<Client> {
   const client = new Client({ name: "test-client", version: "0.0.0" });
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return client;
+}
+
+/** The content of one stored file. */
+function content(store: ReturnType<typeof fakeStore>, id: string, path = "octo.yaml"): string | undefined {
+  return store.rows.get(id)?.files.find((f) => f.path === path)?.content;
 }
 
 function baseConfig(store: OctoMcpConfig["store"]): OctoMcpConfig {
@@ -74,8 +82,8 @@ function parse(res: CallToolResult): unknown {
 describe("integration tools", () => {
   it("lists integrations as { id, name }", async () => {
     const store = fakeStore([
-      { id: "a", name: "Alpha", definition: "x" },
-      { id: "b", name: "Beta", definition: "y" },
+      { id: "a", name: "Alpha", files: one("x") },
+      { id: "b", name: "Beta", files: one("y") },
     ]);
     const client = await connect(baseConfig(store));
     const res = (await client.callTool({
@@ -89,13 +97,13 @@ describe("integration tools", () => {
   });
 
   it("opens an integration by id", async () => {
-    const store = fakeStore([{ id: "a", name: "Alpha", definition: "the-yaml" }]);
+    const store = fakeStore([{ id: "a", name: "Alpha", files: one("the-yaml") }]);
     const client = await connect(baseConfig(store));
     const res = (await client.callTool({
       name: "open_integration",
       arguments: { id: "a" },
     })) as CallToolResult;
-    expect(parse(res)).toEqual({ id: "a", name: "Alpha", definition: "the-yaml" });
+    expect(parse(res)).toEqual({ id: "a", name: "Alpha", files: one("the-yaml") });
   });
 
   it("returns an error result when opening a missing integration", async () => {
@@ -114,28 +122,28 @@ describe("integration tools", () => {
     const client = await connect(baseConfig(store));
     const res = (await client.callTool({
       name: "create_integration",
-      arguments: { name: "New", definition: "service:\n  name: New" },
+      arguments: { name: "New", files: one("service:\n  name: New") },
     })) as CallToolResult;
     const created = parse(res) as IntegrationRecord;
     expect(created.name).toBe("New");
-    expect(store.rows.get(created.id)?.definition).toBe("service:\n  name: New");
+    expect(content(store, created.id)).toBe("service:\n  name: New");
   });
 
-  it("validates a draft definition without saving, returning descriptive errors", async () => {
+  it("validates draft files without saving, returning descriptive errors", async () => {
     const store = fakeStore();
     const cfg: OctoMcpConfig = {
       store,
       runtimeSchema: {},
-      validate: (def) =>
-        def.includes("flows")
+      validate: (files) =>
+        files.some((f) => f.content.includes("flows"))
           ? { valid: true, errors: [] }
           : { valid: false, errors: ['Flow "x": source is incomplete.'] },
     };
     const client = await connect(cfg);
 
     const bad = (await client.callTool({
-      name: "validate_definition",
-      arguments: { definition: "service:\n  name: x" },
+      name: "validate_project",
+      arguments: { files: one("service:\n  name: x") },
     })) as CallToolResult;
     expect(parse(bad)).toEqual({
       valid: false,
@@ -143,8 +151,8 @@ describe("integration tools", () => {
     });
 
     const good = (await client.callTool({
-      name: "validate_definition",
-      arguments: { definition: "service:\n  name: x\nflows: []" },
+      name: "validate_project",
+      arguments: { files: [...one("service:\n  name: x"), { path: "orders.yaml", content: "flows: []" }] },
     })) as CallToolResult;
     expect(parse(good)).toEqual({ valid: true, errors: [] });
 
@@ -165,21 +173,21 @@ describe("integration tools", () => {
       "  - name: helper",
       "    process: []",
     ].join("\n");
-    const store = fakeStore([{ id: "a", name: "Demo", definition }]);
+    const store = fakeStore([{ id: "a", name: "Demo", files: one(definition) }]);
     const client = await connect(baseConfig(store));
     const res = (await client.callTool({
       name: "list_flows",
       arguments: { id: "a" },
     })) as CallToolResult;
     expect(parse(res)).toEqual([
-      { name: "greet", source: "cron" },
-      { name: "helper", source: null },
+      { name: "greet", source: "cron", file: "octo.yaml" },
+      { name: "helper", source: null, file: "octo.yaml" },
     ]);
   });
 
   it("returns [] when the definition declares no flows", async () => {
     const store = fakeStore([
-      { id: "a", name: "Empty", definition: "service:\n  name: Empty\n" },
+      { id: "a", name: "Empty", files: one("service:\n  name: Empty\n") },
     ]);
     const client = await connect(baseConfig(store));
     const res = (await client.callTool({
@@ -189,15 +197,15 @@ describe("integration tools", () => {
     expect(parse(res)).toEqual([]);
   });
 
-  it("updates an integration's definition and name", async () => {
-    const store = fakeStore([{ id: "a", name: "Old", definition: "v1" }]);
+  it("replaces an integration's files and name", async () => {
+    const store = fakeStore([{ id: "a", name: "Old", files: one("v1") }]);
     const client = await connect(baseConfig(store));
     const res = (await client.callTool({
       name: "update_integration",
-      arguments: { id: "a", name: "Renamed", definition: "v2" },
+      arguments: { id: "a", name: "Renamed", files: one("v2") },
     })) as CallToolResult;
-    expect(parse(res)).toEqual({ id: "a", name: "Renamed", definition: "v2" });
-    expect(store.rows.get("a")).toMatchObject({ name: "Renamed", definition: "v2" });
+    expect(parse(res)).toEqual({ id: "a", name: "Renamed", files: one("v2") });
+    expect(store.rows.get("a")).toMatchObject({ name: "Renamed", files: one("v2") });
   });
 
   describe("flow-level editing", () => {
@@ -218,7 +226,7 @@ flows:
         name: write-it
 `;
 
-    const seeded = () => fakeStore([{ id: "a", name: "Orders", definition: DEF }]);
+    const seeded = () => fakeStore([{ id: "a", name: "Orders", files: one(DEF) }]);
 
     /** The text body of a tool result (get_flow returns YAML, not JSON). */
     const text = (res: CallToolResult) => (res.content as { text: string }[])[0].text;
@@ -248,7 +256,7 @@ flows:
       })) as CallToolResult;
       expect(res.isError).toBeFalsy();
 
-      const saved = store.rows.get("a")!.definition;
+      const saved = content(store, "a")!;
       expect(saved).toContain("# Charges the card.");
       expect(saved).toContain("name: write-it"); // the other flow, untouched
       expect(saved).toContain("name: pretend");
@@ -264,7 +272,7 @@ flows:
         arguments: { id: "a", definition: "name: refund\nprocess: []\n" },
       })) as CallToolResult;
       expect(ok.isError).toBeFalsy();
-      expect(store.rows.get("a")!.definition).toContain("name: refund");
+      expect(content(store, "a")!).toContain("name: refund");
 
       const dup = (await client.callTool({
         name: "add_flow",
@@ -283,7 +291,7 @@ flows:
       })) as CallToolResult;
       expect(res.isError).toBeFalsy();
 
-      const saved = store.rows.get("a")!.definition;
+      const saved = content(store, "a")!;
       expect(saved).not.toContain("name: charge");
       expect(saved).toContain("name: audit");
     });
@@ -310,7 +318,7 @@ flows:
       })) as CallToolResult;
       expect(res.isError).toBe(true);
       expect(text(res)).toContain("unknown block type");
-      expect(store.rows.get("a")!.definition).toBe(DEF); // untouched
+      expect(content(store, "a")!).toBe(DEF); // untouched
     });
 
     // These tools exist so an agent can edit a flow without holding the whole file in
@@ -334,7 +342,7 @@ flows:
       })) as CallToolResult;
       expect(res.isError).toBe(true);
       expect(text(res)).toContain("nothing was saved");
-      expect(store.rows.get("a")!.definition).toBe(DEF); // untouched
+      expect(content(store, "a")!).toBe(DEF); // untouched
     });
 
     /**
@@ -410,7 +418,7 @@ flows:
       })) as CallToolResult;
 
       expect(res.isError).toBeFalsy();
-      expect(store.rows.get("a")!.definition).toContain("name: settle");
+      expect(content(store, "a")!).toContain("name: settle");
       const blocks = res.content as { text: string }[];
       expect(blocks[blocks.length - 1].text).toContain("the disk is full");
       expect(blocks[blocks.length - 1].text).toContain("will not fire");
@@ -425,6 +433,114 @@ flows:
       expect(res.isError).toBe(true);
       expect(text(res)).toContain('no flow named "refund"');
       expect(text(res)).toContain('"charge", "audit"');
+    });
+  });
+
+  describe("an integration of several files", () => {
+    const OCTO = "service:\n  name: Shop\nconnectors:\n  - name: api\n    type: http\n";
+    const ORDERS = "# Orders.\nflows:\n  - name: orders\n    process: []\n";
+    const seeded = () =>
+      fakeStore([
+        {
+          id: "a",
+          name: "Shop",
+          files: [
+            { path: "octo.yaml", content: OCTO },
+            { path: "orders.yaml", content: ORDERS },
+          ],
+        },
+      ]);
+    const text = (res: CallToolResult) => (res.content as { text: string }[])[0].text;
+
+    it("lists its files and the flows each declares", async () => {
+      const client = await connect(baseConfig(seeded()));
+      const res = (await client.callTool({ name: "list_files", arguments: { id: "a" } })) as CallToolResult;
+      expect(parse(res)).toEqual([
+        { path: "octo.yaml", flows: [] },
+        { path: "orders.yaml", flows: ["orders"] },
+      ]);
+    });
+
+    it("edits a flow in the file that declares it, leaving the others alone", async () => {
+      const store = seeded();
+      const client = await connect(baseConfig(store));
+      const res = (await client.callTool({
+        name: "update_flow",
+        arguments: { id: "a", flow: "orders", definition: "name: orders\nprocess:\n  - type: log\n" },
+      })) as CallToolResult;
+      expect(res.isError).toBeFalsy();
+      expect(content(store, "a", "orders.yaml")).toContain("# Orders.");
+      expect(content(store, "a", "orders.yaml")).toContain("type: log");
+      expect(content(store, "a", "octo.yaml")).toBe(OCTO);
+    });
+
+    it("asks which file a new flow goes in, and creates a file it names", async () => {
+      const store = seeded();
+      const client = await connect(baseConfig(store));
+      const ask = (await client.callTool({
+        name: "add_flow",
+        arguments: { id: "a", definition: "name: billing\nprocess: []\n" },
+      })) as CallToolResult;
+      expect(ask.isError).toBe(true);
+      expect(text(ask)).toContain("octo.yaml, orders.yaml");
+
+      const ok = (await client.callTool({
+        name: "add_flow",
+        arguments: { id: "a", definition: "name: billing\nprocess: []\n", file: "billing.yaml" },
+      })) as CallToolResult;
+      expect(ok.isError).toBeFalsy();
+      expect(content(store, "a", "billing.yaml")).toContain("name: billing");
+    });
+
+    it("refuses a flow whose name another file already declares", async () => {
+      const client = await connect(baseConfig(seeded()));
+      const res = (await client.callTool({
+        name: "add_flow",
+        arguments: { id: "a", definition: "name: orders\nprocess: []\n", file: "octo.yaml" },
+      })) as CallToolResult;
+      expect(res.isError).toBe(true);
+      expect(text(res)).toContain("already exists in orders.yaml");
+    });
+
+    it("validates every file together before writing one", async () => {
+      const store = seeded();
+      const seen: string[][] = [];
+      const client = await connect({
+        ...baseConfig(store),
+        validate: (files) => {
+          seen.push(files.map((f) => f.path));
+          return { valid: false, errors: ['connector "api" is not configured'] };
+        },
+      });
+      const res = (await client.callTool({
+        name: "write_file",
+        arguments: { id: "a", path: "octo.yaml", content: "service:\n  name: Shop\n" },
+      })) as CallToolResult;
+      expect(res.isError).toBe(true);
+      expect(seen).toEqual([["octo.yaml", "orders.yaml"]]);
+      expect(content(store, "a", "octo.yaml")).toBe(OCTO);
+    });
+
+    it("refuses a name the runtime would not load as config", async () => {
+      const client = await connect(baseConfig(seeded()));
+      const res = (await client.callTool({
+        name: "write_file",
+        arguments: { id: "a", path: "flows/orders.yaml", content: "flows: []\n" },
+      })) as CallToolResult;
+      expect(res.isError).toBe(true);
+      expect(text(res)).toContain("not config file names: flows/orders.yaml");
+    });
+
+    it("deletes a file, but never the last one", async () => {
+      const store = seeded();
+      const client = await connect(baseConfig(store));
+      await client.callTool({ name: "delete_file", arguments: { id: "a", path: "orders.yaml" } });
+      expect(store.rows.get("a")!.files.map((f) => f.path)).toEqual(["octo.yaml"]);
+      const last = (await client.callTool({
+        name: "delete_file",
+        arguments: { id: "a", path: "octo.yaml" },
+      })) as CallToolResult;
+      expect(last.isError).toBe(true);
     });
   });
 });

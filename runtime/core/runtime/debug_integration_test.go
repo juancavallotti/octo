@@ -35,7 +35,9 @@ func startDebugService(t *testing.T, cfg types.Config, opts ...ServiceOption) (*
 	}
 	return svc, func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Errorf("service stopped with error: %v", err)
+		}
 	}
 }
 

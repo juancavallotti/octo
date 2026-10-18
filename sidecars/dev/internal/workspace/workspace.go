@@ -192,10 +192,12 @@ func (w *Workspace) List() ([]string, error) {
 // rejoin it under the workspace, then assert the result really is under it.
 //
 // A name that resolves onto the config file is rejected, or a resource could
-// replace the definition between the prune and the config write. Any other
-// *.yaml/*.yml name is rejected one step removed: every *.yaml/*.yml in the
-// directory is merged into the generation (see ConfigFileName), so such a resource
-// would become part of the config rather than sit beside it as data.
+// replace the definition between the prune and the config write. So is any name the
+// runtime would load as config: a *.yaml/*.yml directly in the workspace that is not
+// a test file, which the runtime merges into the generation (see ConfigFileName)
+// rather than leaving beside it as data. The runtime reads only the top level and
+// walks past test files, so a suite in .octo/tests or a YAML template in a folder
+// is data, and is staged like any other resource.
 func (w *Workspace) resolve(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
@@ -212,11 +214,29 @@ func (w *Workspace) resolve(name string) (string, error) {
 	if path == filepath.Join(w.dir, ConfigFileName) {
 		return "", fmt.Errorf("%w: %q collides with the config file", ErrEscapes, name)
 	}
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".yaml", ".yml":
+	if wouldMerge(w.dir, path) {
 		return "", fmt.Errorf("%w: %q would be merged into the runtime config", ErrEscapes, name)
 	}
 	return path, nil
+}
+
+// testSuffix marks a YAML file as a dolphin suite rather than config. Mirrors
+// runtime.TestFileSuffix, case-sensitively, as the runtime matches it.
+const testSuffix = "_test"
+
+// wouldMerge reports whether the runtime, loading dir, would read path as config:
+// a .yaml or .yml directly in dir whose name does not end in the test suffix.
+func wouldMerge(dir, path string) bool {
+	if filepath.Dir(path) != dir {
+		return false
+	}
+	ext := filepath.Ext(path)
+	switch strings.ToLower(ext) {
+	case ".yaml", ".yml":
+	default:
+		return false
+	}
+	return !strings.HasSuffix(strings.TrimSuffix(filepath.Base(path), ext), testSuffix)
 }
 
 // write atomically replaces path's contents: a sibling temp file in the same

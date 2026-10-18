@@ -1,3 +1,5 @@
+import type { EditorCommandStatus } from "@octo/editor";
+
 /**
  * The bridge a hosting shell may expose to the page, as the browser sees it.
  *
@@ -47,6 +49,13 @@ export interface DesktopBridge {
   updateStatus(): Promise<UpdateStatusView>;
   onUpdateStatus(listener: (status: UpdateStatusView) => void): () => void;
   installUpdate(): Promise<void>;
+  /**
+   * Hear the shell's menu asking the editor to do something. The value crosses a
+   * process boundary, so it is checked before it is acted on. Returns the unsubscribe.
+   */
+  onMenuCommand(listener: (command: unknown) => void): () => void;
+  /** Tell the shell what the editor can do now, for its menu to show; null to stop. */
+  reportMenuStatus(status: EditorCommandStatus | null): Promise<void>;
 }
 
 /** The bridge, or null when this is a browser rather than the desktop shell. */

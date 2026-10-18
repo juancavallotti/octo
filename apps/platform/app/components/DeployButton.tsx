@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Rocket } from "lucide-react";
-import { useSave } from "@octo/editor";
+import { HEADER_LABEL, useSave } from "@octo/editor";
 import { useRoles } from "@/app/auth/RolesContext";
 import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import {
@@ -148,7 +148,9 @@ export default function DeployButton({
         className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
       >
         <Rocket size={14} />
-        {busy && !rollout && !firstDeploy ? "Preparing…" : "Deploy"}
+        <span className={HEADER_LABEL}>
+          {busy && !rollout && !firstDeploy ? "Preparing…" : "Deploy"}
+        </span>
       </button>
 
       {error && !rollout && !firstDeploy && (

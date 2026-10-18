@@ -15,7 +15,10 @@ export interface Integration {
    * Empty or absent means derive one from the definition.
    */
   icon?: string;
-  /** The flow definition, as the runtime YAML the editor serializes. */
+  /**
+   * The integration's config files merged into one config — what a snapshot freezes
+   * and a deployment runs. Read-only: the files are written one set at a time.
+   */
   definition: string;
   /** RFC3339 timestamp of the last update. */
   lastUpdated: string;
@@ -100,10 +103,30 @@ export interface Folder {
   children?: Folder[];
 }
 
-/** Body for creating/updating an integration. */
+/**
+ * Body for creating an integration. A non-empty definition becomes its one config
+ * file; an empty one creates it with none, for a caller about to write its files.
+ */
 export interface IntegrationInput {
   name: string;
   definition: string;
+}
+
+/** Body for renaming an integration. Its config is written through its files. */
+export interface IntegrationRename {
+  name: string;
+}
+
+/**
+ * One of an integration's config files: a root-level YAML file the runtime merges with
+ * the others into one application.
+ */
+export interface ConfigFile {
+  /** The file's name at the project root, e.g. `orders.yaml`. */
+  path: string;
+  content: string;
+  /** RFC3339 timestamp of the last write, when known. */
+  lastUpdated?: string;
 }
 
 /** Coarse lifecycle status of a deployment, cached from the live cluster. */

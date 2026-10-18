@@ -15,7 +15,7 @@ export default function AppLogo({
   href?: string | null;
 }) {
   const mark = (
-    <span className="flex items-center gap-2">
+    <span className="flex shrink-0 items-center gap-2">
       {/* h-6 w-auto controls both axes so Tailwind's `img { height: auto }`
           reset doesn't trigger Next's aspect-ratio warning. */}
       <Image

@@ -64,7 +64,7 @@ async function open(content: string, where: "settings" | string | RegExp) {
         type: EditorActionType.LOAD_DOCUMENT,
         data: { document: docWithBlocks() },
       });
-      dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "one" } });
+      dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: "one" } });
     }, [dispatch]);
     return <>{children}</>;
   }
@@ -137,7 +137,7 @@ describe("AddressPicker", () => {
             document: { ...blankDocument(), flows: [{ ...emptyFlow(), name: "orders" }] },
           },
         });
-        dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "one" } });
+        dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: "one" } });
       }, [dispatch]);
       return <>{children}</>;
     }

@@ -8,51 +8,35 @@ import (
 	"strings"
 )
 
-const (
-	// maxSlugLen bounds the slug derived from an integration name, so a pathological
-	// name cannot produce an unusable filename.
-	maxSlugLen = 64
-	// collisionLimit bounds the search for a free definition entry name when the
-	// obvious one is taken by a resource. Far more attempts than a real integration
-	// could need; it exists so the loop cannot run forever.
-	collisionLimit = 100
-)
+// maxSlugLen bounds the slug derived from an integration name, so a pathological
+// name cannot produce an unusable filename.
+const maxSlugLen = 64
 
-// Write renders a bundle as a zip archive: the manifest, the definition, then one
-// entry per resource at its own name.
+// Write renders a bundle as a zip archive: the manifest, each config file at its
+// own path, then one entry per resource at its own name.
 //
-// Resource names are written verbatim because they are already confined —
-// relative, no empty segments, no "..", enforced when the resource is stored. A
-// name that escaped would escape on extraction too, so it is rejected here rather
-// than sanitized into something the definition no longer refers to.
+// Paths and names are written verbatim because they are already confined —
+// relative, no empty segments, no "..", enforced when the file is stored. A name
+// that escaped would escape on extraction too, so it is rejected here rather than
+// sanitized into something the config no longer refers to.
 func Write(b Bundle) ([]byte, error) {
-	definitionName, err := definitionEntryName(b)
-	if err != nil {
-		return nil, err
-	}
-
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
-	entries := make([]manifestEntry, 0, len(b.Resources))
-	for _, r := range b.Resources {
-		entries = append(entries, manifestEntry{Name: r.Name, Kind: r.Kind})
-	}
-	doc, err := json.MarshalIndent(manifest{
-		Version:    manifestVersion,
-		Name:       b.Name,
-		Tag:        b.Tag,
-		Definition: definitionName,
-		Resources:  entries,
-	}, "", "  ")
+	doc, err := json.MarshalIndent(manifestOf(b), "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("bundle: render manifest: %w", err)
 	}
 	if err := writeEntry(zw, manifestName, string(doc)+"\n"); err != nil {
 		return nil, err
 	}
-	if err := writeEntry(zw, definitionName, b.Definition); err != nil {
-		return nil, err
+	for _, c := range b.Configs {
+		if err := checkConfigPath(c.Path); err != nil {
+			return nil, err
+		}
+		if err := writeEntry(zw, c.Path, c.Content); err != nil {
+			return nil, err
+		}
 	}
 	for _, r := range b.Resources {
 		if err := safeEntryName(r.Name); err != nil {
@@ -88,33 +72,27 @@ func writeEntry(zw *zip.Writer, name, content string) error {
 	return nil
 }
 
-// definitionEntryName picks where the definition goes: `<slug>.yaml`, so an
-// unzipped bundle is a directory whose config is recognisable by name. A resource
-// may legitimately be named that too (nothing stops an author), so a taken name is
-// suffixed until it is free — the definition moves rather than the resource,
-// because the definition refers to resources by name and a moved resource would
-// break that reference.
-func definitionEntryName(b Bundle) (string, error) {
-	taken := make(map[string]struct{}, len(b.Resources))
-	for _, r := range b.Resources {
-		taken[r.Name] = struct{}{}
+// manifestOf describes a bundle's entries.
+func manifestOf(b Bundle) manifest {
+	configs := make([]string, 0, len(b.Configs))
+	for _, c := range b.Configs {
+		configs = append(configs, c.Path)
 	}
-	base := Slug(b.Name)
-	candidate := base + ".yaml"
-	for i := 1; ; i++ {
-		if _, clash := taken[candidate]; !clash && candidate != manifestName {
-			return candidate, nil
-		}
-		if i > collisionLimit {
-			return "", fmt.Errorf("%w: no free name for the definition entry", ErrInvalid)
-		}
-		candidate = fmt.Sprintf("%s-%d.yaml", base, i)
+	entries := make([]manifestEntry, 0, len(b.Resources))
+	for _, r := range b.Resources {
+		entries = append(entries, manifestEntry{Name: r.Name, Kind: r.Kind})
+	}
+	return manifest{
+		Version:   manifestVersion,
+		Name:      b.Name,
+		Tag:       b.Tag,
+		Configs:   configs,
+		Resources: entries,
 	}
 }
 
 // Slug turns a display name into a filename stem: lowercase, non-alphanumerics
-// collapsed to '-', trimmed and length-bounded. Exported because the handler
-// names the download from the same rule the archive's own definition entry uses.
+// collapsed to '-', trimmed and length-bounded.
 func Slug(name string) string {
 	var sb strings.Builder
 	lastDash := false
@@ -133,7 +111,7 @@ func Slug(name string) string {
 		s = strings.Trim(s[:maxSlugLen], "-")
 	}
 	if s == "" {
-		return strings.TrimSuffix(defaultDefinitionName, ".yaml")
+		return fallbackSlug
 	}
 	return s
 }

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Eraser, Trash2 } from "lucide-react";
 import { useEditorMeta } from "../../providers/EditorMetaProvider";
 import { flowOfAddress } from "../../meta/observed";
-import { useEditorState } from "../../state/editorState";
+import { useProjectView } from "../../state/useProject";
 import { useRun } from "../../run/RunContext";
 import { useSuiteRun } from "../../run/SuiteRunContext";
 import { parseSuite } from "../../suite/parse";
@@ -50,11 +50,12 @@ export default function SuiteEditor({
   const run = useRun();
   const suiteRun = useSuiteRun();
   const meta = useEditorMeta();
-  const { state } = useEditorState();
+  // Suites address flows and blocks by name, and names span every file.
+  const project = useProjectView();
   // Running a suite records the message shapes it saw, which is what tells CEL completion
   // what a REST call returns. Forgetting them is the counterpart: they describe some past
   // run, and a flow that has changed since should not keep completing to it.
-  const flowId = state.document.flows.find((f) => f.name === flow)?.id ?? null;
+  const flowId = project.flows.find((f) => f.name === flow)?.id ?? null;
   const learned = Object.keys(meta?.observed() ?? {}).some(
     (address) => flowOfAddress(address) === flow,
   );

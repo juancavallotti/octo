@@ -74,10 +74,10 @@ type integrationResponse struct {
 // operation, so naming the envelope here would describe it as application/zip.
 //
 //	@Summary		Download an integration as a bundle
-//	@Description	A zip holding the integration's definition and every resource it owns, laid out the
-//	@Description	way the runtime reads them from disk: the definition at the root, each resource at its
-//	@Description	own path-like name, plus an `octo-bundle.json` manifest carrying the display name and
-//	@Description	each resource's kind.
+//	@Description	A zip holding the integration's config files and every resource it owns, laid out the
+//	@Description	way the runtime reads them from disk: each config file at the root under its own name,
+//	@Description	each resource at its own path-like name, plus an `octo-bundle.json` manifest carrying
+//	@Description	the display name, the config file paths and each resource's kind.
 //	@Tags			bundles
 //	@Produce		application/zip
 //	@Param			id	path	string	true	"Integration id"
@@ -100,7 +100,7 @@ func (h *Handler) export(w http.ResponseWriter, r *http.Request) {
 // exportSnapshot godoc
 //
 //	@Summary		Download a version tag as a bundle
-//	@Description	The same archive as an integration's bundle, built from the tag's frozen definition and
+//	@Description	The same archive as an integration's bundle, built from the tag's frozen config files and
 //	@Description	frozen resources rather than the working copy.
 //	@Tags			bundles
 //	@Produce		application/zip
@@ -127,7 +127,8 @@ func (h *Handler) exportSnapshot(w http.ResponseWriter, r *http.Request) {
 //	@Description	The request body is the zip itself. A bundle written by this API names the integration
 //	@Description	through its manifest; for one without a manifest, the `name` query parameter names the
 //	@Description	import (the caller usually passes the uploaded filename's stem). A name already in use
-//	@Description	is suffixed rather than rejected.
+//	@Description	is suffixed rather than rejected. Without a manifest, every root-level .yaml or .yml
+//	@Description	that does not end in _test is a config file and everything else is a resource.
 //	@Tags			bundles
 //	@Accept			application/zip
 //	@Produce		json
@@ -135,7 +136,7 @@ func (h *Handler) exportSnapshot(w http.ResponseWriter, r *http.Request) {
 //	@Param			actorId	query		string	false	"Acting user id, forwarded by the BFF"
 //	@Success		201		{object}	integrationResponse
 //	@Failure		400		{object}	httpx.ErrorResponse	"the archive is not a readable bundle"
-//	@Failure		409		{object}	httpx.ErrorResponse	"no free name could be found for the import"
+//	@Failure		409		{object}	httpx.ErrorResponse	"no free name could be found, or the config files do not merge"
 //	@Failure		413		{object}	httpx.ErrorResponse	"the upload is too large"
 //	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/integrations/bundle [post]
@@ -160,8 +161,9 @@ func (h *Handler) importNew(w http.ResponseWriter, r *http.Request) {
 // replace godoc
 //
 //	@Summary		Replace an integration from a bundle
-//	@Description	Overwrites the addressed integration's definition and resource set with the archive's,
-//	@Description	keeping its id, name, folder, version tags and deployments. Resources are reconciled by
+//	@Description	Overwrites the addressed integration's config files and resource set with the archive's,
+//	@Description	keeping its id, name, folder, version tags and deployments. The config files are replaced
+//	@Description	as a set: any the bundle does not carry are deleted. Resources are reconciled by
 //	@Description	name: shared names are updated in place, new ones added, and any the bundle no longer
 //	@Description	carries are deleted. The bundle's own name is ignored — a replace is not a rename.
 //	@Tags			bundles
@@ -172,7 +174,7 @@ func (h *Handler) importNew(w http.ResponseWriter, r *http.Request) {
 //	@Success		200		{object}	integrationResponse
 //	@Failure		400		{object}	httpx.ErrorResponse	"the archive is not a readable bundle"
 //	@Failure		404		{object}	httpx.ErrorResponse	"no such integration"
-//	@Failure		409		{object}	httpx.ErrorResponse	"a resource name in the bundle conflicts"
+//	@Failure		409		{object}	httpx.ErrorResponse	"a resource name conflicts, or the config files do not merge"
 //	@Failure		413		{object}	httpx.ErrorResponse	"the upload is too large"
 //	@Failure		500		{object}	httpx.ErrorResponse
 //	@Router			/integrations/{id}/bundle [put]
@@ -254,7 +256,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, ErrInvalid), errors.Is(err, resource.ErrInvalid), errors.Is(err, integration.ErrInvalid):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, integration.ErrNameTaken), errors.Is(err, resource.ErrNameExists):
+	case errors.Is(err, integration.ErrNameTaken), errors.Is(err, resource.ErrNameExists),
+		errors.Is(err, integration.ErrFilesConflict):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, integration.ErrNotFound), errors.Is(err, resource.ErrIntegrationNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")

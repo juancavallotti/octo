@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DocumentRename,
   EditorRoot,
@@ -15,20 +15,23 @@ import { localEditorMetaStore } from "@/app/run/editorMetaStore";
 import { localTestSuiteStore } from "@/app/run/testSuiteStore";
 import { localDiskFileSystem } from "@/app/providers/localDiskFileSystem";
 import McpCopyAction from "./McpCopyAction";
-import StandaloneFileMenu from "./StandaloneFileMenu";
+import ProjectName from "./ProjectName";
 import StandaloneHeader from "./StandaloneHeader";
 import { useDesktopPrefs } from "./useDesktopPrefs";
 
 /**
  * This app's wiring for the shared editor: the local-disk filesystem capability and
- * the local run transport. `file` is the open flow id, taken from the `?file=` query.
+ * the local run transport. The project is the folder the app serves, `projectId` its
+ * name; `file` is the config file to open first, taken from the `?file=` query.
  * `capabilities` is the runtime schema the server probed — null when no runner is
  * configured — injected before the editor renders so the palette derives from it.
  */
 export default function StandaloneEditor({
+  projectId,
   file,
   capabilities,
 }: {
+  projectId: string;
   file?: string;
   capabilities?: Capabilities | null;
 }) {
@@ -36,14 +39,6 @@ export default function StandaloneEditor({
   // before children read the palette). Synchronous and idempotent; a null value
   // leaves the bundled fallback in place.
   setCapabilities(capabilities);
-
-  // The id of the file currently open: the `?file=` query, or the (possibly
-  // renamed) id adopted on save. Kept in a ref so the event subscription always
-  // matches against the latest without resubscribing.
-  const idRef = useRef<string | undefined>(file);
-  useEffect(() => {
-    idRef.current = file;
-  }, [file]);
 
   /**
    * One counter per kind of file, because the editor does a different thing with
@@ -59,17 +54,18 @@ export default function StandaloneEditor({
   useEffect(
     () =>
       subscribeIntegrationEvents((event) => {
-        if (event.id !== idRef.current) return;
+        if (event.id !== projectId) return;
         if (event.type === "integration.tests-updated") setTestsToken((n) => n + 1);
         else if (event.type === "integration.meta-updated") setMetaToken((n) => n + 1);
         else setReloadToken((n) => n + 1);
       }),
-    [],
+    [projectId],
   );
 
   return (
     <EditorRoot
-      integrationId={file}
+      projectId={projectId}
+      initialFile={file}
       reloadToken={reloadToken}
       fs={localDiskFileSystem}
       run={localRunTransport}
@@ -82,21 +78,11 @@ export default function StandaloneEditor({
       prefs={prefs}
       header={<StandaloneHeader />}
       files={
-        <DocumentRename placeholder="untitled-file" label="Rename file">
-          <StandaloneFileMenu />
+        <DocumentRename placeholder="untitled-project" label="Rename project">
+          <ProjectName />
         </DocumentRename>
       }
       consoleActions={<McpCopyAction />}
-      onSaved={(stored) => {
-        // Reflect the open file in the URL so a reload reopens it; the header
-        // reads the current id from editor state, so no remount is needed.
-        idRef.current = stored.id;
-        window.history.replaceState(
-          null,
-          "",
-          `/?file=${encodeURIComponent(stored.id)}`,
-        );
-      }}
     />
   );
 }

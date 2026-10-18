@@ -12,13 +12,15 @@ import * as resources from "../api/fs/resourceStore";
 import * as suites from "../api/fs/testSuiteStore";
 
 /**
- * This host's {@link IntegrationStore}: a shim over the local disk store. Integrations
- * here are the `*.yaml` flow files under the store root. `update` renames on disk when
- * a new name's slug differs, otherwise overwrites in place.
+ * This host's {@link IntegrationStore}: a shim over the local disk store. This app serves
+ * one integration — the folder, whose config files are its `*.yaml` files — so there is
+ * one record, and creating a second is refused rather than allowed to overwrite the
+ * first. A name is not stored apart from the files: it is the `service.name` they
+ * declare, so renaming is an edit to that file.
  */
 
 /**
- * Announce a write on the in-process bus so an editor with this file open can
+ * Announce a write on the in-process bus so an editor with this project open can
  * live-reload it (see @octo/events). Returns the record for call-site convenience.
  */
 function announce(rec: IntegrationRecord): IntegrationRecord {
@@ -26,17 +28,31 @@ function announce(rec: IntegrationRecord): IntegrationRecord {
   return rec;
 }
 
+async function project(id: string): Promise<IntegrationRecord> {
+  const rec = await store.readProject();
+  if (id !== rec.id) throw new Error(`no such integration: ${id} (this app serves "${rec.id}")`);
+  return rec;
+}
+
 export const fsIntegrationStore: IntegrationStore = {
-  list: () => store.listFlows(),
-  get: (id) => store.readFlow(id),
-  create: async (name, definition) =>
-    announce(await store.createFlow(name, definition)),
-  update: async (id, name, definition) =>
-    announce(
-      name === undefined
-        ? await store.writeFlow(id, definition)
-        : await store.updateFlow(id, name, definition),
-    ),
+  list: async () => {
+    const { id, name } = await store.readProject();
+    return [{ id, name }];
+  },
+  get: project,
+  create: async (_name, files) => {
+    const current = await store.readProject();
+    if (current.files.length > 0) {
+      throw new Error(
+        `this app serves one integration, "${current.id}", and it already has config files — change it with write_file, update_flow or update_integration`,
+      );
+    }
+    return announce(await store.writeProject(files));
+  },
+  update: async (id, _name, files) => {
+    await project(id);
+    return announce(await store.writeProject(files));
+  },
 };
 
 /** Env-convention names are env resources; everything else is a template. */

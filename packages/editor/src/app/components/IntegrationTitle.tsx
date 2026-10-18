@@ -17,12 +17,12 @@ export default function IntegrationTitle() {
   return (
     <input
       type="text"
-      value={state.integration.name}
+      value={state.project.name}
       placeholder="Untitled integration"
       aria-label="Integration title"
       onChange={(e) =>
         dispatch({
-          type: EditorActionType.SET_INTEGRATION_TITLE,
+          type: EditorActionType.SET_PROJECT_TITLE,
           data: { name: e.target.value },
         })
       }

@@ -12,6 +12,7 @@ import {
 import { newId, type EditorDocument } from "../model/document";
 import { toRunnableYaml } from "../model/runConfig";
 import { useEditorState } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
 import { useEditorMeta } from "../providers/EditorMetaProvider";
 import type { TestInput } from "../meta/types";
 import { debugConflict, planBreakpoint } from "./address";
@@ -91,8 +92,9 @@ export function FlowRunProvider({
   const { state } = useEditorState();
   const { openTo } = useConsole();
   const meta = useEditorMeta();
-  const doc = state.document;
-  const integrationId = state.integration.id;
+  // The project merged: a flow-ref reaches flows in other files, so a run needs them.
+  const doc = useProjectView();
+  const integrationId = state.project.id;
 
   const [results, setResults] = useState<FlowRunEntry[]>([]);
   const [busyBlockIds, setBusyBlockIds] = useState<ReadonlySet<string>>(new Set());

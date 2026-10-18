@@ -75,7 +75,7 @@ describe("orchestrator client", () => {
 
   it("uses PUT when updating and encodes the id", async () => {
     const fetchFn = stubFetch({ body: { id: "a/b" } });
-    await updateIntegration("a/b", { name: "n", definition: "y" });
+    await updateIntegration("a/b", { name: "n" });
     const [url, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(url).toBe(`${ORCH}/integrations/a%2Fb`);

@@ -3,10 +3,10 @@ import { watch, type FSWatcher } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { publish } from "@octo/events";
-import { fsRoot, isStoredFile, isTestFile, nameOf } from "./store";
+import { fsRoot, isStoredFile, isTestFile, projectId } from "./store";
 
 /**
- * Noticing that somebody else changed a flow file — a coding agent editing the YAML
+ * Noticing that somebody else changed a config file or a suite — a coding agent editing the YAML
  * directly, a `git checkout`, another program — which is the common case here: the
  * folder is plain files other tools work on. Writes through this app's own endpoints
  * publish for themselves and need no watcher.
@@ -74,13 +74,13 @@ async function announce(id: string): Promise<void> {
   if (s.digests.get(id) === next) return; // our own write, or a touch that changed nothing
   s.digests.set(id, next);
 
-  // A suite is a different file to the editor than the flow it tests, and it has its
-  // own token — sending the flow's would reload the document to say a test changed.
-  // The event names the FLOW's id, because that is what an open editor is keyed by.
+  // A suite is a different file to the editor than the config it tests, and it has its
+  // own token — sending the project's would reload the files to say a test changed.
+  // Both name the PROJECT, because that is what an open editor is keyed by.
   publish(
     isTestFile(id)
-      ? { type: "integration.tests-updated", id: id.replace(/_test(?=\.ya?ml$)/i, "") }
-      : { type: "integration.updated", id, name: nameOf(id) },
+      ? { type: "integration.tests-updated", id: projectId() }
+      : { type: "integration.updated", id: projectId(), name: projectId() },
   );
 }
 

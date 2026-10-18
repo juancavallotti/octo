@@ -60,18 +60,27 @@ export function trackingOf(type: EditorActionType): Tracking {
     case EditorActionType.SELECT_CONNECTION:
     case EditorActionType.SET_ACTIVE_FLOW:
     case EditorActionType.SET_VIEW_MODE:
+    case EditorActionType.SET_FLOWS_VIEW:
+    case EditorActionType.NEW_ITEM:
+    case EditorActionType.CONSUME_NEW_ITEM:
     case EditorActionType.SELECT_COMPONENT:
     case EditorActionType.CLEAR_SELECTION:
-    case EditorActionType.SET_INTEGRATION_ID:
-    case EditorActionType.SET_INTEGRATION_TITLE:
-    case EditorActionType.SET_INTEGRATION_FOLDER:
+    case EditorActionType.SET_PROJECT_ID:
+    case EditorActionType.SET_PROJECT_TITLE:
+    case EditorActionType.SET_PROJECT_FOLDER:
       return "skip";
 
     // A different document is now open. Undoing into the previous one would silently
-    // overwrite the file the user just switched to.
+    // overwrite the file the user just switched to. Undo is per file: the history
+    // holds the active file's edits, so changing which files exist, or which one is
+    // open, starts it over.
     case EditorActionType.LOAD_DOCUMENT:
-    case EditorActionType.LOAD_INTEGRATION:
-    case EditorActionType.NEW_INTEGRATION:
+    case EditorActionType.LOAD_PROJECT:
+    case EditorActionType.NEW_PROJECT:
+    case EditorActionType.SWITCH_FILE:
+    case EditorActionType.CREATE_FILE:
+    case EditorActionType.RENAME_FILE:
+    case EditorActionType.DELETE_FILE:
       return "reset";
 
     // Handled by the history wrapper; they never reach the inner reducer.
