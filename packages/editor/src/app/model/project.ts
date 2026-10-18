@@ -33,6 +33,13 @@ export interface ProjectFile {
    * does — the runtime refuses a second — so saving writes it into that file only.
    */
   declaresService: boolean;
+  /**
+   * The file as it was loaded: the document parsed from it, its text, and the service
+   * name it declared. A file whose document is still that one is saved as that text,
+   * byte for byte, so a save never reformats — or strips the comments from — a file
+   * nobody touched.
+   */
+  loaded?: { document: EditorDocument; content: string; service?: string };
 }
 
 /** Order files the way the runtime merges them: by path. */
@@ -48,7 +55,8 @@ export function byPath<T extends { path: string }>(files: readonly T[]): T[] {
 export function parseProject(files: readonly StoredFile[]): ProjectFile[] {
   const parsed = byPath(files).map((f) => ({
     path: f.path,
-    config: (YAML.parse(f.content) ?? {}) as RuntimeConfig & { service?: unknown },
+    content: f.content,
+    config: (YAML.parse(f.content) ?? {}) as RuntimeConfig & { service?: { name?: unknown } },
   }));
   const connectors = new Map<string, string>();
   for (const { config } of parsed) {
@@ -56,11 +64,16 @@ export function parseProject(files: readonly StoredFile[]): ProjectFile[] {
       if (c.name && !connectors.has(c.name)) connectors.set(c.name, c.type ?? "");
     }
   }
-  return parsed.map(({ path, config }) => ({
-    path,
-    document: fromConfig(config, connectors),
-    declaresService: config.service != null,
-  }));
+  return parsed.map(({ path, content, config }) => {
+    const document = fromConfig(config, connectors);
+    const service = config.service?.name;
+    return {
+      path,
+      document,
+      declaresService: config.service != null,
+      loaded: { document, content, service: typeof service === "string" ? service : undefined },
+    };
+  });
 }
 
 /**
@@ -131,13 +144,22 @@ export function serializeProject(files: readonly ProjectFile[], name: string): S
   return byPath(files).map((f) => ({ path: f.path, content: serializeFile(files, f.path, name) }));
 }
 
-/** Serialize one file of a project, as {@link serializeProject} would. */
+/**
+ * Serialize one file of a project, as {@link serializeProject} would. A file left as
+ * it was loaded comes back as the text it was loaded from — unless it carries the
+ * service identity and the project has been renamed since.
+ */
 export function serializeFile(files: readonly ProjectFile[], path: string, name: string): string {
   const file = files.find((f) => f.path === path);
   if (!file) return "";
+  const owner = path === serviceFile(files);
+  const { loaded } = file;
+  if (loaded && loaded.document === file.document && (!owner || loaded.service === name)) {
+    return loaded.content;
+  }
   return toFileYaml(file.document, {
     connectors: projectView(files).connectors,
-    service: path === serviceFile(files) ? name : undefined,
+    service: owner ? name : undefined,
   });
 }
 

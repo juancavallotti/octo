@@ -121,6 +121,23 @@ describe("serializeProject", () => {
     expect(serviceFile(files)).toBe("a.yaml");
   });
 
+  it("writes a file nobody touched back as it was loaded, comments and all", () => {
+    const files = parseProject([{ path: "orders.yaml", content: "# keep me\n" + ordersYaml }, ...stored.slice(1)]);
+    const out = serializeProject(files, "shop");
+    expect(out.find((f) => f.path === "orders.yaml")!.content).toBe("# keep me\n" + ordersYaml);
+    expect(out.find((f) => f.path === "octo.yaml")!.content).toBe(octoYaml);
+  });
+
+  it("re-serializes an edited file, and the service file when the project is renamed", () => {
+    const files = parseProject(stored).map((f) =>
+      f.path === "audit.yaml" ? { ...f, document: { ...f.document } } : f,
+    );
+    const out = serializeProject(files, "Shop");
+    expect(out.find((f) => f.path === "audit.yaml")!.content).not.toBe(auditYaml);
+    expect(YAML.parse(out.find((f) => f.path === "octo.yaml")!.content).service.name).toBe("Shop");
+    expect(out.find((f) => f.path === "orders.yaml")!.content).toBe(ordersYaml);
+  });
+
   it("round-trips", () => {
     const files = parseProject(stored);
     const again = parseProject(serializeProject(files, "Shop"));
