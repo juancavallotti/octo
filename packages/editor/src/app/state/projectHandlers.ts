@@ -115,8 +115,12 @@ export function renameFile(state: EditorState, p: RenameFilePayload): EditorStat
   ) {
     return state;
   }
+  // Renaming another file leaves the open one as it is — its selection included.
+  if (state.activePath !== p.from) {
+    return { ...state, files: byPath(state.files.map((f) => (f.path === p.from ? { ...f, path: p.to } : f))) };
+  }
   const files = byPath(projectFiles(state).map((f) => (f.path === p.from ? { ...f, path: p.to } : f)));
-  return activate(state, files, state.activePath === p.from ? p.to : state.activePath);
+  return activate(state, files, p.to);
 }
 
 /** Remove a config file. The last one is kept: a project of no files is not one. */
