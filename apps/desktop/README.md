@@ -58,11 +58,38 @@ would mean multiple servers, which would cost the single stable MCP URL.
 | `octo`, `dolphin` | the repo's `bin/` | `Contents/Resources/bin` |
 | State, endpoint record | `~/Library/Application Support/Octo` | same |
 | Server log | `~/Library/Logs/Octo/server.log` | same |
+| Terminal's `octo`/`dolphin` links | `~/Library/Application Support/Octo/term-bin` | same |
+| node-pty | `node_modules/node-pty` | `Contents/Resources/app.asar.unpacked/node_modules/node-pty` |
 
-`apps/desktop` declares **no runtime dependencies**: main and preload are bundled
-by esbuild, and the server and binaries arrive as resources. That is what keeps
-electron-builder from having to resolve production deps across pnpm's symlink
-farm.
+`apps/desktop` declares **one runtime dependency, `node-pty`**: everything else in
+main and preload is bundled by esbuild, and the server and binaries arrive as
+resources. node-pty cannot be bundled — it loads `pty.node` and runs
+`spawn-helper` from paths relative to its own package — so esbuild leaves it
+external and electron-builder ships it, unpacked from the asar (`asarUnpack`),
+since a native addon and an executable cannot be read out of one. Keep it the only
+one: every production dependency is a tree electron-builder has to resolve across
+pnpm's symlink farm.
+
+node-pty ships N-API prebuilds for both macOS architectures, which load under
+Electron unchanged, so `npmRebuild` is off and nothing compiles it — not even for
+the x64 build on the arm64 release runner. `build/after-pack.cjs` drops the other
+platforms' prebuilds and sets the execute bit on `spawn-helper`, which node-pty
+1.1.0 publishes without; a dev run fixes the checkout's copy at its first spawn.
+
+## Terminal
+
+The editor's Terminal tab is backed by `src/main/terminal.ts`. Each session is a
+node-pty running the user's login shell (`$SHELL -l`) in the open folder, owned by
+the page that opened it: it ends when that page navigates, reloads or closes —
+which a folder switch does — and on quit. Output is batched over 5 ms per IPC
+message. `userData/term-bin` holds links to `binary("octo")` and
+`binary("dolphin")`, refreshed per session and put first on the shell's `PATH`, so
+the terminal runs the same binaries as the editor, Settings override included.
+
+`octo:term:open` is an invoke; `write`, `resize` and `kill` are one-way sends
+because keystrokes are too frequent to round-trip. All four are refused unless
+they come from the editor's origin, like every other editor channel, and a page
+can only reach the sessions it opened.
 
 ## Shipping
 
@@ -105,9 +132,8 @@ one restarts the server through `vault.ts:reopenCurrent()`, the same serialised
 restart (and rollback) a folder switch uses.
 
 **Updates.** `electron-updater` against the GitHub release, bundled by esbuild rather
-than declared as a runtime dependency — which is what keeps `apps/desktop` free of a
-production dependency tree for electron-builder to resolve across pnpm's symlink
-farm. The release must attach the zips and `latest-mac.yml`; the dmg alone cannot
+than declared as a runtime dependency, so it adds nothing to the production
+dependency tree electron-builder resolves. The release must attach the zips and `latest-mac.yml`; the dmg alone cannot
 deliver an update.
 
 The install is triggered by hand, in `index.ts`'s `before-quit`, and this is not
