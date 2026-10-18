@@ -1,11 +1,11 @@
-import { Menu, app, clipboard, shell } from "electron";
+import { Menu, app, clipboard, shell, type BrowserWindow } from "electron";
 import path from "node:path";
 import { logPath } from "./log";
 import { current } from "./server";
 import { openSettings } from "./settingsWindow";
 import { checkForUpdates, restartToUpdate, updateStatus } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
-import { editorStatus, sendCommand } from "./editorStatus";
+import { editorStatus, sendCommand, setEditorStatus } from "./editorStatus";
 import { menuTemplate } from "./menuTemplate";
 import { mainWindow } from "./window";
 
@@ -77,4 +77,21 @@ export function buildMenu(): void {
     },
   );
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/**
+ * Forget the editor's report when its page goes away without saying so — a reload,
+ * a navigation, a crashed renderer, a closed window — none of which runs the page's
+ * own goodbye. The menu then goes back to what it shows before an editor reports,
+ * rather than offering a dead page's commands.
+ */
+export function followEditorPage(win: BrowserWindow): void {
+  const forget = () => {
+    if (setEditorStatus(null)) buildMenu();
+  };
+  win.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) forget();
+  });
+  win.webContents.on("render-process-gone", forget);
+  win.on("closed", forget);
 }

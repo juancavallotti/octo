@@ -34,8 +34,10 @@ export function useDesktopMenu(): void {
   }, [serialized]);
 
   // Gone, the page has nothing to report; the shell's menu goes back to its defaults.
+  // What was last reported is forgotten with it, so a remount reports afresh.
   useEffect(() => {
     return () => {
+      reported.current = null;
       void desktopBridge()?.reportMenuStatus?.(null).catch(() => {});
     };
   }, []);
