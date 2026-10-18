@@ -16,6 +16,7 @@ import { unwrap } from "./bff";
 export * from "./orchestratorTypes";
 export * from "./bundles";
 export * from "./resources";
+export * from "./configFiles";
 import type {
   DeployOptions,
   Deployment,
@@ -24,6 +25,7 @@ import type {
   Folder,
   Integration,
   IntegrationInput,
+  IntegrationRename,
   Snapshot,
   SnapshotResource,
 } from "./orchestratorTypes";
@@ -48,7 +50,7 @@ export async function createIntegration(
 
 export async function updateIntegration(
   id: string,
-  input: IntegrationInput,
+  input: IntegrationRename,
 ): Promise<Integration> {
   return unwrap(await integrationActions.updateIntegration(id, input));
 }

@@ -7,7 +7,7 @@ import type {
   SuiteStore,
 } from "@octo/mcp";
 import type { ActionResult } from "@octo/http";
-import type { Integration, Resource } from "@/app/model/orchestrator";
+import type { Resource } from "@/app/model/orchestrator";
 import { publishIntegrationEvent } from "@/app/lib/integrationEvents";
 import * as client from "@/app/actions/_client";
 import {
@@ -29,9 +29,13 @@ function unwrap<T>(res: ActionResult<T>): T {
   return res.data;
 }
 
-/** Drop the orchestrator's bookkeeping, keeping the fields the MCP layer uses. */
-function toRecord(it: Integration): IntegrationRecord {
-  return { id: it.id, name: it.name, definition: it.definition };
+/** An integration and its config files, as the MCP layer reads it. */
+async function record(id: string): Promise<IntegrationRecord> {
+  const [it, files] = await Promise.all([
+    client.getIntegration(id).then(unwrap),
+    client.readConfigFiles(id).then(unwrap),
+  ]);
+  return { id: it.id, name: it.name, files: files.map(({ path, content }) => ({ path, content })) };
 }
 
 /**
@@ -54,20 +58,16 @@ export const orchestratorIntegrationStore: IntegrationStore = {
     const items = unwrap(await client.listIntegrations());
     return items.map((it) => ({ id: it.id, name: it.name }));
   },
-  get: async (id) => toRecord(unwrap(await client.getIntegration(id))),
-  create: async (name, definition) =>
-    announce(toRecord(unwrap(await client.createIntegration({ name, definition })))),
-  update: async (id, name, definition) => {
-    // The orchestrator's update requires a name; when the caller isn't renaming,
-    // preserve the integration's current name rather than blanking it.
-    const resolved = name ?? unwrap(await client.getIntegration(id)).name;
-    return announce(
-      toRecord(
-        unwrap(
-          await client.updateIntegration(id, { name: resolved, definition }),
-        ),
-      ),
-    );
+  get: record,
+  create: async (name, files) => {
+    const created = unwrap(await client.createIntegration({ name, definition: "" }));
+    unwrap(await client.replaceConfigFiles(created.id, files));
+    return announce(await record(created.id));
+  },
+  update: async (id, name, files) => {
+    unwrap(await client.replaceConfigFiles(id, files));
+    if (name !== undefined) unwrap(await client.updateIntegration(id, { name }));
+    return announce(await record(id));
   },
 };
 

@@ -14,7 +14,7 @@ import { BAR_BUTTON, useEditorState } from "@octo/editor";
  */
 export default function IntegrationNameChip() {
   const { state } = useEditorState();
-  const name = state.integration.name.trim();
+  const name = state.project.name.trim();
 
   return (
     <span

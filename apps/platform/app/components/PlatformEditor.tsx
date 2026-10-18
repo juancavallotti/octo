@@ -88,7 +88,7 @@ export default function PlatformEditor({
   );
   return (
     <EditorRoot
-      integrationId={integrationId}
+      projectId={integrationId}
       reloadToken={reloadToken}
       header={
         <EditorHeader

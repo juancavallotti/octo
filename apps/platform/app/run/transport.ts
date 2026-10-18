@@ -17,6 +17,7 @@ import type {
   FlowRunRequest,
   RunStatusSnapshot,
   RunTransport,
+  RuntimeIssue,
   TestRunOutcome,
   TestRunRequest,
 } from "@octo/editor";
@@ -30,6 +31,7 @@ import {
   runSync,
   runTest,
 } from "@/app/actions/run";
+import { runValidate } from "@/app/actions/validate";
 import { unwrap } from "@/app/model/bff";
 
 export const bffRunTransport: RunTransport = {
@@ -59,6 +61,10 @@ export const bffRunTransport: RunTransport = {
 
   async test(req: TestRunRequest): Promise<TestRunOutcome> {
     return unwrap(await runTest(await runTabId(), req));
+  },
+
+  async validate({ files, integrationId }): Promise<RuntimeIssue[]> {
+    return unwrap(await runValidate(await runTabId(), files, integrationId));
   },
 
   // The only method that can't await up front — its disposer is returned

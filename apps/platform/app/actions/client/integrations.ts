@@ -10,6 +10,7 @@ import type {
   Folder,
   Integration,
   IntegrationInput,
+  IntegrationRename,
   Resource,
   Snapshot,
   SnapshotResource,
@@ -33,9 +34,10 @@ export function createIntegration(
   return call<Integration>("POST", "/integrations", { ...input, actorId });
 }
 
+/** Rename an integration. Its config is written through {@link replaceConfigFiles}. */
 export function updateIntegration(
   id: string,
-  input: IntegrationInput,
+  input: IntegrationRename,
   actorId?: string,
 ): Promise<ActionResult<Integration>> {
   return call<Integration>("PUT", `/integrations/${enc(id)}`, {
