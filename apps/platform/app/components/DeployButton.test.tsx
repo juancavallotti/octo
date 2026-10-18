@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 const save = vi.fn().mockResolvedValue(undefined);
 vi.mock("@octo/editor", () => ({
   useSave: () => ({ save, empty: false }),
+  HEADER_LABEL: "",
 }));
 
 const getIntegration = vi.fn();
