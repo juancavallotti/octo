@@ -1,19 +1,29 @@
 import { app, type WebContents } from "electron";
-import { accessSync, chmodSync, constants, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  mkdirSync,
+  readlinkSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawn, type IPty } from "node-pty";
 import { current } from "./server";
 import { binary } from "./settings";
-import { shellFor, shellTitle, terminalEnv } from "./terminalEnv";
+import { launch, shellTitle, startupFiles } from "./terminalEnv";
 
 /**
  * The editor's terminal sessions: one pty per shell, owned by the page that opened
  * it. A session belongs to that page rather than to the app because nothing else can
  * draw it or type into it — when the page reloads or closes, its shells end with it.
  *
- * Shells start in the open folder, and keep the folder they started in when the user
- * switches to another, as a terminal emulator's tabs keep their working directory.
+ * Shells start in the open folder. Opening another folder reloads the page, so it
+ * ends them too.
  */
 
 interface Session {
@@ -34,16 +44,43 @@ let nextId = 1;
 /**
  * Links to the binaries the editor runs, put first on each shell's PATH. Links rather
  * than the bundle's own bin/, because Settings can point the editor at another binary
- * and the terminal has to run the same one; refreshed per session for that reason.
+ * and the terminal has to run the same one; checked per session for that reason.
+ *
+ * A changed link is replaced by renaming a new one over it, never by removing it
+ * first: shells already running resolve `octo` through it, and must not find it gone.
  */
 function shimDir(): string {
   const dir = path.join(app.getPath("userData"), "term-bin");
   mkdirSync(dir, { recursive: true });
   for (const name of ["octo", "dolphin"] as const) {
     const link = path.join(dir, name);
-    rmSync(link, { force: true });
-    symlinkSync(binary(name), link);
+    const target = binary(name);
+    let existing: string | null = null;
+    try {
+      existing = readlinkSync(link);
+    } catch {
+      // Not there yet.
+    }
+    if (existing === target) continue;
+    const fresh = `${link}.${process.pid}.new`;
+    rmSync(fresh, { force: true });
+    symlinkSync(target, fresh);
+    renameSync(fresh, link);
   }
+  return dir;
+}
+
+let startupWritten = false;
+
+/** The startup files zsh and bash are pointed at; written once per run of the app. */
+function startupDir(): string {
+  const dir = path.join(app.getPath("userData"), "term-shell");
+  if (startupWritten) return dir;
+  for (const [file, content] of Object.entries(startupFiles(dir))) {
+    mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    writeFileSync(path.join(dir, file), content);
+  }
+  startupWritten = true;
   return dir;
 }
 
@@ -84,13 +121,17 @@ function watch(owner: WebContents): void {
 
 export function open(owner: WebContents, cols: number, rows: number): { id: string; title: string } {
   ensureSpawnHelper();
-  const { file, args } = shellFor(process.env);
+  const { file, args, env } = launch(process.env, {
+    shimDir: shimDir(),
+    startupDir: startupDir(),
+    version: app.getVersion(),
+  });
   const pty = spawn(file, args, {
     name: "xterm-256color",
     cols,
     rows,
     cwd: current()?.vault ?? homedir(),
-    env: terminalEnv(process.env, shimDir(), app.getVersion()),
+    env,
   });
 
   const id = `term-${nextId++}`;

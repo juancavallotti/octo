@@ -79,12 +79,20 @@ platforms' prebuilds and sets the execute bit on `spawn-helper`, which node-pty
 ## Terminal
 
 The editor's Terminal tab is backed by `src/main/terminal.ts`. Each session is a
-node-pty running the user's login shell (`$SHELL -l`) in the open folder, owned by
-the page that opened it: it ends when that page navigates, reloads or closes —
-which a folder switch does — and on quit. Output is batched over 5 ms per IPC
-message. `userData/term-bin` holds links to `binary("octo")` and
-`binary("dolphin")`, refreshed per session and put first on the shell's `PATH`, so
-the terminal runs the same binaries as the editor, Settings override included.
+node-pty running the user's shell in the open folder, owned by the page that opened
+it: it ends when that page navigates, reloads or closes — which a folder switch
+does — and on quit. Output is batched over 5 ms per IPC message.
+`userData/term-bin` holds links to `binary("octo")` and `binary("dolphin")`,
+checked per session and swapped by rename, so the terminal runs the same binaries
+as the editor, Settings override included.
+
+Putting `term-bin` first on the inherited `PATH` is not enough: a login shell's
+path_helper and the user's profile (`brew shellenv`) prepend their own directories
+after it, and an `octo` installed there would win. So `terminalEnv.ts` starts zsh
+with `ZDOTDIR` pointed at `userData/term-shell/zsh` and bash on
+`term-shell/bash/rc`. Those files read the user's own startup files and prepend
+`term-bin` last, as VS Code's shell integration does. Other shells get the
+inherited prepend only.
 
 `octo:term:open` is an invoke; `write`, `resize` and `kill` are one-way sends
 because keystrokes are too frequent to round-trip. All four are refused unless

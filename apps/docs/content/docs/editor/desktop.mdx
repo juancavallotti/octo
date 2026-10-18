@@ -60,9 +60,12 @@ checks exactly what the editor checks.
 - Switching tabs or collapsing the console keeps your shells and their scrollback.
   Opening another folder or quitting the app ends them.
 
-The shell starts with your usual profile, so Homebrew and anything else your
-profile sets up are on `PATH` after the app's own binaries. `TERM_PROGRAM` is
-`Octo`, if your prompt wants to tell this terminal apart.
+The shell reads your usual startup files, so Homebrew and anything else they set up
+are on `PATH`. In zsh and bash the app's binaries go in front after those files have
+run, so an `octo` you installed yourself does not shadow the editor's. Other shells,
+such as fish, run your configuration after the app sets `PATH`, so anything it
+prepends comes first. `TERM_PROGRAM` is `Octo`, if your prompt wants to tell this
+terminal apart.
 
 The Terminal tab is only in the desktop app. The [Docker editor](/editor/docker)
 runs in a browser, which has nowhere to start a shell.
