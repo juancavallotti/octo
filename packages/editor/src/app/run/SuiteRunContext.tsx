@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useEditorState } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
 import { useEditorMeta } from "../providers/EditorMetaProvider";
 import { useRun } from "./RunContext";
 import { useConsole } from "./console";
@@ -57,6 +58,8 @@ const SuiteRunContext = createContext<SuiteRunValue | null>(null);
 
 export function SuiteRunProvider({ children }: { children: ReactNode }) {
   const { state } = useEditorState();
+  // The project merged: a suite runs a flow the way the runtime would, every file loaded.
+  const project = useProjectView();
   const run = useRun();
   const consoleTabs = useConsole();
   const meta = useEditorMeta();
@@ -96,8 +99,8 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
       consoleTabs.openTo("tests");
       try {
         const resolved = await run.runTests({
-          yaml: toRunnableYaml(state.document),
-          integrationId: state.integration.id ?? undefined,
+          yaml: toRunnableYaml(project),
+          integrationId: state.project.id ?? undefined,
           suites: targets,
           // Every suite run the editor makes is also a chance to learn what these
           // messages look like. The cases were going to run anyway and their mocks
@@ -120,7 +123,7 @@ export function SuiteRunProvider({ children }: { children: ReactNode }) {
         setRunning(false);
       }
     },
-    [consoleTabs, run, state.document, state.integration.id, meta],
+    [consoleTabs, run, project, state.project.id, meta],
   );
 
   const value = useMemo<SuiteRunValue>(

@@ -14,10 +14,10 @@ import {
   fromTestInputs,
   mergeMessages,
 } from "./evidence";
-import { useEditorState } from "../state/editorState";
 import { membersFor, rootsFor } from "./members";
 import { buildIndex, scopeAt, type ScopeIndex } from "./walk";
 import type { CelSite } from "./types";
+import { useProjectView } from "../state/useProject";
 
 /**
  * Giving every CEL field the scope of the place it is in.
@@ -36,10 +36,11 @@ const IndexContext = createContext<ScopeIndex | null>(null);
 const SiteContext = createContext<CelSite>({ kind: "document" });
 
 export function ScopeIndexProvider({ children }: { children: ReactNode }) {
-  const { state } = useEditorState();
   const meta = useEditorMeta();
   const suites = useTestSuites();
-  const doc = state.document;
+  // The project merged: a flow-ref, an env variable or a connection may live in any
+  // file, and a node's scope is computed from wherever its names resolve.
+  const doc = useProjectView();
 
   // Everything the workspace already says about these messages. All of it authored
   // rather than captured, so none of it costs a run — and the suites and mocks are

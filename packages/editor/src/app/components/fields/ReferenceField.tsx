@@ -2,7 +2,7 @@
 
 import { referenceOptions } from "../../model/identity";
 import type { ReferenceSpec } from "../../schema/types";
-import { useEditorState } from "../../state/editorState";
+import { useProjectView } from "../../state/useProject";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -27,10 +27,8 @@ export default function ReferenceField({
   required: boolean;
   onChange: (value: unknown) => void;
 }) {
-  const { state } = useEditorState();
-  const doc = state.document;
-
-  const options = referenceOptions(doc, spec);
+  // Names resolve across the project: a connection or flow may live in another file.
+  const options = referenceOptions(useProjectView(), spec);
 
   const current = value === undefined || value === null ? "" : String(value);
   const allowEmpty = spec.kind === "connector" || !required;

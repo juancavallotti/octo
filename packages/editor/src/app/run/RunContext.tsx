@@ -13,6 +13,8 @@ import {
 import { toRunnableYaml } from "../model/runConfig";
 import { validateDocument, type ValidationResult } from "../model/validate";
 import { useEditorState } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
+import { useRuntimeValidation } from "./useRuntimeValidation";
 import {
   type RunTarget,
   type RunTransport,
@@ -88,8 +90,10 @@ export function RunProvider({
   children: ReactNode;
 }) {
   const { state } = useEditorState();
-  const doc = state.document;
-  const integrationId = state.integration.id;
+  // The project merged, as the runtime will run it: a run, its validation and its
+  // hot-reload all see every file, the unsaved edits in each among them.
+  const doc = useProjectView();
+  const integrationId = state.project.id;
 
   const [available, setAvailable] = useState(false);
   const [running, setRunning] = useState(false);
@@ -112,14 +116,15 @@ export function RunProvider({
   const lastSeqRef = useRef<number>(-1);
   const lastYamlRef = useRef<string | null>(null);
 
-  const validation = useMemo(() => validateDocument(doc), [doc]);
-
   // Which run every call addresses. A draft has no id, and a host that runs the app
   // elsewhere cannot address one at all — which is why start refuses it there.
   const target = useMemo<RunTarget>(
     () => ({ integrationId: integrationId ?? undefined }),
     [integrationId],
   );
+
+  const editorValidation = useMemo(() => validateDocument(doc), [doc]);
+  const validation = useRuntimeValidation(doc, editorValidation, transport, target);
 
   const closeStream = useCallback(() => {
     unsubscribeRef.current?.();

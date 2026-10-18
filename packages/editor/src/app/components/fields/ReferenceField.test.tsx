@@ -19,8 +19,9 @@ const doc: EditorDocument = {
   env: [],
 };
 
-vi.mock("../../state/editorState", () => ({
-  useEditorState: () => ({ state: { document: doc }, dispatch: () => {} }),
+// The field offers what the whole project declares, so it reads the project view.
+vi.mock("../../state/useProject", () => ({
+  useProjectView: () => doc,
 }));
 
 describe("ReferenceField", () => {

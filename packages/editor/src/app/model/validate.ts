@@ -23,7 +23,7 @@ import type { FieldSpec } from "../schema/types";
 
 /**
  * One problem with the document. `message` is the human prose (the RUN button's
- * tooltip and the MCP `validate_definition` errors are just these strings), while
+ * tooltip and the MCP `validate_project` errors are just these strings), while
  * the ids say *where* it is, so the Problems tab can select the offending node
  * when the issue is clicked. Ids are absent for document-wide problems ("add at
  * least one flow") and for connections, which are not canvas nodes.

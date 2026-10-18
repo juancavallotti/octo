@@ -4,6 +4,7 @@ import { Workflow } from "lucide-react";
 import type { FlowDoc } from "../model/document";
 import { duplicateNames, flowNames, slugify } from "../model/identity";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { useProjectView } from "../state/useProject";
 import { CelScopeProvider } from "../scope/ScopeContext";
 
 const INPUT =
@@ -45,9 +46,10 @@ const TUNING_FIELDS: {
 export default function FlowSettings({ flow }: { flow: FlowDoc }) {
   const { state, dispatch } = useEditorState();
 
+  // Flow names are global to the project, so a duplicate may be in another file.
+  const project = useProjectView();
   const duplicate =
-    !!flow.name &&
-    duplicateNames(flowNames(state.document)).has(flow.name);
+    !!flow.name && duplicateNames(flowNames(project)).has(flow.name);
 
   // Concurrency tuning applies to root flows only (the runtime rejects it on the
   // sub-flows nested in composite slots).
