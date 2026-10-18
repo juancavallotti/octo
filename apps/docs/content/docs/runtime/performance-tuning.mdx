@@ -13,10 +13,10 @@ A flow's throughput is set by a handful of concurrency settings and the connecti
 | --- | --- | --- | --- |
 | `workers` | root flow | `max(8, GOMAXPROCS × 4)` | The most messages the flow processes at once. Each worker runs one message through the whole chain. |
 | `buffer` | root flow | `max(64, workers)` | The depth of the channel between the source and the workers. It absorbs bursts; it adds no capacity. |
-| `pool` | root flow | `8` | The shared pool `fork` branches and other concurrent composites run on. Irrelevant to a flow that does not fork. |
-| `listeners` | `queue` source | `8` | Concurrent handlers for a queue subscription, per replica. A handler holds its slot until the flow finishes. |
+| `pool` | root flow | `8` | The workers of the shared pool that `fork` branches and resumed `split` continuations run on, in front of a fixed queue of 64 tasks. Every worker of the flow submits into this one pool. |
+| `listeners` | `queue` source | `8` | Concurrent handlers for a queue subscription, per replica. A handler holds its slot until the flow finishes, so this, not `workers`, caps a queue-fed flow. |
 | `maxOpenConns`, `maxIdleConns` | `database` connector | `16` (postgres), `1` (sqlite) | How many connections the flows bound to the connector can use at once. See [database](/reference/connectors/database). |
-| `maxIdleConnsPerHost` | `http` client connector | `100` | Idle outbound connections kept for reuse. See [http](/reference/connectors/http). |
+| `pool.maxIdleConnsPerHost` | `http-client` connector | `100` | Idle outbound connections kept for reuse. See [http](/reference/connectors/http). |
 
 The runtime logs each flow's resolved `workers` at startup, marked `derived` when it came from the default and `configured` when you set it. The [processing pipeline](/runtime/processing-pipeline#execution-model) explains how the workers, the buffer and the pool fit together.
 
@@ -39,11 +39,11 @@ Two measurements, both at `workers: 8`, show how closely it predicts:
 
 1. **Check whether the flow blocks.** Look for `sql`, `rest`, `queue-dispatch` with `awaitReply: true`, an LLM call, or any other outbound call. If there is none, stop: tuning will not change anything, and that is a result, not a failure.
 2. **Measure the blocked time per message.** Add up the round trips, or run the flow at low load with [`--metrics`](/runtime/observability) and read `octo_flow_duration_seconds`. At low load nothing queues, so the duration is the time spent working and waiting.
-3. **Compute `workers` from the rule**, then round up to the next power of two for headroom.
+3. **Compute `workers` from the rule**, then round up to the next power of two for headroom. For a flow fed by a `queue` source, set `listeners` to the same number: the source hands the flow no more than `listeners` messages at a time, however many workers wait.
 4. **Size the connector pools to match.** Thirty-two workers sharing a `database` connector with `maxOpenConns: 4` queue for connections instead of for workers; the bottleneck moves, it does not go away. Give the pool at least as many connections as the busiest flow using it has workers, within what the database server allows across all replicas.
 5. **Leave `buffer` alone** unless arrivals come in bursts. A deeper buffer turns rejected work into waiting work; it does not process anything faster.
-6. **Set `pool` only if the flow forks**, and size it for the flow's fan-out: the pool's queue is bounded, and overfilling it panics rather than risk a deadlock.
-7. **Verify with `octo_flow_in_flight`.** If it sits at the worker count while throughput stays flat, every worker is still waiting and `workers` is still too low.
+6. **Raise `pool` with `workers` if the flow forks.** Every worker submits its message's branches into the one shared pool, which holds `pool` running tasks plus 64 queued ones and panics when that overflows, rather than risk a deadlock. So it must hold `workers × branches per message`: at 32 workers, a three-branch `fork` needs room for 96 tasks, which the default `pool: 8` does not have.
+7. **Verify with `octo_flow_in_flight`.** If it sits at the worker count (or, for a queue-fed flow, at `listeners`) while throughput stays flat, every slot is still waiting and the limit is still too low.
 
 ## The symptom points the wrong way
 

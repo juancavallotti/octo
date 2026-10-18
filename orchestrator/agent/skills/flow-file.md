@@ -95,8 +95,8 @@ flows:
     error:                    # optional, root flows only
       - type: set-payload
         settings: { value: '{"error": vars.error.message}' }
-    workers: 8                # optional, default 8
-    buffer: 64                # optional, default 64
+    workers: 8                # optional, default max(8, GOMAXPROCS × 4)
+    buffer: 64                # optional, default max(64, workers)
     pool: 8                   # optional, default 8 — shared by concurrent composites
 ```
 

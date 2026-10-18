@@ -9,8 +9,9 @@ import (
 )
 
 // DefaultListeners is the number of concurrent handler goroutines a subscription
-// runs when WithListeners is not set. It matches the per-flow worker default, so a
-// queue consumer gets the same parallelism a flow does.
+// runs when WithListeners is not set. It does not follow the flow's workers: a
+// handler holds its slot until the flow finishes, so this caps a queue-fed flow
+// below a larger worker count.
 const DefaultListeners = 8
 
 // DefaultRequestTimeout bounds a Request whose context carries no deadline, so a
