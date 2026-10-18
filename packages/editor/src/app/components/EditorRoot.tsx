@@ -25,6 +25,10 @@ import {
   TestSuiteProvider,
   type TestSuiteStore,
 } from "../providers/TestSuiteProvider";
+import {
+  TerminalProvider,
+  type TerminalTransport,
+} from "../providers/TerminalProvider";
 import { CanvasZoomProvider } from "../canvas/ZoomContext";
 import { EditorPrefsProvider, type EditorPrefs } from "../prefs/prefs";
 import AutoLearn from "../run/AutoLearn";
@@ -63,6 +67,7 @@ export default function EditorRoot({
   metaToken,
   tests,
   testsToken,
+  terminal,
   prefs,
   onSaved,
 }: {
@@ -115,6 +120,11 @@ export default function EditorRoot({
   tests?: TestSuiteStore | null;
   /** Bumped when something else wrote a suite for this document. */
   testsToken?: string | number;
+  /**
+   * Terminal capability: shells started on the host's machine, backing the console's
+   * Terminal tab. Omit and the tab is not there — a web host has nowhere to run one.
+   */
+  terminal?: TerminalTransport | null;
   /**
    * How the person using the editor has said it should behave. Every field defaults
    * conservatively, so omitting this is always safe.
@@ -195,6 +205,12 @@ export default function EditorRoot({
       </TestSuiteProvider>
     );
   }
+
+  // Outside everything else that reads it, so the header's menu commands and the
+  // console's tab see the same sessions. Mounted with or without a transport, unlike
+  // the capabilities above: a desktop host learns it has one only after hydration, and
+  // a provider appearing then would remount the whole editor.
+  tree = <TerminalProvider value={terminal ?? null}>{tree}</TerminalProvider>;
 
   // Meta is mounted even without a store: test inputs still work for an unsaved draft,
   // they simply are not written down (the provider reports canPersist: false). It reads

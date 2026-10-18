@@ -7,9 +7,11 @@ import {
   Braces,
   FlaskConical,
   SquareFunction,
+  SquareTerminal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ConsoleTab } from "../../run/console";
+import { useTerminal } from "../../providers/TerminalProvider";
 
 /**
  * The console's tab strip. Declarative, so a tab is one entry here rather than three
@@ -31,6 +33,7 @@ const TABS: TabSpec[] = [
   { key: "tests", label: "Tests", icon: FlaskConical },
   { key: "cel", label: "CEL", icon: SquareFunction },
   { key: "env", label: "Dev .env", icon: KeyRound },
+  { key: "terminal", label: "Terminal", icon: SquareTerminal },
 ];
 
 export default function ConsoleTabs({
@@ -46,9 +49,12 @@ export default function ConsoleTabs({
   counts?: Partial<Record<ConsoleTab, number>>;
   running?: boolean;
 }) {
+  // Only a host with somewhere to run a shell supplies one; without it there is no tab.
+  const hasTerminal = useTerminal() !== null;
+  const tabs = hasTerminal ? TABS : TABS.filter((t) => t.key !== "terminal");
   return (
     <div className="flex items-center gap-0.5">
-      {TABS.map(({ key, label, icon: Icon }) => {
+      {tabs.map(({ key, label, icon: Icon }) => {
         const count = counts?.[key] ?? 0;
         const selected = active === key;
         // Problems and Tests draw the eye when they have something bad to say; their

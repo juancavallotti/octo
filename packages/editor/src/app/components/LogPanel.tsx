@@ -19,6 +19,8 @@ import ProblemsTab from "./console/ProblemsTab";
 import { useSave } from "../save/SaveContext";
 import ResultsTab from "./console/ResultsTab";
 import TestsTab from "./console/TestsTab";
+import TerminalTab from "./console/TerminalTab";
+import { useTerminal } from "../providers/TerminalProvider";
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
@@ -33,6 +35,7 @@ const CLEAR_LABEL: Partial<Record<ConsoleTab, string>> = {
   results: "Clear output",
   tests: "Clear test results",
   cel: "Clear evaluations",
+  terminal: "Clear terminal",
 };
 
 /** Read the persisted console height, clamped to bounds; DEFAULT_HEIGHT if none. */
@@ -55,8 +58,8 @@ function readStoredHeight(): number {
 const NO_LOGS: RunLogLine[] = [];
 
 /**
- * The docked bottom console: Problems, Logs, Results, the CEL tester, and the Dev
- * .env editor. It only
+ * The docked bottom console: Problems, Logs, Results, the CEL tester, the Dev .env
+ * editor, and a terminal when the host supplies one. It only
  * renders when a runner is available. Height is adjustable by dragging the top divider,
  * and the panel collapses to its header.
  *
@@ -90,6 +93,7 @@ export default function LogPanel({
   const results = flowRun?.results ?? [];
   const suiteRun = useSuiteRun();
   const cel = useCelTester();
+  const terminal = useTerminal();
   // The badge counts what went WRONG, so a green run is quiet and a bad one is not.
   const testFailures = suiteRun?.outcome
     ? suiteRun.outcome.totals.failed + suiteRun.outcome.totals.errored
@@ -250,7 +254,8 @@ export default function LogPanel({
           {(tab === "logs" ||
             tab === "results" ||
             tab === "tests" ||
-            tab === "cel") && (
+            tab === "cel" ||
+            (tab === "terminal" && terminal)) && (
             <button
               type="button"
               onClick={(e) => {
@@ -258,6 +263,7 @@ export default function LogPanel({
                 if (tab === "logs") clearLogs();
                 else if (tab === "tests") suiteRun?.clear();
                 else if (tab === "cel") cel.clear();
+                else if (tab === "terminal") terminal?.clear();
                 else flowRun?.clear();
               }}
               aria-label={CLEAR_LABEL[tab] ?? "Clear"}
@@ -296,6 +302,7 @@ export default function LogPanel({
       {!collapsed && tab === "tests" && <TestsTab />}
       {!collapsed && tab === "cel" && <CelTester />}
       {!collapsed && tab === "env" && <DevEnvPanel />}
+      {!collapsed && tab === "terminal" && terminal && <TerminalTab />}
     </section>
   );
 }

@@ -7,6 +7,7 @@ import { useResourceStore } from "../providers/ResourceStoreProvider";
 import { useTestSuites } from "../providers/TestSuiteProvider";
 import { useConsoleCollapsed } from "../run/console";
 import { useRunCommands } from "./useRunCommands";
+import { useTerminalCommands } from "./useTerminalCommands";
 import { useSave } from "../save/SaveContext";
 import { EditorActionType, useEditorState } from "../state/editorState";
 import { useLayout } from "../state/layout";
@@ -41,6 +42,8 @@ export const EDITOR_COMMANDS = [
   "new:file",
   "new:resource",
   "new:suite",
+  "terminal:toggle",
+  "terminal:new",
 ] as const;
 
 export type EditorCommand = (typeof EDITOR_COMMANDS)[number];
@@ -62,6 +65,8 @@ export interface EditorCommandStatus {
   flowsView: FlowsView;
   hasResources: boolean;
   hasTests: boolean;
+  /** The host supplied a terminal, so the Terminal commands do something. */
+  hasTerminal: boolean;
   /** Focus is in a text field, whose own undo history Undo and Redo then step. */
   editingText: boolean;
   canUndo: boolean;
@@ -115,12 +120,14 @@ export function useEditorCommands(): EditorCommands {
   const zoom = useCanvasZoom();
   const newItem = useNewItem();
   const editingText = useEditingText();
+  const terminal = useTerminalCommands();
 
   const status: EditorCommandStatus = {
     view: state.viewMode,
     flowsView: state.flowsView,
     hasResources,
     hasTests: suites !== null,
+    hasTerminal: terminal.available,
     editingText,
     canUndo,
     canRedo,
@@ -195,6 +202,12 @@ export function useEditorCommands(): EditorCommands {
         return;
       case "canvas:zoom-reset":
         zoom.reset();
+        return;
+      case "terminal:toggle":
+        terminal.toggle();
+        return;
+      case "terminal:new":
+        terminal.open();
         return;
     }
   };
