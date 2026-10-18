@@ -80,7 +80,12 @@ export function registerIntegrationTools(
         "Validate a draft set of config files, merged as the runtime merges them, WITHOUT saving it, returning descriptive errors. Use this while authoring to check a draft before create_integration/update_integration. Best-effort: a clean result still isn't a guarantee the runtime will load it (see get_run_logs after a run).",
       inputSchema: { files: filesSchema.describe("The integration's config files.") },
     },
-    ({ files }) => guard(async () => jsonResult(await config.validate(files))),
+    ({ files }) =>
+      guard(async () => {
+        const named = misnamed(files);
+        if (named) return named;
+        return jsonResult(await config.validate(files));
+      }),
   );
 
   server.registerTool(
@@ -199,15 +204,8 @@ export function registerIntegrationTools(
 
   /** A set of files that cannot be saved, as the error result saying why; null when it can. */
   async function refuse(files: StoredFile[], id?: string): Promise<CallToolResult | null> {
-    const bad = files.filter((f) => !isConfigFileName(f.path)).map((f) => f.path);
-    if (bad.length > 0) {
-      return errorResult(
-        `not config file names: ${bad.join(", ")} — a config file is a .yaml or .yml at the integration root that does not end in _test`,
-      );
-    }
-    const seen = new Set<string>();
-    const dup = files.find((f) => (seen.has(f.path) ? true : (seen.add(f.path), false)));
-    if (dup) return errorResult(`"${dup.path}" is given more than once`);
+    const named = misnamed(files);
+    if (named) return named;
     const { valid, errors } = await config.validate(files, id);
     if (!valid) {
       return errorResult(
@@ -367,6 +365,22 @@ export function registerIntegrationTools(
         return writeFiles(id, withFile(rec.files, file.path, deleteFlow(file.content, flow)));
       }),
   );
+}
+
+/**
+ * Files no integration could hold, as the error result saying why: a path the runtime
+ * would not load as config, or one given twice. Null when every path is fine.
+ */
+function misnamed(files: StoredFile[]): CallToolResult | null {
+  const bad = files.filter((f) => !isConfigFileName(f.path)).map((f) => f.path);
+  if (bad.length > 0) {
+    return errorResult(
+      `not config file names: ${bad.join(", ")} — a config file is a .yaml or .yml at the integration root that does not end in _test`,
+    );
+  }
+  const seen = new Set<string>();
+  const dup = files.find((f) => (seen.has(f.path) ? true : (seen.add(f.path), false)));
+  return dup ? errorResult(`"${dup.path}" is given more than once`) : null;
 }
 
 /** The file at `path`, or an error naming the files there are. */
