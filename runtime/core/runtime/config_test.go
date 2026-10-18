@@ -10,19 +10,28 @@ import (
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
+// unnamed wraps configs that never were files.
+func unnamed(configs ...types.Config) []ConfigFile {
+	files := make([]ConfigFile, 0, len(configs))
+	for _, cfg := range configs {
+		files = append(files, ConfigFile{Config: cfg})
+	}
+	return files
+}
+
 func TestMergeConfigsConcatenates(t *testing.T) {
-	merged, err := MergeConfigs([]types.Config{
-		{
+	merged, err := MergeConfigs(unnamed(
+		types.Config{
 			Service:    types.ServiceConfig{Name: "svc"},
 			Connectors: []types.ConnectorConfig{{Name: "a", Type: "http"}},
 			Flows:      []types.FlowConfig{{Name: "f1"}},
 		},
-		{
+		types.Config{
 			Connectors: []types.ConnectorConfig{{Name: "b", Type: "cron"}},
 			Processors: []types.ProcessorConfig{{Name: "p1", Type: "log"}},
 			Flows:      []types.FlowConfig{{Name: "f2"}},
 		},
-	})
+	))
 	if err != nil {
 		t.Fatalf("MergeConfigs: %v", err)
 	}
@@ -36,10 +45,10 @@ func TestMergeConfigsConcatenates(t *testing.T) {
 }
 
 func TestMergeConfigsDedupesEnv(t *testing.T) {
-	merged, err := MergeConfigs([]types.Config{
-		{Env: []types.EnvVar{{Name: "SHARED"}, {Name: "A"}}},
-		{Env: []types.EnvVar{{Name: "SHARED"}, {Name: "B"}}},
-	})
+	merged, err := MergeConfigs(unnamed(
+		types.Config{Env: []types.EnvVar{{Name: "SHARED"}, {Name: "A"}}},
+		types.Config{Env: []types.EnvVar{{Name: "SHARED"}, {Name: "B"}}},
+	))
 	if err != nil {
 		t.Fatalf("MergeConfigs: %v", err)
 	}
@@ -50,10 +59,10 @@ func TestMergeConfigsDedupesEnv(t *testing.T) {
 }
 
 func TestMergeConfigsDedupesEnvResources(t *testing.T) {
-	merged, err := MergeConfigs([]types.Config{
-		{Resources: types.ResourcesConfig{Env: []string{".env.dev", ".env.local"}}},
-		{Resources: types.ResourcesConfig{Env: []string{".env.dev", ".env.prod"}}},
-	})
+	merged, err := MergeConfigs(unnamed(
+		types.Config{Resources: types.ResourcesConfig{Env: []string{".env.dev", ".env.local"}}},
+		types.Config{Resources: types.ResourcesConfig{Env: []string{".env.dev", ".env.prod"}}},
+	))
 	if err != nil {
 		t.Fatalf("MergeConfigs: %v", err)
 	}
@@ -90,37 +99,44 @@ resources:
 func TestMergeConfigsRejectsDuplicates(t *testing.T) {
 	tests := []struct {
 		name    string
-		configs []types.Config
+		files   []ConfigFile
 		wantErr string
 	}{
 		{
-			name: "duplicate flow",
-			configs: []types.Config{
-				{Flows: []types.FlowConfig{{Name: "dup"}}},
-				{Flows: []types.FlowConfig{{Name: "dup"}}},
+			name: "duplicate flow across files",
+			files: []ConfigFile{
+				{Path: "a.yaml", Config: types.Config{Flows: []types.FlowConfig{{Name: "dup"}}}},
+				{Path: "b.yaml", Config: types.Config{Flows: []types.FlowConfig{{Name: "dup"}}}},
 			},
-			wantErr: "flow \"dup\"",
+			wantErr: `flow "dup" is defined in both a.yaml and b.yaml`,
 		},
 		{
-			name: "duplicate connector",
-			configs: []types.Config{
-				{Connectors: []types.ConnectorConfig{{Name: "c"}}},
-				{Connectors: []types.ConnectorConfig{{Name: "c"}}},
+			name: "duplicate connector in one file",
+			files: []ConfigFile{
+				{Path: "a.yaml", Config: types.Config{Connectors: []types.ConnectorConfig{{Name: "c"}, {Name: "c"}}}},
 			},
-			wantErr: "connector \"c\"",
+			wantErr: `connector "c" is defined more than once in a.yaml`,
+		},
+		{
+			name: "duplicate processor, no paths",
+			files: unnamed(
+				types.Config{Processors: []types.ProcessorConfig{{Name: "p"}}},
+				types.Config{Processors: []types.ProcessorConfig{{Name: "p"}}},
+			),
+			wantErr: `processor "p" is defined more than once`,
 		},
 		{
 			name: "two services",
-			configs: []types.Config{
-				{Service: types.ServiceConfig{Name: "one"}},
-				{Service: types.ServiceConfig{Name: "two"}},
+			files: []ConfigFile{
+				{Path: "a.yaml", Config: types.Config{Service: types.ServiceConfig{Name: "one"}}},
+				{Path: "b.yaml", Config: types.Config{Service: types.ServiceConfig{Name: "two"}}},
 			},
-			wantErr: "service identity",
+			wantErr: "service identity is declared in both a.yaml and b.yaml",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := MergeConfigs(tc.configs)
+			_, err := MergeConfigs(tc.files)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
 			}
@@ -187,3 +203,4 @@ func writeConfig(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
