@@ -60,13 +60,20 @@ async function validate(files: StoredFile[]): Promise<{ valid: boolean; errors: 
   } catch (err) {
     return { valid: false, errors: [(err as Error).message] };
   }
-  const checked = await validateWithRuntime("mcp-validate", files, { resources: fsResourceProvider });
+  const checked = await validateWithRuntime(MCP_VALIDATE_NS, files, { resources: fsResourceProvider });
   if (!checked.ok) return { valid: true, errors: [] };
   return {
     valid: checked.valid,
     errors: checked.issues.map((i) => (i.where ? `${i.where}: ${i.message}` : i.message)),
   };
 }
+
+/**
+ * The run namespace validation stages into. Every check gets a folder of its own
+ * beneath it, so concurrent checks never share one; it only has to be a well-formed
+ * slug.
+ */
+const MCP_VALIDATE_NS = "mcpcheck";
 
 const handler = createOctoMcpHandler(
   {
