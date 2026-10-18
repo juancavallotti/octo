@@ -75,7 +75,7 @@ describe("FileSwitcher", () => {
     await user.click(screen.getByRole("button", { name: "Files" }));
     expect(screen.getByRole("button", { name: "config.yaml" })).toHaveAttribute(
       "title",
-      "2 connectors · 1 env var · 2 resources",
+      "2 connections · 1 env var · 2 resources",
     );
     expect(screen.getByRole("button", { name: "orders.yaml" })).not.toHaveAttribute("title");
   });
@@ -152,6 +152,35 @@ describe("FileSwitcher", () => {
     await user.type(screen.getByLabelText("File name"), "x{Escape}");
     expect(paths()).toBe("base.yaml,orders.yaml");
     expect(screen.getByRole("button", { name: "base.yaml" })).toBeInTheDocument();
+  });
+
+  it("settles a rename when the menu is clicked away", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "Rename octo.yaml" }));
+    await user.clear(screen.getByLabelText("File name"));
+    await user.type(screen.getByLabelText("File name"), "base");
+    await user.click(screen.getByTestId("files"));
+    expect(paths()).toBe("base.yaml,orders.yaml");
+    expect(screen.queryByLabelText("File name")).toBeNull();
+  });
+
+  it("settles a rename and still acts on the row clicked next", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "Rename octo.yaml" }));
+    await user.clear(screen.getByLabelText("File name"));
+    await user.type(screen.getByLabelText("File name"), "zeta");
+    await user.click(screen.getByRole("button", { name: "Remove orders.yaml" }));
+    expect(paths()).toBe("zeta.yaml");
+  });
+
+  it("closes the menu on Escape from a new file's name", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "New file" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "New file" })).toBeNull();
   });
 
   it("removes a file that is not open, and keeps the open one", async () => {

@@ -5,7 +5,7 @@ import { Cable, FileText, Pencil, Plus, Trash2, Variable, type LucideIcon } from
 import { useEditorState, EditorActionType } from "../state/editorState";
 import { projectFiles } from "../state/projectHandlers";
 import { isConfigFileName } from "../model/project";
-import type { EditorDocument } from "../model/document";
+import { resourceCount, type EditorDocument } from "../model/document";
 import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 /**
@@ -31,9 +31,31 @@ export default function FileSwitcher() {
     setDraft(null);
   };
 
+  // A typed name without an extension means a YAML file: that is the only kind there is.
+  const target = draft ? withExtension(draft.name.trim()) : "";
+  const problem = !draft || target === "" ? null : nameProblem(target, paths, draft.mode === "rename" ? draft.from : null);
+
+  /**
+   * Apply a rename in progress and end it, as leaving its field would; a name that
+   * cannot be used stays in the field instead. Anything that takes the field away — a
+   * click elsewhere, a host's "new file" — settles it first. A ref, so the listeners
+   * below, bound once per opening, see this render's draft.
+   */
+  const settleRename = useRef(() => {});
+  useEffect(() => {
+    settleRename.current = () => {
+      if (draft?.mode !== "rename" || problem) return;
+      if (target !== "" && target !== draft.from) {
+        dispatch({ type: EditorActionType.RENAME_FILE, data: { from: draft.from, to: target } });
+      }
+      setDraft(null);
+    };
+  });
+
   // A "new file" asked for from outside (a host's menu) opens the menu on the name.
   useEffect(() => {
     if (state.pendingNew?.kind !== "file") return;
+    settleRename.current();
     setOpen(true);
     setDraft({ mode: "create", name: "" });
     dispatch({ type: EditorActionType.CONSUME_NEW_ITEM });
@@ -42,7 +64,9 @@ export default function FileSwitcher() {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) close();
+      if (ref.current?.contains(e.target as Node)) return;
+      settleRename.current();
+      close();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
@@ -54,10 +78,6 @@ export default function FileSwitcher() {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-
-  // A typed name without an extension means a YAML file: that is the only kind there is.
-  const target = draft ? withExtension(draft.name.trim()) : "";
-  const problem = !draft || target === "" ? null : nameProblem(target, paths, draft.mode === "rename" ? draft.from : null);
 
   const commit = () => {
     if (!draft || target === "" || problem) return;
@@ -122,7 +142,18 @@ export default function FileSwitcher() {
       )}
 
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-2 w-80 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
+        <div
+          // While a row is being renamed, a press elsewhere in the menu keeps the focus
+          // in the field rather than blurring it, and the click then settles the rename
+          // before its own handler runs. Committing on blur instead would re-sort the
+          // rows between press and release, and the release would land on another row.
+          onMouseDown={(e) => {
+            if (draft?.mode === "rename" && !(e.target instanceof HTMLInputElement)) e.preventDefault();
+          }}
+          onClickCapture={(e) => {
+            if (!(e.target instanceof HTMLInputElement)) settleRename.current();
+          }}
+          className="absolute left-0 top-full z-40 mt-2 w-80 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
           <ul className="max-h-72 overflow-y-auto py-1">
             {files.map(({ path, document }) => {
               const active = path === state.activePath;
@@ -260,8 +291,9 @@ function NameInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key !== "Escape") return;
-          // The menu closes on an Escape that reaches the document; this one is ours.
-          e.nativeEvent.stopPropagation();
+          // A rename's Escape abandons the rename, not the menu around it, which closes
+          // on an Escape that reaches the document. A new file's closes both, as it did.
+          if (draft.mode === "rename") e.nativeEvent.stopPropagation();
           onCancel();
         }}
         onBlur={() => {
@@ -297,9 +329,9 @@ interface Count {
  * Kinds the file declares none of are left out.
  */
 function declared(doc: EditorDocument): Count[] {
-  const resources = (doc.resources?.env.length ?? 0) + (doc.resources?.templates.length ?? 0);
+  const resources = resourceCount(doc);
   const ret: Count[] = [
-    { icon: Cable, count: doc.connectors.length, label: plural(doc.connectors.length, "connector") },
+    { icon: Cable, count: doc.connectors.length, label: plural(doc.connectors.length, "connection") },
     { icon: Variable, count: doc.env.length, label: plural(doc.env.length, "env var") },
     { icon: FileText, count: resources, label: plural(resources, "resource") },
   ];
