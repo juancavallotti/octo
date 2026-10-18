@@ -191,6 +191,28 @@ describe("Terminal tab", () => {
     expect(screen.queryByRole("button", { name: "Logs" })).toBeNull();
   });
 
+  it("reports a shell that would not start beside the list, not over a live one", async () => {
+    const { transport } = fakeTransport();
+    let calls = 0;
+    const flaky: TerminalTransport = {
+      open: async (size) => {
+        if (++calls > 1) throw new Error("no such folder");
+        return transport.open(size);
+      },
+    };
+    const user = userEvent.setup();
+    render(
+      <TerminalProvider value={flaky}>
+        <TerminalTab />
+      </TerminalProvider>,
+    );
+    await screen.findByText("zsh");
+    await user.click(screen.getByRole("button", { name: "New terminal" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("title")).toContain("no such folder");
+    expect(screen.queryByText(/Could not start a terminal: no such folder/)).toBeNull();
+  });
+
   it("kills every shell when the editor goes away", async () => {
     const { transport, sessions } = fakeTransport();
     const { unmount } = render(

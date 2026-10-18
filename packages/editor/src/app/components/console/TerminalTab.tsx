@@ -43,7 +43,9 @@ export default function TerminalTab() {
     <div className="flex flex-1 min-h-0">
       <div className="relative flex-1 min-w-0 py-1 pl-3">
         <div ref={viewport} data-testid="terminal-viewport" className="h-full w-full" />
-        {error && (
+        {/* Over the viewport only while it is empty: a live shell's output is not
+            something to cover. With one open, the session list says it instead. */}
+        {error && sessions.length === 0 && (
           <p className="absolute inset-x-3 top-2 text-xs text-red-600 dark:text-red-400">
             Could not start a terminal: {error}
           </p>
@@ -55,7 +57,16 @@ export default function TerminalTab() {
         )}
       </div>
       <div className="flex w-44 shrink-0 flex-col border-l border-black/5 dark:border-white/5">
-        <div className="flex items-center justify-end px-1 py-0.5">
+        <div className="flex items-center justify-end gap-1 px-1 py-0.5">
+          {error && sessions.length > 0 && (
+            <span
+              role="alert"
+              title={`Could not start a terminal: ${error}`}
+              className="min-w-0 flex-1 truncate pl-1 text-xs text-red-600 dark:text-red-400"
+            >
+              Could not start a terminal
+            </span>
+          )}
           <button
             type="button"
             onClick={() => void terminal.open()}
