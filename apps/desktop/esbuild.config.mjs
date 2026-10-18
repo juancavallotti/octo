@@ -36,7 +36,7 @@ const common = {
 
 const builds = [
   { ...common, entryPoints: ["src/main/index.ts"], outfile: "dist/main/index.js" },
-  // Both preloads run in a sandboxed renderer, which loads them through Electron's
+  // The preloads run in a sandboxed renderer, which loads them through Electron's
   // own loader: an external source map comment only warns.
   {
     ...common,
@@ -48,6 +48,12 @@ const builds = [
     ...common,
     entryPoints: ["src/preload/settings.ts"],
     outfile: "dist/preload/settings.js",
+    sourcemap: "inline",
+  },
+  {
+    ...common,
+    entryPoints: ["src/preload/container.ts"],
+    outfile: "dist/preload/container.js",
     sourcemap: "inline",
   },
 ];

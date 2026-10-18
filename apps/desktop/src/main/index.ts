@@ -1,5 +1,7 @@
 import { app, dialog, shell } from "electron";
 import { publish, reapOrphan, retract } from "./endpoint";
+import { onDockerStatus, refreshDocker } from "./container/status";
+import { toContainer } from "./containerWindow";
 import { registerIpc } from "./ipc";
 import { logPath, recent } from "./log";
 import { buildMenu, followEditorPage } from "./menu";
@@ -103,6 +105,14 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     // A menu before the server is up, so the window is never menu-less.
     buildMenu();
+    // Docker has no event for its daemon starting, so it is asked again whenever the
+    // user comes back to the app — the moment they may have started it meanwhile.
+    onDockerStatus((status) => {
+      buildMenu();
+      toContainer("octo:container:docker", status);
+    });
+    void refreshDocker();
+    app.on("browser-window-focus", () => void refreshDocker());
     return boot();
   });
 

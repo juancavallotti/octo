@@ -28,6 +28,7 @@ function actions(): MenuActions {
     revealVault: vi.fn(),
     copyMcpUrl: vi.fn(),
     openSettings: vi.fn(),
+    openContainer: vi.fn(),
     update: vi.fn(),
     openDocs: vi.fn(),
     showLog: vi.fn(),
@@ -43,6 +44,7 @@ function build(over: Partial<MenuInput> = {}, act = actions()) {
     vaultOpen: true,
     mcpAvailable: true,
     update: { label: "Check for Updates…" },
+    docker: "running",
     ...over,
   };
   return { menu: menuTemplate(input, act), act };
@@ -72,6 +74,7 @@ describe("menuTemplate", () => {
       "Edit",
       "View",
       "Run",
+      "Container",
       "windowMenu",
       "help",
     ]);
@@ -143,6 +146,27 @@ describe("menuTemplate", () => {
     expect(item(menu, "File", "Save").enabled).toBe(false);
     expect(item(menu, "File", "New", "Flow").enabled).toBe(false);
     expect(item(menu, "Run", "Run Integration").enabled).toBe(false);
+  });
+
+  it("gates building, running and pushing on docker, but never the Dockerfile export", () => {
+    const up = build();
+    expect(item(up.menu, "Container", "Build and Run…").enabled).toBe(true);
+    expect(item(up.menu, "Container", "Push Image…").enabled).toBe(true);
+
+    const stopped = build({ docker: "stopped" });
+    expect(item(stopped.menu, "Container", "Docker Is Not Running").enabled).toBe(false);
+    expect(item(stopped.menu, "Container", "Build and Run…").enabled).toBe(false);
+    expect(item(stopped.menu, "Container", "Push Image…").enabled).toBe(false);
+    expect(item(stopped.menu, "Container", "Export Dockerfile…").enabled).toBe(true);
+
+    const missing = build({ docker: "missing" });
+    expect(() => item(missing.menu, "Container", "Docker Is Not Installed")).not.toThrow();
+  });
+
+  it("opens the Container window at the part an item names", () => {
+    const { menu, act } = build({ docker: "stopped" });
+    click(item(menu, "Container", "Export Dockerfile…"));
+    expect(act.openContainer).toHaveBeenCalledWith("export");
   });
 
   it("puts the app items under File off macOS", () => {

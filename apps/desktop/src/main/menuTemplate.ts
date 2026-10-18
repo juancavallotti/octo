@@ -69,6 +69,8 @@ export interface MenuInput {
   mcpAvailable: boolean;
   /** The update item: a check, or the restart a downloaded version is waiting for. */
   update: { label: string };
+  /** Whether docker can build and run the folder's container right now. */
+  docker: "missing" | "stopped" | "running";
 }
 
 export interface MenuActions {
@@ -80,6 +82,8 @@ export interface MenuActions {
   revealVault(): void;
   copyMcpUrl(): void;
   openSettings(): void;
+  /** Open the Container window at the part an item names. */
+  openContainer(focus: "build" | "push" | "export"): void;
   update(): void;
   openDocs(): void;
   showLog(): void;
@@ -320,6 +324,40 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
     ],
   };
 
+  // Exporting a Dockerfile only writes files, so it is there with or without docker;
+  // building, running and pushing need its daemon, and the first item says why not.
+  const docker = input.docker === "running";
+  const container: MenuItemConstructorOptions = {
+    label: "Container",
+    submenu: [
+      ...(docker
+        ? []
+        : ([
+            {
+              label: input.docker === "stopped" ? "Docker Is Not Running" : "Docker Is Not Installed",
+              enabled: false,
+            },
+            { type: "separator" },
+          ] satisfies MenuItemConstructorOptions[])),
+      {
+        label: "Build and Run…",
+        enabled: docker && input.vaultOpen,
+        click: () => act.openContainer("build"),
+      },
+      {
+        label: "Push Image…",
+        enabled: docker && input.vaultOpen,
+        click: () => act.openContainer("push"),
+      },
+      { type: "separator" },
+      {
+        label: "Export Dockerfile…",
+        enabled: input.vaultOpen,
+        click: () => act.openContainer("export"),
+      },
+    ],
+  };
+
   return [
     ...(isMac
       ? ([
@@ -342,6 +380,7 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
     edit,
     view,
     run,
+    container,
     { role: "windowMenu" },
     {
       role: "help",
