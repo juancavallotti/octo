@@ -20,7 +20,13 @@ export {
   type StartArgs,
   type SyncArgs,
 } from "./runner";
-export { namespaceDir, writeConfig, type RunResourceOptions } from "./staging";
+export {
+  namespaceDir,
+  stageProject,
+  writeConfig,
+  type ProjectFile,
+  type RunResourceOptions,
+} from "./staging";
 export { octoBin, terminate } from "./child";
 export {
   DEV_ENV_RESOURCE,
@@ -44,6 +50,11 @@ export {
   type LogLevel,
 } from "./exec/invoke";
 export { evalCel, type EvalResult } from "./exec/eval";
+export {
+  validate,
+  type ValidateResult,
+  type ValidationIssue,
+} from "./exec/validate";
 export {
   binaries,
   probeVersion,
