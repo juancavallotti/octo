@@ -17,6 +17,11 @@ export {
   type EditorState,
 } from "./app/state/editorState";
 export { useNewItem, type NewItemKind } from "./app/state/useNewItem";
+export {
+  useEditorCommands,
+  type EditorCommand,
+  type EditorCommandStatus,
+} from "./app/commands/useEditorCommands";
 
 // Editor controls (composed by an app's header)
 export { default as RunBar } from "./app/components/RunBar";
