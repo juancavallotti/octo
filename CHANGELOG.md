@@ -1,5 +1,79 @@
 # Changelog
 
+## [0.11.9](https://github.com/juancavallotti/octo/compare/v0.11.8...v0.11.9) (2026-10-18)
+
+
+### Features
+
+* **desktop:** File → New → Flow, Config File, Resource, Test Suite ([f313c10](https://github.com/juancavallotti/octo/commit/f313c100b3e1778497c3ee619e8718ba722c9c1b))
+* **desktop:** File, Edit, View and Run menus that drive the editor ([53bbf88](https://github.com/juancavallotti/octo/commit/53bbf88ae61938d679bc35228a328bbcb8f98ef9))
+* **editor:** commands a host's menu can drive, with their status ([5f5c57c](https://github.com/juancavallotti/octo/commit/5f5c57c32ba6b22879a98a332785986648b81711))
+* **editor:** fit the header and the document bar to narrower windows ([280444b](https://github.com/juancavallotti/octo/commit/280444b803e8ceeaec154b1cec38c11079720b15))
+* **editor:** hold every file of a project and edit one at a time ([268ed02](https://github.com/juancavallotti/octo/commit/268ed02d62e57fb100eda67d13af4ff07a61fce3))
+* **editor:** let a host start a new flow, file, resource or suite ([07eb3ed](https://github.com/juancavallotti/octo/commit/07eb3ed54bfe63cbfb605fe094cb3cce7a0f84b6))
+* **editor:** model a project of config files ([46781ca](https://github.com/juancavallotti/octo/commit/46781caa37eb0e1a8d24fd118936bc50d9da4e4e))
+* **editor:** name the commands a host may send ([25d0c76](https://github.com/juancavallotti/octo/commit/25d0c76abb4334116be7c42ee7fb31baf5cc4966))
+* **editor:** remove any file from the file menu, with a trash can ([541e098](https://github.com/juancavallotti/octo/commit/541e09831646a6c2df23c0ed01547e1e983b6771))
+* **editor:** resolve names across the project ([235a9b7](https://github.com/juancavallotti/octo/commit/235a9b742884cdbc1c1f221e4a30db81793975e9))
+* **editor:** show canvas or YAML beside the file name ([82e0fb9](https://github.com/juancavallotti/octo/commit/82e0fb9f4d07588eeaad05668e9ef111f9c81d9e))
+* **editor:** show the document bar's launchers as icons ([6cc7a74](https://github.com/juancavallotti/octo/commit/6cc7a749788b885f3405995093c15ebdf99f87ff))
+* **editor:** show what octo validate finds ([b8a848b](https://github.com/juancavallotti/octo/commit/b8a848bb8ebd2b4011cd608204431096ce9da42a))
+* **editor:** switch, add, rename and remove a project's files ([b7d049a](https://github.com/juancavallotti/octo/commit/b7d049ab68897ad4d7c56b99d604f46d71b2a830))
+* **mcp:** integrations of several config files ([4172c24](https://github.com/juancavallotti/octo/commit/4172c248374d8439ba2a87af42deb639ad5f6321))
+* **octo:** add octo validate ([f13e419](https://github.com/juancavallotti/octo/commit/f13e4196691f098899f0fc1f0cd4ac780ee4a681))
+* **orchestrator:** address an integration's config files one at a time ([8fc7ad7](https://github.com/juancavallotti/octo/commit/8fc7ad7483d6df0b607fec7b8175ba14639311c4))
+* **orchestrator:** multi-file bundles ([0e393ea](https://github.com/juancavallotti/octo/commit/0e393ea9f7e36de253edae03bf6c061bf5b82163))
+* **orchestrator:** replace an integration's config files as a set ([e656787](https://github.com/juancavallotti/octo/commit/e65678725154d4425ea10317940dad347db2a9f9))
+* **platform:** edit an integration's config files ([0aaeb9b](https://github.com/juancavallotti/octo/commit/0aaeb9bc4d0abd9327977e952ab5b38f9015f2fa))
+* **run-host:** validate a project ([6b7c58e](https://github.com/juancavallotti/octo/commit/6b7c58e7a5cc2bdf78a486c14b15ddc20ec61c27))
+* **runtime:** check a config's references statically ([72292a8](https://github.com/juancavallotti/octo/commit/72292a8947e988160f7ff9f97e80f6840f1177a3))
+* **runtime:** load a config without its secrets ([879089e](https://github.com/juancavallotti/octo/commit/879089e0acb4c4e243b7a9cfd9807270979c45b0))
+* **runtime:** name both files behind a merge collision ([eca1725](https://github.com/juancavallotti/octo/commit/eca1725b377999f091185c50d0e7d277e1ae9aab))
+* **samples:** an integration split across files ([71acfc5](https://github.com/juancavallotti/octo/commit/71acfc59069f2aa5166a174e2314c4e7aa2603b0))
+* **standalone:** the folder is the project ([213ca4e](https://github.com/juancavallotti/octo/commit/213ca4ee52652c0ceb7c67ba805c73c9dd3e8ab7))
+
+
+### Bug Fixes
+
+* **desktop:** keep the menu in step with the page's lifecycle ([7545cae](https://github.com/juancavallotti/octo/commit/7545cae16042d81a774b16799decf71d7d33347b))
+* **editor:** cap a run error's width in the header ([2922391](https://github.com/juancavallotti/octo/commit/292239187538db535ef1dfc5b86a3768696f2fc5))
+* **editor:** give emoji two cells in log output ([5e72712](https://github.com/juancavallotti/octo/commit/5e727129a54eeb62f1a375a67100d508a7e9682b))
+* **editor:** give emoji two cells in log output ([572af59](https://github.com/juancavallotti/octo/commit/572af59dfe0d224a373cd585317262109bd111b1))
+* **editor:** keep Run beside Save in the header ([1316180](https://github.com/juancavallotti/octo/commit/1316180350890763d4bee867a14e8ad04cba16a7))
+* **editor:** name new flows apart from every file in the project ([dc1db7d](https://github.com/juancavallotti/octo/commit/dc1db7d5c383b59bd024ce0879d63d232135e457))
+* **editor:** read and edit resource declarations across the project ([0eed26f](https://github.com/juancavallotti/octo/commit/0eed26faa1ec4a3aa11618432fcbd471e14a4972))
+* **editor:** save a file nobody touched as it was loaded ([af454cf](https://github.com/juancavallotti/octo/commit/af454cfd96b95ad84ead95d0906a805863487f63))
+* **editor:** test every flow in the project, not just the open file's ([a15a1a9](https://github.com/juancavallotti/octo/commit/a15a1a99f0f95a73592c330bbf482d1f1ff94af8))
+* give MCP validation a well-formed run namespace ([4a10542](https://github.com/juancavallotti/octo/commit/4a10542deaddc64e0e3e45f3e7a84f3227bf91d8))
+* **mcp:** check file names before validating a draft ([4325cea](https://github.com/juancavallotti/octo/commit/4325ceaa867ee716734d2c36a41a46ccc016c70c))
+* **orchestrator:** check a file write merges inside its transaction ([75ce312](https://github.com/juancavallotti/octo/commit/75ce312a54e563ac379d7f10d077b051dcdb968c))
+* **orchestrator:** refuse a bundle manifest that lists no config file ([455a7f0](https://github.com/juancavallotti/octo/commit/455a7f0a60e0f82b723a8a36e5dbd6546db1477b))
+* **orchestrator:** say a config-file conflict once ([199f0ad](https://github.com/juancavallotti/octo/commit/199f0ad898a28a9a3df05c6cff7b358d13bf780f))
+* **platform:** duplicate an integration with its resources and suites ([24b72fa](https://github.com/juancavallotti/octo/commit/24b72fa3bfce365bfa73f827ec0aba9f821474e5))
+* **platform:** duplicate an integration with its resources and suites ([4c417ec](https://github.com/juancavallotti/octo/commit/4c417ecf955aef2616896bdd877ddbab7b4dccee))
+* **platform:** leave no empty integration behind a refused create ([a797ab0](https://github.com/juancavallotti/octo/commit/a797ab0861ef404b2b8a16ba5287cf8257a30cd9))
+* **platform:** say so when a failed copy cannot be cleaned up ([13e5b82](https://github.com/juancavallotti/octo/commit/13e5b82dddd69db25d340729c83406d5e4d0cb94))
+* read octo validate's whole envelope; narrow a helper's comment ([1bc48d6](https://github.com/juancavallotti/octo/commit/1bc48d6532435fc14b729d416f73a5844a0f9142))
+* **run-host:** refuse a malformed namespace in validate ([6eb48bf](https://github.com/juancavallotti/octo/commit/6eb48bf0042163d93ff1110f3ac88e0ad59bb180))
+* **runtime:** accept a template the resource root holds ([84e4f83](https://github.com/juancavallotti/octo/commit/84e4f832b4833b2465504093487b295d80d4a016))
+* **sidecars:** stage resources the runtime would not load as config ([9c72173](https://github.com/juancavallotti/octo/commit/9c721730e479ed64e05ff405411d1171e841832f))
+* **standalone:** refuse to save a project that was not loaded ([45e9b4d](https://github.com/juancavallotti/octo/commit/45e9b4d9e73f4aef287f00184ecea0d7fd441605))
+
+
+### Refactoring
+
+* **editor:** the host contract is a project ([5de1d84](https://github.com/juancavallotti/octo/commit/5de1d843ca0a1916e648e9e2281e32ff94734298))
+* **orchestrator:** drop single-definition writes ([a913416](https://github.com/juancavallotti/octo/commit/a9134161e074c27e8bdc3451b1e8875278963b33))
+
+
+### Documentation
+
+* octo validate and cross-file config rules ([4cf9b9e](https://github.com/juancavallotti/octo/commit/4cf9b9e5ef39765e4d49ef12bd24db01628e8e79))
+* **runtime:** a performance tuning page ([22df878](https://github.com/juancavallotti/octo/commit/22df87889db1df809efc6bae55c1984f239b5e78))
+* **runtime:** a performance tuning page ([13efd2a](https://github.com/juancavallotti/octo/commit/13efd2ade69b250dcc75f4dda7bc5968ed5838d9)), closes [#196](https://github.com/juancavallotti/octo/issues/196)
+* **runtime:** size pool and listeners with workers ([26774fb](https://github.com/juancavallotti/octo/commit/26774fb36f5fee3ee54439d6e8f3518f7e421a81))
+* splitting an integration across files ([500ab9c](https://github.com/juancavallotti/octo/commit/500ab9cf2b9c19abcfadc965e700c6a4037b4d4a))
+
 ## [0.11.8](https://github.com/juancavallotti/octo/compare/v0.11.7...v0.11.8) (2026-10-12)
 
 
