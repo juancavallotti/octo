@@ -221,6 +221,10 @@ function useSessions(transport: TerminalTransport | null): TerminalController {
         entry.screen.dispose();
       }
       sessions.clear();
+      // The list goes with the shells: a remount that keeps state (Fast Refresh, a
+      // development double mount) must not show rows for sessions that are gone.
+      setSessions([]);
+      setActive(null);
     };
   }, []);
 
