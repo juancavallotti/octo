@@ -8,6 +8,7 @@ import { useSuiteRun } from "../run/SuiteRunContext";
 import { useTestSuites } from "../providers/TestSuiteProvider";
 import { NO_TEST_RUNNER } from "../run/testTransport";
 import { planRunAll, type SkippedSuite } from "../suite/runAll";
+import { HEADER_LABEL } from "./barButton";
 
 /**
  * Run every suite the project has, from the header. It is what the RUN control becomes
@@ -69,7 +70,7 @@ export default function TestRunButton() {
       ) : (
         <FlaskConical className="h-3.5 w-3.5" />
       )}
-      {running ? "Running…" : "Run tests"}
+      <span className={HEADER_LABEL}>{running ? "Running…" : "Run tests"}</span>
     </button>
   );
 }

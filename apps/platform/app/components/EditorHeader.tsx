@@ -30,28 +30,24 @@ export default function EditorHeader({
   const available = useFileSystem() !== null;
 
   return (
-    <header className="relative flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
-      <AppLogo />
+    // Three regions, laid out as StandaloneHeader's are: see there for why.
+    <header className="flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
+      <div className="flex min-w-0 flex-1 basis-0 items-center gap-2">
+        <AppLogo />
+        {available && (
+          <>
+            <span className="mx-1 h-5 w-px shrink-0 bg-black/10 dark:bg-white/10" />
+            {/* Which integration is open, in the corner the desktop shell keeps its
+                folder in. Its name is edited in the document bar below, next to the
+                file switcher, exactly as the standalone does it. */}
+            <IntegrationPicker />
+          </>
+        )}
+      </div>
 
-      {available && (
-        <>
-          <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
-          {/* Which integration is open, in the corner the desktop shell keeps its
-              folder in. Its name is edited in the document bar below, next to the
-              file switcher, exactly as the standalone does it. */}
-          <IntegrationPicker />
+      {available && <ViewModeToggle />}
 
-          {/* Centred on the bar itself — see StandaloneHeader; both sides of it
-              change width with the integration's name and its controls. */}
-          <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
-            <div className="pointer-events-auto">
-              <ViewModeToggle />
-            </div>
-          </div>
-        </>
-      )}
-
-      <div className="ml-auto flex items-center gap-2">
+      <div className="flex min-w-max flex-1 basis-0 items-center justify-end gap-2">
         {available && (
           <>
             <IntegrationsButton getIntegrationId={getIntegrationId} />

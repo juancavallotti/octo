@@ -87,17 +87,19 @@ export default function WorkspacePicker({
     "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]";
 
   return (
-    <div ref={ref} className="relative">
+    // min-w-0 down the chain: the picker is what gives way in a narrow header, its
+    // name truncating before any control is pushed off the bar.
+    <div ref={ref} className="relative min-w-0">
       <button
         type="button"
         title={currentHint || undefined}
         aria-label={label}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm text-zinc-600 transition-colors hover:border-black/10 hover:text-zinc-900 dark:text-zinc-300 dark:hover:border-white/15 dark:hover:text-zinc-100"
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm text-zinc-600 transition-colors hover:border-black/10 hover:text-zinc-900 dark:text-zinc-300 dark:hover:border-white/15 dark:hover:text-zinc-100"
       >
         <FolderOpen size={14} className="shrink-0 text-zinc-400" />
-        <span className="max-w-[10rem] truncate">{current}</span>
+        <span className="min-w-0 max-w-[10rem] truncate">{current}</span>
       </button>
 
       {open && (

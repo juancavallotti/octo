@@ -45,7 +45,7 @@ export default function DocumentRename({
   };
 
   return (
-    <div className="flex items-center">
+    <div className="flex min-w-0 items-center">
       {renaming ? (
         <input
           type="text"
@@ -63,7 +63,7 @@ export default function DocumentRename({
               setRenaming(false);
             }
           }}
-          className="w-48 rounded-md border border-black/20 bg-transparent px-2 py-1 text-[13px] outline-none dark:border-white/25"
+          className="w-48 min-w-0 rounded-md border border-black/20 bg-transparent px-2 py-1 text-[13px] outline-none dark:border-white/25"
         />
       ) : (
         children

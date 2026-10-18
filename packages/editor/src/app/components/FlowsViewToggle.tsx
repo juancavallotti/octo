@@ -3,6 +3,7 @@
 import { Code2, LayoutGrid } from "lucide-react";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import type { FlowsView } from "../state/reducer";
+import { BAR_VIEW_LABEL } from "./barButton";
 
 /**
  * Canvas / YAML switch for the open file, beside its name in the document bar: both
@@ -30,6 +31,7 @@ export default function FlowsViewToggle() {
             key={view}
             type="button"
             aria-pressed={active}
+            title={label}
             onClick={() => dispatch({ type: EditorActionType.SET_FLOWS_VIEW, data: view })}
             className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium transition-colors ${
               active
@@ -38,7 +40,7 @@ export default function FlowsViewToggle() {
             }`}
           >
             <Icon size={13} className="shrink-0" />
-            {label}
+            <span className={BAR_VIEW_LABEL}>{label}</span>
           </button>
         );
       })}

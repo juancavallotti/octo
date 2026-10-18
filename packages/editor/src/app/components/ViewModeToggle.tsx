@@ -5,6 +5,7 @@ import { useEditorState, EditorActionType } from "../state/editorState";
 import { useResourceStore } from "../providers/ResourceStoreProvider";
 import { useTestSuites } from "../providers/TestSuiteProvider";
 import type { ViewMode } from "../state/reducer";
+import { HEADER_LABEL } from "./barButton";
 
 /**
  * Segmented Flows / Resources / Testing switch for the editor body. It sits in the
@@ -39,7 +40,7 @@ export default function ViewModeToggle() {
     <div
       role="group"
       aria-label="Editor view"
-      className="flex items-center gap-0.5 rounded-md border border-black/10 dark:border-white/15 p-0.5"
+      className="flex shrink-0 items-center gap-0.5 rounded-md border border-black/10 dark:border-white/15 p-0.5"
     >
       {options.map(({ mode, label, icon: Icon }) => {
         const active = state.viewMode === mode;
@@ -48,6 +49,7 @@ export default function ViewModeToggle() {
             key={mode}
             type="button"
             aria-pressed={active}
+            title={label}
             onClick={() =>
               dispatch({ type: EditorActionType.SET_VIEW_MODE, data: mode })
             }
@@ -58,7 +60,7 @@ export default function ViewModeToggle() {
             }`}
           >
             <Icon size={14} className="shrink-0" />
-            {label}
+            <span className={HEADER_LABEL}>{label}</span>
           </button>
         );
       })}

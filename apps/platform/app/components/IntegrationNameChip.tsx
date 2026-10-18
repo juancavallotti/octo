@@ -18,10 +18,10 @@ export default function IntegrationNameChip() {
 
   return (
     <span
-      className={`${BAR_BUTTON} pointer-events-none ${name ? "" : "text-zinc-400 dark:text-zinc-500"}`}
+      className={`${BAR_BUTTON} pointer-events-none min-w-0 ${name ? "" : "text-zinc-400 dark:text-zinc-500"}`}
     >
       <FolderOpen size={15} className="shrink-0 text-zinc-400" />
-      <span className="max-w-[16rem] truncate">
+      <span className="min-w-0 max-w-[16rem] truncate">
         {name || "untitled-integration"}
       </span>
     </span>

@@ -24,35 +24,33 @@ export default function StandaloneHeader() {
   // Here because the header is the shell's piece of the window, and inside the editor.
   useDesktopMenu();
   return (
-    <header className="relative flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
-      {/* h-6 w-auto controls both axes so Tailwind's `img { height: auto }`
-          reset doesn't trigger Next's aspect-ratio warning. */}
-      <Image
-        src="/octo-logo.png"
-        alt="Octo logo"
-        width={24}
-        height={24}
-        className="h-6 w-auto"
-        priority
-      />
-      <span className="font-semibold tracking-tight">Octo</span>
-      <ModeBadge />
-      <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
-      {/* Which folder is being served, next to the mark: it names the whole
-          window, the way a project does. */}
-      <VaultChip />
-
-      {/* Centred on the bar itself, not on what is left over between the mark and
-          the right-hand controls — the right side changes width with which
-          controls the host offers, and a tab strip that drifts is worse than one
-          that is simply in the middle. */}
-      <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
-        <div className="pointer-events-auto">
-          <ViewModeToggle />
-        </div>
+    // Three regions: the two sides share what the tabs leave equally, so the tabs sit
+    // in the middle while there is room. The right side never shrinks below its
+    // controls; when it needs more than its share, the left side gives way — the
+    // folder name truncates — and the tabs move over with it rather than under them.
+    <header className="flex items-center gap-2 border-b border-black/10 dark:border-white/10 px-4 h-12 shrink-0">
+      <div className="flex min-w-0 flex-1 basis-0 items-center gap-2">
+        {/* h-6 w-auto controls both axes so Tailwind's `img { height: auto }`
+            reset doesn't trigger Next's aspect-ratio warning. */}
+        <Image
+          src="/octo-logo.png"
+          alt="Octo logo"
+          width={24}
+          height={24}
+          className="h-6 w-auto shrink-0"
+          priority
+        />
+        <span className="shrink-0 font-semibold tracking-tight">Octo</span>
+        <ModeBadge />
+        <span className="mx-1 h-5 w-px shrink-0 bg-black/10 dark:bg-white/10" />
+        {/* Which folder is being served, next to the mark: it names the whole
+            window, the way a project does. */}
+        <VaultChip />
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <ViewModeToggle />
+
+      <div className="flex min-w-max flex-1 basis-0 items-center justify-end gap-2">
         {/* Before the file's own controls: it is about the app, not the document,
             and it is only ever there when there is something to say. */}
         <UpdateChip />

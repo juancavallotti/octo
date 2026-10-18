@@ -47,7 +47,7 @@ export default function EditorBody({ files }: { files?: React.ReactNode }) {
     // thing it describes.
     if (state.viewMode === "flows" && state.flowsView === "yaml")
       return (
-        <div className="flex flex-1 min-h-0 flex-col">
+        <div className="@container flex flex-1 min-h-0 flex-col">
           <DocumentBar files={files} />
           <YamlPreview />
         </div>
@@ -61,7 +61,8 @@ export default function EditorBody({ files }: { files?: React.ReactNode }) {
           {/* Hidden, not collapsed to a rail: the header toggles say where they are
               and bring them back, so a stub would only spend canvas. */}
           {layout?.sidebar !== false && <Sidebar />}
-          <div className="flex min-w-0 flex-1 flex-col">
+          {/* A container, so the document bar sizes its labels to this column. */}
+          <div className="@container flex min-w-0 flex-1 flex-col">
             <DocumentBar files={files} />
             <Canvas />
           </div>

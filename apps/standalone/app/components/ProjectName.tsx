@@ -11,9 +11,9 @@ import { BAR_BUTTON, useEditorState } from "@octo/editor";
 export default function ProjectName() {
   const { state } = useEditorState();
   return (
-    <span className={BAR_BUTTON}>
-      <FolderOpen size={15} />
-      {state.project.name || "untitled-project"}
+    <span className={`${BAR_BUTTON} min-w-0`}>
+      <FolderOpen size={15} className="shrink-0" />
+      <span className="truncate">{state.project.name || "untitled-project"}</span>
     </span>
   );
 }

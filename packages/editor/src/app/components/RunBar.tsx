@@ -6,6 +6,7 @@ import { useModifier } from "../keyboard/useModifier";
 import { useEditorState } from "../state/editorState";
 import { issueMessages } from "../model/validate";
 import TestRunButton from "./TestRunButton";
+import { HEADER_LABEL } from "./barButton";
 
 /**
  * The RUN control in the header. It only appears when a runner binary is available (the
@@ -52,7 +53,7 @@ export default function RunBar() {
           className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
         >
           <Square className="h-3.5 w-3.5 fill-current" />
-          Stop
+          <span className={HEADER_LABEL}>Stop</span>
         </button>
       </div>
     );
@@ -75,7 +76,7 @@ export default function RunBar() {
         className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Play className="h-3.5 w-3.5 fill-current" />
-        Run
+        <span className={HEADER_LABEL}>Run</span>
       </button>
     </div>
   );
