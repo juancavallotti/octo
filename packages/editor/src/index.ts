@@ -16,9 +16,9 @@ export {
   EditorActionType,
   type EditorState,
 } from "./app/state/editorState";
-export { useNewItem, type NewItemKind } from "./app/state/useNewItem";
 export {
   useEditorCommands,
+  isEditorCommand,
   type EditorCommand,
   type EditorCommandStatus,
 } from "./app/commands/useEditorCommands";

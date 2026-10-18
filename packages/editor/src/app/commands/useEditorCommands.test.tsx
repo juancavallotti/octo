@@ -6,7 +6,7 @@ import { LayoutProvider } from "../state/layout";
 import { ConsoleProvider } from "../run/console";
 import { CanvasZoomProvider, useCanvasZoom } from "../canvas/ZoomContext";
 import { TestSuiteProvider, type TestSuiteStore } from "../providers/TestSuiteProvider";
-import { useEditorCommands, type EditorCommand } from "./useEditorCommands";
+import { isEditorCommand, useEditorCommands, type EditorCommand } from "./useEditorCommands";
 
 /**
  * The command runner, taken without a click: clicking a button would move focus out of
@@ -122,5 +122,11 @@ describe("useEditorCommands", () => {
     expect(Number(screen.getByTestId("zoom").textContent)).toBeGreaterThan(1);
     await user.click(screen.getByText("canvas:zoom-reset"));
     expect(screen.getByTestId("zoom")).toHaveTextContent("1");
+  });
+
+  it("recognises its own commands and nothing else", () => {
+    expect(isEditorCommand("new:suite")).toBe(true);
+    expect(isEditorCommand("new:anything")).toBe(false);
+    expect(isEditorCommand(42)).toBe(false);
   });
 });

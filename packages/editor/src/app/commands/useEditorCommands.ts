@@ -16,25 +16,41 @@ import type { FlowsView, ViewMode } from "../state/reducer";
 /**
  * Everything the editor can be told to do from outside its own controls — a host's
  * native menu bar. One list, so a menu and the editor's own shortcuts cannot come to
- * mean different things by the same name.
+ * mean different things by the same name. `run` runs whatever the view is about: the
+ * integration, or on the Testing tab, the suites.
  */
-export type EditorCommand =
-  | "undo"
-  | "redo"
-  | "save"
-  /** Whatever the view runs: the integration, or on the Testing tab, the suites. */
-  | "run"
-  | "run-flow"
-  | "stop"
-  | `view:${ViewMode}`
-  | `flows:${FlowsView}`
-  | "toggle:components"
-  | "toggle:settings"
-  | "toggle:console"
-  | "canvas:zoom-in"
-  | "canvas:zoom-out"
-  | "canvas:zoom-reset"
-  | `new:${NewItemKind}`;
+export const EDITOR_COMMANDS = [
+  "undo",
+  "redo",
+  "save",
+  "run",
+  "run-flow",
+  "stop",
+  "view:flows",
+  "view:resources",
+  "view:testing",
+  "flows:canvas",
+  "flows:yaml",
+  "toggle:components",
+  "toggle:settings",
+  "toggle:console",
+  "canvas:zoom-in",
+  "canvas:zoom-out",
+  "canvas:zoom-reset",
+  "new:flow",
+  "new:file",
+  "new:resource",
+  "new:suite",
+] as const;
+
+export type EditorCommand = (typeof EDITOR_COMMANDS)[number];
+
+const KNOWN = new Set<string>(EDITOR_COMMANDS);
+
+/** Whether a value from outside — another process, say — names a command. */
+export function isEditorCommand(value: unknown): value is EditorCommand {
+  return typeof value === "string" && KNOWN.has(value);
+}
 
 /**
  * What a host needs to show those commands truthfully: which are possible right now,
