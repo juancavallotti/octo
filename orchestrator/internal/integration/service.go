@@ -22,6 +22,10 @@ type repository interface {
 	SetIcon(ctx context.Context, id, icon, actorID string) (Integration, error)
 	Delete(ctx context.Context, id string) error
 	NameExists(ctx context.Context, name, excludeID string) (bool, error)
+
+	ConfigFiles(ctx context.Context, integrationID string) ([]ConfigFile, error)
+	PutConfigFile(ctx context.Context, integrationID, path, content, actorID string) (ConfigFile, error)
+	DeleteConfigFile(ctx context.Context, integrationID, path, actorID string) error
 }
 
 // reloadNotifier is told that an integration's stored state changed, so anything

@@ -15,11 +15,12 @@ import (
 // Service and Handler without a database while behaving like the store.
 type memRepo struct {
 	items map[string]Integration
+	files map[string]map[string]ConfigFile // integration id -> path -> file
 	seq   int
 }
 
 func newMemRepo() *memRepo {
-	return &memRepo{items: make(map[string]Integration)}
+	return &memRepo{items: make(map[string]Integration), files: make(map[string]map[string]ConfigFile)}
 }
 
 func (m *memRepo) Create(_ context.Context, name, definition, actorID string) (Integration, error) {

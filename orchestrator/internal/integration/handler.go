@@ -31,6 +31,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /integrations/{id}", h.update)
 	mux.HandleFunc("PUT /integrations/{id}/icon", h.setIcon)
 	mux.HandleFunc("DELETE /integrations/{id}", h.delete)
+	mux.HandleFunc("GET /integrations/{id}/files", h.listFiles)
+	mux.HandleFunc("GET /integrations/{id}/files/content", h.getFile)
+	mux.HandleFunc("PUT /integrations/{id}/files/content", h.putFile)
+	mux.HandleFunc("DELETE /integrations/{id}/files/content", h.deleteFile)
 }
 
 // integrationRequest is the create/update payload. ActorID is the acting user's id,
@@ -249,6 +253,10 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrNameTaken):
 		httpx.WriteError(w, http.StatusConflict, "an integration with this name already exists")
+	case errors.Is(err, ErrFilesConflict):
+		httpx.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrFileNotFound):
+		httpx.WriteError(w, http.StatusNotFound, "config file not found")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "integration not found")
 	default:

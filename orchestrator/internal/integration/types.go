@@ -30,3 +30,12 @@ type Integration struct {
 	UpdatedByEmail *string
 	UpdatedByName  *string
 }
+
+// ConfigFile is one of an integration's config files: a root-level YAML file the
+// runtime merges with its siblings into one config. Path is the file's name
+// within the project folder.
+type ConfigFile struct {
+	Path        string
+	Content     string
+	LastUpdated time.Time
+}

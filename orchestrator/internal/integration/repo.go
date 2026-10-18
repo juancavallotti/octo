@@ -64,7 +64,7 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // that exists without the definition it was created with is not a state anyone
 // should have to handle.
 func (r *Repo) Create(ctx context.Context, name, definition, actorID string) (Integration, error) {
-	it, err := r.inTx(ctx, func(tx pgx.Tx) (Integration, error) {
+	it, err := inTx(ctx, r.pool, func(tx pgx.Tx) (Integration, error) {
 		row := tx.QueryRow(ctx,
 			`WITH i AS (
 				INSERT INTO integrations (name, created_by, updated_by)
@@ -79,7 +79,7 @@ func (r *Repo) Create(ctx context.Context, name, definition, actorID string) (In
 			return Integration{}, scanErr
 		}
 		if definition != "" {
-			if err := writeConfigFile(ctx, tx, created.ID, defaultConfigPath, definition); err != nil {
+			if _, err := upsertConfigFile(ctx, tx, created.ID, defaultConfigPath, definition, actorID); err != nil {
 				return Integration{}, err
 			}
 		}
@@ -153,7 +153,7 @@ func (r *Repo) List(ctx context.Context) ([]Integration, error) {
 // several config files has no single file this definition belongs to, so it is
 // refused rather than guessed at — see ErrAmbiguousDefinition.
 func (r *Repo) Update(ctx context.Context, id, name, definition, actorID string) (Integration, error) {
-	it, err := r.inTx(ctx, func(tx pgx.Tx) (Integration, error) {
+	it, err := inTx(ctx, r.pool, func(tx pgx.Tx) (Integration, error) {
 		row := tx.QueryRow(ctx,
 			`WITH i AS (
 				UPDATE integrations
@@ -173,7 +173,7 @@ func (r *Repo) Update(ctx context.Context, id, name, definition, actorID string)
 		if pathErr != nil {
 			return Integration{}, pathErr
 		}
-		if err := writeConfigFile(ctx, tx, id, path, definition); err != nil {
+		if _, err := upsertConfigFile(ctx, tx, id, path, definition, actorID); err != nil {
 			return Integration{}, err
 		}
 		updated.Definition = definition
@@ -225,24 +225,6 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// inTx runs fn inside a transaction, rolling back on any error.
-func (r *Repo) inTx(ctx context.Context, fn func(pgx.Tx) (Integration, error)) (Integration, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return Integration{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	it, err := fn(tx)
-	if err != nil {
-		return Integration{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Integration{}, err
-	}
-	return it, nil
-}
-
 // configPathFor picks the file an integration's definition is written to: the
 // one config file it has, or the default name when it has none yet.
 //
@@ -272,18 +254,6 @@ func configPathFor(ctx context.Context, tx pgx.Tx, integrationID string) (string
 	default:
 		return "", fmt.Errorf("%w: %v", ErrAmbiguousDefinition, paths)
 	}
-}
-
-// writeConfigFile upserts an integration's definition at path.
-func writeConfigFile(ctx context.Context, tx pgx.Tx, integrationID, path, definition string) error {
-	_, err := tx.Exec(ctx,
-		`INSERT INTO integration_files (integration_id, path, role, kind, content)
-		 VALUES ($1, $2, $3, '', $4)
-		 ON CONFLICT (integration_id, path)
-		 DO UPDATE SET content = EXCLUDED.content, last_updated = now()`,
-		integrationID, path, string(projectfile.Classify(path)), definition,
-	)
-	return err
 }
 
 // scanIntegration reads one row in selectColumns order, folding the config files

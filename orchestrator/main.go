@@ -567,7 +567,8 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		integration.NewHandler(integrationSvc).Register(mux)
 		slog.Info("integration routes registered",
 			"reloadsDevRuns", devrunSvc.Enabled(),
-			"endpoints", "POST/GET /integrations, GET/PUT/DELETE /integrations/{id}")
+			"endpoints", "POST/GET /integrations, GET/PUT/DELETE /integrations/{id}, "+
+				"GET /integrations/{id}/files, GET/PUT/DELETE /integrations/{id}/files/content")
 
 		folderSvc := folder.NewService(folder.NewRepo(database.Pool()))
 		folder.NewHandler(folderSvc).Register(mux)

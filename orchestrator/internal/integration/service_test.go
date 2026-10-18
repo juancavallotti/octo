@@ -62,6 +62,20 @@ func (f *fakeRepo) Delete(_ context.Context, _ string) error {
 	return f.delErr
 }
 
+func (f *fakeRepo) ConfigFiles(_ context.Context, _ string) ([]ConfigFile, error) {
+	return nil, f.retErr
+}
+
+func (f *fakeRepo) PutConfigFile(_ context.Context, _, path, content, _ string) (ConfigFile, error) {
+	f.called = true
+	return ConfigFile{Path: path, Content: content}, f.retErr
+}
+
+func (f *fakeRepo) DeleteConfigFile(_ context.Context, _, _, _ string) error {
+	f.called = true
+	return f.delErr
+}
+
 func TestServiceCreateValidation(t *testing.T) {
 	tests := []struct {
 		name        string
