@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EditorActionType, EditorStateProvider, useEditorState } from "../state/editorState";
 import { parseProject, type ProjectFile } from "../model/project";
@@ -173,6 +173,14 @@ describe("FileSwitcher", () => {
     await user.type(screen.getByLabelText("File name"), "zeta");
     await user.click(screen.getByRole("button", { name: "Remove orders.yaml" }));
     expect(paths()).toBe("zeta.yaml");
+  });
+
+  it("leaves an Escape that ends an IME composition to the input method", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "Rename octo.yaml" }));
+    fireEvent.keyDown(screen.getByLabelText("File name"), { key: "Escape", isComposing: true });
+    expect(screen.getByLabelText("File name")).toBeInTheDocument();
   });
 
   it("closes the menu on Escape from a new file's name", async () => {

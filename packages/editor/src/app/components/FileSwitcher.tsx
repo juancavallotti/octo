@@ -291,6 +291,12 @@ function NameInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key !== "Escape") return;
+          // An Escape mid-composition belongs to the input method: it cancels the
+          // composition, not the name, and must not reach the menu either.
+          if (e.nativeEvent.isComposing || e.keyCode === 229) {
+            e.nativeEvent.stopPropagation();
+            return;
+          }
           // A rename's Escape abandons the rename, not the menu around it, which closes
           // on an Escape that reaches the document. A new file's closes both, as it did.
           if (draft.mode === "rename") e.nativeEvent.stopPropagation();
