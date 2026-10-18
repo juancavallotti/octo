@@ -1,12 +1,13 @@
 /**
- * Local-disk flow store: reads and writes `*.yaml` flow definitions in a single
- * configured directory (OCTO_FS_DIR, default `./flows`). Flat — no folders — and
- * filenames are validated to a single safe segment, so a tampered id can never escape
- * the root.
+ * Local-disk project store: the configured directory (OCTO_FS_DIR, default `./flows`)
+ * is one project, and its config files are the top-level `*.yaml` files in it — the
+ * same files `octo run --config <dir>` merges into one application. Flat — no folders —
+ * and filenames are validated to a single safe segment, so a tampered path can never
+ * escape the root.
  *
  * The root is shared with two other modules, and each owns a disjoint slice of it:
  *
- *   store.ts             top-level `*.yaml` that are NOT test files — the flows
+ *   store.ts             top-level `*.yaml` that are NOT test files — the config files
  *   testSuiteStore.ts    top-level `*_test.yaml` — the dolphin suites
  *   resourceStore.ts     everything else: subpaths, dotfiles, `.octo/`
  *
@@ -14,14 +15,22 @@
  * a directory as a config — that is what lets a suite live beside the flow it tests.
  */
 
-import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { noteWritten } from "./watch";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import YAML from "yaml";
+import { noteWritten } from "./watch";
 
-export interface FlowDoc {
+/** A config file: its name in the root and its YAML. */
+export interface ConfigFile {
+  path: string;
+  content: string;
+}
+
+/** The project the root holds. */
+export interface ProjectDoc {
   id: string;
   name: string;
-  definition: string;
+  files: ConfigFile[];
 }
 
 /** The directory backing the store. */
@@ -36,14 +45,14 @@ export function fsRoot(): string {
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/;
 
 /**
- * A flow id without its extension — the name the editor shows and the runtime uses.
- * Exported so nothing grows a second copy of the rule.
+ * A file's name without its extension. Exported so nothing grows a second copy of
+ * the rule.
  */
 export function nameOf(id: string): string {
   return id.replace(/\.ya?ml$/i, "");
 }
 
-/** Whether a filename is one this store would serve: a flow or a suite in the root. */
+/** Whether a filename is one this store would serve: a config file or a suite in the root. */
 export function isStoredFile(name: string): boolean {
   return ID_RE.test(name);
 }
@@ -78,95 +87,73 @@ function resolveSafe(id: string): string {
 }
 
 /**
- * Turn a display name into a safe filename stem. Collapsing every non-alphanumeric to
- * `-` also keeps a save out of the suite namespace: `orders_test` slugs to
- * `orders-test`, which can never be a `*_test.yaml`.
+ * The project's id: the root folder's name. There is one project per root, so it
+ * needs no other identity — and the desktop app's switching folders is switching
+ * projects, which is what an id that follows the folder says.
  */
-function slugify(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "flow"
-  );
+export function projectId(): string {
+  return path.basename(path.resolve(fsRoot()));
 }
 
-async function exists(full: string): Promise<boolean> {
-  try {
-    await access(full);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function listFlows(): Promise<{ id: string; name: string }[]> {
+/** The config files in the root, by name. */
+export async function listConfigFiles(): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(fsRoot());
   } catch {
     return []; // dir not created yet
   }
-  return entries
-    .filter((f) => /\.ya?ml$/i.test(f) && !isTestFile(f))
-    .sort()
-    .map((id) => ({ id, name: nameOf(id) }));
-}
-
-export async function readFlow(id: string): Promise<FlowDoc> {
-  const definition = await readFile(resolveSafe(id), "utf8");
-  return { id, name: nameOf(id), definition };
-}
-
-export async function writeFlow(id: string, definition: string): Promise<FlowDoc> {
-  const full = resolveSafe(id);
-  await mkdir(path.dirname(full), { recursive: true });
-  // Recorded BEFORE the write, so the watcher cannot see the file change before it
-  // has been told whose change it was — which would announce the editor's own save
-  // back to it as somebody else's.
-  noteWritten(id, definition);
-  await writeFile(full, definition, "utf8");
-  return { id, name: nameOf(id), definition };
-}
-
-/** First unused `<slug>.yaml` (or `<slug>-N.yaml`) filename under the root. */
-async function freeId(slug: string): Promise<string> {
-  const root = fsRoot();
-  let id = `${slug}.yaml`;
-  let n = 2;
-  while (await exists(path.join(root, id))) {
-    id = `${slug}-${n}.yaml`;
-    n++;
-  }
-  return id;
-}
-
-/** Create a new flow file from a name, de-duplicating the slug. */
-export async function createFlow(
-  name: string,
-  definition: string,
-): Promise<FlowDoc> {
-  await mkdir(fsRoot(), { recursive: true });
-  return writeFlow(await freeId(slugify(name)), definition);
+  return entries.filter((f) => isStoredFile(f) && !isTestFile(f)).sort();
 }
 
 /**
- * Update an existing flow. The filename is the flow's identity, so when the
- * name's slug no longer matches the current file the flow is renamed on disk:
- * the new file is written first, then the old one removed (a slug collision with
- * a different flow is de-duplicated to `-2`, `-3`, …). Returns the (possibly new)
- * record so the editor can adopt the new id.
+ * Read the project: every config file. Its name is the `service.name` the files
+ * declare, falling back to the folder's — the same identity the runtime logs under.
  */
-export async function updateFlow(
-  oldId: string,
-  name: string,
-  definition: string,
-): Promise<FlowDoc> {
-  const current = resolveSafe(oldId); // validate before touching disk
-  const desired = `${slugify(name)}.yaml`;
-  if (desired === oldId) return writeFlow(oldId, definition);
-  const written = await writeFlow(await freeId(slugify(name)), definition);
-  await rm(current, { force: true }); // drop the old file only after the new one lands
-  return written;
+export async function readProject(): Promise<ProjectDoc> {
+  const files = await Promise.all(
+    (await listConfigFiles()).map(async (p) => ({
+      path: p,
+      content: await readFile(resolveSafe(p), "utf8"),
+    })),
+  );
+  return { id: projectId(), name: serviceName(files) ?? projectId(), files };
+}
+
+/** The first `service.name` the files declare, in the order the runtime merges them. */
+function serviceName(files: ConfigFile[]): string | undefined {
+  for (const f of files) {
+    try {
+      const name = (YAML.parse(f.content) as { service?: { name?: unknown } } | null)?.service?.name;
+      if (typeof name === "string" && name.trim()) return name;
+    } catch {
+      // A file that does not parse names nothing; the runtime will say why.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Make `files` the project's config files: each is written, and a config file on disk
+ * that is not among them is removed. Test suites and resources are not config files and
+ * are never touched.
+ */
+export async function writeProject(files: ConfigFile[]): Promise<ProjectDoc> {
+  const targets = files.map((f) => resolveSafe(f.path));
+  if (new Set(files.map((f) => f.path)).size !== files.length) {
+    throw new Error("a file is given more than once");
+  }
+  await mkdir(fsRoot(), { recursive: true });
+  for (const [i, f] of files.entries()) {
+    // Recorded BEFORE the write, so the watcher cannot see the file change before it
+    // has been told whose change it was — which would announce the editor's own save
+    // back to it as somebody else's.
+    noteWritten(f.path, f.content);
+    await writeFile(targets[i], f.content, "utf8");
+  }
+  const keep = new Set(files.map((f) => f.path));
+  for (const stale of await listConfigFiles()) {
+    if (!keep.has(stale)) await rm(resolveSafe(stale), { force: true });
+  }
+  return readProject();
 }

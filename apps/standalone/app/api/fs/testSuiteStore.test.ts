@@ -3,7 +3,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { deleteSuite, listSuites, writeSuite } from "./testSuiteStore";
-import { createFlow, listFlows } from "./store";
+import { listConfigFiles, writeProject } from "./store";
 
 // A real temp directory backs the store (OCTO_FS_DIR); each test starts clean.
 let dir: string;
@@ -140,14 +140,14 @@ describe("standalone test suite store", () => {
     for (const f of await readdir(dir)) expect(f).not.toContain(path.sep);
   });
 
-  // The two stores partition the flows root, and this is the seam: what one writes, the
-  // other must not claim. A suite written here stays out of the flow list, and a flow
-  // created there is never read back as a suite.
-  it("keeps a disjoint partition with the flow store", async () => {
-    await createFlow("Orders", "name: orders\n");
+  // The two stores partition the root, and this is the seam: what one writes, the other
+  // must not claim. A suite written here stays out of the config files, and a config
+  // file written there is never read back as a suite.
+  it("keeps a disjoint partition with the project store", async () => {
+    await writeProject([{ path: "orders.yaml", content: "name: orders\n" }]);
     await writeSuite("orders", suite("orders"));
 
-    expect(await listFlows()).toEqual([{ id: "orders.yaml", name: "orders" }]);
+    expect(await listConfigFiles()).toEqual(["orders.yaml"]);
     expect((await listSuites()).map((s) => s.flow)).toEqual(["orders"]);
   });
 });

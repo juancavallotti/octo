@@ -17,6 +17,7 @@ import {
   binaries,
   evalCel,
   invoke,
+  validate,
   probeTestVersion,
   probeVersion,
   test,
@@ -30,6 +31,8 @@ import type {
   FlowRunOutcome,
   FlowRunRequest,
   RunStatusSnapshot,
+  RuntimeIssue,
+  StoredFile,
   TestRunOutcome,
   TestRunRequest,
 } from "@octo/editor";
@@ -105,6 +108,29 @@ export async function runEvalCel(
       env: req.env,
     });
     return { ok: true, data: { ok: r.ok, result: r.result, error: r.error } };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Check the project's files with `octo validate`, staged with the resources they declare.
+ * A runner that did not answer is an error: the editor then keeps its own verdict.
+ */
+export async function runValidate(
+  tabId: string,
+  files: StoredFile[],
+): Promise<ActionResult<RuntimeIssue[]>> {
+  if (!binaries().available) {
+    return { ok: false, error: "Runner not available (OCTO_BIN_PATH unset)." };
+  }
+  if (!Array.isArray(files) || files.length === 0) {
+    return { ok: false, error: "missing `files`" };
+  }
+  try {
+    const r = await validate(await ensureRunNamespace(tabId), files, { resources: fsResourceProvider });
+    if (!r.ok) return { ok: false, error: r.error ?? "validation did not run" };
+    return { ok: true, data: r.issues };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
