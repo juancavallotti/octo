@@ -1,13 +1,8 @@
 import { binary, probeVersion } from "../settings";
+import { RUNTIME_IMAGE } from "./context";
 import { exec } from "./docker";
 
-/**
- * Which runtime an image is built on. The published `octo-runtime` image is the
- * standalone build — no NATS, no Kubernetes — which is what a single container on its
- * own needs; the `-paas` images expect the platform around them.
- */
-
-export const RUNTIME_IMAGE = "juancavallotti/octo-runtime";
+/** Which versions of the runtime image a container can be built on. */
 
 const HUB_TAGS = `https://hub.docker.com/v2/namespaces/juancavallotti/repositories/octo-runtime/tags`;
 
