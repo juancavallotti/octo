@@ -9,6 +9,9 @@ import {
   newBlock,
   withErrorChain,
 } from "../model/document";
+import { flowNames } from "../model/identity";
+import { projectView } from "../model/project";
+import { projectFiles } from "./projectHandlers";
 import type { EditorState } from "./reducer";
 import type {
   AddBlockPayload,
@@ -47,8 +50,20 @@ function updateFlow(
   return mapFlow(state.document, flowId, fn);
 }
 
+/**
+ * `flow-N` for the first N past the active file's flow count that no file in the
+ * project uses: flow names are one namespace across the project, so counting the
+ * active file alone would hand out a name a sibling file already declares.
+ */
+function nextFlowName(state: EditorState): string {
+  const taken = new Set(flowNames(projectView(projectFiles(state))));
+  for (let n = state.document.flows.length + 1; ; n++) {
+    if (!taken.has(`flow-${n}`)) return `flow-${n}`;
+  }
+}
+
 export function addFlow(state: EditorState): EditorState {
-  const flow = withErrorChain(emptyFlow(`flow-${state.document.flows.length + 1}`));
+  const flow = withErrorChain(emptyFlow(nextFlowName(state)));
   return {
     ...state,
     document: { ...state.document, flows: [...state.document.flows, flow] },
@@ -65,7 +80,7 @@ export function addBlock(state: EditorState, p: AddBlockPayload): EditorState {
 
   // No target flow yet (scratch document) — create one and start it with this block.
   if (!flowId || !findFlow(state.document, flowId)) {
-    const flow = withErrorChain(emptyFlow(`flow-${state.document.flows.length + 1}`));
+    const flow = withErrorChain(emptyFlow(nextFlowName(state)));
     flow.process = [block];
     const document = {
       ...state.document,

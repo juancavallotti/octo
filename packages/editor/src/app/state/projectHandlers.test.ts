@@ -103,6 +103,13 @@ describe("creating, renaming and deleting files", () => {
     expect(state.document.flows).toHaveLength(1);
   });
 
+  it("names a new file's flow apart from every flow in the project", () => {
+    let state = reducer(loaded(), { type: EditorActionType.CREATE_FILE, data: { path: "a.yaml" } });
+    state = reducer(state, { type: EditorActionType.CREATE_FILE, data: { path: "b.yaml" } });
+    const names = projectFiles(state).flatMap((f) => f.document.flows.map((fl) => fl.name));
+    expect(new Set(names).size).toBe(names.length);
+  });
+
   it.each([["orders.yaml"], ["nested/x.yaml"], ["orders_test.yaml"], ["notes.md"]])(
     "refuses to create %s",
     (path) => {
@@ -135,6 +142,17 @@ describe("creating, renaming and deleting files", () => {
   it("keeps the last file", () => {
     const one = reducer(initialState, { type: EditorActionType.NEW_PROJECT });
     expect(reducer(one, { type: EditorActionType.DELETE_FILE, data: { path: "octo.yaml" } })).toBe(one);
+  });
+});
+
+describe("flows", () => {
+  it("names an added flow apart from the flows in other files", () => {
+    // billing.yaml holds one flow, so the next by its own count is flow-2 — taken in orders.yaml.
+    let state = reducer(loaded(), { type: EditorActionType.SWITCH_FILE, data: { path: "orders.yaml" } });
+    state = reducer(state, { type: EditorActionType.RENAME_FLOW, data: { flowId: state.document.flows[0].id, name: "flow-2" } });
+    state = reducer(state, { type: EditorActionType.SWITCH_FILE, data: { path: "billing.yaml" } });
+    state = reducer(state, { type: EditorActionType.ADD_FLOW });
+    expect(state.document.flows.map((f) => f.name)).toEqual(["billing", "flow-3"]);
   });
 });
 

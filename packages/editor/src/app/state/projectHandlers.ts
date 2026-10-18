@@ -1,5 +1,6 @@
-import { blankDocument, emptyDocument } from "../model/document";
-import { byPath, isConfigFileName, type ProjectFile } from "../model/project";
+import { blankDocument, emptyDocument, emptyFlow, withErrorChain } from "../model/document";
+import { flowNames, uniqueSlug } from "../model/identity";
+import { byPath, isConfigFileName, projectView, type ProjectFile } from "../model/project";
 import type { EditorState } from "./reducer";
 import type {
   CreateFilePayload,
@@ -92,13 +93,16 @@ export function switchFile(state: EditorState, p: SwitchFilePayload): EditorStat
   return activate(state, projectFiles(state), p.path);
 }
 
-/** Add a config file and open it. A name the runtime would not load, or one taken, is refused. */
+/**
+ * Add a config file and open it, holding one blank flow named apart from every flow
+ * in the project. A name the runtime would not load, or one taken, is refused.
+ */
 export function createFile(state: EditorState, p: CreateFilePayload): EditorState {
   if (!isConfigFileName(p.path) || state.files.some((f) => f.path === p.path)) return state;
-  const files = [
-    ...projectFiles(state),
-    { path: p.path, document: emptyDocument(), declaresService: false },
-  ];
+  const current = projectFiles(state);
+  const name = uniqueSlug("new-flow", new Set(flowNames(projectView(current))));
+  const document = { ...blankDocument(), flows: [withErrorChain(emptyFlow(name))] };
+  const files = [...current, { path: p.path, document, declaresService: false }];
   return activate(state, byPath(files), p.path);
 }
 
