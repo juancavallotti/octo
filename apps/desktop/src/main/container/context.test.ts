@@ -52,6 +52,19 @@ describe("contextFiles", () => {
     symlinkSync(path.join(dir, "shared", "a.tmpl"), path.join(dir, "alias.tmpl"));
     expect(await contextFiles(dir)).toEqual(["alias.tmpl", "orders.yaml", "shared/a.tmpl"]);
   });
+
+  it("drops a link to a file that is itself left out", async () => {
+    const dir = folder({ "orders.yaml": "flows: {}", ".env.dev": "TOKEN=secret" });
+    symlinkSync(path.join(dir, ".env.dev"), path.join(dir, "settings.tmpl"));
+    expect(await contextFiles(dir)).toEqual(["orders.yaml"]);
+  });
+
+  it("ends at a link back up the tree, and still walks a second link to one folder", async () => {
+    const dir = folder({ "orders.yaml": "flows: {}", "a/b/x.tmpl": "x" });
+    symlinkSync(path.join(dir, "a"), path.join(dir, "a", "b", "up"));
+    symlinkSync(path.join(dir, "a", "b"), path.join(dir, "alias"));
+    expect(await contextFiles(dir)).toEqual(["a/b/x.tmpl", "alias/x.tmpl", "orders.yaml"]);
+  });
 });
 
 describe("writeContext", () => {

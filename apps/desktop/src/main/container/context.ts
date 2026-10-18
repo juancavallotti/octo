@@ -40,12 +40,16 @@ export function excluded(rel: string): boolean {
 
 /**
  * Every file the image gets, folder-relative and sorted. A symlink is followed only
- * when it lands inside the folder: one pointing at `~/.ssh` would otherwise be copied
- * into an image that may be pushed anywhere.
+ * when it lands inside the folder, on something that would not be left out under its
+ * own name: one pointing at `~/.ssh`, or at `.env.dev`, would otherwise be copied into
+ * an image that may be pushed anywhere. A directory already being walked is not
+ * entered again, so a link back up the tree ends rather than recursing forever; the
+ * same directory reached by two separate links is still walked under both.
  */
 export async function contextFiles(folder: string): Promise<string[]> {
   const root = await realpath(folder);
   const out: string[] = [];
+  const walking = new Set<string>([root]);
 
   async function walk(dir: string, rel: string): Promise<void> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -53,13 +57,24 @@ export async function contextFiles(folder: string): Promise<string[]> {
       if (excluded(childRel)) continue;
       const full = path.join(dir, entry.name);
       let info = await lstat(full);
+      let real = full;
       if (info.isSymbolicLink()) {
         const target = await realpath(full).catch(() => null);
         if (!target || !inside(root, target)) continue;
+        if (excluded(path.relative(root, target).split(path.sep).join("/"))) continue;
         info = await stat(target);
+        real = target;
       }
-      if (info.isDirectory()) await walk(full, childRel);
-      else if (info.isFile()) out.push(childRel);
+      if (info.isFile()) out.push(childRel);
+      if (!info.isDirectory()) continue;
+      if (real === full) real = await realpath(full);
+      if (walking.has(real)) continue;
+      walking.add(real);
+      try {
+        await walk(full, childRel);
+      } finally {
+        walking.delete(real);
+      }
     }
   }
 
@@ -82,7 +97,10 @@ export function dockerfile(tag: string): string {
     "# Built by Octo Desktop from the folder beside this file.",
     "#",
     "#   docker build -t my-integration .",
-    "#   docker run -p 8080:8080 --env-file .env.dev my-integration",
+    "#   docker run -p 8080:8080 --env-file /path/to/your/folder/.env.dev my-integration",
+    "#",
+    "# .env.dev is not copied here: it holds the credentials of the machine that",
+    "# exported this folder. Pass it, or each variable with -e, when you run.",
     "#",
     "# Port 8080 is the HTTP source; 39999 serves /healthz and /readyz.",
     `FROM ${RUNTIME_IMAGE}:${tag}`,
