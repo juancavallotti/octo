@@ -91,8 +91,8 @@ export async function createScreen(): Promise<TerminalScreen> {
     fontSize: 12,
     cursorBlink: true,
     scrollback: 5000,
-    allowProposedApi: false,
-    macOptionIsMeta: true,
+    // macOptionIsMeta stays off, as in VS Code: on most non-US Mac layouts Option is
+    // how @, [, ], { and | are typed at all.
     theme: theme(),
   });
   const fitAddon: FitAddon = new FitAddon();
