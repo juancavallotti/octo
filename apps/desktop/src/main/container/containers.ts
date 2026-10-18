@@ -227,6 +227,8 @@ export async function list(cli: string, folder: string): Promise<Container[]> {
   const out = await execOk(cli, [
     "ps",
     "-a",
+    // Full ids, as `docker run -d` prints them: a short one would never match.
+    "--no-trunc",
     "--filter",
     `label=${VAULT_LABEL}=${folder}`,
     "--format",

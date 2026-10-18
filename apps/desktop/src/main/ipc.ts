@@ -18,7 +18,9 @@ import {
   type UpdateStatus,
 } from "./update";
 import { setEditorStatus } from "./editorStatus";
+import * as container from "./container/controller";
 import { refreshDocker } from "./container/status";
+import { containerWebContentsId, onContainerClosed } from "./containerWindow";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
 
@@ -46,6 +48,12 @@ function fromSettings(event: IpcMainInvokeEvent): boolean {
   return id !== null && event.sender.id === id;
 }
 
+/** Reject calls from anything but the Container window, identified as Settings is. */
+function fromContainer(event: IpcMainInvokeEvent): boolean {
+  const id = containerWebContentsId();
+  return id !== null && event.sender.id === id;
+}
+
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
 function guarded(channel: string, allow: (e: IpcMainInvokeEvent) => boolean, fn: Handler): void {
@@ -61,6 +69,10 @@ function handle(channel: string, fn: Handler): void {
 
 function handleSettings(channel: string, fn: Handler): void {
   guarded(channel, fromSettings, fn);
+}
+
+function handleContainer(channel: string, fn: Handler): void {
+  guarded(channel, fromContainer, fn);
 }
 
 /**
@@ -185,6 +197,22 @@ export function registerIpc(): void {
     publishPrefs();
     return settingsView();
   });
+  // The Container window's: they run docker, so only that window may ask. Every
+  // argument is checked again on the other side; nothing here is passed to docker raw.
+  handleContainer("octo:container:overview", () => container.overview());
+  handleContainer("octo:container:versions", () => container.versions());
+  handleContainer("octo:container:build", (_event, ref, tag) => container.build(ref, tag));
+  handleContainer("octo:container:export", (_event, tag) => container.exportContext(tag));
+  handleContainer("octo:container:run", (_event, ref) => container.run(ref));
+  handleContainer("octo:container:list", () => container.list());
+  handleContainer("octo:container:remove", (_event, id) => container.remove(id));
+  handleContainer("octo:container:open", (_event, id) => container.open(id));
+  handleContainer("octo:container:follow", (_event, id) => container.follow(id));
+  handleContainer("octo:container:unfollow", () => container.unfollow());
+  handleContainer("octo:container:push", (_event, ref, target) => container.push(ref, target));
+  handleContainer("octo:container:cancel", () => container.cancel());
+  onContainerClosed(container.windowClosed);
+
   handleSettings("octo:settings:checkUpdate", () => checkForUpdates(false));
   handleSettings("octo:settings:close", () => closeSettings());
 }

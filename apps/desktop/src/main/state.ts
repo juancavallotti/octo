@@ -37,6 +37,8 @@ export interface DesktopState {
   port?: number;
   window?: { x?: number; y?: number; width: number; height: number };
   settings?: DesktopSettings;
+  /** Where images were last pushed, most recent first. */
+  pushTargets?: string[];
 }
 
 /** How many folders to remember. Long enough to be useful, short enough to scan. */
@@ -71,6 +73,9 @@ export function read(dir: string): DesktopState {
       // `window` of the wrong shape throws at BrowserWindow construction.
       window: validWindow(state.window),
       settings: validSettings(state.settings),
+      pushTargets: Array.isArray(state.pushTargets)
+        ? state.pushTargets.filter((t): t is string => typeof t === "string" && t !== "")
+        : undefined,
     };
   } catch {
     return { ...EMPTY };

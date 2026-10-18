@@ -1,0 +1,117 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Containers</title>
+<!-- No remote anything: this page is served from file:// and talks only to the
+     main process over its preload bridge. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'" />
+<style>
+  :root { color-scheme: light dark; --line: #e7e5e4; --muted: #78716c; --bg: #fafaf9; --fg: #1c1917; --card: #fff; --code: #f5f5f4; }
+  @media (prefers-color-scheme: dark) {
+    :root { --line: #292524; --muted: #a8a29e; --bg: #1c1917; --fg: #f5f5f4; --card: #232020; --code: #141211; }
+  }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--fg);
+    padding: 22px 24px 24px; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  h1 { font-size: 15px; margin: 0; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .field { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .field label { width: 110px; flex: none; color: var(--muted); }
+  .field input, .field select {
+    flex: 1; min-width: 0; font: inherit; padding: 4px 8px; border-radius: 6px;
+    border: 1px solid var(--line); background: transparent; color: inherit;
+  }
+  .actions { display: flex; gap: 8px; padding-top: 8px; flex-wrap: wrap; }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+  .warn { color: #b45309; }
+  @media (prefers-color-scheme: dark) { .warn { color: #fbbf24; } }
+  .ok { color: #047857; }
+  @media (prefers-color-scheme: dark) { .ok { color: #34d399; } }
+  button {
+    font: inherit; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: transparent; color: inherit; cursor: pointer;
+  }
+  button.primary { background: #059669; border-color: #059669; color: #fff; }
+  button:hover:not(:disabled) { filter: brightness(1.05); background-color: rgba(120,113,108,.12); }
+  button.primary:hover:not(:disabled) { background: #047857; }
+  button:disabled { opacity: .45; cursor: default; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  tr:first-child td { border-top: 0; }
+  td.buttons { text-align: right; white-space: nowrap; }
+  td.buttons button + button { margin-left: 4px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .empty { color: var(--muted); }
+  .output-head { display: flex; align-items: center; gap: 8px; }
+  .output-head h2 { margin: 0; flex: 1; }
+  pre#output {
+    margin: 8px 0 0; padding: 10px 12px; background: var(--code); border: 1px solid var(--line);
+    border-radius: 8px; height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  }
+  section.flash .card { outline: 2px solid #059669; outline-offset: 2px; transition: outline-color .6s; }
+</style>
+
+<header>
+  <h1 id="title">Containers</h1>
+  <div id="docker" class="hint"></div>
+</header>
+
+<section id="build">
+  <h2>Image</h2>
+  <div class="card">
+    <div class="field">
+      <label for="version">Runtime</label>
+      <select id="version"></select>
+    </div>
+    <div class="field">
+      <label for="ref">Image name</label>
+      <input id="ref" class="mono" spellcheck="false" autocomplete="off" />
+    </div>
+    <p class="hint" id="versionHint"></p>
+    <div class="actions">
+      <button class="primary" id="buildRun" data-docker>Build &amp; Run</button>
+      <button id="buildOnly" data-docker>Build Image</button>
+      <button id="export">Export Dockerfile…</button>
+    </div>
+  </div>
+</section>
+
+<section id="push">
+  <h2>Push</h2>
+  <div class="card">
+    <div class="field">
+      <label for="target">Push to</label>
+      <input id="target" class="mono" list="targets" spellcheck="false" autocomplete="off"
+        placeholder="localhost:5000/octo/my-integration:dev" />
+      <datalist id="targets"></datalist>
+    </div>
+    <p class="hint">
+      Any registry docker can push to. Remote registries use the logins docker already
+      has — run <span class="mono">docker login &lt;registry&gt;</span> once.
+    </p>
+    <div class="actions">
+      <button id="pushBtn" data-docker>Build &amp; Push</button>
+    </div>
+  </div>
+</section>
+
+<section id="containers">
+  <h2>Running from this folder</h2>
+  <div class="card"><table id="list"></table></div>
+</section>
+
+<section>
+  <div class="output-head">
+    <h2>Output</h2>
+    <button id="cancel" disabled>Cancel</button>
+    <button id="clear">Clear</button>
+  </div>
+  <pre id="output"></pre>
+</section>
+
+<script src="container.js"></script>
