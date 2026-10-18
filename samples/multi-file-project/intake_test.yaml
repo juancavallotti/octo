@@ -1,0 +1,14 @@
+flow: intake
+
+# One flow, three files: the price uses an env variable from octo.yaml, and the
+# order is recorded by a flow in audit.yaml through a logger declared in
+# octo.yaml. The suite runs against the folder, so all of it is loaded.
+
+cases:
+  - name: prices the order and records it
+    input:
+      data: { id: 7, qty: 3, price: 5 }
+    expect:
+      body: { id: 7, total: 15, currency: "USD" }
+    spies:
+      audit.write-it: { count: 1 }
