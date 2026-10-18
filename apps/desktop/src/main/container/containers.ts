@@ -146,22 +146,20 @@ export async function run(
   folder: string,
   ref: string,
   replace: boolean,
+  opts: Pick<ExecOptions, "signal"> = {},
 ): Promise<Container> {
   requireRef(ref, "The image name");
   const name = containerName(folder);
-  const [existing = "", owner = ""] = (
-    await execOk(cli, [
-      "ps",
-      "-a",
-      "--no-trunc",
-      "--filter",
-      `name=^/${name}$`,
-      "--format",
-      `{{.ID}}\t{{.Label "${VAULT_LABEL}"}}`,
-    ])
-  )
-    .trim()
-    .split("\t");
+  const lookup = [
+    "ps",
+    "-a",
+    "--no-trunc",
+    "--filter",
+    `name=^/${name}$`,
+    "--format",
+    `{{.ID}}\t{{.Label "${VAULT_LABEL}"}}`,
+  ];
+  const [existing = "", owner = ""] = (await execOk(cli, lookup, opts)).trim().split("\t");
   if (existing) {
     // Two folders can share a name, and so a container name; only this folder's own
     // container is ours to replace.
@@ -169,7 +167,7 @@ export async function run(
       throw new Error(`A container named ${name} belongs to something else; remove it first`);
     }
     if (!replace) throw new ContainerExists(name);
-    await execOk(cli, ["rm", "-f", existing]);
+    await execOk(cli, ["rm", "-f", existing], opts);
   }
 
   const httpPort = await freePort(18080, new Set());
@@ -183,7 +181,7 @@ export async function run(
     adminPort,
     ...(existsSync(envFile) ? { envFile } : {}),
   };
-  const id = (await execOk(cli, runArgs(plan))).trim();
+  const id = (await execOk(cli, runArgs(plan), opts)).trim();
   return { id, name, image: ref, state: "running", status: "Started", httpPort, adminPort };
 }
 

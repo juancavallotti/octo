@@ -126,21 +126,31 @@ export interface ExecOptions {
 }
 
 /**
+ * How much of a streamed command's output is kept for its result. A streamed command
+ * has already handed every line to its caller, and `docker logs -f` streams for as
+ * long as the window follows it; its result only needs the tail, for the error.
+ */
+const STREAMED_TAIL = 64 * 1024;
+
+/**
  * Run docker with an argument vector. Never a shell string: image references, paths
  * and tags all come from user input, and none of them may be read as syntax.
  */
 export function exec(file: string, args: string[], opts: ExecOptions = {}): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { env: dockerEnv(), signal: opts.signal });
-    let stdout = "";
-    let stderr = "";
+    const kept = { out: "", err: "" };
+    const flushes: Array<() => void> = [];
     const lines = (stream: "out" | "err") => {
       let partial = "";
+      flushes.push(() => {
+        if (partial) opts.onLine?.(partial);
+      });
       return (chunk: Buffer) => {
         const text = chunk.toString("utf8");
-        if (stream === "out") stdout += text;
-        else stderr += text;
+        kept[stream] += text;
         if (!opts.onLine) return;
+        if (kept[stream].length > STREAMED_TAIL) kept[stream] = kept[stream].slice(-STREAMED_TAIL);
         const parts = (partial + text).split(/\r?\n|\r/);
         partial = parts.pop() ?? "";
         for (const line of parts) opts.onLine(line);
@@ -149,7 +159,11 @@ export function exec(file: string, args: string[], opts: ExecOptions = {}): Prom
     child.stdout.on("data", lines("out"));
     child.stderr.on("data", lines("err"));
     child.once("error", reject);
-    child.once("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    child.once("close", (code) => {
+      // A last line with no newline after it is still a line.
+      for (const flush of flushes) flush();
+      resolve({ code: code ?? 1, stdout: kept.out, stderr: kept.err });
+    });
   });
 }
 

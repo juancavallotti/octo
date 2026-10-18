@@ -145,9 +145,9 @@ export async function run(ref: unknown) {
   if (!ops.validRef(ref)) throw new Error("The image name is not an image reference");
   const file = cli();
   const dir = folder();
-  return exclusive(`Running ${ref}`, async () => {
+  return exclusive(`Running ${ref}`, async (signal) => {
     try {
-      return await ops.run(file, dir, ref, false);
+      return await ops.run(file, dir, ref, false, { signal });
     } catch (err) {
       if (!(err instanceof ops.ContainerExists)) throw err;
       const parent = containerDialog();
@@ -163,7 +163,7 @@ export async function run(ref: unknown) {
         ? await dialog.showMessageBox(parent, options)
         : await dialog.showMessageBox(options);
       if (response !== 1) throw new Error("Not replaced");
-      return ops.run(file, dir, ref, true);
+      return ops.run(file, dir, ref, true, { signal });
     }
   });
 }
