@@ -84,4 +84,13 @@ describe("FileSwitcher", () => {
     await user.click(screen.getByRole("button", { name: "Remove sales.yaml" }));
     expect(paths()).toBe("octo.yaml");
   });
+
+  it("removes a file that is not open, and keeps the open one", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    expect(screen.queryByRole("button", { name: "Rename octo.yaml" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Remove octo.yaml" }));
+    expect(paths()).toBe("orders.yaml");
+    expect(active()).toBe("orders.yaml");
+  });
 });

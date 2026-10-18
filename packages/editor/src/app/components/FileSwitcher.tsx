@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileText, Pencil, Plus, X } from "lucide-react";
+import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import { isConfigFileName } from "../model/project";
 import { BAR_BUTTON, BAR_COUNT } from "./barButton";
@@ -9,7 +9,7 @@ import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 /**
  * The project's config files, in the document bar. The button names the open file;
  * its popover lists every file — picking one opens it, keeping any unsaved edits in
- * the one left — and offers to add a file, and to rename or remove the open one.
+ * the one left — and offers to add a file, to rename the open one, and to remove any.
  * Nothing touches the store until Save, which writes the files as a set.
  */
 export default function FileSwitcher() {
@@ -88,8 +88,8 @@ export default function FileSwitcher() {
                     <FileText size={15} className="shrink-0 text-zinc-500" />
                     <span className="truncate">{path}</span>
                   </button>
-                  {active && (
-                    <span className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+                  <span className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+                    {active && (
                       <button
                         type="button"
                         aria-label={`Rename ${path}`}
@@ -98,21 +98,24 @@ export default function FileSwitcher() {
                       >
                         <Pencil size={13} />
                       </button>
-                      {paths.length > 1 && (
-                        <button
-                          type="button"
-                          aria-label={`Remove ${path}`}
-                          onClick={() => {
-                            dispatch({ type: EditorActionType.DELETE_FILE, data: { path } });
-                            close();
-                          }}
-                          className="rounded-full p-1 text-zinc-400 hover:text-red-500"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </span>
-                  )}
+                    )}
+                    {/* The last file stays: a project of no files is not one. */}
+                    {paths.length > 1 && (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${path}`}
+                        // Removing another file leaves the open one open, and the menu
+                        // with it, so several can go in one visit.
+                        onClick={() => {
+                          dispatch({ type: EditorActionType.DELETE_FILE, data: { path } });
+                          if (active) close();
+                        }}
+                        className="rounded-full p-1 text-zinc-400 hover:text-red-500"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </span>
                 </li>
               );
             })}
