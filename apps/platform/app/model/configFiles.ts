@@ -21,15 +21,31 @@ export async function replaceConfigFiles(
   unwrap(await integrationActions.replaceConfigFiles(id, files));
 }
 
+/**
+ * Create the integration "`name`" holding `files`. Creating it and writing its files are
+ * two calls, so a set the orchestrator refuses deletes the integration again rather than
+ * leaving an empty one behind.
+ */
+export async function createIntegrationWithFiles(
+  name: string,
+  files: { path: string; content: string }[],
+): Promise<Integration> {
+  const created = unwrap(await integrationActions.createIntegration({ name, definition: "" }));
+  if (files.length === 0) return created;
+  try {
+    await replaceConfigFiles(created.id, files);
+  } catch (err) {
+    await integrationActions.deleteIntegration(created.id);
+    throw err;
+  }
+  return created;
+}
+
 /** Create "`name`" holding a copy of every config file of the integration `sourceId`. */
 export async function duplicateIntegration(sourceId: string, name: string): Promise<Integration> {
   const files = await getConfigFiles(sourceId);
-  const created = unwrap(await integrationActions.createIntegration({ name, definition: "" }));
-  if (files.length > 0) {
-    await replaceConfigFiles(
-      created.id,
-      files.map(({ path, content }) => ({ path, content })),
-    );
-  }
-  return created;
+  return createIntegrationWithFiles(
+    name,
+    files.map(({ path, content }) => ({ path, content })),
+  );
 }

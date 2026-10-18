@@ -61,7 +61,12 @@ export const orchestratorIntegrationStore: IntegrationStore = {
   get: record,
   create: async (name, files) => {
     const created = unwrap(await client.createIntegration({ name, definition: "" }));
-    unwrap(await client.replaceConfigFiles(created.id, files));
+    const written = await client.replaceConfigFiles(created.id, files);
+    // Two calls, so a set the orchestrator refuses must not leave an empty integration.
+    if (!written.ok) {
+      await client.deleteIntegration(created.id);
+      throw new Error(written.error);
+    }
     return announce(await record(created.id));
   },
   update: async (id, name, files) => {

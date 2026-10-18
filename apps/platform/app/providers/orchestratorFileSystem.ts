@@ -7,7 +7,7 @@
 
 import {
   assignIntegration,
-  createIntegration,
+  createIntegrationWithFiles,
   findIntegrationFolderId,
   getConfigFiles,
   getIntegration,
@@ -46,8 +46,7 @@ export const orchestratorFileSystem: FileSystemCapability = {
       const updated = await updateIntegration(id, { name });
       return { ...updated, files, folderId: folderId ?? null };
     }
-    const created = await createIntegration({ name, definition: "" });
-    await replaceConfigFiles(created.id, files);
+    const created = await createIntegrationWithFiles(name, files);
     if (folderId) await assignIntegration(folderId, created.id);
     return { ...created, files, folderId: folderId ?? null };
   },
