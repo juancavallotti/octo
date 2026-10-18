@@ -59,6 +59,35 @@ func (r *Repo) PutConfigFile(ctx context.Context, integrationID, path, content, 
 	return ret, nil
 }
 
+// ReplaceConfigFiles makes files the integration's whole set of config files in
+// one transaction, deleting every config file not among them, and stamps the
+// integration as edited by actorID. Returns ErrNotFound for an unknown integration.
+func (r *Repo) ReplaceConfigFiles(ctx context.Context, integrationID string, files []projectfile.File, actorID string) error {
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = f.Path
+	}
+	_, err := inTx(ctx, r.pool, func(tx pgx.Tx) (struct{}, error) {
+		if err := touch(ctx, tx, integrationID, actorID); err != nil {
+			return struct{}{}, err
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM integration_files
+			  WHERE integration_id = $1 AND role = $2 AND NOT (path = ANY($3))`,
+			integrationID, configRole, paths,
+		); err != nil {
+			return struct{}{}, err
+		}
+		for _, f := range files {
+			if _, err := upsertConfigFile(ctx, tx, integrationID, f.Path, f.Content, actorID); err != nil {
+				return struct{}{}, err
+			}
+		}
+		return struct{}{}, nil
+	})
+	return wrapFileErr("replace config files", err)
+}
+
 // DeleteConfigFile removes one config file and stamps the integration as edited
 // by actorID. Returns ErrNotFound for an unknown integration and ErrFileNotFound
 // when it has no config file at path.

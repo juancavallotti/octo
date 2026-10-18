@@ -50,12 +50,12 @@ func (m *memRepo) List(_ context.Context) ([]Integration, error) {
 	return out, nil
 }
 
-func (m *memRepo) Update(_ context.Context, id, name, definition, actorID string) (Integration, error) {
+func (m *memRepo) Update(_ context.Context, id, name, actorID string) (Integration, error) {
 	prev, ok := m.items[id]
 	if !ok {
 		return Integration{}, ErrNotFound
 	}
-	it := Integration{ID: id, Name: name, Definition: definition, CreatedBy: prev.CreatedBy}
+	it := Integration{ID: id, Name: name, Definition: prev.Definition, CreatedBy: prev.CreatedBy}
 	if actorID != "" {
 		it.UpdatedBy = &actorID
 	}
@@ -207,17 +207,24 @@ func TestHandlerUpdate(t *testing.T) {
 	mux, repo := newTestHandler(t)
 	seeded, _ := repo.Create(context.Background(), "before", "body", "")
 
-	rec := do(t, mux, http.MethodPut, "/integrations/"+seeded.ID, `{"name":"after","definition":"body2"}`)
+	rec := do(t, mux, http.MethodPut, "/integrations/"+seeded.ID, `{"name":"after"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body)
 	}
 	var got integrationResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
-	if got.Name != "after" || got.Definition != "body2" {
+	if got.Name != "after" || got.Definition != "body" {
 		t.Errorf("unexpected response: %+v", got)
 	}
 
-	missing := do(t, mux, http.MethodPut, "/integrations/nope", `{"name":"x","definition":"y"}`)
+	// Config content goes through the file routes, so a definition here is an
+	// unknown field rather than a silently dropped one.
+	withDefinition := do(t, mux, http.MethodPut, "/integrations/"+seeded.ID, `{"name":"after","definition":"x"}`)
+	if withDefinition.Code != http.StatusBadRequest {
+		t.Errorf("update with a definition: status = %d, want 400", withDefinition.Code)
+	}
+
+	missing := do(t, mux, http.MethodPut, "/integrations/nope", `{"name":"x"}`)
 	if missing.Code != http.StatusNotFound {
 		t.Errorf("missing status = %d, want 404", missing.Code)
 	}

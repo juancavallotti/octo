@@ -6,8 +6,7 @@ import (
 )
 
 // The icon is a choice, so the thing worth proving is that it survives the
-// writes that know nothing about it — an editor save, a bundle replace and the
-// agent's republish all go through Update with a whole integration.
+// writes that know nothing about it, such as a rename.
 func TestIconSurvivesAnOrdinaryUpdate(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -25,7 +24,7 @@ func TestIconSurvivesAnOrdinaryUpdate(t *testing.T) {
 		t.Fatalf("icon = %q, want Slack", withIcon.Icon)
 	}
 
-	updated, err := r.Update(ctx, created.ID, "icon-survives-update", "flows:\n  - name: changed\n", "")
+	updated, err := r.Update(ctx, created.ID, "icon-survives-update-renamed", "")
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/llm"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/sitesettings"
@@ -77,11 +78,23 @@ func (f *fakeIntegrations) List(context.Context) ([]integration.Integration, err
 	return out, nil
 }
 
-func (f *fakeIntegrations) Update(_ context.Context, id, name, definition, _ string) (integration.Integration, error) {
-	f.updates++
-	it := integration.Integration{ID: id, Name: name, Definition: definition}
+func (f *fakeIntegrations) Update(_ context.Context, id, name, _ string) (integration.Integration, error) {
+	it := f.items[id]
+	it.ID, it.Name = id, name
 	f.items[id] = it
 	return it, nil
+}
+
+func (f *fakeIntegrations) ReplaceFiles(_ context.Context, id string, files []projectfile.File, _ string) error {
+	f.updates++
+	definition, err := projectfile.Merge(files)
+	if err != nil {
+		return err
+	}
+	it := f.items[id]
+	it.Definition = definition
+	f.items[id] = it
+	return nil
 }
 
 func (f *fakeIntegrations) Delete(_ context.Context, id string) error {

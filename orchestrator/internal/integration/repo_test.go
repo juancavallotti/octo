@@ -93,12 +93,12 @@ func TestRepoUpdate(t *testing.T) {
 
 	created := createIntegration(t, r, "before", "old-body")
 
-	updated, err := r.Update(ctx, created.ID, "after", "new-body", "")
+	updated, err := r.Update(ctx, created.ID, "after", "")
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if updated.Name != "after" || updated.Definition != "new-body" {
-		t.Errorf("got %+v, want updated name/definition", updated)
+	if updated.Name != "after" || updated.Definition != "old-body" {
+		t.Errorf("got %+v, want the new name and the definition untouched", updated)
 	}
 	if !updated.LastUpdated.After(created.LastUpdated) {
 		t.Errorf("expected last_updated to advance: created=%v updated=%v",
@@ -127,7 +127,7 @@ func TestRepoNotFound(t *testing.T) {
 	if _, err := r.Get(ctx, nonexistentID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("get: got %v, want ErrNotFound", err)
 	}
-	if _, err := r.Update(ctx, nonexistentID, "x", "y", ""); !errors.Is(err, ErrNotFound) {
+	if _, err := r.Update(ctx, nonexistentID, "x", ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("update: got %v, want ErrNotFound", err)
 	}
 	if err := r.Delete(ctx, nonexistentID); !errors.Is(err, ErrNotFound) {

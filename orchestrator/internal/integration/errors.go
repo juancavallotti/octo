@@ -18,9 +18,3 @@ var (
 	// identity, or a file that is not a YAML mapping.
 	ErrFilesConflict = errors.New("config files conflict")
 )
-
-// ErrAmbiguousDefinition is returned when a whole-definition write lands on an
-// integration that has more than one config file. The caller has no way to say
-// which file it means, and guessing would collapse the project into one file,
-// so the write is refused. Only a bundle import can produce that state today.
-var ErrAmbiguousDefinition = errors.New("integration has several config files, so a whole-definition write is ambiguous")

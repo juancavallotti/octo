@@ -60,6 +60,32 @@ func (s *Service) PutFile(ctx context.Context, integrationID, path, content, act
 	return written, nil
 }
 
+// ReplaceFiles makes files the integration's whole set of config files, in one
+// write: each is created or overwritten, and every config file not among them is
+// deleted. It exists for callers that carry a whole project, where writing the
+// files one at a time would pass through states that do not merge — a flow moving
+// from one file to another is briefly in both.
+func (s *Service) ReplaceFiles(ctx context.Context, integrationID string, files []projectfile.File, actorID string) error {
+	seen := make(map[string]struct{}, len(files))
+	for _, f := range files {
+		if err := validatePath(f.Path); err != nil {
+			return err
+		}
+		if _, dup := seen[f.Path]; dup {
+			return fmt.Errorf("%w: %q is given more than once", ErrInvalid, f.Path)
+		}
+		seen[f.Path] = struct{}{}
+	}
+	if err := ensureMerges(files); err != nil {
+		return err
+	}
+	if err := s.repo.ReplaceConfigFiles(ctx, integrationID, files, actorID); err != nil {
+		return err
+	}
+	s.notifyChanged(ctx, integrationID)
+	return nil
+}
+
 // DeleteFile removes one config file. Removing a file can only remove merge
 // conflicts, never add one, so it needs no merge check.
 func (s *Service) DeleteFile(ctx context.Context, integrationID, path, actorID string) error {

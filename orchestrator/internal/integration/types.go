@@ -19,7 +19,9 @@ type Integration struct {
 	Name string
 	// Icon is a deliberately chosen icon name, or "" to leave it derived from the
 	// definition. Stored because it is a choice rather than something inferred.
-	Icon        string
+	Icon string
+	// Definition is the integration's config files merged into one config. It is
+	// read-only here: the files are written one at a time.
 	Definition  string
 	LastUpdated time.Time
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
@@ -18,13 +19,14 @@ import (
 // import path depends on.
 type fakeIntegrations struct {
 	items  map[string]integration.Integration
+	files  map[string][]projectfile.File // integration id -> config files
 	nextID int
 	// failCreate makes the next Create fail, for the rollback test.
 	failCreate error
 }
 
 func newFakeIntegrations() *fakeIntegrations {
-	return &fakeIntegrations{items: map[string]integration.Integration{}}
+	return &fakeIntegrations{items: map[string]integration.Integration{}, files: map[string][]projectfile.File{}}
 }
 
 func (f *fakeIntegrations) Get(_ context.Context, id string) (integration.Integration, error) {
@@ -47,17 +49,36 @@ func (f *fakeIntegrations) Create(_ context.Context, name, definition, _ string)
 	f.nextID++
 	it := integration.Integration{ID: fmt.Sprintf("i%d", f.nextID), Name: name, Definition: definition}
 	f.items[it.ID] = it
+	if definition != "" {
+		f.files[it.ID] = []projectfile.File{{Path: integration.DefaultConfigPath, Content: definition}}
+	}
 	return it, nil
 }
 
-func (f *fakeIntegrations) Update(_ context.Context, id, name, definition, _ string) (integration.Integration, error) {
+func (f *fakeIntegrations) ListFiles(_ context.Context, id string) ([]integration.ConfigFile, error) {
+	if _, ok := f.items[id]; !ok {
+		return nil, integration.ErrNotFound
+	}
+	ret := make([]integration.ConfigFile, 0, len(f.files[id]))
+	for _, file := range f.files[id] {
+		ret = append(ret, integration.ConfigFile{Path: file.Path, Content: file.Content})
+	}
+	return ret, nil
+}
+
+func (f *fakeIntegrations) ReplaceFiles(_ context.Context, id string, files []projectfile.File, _ string) error {
 	it, ok := f.items[id]
 	if !ok {
-		return integration.Integration{}, integration.ErrNotFound
+		return integration.ErrNotFound
 	}
-	it.Name, it.Definition = name, definition
+	definition, err := projectfile.Merge(files)
+	if err != nil {
+		return err
+	}
+	f.files[id] = append([]projectfile.File(nil), files...)
+	it.Definition = definition
 	f.items[id] = it
-	return it, nil
+	return nil
 }
 
 func (f *fakeIntegrations) Delete(_ context.Context, id string) error {

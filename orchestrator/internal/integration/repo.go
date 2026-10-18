@@ -11,11 +11,9 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
-// defaultConfigPath is where a new integration's definition is written. It
-// matches the name the bundle format gives the definition at the root of an
-// archive, so exporting and unzipping a fresh integration produces the file it
-// already had.
-const defaultConfigPath = "integration.yaml"
+// DefaultConfigPath is the config file Create writes a new integration's
+// definition to.
+const DefaultConfigPath = "integration.yaml"
 
 // configFiles aggregates an integration's config files into two parallel arrays,
 // ordered by path so the two line up and so the merge sees files in the same
@@ -79,7 +77,7 @@ func (r *Repo) Create(ctx context.Context, name, definition, actorID string) (In
 			return Integration{}, scanErr
 		}
 		if definition != "" {
-			if _, err := upsertConfigFile(ctx, tx, created.ID, defaultConfigPath, definition, actorID); err != nil {
+			if _, err := upsertConfigFile(ctx, tx, created.ID, DefaultConfigPath, definition, actorID); err != nil {
 				return Integration{}, err
 			}
 		}
@@ -144,41 +142,22 @@ func (r *Repo) List(ctx context.Context) ([]Integration, error) {
 	return items, nil
 }
 
-// Update modifies name and definition, stamps last_updated and updated_by, and
-// returns the updated row (actor resolved for display). created_by is left
-// untouched. actorID is the editing user's id, or "" when unknown. Returns
-// ErrNotFound if id does not exist.
-//
-// The definition is written to the integration's config file. A project with
-// several config files has no single file this definition belongs to, so it is
-// refused rather than guessed at — see ErrAmbiguousDefinition.
-func (r *Repo) Update(ctx context.Context, id, name, definition, actorID string) (Integration, error) {
-	it, err := inTx(ctx, r.pool, func(tx pgx.Tx) (Integration, error) {
-		row := tx.QueryRow(ctx,
-			`WITH i AS (
-				UPDATE integrations
-				SET name = $2, last_updated = now(), updated_by = NULLIF($3, '')::uuid
-				WHERE id = $1
-				RETURNING `+writeReturning+`
-			)
-			SELECT `+selectColumns+` FROM i `+userJoins,
-			id, name, actorID,
+// Update renames an integration, stamps last_updated and updated_by, and returns
+// the updated row (actor resolved for display). created_by is left untouched.
+// actorID is the editing user's id, or "" when unknown. Returns ErrNotFound if id
+// does not exist. Config content is written through the config file methods.
+func (r *Repo) Update(ctx context.Context, id, name, actorID string) (Integration, error) {
+	row := r.pool.QueryRow(ctx,
+		`WITH i AS (
+			UPDATE integrations
+			SET name = $2, last_updated = now(), updated_by = NULLIF($3, '')::uuid
+			WHERE id = $1
+			RETURNING `+writeReturning+`
 		)
-		updated, scanErr := scanIntegration(row)
-		if scanErr != nil {
-			return Integration{}, scanErr
-		}
-
-		path, pathErr := configPathFor(ctx, tx, id)
-		if pathErr != nil {
-			return Integration{}, pathErr
-		}
-		if _, err := upsertConfigFile(ctx, tx, id, path, definition, actorID); err != nil {
-			return Integration{}, err
-		}
-		updated.Definition = definition
-		return updated, nil
-	})
+		SELECT `+selectColumns+` FROM i `+userJoins,
+		id, name, actorID,
+	)
+	it, err := scanIntegration(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Integration{}, ErrNotFound
@@ -223,37 +202,6 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-// configPathFor picks the file an integration's definition is written to: the
-// one config file it has, or the default name when it has none yet.
-//
-// Several config files means the caller handed us a whole definition with no way
-// to say which file it replaces, and collapsing the project to answer that would
-// destroy the others. It is refused instead.
-func configPathFor(ctx context.Context, tx pgx.Tx, integrationID string) (string, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT path FROM integration_files
-		  WHERE integration_id = $1 AND role = $2
-		  ORDER BY path`,
-		integrationID, string(projectfile.RoleConfig),
-	)
-	if err != nil {
-		return "", err
-	}
-	paths, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return "", err
-	}
-
-	switch len(paths) {
-	case 0:
-		return defaultConfigPath, nil
-	case 1:
-		return paths[0], nil
-	default:
-		return "", fmt.Errorf("%w: %v", ErrAmbiguousDefinition, paths)
-	}
 }
 
 // scanIntegration reads one row in selectColumns order, folding the config files

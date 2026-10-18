@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 func (m *memRepo) ConfigFiles(_ context.Context, integrationID string) ([]ConfigFile, error) {
@@ -33,6 +35,17 @@ func (m *memRepo) PutConfigFile(_ context.Context, integrationID, path, content,
 	f := ConfigFile{Path: path, Content: content}
 	m.files[integrationID][path] = f
 	return f, nil
+}
+
+func (m *memRepo) ReplaceConfigFiles(_ context.Context, integrationID string, files []projectfile.File, _ string) error {
+	if _, ok := m.items[integrationID]; !ok {
+		return ErrNotFound
+	}
+	m.files[integrationID] = map[string]ConfigFile{}
+	for _, f := range files {
+		m.files[integrationID][f.Path] = ConfigFile{Path: f.Path, Content: f.Content}
+	}
+	return nil
 }
 
 func (m *memRepo) DeleteConfigFile(_ context.Context, integrationID, path, _ string) error {
@@ -187,6 +200,54 @@ func TestHandlerFileErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if rec := do(t, mux, tt.method, tt.target, tt.body); rec.Code != tt.want {
 				t.Errorf("status = %d, want %d; body=%s", rec.Code, tt.want, rec.Body)
+			}
+		})
+	}
+}
+
+// Replacing the whole project at once lets a flow move between files, which a
+// file-by-file write could only do by passing through a duplicate.
+func TestReplaceFilesMovesAFlowBetweenFiles(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+	seeded, _ := repo.Create(ctx, "move", "", "")
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "")
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "stale.yaml", "flows: []\n", "")
+
+	err := svc.ReplaceFiles(ctx, seeded.ID, []projectfile.File{
+		{Path: "a.yaml", Content: "flows: []\n"},
+		{Path: "b.yaml", Content: "flows:\n  - name: intake\n"},
+	}, "")
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	files, _ := repo.ConfigFiles(ctx, seeded.ID)
+	if len(files) != 2 || files[0].Path != "a.yaml" || files[1].Path != "b.yaml" {
+		t.Errorf("files = %+v, want a.yaml and b.yaml only", files)
+	}
+}
+
+func TestReplaceFilesRefusals(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []projectfile.File
+		want  error
+	}{
+		{name: "not config", files: []projectfile.File{{Path: "templates/a.yaml"}}, want: ErrInvalid},
+		{name: "path twice", files: []projectfile.File{{Path: "a.yaml"}, {Path: "a.yaml"}}, want: ErrInvalid},
+		{name: "conflict", files: []projectfile.File{
+			{Path: "a.yaml", Content: "flows:\n  - name: intake\n"},
+			{Path: "b.yaml", Content: "flows:\n  - name: intake\n"},
+		}, want: ErrFilesConflict},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newMemRepo()
+			seeded, _ := repo.Create(context.Background(), "refusals", "", "")
+			err := NewService(repo).ReplaceFiles(context.Background(), seeded.ID, tt.files, "")
+			if !errors.Is(err, tt.want) {
+				t.Errorf("err = %v, want %v", err, tt.want)
 			}
 		})
 	}

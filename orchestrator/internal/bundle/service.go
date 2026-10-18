@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
@@ -28,12 +29,13 @@ const (
 )
 
 // integrationService is the slice of the integration module this service needs:
-// read one, create one, replace one. Declared here, in the consumer;
-// *integration.Service satisfies it.
+// read one, create one, replace its config files, delete one. Declared here, in
+// the consumer; *integration.Service satisfies it.
 type integrationService interface {
 	Get(ctx context.Context, id string) (integration.Integration, error)
 	Create(ctx context.Context, name, definition, actorID string) (integration.Integration, error)
-	Update(ctx context.Context, id, name, definition, actorID string) (integration.Integration, error)
+	ListFiles(ctx context.Context, integrationID string) ([]integration.ConfigFile, error)
+	ReplaceFiles(ctx context.Context, integrationID string, files []projectfile.File, actorID string) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -148,7 +150,7 @@ func (s *Service) Import(ctx context.Context, data []byte, fallback, actorID str
 	return created, nil
 }
 
-// Replace overwrites an existing integration's definition and resource set from
+// Replace overwrites an existing integration's config files and resource set from
 // an archive, keeping its identity: its id, its name, its folder, its version tags
 // and its deployments all stay as they are. The bundle's own name is ignored —
 // replacing an integration's contents is not a rename.
@@ -168,49 +170,62 @@ func (s *Service) Replace(ctx context.Context, integrationID string, data []byte
 	lock.Lock()
 	defer lock.Unlock()
 
-	it, err := s.integrations.Get(ctx, integrationID)
-	if err != nil {
-		return integration.Integration{}, err
-	}
 	// What is there now, read before anything is written, so a failure part-way
-	// through can be put back. The definition and the resources are stored by two
+	// through can be put back. The config files and the resources are stored by two
 	// different modules and there is no transaction spanning them, so this is the
 	// only thing standing between a failed replace and a working copy that is
 	// half the bundle and half what it replaced.
+	previousConfigs, err := s.configFiles(ctx, integrationID)
+	if err != nil {
+		return integration.Integration{}, err
+	}
 	previous, err := s.Export(ctx, integrationID)
 	if err != nil {
 		return integration.Integration{}, err
 	}
 
-	updated, err := s.integrations.Update(ctx, integrationID, it.Name, b.Definition, actorID)
-	if err != nil {
+	configs := []projectfile.File{{Path: integration.DefaultConfigPath, Content: b.Definition}}
+	if err := s.integrations.ReplaceFiles(ctx, integrationID, configs, actorID); err != nil {
 		return integration.Integration{}, err
 	}
 	if err := s.reconcileResources(ctx, integrationID, b.Resources, actorID); err != nil {
-		s.restore(ctx, integrationID, previous, actorID)
+		s.restore(ctx, integrationID, previousConfigs, previous.Resources, actorID)
 		return integration.Integration{}, err
 	}
-	return updated, nil
+	return s.integrations.Get(ctx, integrationID)
 }
 
-// restore puts an integration back to a bundle read from it before a replace
-// began. Best-effort and incapable of failing the caller — the replace's own
-// error is the one worth reporting — so a failed restore is logged loudly and
-// leaves a working copy the user can fix by replacing again.
+// configFiles reads an integration's config files in the shape ReplaceFiles takes.
+func (s *Service) configFiles(ctx context.Context, integrationID string) ([]projectfile.File, error) {
+	stored, err := s.integrations.ListFiles(ctx, integrationID)
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]projectfile.File, len(stored))
+	for i, f := range stored {
+		ret[i] = projectfile.File{Path: f.Path, Content: f.Content}
+	}
+	return ret, nil
+}
+
+// restore puts an integration back to the config files and resources read from it
+// before a replace began. Best-effort and incapable of failing the caller — the
+// replace's own error is the one worth reporting — so a failed restore is logged
+// loudly and leaves a working copy the user can fix by replacing again.
 //
 // The restore writes are attributed to whoever attempted the replace, so a file the
 // failed replace had already deleted comes back with a new createdBy. Carrying the
 // original through would mean user ids in Bundle, which is a portable archive whose
 // ids name nobody on another installation.
-func (s *Service) restore(ctx context.Context, integrationID string, previous Bundle, actorID string) {
+func (s *Service) restore(ctx context.Context, integrationID string, configs []projectfile.File, resources []File, actorID string) {
 	ctx, cancel := rollbackContext(ctx)
 	defer cancel()
 
-	if _, err := s.integrations.Update(ctx, integrationID, previous.Name, previous.Definition, actorID); err != nil {
-		slog.Error("rolling back a failed bundle replace: definition",
+	if err := s.integrations.ReplaceFiles(ctx, integrationID, configs, actorID); err != nil {
+		slog.Error("rolling back a failed bundle replace: config files",
 			"integrationId", integrationID, "error", err)
 	}
-	if err := s.reconcileResources(ctx, integrationID, previous.Resources, actorID); err != nil {
+	if err := s.reconcileResources(ctx, integrationID, resources, actorID); err != nil {
 		slog.Error("rolling back a failed bundle replace: resources",
 			"integrationId", integrationID, "error", err)
 	}

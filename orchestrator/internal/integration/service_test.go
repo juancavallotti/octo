@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // fakeRepo is an in-memory repository stand-in. It records whether it was
@@ -35,7 +37,7 @@ func (f *fakeRepo) Create(_ context.Context, name, _, actorID string) (Integrati
 	return f.ret, f.retErr
 }
 
-func (f *fakeRepo) Update(_ context.Context, _, name, _, actorID string) (Integration, error) {
+func (f *fakeRepo) Update(_ context.Context, _, name, actorID string) (Integration, error) {
 	f.called = true
 	f.gotName = name
 	f.gotActor = actorID
@@ -69,6 +71,11 @@ func (f *fakeRepo) ConfigFiles(_ context.Context, _ string) ([]ConfigFile, error
 func (f *fakeRepo) PutConfigFile(_ context.Context, _, path, content, _ string) (ConfigFile, error) {
 	f.called = true
 	return ConfigFile{Path: path, Content: content}, f.retErr
+}
+
+func (f *fakeRepo) ReplaceConfigFiles(_ context.Context, _ string, _ []projectfile.File, _ string) error {
+	f.called = true
+	return f.retErr
 }
 
 func (f *fakeRepo) DeleteConfigFile(_ context.Context, _, _, _ string) error {
@@ -129,14 +136,14 @@ func TestServiceUpdateValidationAndTrim(t *testing.T) {
 	repo := &fakeRepo{ret: Integration{ID: "id-1"}}
 	svc := NewService(repo)
 
-	if _, err := svc.Update(context.Background(), "id-1", "  ", "body", ""); !errors.Is(err, ErrInvalid) {
+	if _, err := svc.Update(context.Background(), "id-1", "  ", ""); !errors.Is(err, ErrInvalid) {
 		t.Errorf("empty name: got %v, want ErrInvalid", err)
 	}
 	if repo.called {
 		t.Error("repo should not be called on invalid update")
 	}
 
-	if _, err := svc.Update(context.Background(), "id-1", "  renamed  ", "body", "user-3"); err != nil {
+	if _, err := svc.Update(context.Background(), "id-1", "  renamed  ", "user-3"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if repo.gotName != "renamed" {
@@ -169,7 +176,7 @@ func TestServiceRejectsDuplicateName(t *testing.T) {
 	// Update: the check excludes the row being renamed.
 	repo = &fakeRepo{nameTaken: true}
 	svc = NewService(repo)
-	if _, err := svc.Update(ctx, "id-1", "Payments", "body", ""); !errors.Is(err, ErrNameTaken) {
+	if _, err := svc.Update(ctx, "id-1", "Payments", ""); !errors.Is(err, ErrNameTaken) {
 		t.Errorf("update duplicate: got %v, want ErrNameTaken", err)
 	}
 	if repo.gotExclude != "id-1" {
@@ -201,49 +208,49 @@ func (f *fakeNotifier) NotifyIntegrationChanged(_ context.Context, id string) er
 	return f.err
 }
 
-// TestUpdateNotifies: the reload trigger lives at the write, so every writer is
+// TestFileWriteNotifies: the reload trigger lives at the write, so every writer is
 // covered — the editor's save, the integrations list, MCP, an API-key client.
-func TestUpdateNotifies(t *testing.T) {
+func TestFileWriteNotifies(t *testing.T) {
 	notifier := &fakeNotifier{}
 	svc := NewService(&fakeRepo{ret: Integration{ID: "int-1"}}, WithReloadNotifier(notifier))
 
-	if _, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1"); err != nil {
-		t.Fatalf("Update: %v", err)
+	if _, err := svc.PutFile(context.Background(), "int-1", "orders.yaml", "flows: []\n", "u1"); err != nil {
+		t.Fatalf("PutFile: %v", err)
 	}
 	if len(notifier.got) != 1 || notifier.got[0] != "int-1" {
 		t.Fatalf("notified %v, want [int-1]", notifier.got)
 	}
 }
 
-// TestUpdateNotifyFailureDoesNotFailTheWrite is the contract, and it is the whole
+// TestFileWriteNotifyFailureDoesNotFailTheWrite is the contract, and it is the whole
 // reason the notification is best-effort: a save reported as failed because a pod was
 // unreachable is data loss, where a save that succeeded with a reload that did not is
 // a stale running app the status surface already reports.
-func TestUpdateNotifyFailureDoesNotFailTheWrite(t *testing.T) {
+func TestFileWriteNotifyFailureDoesNotFailTheWrite(t *testing.T) {
 	notifier := &fakeNotifier{err: errors.New("sidecar unreachable")}
 	repo := &fakeRepo{ret: Integration{ID: "int-1"}}
 	svc := NewService(repo, WithReloadNotifier(notifier))
 
-	got, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1")
+	got, err := svc.PutFile(context.Background(), "int-1", "orders.yaml", "flows: []\n", "u1")
 	if err != nil {
-		t.Fatalf("Update failed because the notification did: %v", err)
+		t.Fatalf("PutFile failed because the notification did: %v", err)
 	}
-	if got.ID != "int-1" {
-		t.Errorf("returned %+v, want the persisted integration", got)
+	if got.Path != "orders.yaml" {
+		t.Errorf("returned %+v, want the persisted file", got)
 	}
 	if !repo.called {
 		t.Error("the write did not happen")
 	}
 }
 
-// TestUpdateDoesNotNotifyOnAFailedWrite: nothing changed, so nothing should reload —
+// TestFileWriteDoesNotNotifyOnAFailedWrite: nothing changed, so nothing should reload —
 // and a reload here would make a dev run re-pull the unchanged definition for nothing.
-func TestUpdateDoesNotNotifyOnAFailedWrite(t *testing.T) {
+func TestFileWriteDoesNotNotifyOnAFailedWrite(t *testing.T) {
 	notifier := &fakeNotifier{}
 	svc := NewService(&fakeRepo{retErr: errors.New("constraint violation")}, WithReloadNotifier(notifier))
 
-	if _, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1"); err == nil {
-		t.Fatal("Update reported success")
+	if _, err := svc.PutFile(context.Background(), "int-1", "orders.yaml", "flows: []\n", "u1"); err == nil {
+		t.Fatal("PutFile reported success")
 	}
 	if len(notifier.got) != 0 {
 		t.Fatalf("notified %v after a failed write, want nothing", notifier.got)
@@ -254,7 +261,7 @@ func TestUpdateDoesNotNotifyOnAFailedWrite(t *testing.T) {
 // with no dev runs must not need it.
 func TestWithoutANotifierNothingBreaks(t *testing.T) {
 	svc := NewService(&fakeRepo{ret: Integration{ID: "int-1"}})
-	if _, err := svc.Update(context.Background(), "int-1", "orders", "definition", "u1"); err != nil {
-		t.Fatalf("Update with no notifier: %v", err)
+	if _, err := svc.PutFile(context.Background(), "int-1", "orders.yaml", "flows: []\n", "u1"); err != nil {
+		t.Fatalf("PutFile with no notifier: %v", err)
 	}
 }
