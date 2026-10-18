@@ -63,21 +63,21 @@ export function launch(base: NodeJS.ProcessEnv, opts: LaunchOptions): Launch {
     return { file, args: ["--rcfile", path.join(opts.startupDir, "bash", "rc"), "-i"], env };
   }
   // A login shell, as Terminal.app starts one: an app opened from the Finder inherits
-  // launchd's bare PATH, and only the user's profile puts the rest back.
+  // launchd's bare PATH, and only the user's profile puts the rest back. With no files
+  // of ours to prepend from, the inherited PATH is the best we can do.
+  env.PATH = [opts.shimDir, base.PATH].filter(Boolean).join(path.delimiter);
   return { file, args: ["-l"], env };
 }
 
 /**
- * The session's environment: this process's, with the binaries first on PATH for the
- * shells we cannot start on files of our own, and the TERM_* variables a terminal
- * emulator sets.
+ * The session's environment: this process's, less Electron's switches, plus the
+ * variables our startup files read and the TERM_* ones a terminal emulator sets.
  */
 function terminalEnv(base: NodeJS.ProcessEnv, opts: LaunchOptions): Record<string, string> {
   const ret: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
     if (value !== undefined && !WITHHELD.includes(key)) ret[key] = value;
   }
-  ret.PATH = [opts.shimDir, base.PATH].filter(Boolean).join(path.delimiter);
   ret[BIN_VAR] = opts.shimDir;
   ret.TERM = "xterm-256color";
   ret.COLORTERM = "truecolor";
@@ -105,6 +105,9 @@ export function startupFiles(startupDir: string): Record<string, string> {
   // A user .zshenv may move ZDOTDIR itself; the files after it read from there.
   const zsh = (name: string, last = "") =>
     [
+      // macOS's /etc/zshrc runs before any of these, while ZDOTDIR is still ours, and
+      // sets HISTFILE from it: the user's history would be written in here.
+      `[[ "$HISTFILE" == ${ours}/* ]] && HISTFILE="$${USER_ZDOTDIR_VAR}/.zsh_history"`,
       `ZDOTDIR="$${USER_ZDOTDIR_VAR}"`,
       `[[ -f "$ZDOTDIR/${name}" ]] && source "$ZDOTDIR/${name}"`,
       `${USER_ZDOTDIR_VAR}="$ZDOTDIR"`,

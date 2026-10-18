@@ -76,12 +76,18 @@ describe("startup files", () => {
     writeFileSync(path.join(startup, file), content);
   }
 
-  const probe =
-    'echo "$(octo) ${READ_ZSHRC:-} ${ZDOTDIR:-} ${OCTO_TERM_BIN:-}${OCTO_USER_ZDOTDIR:-}"';
+  // The octo found, whether .zshrc ran, ZDOTDIR, any of our variables left over, how
+  // many times the shim is on PATH, and whether history would be written among ours.
+  const probe = [
+    'echo "$(octo) ${READ_ZSHRC:-} ${ZDOTDIR:-} ${OCTO_TERM_BIN:-}${OCTO_USER_ZDOTDIR:-}',
+    `$(echo "$PATH" | tr : '\\n' | grep -cxF "$PROBE_SHIM")`,
+    '$(case "${HISTFILE:-}" in ("$PROBE_STARTUP"/*) echo ours;; (*) echo theirs;; esac)"',
+  ].join(" ");
   const run = (shell: string, extra: string[]) => {
     const l = launch({ SHELL: shell, HOME: home, PATH: "/usr/bin:/bin" }, { ...opts, shimDir: shim, startupDir: startup });
     return execFileSync(l.file, [...l.args, ...extra, "-c", probe], {
-      env: l.env,
+      // The paths reach the probe as variables: the root has a quote in its name.
+      env: { ...l.env, PROBE_SHIM: shim, PROBE_STARTUP: startup },
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -89,10 +95,10 @@ describe("startup files", () => {
 
   it.skipIf(!existsSync("/bin/zsh"))("put the editor's octo first in zsh, after the user's files", () => {
     // Interactive, as in a pty, so .zshrc is read; ZDOTDIR is handed back to the user.
-    expect(run("/bin/zsh", ["-i"])).toBe(`editor 1 ${home}`);
+    expect(run("/bin/zsh", ["-i"])).toBe(`editor 1 ${home}  1 theirs`);
   });
 
   it.skipIf(!existsSync("/bin/bash"))("put the editor's octo first in bash, after the profile", () => {
-    expect(run("/bin/bash", [])).toBe("editor");
+    expect(run("/bin/bash", [])).toBe("editor    1 theirs");
   });
 });
