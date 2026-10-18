@@ -12,6 +12,7 @@
     "verifying-webhooks",
     "encrypting-data",
     "composing-flows",
+    "multi-file-projects",
     "debugging-flows",
     "[Testing](/testing)",
     "events-and-queues",

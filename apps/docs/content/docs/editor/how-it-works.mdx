@@ -18,7 +18,7 @@ infrastructure and why flows built here carry over to the platform unchanged.
                 │ load / save                 │ run / logs
 ┌───────────────▼─────────────────────────────▼────────────────┐
 │              Next.js app (apps/standalone)                    │
-│  local-disk flow store          its own local runner          │
+│  local-disk project store       its own local runner          │
 │  *.yaml under OCTO_FS_DIR       spawns `octo run ... -watch`  │
 └───────────────┬─────────────────────────────┬────────────────┘
         ┌───────▼────────┐            ┌───────▼────────┐
@@ -37,9 +37,10 @@ and stores for resources and dev-env values.
 The standalone app (`apps/standalone`) supplies local-disk implementations of
 all of them:
 
-- The flow store keeps flat `*.yaml` files in one directory (`OCTO_FS_DIR`).
-  The filename is the flow's identity, so renaming the flow renames the file.
-  File ids are validated so a request can never escape the directory.
+- The project store treats one directory (`OCTO_FS_DIR`) as one project: its
+  config files are the top-level `*.yaml` files in it, loaded and saved as a
+  set, and the project is named by the `service.name` they declare. File names
+  are validated so a request can never escape the directory.
 - The resource and dev-env stores keep a flow's env files and templates (like
   `.env.dev` or `templates/welcome.tmpl`) as plain files in the same directory.
 - The run transport is server actions that drive this app's own runner, plus a
@@ -54,8 +55,9 @@ running the app as a child of the editor's own process is what *this* host does.
 The platform runs it in a pod of its own instead, and the two share the interface
 rather than an implementation. On Run it:
 
-1. Renders the editor's document to a config file in a per-session directory
-   under `OCTO_RUN_DIR`, staging the flow's declared resources beside it.
+1. Renders the project — every file, with its unsaved edits, merged as the
+   runtime merges a folder — to a config file in a per-session directory under
+   `OCTO_RUN_DIR`, staging the declared resources beside it.
 2. Spawns the bundled binary (`OCTO_BIN_PATH`) as
    `octo run -config <file> -watch`, capturing stdout and stderr into a log
    buffer that the console replays and follows over SSE.
@@ -104,7 +106,8 @@ Kubernetes instead of a local process. See
 [Platform architecture](/platform/architecture).
 
 <Callout type="info">
-  A flow file authored in the standalone editor is a valid platform
-  integration, and vice versa. The document format and the editing experience
+  A project authored in the standalone editor is a valid platform
+  integration, and vice versa: a platform integration is the same set of
+  config files. The document format and the editing experience
   are shared; only the storage and execution backends differ.
 </Callout>

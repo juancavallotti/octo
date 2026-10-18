@@ -17,7 +17,7 @@ Then open [http://localhost:3000](http://localhost:3000).
 
 ## The volume mount
 
-The mount is the flow store. Inside the container the image sets
+The mount is the project. Inside the container the image sets
 `OCTO_FS_DIR=/work`, so the editor reads and writes flow YAML, and the flow's
 resources like `.env.dev` and templates, as plain files under `/work`.
 Mounting a host directory there (`-v "$PWD:/work"`) makes that directory the
@@ -39,7 +39,7 @@ working defaults for all four:
 
 | Variable           | Purpose                                                                | Image default            |
 | ------------------ | ---------------------------------------------------------------------- | ------------------------ |
-| `OCTO_FS_DIR`      | Directory the editor reads/writes flow YAML and resources in           | `/work`                  |
+| `OCTO_FS_DIR`      | The project directory: its config files, suites and resources          | `/work`                  |
 | `OCTO_BIN_PATH`    | Path to the `octo` binary the Run feature spawns; unset hides Run      | `/usr/local/bin/octo`    |
 | `DOLPHIN_BIN_PATH` | Path to the `dolphin` test runner the Testing tab spawns               | `/usr/local/bin/dolphin` |
 | `OCTO_RUN_DIR`     | Where rendered run configs and staged resources are written            | `/app/.octo-run`         |

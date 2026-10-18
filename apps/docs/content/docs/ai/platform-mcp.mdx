@@ -45,24 +45,39 @@ session running the same integration attaches to the run already up.
 | Tool | What it does |
 | --- | --- |
 | `list_integrations` | Every saved integration as `{ id, name }`. |
-| `open_integration` | One integration by id: `{ id, name, definition }`, the runtime YAML. |
-| `list_flows` | The flows in an integration as `{ name, source }` (`source` is the trigger type, or `null` for a sourceless flow). |
-| `validate_definition` | Validate draft YAML against the runtime schema **without saving**; returns descriptive errors. |
-| `create_integration` | Create an integration from a name and a YAML definition. |
-| `update_integration` | Overwrite an integration's **whole** definition (and optionally rename it). |
+| `open_integration` | One integration by id: `{ id, name, files }`, its config files as runtime YAML. |
+| `list_flows` | The flows across an integration's files as `{ name, source, file }` (`source` is the trigger type, or `null` for a sourceless flow). |
+| `validate_project` | Validate a draft set of config files, merged as the runtime merges them, **without saving**; returns descriptive errors. |
+| `create_integration` | Create an integration from a name and its config files. |
+| `update_integration` | Replace an integration's **whole** set of config files (and optionally rename it); a file it had that is not given is removed. |
 
-### Flow tools
+### File tools
 
-An integration is one YAML file holding many flows. These edit **one** of them
-and leave every other byte of the file as it was, where `update_integration`
-would have you reproduce the whole file from memory. Each mutating tool
-validates the spliced result before saving, so an edit that would leave the
-integration unloadable is refused.
+An integration is a set of config files the runtime merges into one
+application: a flow in one file can use a connection, processor or flow
+declared in another. See
+[Splitting an Integration Across Files](/guides/multi-file-projects). These
+address one file and leave the others as they are; every write validates the
+whole set first, so a file that breaks a reference from another is refused.
 
 | Tool | What it does |
 | --- | --- |
-| `get_flow` | One flow's YAML, exactly as it appears in the file. Hand it back to `update_flow` to edit it. |
-| `add_flow` | Append a new flow. Errors when the name is already taken. |
+| `list_files` | The integration's config files, with the flows each declares. |
+| `get_file` | One file, exactly as stored. |
+| `write_file` | Create or overwrite one file. The path must be a `.yaml` or `.yml` at the root that does not end in `_test`. |
+| `delete_file` | Remove one file. The last file is kept. |
+
+### Flow tools
+
+These edit **one** flow, in whichever file declares it, and leave every other
+byte of that file as it was, where `write_file` would have you reproduce the
+whole file from memory. Each mutating tool validates the spliced result before
+saving, so an edit that would leave the integration unloadable is refused.
+
+| Tool | What it does |
+| --- | --- |
+| `get_flow` | One flow's YAML, exactly as it appears in its file. Hand it back to `update_flow` to edit it. |
+| `add_flow` | Append a new flow to the file named by `file`, creating the file when it is new; `file` may be left out when the integration has one file. Errors when the name is taken in any file. |
 | `update_flow` | Replace a flow in place. Giving the replacement a different `name` renames it where it sits. |
 | `delete_flow` | Remove a flow by name. |
 
@@ -239,14 +254,14 @@ syntax.
 </Step>
 <Step>
 
-**Draft and validate.** It writes a definition and calls `validate_definition`
+**Draft and validate.** It writes the config files and calls `validate_project`
 until the errors are gone: no save, no side effects.
 
 </Step>
 <Step>
 
-**Save.** `create_integration` (or `update_integration` on iteration) persists
-the definition. `list_env_keys` reveals which env vars still need values; the
+**Save.** `create_integration` persists the files; on iteration the agent edits
+one flow with `update_flow` or one file with `write_file`. `list_env_keys` reveals which env vars still need values; the
 agent asks you for secrets and stores them with `create_resource` as an `env`
 file, which is where a dev run reads its environment.
 
@@ -269,7 +284,7 @@ reads `get_run_logs` for the runtime's load errors and log output, fixes,
 </Step>
 </Steps>
 
-Validation is best-effort: a clean `validate_definition` does not guarantee the
+Validation is best-effort: a clean `validate_project` does not guarantee the
 runtime loads the definition, and the pre-flight can flag YAML the runtime
 accepts. The runtime is the final judge, which is why the loop ends at
 `get_run_logs`.
