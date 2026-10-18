@@ -45,8 +45,8 @@ processors:
 
 flows:
   - name: orders-api
-    workers: 8                      # concurrent workers (default 8)
-    buffer: 128                     # source channel depth (default 64)
+    workers: 8                      # concurrent workers (default max(8, GOMAXPROCS × 4))
+    buffer: 128                     # source channel depth (default max(64, workers))
     source:
       connector: api                # the *name* of a connector instance
       type: http                    # connector-specific source type
@@ -73,8 +73,8 @@ flows:
 | `source` | The entry point. `connector` names a configured connector *instance* (not its type), `type` selects a connector-specific source kind, and `settings` configures it (a route path, a cron schedule, a queue subject). |
 | `process` | The ordered list of blocks each message runs through. |
 | `error` | The recovery pipeline. When `process` fails, the runtime exposes the failure as `vars.error` and runs this chain; on success its output becomes the flow's result. Root flows only. See [Error Handling](/concepts/error-handling). |
-| `workers` | How many messages the flow processes concurrently. Defaults to 8. |
-| `buffer` | The depth of the channel between the source and the workers. Defaults to 64. |
+| `workers` | How many messages the flow processes concurrently. Defaults to `max(8, GOMAXPROCS × 4)`; see [Performance Tuning](/runtime/performance-tuning) for picking a value. |
+| `buffer` | The depth of the channel between the source and the workers. Defaults to `max(64, workers)`. |
 | `pool` | The size of the shared worker pool handed to composites that schedule concurrent work (a `fork`'s branches). Defaults to 8. Root flows only. |
 
 Sub-flows nested inside a composite block (an `if`'s `then`, a `foreach`'s `body`) reuse the same shape but must not set `source`, `workers`, `buffer`, `pool`, or `error`; the builder rejects it.

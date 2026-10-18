@@ -73,8 +73,8 @@ export interface FlowDoc {
   /**
    * Root-flow-only concurrency tuning (the runtime's FlowConfig). Sub-flows must not
    * set them, and they serialize only when set: `workers` sizes the message worker pool
-   * (default 8), `buffer` the inbound channel depth (default 64), `pool` the shared pool
-   * composites like fork draw from (default 8).
+   * (default max(8, GOMAXPROCS × 4)), `buffer` the inbound channel depth (default
+   * max(64, workers)), `pool` the shared pool composites like fork draw from (default 8).
    */
   workers?: number;
   buffer?: number;
