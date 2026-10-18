@@ -9,8 +9,8 @@ import { useProjectFiles } from "../state/useProject";
 
 /**
  * Read-only YAML preview of the open file — what the editor would save for it (see
- * {@link serializeFile}). It replaces the canvas when the view
- * mode is "yaml" (driven from the header's ViewModeToggle) and re-derives on every
+ * {@link serializeFile}). It replaces the canvas when the flows view is "yaml" (driven
+ * from the toggle beside the file name, FlowsViewToggle) and re-derives on every
  * document change, so it stays in sync as the user edits. Highlighting is done
  * synchronously by Prism; token colors are themed in editor.css.
  */

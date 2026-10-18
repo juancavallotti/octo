@@ -16,10 +16,11 @@ import TestingView from "./testing/TestingView";
 
 /**
  * The editor body between the header and the log panel. It reads `state.viewMode`
- * (set by the header's ViewModeToggle) to show either the visual editor — the
- * palette sidebar, flow canvas, and settings panel in one drag-and-drop session —
- * the read-only YAML preview, the Resources tab (file browser + content editor), or
- * the Testing tab (dolphin suites). The switch lives here rather than in EditorRoot
+ * (set by the header's ViewModeToggle) to show the flows, the Resources tab (file
+ * browser + content editor), or the Testing tab (dolphin suites). The flows are shown
+ * as `state.flowsView` says (set beside the file name, see FlowsViewToggle): the
+ * visual editor — the palette sidebar, flow canvas, and settings panel in one
+ * drag-and-drop session — or the open file's read-only YAML. The switch lives here rather than in EditorRoot
  * because EditorRoot sits above the state provider it would need to read.
  *
  * The document bar sits inside the middle column, between the palette and the
@@ -44,7 +45,7 @@ export default function EditorBody({ files }: { files?: React.ReactNode }) {
   const body = () => {
     // No drawers here, so the bar spans the view — it is still directly above the
     // thing it describes.
-    if (state.viewMode === "yaml")
+    if (state.viewMode === "flows" && state.flowsView === "yaml")
       return (
         <div className="flex flex-1 min-h-0 flex-col">
           <DocumentBar files={files} />

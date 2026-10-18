@@ -12,7 +12,8 @@ import {
 function baseState(): EditorState {
   return {
     document: blankDocument(),
-    viewMode: "canvas",
+    viewMode: "flows",
+    flowsView: "canvas",
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,

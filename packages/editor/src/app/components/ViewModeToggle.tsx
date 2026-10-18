@@ -1,16 +1,18 @@
 "use client";
 
-import { Code2, FlaskConical, FolderTree, LayoutGrid } from "lucide-react";
+import { FlaskConical, FolderTree, Workflow } from "lucide-react";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import { useResourceStore } from "../providers/ResourceStoreProvider";
 import { useTestSuites } from "../providers/TestSuiteProvider";
 import type { ViewMode } from "../state/reducer";
 
 /**
- * Segmented Canvas / YAML / Resources / Testing switch for the editor body. It sits in
- * the app-owned top bar (next to the folder picker) and drives `state.viewMode`, which
- * EditorBody reads to swap the visual canvas, the read-only YAML preview, the Resources
- * tab, and the Testing tab. The styling mirrors the LogPanel's tab buttons.
+ * Segmented Flows / Resources / Testing switch for the editor body. It sits in the
+ * app-owned top bar (next to the folder picker) and drives `state.viewMode`, which
+ * EditorBody reads to swap the flows, the Resources tab, and the Testing tab. Whether
+ * the flows show as the canvas or as YAML is a property of the open file, so that
+ * switch sits beside the file name instead (FlowsViewToggle). The styling mirrors the
+ * LogPanel's tab buttons.
  *
  * Resources and Testing appear only when the host mounted the store behind them. That is
  * the rule for a capability the host may not back at all — as distinct from one that is
@@ -18,9 +20,8 @@ import type { ViewMode } from "../state/reducer";
  * dolphin binary is the second kind: the Testing tab still shows, and authoring still
  * works, because a user who wrote tests must be able to find out why they cannot run.
  */
-const OPTIONS: { mode: ViewMode; label: string; icon: typeof LayoutGrid }[] = [
-  { mode: "canvas", label: "Canvas", icon: LayoutGrid },
-  { mode: "yaml", label: "YAML", icon: Code2 },
+const OPTIONS: { mode: ViewMode; label: string; icon: typeof Workflow }[] = [
+  { mode: "flows", label: "Flows", icon: Workflow },
   { mode: "resources", label: "Resources", icon: FolderTree },
   { mode: "testing", label: "Testing", icon: FlaskConical },
 ];

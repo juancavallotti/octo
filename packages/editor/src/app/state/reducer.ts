@@ -36,6 +36,7 @@ import {
   CreateFilePayload,
   RenameFilePayload,
   DeleteFilePayload,
+  SetFlowsViewPayload,
   SetViewModePayload,
 } from "./actions";
 import * as handlers from "./handlers";
@@ -63,8 +64,11 @@ export interface ProjectMeta {
   folderId: string | null;
 }
 
-/** Which view the editor body shows: the visual canvas or the read-only YAML. */
+/** Which view the editor body shows: the flows, the resources, or the test suites. */
 export type ViewMode = SetViewModePayload;
+
+/** How the flows view shows the open file: the visual canvas or the read-only YAML. */
+export type FlowsView = SetFlowsViewPayload;
 
 export interface EditorState {
   /** The active file's document: what the canvas shows and every edit changes. */
@@ -77,8 +81,10 @@ export interface EditorState {
   files: ProjectFile[];
   /** The path of the file `document` belongs to. */
   activePath: string;
-  /** Editor body view: the visual canvas or the read-only YAML preview. */
+  /** Editor body view: the flows, the resources, or the test suites. */
   viewMode: ViewMode;
+  /** How the flows view shows the open file, kept while another view is open. */
+  flowsView: FlowsView;
   /** Target flow for click-to-add; also highlighted on the canvas. */
   activeFlowId: string | null;
   /** Currently selected block on the canvas, or null. */
@@ -99,7 +105,8 @@ function makeInitialState(): EditorState {
     document,
     files: [{ path: projectHandlers.FIRST_FILE, document, declaresService: true }],
     activePath: projectHandlers.FIRST_FILE,
-    viewMode: "canvas",
+    viewMode: "flows",
+    flowsView: "canvas",
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,
@@ -240,6 +247,8 @@ export function reducer(
       return projectHandlers.deleteFile(state, action.data as DeleteFilePayload);
     case EditorActionType.SET_VIEW_MODE:
       return { ...state, viewMode: action.data as SetViewModePayload };
+    case EditorActionType.SET_FLOWS_VIEW:
+      return { ...state, flowsView: action.data as SetFlowsViewPayload };
     case EditorActionType.SELECT_COMPONENT:
       return { ...state, selectedComponentId: action.data as string };
     case EditorActionType.CLEAR_SELECTION:

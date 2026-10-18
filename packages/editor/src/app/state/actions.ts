@@ -81,6 +81,7 @@ export enum EditorActionType {
   DELETE_FILE = "DELETE_FILE",
   /** Switch the editor body between the visual canvas and the YAML preview. */
   SET_VIEW_MODE = "SET_VIEW_MODE",
+  SET_FLOWS_VIEW = "SET_FLOWS_VIEW",
   /** Highlight a palette component. */
   SELECT_COMPONENT = "SELECT_COMPONENT",
   /** Clear the palette highlight. */
@@ -229,10 +230,14 @@ export interface SetFlowMetaPayload {
 }
 
 /**
- * Which view the editor body shows. `resources` and `testing` are capability-backed —
- * the toggle only offers them when the host mounted the store behind them.
+ * Which view the editor body shows: the open file's flows, or the project's resources
+ * or test suites. `resources` and `testing` are capability-backed — the toggle only
+ * offers them when the host mounted the store behind them.
  */
-export type SetViewModePayload = "canvas" | "yaml" | "resources" | "testing";
+export type SetViewModePayload = "flows" | "resources" | "testing";
+
+/** How the flows view shows the open file: drawn on the canvas, or as its YAML. */
+export type SetFlowsViewPayload = "canvas" | "yaml";
 
 export interface SetEnvPayload {
   env: EnvVar[];

@@ -60,6 +60,7 @@ export function trackingOf(type: EditorActionType): Tracking {
     case EditorActionType.SELECT_CONNECTION:
     case EditorActionType.SET_ACTIVE_FLOW:
     case EditorActionType.SET_VIEW_MODE:
+    case EditorActionType.SET_FLOWS_VIEW:
     case EditorActionType.SELECT_COMPONENT:
     case EditorActionType.CLEAR_SELECTION:
     case EditorActionType.SET_PROJECT_ID:

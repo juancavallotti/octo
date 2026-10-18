@@ -33,18 +33,22 @@ function renderToggle(
 }
 
 describe("ViewModeToggle", () => {
-  it("starts on Canvas and switches to YAML on click", async () => {
-    renderToggle();
-    const canvas = screen.getByRole("button", { name: "Canvas" });
-    const yaml = screen.getByRole("button", { name: "YAML" });
+  it("starts on Flows and switches to Testing on click", async () => {
+    renderToggle(null, tests);
+    const flows = screen.getByRole("button", { name: "Flows" });
+    const testing = screen.getByRole("button", { name: "Testing" });
 
-    expect(canvas).toHaveAttribute("aria-pressed", "true");
-    expect(yaml).toHaveAttribute("aria-pressed", "false");
+    expect(flows).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(testing);
+    expect(testing).toHaveAttribute("aria-pressed", "true");
+    expect(flows).toHaveAttribute("aria-pressed", "false");
+  });
 
-    await userEvent.click(yaml);
-
-    expect(yaml).toHaveAttribute("aria-pressed", "true");
-    expect(canvas).toHaveAttribute("aria-pressed", "false");
+  // Canvas and YAML are views of the open file, so they sit beside its name instead.
+  it("offers no Canvas or YAML tab", () => {
+    renderToggle(store, tests);
+    expect(screen.queryByRole("button", { name: "Canvas" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "YAML" })).toBeNull();
   });
 
   // Offering Resources without a store would land EditorBody on a ResourcesView that
