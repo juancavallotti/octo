@@ -32,6 +32,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /integrations/{id}/icon", h.setIcon)
 	mux.HandleFunc("DELETE /integrations/{id}", h.delete)
 	mux.HandleFunc("GET /integrations/{id}/files", h.listFiles)
+	mux.HandleFunc("PUT /integrations/{id}/files", h.replaceFiles)
 	mux.HandleFunc("GET /integrations/{id}/files/content", h.getFile)
 	mux.HandleFunc("PUT /integrations/{id}/files/content", h.putFile)
 	mux.HandleFunc("DELETE /integrations/{id}/files/content", h.deleteFile)

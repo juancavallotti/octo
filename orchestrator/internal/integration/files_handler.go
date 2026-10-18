@@ -6,6 +6,7 @@ import (
 	"time"
 
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // pathParam names the query parameter that addresses one config file. A path is
@@ -40,6 +41,22 @@ type fileRequest struct {
 	ActorID string `json:"actorId"`
 }
 
+// filesRequest is the payload that replaces an integration's whole set of config
+// files. ActorID is the acting user's id, empty when unknown.
+type filesRequest struct {
+	// Files is every config file the integration should have afterwards; config
+	// files not listed are deleted.
+	Files   []fileEntry `json:"files"`
+	ActorID string      `json:"actorId"`
+}
+
+// fileEntry is one config file in a filesRequest.
+type fileEntry struct {
+	// Path is the file's name at the project root, such as "orders.yaml".
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
 // listFiles godoc
 //
 //	@Summary		List an integration's config files
@@ -65,6 +82,46 @@ func (h *Handler) listFiles(w http.ResponseWriter, r *http.Request) {
 		out = append(out, fileSummaryResponse{Path: f.Path, LastUpdated: f.LastUpdated})
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// replaceFiles godoc
+//
+//	@Summary		Replace every config file
+//	@Description	Makes the listed files the integration's whole set of config files in one write:
+//	@Description	each is created or overwritten, and every config file not listed is deleted. The set
+//	@Description	is checked once, so a flow can move from one file to another, which writing the two
+//	@Description	files one at a time would refuse. A set that does not merge into one config is
+//	@Description	refused. Answers with the resulting listing.
+//	@Tags			integrations
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Integration id"
+//	@Param			body	body		filesRequest	true	"Every config file and the acting user"
+//	@Success		200		{array}		fileSummaryResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"a path is not a config file, or is listed twice"
+//	@Failure		404		{object}	httpx.ErrorResponse	"no such integration"
+//	@Failure		409		{object}	httpx.ErrorResponse	"the files would not merge"
+//	@Router			/integrations/{id}/files [put]
+func (h *Handler) replaceFiles(w http.ResponseWriter, r *http.Request) {
+	var req filesRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	files := make([]projectfile.File, len(req.Files))
+	for i, f := range req.Files {
+		files[i] = projectfile.File{Path: f.Path, Content: f.Content}
+	}
+	id := r.PathValue("id")
+	if err := h.svc.ReplaceFiles(ctx, id, files, req.ActorID); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.listFiles(w, r)
 }
 
 // getFile godoc

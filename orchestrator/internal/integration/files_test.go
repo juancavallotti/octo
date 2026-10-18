@@ -252,3 +252,60 @@ func TestReplaceFilesRefusals(t *testing.T) {
 		})
 	}
 }
+
+// The whole set goes in one request, so a flow can move between files without
+// passing through the duplicate a file-by-file save would be refused for.
+func TestHandlerReplacesTheWholeFileSet(t *testing.T) {
+	mux, repo := newTestHandler(t)
+	ctx := context.Background()
+	seeded, _ := repo.Create(ctx, "replace-set", "", "")
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "")
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "stale.yaml", "flows: []\n", "")
+
+	rec := do(t, mux, http.MethodPut, "/integrations/"+seeded.ID+"/files", `{"files":[
+		{"path":"a.yaml","content":"flows: []\n"},
+		{"path":"b.yaml","content":"flows:\n  - name: intake\n"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var listed []fileSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(listed) != 2 || listed[0].Path != "a.yaml" || listed[1].Path != "b.yaml" {
+		t.Errorf("listed = %+v, want a.yaml and b.yaml only", listed)
+	}
+	if !strings.Contains(repo.files[seeded.ID]["b.yaml"].Content, "intake") {
+		t.Errorf("b.yaml = %q, want the moved flow", repo.files[seeded.ID]["b.yaml"].Content)
+	}
+}
+
+func TestHandlerReplaceFilesErrors(t *testing.T) {
+	mux, repo := newTestHandler(t)
+	seeded, _ := repo.Create(context.Background(), "replace-errors", "", "")
+	_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "a.yaml", "flows: []\n", "")
+	target := "/integrations/" + seeded.ID + "/files"
+
+	tests := []struct {
+		name   string
+		target string
+		body   string
+		want   int
+	}{
+		{name: "conflict", target: target, body: `{"files":[{"path":"a.yaml","content":"flows:\n  - name: x\n"},{"path":"b.yaml","content":"flows:\n  - name: x\n"}]}`, want: http.StatusConflict},
+		{name: "not config", target: target, body: `{"files":[{"path":"flows/a.yaml","content":""}]}`, want: http.StatusBadRequest},
+		{name: "path twice", target: target, body: `{"files":[{"path":"a.yaml","content":""},{"path":"a.yaml","content":""}]}`, want: http.StatusBadRequest},
+		{name: "malformed body", target: target, body: `{`, want: http.StatusBadRequest},
+		{name: "unknown integration", target: "/integrations/nope/files", body: `{"files":[]}`, want: http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if rec := do(t, mux, http.MethodPut, tt.target, tt.body); rec.Code != tt.want {
+				t.Errorf("status = %d, want %d; body=%s", rec.Code, tt.want, rec.Body)
+			}
+		})
+	}
+	if got := repo.files[seeded.ID]["a.yaml"].Content; got != "flows: []\n" {
+		t.Errorf("a refused replace changed a.yaml to %q", got)
+	}
+}
