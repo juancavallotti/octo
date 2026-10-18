@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EditorActionType, EditorStateProvider, useEditorState } from "../state/editorState";
-import { parseProject } from "../model/project";
+import { parseProject, type ProjectFile } from "../model/project";
 import FileSwitcher from "./FileSwitcher";
 
 const files = parseProject([
@@ -10,7 +10,21 @@ const files = parseProject([
   { path: "orders.yaml", content: "flows:\n  - name: orders\n    process: []\n" },
 ]);
 
-function Harness() {
+const config = `
+connectors:
+  - name: db
+    type: postgres
+  - name: api
+    type: http
+env:
+  - name: DB_URL
+resources:
+  env: [secrets.env]
+  templates:
+    - resource: welcome.txt
+`;
+
+function Harness({ files }: { files: ProjectFile[] }) {
   const { state, dispatch } = useEditorState();
   return (
     <div>
@@ -28,11 +42,11 @@ function Harness() {
   );
 }
 
-async function setup() {
+async function setup(project: ProjectFile[] = files) {
   const user = userEvent.setup();
   render(
     <EditorStateProvider>
-      <Harness />
+      <Harness files={project} />
     </EditorStateProvider>,
   );
   await user.click(screen.getByText("load"));
@@ -49,6 +63,21 @@ describe("FileSwitcher", () => {
     await user.click(screen.getByRole("button", { name: "Files" }));
     await user.click(screen.getByRole("button", { name: "octo.yaml" }));
     expect(active()).toBe("octo.yaml");
+  });
+
+  it("counts what each file declares", async () => {
+    const user = await setup(
+      parseProject([
+        { path: "config.yaml", content: config },
+        { path: "orders.yaml", content: "flows:\n  - name: orders\n    process: []\n" },
+      ]),
+    );
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    expect(screen.getByRole("button", { name: "config.yaml" })).toHaveAttribute(
+      "title",
+      "2 connectors · 1 env var · 2 resources",
+    );
+    expect(screen.getByRole("button", { name: "orders.yaml" })).not.toHaveAttribute("title");
   });
 
   it("adds a file, taking .yaml as the extension when none is typed", async () => {

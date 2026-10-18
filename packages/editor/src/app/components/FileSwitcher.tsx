@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
+import { Cable, FileText, Pencil, Plus, Trash2, Variable, type LucideIcon } from "lucide-react";
 import { useEditorState, EditorActionType } from "../state/editorState";
+import { projectFiles } from "../state/projectHandlers";
 import { isConfigFileName } from "../model/project";
+import type { EditorDocument } from "../model/document";
 import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 /**
  * The project's config files, in the document bar. The button names the open file;
  * its popover lists every file — picking one opens it, keeping any unsaved edits in
  * the one left — and offers to add a file, to rename the open one, and to remove any.
+ * Each row counts the connections, env vars and resources its file declares, so the
+ * file that owns a piece of config can be found without opening them one by one.
  * Nothing touches the store until Save, which writes the files as a set.
  */
 export default function FileSwitcher() {
@@ -18,7 +22,8 @@ export default function FileSwitcher() {
   // The name being typed, and whether it names a new file or the open one's new name.
   const [draft, setDraft] = useState<{ mode: "create" | "rename"; name: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
-  const paths = state.files.map((f) => f.path).sort();
+  const files = projectFiles(state);
+  const paths = files.map((f) => f.path);
 
   const close = () => {
     setOpen(false);
@@ -77,14 +82,17 @@ export default function FileSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-2 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
+        <div className="absolute left-0 top-full z-40 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
           <ul className="max-h-72 overflow-y-auto py-1">
-            {paths.map((path) => {
+            {files.map(({ path, document }) => {
               const active = path === state.activePath;
+              const counts = declared(document);
               return (
-                <li key={path} className="group/row relative">
+                <li key={path} className="relative">
                   <button
                     type="button"
+                    // The counts spelled out, as the tooltip and the row's description.
+                    title={counts.length > 0 ? counts.map((c) => c.label).join(" · ") : undefined}
                     onClick={() => {
                       dispatch({ type: EditorActionType.SWITCH_FILE, data: { path } });
                       close();
@@ -95,8 +103,22 @@ export default function FileSwitcher() {
                   >
                     <FileText size={15} className="shrink-0 text-zinc-500" />
                     <span className="truncate">{path}</span>
+                    {counts.length > 0 && (
+                      // The row's name stays the path: the counts are a glance.
+                      <span
+                        aria-hidden
+                        className="ml-auto flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-zinc-400"
+                      >
+                        {counts.map(({ icon: Icon, count, label }) => (
+                          <span key={label} className="flex items-center gap-0.5">
+                            <Icon size={12} />
+                            {count}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </button>
-                  <span className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+                  <span className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-0.5">
                     {active && (
                       <button
                         type="button"
@@ -163,6 +185,30 @@ export default function FileSwitcher() {
       )}
     </div>
   );
+}
+
+interface Count {
+  icon: LucideIcon;
+  count: number;
+  label: string;
+}
+
+/**
+ * What a file declares, with the icons the document bar's launchers use for each.
+ * Kinds the file declares none of are left out.
+ */
+function declared(doc: EditorDocument): Count[] {
+  const resources = (doc.resources?.env.length ?? 0) + (doc.resources?.templates.length ?? 0);
+  const ret: Count[] = [
+    { icon: Cable, count: doc.connectors.length, label: plural(doc.connectors.length, "connector") },
+    { icon: Variable, count: doc.env.length, label: plural(doc.env.length, "env var") },
+    { icon: FileText, count: resources, label: plural(resources, "resource") },
+  ];
+  return ret.filter((c) => c.count > 0);
+}
+
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
 function withExtension(name: string): string {
