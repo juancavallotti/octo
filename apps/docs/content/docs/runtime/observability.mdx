@@ -95,7 +95,7 @@ curl -s localhost:39999/metrics
 | `octo_flow_duration_seconds` | histogram | `flow`, `outcome` |
 | `octo_flow_in_flight` | gauge | `flow` |
 
-**`octo_flow_in_flight` is the one to put on a dashboard first.** It is the number of messages a flow is processing right now, and the only signal that distinguishes "quiet" from "stuck". A flow whose workers are all blocked on a slow database shows in-flight pinned at its worker count (8 or more, see [worker pools](/runtime/processing-pipeline)) while throughput and CPU both sit flat.
+**`octo_flow_in_flight` is the one to put on a dashboard first.** It is the number of messages a flow is processing right now, and the only signal that distinguishes "quiet" from "stuck". A flow whose workers are all blocked on a slow database shows in-flight pinned at its worker count (see [worker pools](/runtime/processing-pipeline)) while throughput and CPU both sit flat. [Performance Tuning](/runtime/performance-tuning) says what to do about it.
 
 **`octo_flow_errors_total` counts unhandled failures only.** A message that failed and whose flow-level [error path](/concepts/error-handling) recovered it is reported as `completed`, so it is not counted here. The metric is therefore an error *rate*, and a flow that handles its errors reads as healthy.
 

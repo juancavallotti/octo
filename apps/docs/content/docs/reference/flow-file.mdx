@@ -174,8 +174,8 @@ run by a pool of workers.
 | `source` | object | no | implicit | The flow's entry point. Omitted, the flow gets an **implicit source**: it binds no external resource and is callable by name (via [`octo invoke`](/reference/cli#octo-invoke), the `flow-ref` block, or an `mcp-router`/`ai-agent` tool). |
 | `process` | list of blocks | yes | none | The block chain every message runs through, in order. |
 | `error` | list of blocks | no | none | The flow-level error path (root flows only, see below). |
-| `workers` | int | no | `8` | Number of workers consuming the flow's message channel. |
-| `buffer` | int | no | `64` | Depth of the flow's message channel. |
+| `workers` | int | no | `max(8, GOMAXPROCS × 4)` | Number of workers consuming the flow's message channel. See [Performance Tuning](/runtime/performance-tuning). |
+| `buffer` | int | no | `max(64, workers)` | Depth of the flow's message channel. |
 | `pool` | int | no | `8` | Size of the shared worker pool the flow hands to concurrent composites (e.g. a `fork`'s branches). Root flows only. |
 
 ### source
@@ -443,8 +443,8 @@ processors:
 
 flows:
   - name: submit-order
-    workers: 4                           # default 8
-    buffer: 128                          # default 64
+    workers: 4                           # default max(8, GOMAXPROCS × 4)
+    buffer: 128                          # default max(64, workers)
     pool: 8                              # shared pool for concurrent composites
     source:
       connector: api                     # connector instance name

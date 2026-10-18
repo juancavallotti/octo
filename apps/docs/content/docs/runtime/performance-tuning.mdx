@@ -1,0 +1,58 @@
+---
+title: "Performance Tuning"
+description: "What workers, buffer, pool and the connector pools govern, and how to pick their values."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A flow's throughput is set by a handful of concurrency settings and the connection pools behind them. This page says what each one governs, gives the one rule that predicts when they bind, and walks you through sizing them for a flow that waits on something.
+
+## The settings
+
+| Setting | Where | Default | What it governs |
+| --- | --- | --- | --- |
+| `workers` | root flow | `max(8, GOMAXPROCS × 4)` | The most messages the flow processes at once. Each worker runs one message through the whole chain. |
+| `buffer` | root flow | `max(64, workers)` | The depth of the channel between the source and the workers. It absorbs bursts; it adds no capacity. |
+| `pool` | root flow | `8` | The shared pool `fork` branches and other concurrent composites run on. Irrelevant to a flow that does not fork. |
+| `listeners` | `queue` source | `8` | Concurrent handlers for a queue subscription, per replica. A handler holds its slot until the flow finishes. |
+| `maxOpenConns`, `maxIdleConns` | `database` connector | `16` (postgres), `1` (sqlite) | How many connections the flows bound to the connector can use at once. See [database](/reference/connectors/database). |
+| `maxIdleConnsPerHost` | `http` client connector | `100` | Idle outbound connections kept for reuse. See [http](/reference/connectors/http). |
+
+The runtime logs each flow's resolved `workers` at startup, marked `derived` when it came from the default and `configured` when you set it. The [processing pipeline](/runtime/processing-pipeline#execution-model) explains how the workers, the buffer and the pool fit together.
+
+## The rule
+
+A worker that waits on a database or an upstream API is doing nothing else for that time. So a flow can sustain at most `workers ÷ seconds blocked per message` requests a second, and to reach a target you need:
+
+```
+workers  ≥  target_rps  ×  seconds_blocked_per_message
+```
+
+Two measurements, both at `workers: 8`, show how closely it predicts:
+
+| Flow | Blocked per message | Predicted | Measured |
+| --- | --- | --- | --- |
+| Postgres CRUD, three round trips | ≈ 4.5 ms | ≈ 1,780 req/s | 1,664 req/s |
+| HTTP proxy to a 70 ms backend | 70 ms | ≈ 114 req/s | 108 req/s |
+
+## Size a flow
+
+1. **Check whether the flow blocks.** Look for `sql`, `rest`, `queue-dispatch` with `awaitReply: true`, an LLM call, or any other outbound call. If there is none, stop: tuning will not change anything, and that is a result, not a failure.
+2. **Measure the blocked time per message.** Add up the round trips, or run the flow at low load with [`--metrics`](/runtime/observability) and read `octo_flow_duration_seconds`. At low load nothing queues, so the duration is the time spent working and waiting.
+3. **Compute `workers` from the rule**, then round up to the next power of two for headroom.
+4. **Size the connector pools to match.** Thirty-two workers sharing a `database` connector with `maxOpenConns: 4` queue for connections instead of for workers; the bottleneck moves, it does not go away. Give the pool at least as many connections as the busiest flow using it has workers, within what the database server allows across all replicas.
+5. **Leave `buffer` alone** unless arrivals come in bursts. A deeper buffer turns rejected work into waiting work; it does not process anything faster.
+6. **Set `pool` only if the flow forks**, and size it for the flow's fan-out: the pool's queue is bounded, and overfilling it panics rather than risk a deadlock.
+7. **Verify with `octo_flow_in_flight`.** If it sits at the worker count while throughput stays flat, every worker is still waiting and `workers` is still too low.
+
+## The symptom points the wrong way
+
+<Callout type="warn">
+  A flow with too few workers looks like a slow dependency. Latency climbs into seconds at moderate load, CPU is **idle**, and there are no errors and no log lines. In the Postgres measurement above, CPU peaked at 136% of one core and then fell to 42% while latency kept rising.
+</Callout>
+
+An idle process that is slow sends you to look at the database or the network, and both are fine. Check `octo_flow_in_flight` first: pinned at the worker count means the messages are waiting for a worker, not for the dependency.
+
+## When tuning does nothing
+
+A flow that never waits (transforms, routing, CEL, in-memory lookups) is limited by CPU, and the default `workers` already keeps every core busy. Raising it adds goroutines that compete for the same cores. `workers` is not a general performance dial: raise it for flows that block, and only as far as the rule says.

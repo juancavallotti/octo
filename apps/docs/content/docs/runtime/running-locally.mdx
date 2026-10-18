@@ -165,7 +165,7 @@ flows:
 
 `pool` is the size of the flow's shared worker pool (default 8), used by composites that parallelize, such as a `fork`'s branches. The pool has a bounded task queue; if a flow's fan-out submits more work than it can accept (for example, deeply nested forks), the pool is exhausted and the runtime **panics** rather than risk a silent deadlock. Size `pool` for your flow's fan-out.
 
-Sub-flows nested inside composite blocks must not declare `workers`, `buffer`, or `pool`, because they run within the parent's budget. See [The Processing Pipeline](/runtime/processing-pipeline) for how the two pools interact.
+Sub-flows nested inside composite blocks must not declare `workers`, `buffer`, or `pool`, because they run within the parent's budget. See [The Processing Pipeline](/runtime/processing-pipeline) for how the two pools interact, and [Performance Tuning](/runtime/performance-tuning) for picking the values.
 
 ## A practical dev loop
 
