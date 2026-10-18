@@ -18,6 +18,7 @@ import McpCopyAction from "./McpCopyAction";
 import ProjectName from "./ProjectName";
 import StandaloneHeader from "./StandaloneHeader";
 import { useDesktopPrefs } from "./useDesktopPrefs";
+import { useDesktopTerminal } from "@/app/terminal/desktopTerminalTransport";
 
 /**
  * This app's wiring for the shared editor: the local-disk filesystem capability and
@@ -47,6 +48,8 @@ export default function StandaloneEditor({
    */
   // Null when nothing is hosting the page, where the editor uses its own defaults.
   const prefs = useDesktopPrefs();
+  // Likewise null in a plain browser, which has nowhere to run a shell: no Terminal tab.
+  const terminal = useDesktopTerminal();
 
   const [reloadToken, setReloadToken] = useState(0);
   const [testsToken, setTestsToken] = useState(0);
@@ -76,6 +79,7 @@ export default function StandaloneEditor({
       tests={localTestSuiteStore}
       testsToken={testsToken}
       prefs={prefs}
+      terminal={terminal}
       header={<StandaloneHeader />}
       files={
         <DocumentRename placeholder="untitled-project" label="Rename project">

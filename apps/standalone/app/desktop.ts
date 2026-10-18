@@ -35,6 +35,17 @@ export interface UpdateStatusView {
   percent: number | null;
 }
 
+/** Shells the desktop shell runs in the open folder for the page. */
+export interface TerminalBridge {
+  open(cols: number, rows: number): Promise<{ id: string; title: string }>;
+  write(id: string, data: string): void;
+  resize(id: string, cols: number, rows: number): void;
+  kill(id: string): void;
+  /** Every session's output, tagged with its id. Returns the unsubscribe. */
+  onData(listener: (id: string, chunk: string) => void): () => void;
+  onExit(listener: (id: string, code: number) => void): () => void;
+}
+
 export interface DesktopBridge {
   platform: string;
   mcpUrl(): Promise<string | null>;
@@ -56,6 +67,7 @@ export interface DesktopBridge {
   onMenuCommand(listener: (command: unknown) => void): () => void;
   /** Tell the shell what the editor can do now, for its menu to show; null to stop. */
   reportMenuStatus(status: EditorCommandStatus | null): Promise<void>;
+  terminal: TerminalBridge;
 }
 
 /** The bridge, or null when this is a browser rather than the desktop shell. */
