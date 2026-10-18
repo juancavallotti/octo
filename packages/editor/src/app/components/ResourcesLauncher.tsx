@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileText, Plus, X } from "lucide-react";
 import type { Resources, TemplateResource } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
-import { BAR_BUTTON, BAR_COUNT, BAR_LABEL } from "./barButton";
+import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -53,7 +53,6 @@ export default function ResourcesLauncher() {
         className={BAR_BUTTON}
       >
         <FileText size={15} />
-        <span className={BAR_LABEL}>Resources</span>
         {count > 0 && (
           <span className={BAR_COUNT}>
             {count}

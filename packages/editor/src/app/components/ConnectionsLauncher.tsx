@@ -6,7 +6,7 @@ import { getConnectorSpec, listConnectors, resolveIcon } from "../schema";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import { useLayout } from "../state/layout";
 import { useProjectFiles, useRevealNode } from "../state/useProject";
-import { BAR_BUTTON, BAR_COUNT, BAR_LABEL } from "./barButton";
+import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 /**
  * The connections launcher in the document bar. The button opens a popover
@@ -67,7 +67,6 @@ export default function ConnectionsLauncher() {
         className={BAR_BUTTON}
       >
         <Cable size={15} />
-        <span className={BAR_LABEL}>Connections</span>
         {connections.length > 0 && (
           <span className={BAR_COUNT}>
             {connections.length}

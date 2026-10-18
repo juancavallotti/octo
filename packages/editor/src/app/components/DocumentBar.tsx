@@ -11,7 +11,9 @@ import ResourcesLauncher from "./ResourcesLauncher";
  * The document bar: everything that belongs to the project and its open file rather
  * than to the flow you happen to be looking at — the file switcher and, beside it, how
  * that file is shown (canvas or YAML), undo/redo, the connections, environment and
- * resources on the left, and whatever the host adds on the right.
+ * resources on the left, and whatever the host adds on the right. The launchers are
+ * icons, named by their tooltips and accessible names: the bar shares its row with
+ * the canvas's width, and words there are the first thing a narrow window cannot fit.
  *
  * `files` is a slot, and its absence is the feature: a host with nothing to add passes
  * nothing and the right of the bar is empty.

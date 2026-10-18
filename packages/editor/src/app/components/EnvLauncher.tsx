@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, Variable, X } from "lucide-react";
 import type { EnvVar } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
-import { BAR_BUTTON, BAR_COUNT, BAR_LABEL } from "./barButton";
+import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -49,7 +49,6 @@ export default function EnvLauncher() {
         className={BAR_BUTTON}
       >
         <Variable size={15} />
-        <span className={BAR_LABEL}>Environment</span>
         {count > 0 && (
           <span className={BAR_COUNT}>
             {count}

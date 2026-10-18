@@ -19,13 +19,10 @@ export const BAR_COUNT =
 export const HEADER_LABEL = "max-[1100px]:sr-only";
 
 /**
- * The text of a document-bar launcher. The bar is as wide as the column between the
- * palette and the settings panel — which depends on which of those are open, not on
- * the window — so it answers to that column's width (EditorBody makes it a container)
- * rather than to the viewport. Below 52rem the launchers are their icons, the text
- * still their accessible name.
+ * The Canvas/YAML labels, which name the mode the file is shown in and so keep their
+ * words while there is room. The bar is as wide as the column between the palette and
+ * the settings panel — which depends on which of those are open, not on the window —
+ * so it answers to that column's width (EditorBody makes it a container): below 40rem
+ * the labels are screen-reader-only, the icons and tooltips stay.
  */
-export const BAR_LABEL = "@max-[52rem]:sr-only";
-
-/** The Canvas/YAML labels: kept longer than the launchers', dropped below 40rem. */
 export const BAR_VIEW_LABEL = "@max-[40rem]:sr-only";
