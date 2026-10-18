@@ -4,7 +4,6 @@ import {
   EditorDocument,
   FlowDoc,
   SourceNode,
-  emptyDocument,
   isComposite,
   newId,
   withErrorChain,
@@ -161,17 +160,30 @@ function toolFromRuntime(
   return out;
 }
 
-export function fromConfig(config: RuntimeConfig): EditorDocument {
+/**
+ * Map one runtime config onto an editor document.
+ *
+ * `projectConnectors` names the connectors the rest of the project declares, by name
+ * to type. A source in this file may bind to a connector another file declares — the
+ * runtime merges a folder before it resolves a name — and without them that binding
+ * would read as a bare type. A file with no flows stays without flows: in a project,
+ * a file of connections alone is ordinary.
+ */
+export function fromConfig(
+  config: RuntimeConfig,
+  projectConnectors: ReadonlyMap<string, string> = new Map(),
+): EditorDocument {
   const env = (config.env ?? []).map(envFromRuntime);
   const resources = resourcesFromRuntime(config.resources);
   const connectors = (config.connectors ?? []).map(connectorFromRuntime);
-  const connTypes = new Map(connectors.map((c) => [c.name, c.type]));
+  const connTypes = new Map([
+    ...projectConnectors,
+    ...connectors.map((c) => [c.name, c.type] as const),
+  ]);
   // Top-level flows always carry an error chain so the canvas shows the lane;
   // seed an empty one for flows that declared no error path.
   const flows = (config.flows ?? []).map((f) =>
     withErrorChain(flowFromRuntime(f, connTypes)),
   );
-  if (flows.length === 0)
-    return { ...emptyDocument(), connectors, env, resources };
   return { flows, connectors, env, resources, processors: [] };
 }

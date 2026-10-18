@@ -94,8 +94,8 @@ describe("serialize", () => {
     expect(restored.flows[0].process[0].id).not.toBe(doc.flows[0].process[0].id);
   });
 
-  it("falls back to an empty document for a config with no flows", () => {
-    expect(fromConfig({}).flows).toHaveLength(1);
+  it("leaves a config with no flows without flows", () => {
+    expect(fromConfig({}).flows).toHaveLength(0);
   });
 
   it("round-trips a root flow's concurrency tuning, omitting unset fields", () => {

@@ -147,7 +147,18 @@ function blockToRuntime(
   return out as RuntimeBlock;
 }
 
-export function toConfig(doc: EditorDocument): RuntimeConfig {
+/**
+ * Map an editor document onto one runtime config.
+ *
+ * `projectConnectors` are every connection the project declares, this file's among
+ * them: a source binds implicitly to the one connection of its type wherever in the
+ * project it lives, so resolving against this file's alone would bind differently
+ * from the runtime.
+ */
+export function toConfig(
+  doc: EditorDocument,
+  projectConnectors: ConnectorInstance[] = doc.connectors,
+): RuntimeConfig {
   const out: RuntimeConfig = {};
   if (doc.env.length) out.env = doc.env.map(envToRuntime);
   const resources = resourcesToRuntime(doc.resources);
@@ -155,7 +166,7 @@ export function toConfig(doc: EditorDocument): RuntimeConfig {
   if (doc.connectors.length) {
     out.connectors = doc.connectors.map(connectorToRuntime);
   }
-  const resolve = connectorResolver(doc.connectors);
-  out.flows = doc.flows.map((f) => flowToRuntime(f, resolve));
+  const resolve = connectorResolver(projectConnectors);
+  if (doc.flows.length) out.flows = doc.flows.map((f) => flowToRuntime(f, resolve));
   return out;
 }
