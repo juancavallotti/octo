@@ -20,12 +20,34 @@ import (
 // IsTestFile.
 const TestFileSuffix = "_test"
 
+// LoadOption adjusts how LoadConfig resolves a config.
+type LoadOption func(*loadOptions)
+
+type loadOptions struct {
+	// unsetEnv, when set, makes a declared variable nothing supplied resolve to the
+	// empty string instead of failing the load, and receives each required one.
+	unsetEnv func(name string)
+}
+
+// WithUnsetEnv makes a declared environment variable that nothing supplies — not
+// the OS, a .env file, an env resource or a default — resolve to the empty string
+// instead of failing the load, and reports each required one to report: those are
+// the ones a run would refuse. It is for checking a config's shape where its
+// secrets are not available, as `octo validate` does, and never for running one.
+func WithUnsetEnv(report func(name string)) LoadOption {
+	return func(o *loadOptions) { o.unsetEnv = report }
+}
+
 // LoadConfig reads and parses the runtime config at path. When path is a
 // directory, every *.yaml/*.yml file in it is parsed and merged into one config
 // (see MergeConfigs), skipping test files (see IsTestFile); otherwise the single
 // file is parsed. loader supplies the declared env resources (resources.env)
 // combined into the environment.
-func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
+func LoadConfig(path string, loader core.ResourceLoader, opts ...LoadOption) (types.Config, error) {
+	var o loadOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return types.Config{}, fmt.Errorf("stat config path %q: %w", path, err)
@@ -41,7 +63,7 @@ func LoadConfig(path string, loader core.ResourceLoader) (types.Config, error) {
 		return types.Config{}, err
 	}
 
-	cfg, err := resolveDocuments(docs, loader)
+	cfg, err := resolveDocuments(docs, loader, o)
 	if err != nil {
 		return types.Config{}, err
 	}
@@ -62,7 +84,7 @@ func ParseConfig(data []byte) (types.Config, error) {
 	}
 	// The byte-parse entrypoint has no config directory, so declared env resources
 	// cannot be resolved; the no-op loader reports them missing (which is skipped).
-	return resolveDocuments([]document{{node: doc}}, core.NoopResourceLoader{})
+	return resolveDocuments([]document{{node: doc}}, core.NoopResourceLoader{}, loadOptions{})
 }
 
 // document is one parsed config file, kept with the path it came from so a merge
@@ -83,12 +105,12 @@ type document struct {
 // a settings value. And declarations are gathered across every document first, so
 // a variable declared in one file still serves a reference in another, exactly as
 // it did when the merge came first.
-func resolveDocuments(docs []document, loader core.ResourceLoader) (types.Config, error) {
+func resolveDocuments(docs []document, loader core.ResourceLoader, o loadOptions) (types.Config, error) {
 	decls, err := mergeEnvDecls(docs)
 	if err != nil {
 		return types.Config{}, err
 	}
-	resolved, declared, err := resolveDeclared(decls, loader)
+	resolved, declared, err := resolveDeclared(decls, loader, o)
 	if err != nil {
 		return types.Config{}, err
 	}

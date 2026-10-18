@@ -204,3 +204,38 @@ func writeConfig(t *testing.T, dir, name, content string) {
 	}
 }
 
+// TestLoadConfigWithUnsetEnvStandsIn: checking a config's shape must not need its
+// secrets, so an unset variable resolves to the empty string, and only the required
+// one — the one a run would refuse — is reported.
+func TestLoadConfigWithUnsetEnvStandsIn(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, "app.yaml", `
+env:
+  - name: OCTO_TEST_UNSET_KEY
+    required: true
+  - name: OCTO_TEST_UNSET_REGION
+connectors:
+  - name: api
+    type: http-client
+    settings:
+      token: ${OCTO_TEST_UNSET_KEY}
+      region: ${OCTO_TEST_UNSET_REGION}
+`)
+	if _, err := LoadConfig(dir, core.NoopResourceLoader{}); err == nil {
+		t.Fatal("LoadConfig without the option: want the unset required variable refused")
+	}
+
+	var reported []string
+	cfg, err := LoadConfig(dir, core.NoopResourceLoader{}, WithUnsetEnv(func(name string) {
+		reported = append(reported, name)
+	}))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(reported) != 1 || reported[0] != "OCTO_TEST_UNSET_KEY" {
+		t.Errorf("reported = %v, want only the required variable", reported)
+	}
+	if got := cfg.Connectors[0].Settings["token"]; got != "" {
+		t.Errorf("token = %#v, want the empty stand-in", got)
+	}
+}
