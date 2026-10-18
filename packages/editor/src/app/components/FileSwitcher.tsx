@@ -11,7 +11,8 @@ import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 /**
  * The project's config files, in the document bar. The button names the open file;
  * its popover lists every file — picking one opens it, keeping any unsaved edits in
- * the one left — and offers to add a file, to rename the open one, and to remove any.
+ * the one left — and offers to add a file, and to rename or remove any, in its row.
+ * The pencil beside the button renames the open file in the bar itself.
  * Each row counts the connections, env vars and resources its file declares, so the
  * file that owns a piece of config can be found without opening them one by one.
  * Nothing touches the store until Save, which writes the files as a set.
@@ -19,8 +20,8 @@ import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 export default function FileSwitcher() {
   const { state, dispatch } = useEditorState();
   const [open, setOpen] = useState(false);
-  // The name being typed, and whether it names a new file or the open one's new name.
-  const [draft, setDraft] = useState<{ mode: "create" | "rename"; name: string } | null>(null);
+  // The name being typed: a new file's, or the new name of the file at `from`.
+  const [draft, setDraft] = useState<Draft | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const files = projectFiles(state);
   const paths = files.map((f) => f.path);
@@ -56,30 +57,69 @@ export default function FileSwitcher() {
 
   // A typed name without an extension means a YAML file: that is the only kind there is.
   const target = draft ? withExtension(draft.name.trim()) : "";
-  const problem = !draft || target === "" ? null : nameProblem(target, paths, draft.mode === "rename" ? state.activePath : null);
+  const problem = !draft || target === "" ? null : nameProblem(target, paths, draft.mode === "rename" ? draft.from : null);
 
   const commit = () => {
     if (!draft || target === "" || problem) return;
     if (draft.mode === "create") {
       dispatch({ type: EditorActionType.CREATE_FILE, data: { path: target } });
-    } else if (target !== state.activePath) {
-      dispatch({ type: EditorActionType.RENAME_FILE, data: { from: state.activePath, to: target } });
+      close();
+      return;
     }
-    close();
+    // A rename leaves the menu open on the renamed row, like the rest of the list.
+    if (target !== draft.from) {
+      dispatch({ type: EditorActionType.RENAME_FILE, data: { from: draft.from, to: target } });
+    }
+    setDraft(null);
   };
 
+  const nameInput = (label: string, floatingProblem = false) =>
+    draft && (
+      <NameInput
+        label={label}
+        draft={draft}
+        problem={problem}
+        floatingProblem={floatingProblem}
+        onChange={(name) => setDraft({ ...draft, name })}
+        onCommit={commit}
+        onCancel={() => setDraft(null)}
+      />
+    );
+
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-label="Files"
-        onClick={() => (open ? close() : setOpen(true))}
-        className={BAR_BUTTON}
-      >
-        <FileText size={15} />
-        {state.activePath}
-        {paths.length > 1 && <span className={BAR_COUNT}>{paths.length}</span>}
-      </button>
+    <div ref={ref} className="relative flex items-center">
+      {/* A rename begun from the bar edits the name where it is shown; the menu stays shut. */}
+      {!open && draft?.mode === "rename" ? (
+        <div className="flex items-center gap-1.5 px-2 text-[13px]">
+          <FileText size={15} className="shrink-0 text-zinc-600 dark:text-zinc-300" />
+          <div className="w-44">{nameInput("File name", true)}</div>
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            aria-label="Files"
+            onClick={() => (open ? close() : setOpen(true))}
+            className={BAR_BUTTON}
+          >
+            <FileText size={15} />
+            {state.activePath}
+            {paths.length > 1 && <span className={BAR_COUNT}>{paths.length}</span>}
+          </button>
+          {/* While the menu is open its rows carry their own pencils. */}
+          {!open && (
+            <button
+              type="button"
+              aria-label={`Rename ${state.activePath}`}
+              title="Rename"
+              onClick={() => setDraft({ mode: "rename", from: state.activePath, name: state.activePath })}
+              className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-black/[0.05] hover:text-zinc-700 dark:hover:bg-white/[0.08] dark:hover:text-zinc-200"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
+        </>
+      )}
 
       {open && (
         <div className="absolute left-0 top-full z-40 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
@@ -87,6 +127,14 @@ export default function FileSwitcher() {
             {files.map(({ path, document }) => {
               const active = path === state.activePath;
               const counts = declared(document);
+              if (draft?.mode === "rename" && draft.from === path) {
+                return (
+                  <li key={path} className="flex gap-2.5 px-3 py-1.5">
+                    <FileText size={15} className="mt-1.5 shrink-0 text-zinc-500" />
+                    <div className="min-w-0 flex-1">{nameInput("File name")}</div>
+                  </li>
+                );
+              }
               return (
                 <li key={path} className="relative">
                   <button
@@ -119,16 +167,14 @@ export default function FileSwitcher() {
                     )}
                   </button>
                   <span className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-0.5">
-                    {active && (
-                      <button
-                        type="button"
-                        aria-label={`Rename ${path}`}
-                        onClick={() => setDraft({ mode: "rename", name: path })}
-                        className="rounded-full p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-                      >
-                        <Pencil size={13} />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      aria-label={`Rename ${path}`}
+                      onClick={() => setDraft({ mode: "rename", from: path, name: path })}
+                      className="rounded-full p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                    >
+                      <Pencil size={13} />
+                    </button>
                     {/* The last file stays: a project of no files is not one. */}
                     {paths.length > 1 && (
                       <button
@@ -152,24 +198,8 @@ export default function FileSwitcher() {
           </ul>
 
           <div className="border-t border-black/10 dark:border-white/10">
-            {draft ? (
-              <form
-                className="px-3 py-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  commit();
-                }}
-              >
-                <input
-                  autoFocus
-                  aria-label={draft.mode === "create" ? "New file name" : "File name"}
-                  value={draft.name}
-                  placeholder="orders.yaml"
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  className="w-full rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-sky-500 dark:border-white/15"
-                />
-                {problem && <p className="mt-1 text-xs text-rose-500">{problem}</p>}
-              </form>
+            {draft?.mode === "create" ? (
+              <div className="px-3 py-2">{nameInput("New file name")}</div>
             ) : (
               <button
                 type="button"
@@ -184,6 +214,75 @@ export default function FileSwitcher() {
         </div>
       )}
     </div>
+  );
+}
+
+type Draft = { mode: "create"; name: string } | { mode: "rename"; from: string; name: string };
+
+/**
+ * The field a name is typed into. Enter commits it and Escape abandons it — only it,
+ * not the menu around it. A rename also commits when the field loses focus, as a
+ * rename in place does anywhere else; a bad or empty name abandons instead of sticking.
+ */
+function NameInput({
+  label,
+  draft,
+  problem,
+  floatingProblem,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  label: string;
+  draft: Draft;
+  problem: string | null;
+  /** Show the problem over what follows, where there is no room to push it down. */
+  floatingProblem: boolean;
+  onChange: (name: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form
+      className="relative"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onCommit();
+      }}
+    >
+      <input
+        autoFocus
+        aria-label={label}
+        value={draft.name}
+        placeholder="orders.yaml"
+        // The name without its extension is what a rename is usually about.
+        onFocus={(e) => e.currentTarget.setSelectionRange(0, draft.name.replace(/\.ya?ml$/i, "").length)}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== "Escape") return;
+          // The menu closes on an Escape that reaches the document; this one is ours.
+          e.nativeEvent.stopPropagation();
+          onCancel();
+        }}
+        onBlur={() => {
+          if (draft.mode !== "rename") return;
+          if (problem || draft.name.trim() === "") onCancel();
+          else onCommit();
+        }}
+        className="w-full rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-sky-500 dark:border-white/15"
+      />
+      {problem && (
+        <p
+          className={
+            floatingProblem
+              ? "absolute left-0 top-full z-40 mt-1 whitespace-nowrap rounded-md border border-black/10 bg-white px-2 py-1 text-xs text-rose-500 shadow-lg dark:border-white/10 dark:bg-zinc-900"
+              : "mt-1 text-xs text-rose-500"
+          }
+        >
+          {problem}
+        </p>
+      )}
+    </form>
   );
 }
 

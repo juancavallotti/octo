@@ -109,15 +109,54 @@ describe("FileSwitcher", () => {
     await user.type(input, "sales.yaml{Enter}");
     expect(active()).toBe("sales.yaml");
 
-    await user.click(screen.getByRole("button", { name: "Files" }));
+    // The menu stays open on the renamed row.
     await user.click(screen.getByRole("button", { name: "Remove sales.yaml" }));
     expect(paths()).toBe("octo.yaml");
+  });
+
+  it("renames the open file in the bar, without opening the menu", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Rename orders.yaml" }));
+    expect(screen.queryByRole("button", { name: "New file" })).toBeNull();
+    const input = screen.getByLabelText("File name");
+    await user.clear(input);
+    await user.type(input, "octo{Enter}");
+    expect(screen.getByText("A file with that name already exists.")).toBeInTheDocument();
+    await user.clear(input);
+    await user.type(input, "sales{Enter}");
+    expect(active()).toBe("sales.yaml");
+    expect(screen.getByRole("button", { name: "Files" })).toHaveTextContent("sales.yaml");
+  });
+
+  it("renames a file that is not open in its row, and keeps the open one", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "Rename octo.yaml" }));
+    const input = screen.getByLabelText("File name");
+    await user.clear(input);
+    await user.type(input, "service{Enter}");
+    expect(paths()).toBe("orders.yaml,service.yaml");
+    expect(active()).toBe("orders.yaml");
+  });
+
+  it("commits a rename on blur, and abandons it on Escape without closing the menu", async () => {
+    const user = await setup();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "Rename octo.yaml" }));
+    await user.clear(screen.getByLabelText("File name"));
+    await user.type(screen.getByLabelText("File name"), "base");
+    await user.tab();
+    expect(paths()).toBe("base.yaml,orders.yaml");
+
+    await user.click(screen.getByRole("button", { name: "Rename base.yaml" }));
+    await user.type(screen.getByLabelText("File name"), "x{Escape}");
+    expect(paths()).toBe("base.yaml,orders.yaml");
+    expect(screen.getByRole("button", { name: "base.yaml" })).toBeInTheDocument();
   });
 
   it("removes a file that is not open, and keeps the open one", async () => {
     const user = await setup();
     await user.click(screen.getByRole("button", { name: "Files" }));
-    expect(screen.queryByRole("button", { name: "Rename octo.yaml" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Remove octo.yaml" }));
     expect(paths()).toBe("orders.yaml");
     expect(active()).toBe("orders.yaml");
