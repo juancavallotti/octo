@@ -38,14 +38,16 @@ export {
   type PickerItem,
 } from "./app/components/WorkspacePicker";
 export { default as IntegrationTitle } from "./app/components/IntegrationTitle";
-export { default as IntegrationLoader } from "./app/components/IntegrationLoader";
+export { default as ProjectLoader } from "./app/components/ProjectLoader";
 
 // Filesystem capability (load/save)
 export {
   FileSystemProvider,
   useFileSystem,
   type FileSystemCapability,
-  type StoredDocument,
+  type StoredProject,
+  type StoredFile,
+  type ProjectSummary,
   type SaveInput,
   type FolderNode,
   type FolderCapability,
@@ -77,6 +79,7 @@ export type {
   FlowRunRequest,
   FlowRunOutcome,
   BreakOutcome,
+  RuntimeIssue,
 } from "./app/run/transport";
 // The Testing tab's half of the transport contract — a host implements `test()` with
 // these, and maps them onto whatever @octo/run-host returns.
@@ -122,9 +125,20 @@ export {
 // Document model + serialization (handy for apps building loaders/savers)
 export {
   toRunnableYaml,
-  toDefinitionYaml,
+  toFileYaml,
   fromDefinitionYaml,
 } from "./app/model/runConfig";
+export {
+  parseProject,
+  projectView,
+  serializeProject,
+  serializeFile,
+  serviceFile,
+  mergeConfigFiles,
+  isConfigFileName,
+  byPath,
+  type ProjectFile,
+} from "./app/model/project";
 export {
   validateDocument,
   issueMessages,

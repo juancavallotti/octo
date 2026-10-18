@@ -4,7 +4,7 @@ import { EditorStateProvider } from "../state/editorState";
 import {
   FileSystemProvider,
   type FileSystemCapability,
-  type StoredDocument,
+  type StoredProject,
 } from "../providers/FileSystemProvider";
 import { SaveProvider } from "../save/SaveContext";
 import { RunProvider } from "../run/RunContext";
@@ -31,7 +31,7 @@ import AutoLearn from "../run/AutoLearn";
 import { ScopeIndexProvider } from "../scope/ScopeContext";
 import { LayoutProvider } from "../state/layout";
 import { CelTesterProvider } from "../cel/CelTesterStore";
-import IntegrationLoader from "./IntegrationLoader";
+import ProjectLoader from "./ProjectLoader";
 import LogPanel from "./LogPanel";
 import EditorBody from "./EditorBody";
 
@@ -48,7 +48,8 @@ import EditorBody from "./EditorBody";
  * providers.
  */
 export default function EditorRoot({
-  integrationId,
+  projectId,
+  initialFile,
   reloadToken,
   loader,
   header,
@@ -65,11 +66,14 @@ export default function EditorRoot({
   prefs,
   onSaved,
 }: {
-  integrationId?: string;
+  /** The project to load through `fs`. */
+  projectId?: string;
+  /** The project file to open first; defaults to the first that holds a flow. */
+  initialFile?: string;
   /**
-   * Bumped to request a live reload of the open file after an external write: a clean
-   * editor reloads silently, a dirty one shows a reload banner. Omit when there is no
-   * event stream to bump it from.
+   * Bumped to request a live reload of the open project after an external write: a
+   * clean editor reloads silently, a dirty one shows a reload banner. Omit when there
+   * is no event stream to bump it from.
    */
   reloadToken?: string | number;
   loader?: React.ReactNode;
@@ -117,7 +121,7 @@ export default function EditorRoot({
    */
   prefs?: Partial<EditorPrefs> | null;
   /** Called after a save with the stored record (e.g. to update the URL). */
-  onSaved?: (stored: StoredDocument) => void;
+  onSaved?: (stored: StoredProject) => void;
 }) {
   let tree = (
     <>
@@ -126,8 +130,9 @@ export default function EditorRoot({
         {header}
         {/* The loader lives under the header so its external-write reload banner
             appears between the top bar and the canvas. */}
-        <IntegrationLoader
-          integrationId={integrationId}
+        <ProjectLoader
+          projectId={projectId}
+          initialFile={initialFile}
           reloadToken={reloadToken}
         />
 
