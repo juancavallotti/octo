@@ -171,6 +171,11 @@ describe("settings", () => {
     expect(stored({ runtime: "octo" })).toEqual({});
   });
 
+  it("round-trips a docker override and drops one that is not a path", () => {
+    expect(stored({ docker: "/opt/docker" })).toEqual({ docker: "/opt/docker" });
+    expect(stored({ docker: 1 })).toEqual({});
+  });
+
   it("drops a non-boolean update flag", () => {
     expect(stored({ autoUpdateCheck: "yes" })).toEqual({});
   });

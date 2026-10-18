@@ -18,6 +18,7 @@ import {
   type UpdateStatus,
 } from "./update";
 import { setEditorStatus } from "./editorStatus";
+import { refreshDocker } from "./container/status";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
 
@@ -90,10 +91,18 @@ function publishUpdate(status: UpdateStatus): void {
   buildMenu();
 }
 
+/** The docker CLI as the Settings window shows it: the choice, and what it answered. */
+async function dockerView() {
+  const override = settings().docker;
+  const status = await refreshDocker();
+  return { ...status, ...(override ? { override } : {}) };
+}
+
 /** The Settings window's whole view of the world, rebuilt after every change. */
 async function settingsView() {
   return {
     binaries: await Promise.all([binaryStatus("octo"), binaryStatus("dolphin")]),
+    docker: await dockerView(),
     autoUpdateCheck: settings().autoUpdateCheck !== false,
     autoLearn: editorPrefs().autoLearn,
     appVersion: app.getVersion(),
@@ -156,6 +165,16 @@ export function registerIpc(): void {
     const chosen = await pickBinaryFile(`Choose the ${name} binary`);
     // Cancelling is not "use the bundled one", so nothing changes.
     return chosen ? setRuntime(name, chosen) : settingsView();
+  });
+  handleSettings("octo:settings:setDocker", (_event, file) => {
+    if (file !== null && typeof file !== "string") throw new Error("bad path");
+    updateSettings({ docker: file ?? undefined });
+    return settingsView();
+  });
+  handleSettings("octo:settings:pickDocker", async () => {
+    const chosen = await pickBinaryFile("Choose the docker CLI");
+    if (chosen) updateSettings({ docker: chosen });
+    return settingsView();
   });
   handleSettings("octo:settings:autoUpdate", (_event, enabled) => {
     updateSettings({ autoUpdateCheck: enabled !== false });
