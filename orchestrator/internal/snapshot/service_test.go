@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // fakeRepo is a hand-written repository for service unit tests: it records the
@@ -60,6 +61,10 @@ func (f *fakeRepo) Delete(_ context.Context, _ string) error {
 }
 
 func (f *fakeRepo) ListResources(_ context.Context, _ string) ([]Resource, error) {
+	return nil, nil
+}
+
+func (f *fakeRepo) ConfigFiles(_ context.Context, _ string) ([]projectfile.File, error) {
 	return nil, nil
 }
 

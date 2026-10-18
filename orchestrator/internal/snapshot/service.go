@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // maxTagLen bounds a tag; the column is unconstrained varchar so the limit is
@@ -23,6 +24,7 @@ type repository interface {
 	DeploymentsUsingSnapshot(ctx context.Context, integrationID, snapshotID string) ([]string, error)
 	Delete(ctx context.Context, id string) error
 	ListResources(ctx context.Context, snapshotID string) ([]Resource, error)
+	ConfigFiles(ctx context.Context, snapshotID string) ([]projectfile.File, error)
 	ResourceContent(ctx context.Context, snapshotID, kind, name string) ([]byte, bool, error)
 }
 
@@ -96,6 +98,12 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 // ListResources returns the resources frozen under a snapshot.
 func (s *Service) ListResources(ctx context.Context, snapshotID string) ([]Resource, error) {
 	return s.repo.ListResources(ctx, snapshotID)
+}
+
+// ListConfigFiles returns the config files frozen under a snapshot, ordered by
+// path: the files its Definition is merged from.
+func (s *Service) ListConfigFiles(ctx context.Context, snapshotID string) ([]projectfile.File, error) {
+	return s.repo.ConfigFiles(ctx, snapshotID)
 }
 
 // ResourceContent returns the raw bytes of one frozen resource; found is false

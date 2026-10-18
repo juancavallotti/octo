@@ -1,16 +1,20 @@
 // Package bundle is the orchestrator feature module for whole-integration
-// import and export: one zip archive carrying an integration's definition and
-// every resource it refers to, so an integration can leave the platform and come
+// import and export: one zip archive carrying an integration's config files and
+// every resource they refer to, so an integration can leave the platform and come
 // back — or move between installs — as a single file.
 //
-// The archive is laid out the way these files are expected on disk: the definition
-// YAML at the root, each resource at its path-like name relative to it (`.env.dev`,
-// `templates/welcome.tmpl`), so unzipping one produces a runnable directory. What
-// that layout cannot express — the display name, and each resource's kind — lives in
-// a small manifest beside them.
+// The archive is laid out the way these files are expected on disk: each config
+// file at the root under its own name, each resource at its path-like name
+// relative to it (`.env.dev`, `templates/welcome.tmpl`), so unzipping one produces
+// a runnable directory. What that layout cannot express — the display name, and
+// each resource's kind — lives in a small manifest beside them.
 package bundle
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
+)
 
 const (
 	// manifestName is the manifest's entry name in the archive. Dotted so it sorts
@@ -19,10 +23,13 @@ const (
 	manifestName = "octo-bundle.json"
 	// manifestVersion is the format version written into every bundle. A reader
 	// rejects a version it does not know rather than guessing at the layout.
-	manifestVersion = 1
-	// defaultDefinitionName is the definition's entry name when the integration's
-	// name slugifies to nothing, or when the slug collides with a resource.
-	defaultDefinitionName = "integration.yaml"
+	manifestVersion = 2
+	// singleDefinitionVersion is the earlier format, whose manifest names one
+	// definition entry rather than listing config files. It is still read, since
+	// archives written in it are sitting on people's disks.
+	singleDefinitionVersion = 1
+	// fallbackSlug is the slug of a name that slugifies to nothing.
+	fallbackSlug = "integration"
 	// envPrefix is the filename convention that marks an env resource, used only
 	// when reading a manifest-less archive.
 	envPrefix = ".env"
@@ -44,25 +51,27 @@ type File struct {
 	Content string
 }
 
-// Bundle is an integration as a portable unit: its display name, its definition
-// YAML, and its resources. Tag is set only for a bundle exported from a version
+// Bundle is an integration as a portable unit: its display name, its config
+// files, and its resources. Tag is set only for a bundle exported from a version
 // tag, where it records which tag the contents were frozen at; it is descriptive
 // metadata, and importing a tagged bundle produces an ordinary working copy.
 type Bundle struct {
-	Name       string
-	Tag        string
-	Definition string
-	Resources  []File
+	Name      string
+	Tag       string
+	Configs   []projectfile.File
+	Resources []File
 }
 
 // manifest is the archive's metadata entry. It carries what the file layout
 // cannot: the integration's display name, the tag an export was taken from, which
-// entry is the definition, and each resource's kind.
+// entries are config files, and each resource's kind. Definition is read only
+// from a singleDefinitionVersion manifest, where it names the one config file.
 type manifest struct {
 	Version    int             `json:"version"`
 	Name       string          `json:"name"`
 	Tag        string          `json:"tag,omitempty"`
-	Definition string          `json:"definition"`
+	Configs    []string        `json:"configs"`
+	Definition string          `json:"definition,omitempty"`
 	Resources  []manifestEntry `json:"resources"`
 }
 

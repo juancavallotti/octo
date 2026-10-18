@@ -9,6 +9,7 @@ import (
 
 	"github.com/juancavallotti/octo/orchestrator/internal/authz"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 )
 
 // memRepo is an in-memory repository enforcing the (integration_id, tag) unique
@@ -72,6 +73,10 @@ func (m *memRepo) Delete(_ context.Context, id string) error {
 
 func (m *memRepo) ListResources(_ context.Context, snapshotID string) ([]Resource, error) {
 	return m.resources[snapshotID], nil
+}
+
+func (m *memRepo) ConfigFiles(_ context.Context, _ string) ([]projectfile.File, error) {
+	return nil, nil
 }
 
 func (m *memRepo) ResourceContent(_ context.Context, snapshotID, kind, name string) ([]byte, bool, error) {

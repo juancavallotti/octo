@@ -50,9 +50,10 @@ type resourceService interface {
 }
 
 // snapshotService is the slice of the snapshot module this service needs: a tag
-// and the resources frozen under it.
+// and the config files and resources frozen under it.
 type snapshotService interface {
 	Get(ctx context.Context, id string) (snapshot.Snapshot, error)
+	ListConfigFiles(ctx context.Context, snapshotID string) ([]projectfile.File, error)
 	ListResources(ctx context.Context, snapshotID string) ([]snapshot.Resource, error)
 }
 
@@ -78,10 +79,14 @@ func NewService(integrations integrationService, resources resourceService, snap
 	return &Service{integrations: integrations, resources: resources, snapshots: snapshots}
 }
 
-// Export assembles an integration's working copy — its definition plus every live
-// resource — into one bundle.
+// Export assembles an integration's working copy — every config file plus every
+// live resource — into one bundle.
 func (s *Service) Export(ctx context.Context, integrationID string) (Bundle, error) {
 	it, err := s.integrations.Get(ctx, integrationID)
+	if err != nil {
+		return Bundle{}, err
+	}
+	configs, err := s.configFiles(ctx, integrationID)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -89,14 +94,14 @@ func (s *Service) Export(ctx context.Context, integrationID string) (Bundle, err
 	if err != nil {
 		return Bundle{}, err
 	}
-	out := Bundle{Name: it.Name, Definition: it.Definition}
+	out := Bundle{Name: it.Name, Configs: configs}
 	for _, r := range items {
 		out.Resources = append(out.Resources, File{Kind: r.Kind, Name: r.Name, Content: r.Content})
 	}
 	return out, nil
 }
 
-// ExportSnapshot assembles the bundle a version tag froze: that tag's definition
+// ExportSnapshot assembles the bundle a version tag froze: that tag's config files
 // and its frozen resources, named after the integration it belongs to.
 //
 // The integration is read only for its display name — the contents come entirely
@@ -111,18 +116,23 @@ func (s *Service) ExportSnapshot(ctx context.Context, snapshotID string) (Bundle
 	if err != nil {
 		return Bundle{}, err
 	}
+	configs, err := s.snapshots.ListConfigFiles(ctx, snapshotID)
+	if err != nil {
+		return Bundle{}, err
+	}
 	items, err := s.snapshots.ListResources(ctx, snapshotID)
 	if err != nil {
 		return Bundle{}, err
 	}
-	out := Bundle{Name: it.Name, Tag: snap.Tag, Definition: snap.Definition}
+	out := Bundle{Name: it.Name, Tag: snap.Tag, Configs: configs}
 	for _, r := range items {
 		out.Resources = append(out.Resources, File{Kind: r.Kind, Name: r.Name, Content: r.Content})
 	}
 	return out, nil
 }
 
-// Import creates a new integration from an archive, with its resources.
+// Import creates a new integration from an archive, with its config files and
+// resources.
 //
 // fallback names the import when the archive does not (a manifest-less zip); the
 // handler passes the uploaded filename's stem. A name already in use is suffixed
@@ -134,20 +144,25 @@ func (s *Service) Import(ctx context.Context, data []byte, fallback, actorID str
 		return integration.Integration{}, err
 	}
 
-	created, err := s.createUniquelyNamed(ctx, importName(b.Name, fallback), b.Definition, actorID)
+	created, err := s.createUniquelyNamed(ctx, importName(b.Name, fallback), actorID)
 	if err != nil {
 		return integration.Integration{}, err
 	}
+	// A half-imported integration is worse than none: it looks like the bundle but
+	// silently misses a file the config refers to. Every failure from here on rolls
+	// the create back, so the user retries a failed import rather than debugging a
+	// broken one.
+	if err := s.integrations.ReplaceFiles(ctx, created.ID, b.Configs, actorID); err != nil {
+		s.discard(ctx, created.ID)
+		return integration.Integration{}, fmt.Errorf("importing config files: %w", err)
+	}
 	for _, r := range b.Resources {
 		if _, err := s.resources.Create(ctx, created.ID, r.Kind, r.Name, r.Content, actorID); err != nil {
-			// A half-imported integration is worse than none: it looks like the bundle
-			// but silently misses a file the definition refers to. Roll the create back
-			// so the user retries a failed import rather than debugging a broken one.
 			s.discard(ctx, created.ID)
 			return integration.Integration{}, fmt.Errorf("importing resource %q: %w", r.Name, err)
 		}
 	}
-	return created, nil
+	return s.integrations.Get(ctx, created.ID)
 }
 
 // Replace overwrites an existing integration's config files and resource set from
@@ -184,8 +199,7 @@ func (s *Service) Replace(ctx context.Context, integrationID string, data []byte
 		return integration.Integration{}, err
 	}
 
-	configs := []projectfile.File{{Path: integration.DefaultConfigPath, Content: b.Definition}}
-	if err := s.integrations.ReplaceFiles(ctx, integrationID, configs, actorID); err != nil {
+	if err := s.integrations.ReplaceFiles(ctx, integrationID, b.Configs, actorID); err != nil {
 		return integration.Integration{}, err
 	}
 	if err := s.reconcileResources(ctx, integrationID, b.Resources, actorID); err != nil {
@@ -264,12 +278,12 @@ func (s *Service) reconcileResources(ctx context.Context, integrationID string, 
 	return nil
 }
 
-// createUniquelyNamed creates the integration, suffixing the name until it is
-// free. Only a name conflict is retried; every other failure is the caller's.
-func (s *Service) createUniquelyNamed(ctx context.Context, name, definition, actorID string) (integration.Integration, error) {
+// createUniquelyNamed creates an empty integration, suffixing the name until it
+// is free. Only a name conflict is retried; every other failure is the caller's.
+func (s *Service) createUniquelyNamed(ctx context.Context, name, actorID string) (integration.Integration, error) {
 	candidate := name
 	for attempt := 2; ; attempt++ {
-		created, err := s.integrations.Create(ctx, candidate, definition, actorID)
+		created, err := s.integrations.Create(ctx, candidate, "", actorID)
 		if err == nil {
 			return created, nil
 		}

@@ -103,24 +103,43 @@ func (r *Repo) Create(ctx context.Context, integrationID, tag string) (Snapshot,
 
 // frozenDefinition merges a snapshot's frozen config files.
 func frozenDefinition(ctx context.Context, tx pgx.Tx, snapshotID string) (string, error) {
-	rows, err := tx.Query(ctx,
+	files, err := frozenConfigFiles(ctx, tx, snapshotID)
+	if err != nil {
+		return "", err
+	}
+	return projectfile.Merge(files)
+}
+
+// ConfigFiles returns the config files frozen under a snapshot, ordered by path.
+func (r *Repo) ConfigFiles(ctx context.Context, snapshotID string) ([]projectfile.File, error) {
+	files, err := frozenConfigFiles(ctx, r.pool, snapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot repo: config files: %w", err)
+	}
+	return files, nil
+}
+
+// querier is what both a pool and a transaction offer for a read.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// frozenConfigFiles reads a snapshot's frozen config files, ordered by path.
+func frozenConfigFiles(ctx context.Context, q querier, snapshotID string) ([]projectfile.File, error) {
+	rows, err := q.Query(ctx,
 		`SELECT path, content FROM integration_file_snapshots
 		  WHERE snapshot_id = $1 AND role = $2
 		  ORDER BY path`,
 		snapshotID, string(projectfile.RoleConfig),
 	)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	files, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (projectfile.File, error) {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (projectfile.File, error) {
 		var f projectfile.File
 		err := row.Scan(&f.Path, &f.Content)
 		return f, err
 	})
-	if err != nil {
-		return "", err
-	}
-	return projectfile.Merge(files)
 }
 
 // Get returns the snapshot by id, or ErrNotFound if it does not exist.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -144,6 +145,7 @@ func (f *fakeResources) Delete(_ context.Context, integrationID, id string) erro
 // fakeSnapshots is an in-memory stand-in for the snapshot service.
 type fakeSnapshots struct {
 	snaps     map[string]snapshot.Snapshot
+	configs   map[string][]projectfile.File
 	resources map[string][]snapshot.Resource
 }
 
@@ -155,6 +157,10 @@ func (f *fakeSnapshots) Get(_ context.Context, id string) (snapshot.Snapshot, er
 	return s, nil
 }
 
+func (f *fakeSnapshots) ListConfigFiles(_ context.Context, snapshotID string) ([]projectfile.File, error) {
+	return f.configs[snapshotID], nil
+}
+
 func (f *fakeSnapshots) ListResources(_ context.Context, snapshotID string) ([]snapshot.Resource, error) {
 	return f.resources[snapshotID], nil
 }
@@ -162,7 +168,11 @@ func (f *fakeSnapshots) ListResources(_ context.Context, snapshotID string) ([]s
 // newService wires the three fakes into a Service, returning all of them.
 func newService() (*Service, *fakeIntegrations, *fakeResources, *fakeSnapshots) {
 	ints, res := newFakeIntegrations(), newFakeResources()
-	snaps := &fakeSnapshots{snaps: map[string]snapshot.Snapshot{}, resources: map[string][]snapshot.Resource{}}
+	snaps := &fakeSnapshots{
+		snaps:     map[string]snapshot.Snapshot{},
+		configs:   map[string][]projectfile.File{},
+		resources: map[string][]snapshot.Resource{},
+	}
 	return NewService(ints, res, snaps), ints, res, snaps
 }
 
@@ -178,10 +188,16 @@ func namesOf(t *testing.T, res *fakeResources, integrationID string) []string {
 	return out
 }
 
-func TestExportCarriesTheDefinitionAndEveryResource(t *testing.T) {
+// Each config file is exported at its own path rather than merged, so the
+// project comes back the way it was split.
+func TestExportCarriesEveryConfigFileAndEveryResource(t *testing.T) {
 	svc, ints, res, _ := newService()
 	ctx := context.Background()
-	it, _ := ints.Create(ctx, "Order Sync", "name: order-sync\n", "")
+	it, _ := ints.Create(ctx, "Order Sync", "", "")
+	files := configs("octo.yaml", "service:\n  name: order-sync\n", "orders.yaml", "flows: []\n")
+	if err := ints.ReplaceFiles(ctx, it.ID, files, ""); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
 	if _, err := res.Create(ctx, it.ID, "env", ".env.dev", "A=1\n", ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -190,7 +206,7 @@ func TestExportCarriesTheDefinitionAndEveryResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
-	if b.Name != "Order Sync" || b.Definition != "name: order-sync\n" {
+	if b.Name != "Order Sync" || !slices.Equal(b.Configs, files) {
 		t.Errorf("bundle = %+v", b)
 	}
 	if len(b.Resources) != 1 || b.Resources[0].Name != ".env.dev" || b.Resources[0].Content != "A=1\n" {
@@ -208,13 +224,14 @@ func TestExportSnapshotUsesTheFrozenContents(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	snaps.snaps["s1"] = snapshot.Snapshot{ID: "s1", IntegrationID: it.ID, Tag: "v1", Definition: "definition: frozen\n"}
+	snaps.configs["s1"] = configs("integration.yaml", "definition: frozen\n")
 	snaps.resources["s1"] = []snapshot.Resource{{Kind: "env", Name: ".env.dev", Content: "FROZEN=1\n"}}
 
 	b, err := svc.ExportSnapshot(ctx, "s1")
 	if err != nil {
 		t.Fatalf("ExportSnapshot: %v", err)
 	}
-	if b.Name != "Order Sync" || b.Tag != "v1" || b.Definition != "definition: frozen\n" {
+	if b.Name != "Order Sync" || b.Tag != "v1" || !slices.Equal(b.Configs, snaps.configs["s1"]) {
 		t.Errorf("bundle = %+v, want the frozen definition under the integration's name", b)
 	}
 	if len(b.Resources) != 1 || b.Resources[0].Content != "FROZEN=1\n" {
@@ -226,8 +243,8 @@ func TestImportCreatesTheIntegrationAndItsResources(t *testing.T) {
 	svc, _, res, _ := newService()
 	ctx := context.Background()
 	data, err := Write(Bundle{
-		Name:       "Order Sync",
-		Definition: "name: order-sync\n",
+		Name:    "Order Sync",
+		Configs: configs("integration.yaml", "name: order-sync\n"),
 		Resources: []File{
 			{Kind: kindEnv, Name: ".env.dev", Content: "A=1\n"},
 			{Kind: kindTemplate, Name: "templates/a.tmpl", Content: "hi\n"},
@@ -280,7 +297,7 @@ func TestImportNaming(t *testing.T) {
 func TestImportSuffixesANameAlreadyInUse(t *testing.T) {
 	svc, _, _, _ := newService()
 	ctx := context.Background()
-	data, err := Write(Bundle{Name: "Order Sync", Definition: "a: b\n"})
+	data, err := Write(Bundle{Name: "Order Sync", Configs: configs("integration.yaml", "a: b\n")})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -304,9 +321,9 @@ func TestImportRollsBackWhenAResourceFails(t *testing.T) {
 	ctx := context.Background()
 	res.failCreate = errors.New("storage is down")
 	data, err := Write(Bundle{
-		Name:       "Order Sync",
-		Definition: "a: b\n",
-		Resources:  []File{{Kind: kindEnv, Name: ".env.dev", Content: "A=1\n"}},
+		Name:      "Order Sync",
+		Configs:   configs("integration.yaml", "a: b\n"),
+		Resources: []File{{Kind: kindEnv, Name: ".env.dev", Content: "A=1\n"}},
 	})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -338,8 +355,8 @@ func TestReplaceReconcilesTheResourceSet(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	data, err := Write(Bundle{
-		Name:       "A Different Name",
-		Definition: "definition: new\n",
+		Name:    "A Different Name",
+		Configs: configs("integration.yaml", "definition: new\n"),
 		Resources: []File{
 			{Kind: kindEnv, Name: ".env.dev", Content: "NEW=1\n"},
 			{Kind: kindTemplate, Name: "templates/added.tmpl", Content: "hello\n"},
@@ -379,7 +396,7 @@ func TestReplaceReconcilesTheResourceSet(t *testing.T) {
 
 func TestReplaceRejectsAnUnknownIntegration(t *testing.T) {
 	svc, _, _, _ := newService()
-	data, err := Write(Bundle{Name: "x", Definition: "a: b\n"})
+	data, err := Write(Bundle{Name: "x", Configs: configs("integration.yaml", "a: b\n")})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -399,9 +416,9 @@ func TestReplaceRestoresThePreviousStateWhenReconcileFails(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	data, err := Write(Bundle{
-		Name:       "Order Sync",
-		Definition: "definition: new\n",
-		Resources:  []File{{Kind: kindTemplate, Name: "templates/added.tmpl", Content: "hello\n"}},
+		Name:      "Order Sync",
+		Configs:   configs("integration.yaml", "definition: new\n"),
+		Resources: []File{{Kind: kindTemplate, Name: "templates/added.tmpl", Content: "hello\n"}},
 	})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -430,9 +447,9 @@ func TestImportRollsBackEvenWhenTheRequestContextIsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	res.failCreate = context.Canceled
 	data, err := Write(Bundle{
-		Name:       "Order Sync",
-		Definition: "a: b\n",
-		Resources:  []File{{Kind: kindEnv, Name: ".env.dev", Content: "A=1\n"}},
+		Name:      "Order Sync",
+		Configs:   configs("integration.yaml", "a: b\n"),
+		Resources: []File{{Kind: kindEnv, Name: ".env.dev", Content: "A=1\n"}},
 	})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -444,6 +461,79 @@ func TestImportRollsBackEvenWhenTheRequestContextIsCancelled(t *testing.T) {
 		t.Fatal("Import succeeded, want the failure")
 	}
 	cancel()
+	if len(ints.items) != 0 {
+		t.Errorf("integrations = %+v, want the failed import rolled back", ints.items)
+	}
+}
+
+// The bundle's config files replace the integration's as a set: a file it does
+// not carry is deleted, and a flow may move between files.
+func TestReplaceSwapsTheWholeConfigSet(t *testing.T) {
+	svc, ints, _, _ := newService()
+	ctx := context.Background()
+	it, _ := ints.Create(ctx, "Order Sync", "", "")
+	if err := ints.ReplaceFiles(ctx, it.ID, configs(
+		"a.yaml", "flows:\n  - name: intake\n",
+		"b.yaml", "flows:\n  - name: dispatch\n",
+	), ""); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	want := configs(
+		"a.yaml", "flows:\n  - name: dispatch\n",
+		"c.yaml", "flows:\n  - name: intake\n",
+	)
+	data, err := Write(Bundle{Name: "Order Sync", Configs: want})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if _, err := svc.Replace(ctx, it.ID, data, ""); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	if got := ints.files[it.ID]; !slices.Equal(got, want) {
+		t.Errorf("config files = %+v, want %+v", got, want)
+	}
+}
+
+// A failed replace puts the config files back at their own paths, rather than
+// collapsing the project into its merged definition.
+func TestReplaceRestoresEveryConfigFile(t *testing.T) {
+	svc, ints, res, _ := newService()
+	ctx := context.Background()
+	it, _ := ints.Create(ctx, "Order Sync", "", "")
+	previous := configs("a.yaml", "flows:\n  - name: intake\n", "b.yaml", "flows:\n  - name: dispatch\n")
+	if err := ints.ReplaceFiles(ctx, it.ID, previous, ""); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	data, err := Write(Bundle{
+		Name:      "Order Sync",
+		Configs:   configs("integration.yaml", "flows: []\n"),
+		Resources: []File{{Kind: kindTemplate, Name: "templates/added.tmpl", Content: "hello\n"}},
+	})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	res.failCreate = errors.New("storage is down")
+
+	if _, err := svc.Replace(ctx, it.ID, data, ""); err == nil {
+		t.Fatal("Replace succeeded, want the storage failure")
+	}
+	if got := ints.files[it.ID]; !slices.Equal(got, previous) {
+		t.Errorf("config files = %+v, want %+v restored", got, previous)
+	}
+}
+
+// Config files that cannot be one config leave nothing behind, the same as a
+// resource that fails to store.
+func TestImportRollsBackWhenTheConfigFilesDoNotMerge(t *testing.T) {
+	svc, ints, _, _ := newService()
+	data := zipOf(t, map[string]string{
+		"a.yaml": "flows:\n  - name: intake\n",
+		"b.yaml": "flows:\n  - name: intake\n",
+	})
+	if _, err := svc.Import(context.Background(), data, "Dupes", ""); err == nil {
+		t.Fatal("Import succeeded, want the merge failure")
+	}
 	if len(ints.items) != 0 {
 		t.Errorf("integrations = %+v, want the failed import rolled back", ints.items)
 	}
