@@ -43,15 +43,20 @@ export default function ConsoleTabs({
   counts,
   /** Appended to the Logs label while a runner is live. */
   running,
+  /** The tabs that can show anything right now; all of them when absent. */
+  only,
 }: {
   active: ConsoleTab;
   onSelect(tab: ConsoleTab): void;
   counts?: Partial<Record<ConsoleTab, number>>;
   running?: boolean;
+  only?: ConsoleTab[];
 }) {
   // Only a host with somewhere to run a shell supplies one; without it there is no tab.
   const hasTerminal = useTerminal() !== null;
-  const tabs = hasTerminal ? TABS : TABS.filter((t) => t.key !== "terminal");
+  const tabs = TABS.filter(
+    (t) => (t.key !== "terminal" || hasTerminal) && (!only || only.includes(t.key)),
+  );
   return (
     <div className="flex items-center gap-0.5">
       {tabs.map(({ key, label, icon: Icon }) => {

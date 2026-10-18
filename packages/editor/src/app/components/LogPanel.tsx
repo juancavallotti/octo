@@ -116,10 +116,15 @@ export default function LogPanel({
   // host can provide saving and no way to run. Without this the whole panel goes
   // with the controller and a failed save is silent, since the button that
   // triggered it stopped showing the reason when it moved here.
-  if (!run || !run.available) {
+  const runner = run?.available ? run : null;
+  if (!runner && !terminal) {
     return saveError ? <SaveFailure error={saveError} /> : null;
   }
-  const { version, testUrl, clearLogs } = run;
+  // A terminal does not need the runner, and is how a user finds out why a runtime
+  // will not run; without one, the panel is the terminal alone.
+  const shown: ConsoleTab = runner ? tab : "terminal";
+  const version = runner?.version;
+  const testUrl = runner?.testUrl;
 
   // The last run's failure, shown under the validation issues: a document can be
   // perfectly valid and still fail the moment it actually runs.
@@ -186,7 +191,8 @@ export default function LogPanel({
           className={`h-2 w-2 rounded-full ${running ? "bg-emerald-500" : "bg-zinc-400"}`}
         />
         <ConsoleTabs
-          active={tab}
+          active={shown}
+          only={runner ? undefined : ["terminal"]}
           running={running}
           counts={{
             problems: issues.length + (saveError ? 1 : 0),
@@ -204,7 +210,7 @@ export default function LogPanel({
             — {version}
           </span>
         )}
-        {tab === "logs" && running && testUrl && (
+        {shown === "logs" && running && testUrl && (
           <>
             <a
               href={testUrl}
@@ -251,23 +257,23 @@ export default function LogPanel({
           >
             {actions}
           </div>
-          {(tab === "logs" ||
-            tab === "results" ||
-            tab === "tests" ||
-            tab === "cel" ||
-            (tab === "terminal" && terminal)) && (
+          {(shown === "logs" ||
+            shown === "results" ||
+            shown === "tests" ||
+            shown === "cel" ||
+            (shown === "terminal" && terminal)) && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (tab === "logs") clearLogs();
-                else if (tab === "tests") suiteRun?.clear();
-                else if (tab === "cel") cel.clear();
-                else if (tab === "terminal") terminal?.clear();
+                if (shown === "logs") runner?.clearLogs();
+                else if (shown === "tests") suiteRun?.clear();
+                else if (shown === "cel") cel.clear();
+                else if (shown === "terminal") terminal?.clear();
                 else flowRun?.clear();
               }}
-              aria-label={CLEAR_LABEL[tab] ?? "Clear"}
-              title={CLEAR_LABEL[tab] ?? "Clear"}
+              aria-label={CLEAR_LABEL[shown] ?? "Clear"}
+              title={CLEAR_LABEL[shown] ?? "Clear"}
               className="rounded p-1 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -292,17 +298,19 @@ export default function LogPanel({
         </div>
       </div>
 
-      {!collapsed && tab === "problems" && (
+      {/* Problems, where a failed save is reported, is not offered without a runner. */}
+      {!runner && saveError && <SaveFailure error={saveError} />}
+      {!collapsed && shown === "problems" && (
         <ProblemsTab issues={issues} runErrors={runErrors} />
       )}
-      {!collapsed && tab === "logs" && (
+      {!collapsed && shown === "logs" && (
         <LogsTab logs={logs} running={running} />
       )}
-      {!collapsed && tab === "results" && <ResultsTab results={results} />}
-      {!collapsed && tab === "tests" && <TestsTab />}
-      {!collapsed && tab === "cel" && <CelTester />}
-      {!collapsed && tab === "env" && <DevEnvPanel />}
-      {!collapsed && tab === "terminal" && terminal && <TerminalTab />}
+      {!collapsed && shown === "results" && <ResultsTab results={results} />}
+      {!collapsed && shown === "tests" && <TestsTab />}
+      {!collapsed && shown === "cel" && <CelTester />}
+      {!collapsed && shown === "env" && <DevEnvPanel />}
+      {!collapsed && shown === "terminal" && terminal && <TerminalTab />}
     </section>
   );
 }

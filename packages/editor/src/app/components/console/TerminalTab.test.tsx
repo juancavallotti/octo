@@ -7,8 +7,37 @@ import {
   type TerminalSession,
   type TerminalTransport,
 } from "../../providers/TerminalProvider";
+import { EditorStateProvider } from "../../state/editorState";
+import { CelTesterProvider } from "../../cel/CelTesterStore";
+import { RunProvider } from "../../run/RunContext";
+import type { RunTransport } from "../../run/transport";
+import LogPanel from "../LogPanel";
 import ConsoleTabs from "./ConsoleTabs";
 import TerminalTab from "./TerminalTab";
+
+/** A runner whose binary will not run: the console has nothing of its own to show. */
+const notRunning = {
+  available: false,
+  running: false,
+  version: null,
+  testAvailable: false,
+  testVersion: null,
+  testUrl: null,
+  exposable: false,
+  reloadsOnSave: false,
+};
+const unavailable: RunTransport = {
+  status: async () => notRunning,
+  start: async () => notRunning,
+  stop: async () => {},
+  sync: async () => {},
+  invoke: async () => ({ ok: true, dropped: false, timedOut: false, output: "", logs: [] }),
+  evalCel: async () => ({ ok: true }),
+  subscribeLogs: () => () => {},
+  test: async () => {
+    throw new Error("not available");
+  },
+};
 
 // xterm draws on a canvas jsdom does not have; the tab's behaviour is in which
 // sessions exist, not in how a screen paints.
@@ -141,6 +170,25 @@ describe("Terminal tab", () => {
     unmount();
     await act(async () => release());
     await vi.waitFor(() => expect(sessions[0]?.killed).toBe(true));
+  });
+
+  it("stays in the console when the runner cannot run, alone", async () => {
+    const { transport } = fakeTransport();
+    render(
+      <EditorStateProvider>
+        <ConsoleProvider>
+          <CelTesterProvider>
+            <RunProvider transport={unavailable}>
+              <TerminalProvider value={transport}>
+                <LogPanel />
+              </TerminalProvider>
+            </RunProvider>
+          </CelTesterProvider>
+        </ConsoleProvider>
+      </EditorStateProvider>,
+    );
+    expect(await screen.findByRole("button", { name: "Terminal" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Logs" })).toBeNull();
   });
 
   it("kills every shell when the editor goes away", async () => {
