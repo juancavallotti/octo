@@ -281,7 +281,7 @@ func runGeneration(
 
 	select {
 	case <-ctx.Done():
-		<-done
+		awaitStopped(done)
 		settle(services.StateStopped)
 		return false, nil
 	case <-changed:
@@ -291,7 +291,7 @@ func runGeneration(
 		// once the generation has fully stopped; this write is the prompt one.
 		health.SetState(services.StateReloading)
 		cancel()
-		<-done
+		awaitStopped(done)
 		settle(services.StateReloading)
 		return true, nil
 	case runErr := <-done:
