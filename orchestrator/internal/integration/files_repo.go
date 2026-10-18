@@ -46,10 +46,27 @@ func (r *Repo) ConfigFiles(ctx context.Context, integrationID string) ([]ConfigF
 // PutConfigFile writes one config file, creating it when path is new, and stamps
 // the integration as edited by actorID ("" when unknown). Returns ErrNotFound
 // when the integration does not exist.
-func (r *Repo) PutConfigFile(ctx context.Context, integrationID, path, content, actorID string) (ConfigFile, error) {
+//
+// check, when not nil, is handed the integration's config files as they stand
+// before the write and refuses it by returning an error. It runs inside the write's
+// transaction, after the integration's row is locked, so it judges the files the
+// write actually lands on: a concurrent write to another file waits rather than
+// slipping in between the check and the write.
+func (r *Repo) PutConfigFile(
+	ctx context.Context, integrationID, path, content, actorID string, check func([]ConfigFile) error,
+) (ConfigFile, error) {
 	ret, err := inTx(ctx, r.pool, func(tx pgx.Tx) (ConfigFile, error) {
 		if err := touch(ctx, tx, integrationID, actorID); err != nil {
 			return ConfigFile{}, err
+		}
+		if check != nil {
+			current, err := configFilesIn(ctx, tx, integrationID)
+			if err != nil {
+				return ConfigFile{}, err
+			}
+			if err := check(current); err != nil {
+				return ConfigFile{}, err
+			}
 		}
 		return upsertConfigFile(ctx, tx, integrationID, path, content, actorID)
 	})
@@ -162,10 +179,25 @@ func upsertConfigFile(ctx context.Context, tx pgx.Tx, integrationID, path, conte
 	return ret, nil
 }
 
+// configFilesIn reads an integration's config files ordered by path, inside tx.
+func configFilesIn(ctx context.Context, tx pgx.Tx, integrationID string) ([]ConfigFile, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT path, content, last_updated FROM integration_files
+		  WHERE integration_id = $1 AND role = $2
+		  ORDER BY path`,
+		integrationID, configRole,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[ConfigFile])
+}
+
 // wrapFileErr adds the operation to an unexpected error, passing the domain
 // errors through untouched so callers can match on them.
 func wrapFileErr(op string, err error) error {
-	if err == nil || errors.Is(err, ErrNotFound) || errors.Is(err, ErrFileNotFound) {
+	if err == nil || errors.Is(err, ErrNotFound) || errors.Is(err, ErrFileNotFound) ||
+		errors.Is(err, ErrFilesConflict) {
 		return err
 	}
 	return fmt.Errorf("integration repo: %s: %w", op, err)

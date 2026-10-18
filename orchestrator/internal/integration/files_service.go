@@ -45,14 +45,9 @@ func (s *Service) PutFile(ctx context.Context, integrationID, path, content, act
 	if err := validatePath(path); err != nil {
 		return ConfigFile{}, err
 	}
-	current, err := s.repo.ConfigFiles(ctx, integrationID)
-	if err != nil {
-		return ConfigFile{}, err
-	}
-	if err := ensureMerges(withFile(current, path, content)); err != nil {
-		return ConfigFile{}, err
-	}
-	written, err := s.repo.PutConfigFile(ctx, integrationID, path, content, actorID)
+	// Checked by the repository inside the write, against the files it lands on.
+	merges := func(current []ConfigFile) error { return ensureMerges(withFile(current, path, content)) }
+	written, err := s.repo.PutConfigFile(ctx, integrationID, path, content, actorID, merges)
 	if err != nil {
 		return ConfigFile{}, err
 	}

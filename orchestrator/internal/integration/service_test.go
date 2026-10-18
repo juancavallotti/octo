@@ -68,7 +68,9 @@ func (f *fakeRepo) ConfigFiles(_ context.Context, _ string) ([]ConfigFile, error
 	return nil, f.retErr
 }
 
-func (f *fakeRepo) PutConfigFile(_ context.Context, _, path, content, _ string) (ConfigFile, error) {
+func (f *fakeRepo) PutConfigFile(
+	_ context.Context, _, path, content, _ string, _ func([]ConfigFile) error,
+) (ConfigFile, error) {
 	f.called = true
 	return ConfigFile{Path: path, Content: content}, f.retErr
 }

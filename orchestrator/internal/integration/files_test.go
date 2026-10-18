@@ -25,9 +25,17 @@ func (m *memRepo) ConfigFiles(_ context.Context, integrationID string) ([]Config
 	return ret, nil
 }
 
-func (m *memRepo) PutConfigFile(_ context.Context, integrationID, path, content, _ string) (ConfigFile, error) {
+func (m *memRepo) PutConfigFile(
+	ctx context.Context, integrationID, path, content, _ string, check func([]ConfigFile) error,
+) (ConfigFile, error) {
 	if _, ok := m.items[integrationID]; !ok {
 		return ConfigFile{}, ErrNotFound
+	}
+	if check != nil {
+		current, _ := m.ConfigFiles(ctx, integrationID)
+		if err := check(current); err != nil {
+			return ConfigFile{}, err
+		}
 	}
 	if m.files[integrationID] == nil {
 		m.files[integrationID] = map[string]ConfigFile{}
@@ -147,7 +155,7 @@ func TestHandlerRefusesAFileThatDoesNotMerge(t *testing.T) {
 			mux, repo := newTestHandler(t)
 			seeded, _ := repo.Create(context.Background(), "conflicts", "", "")
 			_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "a.yaml",
-				"service:\n  name: orders\nflows:\n  - name: intake\n", "")
+				"service:\n  name: orders\nflows:\n  - name: intake\n", "", nil)
 
 			body, _ := json.Marshal(fileRequest{Content: tt.content})
 			rec := do(t, mux, http.MethodPut, fileURL(seeded.ID, "b.yaml"), string(body))
@@ -165,8 +173,8 @@ func TestHandlerRefusesAFileThatDoesNotMerge(t *testing.T) {
 func TestHandlerRewritesAFileInPlace(t *testing.T) {
 	mux, repo := newTestHandler(t)
 	seeded, _ := repo.Create(context.Background(), "rewrite", "", "")
-	_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "")
-	_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "b.yaml", "flows:\n  - name: dispatch\n", "")
+	_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "", nil)
+	_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "b.yaml", "flows:\n  - name: dispatch\n", "", nil)
 
 	rec := do(t, mux, http.MethodPut, fileURL(seeded.ID, "a.yaml"),
 		`{"content":"flows:\n  - name: intake\n  - name: audit\n"}`)
@@ -212,8 +220,8 @@ func TestReplaceFilesMovesAFlowBetweenFiles(t *testing.T) {
 	svc := NewService(repo)
 	ctx := context.Background()
 	seeded, _ := repo.Create(ctx, "move", "", "")
-	_, _ = repo.PutConfigFile(ctx, seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "")
-	_, _ = repo.PutConfigFile(ctx, seeded.ID, "stale.yaml", "flows: []\n", "")
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "", nil)
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "stale.yaml", "flows: []\n", "", nil)
 
 	err := svc.ReplaceFiles(ctx, seeded.ID, []projectfile.File{
 		{Path: "a.yaml", Content: "flows: []\n"},
@@ -259,8 +267,8 @@ func TestHandlerReplacesTheWholeFileSet(t *testing.T) {
 	mux, repo := newTestHandler(t)
 	ctx := context.Background()
 	seeded, _ := repo.Create(ctx, "replace-set", "", "")
-	_, _ = repo.PutConfigFile(ctx, seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "")
-	_, _ = repo.PutConfigFile(ctx, seeded.ID, "stale.yaml", "flows: []\n", "")
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "a.yaml", "flows:\n  - name: intake\n", "", nil)
+	_, _ = repo.PutConfigFile(ctx, seeded.ID, "stale.yaml", "flows: []\n", "", nil)
 
 	rec := do(t, mux, http.MethodPut, "/integrations/"+seeded.ID+"/files", `{"files":[
 		{"path":"a.yaml","content":"flows: []\n"},
@@ -283,7 +291,7 @@ func TestHandlerReplacesTheWholeFileSet(t *testing.T) {
 func TestHandlerReplaceFilesErrors(t *testing.T) {
 	mux, repo := newTestHandler(t)
 	seeded, _ := repo.Create(context.Background(), "replace-errors", "", "")
-	_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "a.yaml", "flows: []\n", "")
+	_, _ = repo.PutConfigFile(context.Background(), seeded.ID, "a.yaml", "flows: []\n", "", nil)
 	target := "/integrations/" + seeded.ID + "/files"
 
 	tests := []struct {

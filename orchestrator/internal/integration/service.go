@@ -26,7 +26,9 @@ type repository interface {
 	NameExists(ctx context.Context, name, excludeID string) (bool, error)
 
 	ConfigFiles(ctx context.Context, integrationID string) ([]ConfigFile, error)
-	PutConfigFile(ctx context.Context, integrationID, path, content, actorID string) (ConfigFile, error)
+	PutConfigFile(
+		ctx context.Context, integrationID, path, content, actorID string, check func([]ConfigFile) error,
+	) (ConfigFile, error)
 	ReplaceConfigFiles(ctx context.Context, integrationID string, files []projectfile.File, actorID string) error
 	DeleteConfigFile(ctx context.Context, integrationID, path, actorID string) error
 }
