@@ -3,6 +3,8 @@ import path from "node:path";
 import { logPath } from "./log";
 import { current } from "./server";
 import { openSettings } from "./settingsWindow";
+import { openContainer } from "./containerWindow";
+import { dockerStatus } from "./container/status";
 import { checkForUpdates, restartToUpdate, updateStatus } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
 import { editorStatus, sendCommand, setEditorStatus } from "./editorStatus";
@@ -62,6 +64,7 @@ export function buildMenu(): void {
       vaultOpen: openVault() !== null,
       mcpAvailable: mcpUrl() !== null,
       update: { label: update.label },
+      docker: dockerStatus().state,
     },
     {
       command: sendCommand,
@@ -71,6 +74,7 @@ export function buildMenu(): void {
       revealVault,
       copyMcpUrl,
       openSettings,
+      openContainer,
       update: update.click,
       openDocs: () => void shell.openExternal("https://octo.juancavallotti.com"),
       showLog: () => shell.showItemInFolder(logPath()),

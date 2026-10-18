@@ -56,7 +56,45 @@ function binaryRow(b) {
   return row;
 }
 
+const DOCKER_STATE = {
+  running: (d) => `Docker ${d.server} is running`,
+  stopped: (d) => d.error || "The docker CLI is here, but its daemon is not running",
+  missing: (d) => (d.override ? "Chosen file is missing" : "No docker CLI found"),
+};
+
+function dockerRow(d) {
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = "docker";
+
+  const detail = document.createElement("div");
+  detail.className = "detail";
+  const state = document.createElement("div");
+  state.className = d.state === "running" ? "version" : "warn";
+  state.textContent = DOCKER_STATE[d.state](d);
+  const p = document.createElement("span");
+  p.className = "path";
+  p.textContent = d.override ?? d.path ?? "Searched PATH and the usual install locations";
+  detail.append(state, p);
+
+  const choose = document.createElement("button");
+  choose.textContent = "Choose…";
+  choose.onclick = () => render(api.pickDocker());
+
+  const reset = document.createElement("button");
+  reset.textContent = "Find Automatically";
+  reset.disabled = !d.override;
+  reset.onclick = () => render(api.setDocker(null));
+
+  row.append(name, detail, choose, reset);
+  return row;
+}
+
 function draw(view) {
+  el("docker").replaceChildren(dockerRow(view.docker));
   const list = el("binaries");
   list.replaceChildren(...view.binaries.map(binaryRow));
   el("auto").checked = view.autoUpdateCheck;

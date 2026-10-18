@@ -135,6 +135,11 @@ export interface Resources {
   templates: TemplateResource[];
 }
 
+/** How many resources a document declares: its env files and its templates together. */
+export function resourceCount(doc: EditorDocument): number {
+  return (doc.resources?.env.length ?? 0) + (doc.resources?.templates.length ?? 0);
+}
+
 export interface EditorDocument {
   flows: FlowDoc[];
   connectors: ConnectorInstance[];

@@ -18,6 +18,9 @@ import {
   type UpdateStatus,
 } from "./update";
 import { setEditorStatus } from "./editorStatus";
+import * as container from "./container/controller";
+import { refreshDocker } from "./container/status";
+import { containerWebContentsId, onContainerClosed } from "./containerWindow";
 import * as terminal from "./terminal";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
@@ -43,6 +46,12 @@ function fromEditor(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
  */
 function fromSettings(event: IpcMainInvokeEvent): boolean {
   const id = settingsWebContentsId();
+  return id !== null && event.sender.id === id;
+}
+
+/** Reject calls from anything but the Container window, identified as Settings is. */
+function fromContainer(event: IpcMainInvokeEvent): boolean {
+  const id = containerWebContentsId();
   return id !== null && event.sender.id === id;
 }
 
@@ -74,6 +83,10 @@ function handleSettings(channel: string, fn: Handler): void {
   guarded(channel, fromSettings, fn);
 }
 
+function handleContainer(channel: string, fn: Handler): void {
+  guarded(channel, fromContainer, fn);
+}
+
 /**
  * The editor preferences the page reads, with every default applied here: the stored
  * file may predate a preference. `autoLearn` defaults to false — running the user's
@@ -102,10 +115,18 @@ function publishUpdate(status: UpdateStatus): void {
   buildMenu();
 }
 
+/** The docker CLI as the Settings window shows it: the choice, and what it answered. */
+async function dockerView() {
+  const override = settings().docker;
+  const status = await refreshDocker();
+  return { ...status, ...(override ? { override } : {}) };
+}
+
 /** The Settings window's whole view of the world, rebuilt after every change. */
 async function settingsView() {
   return {
     binaries: await Promise.all([binaryStatus("octo"), binaryStatus("dolphin")]),
+    docker: await dockerView(),
     autoUpdateCheck: settings().autoUpdateCheck !== false,
     autoLearn: editorPrefs().autoLearn,
     appVersion: app.getVersion(),
@@ -180,6 +201,16 @@ export function registerIpc(): void {
     // Cancelling is not "use the bundled one", so nothing changes.
     return chosen ? setRuntime(name, chosen) : settingsView();
   });
+  handleSettings("octo:settings:setDocker", (_event, file) => {
+    if (file !== null && typeof file !== "string") throw new Error("bad path");
+    updateSettings({ docker: file ?? undefined });
+    return settingsView();
+  });
+  handleSettings("octo:settings:pickDocker", async () => {
+    const chosen = await pickBinaryFile("Choose the docker CLI");
+    if (chosen) updateSettings({ docker: chosen });
+    return settingsView();
+  });
   handleSettings("octo:settings:autoUpdate", (_event, enabled) => {
     updateSettings({ autoUpdateCheck: enabled !== false });
     return settingsView();
@@ -189,6 +220,22 @@ export function registerIpc(): void {
     publishPrefs();
     return settingsView();
   });
+  // The Container window's: they run docker, so only that window may ask. Every
+  // argument is checked again on the other side; nothing here is passed to docker raw.
+  handleContainer("octo:container:overview", () => container.overview());
+  handleContainer("octo:container:versions", () => container.versions());
+  handleContainer("octo:container:build", (_event, ref, tag) => container.build(ref, tag));
+  handleContainer("octo:container:export", (_event, tag) => container.exportContext(tag));
+  handleContainer("octo:container:run", (_event, ref) => container.run(ref));
+  handleContainer("octo:container:list", () => container.list());
+  handleContainer("octo:container:remove", (_event, id) => container.remove(id));
+  handleContainer("octo:container:open", (_event, id) => container.open(id));
+  handleContainer("octo:container:follow", (_event, id) => container.follow(id));
+  handleContainer("octo:container:unfollow", () => container.unfollow());
+  handleContainer("octo:container:push", (_event, ref, target) => container.push(ref, target));
+  handleContainer("octo:container:cancel", () => container.cancel());
+  onContainerClosed(container.windowClosed);
+
   handleSettings("octo:settings:checkUpdate", () => checkForUpdates(false));
   handleSettings("octo:settings:close", () => closeSettings());
 }

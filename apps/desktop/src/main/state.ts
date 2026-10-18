@@ -20,6 +20,8 @@ export interface Vault {
 export interface DesktopSettings {
   /** Overrides for the runtime binaries. Absent means the ones inside the app. */
   runtime?: { octo?: string; dolphin?: string };
+  /** The docker CLI to use. Absent means the first one found on the search path. */
+  docker?: string;
   /** Check for a new version of Octo Desktop on launch. Absent means yes. */
   autoUpdateCheck?: boolean;
   /**
@@ -35,6 +37,8 @@ export interface DesktopState {
   port?: number;
   window?: { x?: number; y?: number; width: number; height: number };
   settings?: DesktopSettings;
+  /** Where images were last pushed, most recent first. */
+  pushTargets?: string[];
 }
 
 /** How many folders to remember. Long enough to be useful, short enough to scan. */
@@ -69,6 +73,9 @@ export function read(dir: string): DesktopState {
       // `window` of the wrong shape throws at BrowserWindow construction.
       window: validWindow(state.window),
       settings: validSettings(state.settings),
+      pushTargets: Array.isArray(state.pushTargets)
+        ? state.pushTargets.filter((t): t is string => typeof t === "string" && t !== "")
+        : undefined,
     };
   } catch {
     return { ...EMPTY };
@@ -88,8 +95,10 @@ function validSettings(s: DesktopSettings | undefined): DesktopSettings | undefi
   const dolphin = str(runtime?.dolphin);
   const editor = s.editor && typeof s.editor === "object" ? s.editor : undefined;
   const autoLearn = typeof editor?.autoLearn === "boolean" ? editor.autoLearn : undefined;
+  const docker = str(s.docker);
   return {
     ...(octo || dolphin ? { runtime: { ...(octo ? { octo } : {}), ...(dolphin ? { dolphin } : {}) } } : {}),
+    ...(docker ? { docker } : {}),
     ...(typeof s.autoUpdateCheck === "boolean" ? { autoUpdateCheck: s.autoUpdateCheck } : {}),
     ...(autoLearn !== undefined ? { editor: { autoLearn } } : {}),
   };

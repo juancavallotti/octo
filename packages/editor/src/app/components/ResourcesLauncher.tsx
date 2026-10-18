@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { FileText, Plus, X } from "lucide-react";
-import type { Resources, TemplateResource } from "../model/document";
+import { resourceCount, type Resources, type TemplateResource } from "../model/document";
 import { useEditorState, EditorActionType } from "../state/editorState";
 import { BAR_BUTTON, BAR_COUNT } from "./barButton";
 
@@ -24,8 +24,7 @@ export default function ResourcesLauncher() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const resources = state.document.resources ?? EMPTY;
-  const count = resources.env.length + resources.templates.length;
+  const count = resourceCount(state.document);
 
   useEffect(() => {
     if (!open) return;

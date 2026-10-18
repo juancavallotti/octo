@@ -129,6 +129,16 @@ describe("creating, renaming and deleting files", () => {
     expect(state.files.map((f) => f.path)).toEqual(["invoices.yaml", "octo.yaml", "orders.yaml"]);
   });
 
+  it("renames another file without disturbing the open one", () => {
+    let state = addBlock(loaded());
+    const { document, selectedBlockId } = state;
+    state = reducer(state, { type: EditorActionType.RENAME_FILE, data: { from: "octo.yaml", to: "service.yaml" } });
+    expect(state.activePath).toBe("billing.yaml");
+    expect(state.document).toBe(document);
+    expect(state.selectedBlockId).toBe(selectedBlockId);
+    expect(projectFiles(state).map((f) => f.path)).toEqual(["billing.yaml", "orders.yaml", "service.yaml"]);
+  });
+
   it("refuses a rename onto a taken name", () => {
     const state = loaded();
     const next = reducer(state, { type: EditorActionType.RENAME_FILE, data: { from: "billing.yaml", to: "orders.yaml" } });
