@@ -122,7 +122,7 @@ export default function FileSwitcher() {
       )}
 
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
+        <div className="absolute left-0 top-full z-40 mt-2 w-80 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
           <ul className="max-h-72 overflow-y-auto py-1">
             {files.map(({ path, document }) => {
               const active = path === state.activePath;
