@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.11.10](https://github.com/juancavallotti/octo/compare/v0.11.9...v0.11.10) (2026-10-18)
+
+
+### Features
+
+* **desktop:** add View → Terminal and New Terminal to the menu ([2055ba2](https://github.com/juancavallotti/octo/commit/2055ba24ff9e1575b2d0b21a5c711e6b993c4601))
+* **desktop:** build, run, stop, list and push folder containers ([85c5cdb](https://github.com/juancavallotti/octo/commit/85c5cdb1f33766209b7f7701cd0d4b6ba0dc02fc))
+* **desktop:** container window and menu ([11fff12](https://github.com/juancavallotti/octo/commit/11fff120230381c85b4979885c6110f0a828e040))
+* **desktop:** detect whether docker is installed and running ([8c828ed](https://github.com/juancavallotti/octo/commit/8c828ed12d2712701eac40c5be133fc5a0c0e843))
+* **desktop:** generate a container build context from the open folder ([58c7823](https://github.com/juancavallotti/octo/commit/58c78236ea0a998d11d159c790b0e2fd88fbefa1))
+* **desktop:** list runtime base-image versions ([fd0429a](https://github.com/juancavallotti/octo/commit/fd0429aeece0da3734324f17b35a489517eb3187))
+* **desktop:** package, run and push the folder as a container ([2c57e88](https://github.com/juancavallotti/octo/commit/2c57e882ed1584a63fe7a4825efea798d5594405))
+* **desktop:** run shell sessions over node-pty with octo on PATH ([e717ea2](https://github.com/juancavallotti/octo/commit/e717ea20efc5a4791765fcbcfba2f161ddf12e11))
+* **editor:** add an optional terminal capability with a Terminal console tab ([7be8992](https://github.com/juancavallotti/octo/commit/7be89928a70bbe5b24685eaa11467554e7d04895))
+* **editor:** file picker counts and in-place rename ([78c21e8](https://github.com/juancavallotti/octo/commit/78c21e831c42a2133a74860526ca08d0be86788b))
+* **editor:** rename config files in place, from the bar or any row ([c99a87e](https://github.com/juancavallotti/octo/commit/c99a87e3ed7c9d0842ba20edc20cfe8e9ec922de))
+* **editor:** show each file's connectors, env and resources in the file picker ([6244578](https://github.com/juancavallotti/octo/commit/62445787f1994404f9a129a57c2ff2ece71e5371))
+* integrated terminal in Octo Desktop ([b023581](https://github.com/juancavallotti/octo/commit/b023581be5115b21f046868c70fac1d8c6a887da))
+* **standalone:** supply the desktop terminal to the editor ([15c5344](https://github.com/juancavallotti/octo/commit/15c53441d36667c4ed38e21175a41f20303955c5))
+
+
+### Bug Fixes
+
+* **desktop:** cancel runs, and bound output that is already streamed ([24ef4bc](https://github.com/juancavallotti/octo/commit/24ef4bc01eacdd7bdc59e9bbf70e78cbceb5c329))
+* **desktop:** keep linked-to secrets and link cycles out of the build context ([3a0961f](https://github.com/juancavallotti/octo/commit/3a0961f656502a34d513bb98297253be36cc974b))
+* **desktop:** keep the editor's octo first on the terminal's PATH ([748ffa1](https://github.com/juancavallotti/octo/commit/748ffa1c5ed1f2d56f0bed5a4ee8b73ce33209c2))
+* **desktop:** keep zsh history the user's, and the shim on PATH once ([e25a33a](https://github.com/juancavallotti/octo/commit/e25a33a893723f96a7aebe2be3bb89ff51fd8431))
+* **editor:** clear the terminal list with the shells it lists ([ffb8e99](https://github.com/juancavallotti/octo/commit/ffb8e99da7a31cb876c7dfa80afca9b1ab3b2d2d))
+* **editor:** keep the terminal when the runner cannot run ([c337cb0](https://github.com/juancavallotti/octo/commit/c337cb013cdc138c9c33bfb94ed19b3c591ed868))
+* **editor:** leave an IME composition's Escape to the input method ([102fe56](https://github.com/juancavallotti/octo/commit/102fe56bda91f5f39c90f2b7cbbc3da1bcb2d198))
+* **editor:** let Option type characters in the terminal ([a6c2fd7](https://github.com/juancavallotti/octo/commit/a6c2fd756326ea3f3e85687934bd322d36859b43))
+* **editor:** say a terminal failed to start without covering a live one ([6beb6b7](https://github.com/juancavallotti/octo/commit/6beb6b73ff756a45b75e0c21a010c0b6a89ea15c))
+* **editor:** settle an in-place rename however its field is left ([042a025](https://github.com/juancavallotti/octo/commit/042a02530a13059539a0226a11540e513fe12061))
+
+
+### Performance
+
+* **editor:** load the Terminal tab when it is first shown ([9621c46](https://github.com/juancavallotti/octo/commit/9621c46d9cff5e70c05b5b0041f3d736d8a81c9d))
+
+
+### Documentation
+
+* **desktop:** package, run and push the folder as a container ([ecb437b](https://github.com/juancavallotti/octo/commit/ecb437b093906eafcfed70ce494a1b193a50adae))
+* document the desktop terminal ([be882be](https://github.com/juancavallotti/octo/commit/be882be5321208c93053f1b48cc8d63d040ea2be))
+
 ## [0.11.9](https://github.com/juancavallotti/octo/compare/v0.11.8...v0.11.9) (2026-10-18)
 
 
