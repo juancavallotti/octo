@@ -1,6 +1,6 @@
 ---
 title: "CLI"
-description: "The octo command: run, invoke, eval, schema, and version."
+description: "The octo command: run, invoke, eval, validate, schema, and version."
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -8,8 +8,8 @@ import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { OCTO_VERSION } from '@/lib/version';
 
 The `octo` binary starts integrations, calls flows directly, evaluates CEL
-expressions, and emits the capability catalogue the editor and documentation
-tooling consume.
+expressions, checks a config without running it, and emits the capability
+catalogue the editor and documentation tooling consume.
 
 ```
 octo — run and invoke octo integration flows
@@ -19,6 +19,7 @@ Usage:
   octo invoke --config <path> --flow <name> [--data <json>] [--vars <json>]
                                                              Call one flow and print its result
   octo eval --expr <cel> [--data <json>]                     Evaluate a CEL expression and print the result
+  octo validate --config <path> [--format json]              Check a config's references without running it
   octo schema [--out <path>]                                 Print the editor capability schema as JSON
   octo version                                               Print the version and build date
   octo --help                                                Show this help
@@ -34,6 +35,7 @@ Running `octo` with no arguments prints the help page above.
 | [`run`](#octo-run) | Start the configured connectors and flows until interrupted (the default subcommand). |
 | [`invoke`](#octo-invoke) | Load a config, call one flow by name with a JSON body, and print its result. Use [`--break-at`](#breakpoints) to stop at a block and inspect the message there. |
 | [`eval`](#octo-eval) | Evaluate a CEL expression against an ad-hoc message, without a config. |
+| [`validate`](#octo-validate) | Load a config and check that everything it references exists, without starting anything. |
 | [`schema`](#octo-schema) | Emit the capability catalogue (blocks and connectors) as JSON. `capabilities` is an alias. |
 | [`version`](#octo-version) | Print the release version and build date. |
 
@@ -691,6 +693,61 @@ octo eval --expr '1 +'
   other part of the expression environment behaves exactly as it does inside a
   flow. See [Octo Extensions](/reference/cel/octo-extensions).
 </Callout>
+
+## octo validate
+
+Loads a config exactly as `octo run` would and checks it without starting a
+connector or a flow. Use it in CI, or before you deploy a project that is split
+across several files, to catch a reference that only resolves in your head.
+
+```bash
+octo validate --config ./orders
+```
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--config` | path | (required) | The config file, or a directory whose files are [merged](/reference/flow-file#splitting-a-config-across-files) into one. |
+| `--format` | string | `text` | `text` prints one issue per line; `json` prints an envelope. |
+
+It reports:
+
+- a connector or block `type` that is not registered;
+- a block `ref` that names no processor;
+- a flow `source` that binds to no connector, or to several of the same type
+  without naming one;
+- any setting that names a connector, flow or template (a `flow-ref`'s `flow`, a
+  `sql` block's `connector`, a `log` block's `logger`) when nothing by that
+  name is declared, or the connector is of the wrong type;
+- everything the load itself refuses: a duplicate name across files, a second
+  `service`, an undeclared `${NAME}`.
+
+Each issue names where it is, as a [block address](#addressing-a-block):
+
+```text
+intake.flow-ref: flow: flow "recorder" is not defined
+record.log: logger: connector "audit" is not configured
+```
+
+`validate` needs no credentials. A required environment variable that nothing
+supplies is checked with an empty value and reported as a note, not an issue,
+because the place that runs the config is the one that supplies its secrets.
+CEL expressions are not compiled; try one with [`octo eval`](#octo-eval).
+
+With `--format json` the output is an envelope:
+
+```json
+{
+  "ok": false,
+  "issues": [
+    { "where": "intake.flow-ref", "message": "flow: flow \"recorder\" is not defined" }
+  ],
+  "unsetEnv": ["ANTHROPIC_API_KEY"]
+}
+```
+
+`ok` is `true` exactly when `issues` is empty. `where` is omitted for a problem
+with the config as a whole. The command exits non-zero whenever there is an
+issue, and prints the envelope either way.
 
 ## octo schema
 
