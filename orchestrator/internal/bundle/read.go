@@ -135,6 +135,11 @@ func fromManifest(doc string, files map[string]string) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
+	// Refused for the reason a manifest-less archive without one is: it would import
+	// as an integration that does nothing and give no hint why.
+	if len(configs) == 0 {
+		return Bundle{}, fmt.Errorf("%w: the manifest lists no config file", ErrInvalid)
+	}
 
 	out := Bundle{Name: strings.TrimSpace(m.Name), Tag: m.Tag}
 	for _, p := range configs {

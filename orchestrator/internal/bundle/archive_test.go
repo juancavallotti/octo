@@ -201,6 +201,11 @@ func TestReadRejects(t *testing.T) {
 			want:    ErrInvalid,
 		},
 		{
+			name:    "manifest lists no config file",
+			entries: manifestFor(`{"version":2,"configs":[]}`),
+			want:    ErrInvalid,
+		},
+		{
 			name:    "manifest lists a missing config file",
 			entries: manifestFor(`{"version":2,"configs":["def.yaml","gone.yaml"]}`),
 			want:    ErrInvalid,
