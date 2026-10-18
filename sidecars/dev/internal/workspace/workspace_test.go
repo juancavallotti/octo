@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -195,10 +196,10 @@ func TestApplyRejectsInvalidNames(t *testing.T) {
 		{"names the workspace", "."},
 		{"resolves to the workspace", "/"},
 		{"collides with the config", ConfigFileName},
-		// A directory config merges every *.yaml/*.yml, so a resource with either
-		// extension would be loaded as config rather than staged beside it.
+		// A directory config merges every top-level *.yaml/*.yml that is not a test
+		// file, so such a resource would be loaded as config rather than staged.
 		{"a yaml resource", "extra.yaml"},
-		{"a yml resource in a subdir", "conf.d/settings.yml"},
+		{"a yml resource", "extra.yml"},
 		{"a yaml resource in mixed case", "Extra.YAML"},
 	}
 	for _, tc := range tests {
@@ -214,6 +215,26 @@ func TestApplyRejectsInvalidNames(t *testing.T) {
 				t.Errorf("files = %v, want none written", got)
 			}
 		})
+	}
+}
+
+// What the runtime walks past is data, and is staged: YAML below the top level (a
+// suite in .octo/tests, a template in a folder) and a top-level test file.
+func TestApplyStagesYAMLTheRuntimeDoesNotMerge(t *testing.T) {
+	names := []string{".octo/tests/orders_test.yaml", "conf.d/settings.yml", "orders_test.yaml"}
+	files := make([]File, 0, len(names))
+	for _, n := range names {
+		files = append(files, File{Name: n, Content: "x"})
+	}
+	w := New(t.TempDir())
+	if _, err := w.Apply("name: demo\n", files); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got := list(t, w)
+	for _, n := range names {
+		if !slices.Contains(got, n) {
+			t.Errorf("files = %v, want %q staged", got, n)
+		}
 	}
 }
 
