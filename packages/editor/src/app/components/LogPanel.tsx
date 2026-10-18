@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { useRun, type RunLogLine } from "../run/RunContext";
 import { useFlowRun } from "../run/FlowRunContext";
@@ -19,8 +19,11 @@ import ProblemsTab from "./console/ProblemsTab";
 import { useSave } from "../save/SaveContext";
 import ResultsTab from "./console/ResultsTab";
 import TestsTab from "./console/TestsTab";
-import TerminalTab from "./console/TerminalTab";
 import { useTerminal } from "../providers/TerminalProvider";
+
+// Loaded when first shown, so a host without a terminal never fetches it or xterm's
+// stylesheet.
+const TerminalTab = lazy(() => import("./console/TerminalTab"));
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 480;
@@ -310,7 +313,11 @@ export default function LogPanel({
       {!collapsed && shown === "tests" && <TestsTab />}
       {!collapsed && shown === "cel" && <CelTester />}
       {!collapsed && shown === "env" && <DevEnvPanel />}
-      {!collapsed && shown === "terminal" && terminal && <TerminalTab />}
+      {!collapsed && shown === "terminal" && terminal && (
+        <Suspense fallback={null}>
+          <TerminalTab />
+        </Suspense>
+      )}
     </section>
   );
 }
