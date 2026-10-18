@@ -18,7 +18,9 @@ function baseState(): EditorState {
     selectedSourceFlowId: null,
     selectedConnectionId: null,
     selectedComponentId: null,
-    integration: { id: null, name: "", folderId: null },
+    files: [],
+    activePath: "octo.yaml",
+    project: { id: null, name: "", folderId: null },
   };
 }
 

@@ -28,10 +28,14 @@ import {
   RenameConnectionPayload,
   SelectConnectionPayload,
   UpdateConnectionSettingPayload,
-  SetIntegrationIdPayload,
-  SetIntegrationTitlePayload,
-  SetIntegrationFolderPayload,
-  LoadIntegrationPayload,
+  SetProjectIdPayload,
+  SetProjectTitlePayload,
+  SetProjectFolderPayload,
+  LoadProjectPayload,
+  SwitchFilePayload,
+  CreateFilePayload,
+  RenameFilePayload,
+  DeleteFilePayload,
   SetViewModePayload,
 } from "./actions";
 import * as handlers from "./handlers";
@@ -39,7 +43,8 @@ import * as sourceHandlers from "./sourceHandlers";
 import * as connectionHandlers from "./connectionHandlers";
 import * as envHandlers from "./envHandlers";
 import * as slotHandlers from "./slotHandlers";
-import * as integrationHandlers from "./integrationHandlers";
+import * as projectHandlers from "./projectHandlers";
+import type { ProjectFile } from "../model/project";
 
 /**
  * Editor-wide state. EditorRoot is a "large" component, so its state lives in a
@@ -49,11 +54,10 @@ import * as integrationHandlers from "./integrationHandlers";
  * The pure state transitions live in handlers.ts; this file wires them to actions.
  */
 /**
- * The persisted-integration metadata the title bar binds to. `id` is null until
- * the document has been saved to the orchestrator at least once; `folderId` is
- * null when unfiled.
+ * The persisted-project metadata the title bar binds to. `id` is null until the
+ * project has been saved at least once; `folderId` is null when unfiled.
  */
-export interface IntegrationMeta {
+export interface ProjectMeta {
   id: string | null;
   name: string;
   folderId: string | null;
@@ -63,7 +67,16 @@ export interface IntegrationMeta {
 export type ViewMode = SetViewModePayload;
 
 export interface EditorState {
+  /** The active file's document: what the canvas shows and every edit changes. */
   document: EditorDocument;
+  /**
+   * Every config file of the project. The active file's entry is as it was when it
+   * was opened; its current state is `document`. Read the project through
+   * `projectFiles(state)`, never this list directly.
+   */
+  files: ProjectFile[];
+  /** The path of the file `document` belongs to. */
+  activePath: string;
   /** Editor body view: the visual canvas or the read-only YAML preview. */
   viewMode: ViewMode;
   /** Target flow for click-to-add; also highlighted on the canvas. */
@@ -76,20 +89,23 @@ export interface EditorState {
   selectedConnectionId: string | null;
   /** Currently highlighted palette component id, or null. */
   selectedComponentId: string | null;
-  /** Metadata for the integration the document maps to (when saving is enabled). */
-  integration: IntegrationMeta;
+  /** Metadata for the project the files belong to (when saving is enabled). */
+  project: ProjectMeta;
 }
 
 function makeInitialState(): EditorState {
+  const document = blankDocument();
   return {
-    document: blankDocument(),
+    document,
+    files: [{ path: projectHandlers.FIRST_FILE, document, declaresService: true }],
+    activePath: projectHandlers.FIRST_FILE,
     viewMode: "canvas",
     activeFlowId: null,
     selectedBlockId: null,
     selectedSourceFlowId: null,
     selectedConnectionId: null,
     selectedComponentId: null,
-    integration: { id: null, name: "", folderId: null },
+    project: { id: null, name: "", folderId: null },
   };
 }
 
@@ -204,28 +220,24 @@ export function reducer(
       );
     case EditorActionType.LOAD_DOCUMENT:
       return handlers.loadDocument(state, action.data as LoadDocumentPayload);
-    case EditorActionType.SET_INTEGRATION_ID:
-      return integrationHandlers.setIntegrationId(
-        state,
-        action.data as SetIntegrationIdPayload,
-      );
-    case EditorActionType.SET_INTEGRATION_TITLE:
-      return integrationHandlers.setIntegrationTitle(
-        state,
-        action.data as SetIntegrationTitlePayload,
-      );
-    case EditorActionType.SET_INTEGRATION_FOLDER:
-      return integrationHandlers.setIntegrationFolder(
-        state,
-        action.data as SetIntegrationFolderPayload,
-      );
-    case EditorActionType.LOAD_INTEGRATION:
-      return integrationHandlers.loadIntegration(
-        state,
-        action.data as LoadIntegrationPayload,
-      );
-    case EditorActionType.NEW_INTEGRATION:
-      return integrationHandlers.newIntegration(state);
+    case EditorActionType.SET_PROJECT_ID:
+      return projectHandlers.setProjectId(state, action.data as SetProjectIdPayload);
+    case EditorActionType.SET_PROJECT_TITLE:
+      return projectHandlers.setProjectTitle(state, action.data as SetProjectTitlePayload);
+    case EditorActionType.SET_PROJECT_FOLDER:
+      return projectHandlers.setProjectFolder(state, action.data as SetProjectFolderPayload);
+    case EditorActionType.LOAD_PROJECT:
+      return projectHandlers.loadProject(state, action.data as LoadProjectPayload);
+    case EditorActionType.NEW_PROJECT:
+      return projectHandlers.newProject(state);
+    case EditorActionType.SWITCH_FILE:
+      return projectHandlers.switchFile(state, action.data as SwitchFilePayload);
+    case EditorActionType.CREATE_FILE:
+      return projectHandlers.createFile(state, action.data as CreateFilePayload);
+    case EditorActionType.RENAME_FILE:
+      return projectHandlers.renameFile(state, action.data as RenameFilePayload);
+    case EditorActionType.DELETE_FILE:
+      return projectHandlers.deleteFile(state, action.data as DeleteFilePayload);
     case EditorActionType.SET_VIEW_MODE:
       return { ...state, viewMode: action.data as SetViewModePayload };
     case EditorActionType.SELECT_COMPONENT:

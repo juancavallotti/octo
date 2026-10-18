@@ -17,7 +17,7 @@ describe("trackingOf", () => {
     expect(trackingOf(EditorActionType.SET_ENV)).toBe("record");
     expect(trackingOf(EditorActionType.SELECT_BLOCK)).toBe("skip");
     expect(trackingOf(EditorActionType.SET_VIEW_MODE)).toBe("skip");
-    expect(trackingOf(EditorActionType.LOAD_INTEGRATION)).toBe("reset");
+    expect(trackingOf(EditorActionType.LOAD_PROJECT)).toBe("reset");
   });
 });
 

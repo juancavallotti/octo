@@ -113,7 +113,7 @@ function renderTab(
         },
       });
       dispatch({
-        type: EditorActionType.SET_INTEGRATION_ID,
+        type: EditorActionType.SET_PROJECT_ID,
         data: { id: "one" },
       });
     }, [dispatch]);

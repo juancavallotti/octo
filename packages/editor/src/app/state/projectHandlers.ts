@@ -26,7 +26,9 @@ import type {
 export const FIRST_FILE = "octo.yaml";
 
 /** The project's files with the active one as it is now, ordered by path. */
-export function projectFiles(state: EditorState): ProjectFile[] {
+export function projectFiles(
+  state: Pick<EditorState, "files" | "activePath" | "document">,
+): ProjectFile[] {
   return byPath(
     state.files.map((f) => (f.path === state.activePath ? { ...f, document: state.document } : f)),
   );

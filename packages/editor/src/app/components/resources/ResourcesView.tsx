@@ -85,7 +85,7 @@ const preferFolders: CollisionDetection = (args) => {
 export default function ResourcesView() {
   const { state, dispatch } = useEditorState();
   const store = useResourceStore();
-  const integrationId = state.integration.id;
+  const integrationId = state.project.id;
   const declared = state.document.resources;
 
   const [stored, setStored] = useState<StoredResource[]>([]);

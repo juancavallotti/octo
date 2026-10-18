@@ -39,7 +39,7 @@ const SAVE_DEBOUNCE_MS = 600;
  */
 export default function DevEnvPanel() {
   const { state } = useEditorState();
-  const id = state.integration.id;
+  const id = state.project.id;
   const store = useDevEnvStore();
   return <DevEnvEditor key={id ?? "__draft__"} id={id} store={store} />;
 }

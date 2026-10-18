@@ -142,8 +142,8 @@ function Harness() {
       <button
         onClick={() =>
           dispatch({
-            type: EditorActionType.LOAD_INTEGRATION,
-            data: { id: "orders.yaml", name: "orders", document: seedDoc(), folderId: null },
+            type: EditorActionType.LOAD_PROJECT,
+            data: { id: "orders.yaml", name: "orders", files: [{ path: "orders.yaml", document: seedDoc(), declaresService: true }], folderId: null },
           })
         }
       >

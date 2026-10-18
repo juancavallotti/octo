@@ -40,7 +40,7 @@ export default function SaveButton() {
       ? "Nothing to save yet"
       : saved
         ? "No changes to save"
-        : state.integration.id
+        : state.project.id
           ? "Save changes (⌘/Ctrl+S)"
           : "Save as a new integration (⌘/Ctrl+S)";
 

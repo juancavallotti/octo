@@ -119,7 +119,7 @@ export function EditorMetaProvider({
 }) {
   const { state } = useEditorState();
   const doc = state.document;
-  const documentKey = state.integration.id;
+  const documentKey = state.project.id;
 
   const [meta, setMeta] = useState<EditorMeta>(emptyMeta);
   // The names the flows had when we last looked, so a rename can be detected by the id

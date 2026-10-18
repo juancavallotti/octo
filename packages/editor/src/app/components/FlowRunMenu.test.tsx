@@ -108,11 +108,11 @@ function Harness({ doc }: { doc: EditorDocument }) {
       <button
         onClick={() =>
           dispatch({
-            type: EditorActionType.LOAD_INTEGRATION,
+            type: EditorActionType.LOAD_PROJECT,
             data: {
               id: "orders.yaml",
               name: "orders",
-              document: doc,
+              files: [{ path: "orders.yaml", document: doc, declaresService: true }],
               folderId: null,
             },
           })

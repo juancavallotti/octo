@@ -85,7 +85,7 @@ function Probe() {
       <button onClick={() => void suites.removeSuite("orders")}>delete</button>
       <button
         onClick={() =>
-          dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "two" } })
+          dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: "two" } })
         }
       >
         open other
@@ -108,7 +108,7 @@ function renderProvider(store: TestSuiteStore | null, integrationId: string | nu
     bump = () => act(() => setToken((n) => n + 1));
     useEffect(() => {
       if (integrationId) {
-        dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: integrationId } });
+        dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: integrationId } });
       }
     }, [dispatch]);
     return (

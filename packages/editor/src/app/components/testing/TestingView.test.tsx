@@ -52,7 +52,7 @@ function renderView(
     useEffect(() => {
       dispatch({ type: EditorActionType.LOAD_DOCUMENT, data: { document: doc } });
       if (!draft) {
-        dispatch({ type: EditorActionType.SET_INTEGRATION_ID, data: { id: "one" } });
+        dispatch({ type: EditorActionType.SET_PROJECT_ID, data: { id: "one" } });
       }
     }, [dispatch]);
     return <>{children}</>;

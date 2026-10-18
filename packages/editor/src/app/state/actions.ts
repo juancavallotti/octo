@@ -1,4 +1,5 @@
 import type { EditorDocument, EnvVar, Resources } from "../model/document";
+import type { ProjectFile } from "../model/project";
 
 /**
  * Editor reducer actions. The payload travels on the action's `data` field (per
@@ -60,16 +61,24 @@ export enum EditorActionType {
   SET_RESOURCES = "SET_RESOURCES",
   /** Replace the whole document (file load or "new"). */
   LOAD_DOCUMENT = "LOAD_DOCUMENT",
-  /** Record the persisted id after the integration is first saved. */
-  SET_INTEGRATION_ID = "SET_INTEGRATION_ID",
-  /** Set the current integration's display title. */
-  SET_INTEGRATION_TITLE = "SET_INTEGRATION_TITLE",
-  /** Set the current integration's folder (null = unfiled). */
-  SET_INTEGRATION_FOLDER = "SET_INTEGRATION_FOLDER",
-  /** Load a saved integration: replace the document and set its metadata. */
-  LOAD_INTEGRATION = "LOAD_INTEGRATION",
-  /** Start a fresh, unsaved integration (clear metadata + document). */
-  NEW_INTEGRATION = "NEW_INTEGRATION",
+  /** Record the persisted id after the project is first saved. */
+  SET_PROJECT_ID = "SET_PROJECT_ID",
+  /** Set the current project's display title. */
+  SET_PROJECT_TITLE = "SET_PROJECT_TITLE",
+  /** Set the current project's folder (null = unfiled). */
+  SET_PROJECT_FOLDER = "SET_PROJECT_FOLDER",
+  /** Load a saved project: replace every file and set its metadata. */
+  LOAD_PROJECT = "LOAD_PROJECT",
+  /** Start a fresh, unsaved project (clear metadata, one blank file). */
+  NEW_PROJECT = "NEW_PROJECT",
+  /** Make another of the project's files the one being edited. */
+  SWITCH_FILE = "SWITCH_FILE",
+  /** Add a config file to the project and open it. */
+  CREATE_FILE = "CREATE_FILE",
+  /** Rename one of the project's config files. */
+  RENAME_FILE = "RENAME_FILE",
+  /** Remove one of the project's config files. */
+  DELETE_FILE = "DELETE_FILE",
   /** Switch the editor body between the visual canvas and the YAML preview. */
   SET_VIEW_MODE = "SET_VIEW_MODE",
   /** Highlight a palette component. */
@@ -237,21 +246,40 @@ export interface LoadDocumentPayload {
   document: EditorDocument;
 }
 
-export interface SetIntegrationIdPayload {
+export interface SetProjectIdPayload {
   id: string;
 }
 
-export interface SetIntegrationTitlePayload {
+export interface SetProjectTitlePayload {
   name: string;
 }
 
-export interface SetIntegrationFolderPayload {
+export interface SetProjectFolderPayload {
   folderId: string | null;
 }
 
-export interface LoadIntegrationPayload {
+export interface LoadProjectPayload {
   id: string;
   name: string;
   folderId: string | null;
-  document: EditorDocument;
+  files: ProjectFile[];
+  /** The file to open; defaults to the first that holds a flow. */
+  activePath?: string;
+}
+
+export interface SwitchFilePayload {
+  path: string;
+}
+
+export interface CreateFilePayload {
+  path: string;
+}
+
+export interface RenameFilePayload {
+  from: string;
+  to: string;
+}
+
+export interface DeleteFilePayload {
+  path: string;
 }

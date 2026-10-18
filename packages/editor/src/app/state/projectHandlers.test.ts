@@ -1,80 +1,149 @@
 import { describe, it, expect } from "vitest";
-import { emptyDocument, newBlock } from "../model/document";
+import { blankDocument, emptyDocument, emptyFlow, newBlock } from "../model/document";
+import type { ProjectFile } from "../model/project";
 import { EditorActionType } from "./actions";
 import { initialState, reducer, type EditorState } from "./reducer";
+import { projectFiles } from "./projectHandlers";
 
-/** A state carrying an unsaved integration with one flow and a block. */
-function draftState(): EditorState {
+function file(path: string, flowName?: string, declaresService = false): ProjectFile {
+  const document = flowName
+    ? { ...blankDocument(), flows: [emptyFlow(flowName)] }
+    : blankDocument();
+  return { path, document, declaresService };
+}
+
+/** A loaded project: a project file of connections, and two files of flows. */
+function loaded(): EditorState {
   return reducer(initialState, {
-    type: EditorActionType.ADD_BLOCK,
-    data: { blockType: "log" },
+    type: EditorActionType.LOAD_PROJECT,
+    data: {
+      id: "p1",
+      name: "Shop",
+      folderId: null,
+      files: [file("orders.yaml", "orders"), file("octo.yaml", undefined, true), file("billing.yaml", "billing")],
+    },
   });
 }
 
-describe("integration metadata", () => {
-  it("starts with empty integration metadata", () => {
-    expect(initialState.integration).toEqual({
-      id: null,
-      name: "",
-      folderId: null,
-    });
+function addBlock(state: EditorState): EditorState {
+  return reducer(state, { type: EditorActionType.ADD_BLOCK, data: { blockType: "log" } });
+}
+
+describe("project metadata", () => {
+  it("starts with empty project metadata and one file", () => {
+    expect(initialState.project).toEqual({ id: null, name: "", folderId: null });
+    expect(initialState.files.map((f) => f.path)).toEqual(["octo.yaml"]);
   });
 
-  it("sets the title without touching the document", () => {
-    const state = draftState();
-    const next = reducer(state, {
-      type: EditorActionType.SET_PROJECT_TITLE,
-      data: { name: "My Integration" },
-    });
-    expect(next.integration.name).toBe("My Integration");
-    expect(next.document).toBe(state.document);
+  it("sets the title, id and folder without touching the document", () => {
+    let state = loaded();
+    const doc = state.document;
+    state = reducer(state, { type: EditorActionType.SET_PROJECT_TITLE, data: { name: "Store" } });
+    state = reducer(state, { type: EditorActionType.SET_PROJECT_ID, data: { id: "p9" } });
+    state = reducer(state, { type: EditorActionType.SET_PROJECT_FOLDER, data: { folderId: "f1" } });
+    expect(state.project).toEqual({ id: "p9", name: "Store", folderId: "f1" });
+    expect(state.document).toBe(doc);
+  });
+});
+
+describe("loading a project", () => {
+  it("opens the first file by name that holds a flow, not the project file", () => {
+    const state = loaded();
+    expect(state.activePath).toBe("billing.yaml");
+    expect(state.document.flows[0].name).toBe("billing");
+    expect(state.activeFlowId).toBe(state.document.flows[0].id);
   });
 
-  it("sets the folder", () => {
-    const next = reducer(draftState(), {
-      type: EditorActionType.SET_PROJECT_FOLDER,
-      data: { folderId: "folder-1" },
-    });
-    expect(next.integration.folderId).toBe("folder-1");
-  });
-
-  it("records the persisted id after first save", () => {
-    const next = reducer(draftState(), {
-      type: EditorActionType.SET_PROJECT_ID,
-      data: { id: "int-1" },
-    });
-    expect(next.integration.id).toBe("int-1");
-  });
-
-  it("loads an integration's document and metadata together", () => {
-    const doc = emptyDocument();
-    doc.flows[0].process = [newBlock("log")];
-    const next = reducer(draftState(), {
+  it("opens the file asked for", () => {
+    const state = reducer(initialState, {
       type: EditorActionType.LOAD_PROJECT,
-      data: { id: "int-2", name: "Loaded", folderId: "f2", files: [{ path: "orders.yaml", document: doc, declaresService: true }]},
+      data: { id: "p1", name: "Shop", folderId: null, files: [file("a.yaml", "a"), file("b.yaml", "b")], activePath: "b.yaml" },
     });
-    expect(next.integration).toEqual({
-      id: "int-2",
-      name: "Loaded",
-      folderId: "f2",
-    });
-    expect(next.document).toBe(doc);
-    expect(next.activeFlowId).toBe(doc.flows[0].id);
-    expect(next.selectedBlockId).toBeNull();
+    expect(state.activePath).toBe("b.yaml");
   });
 
-  it("resets metadata and document on NEW_PROJECT", () => {
-    const loaded = reducer(draftState(), {
-      type: EditorActionType.LOAD_PROJECT,
-      data: {
-        id: "int-3",
-        name: "X",
-        folderId: "f3",
-        files: [{ path: "orders.yaml", document: emptyDocument(), declaresService: true }],
-      },
-    });
-    const next = reducer(loaded, { type: EditorActionType.NEW_PROJECT });
-    expect(next.integration).toEqual({ id: null, name: "", folderId: null });
-    expect(next.document.flows).toHaveLength(1);
+  it("starts a new project with one file that declares the service", () => {
+    const state = reducer(loaded(), { type: EditorActionType.NEW_PROJECT });
+    expect(state.project).toEqual({ id: null, name: "", folderId: null });
+    expect(state.files).toEqual([
+      { path: "octo.yaml", document: state.document, declaresService: true },
+    ]);
+    expect(state.document.flows).toHaveLength(1);
+  });
+});
+
+describe("switching files", () => {
+  it("keeps an unsaved edit when switching away and back", () => {
+    let state = addBlock(loaded());
+    const edited = state.document;
+    state = reducer(state, { type: EditorActionType.SWITCH_FILE, data: { path: "orders.yaml" } });
+    expect(state.document.flows[0].name).toBe("orders");
+    state = reducer(state, { type: EditorActionType.SWITCH_FILE, data: { path: "billing.yaml" } });
+    expect(state.document).toBe(edited);
+  });
+
+  it("reads the project with the active file's current document", () => {
+    const state = addBlock(loaded());
+    const billing = projectFiles(state).find((f) => f.path === "billing.yaml")!;
+    expect(billing.document).toBe(state.document);
+    expect(projectFiles(state).map((f) => f.path)).toEqual(["billing.yaml", "octo.yaml", "orders.yaml"]);
+  });
+
+  it("ignores a switch to a file the project does not have", () => {
+    const state = loaded();
+    expect(reducer(state, { type: EditorActionType.SWITCH_FILE, data: { path: "nope.yaml" } })).toBe(state);
+  });
+});
+
+describe("creating, renaming and deleting files", () => {
+  it("creates a file and opens it", () => {
+    const state = reducer(loaded(), { type: EditorActionType.CREATE_FILE, data: { path: "shipping.yaml" } });
+    expect(state.activePath).toBe("shipping.yaml");
+    expect(state.files.find((f) => f.path === "shipping.yaml")?.declaresService).toBe(false);
+    expect(state.document.flows).toHaveLength(1);
+  });
+
+  it.each([["orders.yaml"], ["nested/x.yaml"], ["orders_test.yaml"], ["notes.md"]])(
+    "refuses to create %s",
+    (path) => {
+      const state = loaded();
+      expect(reducer(state, { type: EditorActionType.CREATE_FILE, data: { path } })).toBe(state);
+    },
+  );
+
+  it("renames the active file and keeps its edits", () => {
+    let state = addBlock(loaded());
+    const edited = state.document;
+    state = reducer(state, { type: EditorActionType.RENAME_FILE, data: { from: "billing.yaml", to: "invoices.yaml" } });
+    expect(state.activePath).toBe("invoices.yaml");
+    expect(state.document).toBe(edited);
+    expect(state.files.map((f) => f.path)).toEqual(["invoices.yaml", "octo.yaml", "orders.yaml"]);
+  });
+
+  it("refuses a rename onto a taken name", () => {
+    const state = loaded();
+    const next = reducer(state, { type: EditorActionType.RENAME_FILE, data: { from: "billing.yaml", to: "orders.yaml" } });
+    expect(next).toBe(state);
+  });
+
+  it("deletes the active file and opens another", () => {
+    const state = reducer(loaded(), { type: EditorActionType.DELETE_FILE, data: { path: "billing.yaml" } });
+    expect(state.files.map((f) => f.path)).toEqual(["octo.yaml", "orders.yaml"]);
+    expect(state.activePath).toBe("octo.yaml");
+  });
+
+  it("keeps the last file", () => {
+    const one = reducer(initialState, { type: EditorActionType.NEW_PROJECT });
+    expect(reducer(one, { type: EditorActionType.DELETE_FILE, data: { path: "octo.yaml" } })).toBe(one);
+  });
+});
+
+describe("blocks", () => {
+  it("edits only the active file", () => {
+    const state = addBlock(loaded());
+    const orders = state.files.find((f) => f.path === "orders.yaml")!;
+    expect(orders.document.flows[0].process).toHaveLength(0);
+    expect(state.document.flows[0].process.map((b) => b.type)).toEqual([newBlock("log").type]);
+    expect(emptyDocument().flows).toHaveLength(1);
   });
 });
