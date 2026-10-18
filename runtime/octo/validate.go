@@ -86,7 +86,8 @@ func validateConfig(configPath string) (validateOutcome, error) {
 		outcome.Issues = append(outcome.Issues, runtime.Issue{Message: err.Error()})
 		return outcome, nil
 	}
-	issues, err := runtime.Validate(cfg, core.DefaultRegistry(), core.DefaultBlockRegistry(), core.DefaultSchemaRegistry())
+	issues, err := runtime.Validate(cfg, core.DefaultRegistry(), core.DefaultBlockRegistry(), core.DefaultSchemaRegistry(),
+		svc.Resources())
 	if err != nil {
 		return validateOutcome{}, err
 	}

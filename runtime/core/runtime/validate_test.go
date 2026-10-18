@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -101,18 +102,51 @@ flows:
           db: orders-db
 `
 
+// onDisk is a resource loader holding a fixed set of template files.
+type onDisk map[string]string
+
+func (d onDisk) Load(_ context.Context, _ core.ResourceKind, id string) ([]byte, error) {
+	if content, ok := d[id]; ok {
+		return []byte(content), nil
+	}
+	return nil, errors.New("not found")
+}
+
+// projectFiles is what the resource root of validProject holds.
+var projectFiles = onDisk{"templates/receipt.tmpl": "receipt", "templates/invoice.tmpl": "invoice"}
+
 func TestValidateAcceptsAConsistentConfig(t *testing.T) {
 	cfg, err := ParseConfig([]byte(validProject))
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
 	connectors, blocks, meta := validationRegistries()
-	issues, err := Validate(cfg, connectors, blocks, meta)
+	issues, err := Validate(cfg, connectors, blocks, meta, projectFiles)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	if len(issues) != 0 {
 		t.Fatalf("issues = %+v, want none", issues)
+	}
+}
+
+// TestValidateAcceptsATemplateByResourceID: a run resolves a template a block names
+// by its resource id whether or not it is declared, so validation must too — by its
+// alias, by its declared id, or by an id the resource root holds.
+func TestValidateAcceptsATemplateByResourceID(t *testing.T) {
+	connectors, blocks, meta := validationRegistries()
+	for _, name := range []string{"receipt", "templates/receipt.tmpl", "templates/invoice.tmpl"} {
+		cfg, err := ParseConfig([]byte(strings.Replace(validProject, "template: receipt", "template: "+name, 1)))
+		if err != nil {
+			t.Fatalf("ParseConfig: %v", err)
+		}
+		issues, err := Validate(cfg, connectors, blocks, meta, projectFiles)
+		if err != nil {
+			t.Fatalf("Validate: %v", err)
+		}
+		if len(issues) != 0 {
+			t.Errorf("template %q: issues = %+v, want none", name, issues)
+		}
 	}
 }
 
@@ -148,10 +182,12 @@ func TestValidateReportsBrokenReferences(t *testing.T) {
 			wantMsg:   `db: connector "ledger" is not configured`,
 		},
 		{
-			name:      "undeclared template",
-			edit:      func(s string) string { return strings.Replace(s, "template: receipt", "template: invoice", 1) },
+			name: "undeclared template that does not load",
+			edit: func(s string) string {
+				return strings.Replace(s, "template: receipt", "template: templates/missing.tmpl", 1)
+			},
 			wantWhere: "nightly.fan[notify].vcall",
-			wantMsg:   `template: template "invoice" is not declared under resources.templates`,
+			wantMsg:   `template: template "templates/missing.tmpl" is not declared under resources.templates, and does not load`,
 		},
 		{
 			name:      "ref to a missing processor",
@@ -188,7 +224,7 @@ func TestValidateReportsBrokenReferences(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseConfig: %v", err)
 			}
-			issues, err := Validate(cfg, connectors, blocks, meta)
+			issues, err := Validate(cfg, connectors, blocks, meta, projectFiles)
 			if err != nil {
 				t.Fatalf("Validate: %v", err)
 			}

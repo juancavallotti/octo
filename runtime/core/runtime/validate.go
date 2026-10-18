@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -30,12 +31,14 @@ type Issue struct {
 // a block's own factory refuses.
 func Validate(
 	cfg types.Config, connectors *core.Registry, blocks *core.BlockRegistry, meta *core.SchemaRegistry,
+	resources core.ResourceLoader,
 ) ([]Issue, error) {
 	caps, err := schema.Generate(meta)
 	if err != nil {
 		return nil, fmt.Errorf("generate schema: %w", err)
 	}
 	v := newValidator(cfg, connectors, blocks, meta, caps)
+	v.resources = resources
 	v.checkConnectors()
 	v.checkProcessors()
 	for i := range cfg.Flows {
@@ -50,6 +53,7 @@ type validator struct {
 	connectors *core.Registry
 	blocks     *core.BlockRegistry
 	meta       *core.SchemaRegistry
+	resources  core.ResourceLoader
 
 	blockSpecs     map[string]schema.Block
 	connectorSpecs map[string]schema.Connector
@@ -280,8 +284,12 @@ func (v *validator) checkRef(where string, f schema.Field, name string) {
 			v.raise(where, "%s: flow %q is not defined", f.Name, name)
 		}
 	case "template":
-		if _, ok := v.templates[name]; !ok {
-			v.raise(where, "%s: template %q is not declared under resources.templates", f.Name, name)
+		if _, ok := v.templates[name]; ok {
+			return
+		}
+		if _, err := v.resources.Load(context.Background(), core.ResourceKindTemplate, name); err != nil {
+			v.raise(where, "%s: template %q is not declared under resources.templates, and does not load: %v",
+				f.Name, name, err)
 		}
 	case "connector":
 		v.checkConnectorRef(where, f, name)
