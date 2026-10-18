@@ -4,6 +4,8 @@ import type { ProjectFile } from "../model/project";
 import { EditorActionType } from "./actions";
 import { initialState, reducer, type EditorState } from "./reducer";
 import { projectFiles } from "./projectHandlers";
+import { initialHistory, withHistory } from "./history";
+import { EDITOR_HISTORY } from "./historyPolicy";
 
 function file(path: string, flowName?: string, declaresService = false): ProjectFile {
   const document = flowName
@@ -153,6 +155,25 @@ describe("flows", () => {
     state = reducer(state, { type: EditorActionType.SWITCH_FILE, data: { path: "billing.yaml" } });
     state = reducer(state, { type: EditorActionType.ADD_FLOW });
     expect(state.document.flows.map((f) => f.name)).toEqual(["billing", "flow-3"]);
+  });
+});
+
+describe("resources", () => {
+  it("sets the resources of a file that is not open, as one undoable step", () => {
+    const resources = { env: [".env.staging"], templates: [] };
+    const historied = withHistory(reducer, EDITOR_HISTORY);
+    let h = historied(initialHistory(loaded()), {
+      type: EditorActionType.SET_RESOURCES,
+      data: { changes: [{ path: "octo.yaml", resources }] },
+    });
+    const octo = (state: EditorState) =>
+      projectFiles(state).find((f) => f.path === "octo.yaml")?.document.resources;
+    expect(h.present.activePath).toBe("billing.yaml");
+    expect(octo(h.present)).toEqual(resources);
+    expect(h.present.document.resources).toEqual(blankDocument().resources);
+
+    h = historied(h, { type: EditorActionType.UNDO });
+    expect(octo(h.present)).toEqual(blankDocument().resources);
   });
 });
 

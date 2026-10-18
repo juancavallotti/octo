@@ -263,8 +263,13 @@ export interface SetEnvPayload {
   env: EnvVar[];
 }
 
+/**
+ * New `resources:` blocks for some of the project's files, by path — the open one or
+ * any other. Resources are project-wide, so one change (removing a resource declared
+ * in two files) can touch several, and is one undo step.
+ */
 export interface SetResourcesPayload {
-  resources: Resources;
+  changes: { path: string; resources: Resources }[];
 }
 
 export interface LoadDocumentPayload {

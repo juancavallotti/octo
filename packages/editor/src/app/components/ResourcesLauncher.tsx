@@ -95,7 +95,10 @@ function ResourcesEditor() {
           return out;
         }),
     };
-    dispatch({ type: EditorActionType.SET_RESOURCES, data: { resources } });
+    dispatch({
+      type: EditorActionType.SET_RESOURCES,
+      data: { changes: [{ path: state.activePath, resources }] },
+    });
   }
 
   const setEnvAt = (i: number, value: string) =>

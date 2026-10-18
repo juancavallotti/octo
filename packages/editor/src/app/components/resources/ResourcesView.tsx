@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { useEditorState, EditorActionType } from "../../state/editorState";
-import type { Resources } from "../../model/document";
+import { useProjectFiles, useProjectView } from "../../state/useProject";
 import {
   useResourceStore,
   type ResourceStore,
@@ -51,9 +51,10 @@ import {
   type TreeRow,
 } from "./tree";
 import {
-  declareResource,
-  renameDeclaration,
-  undeclareResource,
+  declareInProject,
+  renameInProject,
+  undeclareInProject,
+  type ResourcesChange,
 } from "./declarations";
 import { guessKind, scaffoldFor } from "./scaffold";
 import { useConfirmDialog } from "./ConfirmDialog";
@@ -76,17 +77,21 @@ const preferFolders: CollisionDetection = (args) => {
 
 /**
  * The Resources tab: a file browser (left) and content editor (right) over the
- * integration's resources. It reconciles what the store holds with the document's
- * declared `resources:` — tracked files are editable and manageable, files that
- * exist but aren't declared are shown gray + italic and never mutated except by an
- * explicit "Include in project" (see reconcile.ts). Creating/deleting/including/
- * removing a file also updates the declared set so the YAML tab stays in sync.
+ * integration's resources. It reconciles what the store holds with the project's
+ * declared `resources:`, across every file — tracked files are editable and
+ * manageable, files that exist but aren't declared are shown gray + italic and never
+ * mutated except by an explicit "Include in project" (see reconcile.ts).
+ * Creating/deleting/including/removing a file also updates the declared set so the
+ * YAML view stays in sync.
  */
 export default function ResourcesView() {
   const { state, dispatch } = useEditorState();
   const store = useResourceStore();
   const integrationId = state.project.id;
-  const declared = state.document.resources;
+  // Resources belong to the project: a declaration in any file counts, and a change
+  // lands in the file that holds it (see declarations.ts).
+  const files = useProjectFiles();
+  const declared = useProjectView().resources;
 
   const [stored, setStored] = useState<StoredResource[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -141,8 +146,10 @@ export default function ResourcesView() {
   const current = entries.find((e) => e.name === selected) ?? null;
 
   const setResources = useCallback(
-    (resources: Resources) =>
-      dispatch({ type: EditorActionType.SET_RESOURCES, data: { resources } }),
+    (changes: ResourcesChange[]) => {
+      if (changes.length === 0) return;
+      dispatch({ type: EditorActionType.SET_RESOURCES, data: { changes } });
+    },
     [dispatch],
   );
 
@@ -179,7 +186,7 @@ export default function ResourcesView() {
         content: scaffoldFor(name),
       });
       setStored((rows) => [...rows, created]);
-      setResources(declareResource(declared, name, kind));
+      setResources(declareInProject(files, name, kind));
       setSelected(name);
     });
 
@@ -208,20 +215,20 @@ export default function ResourcesView() {
       const id = entry.stored.id;
       await store.remove(id);
       setStored((rows) => rows.filter((r) => r.id !== id));
-      setResources(undeclareResource(declared, entry.name));
+      setResources(undeclareInProject(files, entry.name));
       if (selected === entry.name) setSelected(null);
     });
 
   // Include: declare an existing-but-undeclared file (non-destructive).
   const includeFile = (entry: ReconciledResource) =>
     runOp(async () => {
-      setResources(declareResource(declared, entry.name, entry.kind));
+      setResources(declareInProject(files, entry.name, entry.kind));
     });
 
   // Remove from project: undeclare a tracked file, leaving the file untouched.
   const removeFromProject = (entry: ReconciledResource) =>
     runOp(async () => {
-      setResources(undeclareResource(declared, entry.name));
+      setResources(undeclareInProject(files, entry.name));
     });
 
   // Register a virtual (empty) folder as a drop target until a file lands in it.
@@ -246,7 +253,7 @@ export default function ResourcesView() {
       // A move can change the record's id (disk stores key by name), so swap by
       // the previous id rather than matching the returned one.
       setStored((rows) => [...rows.filter((r) => r.id !== oldId), moved]);
-      setResources(renameDeclaration(declared, name, newName, entry.kind));
+      setResources(renameInProject(files, name, newName, entry.kind));
       if (selected === name) setSelected(newName);
     });
 
