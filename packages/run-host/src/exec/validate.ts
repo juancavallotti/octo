@@ -124,7 +124,9 @@ function runValidate(
       errText += `✖ failed to start runner: ${err.message}\n`;
       finish(null);
     });
-    proc.on("exit", (code) => finish(code));
+    // `close`, not `exit`: the process can exit before its stdout is drained, and the
+    // envelope must be read whole.
+    proc.on("close", (code) => finish(code));
   });
 }
 

@@ -481,9 +481,8 @@ func resolveData(data string) ([]byte, error) {
 	return raw, nil
 }
 
-// awaitStopped waits for a service the caller has cancelled to finish stopping. Its
-// error is logged rather than returned: by then the caller has its answer, and a
-// connector that failed to shut down cleanly must not turn that answer into a failure.
+// awaitStopped waits for a cancelled service to finish stopping, and logs the error
+// it stopped with unless that is the cancellation itself.
 func awaitStopped(done <-chan error) {
 	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 		slog.Warn("service stopped with error", "error", err)
