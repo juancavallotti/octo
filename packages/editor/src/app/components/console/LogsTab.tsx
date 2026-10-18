@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import type { RunLogLine } from "../../run/RunContext";
+import TerminalText from "./TerminalText";
 
 /**
  * The runner's live log stream. Auto-scrolls while the user is already at the bottom —
@@ -55,7 +56,7 @@ export default function LogsTab({
       ) : (
         logs.map((line) => (
           <div key={line.seq} className="whitespace-pre-wrap break-words">
-            {line.text || " "}
+            {line.text ? <TerminalText text={line.text} /> : " "}
           </div>
         ))
       )}

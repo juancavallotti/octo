@@ -25,6 +25,8 @@ export { default as ViewModeToggle } from "./app/components/ViewModeToggle";
 // The document bar's trigger look, so a host filling the `files` slot matches the
 // launchers standing next to it.
 export { BAR_BUTTON, BAR_COUNT } from "./app/components/barButton";
+// Process output on a terminal's grid, for a host that shows its own logs.
+export { default as TerminalText } from "./app/components/console/TerminalText";
 export { default as LayoutToggles } from "./app/components/LayoutToggles";
 // The document bar's name-and-pencil; the host supplies what the name looks like
 // when it is not being edited.
