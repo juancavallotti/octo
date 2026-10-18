@@ -44,7 +44,7 @@ export default function RunBar() {
   if (running) {
     return (
       <div className="flex items-center gap-2">
-        {error && <span className="text-xs text-red-500">{error}</span>}
+        {error && <RunError message={error} />}
         <button
           type="button"
           onClick={stop}
@@ -67,7 +67,7 @@ export default function RunBar() {
 
   return (
     <div className="flex items-center gap-2">
-      {error && <span className="text-xs text-red-500">{error}</span>}
+      {error && <RunError message={error} />}
       <button
         type="button"
         onClick={start}
@@ -79,5 +79,18 @@ export default function RunBar() {
         <span className={HEADER_LABEL}>Run</span>
       </button>
     </div>
+  );
+}
+
+/**
+ * A run's error, beside the button that caused it. Capped and truncated, with the
+ * whole message on hover: the header's control group is never narrower than its
+ * contents, so an uncapped message would push the header past the window.
+ */
+function RunError({ message }: { message: string }) {
+  return (
+    <span title={message} className="max-w-[16rem] truncate text-xs text-red-500">
+      {message}
+    </span>
   );
 }
