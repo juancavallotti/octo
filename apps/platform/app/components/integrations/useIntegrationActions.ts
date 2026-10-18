@@ -126,7 +126,7 @@ export function useIntegrationActions({
     });
   };
 
-  // Duplicate the selected integration — every config file — into a fresh
+  // Duplicate the selected integration — its config files and resources — into a fresh
   // "Copy of …" record, then select the copy.
   const copySelected = () => {
     if (!selected) return;

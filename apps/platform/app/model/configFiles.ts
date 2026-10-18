@@ -24,6 +24,23 @@ export async function replaceConfigFiles(
 }
 
 /**
+ * Delete the integration `id` a failed create left half-made, and rethrow `cause`. A
+ * delete that fails too says so: the leftover holds the name, so every retry would
+ * otherwise be refused with no hint why.
+ */
+async function discardPartial(id: string, name: string, cause: unknown): Promise<never> {
+  const removed = await integrationActions.deleteIntegration(id).catch((err: unknown) => ({
+    ok: false as const,
+    error: err instanceof Error ? err.message : String(err),
+  }));
+  if (!removed.ok) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`${reason}; the partial copy "${name}" could not be removed: ${removed.error}`);
+  }
+  throw cause;
+}
+
+/**
  * Create the integration "`name`" holding `files`. Creating it and writing its files are
  * two calls, so a set the orchestrator refuses deletes the integration again rather than
  * leaving an empty one behind.
@@ -37,8 +54,7 @@ export async function createIntegrationWithFiles(
   try {
     await replaceConfigFiles(created.id, files);
   } catch (err) {
-    await integrationActions.deleteIntegration(created.id);
-    throw err;
+    return discardPartial(created.id, name, err);
   }
   return created;
 }
@@ -67,8 +83,7 @@ export async function duplicateIntegration(sourceId: string, name: string): Prom
       await createResource(created.id, r.kind, r.name, r.content);
     }
   } catch (err) {
-    await integrationActions.deleteIntegration(created.id);
-    throw err;
+    return discardPartial(created.id, name, err);
   }
   return created;
 }

@@ -87,4 +87,14 @@ describe("duplicateIntegration", () => {
     await expect(duplicateIntegration("src", "Copy of shop")).rejects.toThrow();
     expect(integrations.deleteIntegration).toHaveBeenCalledWith("copy");
   });
+
+  // The leftover holds the name, so a retry would be refused with no hint why.
+  it("says so when the partial copy cannot be removed", async () => {
+    resources.createResource.mockResolvedValueOnce({ ok: false, error: "conflict", status: 409 });
+    integrations.deleteIntegration.mockResolvedValueOnce({ ok: false, error: "forbidden", status: 403 });
+
+    await expect(duplicateIntegration("src", "Copy of shop")).rejects.toThrow(
+      /the partial copy "Copy of shop" could not be removed: forbidden/,
+    );
+  });
 });
