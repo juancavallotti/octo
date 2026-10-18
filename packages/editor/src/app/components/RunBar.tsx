@@ -33,7 +33,7 @@ export default function RunBar() {
 
   if (state.viewMode === "testing") {
     return (
-      <div className="ml-auto flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <TestRunButton />
       </div>
     );
@@ -43,7 +43,7 @@ export default function RunBar() {
 
   if (running) {
     return (
-      <div className="ml-auto flex items-center gap-2">
+      <div className="flex items-center gap-2">
         {error && <span className="text-xs text-red-500">{error}</span>}
         <button
           type="button"
@@ -66,7 +66,7 @@ export default function RunBar() {
     : `Run this integration (${modifier}Enter)`;
 
   return (
-    <div className="ml-auto flex items-center gap-2">
+    <div className="flex items-center gap-2">
       {error && <span className="text-xs text-red-500">{error}</span>}
       <button
         type="button"
