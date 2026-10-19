@@ -85,6 +85,10 @@ It signs ES256 and generates, stores and rotates its own keys — there is no si
 
 ClusterIP only, and it publishes no OpenAPI: it is not a surface to expose or to hand to an agent as a tool.
 
+### Public API (`api/`)
+
+The one component meant to be reached from outside: the [public API](/platform/public-api) at `api.{domain}`. It is an Octo integration, the flows under `api/`, run by the standalone `octo-runtime` image, and it relays onto the orchestrator and observability, which stay ClusterIP. Every route starts by handing the caller's bearer, an API key or an identity-provider token, to iam's `POST /auth`, and makes its call with the platform token that comes back. It verifies no credential itself, and every write it relays is attributed to the user iam resolved, never to an `actorId` the caller sent.
+
 ### Postgres
 
 The system of record, applied idempotently from `sql/schema.sql` by a schema Job on every install/upgrade. Main tables: `integrations`, `integration_idx_structure` + `integration_folder_members` (folders), `integration_snapshots` + `integration_resource_snapshots` (version tags), `integration_resources` (live env files/templates), `integration_deployments`, `cluster_secrets` (names only; values live in Kubernetes), `kv_store`, `site_settings` (one jsonb row per [site-wide setting](/platform/admin-settings)), `users`, `api_keys`, and `logs`.

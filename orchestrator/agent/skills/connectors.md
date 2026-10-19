@@ -6,7 +6,7 @@ does not exist.
 | Type | Label | Provides a source | Blocks that bind to it |
 | --- | --- | --- | --- |
 | `http` | HTTP Server | yes — HTTP route | none |
-| `http-client` | HTTP Client | no | `rest`, `rest-dynamic` |
+| `http-client` | HTTP Client | no | `rest`, `rest-dynamic`, `rest-stream` |
 | `cron` | Cron | yes — schedule | none |
 | `database` | Database | no | `sql` |
 | `queue` | Platform Queue | yes — queue subscription | `queue-dispatch` |

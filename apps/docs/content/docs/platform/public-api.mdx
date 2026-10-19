@@ -1,0 +1,100 @@
+---
+title: "Public API"
+description: "Manage, deploy and watch integrations from outside the cluster at api.{domain}, with an API key or an OAuth token."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The public API is how a client outside your installation (a script, a CLI, Octo Desktop) works with its integrations: read and edit them, version and deploy them, and follow what they log. It is served at `https://api.{domain}`, for example `https://api.octopaas.dev`, and describes itself at [`/openapi.yaml`](#the-description).
+
+Everything here acts as you. Your roles decide what a request may do, the same way they do in the platform UI, and every change is attributed to you.
+
+## Authenticate
+
+Send a bearer token in `Authorization`. Either kind works on every route:
+
+- **An API key.** Mint one on your account page (see [API keys](/platform/users-and-api-keys#api-keys)) and send it as it is:
+
+  ```bash
+  curl https://api.octopaas.dev/v1/integrations \
+    -H "Authorization: Bearer octo_..."
+  ```
+
+- **An OAuth access token** from the installation's identity provider, requested for this API as its resource. A client that does not have one yet discovers how to get one from the API itself, without being told which provider to use. The steps follow RFC 9728 and dynamic client registration (RFC 7591):
+
+  1. Call any route without a token. The `401` carries `WWW-Authenticate: Bearer resource_metadata="https://api.octopaas.dev/.well-known/oauth-protected-resource"`.
+  2. Read that document. `authorization_servers` names the identity provider, and `resource` is the value to request a token for.
+  3. Read the provider's discovery document from the provider itself, or from this API at `/.well-known/openid-configuration` (also `/.well-known/oauth-authorization-server`). It is relayed unchanged, so its `issuer` is the provider's.
+  4. Register at its `registration_endpoint`, sign in through `authorization_endpoint`, and exchange the code at `token_endpoint`, asking for `resource=https://api.octopaas.dev`.
+
+A token the API cannot accept is a `401`. A person the provider vouches for who has no account here is a `403`: ask an administrator to add you.
+
+<Callout type="info">
+The API checks no credential itself. It hands yours to the platform's iam service, which turns it into a short-lived platform token, so there is one verifier on the installation. A token exchanged for an API key stops working within an hour of the key being revoked.
+</Callout>
+
+## What you can do
+
+The paths below are all under `/v1`. Bodies and answers are JSON unless noted, and failures are `{"error": "..."}`.
+
+| Area | Routes |
+| --- | --- |
+| Integrations | `GET/POST /integrations`, `GET/PATCH/DELETE /integrations/{id}` (`PATCH` renames) |
+| Bundles | `GET/PUT /integrations/{id}/bundle` (zip), `POST /integrations/bundle?name=` (import a zip) |
+| Config files | `GET/PUT /integrations/{id}/files`, `GET/PUT/DELETE /integrations/{id}/files/content?path=` |
+| Resources | `GET/POST /integrations/{id}/resources`, `GET/PUT/DELETE /integrations/{id}/resources/{resourceId}` |
+| Versions | `GET/POST /integrations/{id}/versions`, `DELETE /versions/{id}`, `GET /versions/{id}/bundle` (zip) |
+| Deployments | `GET /deployments`, `GET/POST /integrations/{id}/deployments`, `GET /integrations/{id}/deployments/options`, `GET/PATCH/DELETE /deployments/{id}`, `POST /deployments/{id}/rollout` |
+| Logs | `GET /deployments/{id}/logs` (stored history), `GET /deployments/{id}/pods/{pod}/logs?tail=` (plain text), `GET /deployments/{id}/pods/{pod}/logs/stream` (server-sent events) |
+
+A **version** is what the platform calls a [snapshot](/platform/snapshots): a tag freezing the definition and resources. Deploying and rolling out name the version by its id as `snapshotId`, the same field every deployment reports.
+
+A file's `path` is a query parameter rather than part of the path, because file paths contain slashes. A bundle is at most 8 MiB either way.
+
+### Edit an integration locally
+
+Download the bundle, change it, and put it back. The integration keeps its id, name, versions and deployments:
+
+```bash
+curl -o billing.zip https://api.octopaas.dev/v1/integrations/$ID/bundle \
+  -H "Authorization: Bearer $OCTO_API_KEY"
+
+# edit, re-zip, then:
+curl -X PUT https://api.octopaas.dev/v1/integrations/$ID/bundle \
+  -H "Authorization: Bearer $OCTO_API_KEY" \
+  -H "Content-Type: application/zip" \
+  --data-binary @billing.zip
+```
+
+### Release it
+
+Freeze it under a tag, then deploy that version, or roll a running deployment onto it:
+
+```bash
+curl https://api.octopaas.dev/v1/integrations/$ID/versions \
+  -H "Authorization: Bearer $OCTO_API_KEY" \
+  -d '{"tag": "v1.3.0"}'
+
+curl -X POST https://api.octopaas.dev/v1/deployments/$DEPLOYMENT/rollout \
+  -H "Authorization: Bearer $OCTO_API_KEY" \
+  -d '{"snapshotId": "<the version id>"}'
+```
+
+### Follow a pod's log
+
+The stream opens with an `open` event, then sends one `log` event per line:
+
+```bash
+curl -N https://api.octopaas.dev/v1/deployments/$DEPLOYMENT/pods/$POD/logs/stream?tail=50 \
+  -H "Authorization: Bearer $OCTO_API_KEY"
+```
+
+A stream stays open for at most thirty minutes. Reconnect to carry on, which an `EventSource` does by itself. A failure once the stream is open arrives as an `error` event.
+
+## The description
+
+`GET /openapi.yaml` returns the OpenAPI 3.1 description of every route, without a credential, so you can generate a client before you have one. It is the reference for request and response shapes; this page is the overview.
+
+## Hosting it
+
+The API is an Octo integration of its own, the flows under `api/` in the repository, run by the standalone runtime image beside the other platform components. It relays to the orchestrator and observability, which stay internal. See [Architecture](/platform/architecture#public-api-api) for where it sits.

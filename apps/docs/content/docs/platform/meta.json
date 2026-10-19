@@ -11,6 +11,7 @@
     "agent-memory",
     "users-and-api-keys",
     "admin-settings",
+    "public-api",
     "api-reference",
     "observability-api-reference",
     "agent",

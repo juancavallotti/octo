@@ -126,7 +126,7 @@ Keys are managed from the platform's account area, backed by these iam endpoints
 
 ### Using a key
 
-Present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying their current roles:
+From outside the cluster, send the key to the [public API](/platform/public-api) as a bearer token; it does the exchange below for you. Inside the cluster, present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying their current roles:
 
 ```bash
 curl -X POST http://iam:8093/auth \
