@@ -44,10 +44,10 @@ env:
   - name: API_RESOURCE_URL
     required: true
   # The identity provider an OAuth client registers with and signs in through.
-  # Empty leaves the metadata naming no authorization server, which is an install
-  # taking API keys only.
+  # Required even of an install whose callers all hold API keys: iam exchanges
+  # neither kind of credential without one.
   - name: OIDC_ISSUER
-    default: ""
+    required: true
 
 connectors:
   - name: api
@@ -73,6 +73,18 @@ connectors:
       baseURL: ${ORCHESTRATOR_URL}
       timeout: 60s
       maxResponseBytes: 8388608
+
+  # The identity provider, read only for its discovery documents. They change
+  # when the provider is reconfigured, which is rare, so five minutes of cache
+  # keeps a CLI's every sign-in from being a request to somebody else's server.
+  - name: identity-provider
+    type: http-client
+    settings:
+      baseURL: ${OIDC_ISSUER}
+      timeout: 10s
+      cache:
+        enabled: true
+        ttl: 5m
 
   - name: observability
     type: http-client
@@ -203,6 +215,55 @@ flows:
         settings:
           value: >-
             {"resource": env.API_RESOURCE_URL,
-             "authorization_servers": env.OIDC_ISSUER == "" ? [] : [env.OIDC_ISSUER],
+             "authorization_servers": [env.OIDC_ISSUER],
              "bearer_methods_supported": ["header"],
              "resource_documentation": env.API_RESOURCE_URL + "/openapi.yaml"}
+
+  # GET /.well-known/openid-configuration and /.well-known/oauth-authorization-server
+  # — the identity provider's own discovery documents, served from this origin.
+  #
+  # A CLI that registers itself (DCR) finds the registration, authorization and
+  # token endpoints by asking the API it was pointed at, without first being
+  # told which provider this installation uses. The documents are relayed
+  # unchanged, so `issuer` names the provider: that is who issues the tokens,
+  # and a client checking the issuer against the URL it fetched from follows the
+  # protected-resource metadata above instead, which names the provider outright.
+  - name: openid-configuration
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /.well-known/openid-configuration
+        methods: [GET]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - type: rest
+        name: relay
+        settings:
+          connector: identity-provider
+          path: /.well-known/openid-configuration
+          failOnError: false
+      - ref: relay-status
+
+  - name: oauth-authorization-server
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /.well-known/oauth-authorization-server
+        methods: [GET]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - type: rest
+        name: relay
+        settings:
+          connector: identity-provider
+          path: /.well-known/oauth-authorization-server
+          failOnError: false
+      - ref: relay-status
