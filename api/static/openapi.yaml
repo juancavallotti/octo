@@ -671,7 +671,7 @@ paths:
       summary: Read a deployment's stored logs
       description: Newest first, a page at a time, across every pod the deployment has had.
       parameters:
-        - { name: level, in: query, schema: { type: string, enum: [debug, info, warn, error] } }
+        - { name: level, in: query, description: "One level, matched exactly as stored.", schema: { type: string, enum: [DEBUG, INFO, WARN, ERROR] } }
         - { name: q, in: query, description: Text the message contains., schema: { type: string } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
