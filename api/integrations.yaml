@@ -17,6 +17,10 @@ flows:
         methods: [GET]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -39,6 +43,10 @@ flows:
         methods: [POST]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -65,6 +73,10 @@ flows:
         methods: [GET]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -90,6 +102,10 @@ flows:
         methods: [PATCH]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -113,6 +129,10 @@ flows:
         methods: [DELETE]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -136,6 +156,10 @@ flows:
         methods: [GET]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate, Content-Disposition]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -167,6 +191,10 @@ flows:
         responseHeaders: [WWW-Authenticate]
         rawBody: true
         maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -195,6 +223,10 @@ flows:
         responseHeaders: [WWW-Authenticate]
         rawBody: true
         maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -221,6 +253,10 @@ flows:
         methods: [GET]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -247,6 +283,10 @@ flows:
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -276,6 +316,10 @@ flows:
         methods: [GET]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -300,6 +344,10 @@ flows:
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -324,6 +372,10 @@ flows:
         methods: [DELETE]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -347,6 +399,10 @@ flows:
         methods: [GET]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -370,6 +426,10 @@ flows:
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -397,6 +457,10 @@ flows:
         methods: [GET]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -420,6 +484,10 @@ flows:
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic
@@ -447,6 +515,10 @@ flows:
         methods: [DELETE]
         headers: [Authorization]
         responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
     process:
       - ref: authenticate
       - type: rest-dynamic

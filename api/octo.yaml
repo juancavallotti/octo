@@ -96,6 +96,24 @@ processors:
       name: httpStatus
       value: vars.statusCode
 
+  # The error chain of every route. A failure here is the relay itself — an
+  # upstream that could not be reached, or a request that could not be built —
+  # and its message names internal hosts, so it is logged rather than answered.
+  - name: log-relay-failure
+    type: log
+    settings:
+      level: error
+      message: '"relay failed: " + vars.error.message'
+  - name: relay-failure-status
+    type: set-variable
+    settings:
+      name: httpStatus
+      value: "502"
+  - name: relay-failure-body
+    type: set-payload
+    settings:
+      value: '{"error": "the platform could not complete this request right now"}'
+
 flows:
   # Trades the caller's bearer for a platform token, or stops the route.
   #
