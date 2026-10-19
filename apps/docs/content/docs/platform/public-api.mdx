@@ -73,10 +73,12 @@ Freeze it under a tag, then deploy that version, or roll a running deployment on
 ```bash
 curl https://api.octopaas.dev/v1/integrations/$ID/versions \
   -H "Authorization: Bearer $OCTO_API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{"tag": "v1.3.0"}'
 
 curl -X POST https://api.octopaas.dev/v1/deployments/$DEPLOYMENT/rollout \
   -H "Authorization: Bearer $OCTO_API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{"snapshotId": "<the version id>"}'
 ```
 
@@ -85,7 +87,7 @@ curl -X POST https://api.octopaas.dev/v1/deployments/$DEPLOYMENT/rollout \
 The stream opens with an `open` event, then sends one `log` event per line:
 
 ```bash
-curl -N https://api.octopaas.dev/v1/deployments/$DEPLOYMENT/pods/$POD/logs/stream?tail=50 \
+curl -N "https://api.octopaas.dev/v1/deployments/$DEPLOYMENT/pods/$POD/logs/stream?tail=50" \
   -H "Authorization: Bearer $OCTO_API_KEY"
 ```
 

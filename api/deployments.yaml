@@ -205,10 +205,11 @@ flows:
 
   # POST /v1/integrations/{id}/deployments  {"snapshotId": "...", "replicas": 1, "env": {...}, ...}
   #
-  # The deployment settings go through as sent. The orchestrator owns their
-  # vocabulary, and which of them a caller may use — a privileged runner, the
-  # access lent to the deployment's own token — is its decision, made against
-  # the caller's roles.
+  # The settings are rebuilt like every other body here, each sent only when
+  # given so the orchestrator's defaults stand. Which of them a caller may use —
+  # a privileged runner, the access lent to the deployment's own token — is the
+  # orchestrator's decision, made against the caller's roles. A deploy records
+  # no actor, so none is sent.
   - name: create-deployment
     source:
       connector: api
@@ -231,7 +232,16 @@ flows:
           method: '"POST"'
           path: '"/integrations/" + vars.id + "/deployments"'
           headers: '{"Authorization": "Bearer " + vars.platformToken}'
-          body: 'body'
+          body: >-
+            {?"snapshotId": body.?snapshotId,
+             ?"replicas": body.?replicas,
+             ?"slug": body.?slug,
+             ?"expose": body.?expose,
+             ?"subdomain": body.?subdomain,
+             ?"env": body.?env,
+             ?"tracing": body.?tracing,
+             ?"access": body.?access,
+             ?"runner": body.?runner}
           failOnError: false
       - ref: relay-status
 
