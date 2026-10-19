@@ -49,6 +49,14 @@ env:
   - name: OIDC_ISSUER
     required: true
 
+resources:
+  templates:
+    # Nested rather than at the root, where a .yaml file is read as part of the
+    # config. A template, so it must hold no double curly braces: they would be
+    # evaluated.
+    - resource: static/openapi.yaml
+      as: openapi
+
 connectors:
   - name: api
     type: http
@@ -198,6 +206,23 @@ flows:
         name: reply
         settings:
           value: '{"status": "ok"}'
+
+  # GET /openapi.yaml — the description of everything below, open to anybody
+  # so a client can be generated before it has a credential.
+  - name: openapi
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /openapi.yaml
+        methods: [GET]
+    process:
+      - type: template-resource
+        name: spec
+        settings:
+          id: openapi
+          rawBody: true
+          contentType: application/yaml
 
   # GET /.well-known/oauth-protected-resource — RFC 9728 metadata. An OAuth client
   # refused with a 401 follows the challenge here, learns which provider to

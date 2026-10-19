@@ -1,0 +1,885 @@
+openapi: 3.1.0
+
+info:
+  title: Octo Public API
+  version: "1"
+  summary: Manage, deploy and watch Octo integrations from outside the cluster.
+  description: |
+    The API a client outside an Octo installation uses: integrations and what
+    they are made of, their versions, the deployments running them, and what
+    those deployments log.
+
+    Every route but the discovery documents needs a bearer token, which is
+    either one of your API keys (`octo_…`, minted from your account page) or an
+    OAuth access token from the installation's identity provider whose audience
+    is this API. A client with neither is refused with a 401 whose
+    `WWW-Authenticate` names `/.well-known/oauth-protected-resource`, from which
+    an OAuth client can register itself (dynamic client registration) and sign
+    in. Whatever you do here, you do as yourself: your roles decide what is
+    allowed, and every change is attributed to you.
+
+    Failures carry `{"error": "..."}`. A 502 means the installation could not
+    complete the request, not that it was wrong.
+
+servers:
+  - url: /
+
+security:
+  - bearer: []
+
+tags:
+  - name: integrations
+  - name: files
+  - name: resources
+  - name: versions
+  - name: deployments
+  - name: logs
+  - name: discovery
+
+paths:
+  /v1/integrations:
+    get:
+      tags: [integrations]
+      operationId: listIntegrations
+      summary: List integrations
+      responses:
+        "200":
+          description: Every integration on the installation.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Integration" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+    post:
+      tags: [integrations]
+      operationId: createIntegration
+      summary: Create an integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, definition]
+              properties:
+                name: { type: string }
+                definition: { type: string, description: The integration's YAML. }
+      responses:
+        "201":
+          description: The integration created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Integration" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/integrations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+    get:
+      tags: [integrations]
+      operationId: getIntegration
+      summary: Get an integration
+      responses:
+        "200":
+          description: The integration, its definition included.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Integration" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [integrations]
+      operationId: renameIntegration
+      summary: Rename an integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: The integration, renamed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Integration" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [integrations]
+      operationId: deleteIntegration
+      summary: Delete an integration
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/integrations/{id}/bundle:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+    get:
+      tags: [integrations]
+      operationId: downloadBundle
+      summary: Download an integration as a zip
+      description: Its definition and every resource, the shape a local folder is opened from.
+      responses:
+        "200":
+          description: The bundle.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [integrations]
+      operationId: replaceBundle
+      summary: Replace an integration with a zip
+      description: The integration keeps its id, name, versions and deployments; its contents become the bundle's.
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: The integration, replaced.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Integration" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { description: The bundle is larger than 8 MiB. }
+
+  /v1/integrations/bundle:
+    post:
+      tags: [integrations]
+      operationId: importBundle
+      summary: Import a zip as a new integration
+      parameters:
+        - name: name
+          in: query
+          description: The name to use when the bundle carries none. A taken name gets a numbered suffix.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: The integration imported.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Integration" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "413": { description: The bundle is larger than 8 MiB. }
+
+  /v1/integrations/{id}/files:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+    get:
+      tags: [files]
+      operationId: listFiles
+      summary: List an integration's config files
+      responses:
+        "200":
+          description: The paths, without their contents.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path: { type: string }
+                    lastUpdated: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [files]
+      operationId: replaceFiles
+      summary: Replace every config file at once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items: { $ref: "#/components/schemas/File" }
+      responses:
+        "200":
+          description: The integration, with its new definition.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Integration" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/integrations/{id}/files/content:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+      - name: path
+        in: query
+        required: true
+        description: The file's path. A query parameter because it contains slashes.
+        schema: { type: string }
+    get:
+      tags: [files]
+      operationId: getFile
+      summary: Read one config file
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [files]
+      operationId: putFile
+      summary: Write one config file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+      responses:
+        "200":
+          description: The file as written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [files]
+      operationId: deleteFile
+      summary: Delete one config file
+      responses:
+        "204": { description: Deleted. }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/integrations/{id}/resources:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+    get:
+      tags: [resources]
+      operationId: listResources
+      summary: List an integration's resources
+      responses:
+        "200":
+          description: Every resource, contents included.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Resource" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [resources]
+      operationId: createResource
+      summary: Add a resource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResourceInput" }
+      responses:
+        "201":
+          description: The resource created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Resource" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/integrations/{id}/resources/{resourceId}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+      - name: resourceId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [resources]
+      operationId: getResource
+      summary: Get a resource
+      responses:
+        "200":
+          description: The resource.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Resource" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [resources]
+      operationId: updateResource
+      summary: Update a resource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResourceInput" }
+      responses:
+        "200":
+          description: The resource updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Resource" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [resources]
+      operationId: deleteResource
+      summary: Delete a resource
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/integrations/{id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+    get:
+      tags: [versions]
+      operationId: listVersions
+      summary: List an integration's versions
+      responses:
+        "200":
+          description: Every version, newest first.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Version" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [versions]
+      operationId: createVersion
+      summary: Freeze the integration as it stands under a tag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tag]
+              properties:
+                tag: { type: string, examples: [v1.2.0] }
+      responses:
+        "201":
+          description: The version created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Version" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/versions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+    delete:
+      tags: [versions]
+      operationId: deleteVersion
+      summary: Delete a version
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/versions/{id}/bundle:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+    get:
+      tags: [versions]
+      operationId: downloadVersionBundle
+      summary: Download one version as a zip
+      responses:
+        "200":
+          description: The bundle, with the resources frozen alongside the version.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/deployments:
+    get:
+      tags: [deployments]
+      operationId: listDeployments
+      summary: List every deployment
+      responses:
+        "200":
+          description: Across all integrations, newest first, each with its live status.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Deployment" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/integrations/{id}/deployments:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+    get:
+      tags: [deployments]
+      operationId: listIntegrationDeployments
+      summary: List an integration's deployments
+      responses:
+        "200":
+          description: Newest first, each with its live status.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Deployment" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+    post:
+      tags: [deployments]
+      operationId: createDeployment
+      summary: Deploy a version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeploymentSettings" }
+      responses:
+        "201":
+          description: The deployment created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/integrations/{id}/deployments/options:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationId"
+    get:
+      tags: [deployments]
+      operationId: deploymentOptions
+      summary: What a deploy of this integration needs
+      description: Whether it serves HTTP, the env vars it declares, and whether a chosen slug is free.
+      parameters:
+        - { name: snapshotId, in: query, description: The version to check against., schema: { type: string } }
+        - { name: slug, in: query, description: A slug to check is available., schema: { type: string } }
+        - { name: expose, in: query, description: "`external` to check external exposure.", schema: { type: string } }
+      responses:
+        "200":
+          description: The options.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/deployments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+    get:
+      tags: [deployments]
+      operationId: getDeployment
+      summary: Get a deployment
+      responses:
+        "200":
+          description: The deployment with its live status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [deployments]
+      operationId: scaleDeployment
+      summary: Change a deployment's replica count
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [replicas]
+              properties:
+                replicas: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The deployment, scaling.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [deployments]
+      operationId: deleteDeployment
+      summary: Undeploy
+      responses:
+        "204": { description: Undeployed. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/deployments/{id}/rollout:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+    post:
+      tags: [deployments]
+      operationId: rolloutDeployment
+      summary: Roll a deployment onto another version, env or tracing setting
+      description: A rolling update in place. A field left out keeps what the deployment already has.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                snapshotId: { type: string, description: The version to run. }
+                env: { $ref: "#/components/schemas/EnvBindings" }
+                tracing: { type: boolean }
+      responses:
+        "200":
+          description: The deployment, rolling out.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/deployments/{id}/logs:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+    get:
+      tags: [logs]
+      operationId: deploymentLogs
+      summary: Read a deployment's stored logs
+      description: Newest first, a page at a time, across every pod the deployment has had.
+      parameters:
+        - { name: level, in: query, schema: { type: string, enum: [debug, info, warn, error] } }
+        - { name: q, in: query, description: Text the message contains., schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: before, in: query, description: The previous page's `next_before`., schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 200, maximum: 1000 } }
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  next_before: { type: string, description: Absent on the last page. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/deployments/{id}/pods/{pod}/logs:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+      - $ref: "#/components/parameters/Pod"
+    get:
+      tags: [logs]
+      operationId: podLogs
+      summary: Read the last lines one pod wrote
+      parameters:
+        - { name: tail, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: The lines, as plain text.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/deployments/{id}/pods/{pod}/logs/stream:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+      - $ref: "#/components/parameters/Pod"
+    get:
+      tags: [logs]
+      operationId: streamPodLogs
+      summary: Follow one pod's log
+      description: |
+        Server-sent events: an `open` event as soon as the stream is up, then
+        one `log` event per line, its data the line. A failure once the stream
+        is open is an `error` event carrying `{"error": "..."}`. A stream lasts
+        at most thirty minutes; reconnect to carry on.
+      parameters:
+        - { name: tail, in: query, description: How many earlier lines to start with., schema: { type: integer } }
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /openapi.yaml:
+    get:
+      tags: [discovery]
+      operationId: openapi
+      summary: This description
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI document.
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  /healthz:
+    get:
+      tags: [discovery]
+      operationId: healthz
+      summary: Whether the API is up
+      security: []
+      responses:
+        "200":
+          description: Up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+
+  /.well-known/oauth-protected-resource:
+    get:
+      tags: [discovery]
+      operationId: protectedResourceMetadata
+      summary: OAuth protected resource metadata (RFC 9728)
+      description: Names this API as an OAuth resource and the identity provider that issues tokens for it.
+      security: []
+      responses:
+        "200":
+          description: The metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resource: { type: string, format: uri }
+                  authorization_servers: { type: array, items: { type: string, format: uri } }
+                  bearer_methods_supported: { type: array, items: { type: string } }
+                  resource_documentation: { type: string, format: uri }
+
+  /.well-known/openid-configuration:
+    get:
+      tags: [discovery]
+      operationId: openidConfiguration
+      summary: The identity provider's OpenID Connect discovery document
+      description: Relayed unchanged, so its issuer is the provider. It carries the registration endpoint a client uses to register itself.
+      security: []
+      responses:
+        "200":
+          description: The discovery document.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [discovery]
+      operationId: authorizationServerMetadata
+      summary: The identity provider's OAuth authorization server metadata (RFC 8414)
+      description: Relayed unchanged, so its issuer is the provider.
+      security: []
+      responses:
+        "200":
+          description: The metadata.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: An `octo_…` API key, or an OAuth access token from the installation's identity provider.
+
+  parameters:
+    IntegrationId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    VersionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DeploymentId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Pod:
+      name: pod
+      in: path
+      required: true
+      description: A pod name, as a deployment's `pods` lists it.
+      schema: { type: string }
+
+  responses:
+    Unauthenticated:
+      description: No valid bearer token. `WWW-Authenticate` points at the protected-resource metadata.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Your roles do not allow this, or your account is not provisioned.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such thing.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Invalid:
+      description: The request is not one that can be carried out, and the message says why.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: It clashes with something already there, such as a taken name.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    Integration:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        icon: { type: string }
+        definition: { type: string, description: The integration's YAML. }
+        lastUpdated: { type: string, format: date-time }
+        createdBy: { type: string }
+        createdByEmail: { type: string }
+        createdByName: { type: string }
+        updatedBy: { type: string }
+        updatedByEmail: { type: string }
+        updatedByName: { type: string }
+
+    File:
+      type: object
+      properties:
+        path: { type: string }
+        content: { type: string }
+        lastUpdated: { type: string, format: date-time }
+
+    ResourceInput:
+      type: object
+      required: [kind, name, content]
+      properties:
+        kind: { type: string, description: "What the resource is, e.g. `env` or `template`." }
+        name: { type: string, description: Its path within the integration. May contain slashes. }
+        content: { type: string }
+
+    Resource:
+      allOf:
+        - $ref: "#/components/schemas/ResourceInput"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            integrationId: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time }
+            lastUpdated: { type: string, format: date-time }
+
+    Version:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        integrationId: { type: string, format: uuid }
+        tag: { type: string }
+        definition: { type: string, description: The definition frozen under this tag. }
+        createdAt: { type: string, format: date-time }
+
+    EnvBindings:
+      type: object
+      description: The integration's declared env vars, each bound to a literal value or a cluster secret.
+      additionalProperties:
+        type: object
+        properties:
+          value: { type: string }
+          secret: { type: string, description: The name of a cluster secret. }
+
+    DeploymentSettings:
+      type: object
+      required: [snapshotId]
+      properties:
+        snapshotId: { type: string, description: The version to deploy. }
+        replicas: { type: integer, minimum: 1 }
+        slug: { type: string, description: Internal address label; empty picks a free one. }
+        expose: { type: string, enum: ["", external] }
+        subdomain: { type: string }
+        env: { $ref: "#/components/schemas/EnvBindings" }
+        tracing: { type: boolean }
+        access:
+          type: array
+          description: What the deployment's own token is lent beyond its stores.
+          items: { type: string, enum: [developer, operator] }
+        runner: { type: string, enum: ["", standard, agentic] }
+
+    Deployment:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string, format: uuid }
+        integrationId: { type: string, format: uuid }
+        name: { type: string }
+        tag: { type: string, description: The version tag it runs. }
+        status: { type: string }
+        replicas: { type: integer }
+        readyReplicas: { type: integer }
+        desiredReplicas: { type: integer }
+        reason: { type: string }
+        pods:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              phase: { type: string }
+              ready: { type: boolean }
+              restarts: { type: integer }
+        internalUrl: { type: string }
+        externalUrl: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUpdated: { type: string, format: date-time }
