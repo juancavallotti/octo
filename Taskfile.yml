@@ -115,12 +115,13 @@ tasks:
       # end-to-end tests: the unit tests above prove the engine works, these prove a flow
       # someone might actually copy still does what its comments say.
       - task: runtime:test:samples
-      # The two apps this repo ships as images rather than as samples: the platform
-      # agent and the embedding server. Neither is reachable from the samples glob,
-      # and each runs on its own config directory — dolphin merges directories that
-      # are passed together.
+      # The three apps this repo ships rather than samples: the platform agent, the
+      # embedding server and the public API. None is reachable from the samples
+      # glob, and each runs on its own config directory — dolphin merges
+      # directories that are passed together.
       - task: runtime:test:agent
       - task: runtime:test:embeddings
+      - task: runtime:test:api
       - task: platform:test
       - task: standalone:test
       # The desktop shell: main-process logic only (the editor it wraps is tested
@@ -213,6 +214,11 @@ tasks:
     cmds:
       - task: runtime:build
       - node scripts/check-docs-drift.mjs
+
+  api:spec:check:
+    desc: Fail if the public API's OpenAPI description drifts from its routes
+    cmds:
+      - node scripts/check-api-spec.mjs
 
   editor:scope:check:
     desc: Fail if the editor's CEL scope model drifts from the runtime registry
@@ -664,7 +670,7 @@ tasks:
           echo "· images unchanged, skipping rollout restart"
           exit 0
         fi
-        for dep in octo-platform octo-orchestrator octo-observability octo-iam octo-embeddings; do
+        for dep in octo-platform octo-orchestrator octo-observability octo-iam octo-embeddings octo-api; do
           if ! kubectl --context {{.KCTX}} -n octo-dev get deployment "$dep" >/dev/null 2>&1; then
             echo "· $dep not deployed yet, skipping restart"
             continue
@@ -676,6 +682,7 @@ tasks:
         echo "✓ cluster up:"
         echo "    platform      http://localhost:3000"
         echo "    orchestrator  http://localhost:8090/healthz  (and /db-version)"
+        echo "    public API    http://localhost:8095/openapi.yaml  (cluster created before :8095 was mapped? recreate it)"
         if [ -n "$EMBEDDINGS_API_KEY" ]; then
           echo "    embeddings    deployed (agent memory search ranks by meaning)"
         else
@@ -1491,8 +1498,11 @@ tasks:
           echo "image:"
           echo "  registry: {{.IMAGE_BASE}}"
           echo "  pullPolicy: IfNotPresent"
-          for c in platform orchestrator observability iam schema runtime devsidecar statssidecar devruntime agenticrunner embeddings; do
+          for c in platform orchestrator observability iam schema runtime devsidecar statssidecar devruntime agenticrunner embeddings api; do
             repo="octo-${c}-paas"
+            # The public API has no image of its own: it runs the standalone
+            # runtime, which a private registry carries as the dev runtime.
+            [ "$c" = api ] && repo="octo-devruntime-paas"
             ref="{{.IMAGE_BASE}}/${repo}:{{.TAG}}"
             digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"
             if [ -z "$digest" ]; then

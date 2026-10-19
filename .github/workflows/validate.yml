@@ -56,6 +56,8 @@ jobs:
       # The embedding server, on the same terms: an octo app that ships as an
       # image, living at the repo root rather than in the samples tree.
       - run: task runtime:test:embeddings
+      # And the public API, the third app at the repo root.
+      - run: task runtime:test:api
       # The service modules. Each gets its own steps rather than an entry in a
       # list, because this job enumerates what it runs — and what it enumerates is
       # the whole guarantee. `orchestrator` and `observability` were missing here until
@@ -250,6 +252,9 @@ jobs:
       # docs page claims a type that no longer exists). See AGENTS.md
       # "Documentation policy".
       - run: node scripts/check-docs-drift.mjs
+      # Fails when the public API serves a route its hand-written OpenAPI
+      # description leaves out, or describes one it no longer serves.
+      - run: node scripts/check-api-spec.mjs
       # Fails when a block arrives declaring a variable the editor's CEL scope
       # model has not been told about — which would otherwise show up as a
       # completion menu quietly missing names the flow actually has.

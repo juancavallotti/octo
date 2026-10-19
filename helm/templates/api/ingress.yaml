@@ -1,8 +1,10 @@
 {{- /* The public API's external endpoint, on its own host and certificate,
        through whichever of Ingress or Gateway API this release uses — the same
        choice the editor's endpoint makes, so the two are never published two
-       different ways. */}}
-{{- if .Values.api.enabled }}
+       different ways — or not at all, when the release publishes nothing and
+       callers reach the API's Service directly, as a local cluster's NodePort
+       does. */}}
+{{- if and .Values.api.enabled .Values.ingress.enabled }}
 {{- $ingress := fromYaml (include "octo.api.ingress" .) }}
 {{- if eq (include "octo.networking.mode" .) "ingress" }}
 {{- include "octo-common.ingress" (dict

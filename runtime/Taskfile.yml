@@ -82,6 +82,16 @@ tasks:
     cmds:
       - ../bin/dolphin test ../embeddings/*_test.yaml
 
+  test:api:
+    desc: Run the dolphin test suite over the public API app
+    deps: [build]
+    # The public API is another app at the repo root, so it gets its own target
+    # for the reason test:embeddings gives.
+    env:
+      OCTO_PATH: ../bin
+    cmds:
+      - ../bin/dolphin test ../api/*_test.yaml
+
   # Both CLIs. Kept as an aggregator rather than one task that builds both, so that
   # `bin/octo` — which the docs drift check shells out to — is still produced by a
   # task of its own.

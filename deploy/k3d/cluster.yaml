@@ -9,8 +9,8 @@
 # which would strand a dynamically provisioned volume.
 #
 # Port mappings route localhost -> the k3d loadbalancer -> NodePort services
-# (helm/values-k3d.yaml pins them to 30030/30090), so the editor and
-# orchestrator are reachable without a long-running port-forward.
+# (helm/values-k3d.yaml pins them to 30030/30090/30095), so the editor,
+# orchestrator and public API are reachable without a long-running port-forward.
 apiVersion: k3d.io/v1alpha5
 kind: Simple
 metadata:
@@ -24,6 +24,11 @@ ports:
       - loadbalancer
   # localhost:8090 -> orchestrator NodePort (30090)
   - port: 8090:30090
+    nodeFilters:
+      - loadbalancer
+  # localhost:8095 -> public API NodePort (30095). A cluster created before this
+  # mapping existed needs recreating to get it.
+  - port: 8095:30095
     nodeFilters:
       - loadbalancer
 options:
