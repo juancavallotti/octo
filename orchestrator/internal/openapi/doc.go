@@ -16,7 +16,7 @@
 //	@version					1.0
 //	@description				The control plane behind the Octo platform: integrations and their
 //	@description				resources, version tags, deployments, cluster secrets, the
-//	@description				deployment-scoped key-value store, users and API keys, and the
+//	@description				deployment-scoped key-value store, and the
 //	@description				site-wide settings.
 //	@description
 //	@description				Every route requires a bearer token minted by this platform's iam

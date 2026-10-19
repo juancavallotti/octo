@@ -81,12 +81,6 @@ var policy = []rule{
 	// through a server somebody else configured is an operating act, and an
 	// unattended run that has just repaired something has to be able to say so.
 	{"email", []string{RoleAdmin, RoleOperator}, []string{RoleAdmin, RoleOperator}},
-
-	// --- each caller's own -----------------------------------------------
-	// API keys are per-user and the handler scopes them to the id in the path;
-	// what this rule says is only that a caller must be somebody.
-	{"users", anyone, anyone},
-	{"apikeys", anyone, anyone},
 }
 
 // bypass is the set of paths served without a token at all.

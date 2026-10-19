@@ -1,10 +1,8 @@
-// Package apikey is the orchestrator feature module for per-user bearer tokens.
-// A key authenticates a machine client (the platform's MCP endpoint) on behalf of
-// its owning user. The plaintext token is shown exactly once at creation; only its
-// SHA-256 hash is stored, so the database holds no usable credential. Verification
-// hashes the presented token and looks the row up by hash, then checks it is
-// neither revoked nor expired. The module follows the same repository/service/
-// handler shape as the integration and snapshot modules.
+// Package apikey holds the per-user bearer tokens iam exchanges for platform
+// tokens. A key belongs to exactly one user and only ever speaks for them: it
+// carries no roles of its own, and what it may do is whatever its owner holds when
+// it is presented. The plaintext token is shown exactly once at creation; only its
+// SHA-256 hash is stored, so the database holds no usable credential.
 package apikey
 
 import (

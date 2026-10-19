@@ -1,4 +1,4 @@
-// Command iam is the identity service. It owns two things:
+// Command iam is the identity service. It owns three things:
 //
 //   - Platform users and the roles granted to them, held as rows rather than as
 //     id-token claims, so a role can be granted without editing the identity
@@ -8,8 +8,10 @@
 //     caller to an octo user with roles, and mints a JWT signed by this service.
 //     Anything holding that token can verify it from the JWKS published at
 //     /.well-known/jwks.json, without itself learning OIDC.
+//   - Per-user API keys, which a person mints for themselves and which act as
+//     them wherever a platform token is wanted.
 //
-// It performs no authentication of its own on the management routes and is
+// Its management routes accept only the tokens it minted itself, and it is
 // ClusterIP in the chart.
 package main
 
@@ -24,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/juancavallotti/octo/iam/internal/apikey"
 	"github.com/juancavallotti/octo/iam/internal/auth"
 	"github.com/juancavallotti/octo/iam/internal/authz"
 	"github.com/juancavallotti/octo/iam/internal/db"
@@ -152,6 +155,13 @@ func newServer(database *db.DB) (http.Handler, error) {
 	slog.Info("user management routes registered",
 		"endpoints", "GET /roles, POST/GET /users, GET/PUT/DELETE /users/{id}, "+
 			"PUT/DELETE /users/{id}/roles/{role}")
+
+	// API keys are mounted behind the same guard: a person manages their own, and
+	// the handler holds every route to the user in its path.
+	apikey.NewHandler(apikey.NewService(apikey.NewRepo(database.Pool()))).Register(mux,
+		authz.Require(signingSvc))
+	slog.Info("apikey routes registered",
+		"endpoints", "POST/GET /users/{userId}/apikeys, DELETE /users/{userId}/apikeys/{id}")
 
 	slog.Info("signing routes registered",
 		"issuer", signingSvc.Issuer(), "audience", signingSvc.Audience(),

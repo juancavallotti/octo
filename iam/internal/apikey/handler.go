@@ -7,7 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
+	"github.com/juancavallotti/octo/iam/internal/authz"
+	httpx "github.com/juancavallotti/octo/iam/internal/http"
 )
 
 // requestTimeout bounds the database work behind a single request.
@@ -23,14 +24,49 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// Register attaches the API-key routes to mux. The owner-scoped CRUD routes are
-// nested under the user; verify is unscoped because it discovers the owner from
-// the token.
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /users/{userId}/apikeys", h.create)
-	mux.HandleFunc("GET /users/{userId}/apikeys", h.list)
-	mux.HandleFunc("DELETE /users/{userId}/apikeys/{id}", h.delete)
-	mux.HandleFunc("POST /apikeys/verify", h.verify)
+// Middleware wraps a handler with whatever a caller must satisfy to reach it.
+type Middleware func(http.Handler) http.Handler
+
+// Register attaches the API-key routes to mux behind signedIn.
+//
+// The keys stay nested under the user they belong to, and the user in the path
+// must be the caller: nobody, an administrator included, mints, reads or revokes
+// another person's keys. A key is a standing credential that acts as its owner,
+// so handing one out on somebody else's behalf would be impersonating them.
+func (h *Handler) Register(mux *http.ServeMux, signedIn Middleware) {
+	for pattern, handler := range map[string]http.HandlerFunc{
+		"POST /users/{userId}/apikeys":        h.create,
+		"GET /users/{userId}/apikeys":         h.list,
+		"DELETE /users/{userId}/apikeys/{id}": h.delete,
+	} {
+		mux.Handle(pattern, signedIn(ownerOnly(handler)))
+	}
+}
+
+// ownerOnly refuses a caller who is not the user named in the path, and any
+// machine token at all.
+//
+// A deployment's token has its owner as subject, so without the second check a
+// running integration could mint itself a key — trading the narrow access it was
+// lent for a year-long credential carrying everything its owner may do.
+func ownerOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, err := authz.FromContext(r.Context())
+		if err != nil {
+			slog.Error("apikey route reached without a guard", "error", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if p.Machine {
+			httpx.WriteError(w, http.StatusForbidden, "a deployment cannot manage API keys")
+			return
+		}
+		if p.Subject != r.PathValue("userId") {
+			httpx.WriteError(w, http.StatusForbidden, "API keys can only be managed by the user they belong to")
+			return
+		}
+		next(w, r)
+	}
 }
 
 // createRequest is the body of a create request.
@@ -58,18 +94,6 @@ type createResponse struct {
 	Token string `json:"token"`
 }
 
-// verifyRequest carries the bearer token to resolve.
-type verifyRequest struct {
-	Token string `json:"token"`
-}
-
-// verifyResponse identifies the owning user behind a valid token.
-type verifyResponse struct {
-	ID     string `json:"id"`
-	UserID string `json:"userId"`
-	Name   string `json:"name"`
-}
-
 func toResponse(k APIKey) apiKeyResponse {
 	return apiKeyResponse{
 		ID:         k.ID,
@@ -82,19 +106,6 @@ func toResponse(k APIKey) apiKeyResponse {
 	}
 }
 
-// create godoc
-//
-//	@Summary		Mint an API key for a user
-//	@Description	The only response that ever carries the token: it is hashed on the way in and
-//	@Description	cannot be read back, so a caller that loses it mints another.
-//	@Tags			apikeys
-//	@Accept			json
-//	@Produce		json
-//	@Param			userId	path		string			true	"User id"
-//	@Param			body	body		createRequest	true	"Name and lifetime in seconds"
-//	@Success		201		{object}	createResponse
-//	@Failure		400		{object}	httpx.ErrorResponse
-//	@Router			/users/{userId}/apikeys [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req createRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {
@@ -111,22 +122,14 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	// The one response carrying the plaintext, so nothing in between may keep it.
+	w.Header().Set("Cache-Control", "no-store")
 	httpx.WriteJSON(w, http.StatusCreated, createResponse{
 		apiKeyResponse: toResponse(k),
 		Token:          token,
 	})
 }
 
-// list godoc
-//
-//	@Summary		List a user's API keys
-//	@Description	Metadata only — prefix and last four characters, never the token.
-//	@Tags			apikeys
-//	@Produce		json
-//	@Param			userId	path		string	true	"User id"
-//	@Success		200		{array}		apiKeyResponse
-//	@Failure		500		{object}	httpx.ErrorResponse
-//	@Router			/users/{userId}/apikeys [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -143,16 +146,6 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// delete godoc
-//
-//	@Summary	Revoke an API key
-//	@Tags		apikeys
-//	@Produce	json
-//	@Param		userId	path	string	true	"User id"
-//	@Param		id		path	string	true	"API key id"
-//	@Success	204		"revoked"
-//	@Failure	404		{object}	httpx.ErrorResponse
-//	@Router		/users/{userId}/apikeys/{id} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -162,36 +155,6 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// verify godoc
-//
-//	@Summary		Resolve a bearer token to its owner
-//	@Description	How a caller holding an octo API key is identified. An expired or unknown token is
-//	@Description	a 401 rather than a 404, so an attacker cannot tell the two apart.
-//	@Tags			apikeys
-//	@Accept			json
-//	@Produce		json
-//	@Param			body	body		verifyRequest	true	"The token to verify"
-//	@Success		200		{object}	verifyResponse
-//	@Failure		401		{object}	httpx.ErrorResponse	"unknown or expired"
-//	@Router			/apikeys/verify [post]
-func (h *Handler) verify(w http.ResponseWriter, r *http.Request) {
-	var req verifyRequest
-	if err := httpx.DecodeJSON(w, r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
-	defer cancel()
-
-	k, err := h.svc.Verify(ctx, req.Token)
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, verifyResponse{ID: k.ID, UserID: k.UserID, Name: k.Name})
 }
 
 // writeError maps domain errors to HTTP status codes. Unexpected errors are logged
@@ -206,8 +169,6 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "user not found")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "api key not found")
-	case errors.Is(err, ErrExpired), errors.Is(err, ErrInvalidToken):
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid or expired api key")
 	default:
 		slog.Error("apikey handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")

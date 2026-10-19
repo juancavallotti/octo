@@ -21,7 +21,6 @@ import (
 
 	"github.com/juancavallotti/octo/orchestrator/internal/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/agentmemory"
-	"github.com/juancavallotti/octo/orchestrator/internal/apikey"
 	"github.com/juancavallotti/octo/orchestrator/internal/authz"
 	"github.com/juancavallotti/octo/orchestrator/internal/bundle"
 	"github.com/juancavallotti/octo/orchestrator/internal/bus"
@@ -604,14 +603,6 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		slog.Info("bundle routes registered",
 			"endpoints", "GET /integrations/{id}/bundle, GET /snapshots/{id}/bundle, "+
 				"POST /integrations/bundle, PUT /integrations/{id}/bundle")
-
-		// API keys need only the database, so they are registered outside the kube
-		// gate. Users themselves are not here: the `{userId}` in these paths is an id
-		// the iam service issued, and there is no /users collection of our own.
-		apikey.NewHandler(apikey.NewService(apikey.NewRepo(database.Pool()))).Register(mux)
-		slog.Info("apikey routes registered",
-			"endpoints", "POST/GET /users/{userId}/apikeys, "+
-				"DELETE /users/{userId}/apikeys/{id}, POST /apikeys/verify")
 
 		// Deployment-scoped KV store. Values in a secret namespace are encrypted with
 		// KV_ENCRYPTION_KEY; without the key, secrets are rejected but plain KV still
