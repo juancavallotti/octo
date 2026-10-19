@@ -221,6 +221,36 @@ func TestVerifyRejectsAnAudienceOutsideTheSet(t *testing.T) {
 	}
 }
 
+// A resource indicator for a bare origin comes back normalized either way, and
+// both spellings are the same resource. Only that: a path, a port or a scheme
+// that differs is still somebody else's audience.
+func TestVerifyTreatsAnOriginAndItsSlashAsOneAudience(t *testing.T) {
+	idp := newFakeIDP(t)
+	v := NewVerifier(idp.Issuer(), []string{idp.clientID, "https://api.example", "https://platform.example/mcp"})
+
+	cases := []struct {
+		audience string
+		accepted bool
+	}{
+		{"https://api.example/", true},
+		{"https://api.example", true},
+		{"https://api.example/v1", false},
+		{"https://api.example:8443/", false},
+		{"http://api.example/", false},
+		{"https://platform.example/mcp/", false},
+	}
+	for _, tc := range cases {
+		token := idp.idToken(t, tokenOptions{subject: "s", email: "a@example.com", audience: tc.audience})
+		_, err := v.Verify(context.Background(), token)
+		if tc.accepted && err != nil {
+			t.Errorf("Verify() for audience %q: %v, want accepted", tc.audience, err)
+		}
+		if !tc.accepted && !errors.Is(err, ErrUnauthenticated) {
+			t.Errorf("Verify() for audience %q: error = %v, want ErrUnauthenticated", tc.audience, err)
+		}
+	}
+}
+
 // An OAuth access token carries `sub` and little else — an MCP client's bearer
 // never has an email on it — so the profile comes from the provider instead.
 func TestVerifyFallsBackToUserinfoForTheProfile(t *testing.T) {
