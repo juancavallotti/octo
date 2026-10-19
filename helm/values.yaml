@@ -372,6 +372,38 @@ embeddings:
     port: 8092
     annotations: {}
 
+# The public API, published at api.{domain} for callers outside the cluster:
+# integrations, their versions, deployments and logs, authenticated with a
+# user's API key or an OAuth token from auth.oidc's provider. See
+# apps/docs/content/docs/platform/public-api.mdx.
+#
+# It is the flows in api/ (linked in as files/api) run by the published
+# standalone runtime image, at the release's version like every other component.
+# Off by default because it is a second public host: it needs its own DNS
+# record and certificate.
+api:
+  enabled: false
+  # The standalone runtime, the one published for running integrations outside
+  # a cluster. A private registry has it as octo-devruntime-paas, which is the
+  # same build.
+  repository: octo-runtime
+  image: {}
+  # It holds no state, so replicas are purely throughput.
+  replicas: 1
+  # Empty is "api." in front of ingress.host.
+  host: ""
+  # The API's public origin, when it is not https://{host} — a local cluster on
+  # a non-default port. It is the OAuth resource identifier, so iam is told to
+  # accept tokens minted for it.
+  url: ""
+  tls:
+    # The certificate for the API's host. Everything else about TLS — the mode,
+    # the cert-manager issuer — is ingress.tls's.
+    secretName: octo-api-tls
+  service:
+    port: 8095
+    annotations: {}
+
 # The observability service. It consumes internal.logs and internal.traces into
 # Postgres, serves the query API over both, the pod stats the stats sidecar
 # writes to Redis, the retention policy, and the storage report.

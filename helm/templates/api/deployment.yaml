@@ -1,0 +1,43 @@
+{{- /*
+The public API: the one component published for callers outside the cluster.
+
+It is an octo integration, the flows in the ConfigMap beside this, run by the
+published standalone runtime image at the release's own version. Not the
+cluster runtime the orchestrator deploys integrations with: that one cannot
+start without a deployment identity the orchestrator hands out, which would
+make the public API depend on the service it fronts being up enough to
+register it.
+
+It keeps no state, so replicas are throughput. The pods roll when the flows
+change, through the checksum below, since an upgrade that only changes a
+ConfigMap otherwise leaves them running the old ones.
+*/}}
+{{- if .Values.api.enabled }}
+{{- $name := include "octo-common.componentName" (dict "root" $ "component" "api") }}
+{{- $items := list (dict "key" "openapi.yaml" "path" "static/openapi.yaml") }}
+{{- range $path, $_ := .Files.Glob "files/api/*.yaml" }}
+{{- if not (hasSuffix "_test.yaml" $path) }}
+{{- $items = append $items (dict "key" (base $path) "path" (base $path)) }}
+{{- end }}
+{{- end }}
+{{- include "octo-common.deployment" (dict
+      "root" $
+      "component" "api"
+      "replicas" .Values.api.replicas
+      "extraPodAnnotations" (dict "checksum/flows" (include (print $.Template.BasePath "/api/configmap.yaml") . | sha256sum))
+      "volumes" (list (dict "name" "flows" "configMap" (dict "name" $name "items" $items)))
+      "containers" (include "octo-common.container" (dict
+        "root" $
+        "component" "api"
+        "name" "api"
+        "image" (include "octo-common.image" (dict "root" $ "component" "api"))
+        "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "api"))
+        "args" (list "run" "--config" "/etc/octo/api")
+        "ports" (list (dict "containerPort" .Values.api.service.port))
+        "env" (include "octo.api.env" .)
+        "volumeMounts" (list (dict "name" "flows" "mountPath" "/etc/octo/api" "readOnly" true))
+        "readinessProbe" (dict
+          "httpGet" (dict "path" "/healthz" "port" .Values.api.service.port)
+          "initialDelaySeconds" 3
+          "periodSeconds" 10)))) }}
+{{- end }}
