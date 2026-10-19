@@ -5,7 +5,7 @@ description: "The orchestrator describes its own API: an OpenAPI 3.1 document, f
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The orchestrator serves a description of its own API. Everything the platform UI does (integrations, snapshots, deployments, resources, secrets, KV, users, API keys) goes through that API, so the description is the reference for driving it yourself.
+The orchestrator serves a description of its own API. Everything the platform UI does (integrations, snapshots, deployments, resources, secrets, KV) goes through that API, so the description is the reference for driving it yourself.
 
 The observability service describes itself the same way; stored logs, traces, pod stats, the retention policy and the storage report are read from [its API](/platform/observability-api-reference), not this one.
 
@@ -40,7 +40,7 @@ curl -sS "$ORCHESTRATOR_URL/openapi/operations"
 
 Sorted by path, then method. Read this first to find the tag worth asking about, then fetch that tag's detail, which is how the [platform agent](/platform/agent) uses it.
 
-The tags are `agent`, `agent-memory`, `apikeys`, `bundles`, `deployments`, `devruns`, `email`, `folders`, `integrations`, `kv`, `meta`, `objects`, `openapi`, `resources`, `secrets`, `settings`, `snapshots` and `users`.
+The tags are `agent`, `agent-memory`, `bundles`, `deployments`, `devruns`, `email`, `folders`, `integrations`, `kv`, `meta`, `objects`, `openapi`, `resources`, `secrets`, `settings` and `snapshots`.
 
 ## Reading part of the document
 

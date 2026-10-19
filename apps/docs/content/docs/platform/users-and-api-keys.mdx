@@ -107,35 +107,34 @@ The UI reflects the same split the servers enforce, and reflects it only — eve
 
 ## API keys
 
-API keys are per-user bearer tokens for programmatic access, kept for the coming CLI. They are not accepted at `/mcp`.
+API keys are per-user bearer tokens for programmatic access. A key belongs to one person and only ever acts as them: it carries no roles of its own, and what it may do is whatever its owner holds at the moment it is presented.
 
 - Format: `octo_` followed by 32 bytes of random material, base64url-encoded.
-- Shown once: the plaintext is returned only by the create call. The orchestrator stores a SHA-256 hash, so a database leak exposes no usable keys, plus the first four and last four characters for display.
-- Expiry: every key has a TTL, capped at 365 days, enforced on every verification.
-- Revocation: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops verifying immediately.
+- Shown once: the plaintext is returned only by the create call. iam stores a SHA-256 hash, so a database leak exposes no usable keys, plus the first four and last four characters for display.
+- Expiry: every key has a TTL, capped at 365 days, enforced on every exchange.
+- Revocation: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops exchanging immediately, and the platform tokens it was already exchanged for lapse within one token lifetime.
 
-Keys are managed from the platform's account area, backed by these orchestrator endpoints:
+Keys are managed from the platform's account area, backed by these iam endpoints. Only the user in the path may call them — an administrator cannot mint, list or revoke somebody else's keys — and a deployment's token cannot call them at all:
 
 | Operation | Endpoint |
 | --- | --- |
 | Mint a key (returns the plaintext once) | `POST /users/{userId}/apikeys` |
-| List a user's keys (metadata only) | `GET /users/{userId}/apikeys` |
+| List your keys (metadata only) | `GET /users/{userId}/apikeys` |
 | Revoke a key | `DELETE /users/{userId}/apikeys/{id}` |
-| Verify a presented token | `POST /apikeys/verify` |
 
 ![Managing API keys in the account view](/screenshots/platform-api-keys.png)
 
 ### Using a key
 
-Send it as a bearer token:
+Present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying their current roles:
 
 ```bash
-curl https://octo.example.com/mcp \
+curl -X POST http://iam:8093/auth \
   -H "Authorization: Bearer octo_..."
 ```
 
-The receiving endpoint verifies the token through `POST /apikeys/verify`, which resolves it to its owning user and records last-use, so machine calls act as, and are attributable to, a real user.
+The token names the key it came from, and `POST /auth/refresh` refuses it: when it expires, exchange the key again. That is what makes a revocation stick.
 
 <Callout type="info">
-API keys do not reach `/mcp`. It is an OAuth 2.1 resource server and accepts only access tokens minted by the identity provider — see [MCP Authentication](/ai/mcp-auth). The keys are kept for the coming CLI, which will trade one for a platform token.
+API keys do not reach `/mcp`. It is an OAuth 2.1 resource server and accepts only access tokens minted by the identity provider — see [MCP Authentication](/ai/mcp-auth).
 </Callout>
