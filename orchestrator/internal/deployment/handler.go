@@ -317,11 +317,12 @@ func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 // list godoc
 //
 //	@Summary		List every deployment
-//	@Description	Across all integrations, newest first, each with its live cluster status.
+//	@Description	Across all integrations, newest first, each with its live cluster status. A
+//	@Description	status the cluster cannot report is left as stored rather than failing the list.
 //	@Tags			deployments
 //	@Produce		json
 //	@Success		200	{array}		deploymentResponse
-//	@Failure		503	{object}	httpx.ErrorResponse	"no cluster access"
+//	@Failure		500	{object}	httpx.ErrorResponse
 //	@Router			/deployments [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
@@ -342,12 +343,13 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 // listByIntegration godoc
 //
 //	@Summary		List an integration's deployments
-//	@Description	Each with its live cluster status: replicas, pods and any failure reason.
+//	@Description	Each with its live cluster status: replicas, pods and any failure reason. A
+//	@Description	status the cluster cannot report is left as stored rather than failing the list.
 //	@Tags			deployments
 //	@Produce		json
 //	@Param			id	path		string	true	"Integration id"
 //	@Success		200	{array}		deploymentResponse
-//	@Failure		503	{object}	httpx.ErrorResponse	"no cluster access"
+//	@Failure		500	{object}	httpx.ErrorResponse
 //	@Router			/integrations/{id}/deployments [get]
 func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)

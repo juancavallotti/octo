@@ -49,6 +49,9 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Integration" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
     post:
       tags: [integrations]
       operationId: createIntegration
@@ -71,6 +74,9 @@ paths:
               schema: { $ref: "#/components/schemas/Integration" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/integrations/{id}:
@@ -87,6 +93,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Integration" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [integrations]
@@ -109,6 +118,9 @@ paths:
               schema: { $ref: "#/components/schemas/Integration" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
     delete:
@@ -118,6 +130,9 @@ paths:
       responses:
         "204": { description: Deleted. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/integrations/{id}/bundle:
@@ -135,6 +150,9 @@ paths:
             application/zip:
               schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
       tags: [integrations]
@@ -154,6 +172,9 @@ paths:
               schema: { $ref: "#/components/schemas/Integration" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { description: The bundle is larger than 8 MiB. }
 
@@ -180,6 +201,9 @@ paths:
               schema: { $ref: "#/components/schemas/Integration" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "413": { description: The bundle is larger than 8 MiB. }
 
   /v1/integrations/{id}/files:
@@ -202,6 +226,9 @@ paths:
                     path: { type: string }
                     lastUpdated: { type: string, format: date-time }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
       tags: [files]
@@ -226,6 +253,9 @@ paths:
               schema: { $ref: "#/components/schemas/Integration" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/integrations/{id}/files/content:
@@ -247,6 +277,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/File" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
       tags: [files]
@@ -269,6 +302,9 @@ paths:
               schema: { $ref: "#/components/schemas/File" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [files]
@@ -278,6 +314,9 @@ paths:
         "204": { description: Deleted. }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/integrations/{id}/resources:
@@ -294,6 +333,9 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Resource" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [resources]
@@ -312,6 +354,10 @@ paths:
               schema: { $ref: "#/components/schemas/Resource" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/integrations/{id}/resources/{resourceId}:
@@ -332,6 +378,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Resource" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
       tags: [resources]
@@ -350,6 +399,9 @@ paths:
               schema: { $ref: "#/components/schemas/Resource" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [resources]
@@ -358,6 +410,9 @@ paths:
       responses:
         "204": { description: Deleted. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/integrations/{id}/versions:
@@ -374,6 +429,9 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Version" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [versions]
@@ -396,6 +454,10 @@ paths:
               schema: { $ref: "#/components/schemas/Version" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/versions/{id}:
@@ -408,6 +470,9 @@ paths:
       responses:
         "204": { description: Deleted. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
@@ -425,6 +490,9 @@ paths:
             application/zip:
               schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/deployments:
@@ -439,6 +507,9 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Deployment" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
 
   /v1/integrations/{id}/deployments:
     parameters:
@@ -454,6 +525,10 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Deployment" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
     post:
       tags: [deployments]
       operationId: createDeployment
@@ -471,6 +546,9 @@ paths:
               schema: { $ref: "#/components/schemas/Deployment" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
 
@@ -493,6 +571,9 @@ paths:
             application/json:
               schema: { type: object, additionalProperties: true }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/deployments/{id}:
@@ -509,6 +590,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Deployment" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [deployments]
@@ -531,6 +615,8 @@ paths:
               schema: { $ref: "#/components/schemas/Deployment" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
@@ -540,6 +626,8 @@ paths:
       responses:
         "204": { description: Undeployed. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -569,6 +657,8 @@ paths:
               schema: { $ref: "#/components/schemas/Deployment" }
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -598,6 +688,10 @@ paths:
                   items: { type: array, items: { type: object, additionalProperties: true } }
                   next_before: { type: string, description: Absent on the last page. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
 
   /v1/deployments/{id}/pods/{pod}/logs:
     parameters:
@@ -616,6 +710,9 @@ paths:
             text/plain:
               schema: { type: string }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/deployments/{id}/pods/{pod}/logs/stream:
@@ -640,6 +737,9 @@ paths:
             text/event-stream:
               schema: { type: string }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
 
   /openapi.yaml:
     get:
@@ -703,6 +803,7 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        "502": { $ref: "#/components/responses/Unavailable" }
 
   /.well-known/oauth-authorization-server:
     get:
@@ -717,6 +818,7 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        "502": { $ref: "#/components/responses/Unavailable" }
 
 components:
   securitySchemes:
@@ -755,7 +857,7 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     Forbidden:
-      description: Your roles do not allow this, or your account is not provisioned.
+      description: Your roles do not allow this, or your account is not provisioned here.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -771,6 +873,11 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     Conflict:
       description: It clashes with something already there, such as a taken name.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unavailable:
+      description: The platform could not complete or authorize the request right now (502 or 503). Retrying later may succeed; the credential is not at fault.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

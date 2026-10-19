@@ -287,6 +287,18 @@ flows:
       - ref: relay-failure-body
     process:
       - ref: authenticate
+      # Refused here because the orchestrator reads a missing or zero count as
+      # one, so `{}` would quietly scale a deployment down to a single replica.
+      - type: validate
+        name: require-replicas
+        rejectStatus: 400
+        rules:
+          - expr: >-
+              type(body) == map && has(body.replicas)
+              && type(body.replicas) in [int, uint, double]
+              && body.replicas >= 1
+              && double(body.replicas) == double(int(body.replicas))
+            message: "replicas must be a whole number of at least 1"
       - type: rest-dynamic
         name: relay
         settings:
@@ -294,7 +306,7 @@ flows:
           method: '"PATCH"'
           path: '"/deployments/" + vars.id'
           headers: '{"Authorization": "Bearer " + vars.platformToken}'
-          body: '{"replicas": body.?replicas.orValue(0)}'
+          body: '{"replicas": int(body.replicas)}'
           failOnError: false
       - ref: relay-status
 

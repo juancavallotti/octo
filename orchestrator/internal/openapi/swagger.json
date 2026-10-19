@@ -1443,7 +1443,7 @@
         },
         "/deployments": {
             "get": {
-                "description": "Across all integrations, newest first, each with its live cluster status.",
+                "description": "Across all integrations, newest first, each with its live cluster status. A\nstatus the cluster cannot report is left as stored rather than failing the list.",
                 "responses": {
                     "200": {
                         "content": {
@@ -1458,7 +1458,7 @@
                         },
                         "description": "OK"
                     },
-                    "503": {
+                    "500": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1466,7 +1466,7 @@
                                 }
                             }
                         },
-                        "description": "no cluster access"
+                        "description": "Internal Server Error"
                     }
                 },
                 "summary": "List every deployment",
@@ -4855,7 +4855,7 @@
         },
         "/integrations/{id}/deployments": {
             "get": {
-                "description": "Each with its live cluster status: replicas, pods and any failure reason.",
+                "description": "Each with its live cluster status: replicas, pods and any failure reason. A\nstatus the cluster cannot report is left as stored rather than failing the list.",
                 "parameters": [
                     {
                         "description": "Integration id",
@@ -4881,7 +4881,7 @@
                         },
                         "description": "OK"
                     },
-                    "503": {
+                    "500": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4889,7 +4889,7 @@
                                 }
                             }
                         },
-                        "description": "no cluster access"
+                        "description": "Internal Server Error"
                     }
                 },
                 "summary": "List an integration's deployments",

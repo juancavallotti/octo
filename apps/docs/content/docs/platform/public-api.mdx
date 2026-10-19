@@ -30,7 +30,7 @@ Send a bearer token in `Authorization`. Either kind works on every route:
 A token the API cannot accept is a `401`. A person the provider vouches for who has no account here is a `403`: ask an administrator to add you.
 
 <Callout type="info">
-The API checks no credential itself. It hands yours to the platform's iam service, which turns it into a short-lived platform token, so there is one verifier on the installation. A token exchanged for an API key stops working within an hour of the key being revoked.
+The API checks no credential itself. It hands yours to the platform's iam service on every request, which turns it into a short-lived platform token, so there is one verifier on the installation. Because you only ever hold the key, a revoked API key is refused on your next request.
 </Callout>
 
 ## What you can do
