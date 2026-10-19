@@ -412,3 +412,71 @@ flows:
           headers: '{"Authorization": "Bearer " + vars.platformToken}'
           failOnError: false
       - ref: relay-status
+
+  # GET /v1/deployments/{id}/pods/{pod}/logs/stream?tail=50 — one pod's log as
+  # it is written, as server-sent events: an `open` event as soon as the stream
+  # is up, then one `log` event per line.
+  #
+  # The open event commits the stream at once, so a pod that is quiet is an open
+  # stream rather than a request that times out waiting for its first line. A
+  # refusal before it (a bad credential, an unknown pod) is still an ordinary
+  # status. Thirty minutes is the most one stream stays open; a client that wants
+  # more reconnects, which is what an EventSource does by itself.
+  - name: stream-pod-logs
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/pods/{pod}/logs/stream
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        sse:
+          enabled: true
+          maxDuration: 30m
+    error:
+      - ref: log-relay-failure
+      - type: sse-event
+        name: failed
+        settings:
+          event: error
+          data: '{"error": "the log stream ended unexpectedly"}'
+          close: true
+          ifClosed: ignore
+    process:
+      - ref: authenticate
+      - type: sse-event
+        name: opened
+        settings:
+          event: open
+          data: '{"deployment": vars.id, "pod": vars.pod}'
+      - type: rest-stream
+        name: follow
+        connector: orchestrator
+        method: '"GET"'
+        path: '"/deployments/" + vars.id + "/pods/" + vars.pod + "/logs"'
+        query: '{"follow": "1", ?"tail": vars.query.?tail}'
+        headers: '{"Authorization": "Bearer " + vars.platformToken}'
+        failOnError: false
+        maxDuration: 30m
+        body:
+          process:
+            - type: sse-event
+              name: line
+              settings:
+                event: log
+                data: 'vars.line'
+      # The orchestrator refused the tail after the stream was already open, so
+      # the refusal is told in-band.
+      - type: if
+        name: refused
+        condition: 'vars.statusCode >= 400'
+        then:
+          process:
+            - type: sse-event
+              name: refusal
+              settings:
+                event: error
+                data: 'body'
+                close: true
+                ifClosed: ignore
