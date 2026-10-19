@@ -79,6 +79,9 @@ type restDynamicSettings struct {
 // dynamicProcessor builds a request entirely from expressions, then runs it
 // through the connector exactly as the rest block does.
 type dynamicProcessor struct {
+	// block names the block type in every error, since rest-stream renders its
+	// requests through this same processor.
+	block        string
 	conn         *Connector
 	method       *expr.Program
 	path         *expr.Program
@@ -102,24 +105,30 @@ func newRESTDynamic(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 	if err := raw.Decode(&cfg); err != nil {
 		return nil, err
 	}
+	return newDynamicProcessor("rest-dynamic", cfg, deps)
+}
 
+// newDynamicProcessor resolves the connector and compiles the request a block
+// renders per message. block names the block type in every error.
+func newDynamicProcessor(block string, cfg restDynamicSettings, deps core.BlockDeps) (*dynamicProcessor, error) {
 	conn, err := resolveConnector(cfg.Connector, deps)
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(cfg.Method) == "" {
-		return nil, fmt.Errorf("rest-dynamic block: method is required")
+		return nil, fmt.Errorf("%s block: method is required", block)
 	}
 	if strings.TrimSpace(cfg.Path) == "" {
-		return nil, fmt.Errorf("rest-dynamic block: path is required")
+		return nil, fmt.Errorf("%s block: path is required", block)
 	}
 
 	bodyType, err := resolveBodyType(cfg.BodyType)
 	if err != nil {
-		return nil, fmt.Errorf("rest-dynamic block: %w", err)
+		return nil, fmt.Errorf("%s block: %w", block, err)
 	}
 
 	processor := &dynamicProcessor{
+		block:       block,
 		conn:        conn,
 		bodyType:    bodyType,
 		pathPrefix:  cfg.PathPrefix,
@@ -131,7 +140,7 @@ func newRESTDynamic(raw types.Settings, deps core.BlockDeps) (core.MessageProces
 		return nil, err
 	}
 
-	processor.allowMethods, err = normalizeAllowMethods(cfg.AllowMethods)
+	processor.allowMethods, err = normalizeAllowMethods(block, cfg.AllowMethods)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +171,7 @@ func (p *dynamicProcessor) compileExpressions(cfg restDynamicSettings, deps core
 		}
 		program, err := expr.CompileMessage(deps.Resources, source)
 		if err != nil {
-			return fmt.Errorf("rest-dynamic block: compile %s: %w", name, err)
+			return fmt.Errorf("%s block: compile %s: %w", p.block, name, err)
 		}
 		*targets[name] = program
 	}
@@ -172,13 +181,13 @@ func (p *dynamicProcessor) compileExpressions(cfg restDynamicSettings, deps core
 // normalizeAllowMethods upper-cases the configured methods and rejects anything
 // that is not an HTTP method, so a typo fails at startup rather than silently
 // forbidding every request the block was meant to allow.
-func normalizeAllowMethods(configured []string) ([]string, error) {
+func normalizeAllowMethods(block string, configured []string) ([]string, error) {
 	var normalized []string
 	for _, method := range configured {
 		upper := strings.ToUpper(strings.TrimSpace(method))
 		if !slices.Contains(allowedMethods, upper) {
 			return nil, fmt.Errorf(
-				"rest-dynamic block: allowMethods contains %q, which is not an HTTP method", method)
+				"%s block: allowMethods contains %q, which is not an HTTP method", block, method)
 		}
 		normalized = append(normalized, upper)
 	}
@@ -189,33 +198,47 @@ func normalizeAllowMethods(configured []string) ([]string, error) {
 // the same tail as the rest block, over a request nothing knew the shape of until
 // this message arrived.
 func (p *dynamicProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
+	req, target, err := p.render(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	return exchange(p.conn, req, target, msg, p.responseOptions())
+}
+
+// render builds the request this message describes, checked against every bound
+// the block was configured with. It returns the rendered target alongside, for
+// error messages that name what was asked for. Shared with rest-stream, which
+// renders the same request and differs only in how it reads the answer.
+func (p *dynamicProcessor) render(ctx context.Context, msg *types.Message) (*http.Request, string, error) {
 	activation := expr.MessageActivation(msg, p.env)
 
 	method, err := p.buildMethod(activation)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	target, err := p.buildTarget(activation)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	body, err := buildBodyFrom(p.body, activation, "rest-dynamic", p.bodyType)
+	body, err := buildBodyFrom(p.body, activation, p.block, p.bodyType)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, target, body.reader)
 	if err != nil {
-		return nil, fmt.Errorf("rest-dynamic build request: %w", err)
+		return nil, "", fmt.Errorf("%s build request: %w", p.block, err)
 	}
 	if err := p.applyHeaders(req, activation); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	applyBodyContentType(req, body)
+	return req, target, nil
+}
 
-	return exchange(p.conn, req, target, msg, responseOptions{
-		block: "rest-dynamic", statusVar: p.statusVar, failOnError: p.failOnError,
-	})
+// responseOptions is what this block wants done with a buffered answer.
+func (p *dynamicProcessor) responseOptions() responseOptions {
+	return responseOptions{block: p.block, statusVar: p.statusVar, failOnError: p.failOnError}
 }
 
 // buildMethod renders the method and checks it against the standard set and any
@@ -223,14 +246,14 @@ func (p *dynamicProcessor) Process(ctx context.Context, msg *types.Message) (*ty
 func (p *dynamicProcessor) buildMethod(activation map[string]any) (string, error) {
 	rendered, err := p.method.EvalString(activation)
 	if err != nil {
-		return "", fmt.Errorf("rest-dynamic method: %w", err)
+		return "", fmt.Errorf("%s method: %w", p.block, err)
 	}
 	method := strings.ToUpper(strings.TrimSpace(rendered))
 	if !slices.Contains(allowedMethods, method) {
-		return "", fmt.Errorf("rest-dynamic method: %q is not an HTTP method", rendered)
+		return "", fmt.Errorf("%s method: %q is not an HTTP method", p.block, rendered)
 	}
 	if len(p.allowMethods) > 0 && !slices.Contains(p.allowMethods, method) {
-		return "", fmt.Errorf("rest-dynamic method: %s is not allowed by this block", method)
+		return "", fmt.Errorf("%s method: %s is not allowed by this block", p.block, method)
 	}
 	return method, nil
 }
@@ -239,7 +262,7 @@ func (p *dynamicProcessor) buildMethod(activation map[string]any) (string, error
 func (p *dynamicProcessor) buildTarget(activation map[string]any) (string, error) {
 	rendered, err := p.path.EvalString(activation)
 	if err != nil {
-		return "", fmt.Errorf("rest-dynamic path: %w", err)
+		return "", fmt.Errorf("%s path: %w", p.block, err)
 	}
 	path := strings.TrimSpace(rendered)
 	if err := p.checkPath(path); err != nil {
@@ -280,23 +303,23 @@ func (p *dynamicProcessor) buildTarget(activation map[string]any) (string, error
 // for traversal it cannot perform.
 func (p *dynamicProcessor) checkPath(path string) error {
 	if path == "" {
-		return fmt.Errorf("rest-dynamic path: evaluated to empty")
+		return fmt.Errorf("%s path: evaluated to empty", p.block)
 	}
 	parsed, err := url.Parse(path)
 	if err != nil {
-		return fmt.Errorf("rest-dynamic path: %q does not parse: %w", path, err)
+		return fmt.Errorf("%s path: %q does not parse: %w", p.block, path, err)
 	}
 	if parsed.Scheme != "" || parsed.Host != "" {
-		return fmt.Errorf("rest-dynamic path: %q is a full URL; "+
-			"the host comes from the connector's base URL and a path cannot change it", path)
+		return fmt.Errorf("%s path: %q is a full URL; "+
+			"the host comes from the connector's base URL and a path cannot change it", p.block, path)
 	}
 	for _, segment := range strings.Split(parsed.Path, "/") {
 		if segment == ".." {
-			return fmt.Errorf("rest-dynamic path: %q contains a %q segment", path, "..")
+			return fmt.Errorf("%s path: %q contains a %q segment", p.block, path, "..")
 		}
 	}
 	if p.pathPrefix != "" && !underPrefix(parsed.Path, p.pathPrefix) {
-		return fmt.Errorf("rest-dynamic path: %q is outside the allowed prefix %q", path, p.pathPrefix)
+		return fmt.Errorf("%s path: %q is outside the allowed prefix %q", p.block, path, p.pathPrefix)
 	}
 	return nil
 }
@@ -314,7 +337,7 @@ func underPrefix(path, prefix string) bool {
 func (p *dynamicProcessor) buildQuery(activation map[string]any) (url.Values, error) {
 	entries, err := expr.EvalStringMap(p.query, activation)
 	if err != nil {
-		return nil, fmt.Errorf("rest-dynamic query: %w", err)
+		return nil, fmt.Errorf("%s query: %w", p.block, err)
 	}
 	if entries == nil {
 		return nil, nil
@@ -337,7 +360,7 @@ func (p *dynamicProcessor) buildQuery(activation map[string]any) (url.Values, er
 func (p *dynamicProcessor) applyHeaders(req *http.Request, activation map[string]any) error {
 	entries, err := expr.EvalStringMap(p.headers, activation)
 	if err != nil {
-		return fmt.Errorf("rest-dynamic headers: %w", err)
+		return fmt.Errorf("%s headers: %w", p.block, err)
 	}
 	for name, value := range entries {
 		req.Header.Set(name, value)
