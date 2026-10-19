@@ -1,0 +1,39 @@
+# The account a bearer acts as. iam answers the exchange with the user it
+# resolved, and this route hands that record back untouched.
+flow: me
+
+env:
+  IAM_URL: http://iam.test
+  ORCHESTRATOR_URL: http://orchestrator.test
+  OBSERVABILITY_URL: http://observability.test
+  API_RESOURCE_URL: https://api.example.com
+  OIDC_ISSUER: https://idp.example.com
+
+inputs:
+  a signed-in caller:
+    data: {}
+    vars: { Authorization: "Bearer octo_key" }
+
+cases:
+  - name: the caller gets iam's record of them, roles included
+    input: a signed-in caller
+    mocks:
+      authenticate.exchange[body].call-iam:
+        default:
+          body:
+            token: platform-jwt
+            user: { id: user-1, email: ada@example.com, name: Ada, roles: ["platform:admin"] }
+          vars: { statusCode: 200 }
+    expect:
+      body: { id: user-1, email: ada@example.com, name: Ada, roles: ["platform:admin"] }
+
+  - name: a refused bearer never reaches a record
+    input: a signed-in caller
+    mocks:
+      authenticate.exchange[body].call-iam:
+        default:
+          body: { error: the token is not valid }
+          vars: { statusCode: 401 }
+    expect:
+      vars: { httpStatus: 401 }
+      that: ['body.error.contains("bearer token is required")']

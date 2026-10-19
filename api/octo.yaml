@@ -137,8 +137,8 @@ processors:
 flows:
   # Trades the caller's bearer for a platform token, or stops the route.
   #
-  # On success it leaves vars.platformToken and vars.userId and the body exactly
-  # as it found it — the exchange runs inside an enrich so a route's request body
+  # On success it leaves vars.platformToken, vars.userId and vars.user (iam's
+  # account record for the caller) and the body exactly as it found it — the exchange runs inside an enrich so a route's request body
   # survives it. On failure it answers 401 with a challenge that points an OAuth
   # client at the metadata below, or relays iam's 403 for somebody who signed in
   # fine but has no account here.
@@ -150,6 +150,7 @@ flows:
           authStatus: vars.statusCode
           platformToken: 'vars.statusCode == 200 ? body.token : ""'
           userId: 'vars.statusCode == 200 ? body.user.id : ""'
+          user: 'vars.statusCode == 200 ? body.user : {}'
         body:
           process:
             - type: rest
@@ -206,6 +207,28 @@ flows:
         name: reply
         settings:
           value: '{"status": "ok"}'
+
+  # GET /v1/me — the account the bearer acts as, as iam knows it. A client signs
+  # in with this: it is the cheapest call that proves a credential works here.
+  - name: me
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/me
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: set-payload
+        name: reply
+        settings:
+          value: vars.user
 
   # GET /openapi.yaml — the description of everything below, open to anybody
   # so a client can be generated before it has a credential.

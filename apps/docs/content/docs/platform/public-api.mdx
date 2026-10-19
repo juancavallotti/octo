@@ -39,6 +39,7 @@ The paths below are all under `/v1`. Bodies and answers are JSON unless noted, a
 
 | Area | Routes |
 | --- | --- |
+| Account | `GET /me` (who your credential acts as, and your roles) |
 | Integrations | `GET/POST /integrations`, `GET/PATCH/DELETE /integrations/{id}` (`PATCH` renames) |
 | Bundles | `GET/PUT /integrations/{id}/bundle` (zip), `POST /integrations/bundle?name=` (import a zip) |
 | Config files | `GET/PUT /integrations/{id}/files`, `GET/PUT/DELETE /integrations/{id}/files/content?path=` |

@@ -28,6 +28,7 @@ security:
   - bearer: []
 
 tags:
+  - name: account
   - name: integrations
   - name: files
   - name: resources
@@ -37,6 +38,25 @@ tags:
   - name: discovery
 
 paths:
+  /v1/me:
+    get:
+      tags: [account]
+      operationId: getMe
+      summary: Who the bearer acts as
+      description: >-
+        The account your credential resolves to, with the roles that decide what
+        you may do. An API key resolves to the user who minted it.
+      responses:
+        "200":
+          description: The caller's account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
   /v1/integrations:
     get:
       tags: [integrations]
@@ -888,6 +908,17 @@ components:
       required: [error]
       properties:
         error: { type: string }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        subject: { type: string, description: The identity provider's subject for this account. }
+        email: { type: string }
+        name: { type: string }
+        roles: { type: array, items: { type: string }, description: "Platform roles, such as platform:admin." }
+        createdAt: { type: string, format: date-time }
+        lastLoginAt: { type: [string, "null"], format: date-time }
 
     Integration:
       type: object
