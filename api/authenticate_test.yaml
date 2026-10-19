@@ -1,0 +1,59 @@
+# The exchange every route starts with. iam is mocked by its answer, which is the
+# whole of what this flow reads: a 200 with a token, or a status saying why not.
+flow: authenticate
+
+env:
+  IAM_URL: http://iam.test
+  ORCHESTRATOR_URL: http://orchestrator.test
+  OBSERVABILITY_URL: http://observability.test
+  API_RESOURCE_URL: https://api.example.com
+
+inputs:
+  an upload:
+    data: { name: billing }
+    vars: { Authorization: "Bearer octo_key" }
+
+cases:
+  - name: a good bearer leaves the platform token and the caller's id, and the body alone
+    input: an upload
+    mocks:
+      authenticate.exchange[body].call-iam:
+        default:
+          body: { token: platform-jwt, user: { id: user-1 } }
+          vars: { statusCode: 200 }
+    expect:
+      body: { name: billing }
+      vars: { platformToken: platform-jwt, userId: user-1 }
+
+  - name: a refused bearer is a 401 that points at the OAuth metadata
+    input: an upload
+    mocks:
+      authenticate.exchange[body].call-iam:
+        default:
+          body: { error: the token is not valid }
+          vars: { statusCode: 401 }
+    expect:
+      vars:
+        httpStatus: 401
+        WWW-Authenticate: 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+      that: ['body.error.contains("bearer token is required")']
+
+  - name: somebody iam knows but will not let in keeps iam's 403
+    input: an upload
+    mocks:
+      authenticate.exchange[body].call-iam:
+        default:
+          body: { error: not provisioned }
+          vars: { statusCode: 403 }
+    expect:
+      vars: { httpStatus: 403 }
+
+  - name: an iam that cannot answer is ours to report, not a bad credential
+    input: an upload
+    mocks:
+      authenticate.exchange[body].call-iam:
+        default:
+          body: { error: this service cannot answer right now }
+          vars: { statusCode: 503 }
+    expect:
+      vars: { httpStatus: 503 }

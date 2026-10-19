@@ -1,0 +1,190 @@
+service:
+  name: api
+
+# The public API.
+#
+# What a client outside the cluster reaches at api.{domain}: integrations, their
+# files, resources and versions, deployments and their logs. Everything here is a
+# relay onto the orchestrator and observability, which stay ClusterIP; this app
+# owns the public contract (the /v1 paths, the spec at /openapi.yaml) and the one
+# thing neither of them does, turning whatever bearer a caller holds into a
+# platform token.
+#
+# It is an octo app rather than a Go service because a gateway is exactly what
+# flows are for: a route, an exchange, a relay. Writing it in Go would be a
+# second HTTP client, a second router and a second error mapper for a job the
+# runtime already does.
+#
+# HOW A REQUEST IS AUTHENTICATED. Every route starts with the authenticate flow
+# below, which hands the caller's bearer to iam's POST /auth untouched. iam takes
+# either kind a person holds — a token from the identity provider, which is what
+# an OAuth client that registered itself (DCR) ends up with, or one of their own
+# octo_ API keys — and answers with a platform token speaking for them. This app
+# never verifies a credential itself, so there is one verifier on the
+# installation and not two that can disagree.
+#
+# WHO DID IT. The orchestrator attributes writes to the actorId it is sent, and
+# takes that id on trust. Every write here sends the id iam just resolved, and
+# never one the caller supplied, so attribution is what the token says.
+
+env:
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  - name: HTTP_PORT
+    default: "8080"
+  - name: IAM_URL
+    required: true
+  - name: ORCHESTRATOR_URL
+    required: true
+  - name: OBSERVABILITY_URL
+    required: true
+  # The URL this API is published at, e.g. https://api.octopaas.dev. It is the
+  # OAuth resource identifier a client asks the identity provider for a token
+  # for, so it has to match what iam accepts as an audience.
+  - name: API_RESOURCE_URL
+    required: true
+  # The identity provider an OAuth client registers with and signs in through.
+  # Empty leaves the metadata naming no authorization server, which is an install
+  # taking API keys only.
+  - name: OIDC_ISSUER
+    default: ""
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+      # A bundle upload is the slowest request this serves, and the orchestrator
+      # takes its time unpacking one.
+      requestTimeout: 60s
+
+  - name: iam
+    type: http-client
+    settings:
+      baseURL: ${IAM_URL}
+      timeout: 15s
+
+  # The orchestrator answers bundle downloads of up to 8 MiB, the size it
+  # accepts on upload, so the cap is raised to match.
+  - name: orchestrator
+    type: http-client
+    settings:
+      baseURL: ${ORCHESTRATOR_URL}
+      timeout: 60s
+      maxResponseBytes: 8388608
+
+  - name: observability
+    type: http-client
+    settings:
+      baseURL: ${OBSERVABILITY_URL}
+      timeout: 30s
+      maxResponseBytes: 8388608
+
+processors:
+  # The first block of every authenticated route.
+  - name: authenticate
+    type: flow-ref
+    settings:
+      flow: authenticate
+
+  # The last block of every relay: the orchestrator's own status goes back to
+  # the caller with its body, so a 404 or a 400 reads the same here as there.
+  - name: relay-status
+    type: set-variable
+    settings:
+      name: httpStatus
+      value: vars.statusCode
+
+flows:
+  # Trades the caller's bearer for a platform token, or stops the route.
+  #
+  # On success it leaves vars.platformToken and vars.userId and the body exactly
+  # as it found it — the exchange runs inside an enrich so a route's request body
+  # survives it. On failure it answers 401 with a challenge that points an OAuth
+  # client at the metadata below, or relays iam's 403 for somebody who signed in
+  # fine but has no account here.
+  - name: authenticate
+    process:
+      - type: enrich
+        name: exchange
+        setVars:
+          authStatus: vars.statusCode
+          platformToken: 'vars.statusCode == 200 ? body.token : ""'
+          userId: 'vars.statusCode == 200 ? body.user.id : ""'
+        body:
+          process:
+            - type: rest
+              name: call-iam
+              settings:
+                connector: iam
+                method: POST
+                path: /auth
+                headers:
+                  Authorization: 'vars.?Authorization.orValue("")'
+                failOnError: false
+      - type: validate
+        name: require-token
+        rules:
+          - expr: 'vars.authStatus == 200'
+            message: "a valid bearer token is required"
+        onReject:
+          process:
+            - type: set-variable
+              name: status
+              settings:
+                name: httpStatus
+                # iam's 403 is somebody it knows and will not let in, and a
+                # fresh token would not change that. Everything it could not
+                # answer is ours to report, not the caller's to retry with
+                # another credential.
+                value: 'vars.authStatus in [401, 403] ? vars.authStatus : (vars.authStatus == 400 ? 401 : 503)'
+            - type: set-variable
+              name: challenge
+              settings:
+                name: WWW-Authenticate
+                value: '"Bearer resource_metadata=\"" + env.API_RESOURCE_URL + "/.well-known/oauth-protected-resource\""'
+            - type: set-payload
+              name: refusal
+              settings:
+                value: >-
+                  {"error": vars.httpStatus == 403
+                    ? "this account has not been provisioned on this platform"
+                    : (vars.httpStatus == 401
+                      ? "a valid bearer token is required: an API key or an OAuth access token"
+                      : "the platform could not check this credential right now")}
+
+  # GET /healthz — the process is up. Shallow on purpose: it does not ask iam or
+  # the orchestrator anything, so a probe cannot take this down with them.
+  - name: healthz
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /healthz
+        methods: [GET]
+    process:
+      - type: set-payload
+        name: reply
+        settings:
+          value: '{"status": "ok"}'
+
+  # GET /.well-known/oauth-protected-resource — RFC 9728 metadata. An OAuth client
+  # refused with a 401 follows the challenge here, learns which provider to
+  # register with, and asks it for a token whose audience is this API.
+  - name: protected-resource
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /.well-known/oauth-protected-resource
+        methods: [GET]
+    process:
+      - type: set-payload
+        name: metadata
+        settings:
+          value: >-
+            {"resource": env.API_RESOURCE_URL,
+             "authorization_servers": env.OIDC_ISSUER == "" ? [] : [env.OIDC_ISSUER],
+             "bearer_methods_supported": ["header"],
+             "resource_documentation": env.API_RESOURCE_URL + "/openapi.yaml"}
