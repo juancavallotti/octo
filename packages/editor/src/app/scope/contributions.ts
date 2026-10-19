@@ -49,9 +49,13 @@ function value(block: BlockNode, spec: FieldSpec): string | undefined {
  * Settings that name a variable scoped to the block's own slot rather than to the
  * flow after it. `foreach`'s `as` is the current element: it exists inside the body
  * and is gone once the loop is over, so the conventional pass must not carry it out.
- * walk.ts seeds it in the slot instead.
+ * walk.ts seeds it in the slot instead. `rest-stream`'s `as` is the same: the
+ * current line, inside the body only.
  */
-const SLOT_SCOPED: Record<string, Set<string>> = { foreach: new Set(["as"]) };
+const SLOT_SCOPED: Record<string, Set<string>> = {
+  foreach: new Set(["as"]),
+  "rest-stream": new Set(["as"]),
+};
 
 function varsFromConvention(block: BlockNode, spec: BlockSpec): Record<string, Field> {
   const out: Record<string, Field> = {};
@@ -104,6 +108,9 @@ const SPECIAL: Record<string, (block: BlockNode, spec: BlockSpec, scope?: Scope)
   // The result of the call becomes the body; statusVar (convention) carries the code.
   rest: () => ({ body: "opaque" }),
   "rest-dynamic": () => ({ body: "opaque" }),
+  // A refusal folds into the body as rest's does; a stream leaves it as the body
+  // flow made it. Either way it is not known here. `as` is slot-scoped, above.
+  "rest-stream": () => ({ body: "opaque" }),
 
   // A set-payload's `value` is the body. When it is a literal it names every key
   // outright, which is the single most introspectable thing in a flow — calling it

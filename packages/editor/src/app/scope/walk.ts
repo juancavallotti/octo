@@ -75,15 +75,27 @@ function join(a: Scope, b: Scope): Scope {
 
 /** Seed a composite's slot with whatever that slot puts in scope beyond its parent. */
 function slotSeed(block: BlockNode, slot: string, scope: Scope): Scope {
-  // foreach's `as` names the current element, and only within its body.
+  // foreach's `as` names the current element, and rest-stream's the current line,
+  // each only within its body.
   if (block.type === "foreach" && slot === "body") {
-    const name = (block.settings.as as string) || "item";
-    const vars = scope.roots.vars;
-    const known = vars?.shape.kind === "object" ? { ...vars.shape.fields } : {};
-    known[name] = field(DYN, "inferred", "the current element");
-    return { roots: { ...scope.roots, vars: { ...vars!, shape: objectOf(known) } } };
+    return withVar(scope, (block.settings.as as string) || "item", field(DYN, "inferred", "the current element"));
+  }
+  if (block.type === "rest-stream" && slot === "body") {
+    return withVar(
+      scope,
+      (block.settings.as as string) || "line",
+      field({ kind: "string" }, "inferred", "the current line of the response"),
+    );
   }
   return scope;
+}
+
+/** scope with one more variable in it. */
+function withVar(scope: Scope, name: string, value: Field): Scope {
+  const vars = scope.roots.vars;
+  const known = vars?.shape.kind === "object" ? { ...vars.shape.fields } : {};
+  known[name] = value;
+  return { roots: { ...scope.roots, vars: { ...vars!, shape: objectOf(known) } } };
 }
 
 /**
@@ -93,9 +105,9 @@ function slotSeed(block: BlockNode, slot: string, scope: Scope): Scope {
  * `setVars` settings say (see contributions.ts), so treating its branch as one more
  * path through the flow would leak every variable it set internally. `foreach`
  * iterates a body per element and the flow continues with the aggregate, not with
- * the last element's message.
+ * the last element's message, and `rest-stream` the same per line.
  */
-const ISOLATED_SLOTS = new Set(["enrich", "foreach"]);
+const ISOLATED_SLOTS = new Set(["enrich", "foreach", "rest-stream"]);
 
 export function buildIndex({ doc, evidence = emptyEvidence() }: ScopeInputs): ScopeIndex {
   const index: ScopeIndex = {
