@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,8 +32,7 @@ type repository interface {
 	UpdateMetadata(ctx context.Context, id string, metadata json.RawMessage) error
 	UpdateMetadataAndSettings(ctx context.Context, id string, metadata, settings json.RawMessage) error
 	Delete(ctx context.Context, id string) error
-	// ListAll exists for the reconciler; nothing else here needs a read that is
-	// not scoped to an integration.
+	// ListAll is every deployment, oldest first, for the reconciler and List.
 	ListAll(ctx context.Context) ([]Deployment, error)
 }
 
@@ -991,6 +991,20 @@ func (s *Service) ListByIntegration(ctx context.Context, integrationID string) (
 	if err != nil {
 		return nil, err
 	}
+	for i := range deps {
+		s.applyRefresh(ctx, &deps[i])
+	}
+	return deps, nil
+}
+
+// List returns every deployment on the installation, newest first, each with its
+// live cluster status — the same order an integration's own list uses.
+func (s *Service) List(ctx context.Context) ([]Deployment, error) {
+	deps, err := s.repo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slices.Reverse(deps)
 	for i := range deps {
 		s.applyRefresh(ctx, &deps[i])
 	}

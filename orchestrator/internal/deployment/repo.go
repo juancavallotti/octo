@@ -78,10 +78,9 @@ func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]D
 
 // ListAll returns every deployment, oldest first.
 //
-// It exists for the reconciler and nothing else. Every other read here is scoped
-// to an integration, because every other caller is looking at one — and the
-// reconciler is the one that has to answer a question about all of them at once:
-// which rows describe a workload the cluster does not have.
+// It serves the reconciler, which has to answer a question about all of them at
+// once — which rows describe a workload the cluster does not have — and the
+// installation-wide list, which reverses it.
 //
 // Oldest first so a sweep that stops partway has done the rows least likely to be
 // mid-deploy, and so its log reads in the order things happened.

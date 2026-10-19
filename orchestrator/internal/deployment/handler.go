@@ -34,9 +34,11 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// Register attaches the deployment routes to mux. Deploy/list are nested under
-// an integration; get/undeploy address a deployment directly.
+// Register attaches the deployment routes to mux. Deploy and the per-integration
+// list are nested under an integration; the installation-wide list, get and
+// undeploy address deployments directly.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /deployments", h.list)
 	mux.HandleFunc("POST /integrations/{id}/deployments", h.deploy)
 	mux.HandleFunc("GET /integrations/{id}/deployments", h.listByIntegration)
 	mux.HandleFunc("GET /integrations/{id}/deployments/options", h.deployOptions)
@@ -310,6 +312,31 @@ func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 		SlugValid:       opts.SlugValid,
 		SlugAvailable:   opts.SlugAvailable,
 	})
+}
+
+// list godoc
+//
+//	@Summary		List every deployment
+//	@Description	Across all integrations, newest first, each with its live cluster status.
+//	@Tags			deployments
+//	@Produce		json
+//	@Success		200	{array}		deploymentResponse
+//	@Failure		503	{object}	httpx.ErrorResponse	"no cluster access"
+//	@Router			/deployments [get]
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	items, err := h.svc.List(ctx)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]deploymentResponse, 0, len(items))
+	for _, d := range items {
+		out = append(out, toResponse(d))
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 // listByIntegration godoc

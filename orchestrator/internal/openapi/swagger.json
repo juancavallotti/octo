@@ -1441,6 +1441,40 @@
                 ]
             }
         },
+        "/deployments": {
+            "get": {
+                "description": "Across all integrations, newest first, each with its live cluster status.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/deployment.deploymentResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no cluster access"
+                    }
+                },
+                "summary": "List every deployment",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
         "/deployments/{id}": {
             "delete": {
                 "description": "Removes the workload and its addresses, and cleans up the deployment's stored\ndata. The integration and its version tags are untouched.",
