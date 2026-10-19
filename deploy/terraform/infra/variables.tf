@@ -161,3 +161,13 @@ variable "state_bucket" {
   description = "GCS bucket backing the release Terraform state (created by `task state:bucket`). Empty -> octo-tfstate-{project_id}. Used to scope the build SA's storage access."
   default     = ""
 }
+
+# The public API's host is api.{domain}, beside the editor's, and so not under
+# apps_domain's wildcard. Its A record is created here only when dns_managed_zone
+# holds `domain` itself; where the editor's own record is managed outside this
+# Terraform (a registrar-locked apex), make the API's there too.
+variable "api_dns_record" {
+  type        = bool
+  description = "Create the A record for api.{domain} in dns_managed_zone. Leave false when that zone does not hold `domain`, and create the record wherever the editor's is."
+  default     = false
+}

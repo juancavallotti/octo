@@ -204,3 +204,15 @@ variable "postgres_host_path" {
   EOT
   default     = "/mnt/octo-data/postgres"
 }
+
+variable "api_enabled" {
+  type        = bool
+  description = "Publish the public API at api_host. Its DNS record comes from the infra root's api_dns_record, or from wherever the editor's record is managed."
+  default     = false
+}
+
+variable "api_host" {
+  type        = string
+  description = "Host the public API is served at. Empty is api.{domain}."
+  default     = ""
+}

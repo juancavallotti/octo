@@ -241,6 +241,19 @@ resource "helm_release" "octo" {
     value = var.wildcard_cluster_issuer
   }
 
+  # --- Public API ---
+  set {
+    name  = "api.enabled"
+    value = var.api_enabled
+  }
+  dynamic "set" {
+    for_each = var.api_host != "" ? toset(["api.host"]) : toset([])
+    content {
+      name  = set.value
+      value = var.api_host
+    }
+  }
+
   # --- OIDC SSO ---
   # The editor mounts OIDC_* / AUTH_SECRET, and there is no install that does not:
   # signing in is how anybody reaches it, so the chart refuses to render without

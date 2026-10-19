@@ -403,3 +403,17 @@ variable "dev_runs_existing_secret_key" {
   description = "Key within dev_runs_existing_secret holding the HMAC key."
   default     = "dev-run-hash-secret"
 }
+
+# --- Public API ---
+
+variable "api_enabled" {
+  type        = bool
+  description = "Publish the public API (chart api.enabled). Needs a DNS record and a certificate for its host."
+  default     = false
+}
+
+variable "api_host" {
+  type        = string
+  description = "Host the public API is served at. Empty lets the chart use api.{domain}."
+  default     = ""
+}
