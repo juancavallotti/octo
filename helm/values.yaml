@@ -400,6 +400,11 @@ api:
     # The certificate for the API's host. Everything else about TLS — the mode,
     # the cert-manager issuer — is ingress.tls's.
     secretName: octo-api-tls
+  ingress:
+    # Laid over the editor's ingress.annotations, which the API inherits except
+    # for GCE's static IP — that names one address, and the editor holds it. Set
+    # the API's own here (its own kubernetes.io/ingress.global-static-ip-name, say).
+    annotations: {}
   service:
     port: 8095
     annotations: {}

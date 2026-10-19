@@ -1290,6 +1290,14 @@ tasks:
           'value: "https://octo.example.com/mcp,https://api.octo.example.com"' \
           'path: static/openapi.yaml' 'octo.yaml: "' -- \
           --set api.enabled=true
+        # The editor's reserved GCE address stays the editor's, while every other
+        # annotation is shared.
+        check_contains api-annotations \
+          'kubernetes.io/ingress.global-static-ip-name: "api-ip"' 'alb.ingress.kubernetes.io/group.name: "octo"' -- \
+          --set api.enabled=true \
+          --set-string 'ingress.annotations.kubernetes\.io/ingress\.global-static-ip-name=editor-ip' \
+          --set-string 'ingress.annotations.alb\.ingress\.kubernetes\.io/group\.name=octo' \
+          --set-string 'api.ingress.annotations.kubernetes\.io/ingress\.global-static-ip-name=api-ip'
         check_absent api-off "octo-api" \
           --set api.enabled=false
         # The embedding server's provider key, held in a Secret the operator owns.

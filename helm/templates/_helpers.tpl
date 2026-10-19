@@ -487,7 +487,11 @@ password
   editor's host — api.octopaas.dev beside octopaas.dev.
 */}}
 {{- define "octo.api.host" -}}
-{{- .Values.api.host | default (printf "api.%s" (required "api.host (or ingress.host, which it defaults from) is required when api.enabled is true" .Values.ingress.host)) -}}
+{{- if .Values.api.host -}}
+{{- .Values.api.host -}}
+{{- else -}}
+{{- printf "api.%s" (required "api.host (or ingress.host, which it defaults from) is required when api.enabled is true" .Values.ingress.host) -}}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -508,9 +512,16 @@ password
   The public API's ingress settings: the editor's — class, annotations, TLS mode
   and issuer — on the API's own host and certificate. One install terminates TLS
   one way, so only what differs per host is asked for again.
+
+  Annotations are inherited, so an ALB group or a controller tweak covers both,
+  except GCE's static IP: it names one reserved address, which a second Ingress
+  cannot also hold. api.ingress.annotations is laid over the rest, for whatever
+  the API needs of its own.
 */}}
 {{- define "octo.api.ingress" -}}
 {{- $ing := deepCopy .Values.ingress -}}
+{{- $ann := omit ($ing.annotations | default dict) "kubernetes.io/ingress.global-static-ip-name" -}}
+{{- $_ := set $ing "annotations" (merge (deepCopy ((.Values.api.ingress | default dict).annotations | default dict)) $ann) -}}
 {{- $_ := set $ing "host" (include "octo.api.host" .) -}}
 {{- $_ = set $ing "extraHosts" list -}}
 {{- $tls := deepCopy ($ing.tls | default dict) -}}

@@ -784,6 +784,7 @@ Publishes the [public API](/platform/public-api) on a host of its own, for calle
 | `api.host` | `""` | The host it is served at. Empty is `api.` in front of `ingress.host`. |
 | `api.url` | `""` | Its public origin when that is not `https://{api.host}`, such as a local cluster on a non-default port. It is the OAuth resource identifier, and iam is told to accept tokens minted for it. |
 | `api.tls.secretName` | `octo-api-tls` | The certificate for `api.host`. The TLS mode and issuer are `ingress.tls`'s. |
+| `api.ingress.annotations` | `{}` | Laid over `ingress.annotations`, which the API inherits except for GCE's `kubernetes.io/ingress.global-static-ip-name`: the editor holds that address, so give the API its own here. |
 | `api.repository` / `api.image` | `octo-runtime` / `{}` | The published standalone runtime, at the release's version like every other component. A private registry carries the same build as `octo-devruntime-paas`. |
 | `api.replicas` | `1` | It keeps no state; scale for throughput. |
 | `api.service.port` | `8095` | Its ClusterIP port. |
