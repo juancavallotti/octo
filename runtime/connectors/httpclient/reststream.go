@@ -221,13 +221,25 @@ func (p *streamProcessor) refused(
 }
 
 // eachLine runs the body once per line, binding it to the loop variable and
-// restoring whatever that variable held before once the stream ends.
+// restoring whatever that variable held before however the stream ends.
 //
 // A stop raised in the body — an sse-event finding its caller gone is the one
 // that matters — ends the stream on that line, which is how a relay stops
 // reading an upstream nobody is listening to any more.
 func (p *streamProcessor) eachLine(ctx context.Context, r io.Reader, msg *types.Message) (*types.Message, error) {
 	prev, had := msg.Variables[p.as]
+	defer func() {
+		// msg is the latest message the body returned, which is the one that
+		// carries the variable on.
+		if msg == nil {
+			return
+		}
+		if had {
+			msg.Variables.Set(p.as, prev)
+		} else {
+			delete(msg.Variables, p.as)
+		}
+	}()
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, min(p.maxLineBytes, initialLineBuffer)), p.maxLineBytes)
@@ -253,12 +265,6 @@ func (p *streamProcessor) eachLine(ctx context.Context, r io.Reader, msg *types.
 			return nil, fmt.Errorf("rest-stream read: %w", ctxErr)
 		}
 		return nil, fmt.Errorf("rest-stream read: %w", err)
-	}
-
-	if had {
-		msg.Variables.Set(p.as, prev)
-	} else {
-		delete(msg.Variables, p.as)
 	}
 	return msg, nil
 }
