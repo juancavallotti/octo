@@ -43,12 +43,14 @@ func (h *Handler) Register(mux *http.ServeMux, signedIn Middleware) {
 	}
 }
 
-// ownerOnly refuses a caller who is not the user named in the path, and any
-// machine token at all.
+// ownerOnly refuses a caller who is not the user named in the path, any machine
+// token, and any token that was itself exchanged for a key.
 //
 // A deployment's token has its owner as subject, so without the second check a
 // running integration could mint itself a key — trading the narrow access it was
-// lent for a year-long credential carrying everything its owner may do.
+// lent for a year-long credential carrying everything its owner may do. The third
+// keeps a key from minting its own successor, which would let a leaked key
+// survive being revoked.
 func ownerOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := authz.FromContext(r.Context())
@@ -59,6 +61,10 @@ func ownerOnly(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if p.Machine {
 			httpx.WriteError(w, http.StatusForbidden, "a deployment cannot manage API keys")
+			return
+		}
+		if p.FromAPIKey {
+			httpx.WriteError(w, http.StatusForbidden, "API keys are managed from a signed-in session, not with a key")
 			return
 		}
 		if p.Subject != r.PathValue("userId") {

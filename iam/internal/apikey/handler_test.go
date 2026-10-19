@@ -29,6 +29,7 @@ func TestKeysAreManagedOnlyByTheirOwner(t *testing.T) {
 		{"somebody else", authz.Principal{Subject: "user-2"}, http.StatusForbidden},
 		{"an administrator", authz.Principal{Subject: "admin", Roles: []string{"platform:admin"}}, http.StatusForbidden},
 		{"the owner's deployment", authz.Principal{Subject: "user-1", Machine: true}, http.StatusForbidden},
+		{"the owner, holding a key", authz.Principal{Subject: "user-1", FromAPIKey: true}, http.StatusForbidden},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
