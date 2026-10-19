@@ -201,3 +201,29 @@ func TestTheConnectorTimeoutDoesNotCutAStreamOff(t *testing.T) {
 		t.Errorf("lines = %v, want both, though the stream ran past the connector timeout", lines)
 	}
 }
+
+// A timeout inside the body is the body's failure, not the stream reaching its
+// bound, and must fail the flow rather than read as a clean end.
+func TestATimeoutInTheBodyIsNotMistakenForMaxDuration(t *testing.T) {
+	srv := lineServer(t, http.StatusOK, "one", "two")
+	reg := testkit.Registry()
+	reg.MustRegister("time-out", func(types.Settings, core.BlockDeps) (core.MessageProcessor, error) {
+		return testkit.ProcessorFunc(func(context.Context, *types.Message) (*types.Message, error) {
+			return nil, fmt.Errorf("nested call: %w", context.DeadlineExceeded)
+		}), nil
+	})
+	flow, err := engine.BuildRoot(types.FlowConfig{
+		Name: "test",
+		Process: []types.BlockConfig{{Type: "rest-stream", Settings: types.Settings{
+			"connector": "api", "method": `"GET"`, "path": `"/logs"`,
+			"body": map[string]any{"process": []any{map[string]any{"type": "time-out"}}},
+		}}},
+	}, reg, testkit.Scheduler(), nil, restDeps(t, srv.URL))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	if _, err := flow.Blocks[0].Processor.Process(context.Background(), restMessage(t, nil)); err == nil {
+		t.Fatal("a timeout inside the body ended the stream as if nothing had failed")
+	}
+}

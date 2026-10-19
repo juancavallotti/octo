@@ -186,11 +186,16 @@ func (p *streamProcessor) Process(ctx context.Context, msg *types.Message) (*typ
 	}
 
 	ret, err := p.eachLine(streamCtx, resp.Body, msg)
-	if err != nil && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		// maxDuration ran out, which is the end of the stream the flow asked for.
-		return msg, nil
+	if err == nil {
+		return ret, nil
 	}
-	return ret, err
+	// maxDuration ran out, which is the end of the stream the flow asked for. It
+	// is decided by the stream's own deadline rather than by the error, which may
+	// be a timeout of something inside the body that has nothing to do with it.
+	if errors.Is(streamCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		return ret, nil
+	}
+	return nil, err
 }
 
 // bound applies maxDuration to the stream's context, when there is one.
@@ -223,6 +228,9 @@ func (p *streamProcessor) refused(
 // eachLine runs the body once per line, binding it to the loop variable and
 // restoring whatever that variable held before however the stream ends.
 //
+// On an error it still returns the latest message the body produced, so a
+// stream its deadline cut short keeps what the body did up to then.
+//
 // A stop raised in the body — an sse-event finding its caller gone is the one
 // that matters — ends the stream on that line, which is how a relay stops
 // reading an upstream nobody is listening to any more.
@@ -247,7 +255,7 @@ func (p *streamProcessor) eachLine(ctx context.Context, r io.Reader, msg *types.
 		msg.Variables.Set(p.as, strings.TrimSuffix(scanner.Text(), "\r"))
 		out, err := p.body.Process(ctx, msg)
 		if err != nil {
-			return nil, err
+			return msg, err
 		}
 		if out == nil {
 			return nil, nil
@@ -259,12 +267,12 @@ func (p *streamProcessor) eachLine(ctx context.Context, r io.Reader, msg *types.
 	}
 	if err := scanner.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			return nil, fmt.Errorf("rest-stream: a line is longer than maxLineBytes (%d)", p.maxLineBytes)
+			return msg, fmt.Errorf("rest-stream: a line is longer than maxLineBytes (%d)", p.maxLineBytes)
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, fmt.Errorf("rest-stream read: %w", ctxErr)
+			return msg, fmt.Errorf("rest-stream read: %w", ctxErr)
 		}
-		return nil, fmt.Errorf("rest-stream read: %w", err)
+		return msg, fmt.Errorf("rest-stream read: %w", err)
 	}
 	return msg, nil
 }
