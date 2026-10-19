@@ -7,11 +7,12 @@ import (
 	"strings"
 
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/juancavallotti/octo/iam/internal/apikey"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
-// The three collaborators, declared here in the consumer so the exchange can be
+// The four collaborators, declared here in the consumer so the exchange can be
 // tested without a provider, a database or a keyset.
 type (
 	verifier interface {
@@ -25,6 +26,9 @@ type (
 		Mint(ctx context.Context, subject string, private any) (signing.Token, error)
 		Verify(ctx context.Context, raw string, private any) (jwt.Claims, error)
 	}
+	keys interface {
+		Verify(ctx context.Context, plaintext string) (apikey.APIKey, error)
+	}
 )
 
 // Service performs the exchange.
@@ -32,17 +36,18 @@ type Service struct {
 	verifier verifier
 	users    users
 	minter   minter
+	keys     keys
 }
 
 // NewService returns a Service. Any collaborator being absent is ErrNotConfigured
-// rather than a nil dereference later: the exchange needs all three, and an
+// rather than a nil dereference later: the exchange needs all four, and an
 // install missing the identity provider is a supported way to run — it simply
 // cannot mint.
-func NewService(v verifier, u users, m minter) (*Service, error) {
-	if v == nil || u == nil || m == nil {
+func NewService(v verifier, u users, m minter, k keys) (*Service, error) {
+	if v == nil || u == nil || m == nil || k == nil {
 		return nil, ErrNotConfigured
 	}
-	return &Service{verifier: v, users: u, minter: m}, nil
+	return &Service{verifier: v, users: u, minter: m, keys: k}, nil
 }
 
 // platformClaims is what a platform token carries beyond the registered claims
@@ -59,6 +64,10 @@ type platformClaims struct {
 	// and is empty on a person's token. It is what tells the two apart on the way
 	// back in — see Refresh.
 	Deployment string `json:"deployment,omitempty"`
+	// APIKey names the key a token was exchanged for, and is empty on a token from
+	// a sign-in. Refresh refuses such a token, so revoking the key ends it within
+	// one token lifetime.
+	APIKey string `json:"apiKey,omitempty"`
 }
 
 // Result is a completed exchange: the minted token and the user it speaks for.
@@ -67,13 +76,19 @@ type Result struct {
 	User  user.User
 }
 
-// Exchange verifies rawToken with the identity provider and returns a platform
-// token for whoever it identifies.
+// Exchange verifies rawToken and returns a platform token for whoever it
+// identifies. rawToken is either the identity provider's token or one of the
+// caller's API keys; the two arrive at the same endpoint so that anything taking
+// a bearer from a person can hand it on without knowing which it holds.
 //
 // The subject of the minted token is the octo user id and not the provider's
 // `sub`, so a principal is named by an identifier that survives the provider
 // changing an account's email, or the install changing provider.
 func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error) {
+	if apikey.IsKey(rawToken) {
+		return s.exchangeKey(ctx, rawToken)
+	}
+
 	identity, err := s.verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return Result{}, err
@@ -86,7 +101,36 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 		return Result{}, fmt.Errorf("auth: resolve user: %w", err)
 	}
 
-	token, err := s.mint(ctx, u)
+	token, err := s.mint(ctx, u, "")
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Token: token, User: u}, nil
+}
+
+// exchangeKey mints a platform token for the owner of an API key.
+//
+// The token carries the owner's roles as they stand now and not as they stood
+// when the key was minted, so a key never outranks the person it belongs to.
+// `last_login_at` is not touched: presenting a key is not a sign-in.
+func (s *Service) exchangeKey(ctx context.Context, rawKey string) (Result, error) {
+	k, err := s.keys.Verify(ctx, rawKey)
+	if err != nil {
+		if errors.Is(err, apikey.ErrInvalidToken) || errors.Is(err, apikey.ErrExpired) {
+			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		}
+		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+
+	u, err := s.users.Get(ctx, k.UserID)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			return Result{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		}
+		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+
+	token, err := s.mint(ctx, u, k.ID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -131,6 +175,15 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
+	// A token from an API key is renewed by presenting the key again. Renewing it
+	// here would let it outlive the key's revocation, since nothing on this path
+	// asks whether the key still stands.
+	if private.APIKey != "" {
+		return Result{}, fmt.Errorf(
+			"%w: a token exchanged for an API key is renewed by exchanging the key again",
+			ErrUnauthenticated)
+	}
+
 	// A machine token is renewed as a machine token: re-minting it from the owner's
 	// current roles would promote a deployment to whatever its owner may do.
 	//
@@ -153,7 +206,7 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 		return Result{Token: token, User: u}, nil
 	}
 
-	token, err := s.mint(ctx, u)
+	token, err := s.mint(ctx, u, "")
 	if err != nil {
 		return Result{}, err
 	}
@@ -171,9 +224,10 @@ func renewableWhileExpired(err error, private platformClaims) bool {
 	return errors.Is(err, signing.ErrExpired) && private.Deployment != ""
 }
 
-// mint stamps a platform token for u. Shared by the exchange and the refresh so
-// the two cannot drift into carrying different claims for the same person.
-func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) {
+// mint stamps a platform token for u, naming the API key it was exchanged for
+// when there is one. Shared by both exchanges and the refresh so they cannot
+// drift into carrying different claims for the same person.
+func (s *Service) mint(ctx context.Context, u user.User, keyID string) (signing.Token, error) {
 	roles := u.Roles
 	if roles == nil {
 		// A user who has been granted nothing gets an empty list and not a null, so
@@ -181,9 +235,10 @@ func (s *Service) mint(ctx context.Context, u user.User) (signing.Token, error) 
 		roles = []user.Role{}
 	}
 	token, err := s.minter.Mint(ctx, u.ID, platformClaims{
-		Email: u.Email,
-		Name:  u.Name,
-		Roles: roles,
+		Email:  u.Email,
+		Name:   u.Name,
+		Roles:  roles,
+		APIKey: keyID,
 	})
 	if err != nil {
 		return signing.Token{}, fmt.Errorf("auth: mint token: %w", err)

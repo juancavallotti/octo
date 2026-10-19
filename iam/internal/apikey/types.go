@@ -54,6 +54,13 @@ func generateToken() (plaintext, hash, prefix, last4 string, err error) {
 	return plaintext, hashToken(plaintext), tokenPrefix + body[:4], body[len(body)-4:], nil
 }
 
+// IsKey reports whether a presented bearer is shaped like an API key rather than
+// a JWT. The prefix is enough to route on: a compact JWT opens with its
+// base64url-encoded JSON header, which always begins "eyJ".
+func IsKey(token string) bool {
+	return strings.HasPrefix(token, tokenPrefix)
+}
+
 // hashToken returns the hex SHA-256 of a plaintext token. The same function is
 // used to store (at creation) and to look up (at verification) so the two always
 // agree.

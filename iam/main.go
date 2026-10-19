@@ -158,8 +158,8 @@ func newServer(database *db.DB) (http.Handler, error) {
 
 	// API keys are mounted behind the same guard: a person manages their own, and
 	// the handler holds every route to the user in its path.
-	apikey.NewHandler(apikey.NewService(apikey.NewRepo(database.Pool()))).Register(mux,
-		authz.Require(signingSvc))
+	apikeySvc := apikey.NewService(apikey.NewRepo(database.Pool()))
+	apikey.NewHandler(apikeySvc).Register(mux, authz.Require(signingSvc))
 	slog.Info("apikey routes registered",
 		"endpoints", "POST/GET /users/{userId}/apikeys, DELETE /users/{userId}/apikeys/{id}")
 
@@ -170,7 +170,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 
 	// A nil service is the "no provider configured" state; see auth.Handler for why
 	// the route is registered either way.
-	auth.NewHandler(newAuthService(userSvc, signingSvc)).Register(mux)
+	auth.NewHandler(newAuthService(userSvc, signingSvc, apikeySvc)).Register(mux)
 	slog.Info("auth routes registered",
 		"oidcIssuer", os.Getenv("OIDC_ISSUER"),
 		"endpoints", "POST /auth, POST /auth/refresh, POST /auth/machine")
@@ -185,7 +185,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 // install has one identity provider. IAM_ACCEPTED_AUDIENCES widens what the
 // exchange will take beyond the client id, for an install that presents more than
 // one audience to the provider.
-func newAuthService(users *user.Service, signer *signing.Service) *auth.Service {
+func newAuthService(users *user.Service, signer *signing.Service, keys *apikey.Service) *auth.Service {
 	issuer, clientID := os.Getenv("OIDC_ISSUER"), os.Getenv("OIDC_CLIENT_ID")
 	if issuer == "" || clientID == "" {
 		// Named individually, because either one missing disables the exchange and
@@ -195,7 +195,7 @@ func newAuthService(users *user.Service, signer *signing.Service) *auth.Service 
 		return nil
 	}
 	audiences := acceptedAudiences(clientID, os.Getenv("IAM_ACCEPTED_AUDIENCES"))
-	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer)
+	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer, keys)
 	if err != nil {
 		// Unreachable given the guard above, and reported rather than ignored so it
 		// cannot become a silent nil if the constructor grows a requirement.
