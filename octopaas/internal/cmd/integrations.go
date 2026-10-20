@@ -26,7 +26,7 @@ any editor, and push it back: it keeps its id, its versions and its
 deployments.`,
 		Example: `  octopaas integrations list
   octopaas integrations pull billing
-  $EDITOR billing/octo.yaml
+  $EDITOR billing/integration.yaml
   octopaas integrations push billing ./billing`,
 	}
 	cmd.AddCommand(

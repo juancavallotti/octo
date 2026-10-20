@@ -15,7 +15,7 @@ func (a *App) filesCommand() *cobra.Command {
 		Use:     "files",
 		Aliases: []string{"file"},
 		Short:   "Read and write an integration's config files one at a time",
-		Long: `An integration's definition is a set of config files: octo.yaml and whatever
+		Long: `An integration's definition is a set of config files: integration.yaml and whatever
 it splits its flows into. These commands work on one file at a time; to work
 on all of them, pull and push the integration instead.
 
@@ -69,7 +69,7 @@ func (a *App) filesCatCommand() *cobra.Command {
 		Use:     "cat <integration> <path>",
 		Aliases: []string{"get"},
 		Short:   "Print one config file",
-		Example: `  octopaas files cat billing octo.yaml
+		Example: `  octopaas files cat billing integration.yaml
   octopaas files cat billing flows/invoices.yaml > invoices.yaml`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

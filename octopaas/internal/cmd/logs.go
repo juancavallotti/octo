@@ -90,7 +90,7 @@ with its own colour.`,
 // history prints stored entries oldest first, the way a log reads.
 func (a *App) history(ctx context.Context, api *client.Client, id string, q client.LogQuery, all bool) error {
 
-	var entries []map[string]any
+	entries := []map[string]any{}
 	err := a.ui.Spin(ui.Ink, "Reading the logbook", func(l *ui.Live) error {
 		for {
 			page, err := api.DeploymentLogs(ctx, id, q)

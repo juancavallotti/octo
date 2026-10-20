@@ -70,7 +70,7 @@ is kept in ~/.octopaas/credentials.yaml, per profile, and renews itself.
 
 API keys are for automation: see ` + "`octopaas help environment`" + `.`,
 	}
-	cmd.AddCommand(a.loginCommand(), a.logoutCommand(), a.statusCommand("status"), a.tokenCommand())
+	cmd.AddCommand(a.loginCommand(), a.logoutCommand(), a.statusCommand("status", "auth status"), a.tokenCommand())
 	return cmd
 }
 
@@ -313,12 +313,12 @@ type statusReport struct {
 
 func (a *App) whoamiCommand() *cobra.Command {
 
-	cmd := a.statusCommand("whoami")
+	cmd := a.statusCommand("whoami", "whoami")
 	cmd.Short = "Who you are signed in as, and where"
 	return cmd
 }
 
-func (a *App) statusCommand(use string) *cobra.Command {
+func (a *App) statusCommand(use, path string) *cobra.Command {
 
 	return &cobra.Command{
 		Use:   use,
@@ -328,9 +328,9 @@ it acts as, with your roles.
 
 It says where each came from (a flag, the environment or the config), which is
 the quickest way to find out why octopaas is talking to the platform it is.`,
-		Example: `  octopaas ` + use + `
-  octopaas ` + use + ` -o json | jq -r .user.email
-  OCTOPAAS_PROFILE=local octopaas ` + use,
+		Example: `  octopaas ` + path + `
+  octopaas ` + path + ` -o json | jq -r .user.email
+  OCTOPAAS_PROFILE=local octopaas ` + path,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return a.status(cmd.Context())

@@ -68,9 +68,9 @@ octopaas auth status
 **Examples**
 
 ```bash
-octopaas status
-octopaas status -o json | jq -r .user.email
-OCTOPAAS_PROFILE=local octopaas status
+octopaas auth status
+octopaas auth status -o json | jq -r .user.email
+OCTOPAAS_PROFILE=local octopaas auth status
 ```
 
 ### `octopaas auth token`
