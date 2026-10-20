@@ -55,10 +55,12 @@ would mean multiple servers, which would cost the single stable MCP URL.
 | | Dev | Packaged |
 |---|---|---|
 | Editor server | `build/server` (`task desktop:stage`) | `Contents/Resources/server` |
-| `octo`, `dolphin` | the repo's `bin/` | `Contents/Resources/bin` |
+| `octo`, `dolphin`, `octopaas` | the repo's `bin/` | `Contents/Resources/bin` |
 | State, endpoint record | `~/Library/Application Support/Octo` | same |
 | Server log | `~/Library/Logs/Octo/server.log` | same |
-| Terminal's `octo`/`dolphin` links | `~/Library/Application Support/Octo/term-bin` | same |
+| Terminal's `octo`/`dolphin`/`octopaas` links | `~/Library/Application Support/Octo/term-bin` | same |
+| Platform installations and sign-ins | `~/.octopaas` (octopaas's own) | same |
+| A folder's platform link | `<folder>/.octo/platform.json` | same |
 | node-pty | `node_modules/node-pty` | `Contents/Resources/app.asar.unpacked/node_modules/node-pty` |
 
 `apps/desktop` declares **one runtime dependency, `node-pty`**: everything else in
@@ -99,11 +101,36 @@ because keystrokes are too frequent to round-trip. All four are refused unless
 they come from the editor's origin, like every other editor channel, and a page
 can only reach the sessions it opened.
 
+## Platform
+
+The platform features drive the bundled `octopaas` CLI rather than a second API
+client: `src/main/platform/cli.ts` runs `binary("octopaas")` with an argument vector,
+`--plain -o json`, and **always `--profile`**, so nothing the shell does depends on
+the profile that is current in the user's terminal. JSON comes back on stdout;
+progress and failures, in octopaas's own words, on stderr. `args.ts` builds every
+argument vector and checks every value from a form first, so no value can be read as
+a flag.
+
+`platform/controller.ts` is the Container controller's shape: one operation at a
+time, its output and the platform state pushed to every window (`octo:paas:*`), and a
+separate controller for a followed log. A pulled or imported folder is linked to its
+integration in `<folder>/.octo/platform.json` (`link.ts`), which names the profile,
+so the folder always goes back to the installation it came from; push never sends
+it, as octopaas leaves hidden folders behind. Pulls default to
+`<Projects folder>/<name>` (`target.ts`), then `<name>-<profile>` when two
+installations have one of the same name.
+
+The Platform window (`platformWindow.ts`) is the editor server's own `/platform`
+page with the editor's preload, not a static `file://` page: it is drawn with the
+editor's components, its channels are the editor's (`fromEditor`), and it follows
+the server across a folder switch. The editor page gets the platform chip and Push
+from the same `paas` bridge.
+
 ## Shipping
 
 Every release publishes `Octo_mac_arm64.dmg` and `Octo_mac_x64.dmg` to the GitHub
 release for the tag (`publish-desktop` in `.github/workflows/release.yml`), built
-from the octo and dolphin archives that same release published rather than from a
+from the octo, dolphin and octopaas archives that same release published rather than from a
 second compile. The names carry no version so the README and the docs can link to
 `releases/latest/download/<name>` and never break.
 
@@ -132,12 +159,13 @@ origin, so an origin check would admit any local HTML. These channels choose whi
 executable the app runs; the editor page, which renders the user's own files, must
 never reach them.
 
-**Runtime.** The bundled `octo` and `dolphin` are the default; an override is a path
-the user picked. `bundledBinary()` in `paths.ts` says where the shipped one is and
+**Runtime.** The bundled `octo`, `dolphin` and `octopaas` are the default; an override
+is a path the user picked. `bundledBinary()` in `paths.ts` says where the shipped one is and
 `binary()` in `settings.ts` says which one actually runs — an override that is not
 there falls back, so a moved checkout costs a setting rather than the app. Changing
-one restarts the server through `vault.ts:reopenCurrent()`, the same serialised
-restart (and rollback) a folder switch uses.
+`octo` or `dolphin` restarts the server through `vault.ts:reopenCurrent()`, the same
+serialised restart (and rollback) a folder switch uses; octopaas runs per command,
+so a new one is simply used next.
 
 **Updates.** `electron-updater` against the GitHub release, bundled by esbuild rather
 than declared as a runtime dependency, so it adds nothing to the production

@@ -9,7 +9,8 @@ Octo Desktop is the standalone editor as a native macOS app. You pick a folder,
 edit the flows in it, run them, and point an AI assistant at the MCP endpoint the
 app advertises. The `octo` runtime and the `dolphin` test runner are bundled
 inside, so there is nothing else to install — no Docker, no checkout, no
-terminal.
+terminal. So is [`octopaas`](/platform/octopaas), the platform's CLI, which the app
+uses to pull integrations from the platform, push them back and deploy them.
 
 ## Download
 
@@ -175,6 +176,55 @@ docker build -t orders .
 The Dockerfile only copies the files onto the runtime image; it has no `RUN` steps,
 because the runtime image has no shell.
 
+## The platform
+
+The **Platform** menu, the platform chip beside the folder chip and the **Platform**
+window connect the open folder to an Octo platform. You pull an integration into a
+folder, edit it here, push it back, freeze versions and deploy them, then follow
+what the deployment logs. The app does all of this with the bundled `octopaas` CLI,
+so everything it does, the CLI in your terminal can do too.
+
+### Installations
+
+An installation is a platform you work with: a name and its API's address. Open
+**Platform → Installations…** to add one, sign in to it with your browser, or give
+it an API key instead. You can work with several, such as a local one and
+production. These are the `octopaas` CLI's own profiles, kept in `~/.octopaas`, so a
+sign-in here is a sign-in in the terminal, and the other way round. The **default**
+installation is the one the CLI uses in a terminal when you do not pass `--profile`.
+
+### Pull an integration and open it
+
+1. Choose **Platform → Pull Integration…**, or **From the platform…** in the folder
+   picker.
+2. Pick the installation in the window's header, then choose **Pull and open** on
+   an integration. Expand an integration to open one of its versions instead.
+3. Confirm the folder. It defaults to a folder named after the integration in your
+   **Projects folder**, `~/Documents/Octo` unless you change it under
+   **Installations**. You can choose any new or empty folder for one pull without
+   changing the setting.
+
+The folder opens in the editor. It remembers which integration it is, on which
+installation, in `.octo/platform.json`, so it always pushes and deploys to the
+platform it came from, whichever installation is selected elsewhere. An integration
+already on this machine shows **Open** instead of **Pull and open**.
+
+### Push, versions and deploys
+
+- **Push**, beside Save, saves your changes and replaces the integration's draft on
+  the platform with the folder as it is on disk. Its versions and running
+  deployments stay as they are until you roll them out.
+- **This folder** in the Platform window freezes the draft as a version. Leave
+  **Push this folder first** on, and the version is what you see in the editor.
+- **Deployments** lists where the integration runs, and deploys, rolls out, scales
+  and removes deployments. A deploy without a version deploys the folder as it is
+  now, frozen under the next tag. The output pane shows its progress until it is
+  running.
+- **Logs** shows a deployment's stored log, or follows its pods as they print.
+
+A folder that is not on a platform yet goes there with **Platform → Put This Folder
+on the Platform…**, which imports it as a new integration and links it.
+
 ## What it actually is
 
 An Electron shell around the **same** standalone editor server the Docker image
@@ -197,14 +247,14 @@ and a bug you can reproduce in `docker run` is the same bug here. Everything in
 
 <kbd>Cmd</kbd> + <kbd>,</kbd> opens Settings.
 
-**Runtime.** Octo Desktop ships a matched `octo` and `dolphin` inside the app, and
-uses them unless you say otherwise. Point either at a binary of your own — a build
-from a checkout of the repository, say — to develop flows against a different
-runtime. Settings shows the version each one reports, so you can see which is in
-use at a glance.
+**Runtime.** Octo Desktop ships a matched `octo`, `dolphin` and `octopaas` inside the
+app, and uses them unless you say otherwise. Point any of them at a binary of your
+own — a build from a checkout of the repository, say — to develop flows against a
+different runtime. Settings shows the version each one reports, so you can see which
+is in use at a glance.
 
-Changing a binary restarts the editor server, because the server hands the path to
-every run it starts. If flows are running you are asked first. A chosen binary that
+Changing `octo` or `dolphin` restarts the editor server, because the server hands the
+path to every run it starts. A new `octopaas` is used from its next command. If flows are running you are asked first. A chosen binary that
 has since been moved or deleted is reported in Settings and **not** used — the
 bundled one runs instead, so a detached drive costs you the setting rather than the
 app.
@@ -241,8 +291,10 @@ downloaded only if you agree, and installs the next time you quit.
 | --- | --- |
 | Application state, endpoint record | `~/Library/Application Support/Octo` |
 | Server log | `~/Library/Logs/Octo/server.log` |
-| Editor server, `octo`, `dolphin` | inside `Octo.app/Contents/Resources` |
+| Editor server, `octo`, `dolphin`, `octopaas` | inside `Octo.app/Contents/Resources` |
 | Links the terminal puts on `PATH` | `~/Library/Application Support/Octo/term-bin` |
+| Installations and their sign-ins | `~/.octopaas`, shared with the `octopaas` CLI |
+| A folder's integration on the platform | `<folder>/.octo/platform.json` |
 
 The server log is the first place to look if a window comes up empty: it is the
 standalone server's own output.
