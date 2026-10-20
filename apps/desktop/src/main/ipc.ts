@@ -4,6 +4,7 @@ import { buildMenu, copyMcpUrl, mcpUrl, revealVault } from "./menu";
 import { sameOrigin } from "./origin";
 import { current } from "./server";
 import { binaryStatus, settings, updateSettings } from "./settings";
+import { RUNTIME_BINARIES, isRuntimeBinary, type RuntimeBinary } from "./paths";
 import {
   closeSettings,
   pickBinaryFile,
@@ -125,7 +126,7 @@ async function dockerView() {
 /** The Settings window's whole view of the world, rebuilt after every change. */
 async function settingsView() {
   return {
-    binaries: await Promise.all([binaryStatus("octo"), binaryStatus("dolphin")]),
+    binaries: await Promise.all(RUNTIME_BINARIES.map(binaryStatus)),
     docker: await dockerView(),
     autoUpdateCheck: settings().autoUpdateCheck !== false,
     autoLearn: editorPrefs().autoLearn,
@@ -135,16 +136,17 @@ async function settingsView() {
 }
 
 /**
- * Record a runtime override and restart the server onto it. The restart is not
- * awaited: it can show a modal of its own, and the Settings window repaints with the
- * new binary immediately.
+ * Record a binary override, and restart the server onto it when the server runs it.
+ * The restart is not awaited: it can show a modal of its own, and the Settings window
+ * repaints with the new binary immediately. octopaas is run by the shell per call, so
+ * the next call picks it up and nothing restarts.
  */
-async function setRuntime(name: "octo" | "dolphin", file: string | null) {
+async function setRuntime(name: RuntimeBinary, file: string | null) {
   const runtime = { ...settings().runtime };
   if (file) runtime[name] = file;
   else delete runtime[name];
   updateSettings({ runtime });
-  void reopenCurrent();
+  if (name !== "octopaas") void reopenCurrent();
   return settingsView();
 }
 
@@ -191,12 +193,12 @@ export function registerIpc(): void {
 
   handleSettings("octo:settings:get", () => settingsView());
   handleSettings("octo:settings:setBinary", (_event, name, file) => {
-    if (name !== "octo" && name !== "dolphin") throw new Error("unknown binary");
+    if (!isRuntimeBinary(name)) throw new Error("unknown binary");
     if (file !== null && typeof file !== "string") throw new Error("bad path");
     return setRuntime(name, file);
   });
   handleSettings("octo:settings:pickBinary", async (_event, name) => {
-    if (name !== "octo" && name !== "dolphin") throw new Error("unknown binary");
+    if (!isRuntimeBinary(name)) throw new Error("unknown binary");
     const chosen = await pickBinaryFile(`Choose the ${name} binary`);
     // Cancelling is not "use the bundled one", so nothing changes.
     return chosen ? setRuntime(name, chosen) : settingsView();

@@ -157,6 +157,12 @@ describe("settings", () => {
     });
   });
 
+  it("round-trips an octopaas override beside the runtime's", () => {
+    expect(stored({ runtime: { dolphin: "/opt/dolphin", octopaas: "/opt/octopaas" } })).toEqual({
+      runtime: { dolphin: "/opt/dolphin", octopaas: "/opt/octopaas" },
+    });
+  });
+
   it("drops a path that is not a string", () => {
     expect(stored({ runtime: { octo: 7, dolphin: "/opt/dolphin" } })).toEqual({
       runtime: { dolphin: "/opt/dolphin" },

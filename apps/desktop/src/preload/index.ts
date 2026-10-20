@@ -29,7 +29,7 @@ export interface TerminalSessionView {
   title: string;
 }
 
-/** Shells in the open folder, with the editor's octo and dolphin first on PATH. */
+/** Shells in the open folder, with the editor's octo, dolphin and octopaas first on PATH. */
 export interface TerminalBridge {
   open(cols: number, rows: number): Promise<TerminalSessionView>;
   write(id: string, data: string): void;

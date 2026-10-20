@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { spawn, type IPty } from "node-pty";
 import { current } from "./server";
+import { RUNTIME_BINARIES } from "./paths";
 import { binary } from "./settings";
 import { launch, shellTitle, startupFiles } from "./terminalEnv";
 
@@ -52,7 +53,7 @@ let nextId = 1;
 function shimDir(): string {
   const dir = path.join(app.getPath("userData"), "term-bin");
   mkdirSync(dir, { recursive: true });
-  for (const name of ["octo", "dolphin"] as const) {
+  for (const name of RUNTIME_BINARIES) {
     const link = path.join(dir, name);
     const target = binary(name);
     let existing: string | null = null;
