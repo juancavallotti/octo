@@ -94,5 +94,11 @@ func (u *UI) Box(title string, lines ...string) {
 	if len(lines) > 0 {
 		body += "\n\n" + strings.Join(lines, "\n")
 	}
-	u.Say("%s", u.err.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ink).Padding(0, 2).Render(body))
+	box := u.err.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ink).Padding(0, 2)
+	//a line wider than the terminal would wrap through the border, so the box
+	//wraps its own text instead.
+	if lipgloss.Width(body)+6 > u.Width() {
+		box = box.Width(u.Width() - 2)
+	}
+	u.Say("%s", box.Render(body))
 }

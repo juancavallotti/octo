@@ -1,16 +1,20 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/juancavallotti/octo/octopaas/internal/client"
 	"github.com/juancavallotti/octo/octopaas/internal/config"
@@ -166,15 +170,7 @@ func (a *App) login(ctx context.Context, noBrowser bool, timeout time.Duration) 
 		Listener: listener,
 		Page:     callbackPage,
 		Open: func(link string) error {
-			if noBrowser {
-				a.ui.Box("Sign in to "+r.URL, "Open this link in a browser on this machine:", "", link)
-				return nil
-			}
-			a.ui.Box("Sign in to "+r.URL, "Opening your browser. If it does not open, visit:", "", link)
-			browser.Stdout, browser.Stderr = io.Discard, io.Discard
-			if err := browser.OpenURL(link); err != nil {
-				a.ui.Hint("Could not open a browser (%v); open the link yourself.", err)
-			}
+			a.promptSignIn(r.URL, link, noBrowser)
 			return nil
 		},
 	}
@@ -217,6 +213,49 @@ func (a *App) login(ctx context.Context, noBrowser bool, timeout time.Duration) 
 	a.ui.Moment(ui.Happy, fmt.Sprintf("Welcome aboard, %s!", nameOf(me)),
 		fmt.Sprintf("Signed in to %s as %s, on profile %s.", r.URL, me.Email, r.Profile))
 	return nil
+}
+
+// promptSignIn shows the sign-in link the way gh does: one line saying what is
+// about to happen, the link on its own line where the terminal can make it
+// clickable and copying it never picks up a border, and Enter to open it. Enter
+// is an offer, not a gate: following the link by hand finishes sign-in too.
+func (a *App) promptSignIn(platform, link string, noBrowser bool) {
+
+	host := link
+	if u, err := url.Parse(link); err == nil {
+		host = u.Host
+	}
+	a.ui.Say("%s Sign in to %s with %s:", a.ui.Accent("!"), platform, a.ui.Bold(host))
+	a.ui.Say("")
+	a.ui.Say("%s", link)
+	a.ui.Say("")
+
+	openIt := func() {
+		browser.Stdout, browser.Stderr = io.Discard, io.Discard
+		if err := browser.OpenURL(link); err != nil {
+			a.ui.Hint("Could not open a browser (%v); open the link above yourself.", err)
+		}
+	}
+	switch {
+	case noBrowser:
+		a.ui.Hint("Open the link above in a browser on this machine.")
+	case a.stdinIsTerminal():
+		a.ui.Say("Press %s to open %s in your browser...", a.ui.Bold("Enter"), host)
+		go func() {
+			if _, err := bufio.NewReader(a.Stdin).ReadString('\n'); err == nil {
+				openIt()
+			}
+		}()
+	default:
+		//nobody to press Enter: open it straight away, as a script would want.
+		openIt()
+	}
+}
+
+func (a *App) stdinIsTerminal() bool {
+
+	f, ok := a.Stdin.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 type oauthToken struct {
