@@ -30,6 +30,8 @@ function actions(): MenuActions {
     copyMcpUrl: vi.fn(),
     openSettings: vi.fn(),
     openContainer: vi.fn(),
+    openPlatform: vi.fn(),
+    pushToPlatform: vi.fn(),
     update: vi.fn(),
     openDocs: vi.fn(),
     showLog: vi.fn(),
@@ -46,6 +48,7 @@ function build(over: Partial<MenuInput> = {}, act = actions()) {
     mcpAvailable: true,
     update: { label: "Check for Updates…" },
     docker: "running",
+    linked: null,
     ...over,
   };
   return { menu: menuTemplate(input, act), act };
@@ -76,6 +79,7 @@ describe("menuTemplate", () => {
       "View",
       "Run",
       "Container",
+      "Platform",
       "windowMenu",
       "help",
     ]);
@@ -180,6 +184,22 @@ describe("menuTemplate", () => {
     const { menu, act } = build({ docker: "stopped" });
     click(item(menu, "Container", "Export Dockerfile…"));
     expect(act.openContainer).toHaveBeenCalledWith("export");
+  });
+
+  it("acts on the folder's integration only when the folder is linked to one", () => {
+    const unlinked = build();
+    for (const label of ["Push to Platform", "Versions…", "Deploy…", "Logs…"]) {
+      expect(item(unlinked.menu, "Platform", label).enabled).toBe(false);
+    }
+    expect(item(unlinked.menu, "Platform", "Put This Folder on the Platform…").enabled).toBe(true);
+    expect(item(unlinked.menu, "Platform", "Pull Integration…").enabled).not.toBe(false);
+
+    const { menu, act } = build({ linked: { integration: "billing", profile: "prod" } });
+    expect(item(menu, "Platform", "billing on prod").enabled).toBe(false);
+    click(item(menu, "Platform", "Push to Platform"));
+    expect(act.pushToPlatform).toHaveBeenCalled();
+    click(item(menu, "Platform", "Deploy…"));
+    expect(act.openPlatform).toHaveBeenCalledWith("deployments");
   });
 
   it("puts the app items under File off macOS", () => {

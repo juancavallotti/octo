@@ -1,9 +1,12 @@
-import { Menu, app, clipboard, shell, type BrowserWindow } from "electron";
+import { Menu, app, clipboard, dialog, shell, type BrowserWindow } from "electron";
 import path from "node:path";
 import { logPath } from "./log";
 import { current } from "./server";
 import { openSettings } from "./settingsWindow";
 import { openContainer } from "./containerWindow";
+import { openPlatform } from "./platformWindow";
+import { pushVault } from "./platform/controller";
+import { readLink } from "./platform/link";
 import { dockerStatus } from "./container/status";
 import { checkForUpdates, restartToUpdate, updateStatus } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
@@ -53,6 +56,27 @@ function pageZoom(direction: "in" | "out" | "reset"): void {
   contents.zoomLevel = direction === "reset" ? 0 : contents.zoomLevel + (direction === "in" ? 0.5 : -0.5);
 }
 
+/** The open folder's integration, read from the folder itself. */
+function linkedIntegration(): { integration: string; profile: string } | null {
+  const vault = openVault();
+  const link = vault ? readLink(vault.path) : null;
+  return link ? { integration: link.integrationName, profile: link.profile } : null;
+}
+
+/**
+ * Push from the menu. Its progress shows on the editor's platform chip; a failure has
+ * no window to say it in when the platform's is closed, so it says it here.
+ */
+function pushToPlatform(): void {
+  pushVault().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === "Cancelled") return;
+    const win = mainWindow();
+    const options = { type: "error" as const, message: "The push did not go through.", detail: message };
+    void (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options));
+  });
+}
+
 export function buildMenu(): void {
   const update = updateEntry();
   const template = menuTemplate(
@@ -65,6 +89,7 @@ export function buildMenu(): void {
       mcpAvailable: mcpUrl() !== null,
       update: { label: update.label },
       docker: dockerStatus().state,
+      linked: linkedIntegration(),
     },
     {
       command: sendCommand,
@@ -75,6 +100,8 @@ export function buildMenu(): void {
       copyMcpUrl,
       openSettings,
       openContainer,
+      openPlatform,
+      pushToPlatform,
       update: update.click,
       openDocs: () => void shell.openExternal("https://octo.juancavallotti.com"),
       showLog: () => shell.showItemInFolder(logPath()),

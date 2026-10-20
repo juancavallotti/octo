@@ -74,6 +74,8 @@ export interface MenuInput {
   update: { label: string };
   /** Whether docker can build and run the folder's container right now. */
   docker: "missing" | "stopped" | "running";
+  /** The open folder's integration on the platform, when it is linked to one. */
+  linked: { integration: string; profile: string } | null;
 }
 
 export interface MenuActions {
@@ -87,6 +89,10 @@ export interface MenuActions {
   openSettings(): void;
   /** Open the Container window at the part an item names. */
   openContainer(focus: "build" | "push" | "export"): void;
+  /** Open the Platform window at the part an item names. */
+  openPlatform(focus: "integrations" | "folder" | "versions" | "deployments" | "logs" | "settings"): void;
+  /** Push the open folder to its integration. */
+  pushToPlatform(): void;
   update(): void;
   openDocs(): void;
   showLog(): void;
@@ -373,6 +379,38 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
     ],
   };
 
+  // Pulling and the installations are there with any folder open; the rest act on
+  // the folder's own integration, and the first item names it.
+  const linked = input.linked;
+  const platform: MenuItemConstructorOptions = {
+    label: "Platform",
+    submenu: [
+      ...(linked
+        ? ([
+            { label: `${linked.integration} on ${linked.profile}`, enabled: false },
+            { type: "separator" },
+          ] satisfies MenuItemConstructorOptions[])
+        : []),
+      {
+        label: "Push to Platform",
+        enabled: linked !== null,
+        click: act.pushToPlatform,
+      },
+      { label: "Versions…", enabled: linked !== null, click: () => act.openPlatform("versions") },
+      { label: "Deploy…", enabled: linked !== null, click: () => act.openPlatform("deployments") },
+      { label: "Logs…", enabled: linked !== null, click: () => act.openPlatform("logs") },
+      { type: "separator" },
+      {
+        label: linked ? "This Folder on the Platform…" : "Put This Folder on the Platform…",
+        enabled: input.vaultOpen,
+        click: () => act.openPlatform("folder"),
+      },
+      { label: "Pull Integration…", click: () => act.openPlatform("integrations") },
+      { type: "separator" },
+      { label: "Installations…", click: () => act.openPlatform("settings") },
+    ],
+  };
+
   return [
     ...(isMac
       ? ([
@@ -396,6 +434,7 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
     view,
     run,
     container,
+    platform,
     { role: "windowMenu" },
     {
       role: "help",
