@@ -242,7 +242,7 @@ export async function removeProfile(name: unknown): Promise<PlatformState> {
     "Remove",
   );
   if (!ok) return state();
-  await run(["profile", "rm", n, "--yes"], { profile: null });
+  await run(["profile", "rm", n], { profile: null });
   return refresh();
 }
 
