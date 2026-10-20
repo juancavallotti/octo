@@ -16,6 +16,9 @@ includes:
   standalone:
     taskfile: ../standalone/Taskfile.yml
     dir: ../standalone
+  octopaas:
+    taskfile: ../../octopaas/Taskfile.yml
+    dir: ../../octopaas
 
 tasks:
   install:
