@@ -161,7 +161,7 @@ type deployFlags struct {
 
 func (f *deployFlags) bind(cmd *cobra.Command) {
 
-	cmd.Flags().StringVar(&f.version, "version", "", "the version to run, by tag or id")
+	cmd.Flags().StringVar(&f.version, "version", "", "the version to run, by tag or id (create: default the integration as it stands)")
 	cmd.Flags().StringArrayVar(&f.env, "env", nil, "bind a declared env var to a value, as NAME=value (repeatable)")
 	cmd.Flags().StringArrayVar(&f.secrets, "secret", nil, "bind a declared env var to a cluster secret, as NAME=secret-name (repeatable)")
 	cmd.Flags().BoolVar(&f.tracing, "tracing", false, "record traces for this deployment")
@@ -203,19 +203,22 @@ func (a *App) deploymentsCreateCommand() *cobra.Command {
 		Short: "Deploy a version of an integration",
 		Long: `Deploy one version of an integration, and wait for it to be running.
 
+Without --version it deploys the integration as it stands: its newest version
+when nothing has changed since that was frozen, or otherwise the draft, frozen
+first under the next tag (v1.2.0 becomes v1.2.1; an integration with no
+versions starts at v0.1.0).
+
 Every env var the integration declares needs a value: give it one with --env,
 or point it at a cluster secret with --secret. ` + "`deployments options`" + ` lists
 what a deploy of it needs.`,
-		Example: `  octopaas deployments create billing --version v1.3.0
+		Example: `  octopaas deployments create billing
+  octopaas deployments create billing --version v1.3.0
   octopaas deployments create billing --version v1.3.0 --replicas 2 \
     --env LOG_LEVEL=info --secret STRIPE_KEY=stripe --expose external --subdomain billing`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 
 			ctx := cmd.Context()
-			if f.version == "" {
-				return usageError{fmt.Errorf("say which version to deploy with --version (see `octopaas versions list %s`)", args[0])}
-			}
 			env, err := f.bindings()
 			if err != nil {
 				return err
@@ -226,14 +229,30 @@ what a deploy of it needs.`,
 			}
 
 			var d client.Deployment
-			err = a.ui.Spin(ui.Rocket, "Deploying "+args[0]+" "+f.version, func(*ui.Live) error {
+			var picked string
+			err = a.ui.Spin(ui.Rocket, "Deploying "+args[0], func(l *ui.Live) error {
 				id, err := a.integration(ctx, api, args[0])
 				if err != nil {
 					return err
 				}
-				versionID, err := a.version(ctx, api, id, f.version)
-				if err != nil {
-					return err
+				var versionID string
+				if f.version != "" {
+					if versionID, err = a.version(ctx, api, id, f.version); err != nil {
+						return err
+					}
+				} else {
+					//no version named: deploy what you see. The newest version when
+					//the draft has not moved since, the draft frozen now otherwise.
+					v, created, err := a.currentVersion(ctx, api, id)
+					if err != nil {
+						return err
+					}
+					versionID = v.ID
+					picked = fmt.Sprintf("%s, the latest version: nothing changed since it was frozen", v.Tag)
+					if created {
+						picked = fmt.Sprintf("%s, the draft frozen just now", v.Tag)
+					}
+					l.Title("Deploying " + args[0] + " " + v.Tag)
 				}
 				settings := client.DeploymentSettings{
 					SnapshotID: versionID, Replicas: replicaCount, Slug: slug, Expose: expose,
@@ -247,6 +266,9 @@ what a deploy of it needs.`,
 			})
 			if err != nil {
 				return err
+			}
+			if picked != "" {
+				a.ui.Success("Deploying %s", picked)
 			}
 			return a.settle(ctx, api, d, f, "Deployed")
 		},

@@ -23,6 +23,8 @@ octopaas deployments rollout billing --version v1.4.0
 
 Deploy one version of an integration, and wait for it to be running.
 
+Without --version it deploys the integration as it stands: its newest version when nothing has changed since that was frozen, or otherwise the draft, frozen first under the next tag (v1.2.0 becomes v1.2.1; an integration with no versions starts at v0.1.0).
+
 Every env var the integration declares needs a value: give it one with --env, or point it at a cluster secret with --secret. `deployments options` lists what a deploy of it needs.
 
 ```bash
@@ -32,6 +34,7 @@ octopaas deployments create <integration> [flags]
 **Examples**
 
 ```bash
+octopaas deployments create billing
 octopaas deployments create billing --version v1.3.0
 octopaas deployments create billing --version v1.3.0 --replicas 2 \
   --env LOG_LEVEL=info --secret STRIPE_KEY=stripe --expose external --subdomain billing
@@ -52,7 +55,7 @@ octopaas deployments create billing --version v1.3.0 --replicas 2 \
 | `--subdomain` | the subdomain to publish it on, with --expose external |  |
 | `--timeout` | how long to wait for it to be running | `5m0s` |
 | `--tracing` | record traces for this deployment |  |
-| `--version` | the version to run, by tag or id |  |
+| `--version` | the version to run, by tag or id (create: default the integration as it stands) |  |
 
 ### `octopaas deployments get`
 
@@ -160,7 +163,7 @@ octopaas deployments rollout billing --env LOG_LEVEL=debug --tracing
 | `--secret` | bind a declared env var to a cluster secret, as NAME=secret-name (repeatable) |  |
 | `--timeout` | how long to wait for it to be running | `5m0s` |
 | `--tracing` | record traces for this deployment |  |
-| `--version` | the version to run, by tag or id |  |
+| `--version` | the version to run, by tag or id (create: default the integration as it stands) |  |
 
 ### `octopaas deployments scale`
 

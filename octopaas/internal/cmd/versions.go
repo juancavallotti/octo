@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -198,4 +202,91 @@ func (a *App) versionOf(cmd *cobra.Command, api *client.Client, integration, tag
 		return "", err
 	}
 	return a.version(cmd.Context(), api, id, tag)
+}
+
+// semverTag is a tag like v1.2.3, the one shape a next tag can be worked out
+// from.
+var semverTag = regexp.MustCompile(`^(v?)(\d+)\.(\d+)\.(\d+)$`)
+
+// newest is the most recently created of versions, or false when there are none.
+func newest(versions []client.Version) (client.Version, bool) {
+
+	if len(versions) == 0 {
+		return client.Version{}, false
+	}
+	ret := versions[0]
+	for _, v := range versions[1:] {
+		if v.CreatedAt.After(ret.CreatedAt) {
+			ret = v
+		}
+	}
+	return ret, true
+}
+
+// isCurrent says whether v is the integration as it stands: the same
+// definition, and nothing edited after it was frozen.
+func isCurrent(in client.Integration, v client.Version) bool {
+	return v.Definition == in.Definition && !in.LastUpdated.After(v.CreatedAt)
+}
+
+// nextTag is the tag a freshly frozen draft gets: the highest semver tag with
+// its patch bumped, v0.1.0 for an integration with no versions, and a dated
+// draft tag when its tags follow no scheme we can extend.
+func nextTag(versions []client.Version, now time.Time) string {
+
+	taken := map[string]bool{}
+	var best [3]int
+	prefix, found := "v", false
+	for _, v := range versions {
+		taken[v.Tag] = true
+		m := semverTag.FindStringSubmatch(v.Tag)
+		if m == nil {
+			continue
+		}
+		n := [3]int{atoi(m[2]), atoi(m[3]), atoi(m[4])}
+		if !found || n[0] > best[0] || n[0] == best[0] && (n[1] > best[1] || n[1] == best[1] && n[2] > best[2]) {
+			best, prefix, found = n, m[1], true
+		}
+	}
+
+	switch {
+	case found:
+		for {
+			best[2]++
+			ret := fmt.Sprintf("%s%d.%d.%d", prefix, best[0], best[1], best[2])
+			if !taken[ret] {
+				return ret
+			}
+		}
+	case len(versions) == 0:
+		return "v0.1.0"
+	default:
+		return "draft-" + now.UTC().Format("20060102-150405")
+	}
+}
+
+func atoi(s string) int {
+
+	n, _ := strconv.Atoi(s)
+	return n
+}
+
+// currentVersion is the version that is the integration as it stands: its
+// newest one when nothing has changed since, or the draft frozen now under the
+// next tag. created says which, so the command can tell you.
+func (a *App) currentVersion(ctx context.Context, api *client.Client, integrationID string) (ret client.Version, created bool, err error) {
+
+	in, err := api.GetIntegration(ctx, integrationID)
+	if err != nil {
+		return ret, false, err
+	}
+	versions, err := api.ListVersions(ctx, integrationID)
+	if err != nil {
+		return ret, false, err
+	}
+	if latest, ok := newest(versions); ok && isCurrent(in, latest) {
+		return latest, false, nil
+	}
+	ret, err = api.CreateVersion(ctx, integrationID, nextTag(versions, time.Now()))
+	return ret, err == nil, err
 }
