@@ -22,7 +22,7 @@ The platform has a control plane (the Next.js platform app, the Go orchestrator,
    ┌───────────────────────────────────────┐        ┌────────────────┐
    │ Orchestrator (Go)             :8090   │───────▶│ Kubernetes API │
    │  integrations · deployments · KV      │ applies└──────┬─────────┘
-   │  snapshots · secrets · users · keys   │ manifests     │ creates
+   │  snapshots · secrets                  │ manifests     │ creates
    └───────┬──────────────────────┬────────┘               ▼
            │ SQL                  │ publishes   ┌──────────────────────────┐
            ▼                      ▼             │ Runtime pods (data plane)│
