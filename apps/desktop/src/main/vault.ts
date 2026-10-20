@@ -8,6 +8,7 @@ import { choosePort, pinnedPort } from "./port";
 import { current, start, stop } from "./server";
 import { read, remember, write, type Vault } from "./state";
 import { confineTo, mainWindow, showSplash, splashHint } from "./window";
+import { followServer } from "./platformWindow";
 
 /**
  * Which folder is open, and how it changes.
@@ -123,6 +124,7 @@ async function restartOn(vaultPath: string): Promise<boolean> {
       confineTo(win, server.url);
       await win.loadURL(server.url);
     }
+    followServer(server.url);
     return true;
   } catch (err) {
     // Roll back to the previous folder rather than leaving the user on a splash

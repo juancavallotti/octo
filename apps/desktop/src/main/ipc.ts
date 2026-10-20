@@ -23,6 +23,8 @@ import * as container from "./container/controller";
 import { refreshDocker } from "./container/status";
 import { containerWebContentsId, onContainerClosed } from "./containerWindow";
 import * as terminal from "./terminal";
+import * as paas from "./platform/controller";
+import { frontWindow, isPlatformFocus, onPlatformClosed, openPlatform, platformWindow } from "./platformWindow";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
 
@@ -237,6 +239,50 @@ export function registerIpc(): void {
   handleContainer("octo:container:push", (_event, ref, target) => container.push(ref, target));
   handleContainer("octo:container:cancel", () => container.cancel());
   onContainerClosed(container.windowClosed);
+
+  // The platform's: asked by the editor page and by the Platform window, which are
+  // both the editor server's pages. Every argument is checked again in the controller
+  // before it reaches octopaas's command line.
+  paas.setDialogParent(frontWindow);
+  paas.onPush((channel, payload) => {
+    mainWindow()?.webContents.send(channel, payload);
+    platformWindow()?.webContents.send(channel, payload);
+    if (channel === "octo:paas:state") buildMenu();
+  });
+  handle("octo:paas:open", (_event, focus) => openPlatform(isPlatformFocus(focus) ? focus : "integrations"));
+  handle("octo:paas:state", () => paas.state());
+  handle("octo:paas:refresh", () => paas.refresh());
+  handle("octo:paas:cancel", () => paas.cancel());
+  handle("octo:paas:addProfile", (_event, name, url, key) => paas.addProfile(name, url, key));
+  handle("octo:paas:setKey", (_event, name, key) => paas.setKey(name, key));
+  handle("octo:paas:useProfile", (_event, name) => paas.useProfile(name));
+  handle("octo:paas:removeProfile", (_event, name) => paas.removeProfile(name));
+  handle("octo:paas:signIn", (_event, name) => paas.signIn(name));
+  handle("octo:paas:signOut", (_event, name) => paas.signOut(name));
+  handle("octo:paas:pickProjectsDir", () => paas.pickProjectsDir());
+  handle("octo:paas:resetProjectsDir", () => paas.resetProjectsDir());
+  handle("octo:paas:integrations", (_event, name) => paas.integrations(name));
+  handle("octo:paas:versions", (_event, name, integrationId) => paas.versions(name, integrationId));
+  handle("octo:paas:pull", (_event, name, integrationId, integrationName, tag) =>
+    paas.pull(name, integrationId, integrationName, tag),
+  );
+  handle("octo:paas:openLocal", (_event, dir) => paas.openLocal(dir));
+  handle("octo:paas:push", () => paas.pushVault());
+  handle("octo:paas:import", (_event, name, integrationName) => paas.importVault(name, integrationName));
+  handle("octo:paas:unlink", () => paas.unlink());
+  handle("octo:paas:linkedVersions", () => paas.linkedVersions());
+  handle("octo:paas:createVersion", (_event, tag, pushFirst) => paas.createVersion(tag, pushFirst));
+  handle("octo:paas:removeVersion", (_event, tag) => paas.removeVersion(tag));
+  handle("octo:paas:pullVersion", (_event, tag) => paas.pullVersion(tag));
+  handle("octo:paas:deployments", () => paas.deployments());
+  handle("octo:paas:deploy", (_event, form, pushFirst) => paas.deploy(form, pushFirst));
+  handle("octo:paas:rollout", (_event, deploymentId, form) => paas.rollout(deploymentId, form));
+  handle("octo:paas:scale", (_event, deploymentId, replicas) => paas.scale(deploymentId, replicas));
+  handle("octo:paas:undeploy", (_event, deploymentId, name) => paas.undeploy(deploymentId, name));
+  handle("octo:paas:logs", (_event, deploymentId) => paas.logs(deploymentId));
+  handle("octo:paas:follow", (_event, deploymentId) => paas.follow(deploymentId));
+  handle("octo:paas:unfollow", () => paas.unfollow());
+  onPlatformClosed(paas.windowClosed);
 
   handleSettings("octo:settings:checkUpdate", () => checkForUpdates(false));
   handleSettings("octo:settings:close", () => closeSettings());

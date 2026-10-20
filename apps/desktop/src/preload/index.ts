@@ -41,6 +41,101 @@ export interface TerminalBridge {
   onExit(listener: (id: string, code: number) => void): () => void;
 }
 
+/**
+ * The platform, through the octopaas CLI the shell runs: installations and signing in
+ * to them, integrations to pull into a folder and push back, versions, deployments
+ * and logs. Its payloads are the shell's own shapes, restated by the page that reads
+ * them; the bridge only carries them.
+ */
+export interface PaasBridge {
+  /** Open the Platform window at a part of it, or bring it forward. */
+  open(focus?: string): Promise<void>;
+  state(): Promise<unknown>;
+  refresh(): Promise<unknown>;
+  /** Hear the platform state change, in either window. Returns the unsubscribe. */
+  onState(listener: (state: unknown) => void): () => void;
+  /** Each line the running operation prints. Returns the unsubscribe. */
+  onOutput(listener: (line: { line: string; stream: string }) => void): () => void;
+  /** Each line a followed deployment logs. Returns the unsubscribe. */
+  onLog(listener: (line: { deploymentId: string; line: string; stream: string }) => void): () => void;
+  /** The shell asking the Platform window to show a part of itself. Returns the unsubscribe. */
+  onFocus(listener: (focus: string) => void): () => void;
+  cancel(): Promise<void>;
+  addProfile(name: string, url: string, key?: string): Promise<unknown>;
+  setKey(name: string, key: string): Promise<unknown>;
+  useProfile(name: string): Promise<unknown>;
+  removeProfile(name: string): Promise<unknown>;
+  signIn(name: string): Promise<unknown>;
+  signOut(name: string): Promise<unknown>;
+  pickProjectsDir(): Promise<unknown>;
+  resetProjectsDir(): Promise<unknown>;
+  integrations(profile: string): Promise<unknown>;
+  versions(profile: string, integrationId: string): Promise<unknown>;
+  pull(profile: string, integrationId: string, name: string, tag?: string | null): Promise<boolean>;
+  openLocal(path: string): Promise<boolean>;
+  push(): Promise<unknown>;
+  importFolder(profile: string, name: string): Promise<unknown>;
+  unlink(): Promise<unknown>;
+  linkedVersions(): Promise<unknown>;
+  createVersion(tag: string, pushFirst: boolean): Promise<unknown>;
+  removeVersion(tag: string): Promise<unknown>;
+  pullVersion(tag: string): Promise<boolean>;
+  deployments(): Promise<unknown>;
+  deploy(form: unknown, pushFirst: boolean): Promise<unknown>;
+  rollout(deploymentId: string, form: unknown): Promise<unknown>;
+  scale(deploymentId: string, replicas: number): Promise<unknown>;
+  undeploy(deploymentId: string, name: string): Promise<unknown>;
+  logs(deploymentId: string): Promise<unknown>;
+  follow(deploymentId: string): Promise<void>;
+  unfollow(): Promise<void>;
+}
+
+/** A push from the shell, as a listener the page can drop again. */
+function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
+  const handler = (_event: unknown, payload: T) => listener(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.off(channel, handler);
+}
+
+const paas: PaasBridge = {
+  open: (focus) => ipcRenderer.invoke("octo:paas:open", focus),
+  state: () => ipcRenderer.invoke("octo:paas:state"),
+  refresh: () => ipcRenderer.invoke("octo:paas:refresh"),
+  onState: (listener) => subscribe("octo:paas:state", listener),
+  onOutput: (listener) => subscribe("octo:paas:output", listener),
+  onLog: (listener) => subscribe("octo:paas:log", listener),
+  onFocus: (listener) => subscribe("octo:paas:focus", listener),
+  cancel: () => ipcRenderer.invoke("octo:paas:cancel"),
+  addProfile: (name, url, key) => ipcRenderer.invoke("octo:paas:addProfile", name, url, key),
+  setKey: (name, key) => ipcRenderer.invoke("octo:paas:setKey", name, key),
+  useProfile: (name) => ipcRenderer.invoke("octo:paas:useProfile", name),
+  removeProfile: (name) => ipcRenderer.invoke("octo:paas:removeProfile", name),
+  signIn: (name) => ipcRenderer.invoke("octo:paas:signIn", name),
+  signOut: (name) => ipcRenderer.invoke("octo:paas:signOut", name),
+  pickProjectsDir: () => ipcRenderer.invoke("octo:paas:pickProjectsDir"),
+  resetProjectsDir: () => ipcRenderer.invoke("octo:paas:resetProjectsDir"),
+  integrations: (profile) => ipcRenderer.invoke("octo:paas:integrations", profile),
+  versions: (profile, integrationId) => ipcRenderer.invoke("octo:paas:versions", profile, integrationId),
+  pull: (profile, integrationId, name, tag) =>
+    ipcRenderer.invoke("octo:paas:pull", profile, integrationId, name, tag ?? null),
+  openLocal: (path) => ipcRenderer.invoke("octo:paas:openLocal", path),
+  push: () => ipcRenderer.invoke("octo:paas:push"),
+  importFolder: (profile, name) => ipcRenderer.invoke("octo:paas:import", profile, name),
+  unlink: () => ipcRenderer.invoke("octo:paas:unlink"),
+  linkedVersions: () => ipcRenderer.invoke("octo:paas:linkedVersions"),
+  createVersion: (tag, pushFirst) => ipcRenderer.invoke("octo:paas:createVersion", tag, pushFirst),
+  removeVersion: (tag) => ipcRenderer.invoke("octo:paas:removeVersion", tag),
+  pullVersion: (tag) => ipcRenderer.invoke("octo:paas:pullVersion", tag),
+  deployments: () => ipcRenderer.invoke("octo:paas:deployments"),
+  deploy: (form, pushFirst) => ipcRenderer.invoke("octo:paas:deploy", form, pushFirst),
+  rollout: (deploymentId, form) => ipcRenderer.invoke("octo:paas:rollout", deploymentId, form),
+  scale: (deploymentId, replicas) => ipcRenderer.invoke("octo:paas:scale", deploymentId, replicas),
+  undeploy: (deploymentId, name) => ipcRenderer.invoke("octo:paas:undeploy", deploymentId, name),
+  logs: (deploymentId) => ipcRenderer.invoke("octo:paas:logs", deploymentId),
+  follow: (deploymentId) => ipcRenderer.invoke("octo:paas:follow", deploymentId),
+  unfollow: () => ipcRenderer.invoke("octo:paas:unfollow"),
+};
+
 export interface OctoDesktopBridge {
   /** Marks this as the desktop shell; the editor gates its UI on this object existing. */
   readonly platform: NodeJS.Platform;
@@ -76,6 +171,7 @@ export interface OctoDesktopBridge {
    */
   reportMenuStatus(status: unknown): Promise<void>;
   terminal: TerminalBridge;
+  paas: PaasBridge;
 }
 
 const bridge: OctoDesktopBridge = {
@@ -123,6 +219,7 @@ const bridge: OctoDesktopBridge = {
       return () => ipcRenderer.off("octo:term:exit", handler);
     },
   },
+  paas,
 };
 
 contextBridge.exposeInMainWorld("octoDesktop", bridge);
