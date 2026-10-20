@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -153,6 +154,9 @@ type deployFlags struct {
 	tracing bool
 	noWait  bool
 	timeout time.Duration
+	// replacing are the pods a rollout replaces: until they are gone, the
+	// replicas that read as ready are still the old ones.
+	replacing []string
 }
 
 func (f *deployFlags) bind(cmd *cobra.Command) {
@@ -379,11 +383,14 @@ deployment's integration, or by id.`,
 					return err
 				}
 				rollout := client.Rollout{Env: env}
+				current, err := api.GetDeployment(ctx, id)
+				if err != nil {
+					return err
+				}
+				for _, p := range current.Pods {
+					f.replacing = append(f.replacing, p.Name)
+				}
 				if f.version != "" {
-					current, err := api.GetDeployment(ctx, id)
-					if err != nil {
-						return err
-					}
 					if rollout.SnapshotID, err = a.version(ctx, api, current.IntegrationID, f.version); err != nil {
 						return err
 					}
@@ -462,7 +469,7 @@ func (a *App) settle(ctx context.Context, api *client.Client, d client.Deploymen
 		for {
 			l.Detail(a.ui.Status(d.Status) + "  " + replicas(d))
 			switch {
-			case settled(d):
+			case settled(d) && !runsAny(d, f.replacing):
 				return nil
 			case isFailed(d.Status):
 				failures++
@@ -516,6 +523,17 @@ func settled(d client.Deployment) bool {
 		want = d.Replicas
 	}
 	return want == 0 || d.ReadyReplicas >= want
+}
+
+// runsAny says whether any of pods is still among d's.
+func runsAny(d client.Deployment, pods []string) bool {
+
+	for _, p := range d.Pods {
+		if slices.Contains(pods, p.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func isFailed(status string) bool {
