@@ -1,7 +1,8 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { exec as run, type ExecOptions, type ExecResult } from "../exec";
 
 /**
  * The user's own `docker` CLI: where it is, whether its daemon answers, and one way to
@@ -113,59 +114,16 @@ export function probe(file: string | null, timeoutMs = 5000): Promise<DockerStat
   });
 }
 
-export interface ExecResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface ExecOptions {
-  /** Each output line as it arrives, stdout and stderr alike — docker reports progress on both. */
-  onLine?: (line: string) => void;
-  signal?: AbortSignal;
-}
-
 /**
- * How much of a streamed command's output is kept for its result. A streamed command
- * has already handed every line to its caller, and `docker logs -f` streams for as
- * long as the window follows it; its result only needs the tail, for the error.
- */
-const STREAMED_TAIL = 64 * 1024;
-
-/**
- * Run docker with an argument vector. Never a shell string: image references, paths
- * and tags all come from user input, and none of them may be read as syntax.
+ * Run docker with an argument vector, in the environment its credential helpers
+ * need. Never a shell string: image references, paths and tags all come from user
+ * input, and none of them may be read as syntax.
  */
 export function exec(file: string, args: string[], opts: ExecOptions = {}): Promise<ExecResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(file, args, { env: dockerEnv(), signal: opts.signal });
-    const kept = { out: "", err: "" };
-    const flushes: Array<() => void> = [];
-    const lines = (stream: "out" | "err") => {
-      let partial = "";
-      flushes.push(() => {
-        if (partial) opts.onLine?.(partial);
-      });
-      return (chunk: Buffer) => {
-        const text = chunk.toString("utf8");
-        kept[stream] += text;
-        if (!opts.onLine) return;
-        if (kept[stream].length > STREAMED_TAIL) kept[stream] = kept[stream].slice(-STREAMED_TAIL);
-        const parts = (partial + text).split(/\r?\n|\r/);
-        partial = parts.pop() ?? "";
-        for (const line of parts) opts.onLine(line);
-      };
-    };
-    child.stdout.on("data", lines("out"));
-    child.stderr.on("data", lines("err"));
-    child.once("error", reject);
-    child.once("close", (code) => {
-      // A last line with no newline after it is still a line.
-      for (const flush of flushes) flush();
-      resolve({ code: code ?? 1, stdout: kept.out, stderr: kept.err });
-    });
-  });
+  return run(file, args, { ...opts, env: dockerEnv() });
 }
+
+export type { ExecOptions, ExecResult };
 
 /** Run docker and fail with its own last words when it does. */
 export async function execOk(file: string, args: string[], opts: ExecOptions = {}): Promise<string> {

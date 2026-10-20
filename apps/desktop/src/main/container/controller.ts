@@ -1,6 +1,6 @@
 import { dialog, shell } from "electron";
 import path from "node:path";
-import { editorStatus, sendCommand } from "../editorStatus";
+import { ensureSaved } from "../editorStatus";
 import { stateDir } from "../paths";
 import { read, write } from "../state";
 import { openVault } from "../vault";
@@ -16,9 +16,6 @@ import { dockerCli, dockerStatus, refreshDocker } from "./status";
  * the editor's unsaved edits saved first — through the menu's own "save" command, so
  * the shell learns nothing about the editor it did not already know.
  */
-
-/** How long to wait for the editor to report that a save landed. */
-const SAVE_TIMEOUT_MS = 5000;
 
 let running: AbortController | null = null;
 let following: AbortController | null = null;
@@ -66,35 +63,6 @@ export function cancel(): void {
   running?.abort();
 }
 
-/**
- * Save the editor's pending edits, because what is built is what is on disk. Asked of
- * the editor through the command the File menu sends; done when its next report says
- * there is nothing left to save. An editor that cannot save leaves the choice to the
- * user rather than silently packaging the old file.
- */
-async function ensureSaved(): Promise<boolean> {
-  if (!editorStatus()?.canSave) return true;
-  sendCommand("save");
-  const deadline = Date.now() + SAVE_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 100));
-    if (!editorStatus()?.canSave) return true;
-  }
-  const parent = containerDialog();
-  const options = {
-    type: "warning" as const,
-    message: "The editor's changes could not be saved.",
-    detail: "The container is made from the files on disk, without the unsaved changes.",
-    buttons: ["Cancel", "Continue Without Them"],
-    defaultId: 0,
-    cancelId: 0,
-  };
-  const { response } = parent
-    ? await dialog.showMessageBox(parent, options)
-    : await dialog.showMessageBox(options);
-  return response === 1;
-}
-
 /** Everything the window draws before anything is clicked. */
 export async function overview() {
   const status = await refreshDocker();
@@ -119,7 +87,7 @@ function tagOf(tag: unknown): string {
 export async function build(ref: unknown, tag: unknown): Promise<boolean> {
   if (!ops.validRef(ref)) throw new Error("The image name is not an image reference");
   const base = tagOf(tag);
-  if (!(await ensureSaved())) return false;
+  if (!(await ensureSaved(containerDialog(), "The container is made from the files on disk, without the unsaved changes."))) return false;
   const file = cli();
   const dir = folder();
   await exclusive(`Building ${ref}`, (signal) =>
@@ -131,7 +99,7 @@ export async function build(ref: unknown, tag: unknown): Promise<boolean> {
 export async function exportContext(tag: unknown): Promise<string | null> {
   const base = tagOf(tag);
   const dir = folder();
-  if (!(await ensureSaved())) return null;
+  if (!(await ensureSaved(containerDialog(), "The container is made from the files on disk, without the unsaved changes."))) return null;
   const dest = await pickExportFolder(`${ops.slug(dir)}-container`);
   if (!dest) return null;
   const files = await writeContext(dir, dest, base);

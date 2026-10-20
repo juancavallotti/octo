@@ -78,7 +78,7 @@ export async function build(
   const dir = path.join(stateDir(), "containers", randomUUID());
   try {
     const files = await writeContext(folder, dir, tag);
-    opts.onLine?.(`Packaging ${files.length} files on octo-runtime:${tag}`);
+    opts.onLine?.(`Packaging ${files.length} files on octo-runtime:${tag}`, "stdout");
     await execOk(cli, ["build", "-t", ref, dir], opts);
   } finally {
     await rm(dir, { recursive: true, force: true });

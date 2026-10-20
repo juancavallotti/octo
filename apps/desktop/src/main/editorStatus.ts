@@ -1,3 +1,4 @@
+import { dialog, type BrowserWindow } from "electron";
 import type { EditorCommand, EditorStatus } from "./menuTemplate";
 import { mainWindow } from "./window";
 
@@ -73,4 +74,36 @@ function parse(raw: unknown): EditorStatus | null {
 /** Ask the open editor page to carry out a command. */
 export function sendCommand(command: EditorCommand): void {
   mainWindow()?.webContents.send("octo:menu:command", command);
+}
+
+/** How long to wait for the editor to report that a save landed. */
+const SAVE_TIMEOUT_MS = 5000;
+
+/**
+ * Save the editor's pending edits, for an operation that takes the folder as it is
+ * on disk. Asked of the editor through the command the File menu sends; done when
+ * its next report says there is nothing left to save. An editor that cannot save
+ * leaves the choice to the user, told by `detail` what going on without them means,
+ * rather than silently using the old file.
+ */
+export async function ensureSaved(parent: BrowserWindow | undefined, detail: string): Promise<boolean> {
+  if (!editorStatus()?.canSave) return true;
+  sendCommand("save");
+  const deadline = Date.now() + SAVE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (!editorStatus()?.canSave) return true;
+  }
+  const options = {
+    type: "warning" as const,
+    message: "The editor's changes could not be saved.",
+    detail,
+    buttons: ["Cancel", "Continue Without Them"],
+    defaultId: 0,
+    cancelId: 0,
+  };
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options);
+  return response === 1;
 }
