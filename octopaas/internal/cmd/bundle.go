@@ -38,6 +38,9 @@ func unpack(data []byte, dir string) (int, error) {
 	count := 0
 	for _, f := range r.File {
 		target := filepath.Join(root, filepath.FromSlash(f.Name))
+		if f.Name == manifestName {
+			target = filepath.Join(root, keptManifest)
+		}
 		if target != root && !strings.HasPrefix(target, root+string(os.PathSeparator)) {
 			return count, fmt.Errorf("the bundle has an entry outside its folder (%q); refusing to unpack it", f.Name)
 		}
@@ -78,9 +81,13 @@ func extract(f *zip.File, target string) error {
 	return dst.Close()
 }
 
-// manifestName is the bundle's metadata entry, which pull leaves at the root of
-// the folder it unpacks into.
+// manifestName is the bundle's metadata entry, at the root of the archive.
 const manifestName = "octo-bundle.json"
+
+// keptManifest is where pull keeps the manifest in the folder it unpacks into:
+// in .octo/, the folder's own metadata, where neither the runtime nor the editor
+// reads it as one of the integration's resources.
+var keptManifest = filepath.Join(".octo", manifestName)
 
 // manifest is the part of the bundle's metadata entry that pack rewrites: which
 // entries are config files and what kind each resource is. Unknown fields are
@@ -103,8 +110,9 @@ type manifestEntry struct {
 // secrets. The exception is a hidden file the folder's manifest lists as a
 // resource, which came from the platform and goes back to it.
 //
-// A pulled folder carries the manifest it was pulled with, and the platform takes
-// a manifest as the whole truth. So it is rewritten to describe the folder as it
+// A pulled folder carries the manifest it was pulled with (in .octo/, or at its
+// root when an older octopaas pulled it), and the platform takes a manifest as the
+// whole truth. So it is rewritten to describe the folder as it
 // is now: files added since the pull are listed, removed ones are not, and each
 // resource keeps the kind the platform gave it.
 func pack(dir string) ([]byte, int, error) {
@@ -200,18 +208,21 @@ func addFile(w *zip.Writer, dir, name string) error {
 // readManifest reads the manifest pull left in dir, or nil when there is none.
 func readManifest(dir string) (*manifest, error) {
 
-	data, err := os.ReadFile(filepath.Join(dir, manifestName))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+	for _, name := range []string{keptManifest, manifestName} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var m manifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("%s in %s does not parse: %w", name, dir, err)
+		}
+		return &m, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	var m manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("%s in %s does not parse: %w", manifestName, dir, err)
-	}
-	return &m, nil
+	return nil, nil
 }
 
 // describe is the manifest for files, by the platform's own rule for a folder: a

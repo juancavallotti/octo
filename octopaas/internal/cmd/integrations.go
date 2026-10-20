@@ -245,6 +245,7 @@ func (a *App) integrationsPullCommand() *cobra.Command {
 		Long: `Download an integration, definition and resources, and unpack it into a folder
 (by default one named after it). The folder must be empty unless you add
 --force, which overwrites the files the bundle carries and leaves the rest.
+The bundle's manifest goes in .octo/octo-bundle.json, where push finds it.
 
 With --zip, the bundle is saved as it came instead.`,
 		Example: `  octopaas integrations pull billing
@@ -317,7 +318,7 @@ deployments; running deployments are untouched until you roll them out.
 
 Hidden files and folders, such as .git and .env, are never pushed, unless the
 platform sent them: a folder you pulled pushes back the hidden resources it came
-with. The octo-bundle.json that pull leaves in the folder is rewritten to match
+with. The manifest pull keeps in .octo/octo-bundle.json is rewritten to match
 the folder, so files you added are pushed and files you deleted are removed.`,
 		Example: `  octopaas integrations push billing
   octopaas integrations push billing ./work/billing

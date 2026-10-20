@@ -125,10 +125,16 @@ func TestPackRewritesAPulledManifest(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, ".octo", "platform.json"), []byte("{}"), 0o644)
 
 	files := packed(t, dir)
-	for _, name := range []string{".env.dev", ".octo/platform.json", "old.yaml"} {
+	for _, name := range []string{".env.dev", ".octo/platform.json", ".octo/" + manifestName, "old.yaml"} {
 		if _, ok := files[name]; ok {
 			t.Errorf("%s should not be pushed", name)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".octo", manifestName)); err != nil {
+		t.Errorf("pull should keep the manifest in .octo/: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, manifestName)); err == nil {
+		t.Error("pull left the manifest among the integration's files")
 	}
 	if files[".env.prod"] != "A=1" {
 		t.Errorf("the platform's own .env.prod should go back up, got %q", files[".env.prod"])
@@ -161,6 +167,25 @@ func TestPackRewritesAPulledManifest(t *testing.T) {
 		if kinds[name] != kind {
 			t.Errorf("%s: kind %q, want %q", name, kinds[name], kind)
 		}
+	}
+}
+
+// A folder an older octopaas pulled has its manifest at the root, and is described
+// by it all the same.
+func TestPackReadsAManifestAtTheRoot(t *testing.T) {
+
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, manifestName), []byte(`{"version":2,"name":"orders","configs":["octo.yaml"],"resources":[{"name":"prod.env","kind":"env"}]}`), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "octo.yaml"), []byte("flows: []"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "prod.env"), []byte("A=1"), 0o644)
+
+	files := packed(t, dir)
+	var m manifest
+	if err := json.Unmarshal([]byte(files[manifestName]), &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Resources) != 1 || m.Resources[0].Kind != "env" {
+		t.Errorf("prod.env should keep its env kind, got %+v", m.Resources)
 	}
 }
 
