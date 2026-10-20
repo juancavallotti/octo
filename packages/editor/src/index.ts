@@ -41,6 +41,7 @@ export { default as CopyMcpUrlButton } from "./app/components/CopyMcpUrlButton";
 // The header's "what am I working on" chip.
 export {
   default as WorkspacePicker,
+  type PickerAction,
   type PickerItem,
 } from "./app/components/WorkspacePicker";
 export { default as IntegrationTitle } from "./app/components/IntegrationTitle";

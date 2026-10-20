@@ -10,8 +10,8 @@ import { Check, FolderOpen, Search } from "lucide-react";
  * The items are whatever the caller is switching between — folders, integrations — and
  * the shape is the same either way: a current thing, a list of others, pick to switch.
  *
- * `action` is the optional row above the list (e.g. "Open folder…"); pass nothing and
- * the row is not there.
+ * `actions` are the optional rows above the list (e.g. "Open folder…"); pass none and
+ * there are none.
  */
 
 export interface PickerItem {
@@ -20,6 +20,14 @@ export interface PickerItem {
   name: string;
   /** Optional hover text, e.g. a folder's absolute path. */
   hint?: string;
+  /** Optional mark after the name, e.g. that a folder is linked to the platform. */
+  badge?: React.ReactNode;
+}
+
+export interface PickerAction {
+  label: string;
+  icon?: React.ReactNode;
+  onClick(): void;
 }
 
 export default function WorkspacePicker({
@@ -29,7 +37,8 @@ export default function WorkspacePicker({
   items,
   onSelect,
   onOpen,
-  action,
+  actions = [],
+  icon,
   searchPlaceholder = "Search…",
   emptyLabel = "Nothing else here",
 }: {
@@ -42,7 +51,9 @@ export default function WorkspacePicker({
   onSelect(id: string): void;
   /** Called when the menu opens, for a host that refreshes its list then. */
   onOpen?(): void;
-  action?: { label: string; icon?: React.ReactNode; onClick(): void };
+  actions?: PickerAction[];
+  /** The chip's icon. Absent means a folder, the thing most hosts switch between. */
+  icon?: React.ReactNode;
   searchPlaceholder?: string;
   emptyLabel?: string;
 }) {
@@ -98,7 +109,7 @@ export default function WorkspacePicker({
         onClick={() => setOpen((v) => !v)}
         className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm text-zinc-600 transition-colors hover:border-black/10 hover:text-zinc-900 dark:text-zinc-300 dark:hover:border-white/15 dark:hover:text-zinc-100"
       >
-        <FolderOpen size={14} className="shrink-0 text-zinc-400" />
+        {icon ?? <FolderOpen size={14} className="shrink-0 text-zinc-400" />}
         <span className="min-w-0 max-w-[10rem] truncate">{current}</span>
       </button>
 
@@ -106,18 +117,23 @@ export default function WorkspacePicker({
         /* Left-anchored, under the chip: it sits at the left of the header, where
            there is room for the menu to open below it. */
         <div className="absolute left-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900">
-          {action && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                action.onClick();
-              }}
-              className={`${row} border-b border-black/5 dark:border-white/5`}
-            >
-              {action.icon}
-              <span className="flex-1">{action.label}</span>
-            </button>
+          {actions.length > 0 && (
+            <div className="border-b border-black/5 py-1 dark:border-white/5">
+              {actions.map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    action.onClick();
+                  }}
+                  className={row}
+                >
+                  {action.icon}
+                  <span className="flex-1">{action.label}</span>
+                </button>
+              ))}
+            </div>
           )}
 
           <div className="flex items-center gap-2 border-b border-black/5 px-3 py-2 dark:border-white/5">
@@ -157,6 +173,7 @@ export default function WorkspacePicker({
                   className={row}
                 >
                   <span className="flex-1 truncate">{i.name}</span>
+                  {i.badge}
                 </button>
               </li>
             ))}
