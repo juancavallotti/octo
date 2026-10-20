@@ -85,7 +85,7 @@ it came. A failure status still prints the answer, then exits 1.`,
 	}
 	cmd.Flags().StringVarP(&method, "method", "X", "", "the HTTP method (default GET, or POST with --data)")
 	cmd.Flags().StringVarP(&data, "data", "d", "", "the request body: a string, @file, or @- for stdin")
-	cmd.Flags().StringVarP(&contentType, "content-type", "H", "application/json", "the body's Content-Type")
+	cmd.Flags().StringVar(&contentType, "content-type", "application/json", "the body's Content-Type")
 	cmd.Flags().BoolVarP(&include, "include", "i", false, "print the status line and headers too")
 	return cmd
 }
