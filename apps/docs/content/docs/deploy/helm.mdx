@@ -776,11 +776,10 @@ scaling to zero removes the claim, and the static volume carries
 
 ### Public API
 
-Publishes the [public API](/platform/public-api) on a host of its own, for callers outside the cluster. It is off by default because it is a second public host: give it a DNS record and a certificate before turning it on.
+Publishes the [public API](/platform/public-api) on a host of its own, for callers outside the cluster. Every install publishes it, on a public host of its own beside the editor's: give that host a DNS record (a wildcard over the editor's domain covers it) and it gets its own certificate.
 
 | Value | Default | Purpose |
 | --- | --- | --- |
-| `api.enabled` | `false` | Deploy the API and publish it. |
 | `api.host` | `""` | The host it is served at. Empty is `api.` in front of `ingress.host`. |
 | `api.url` | `""` | Its public origin when that is not `https://{api.host}`, such as a local cluster on a non-default port. It is the OAuth resource identifier, and iam is told to accept tokens minted for it. |
 | `api.tls.secretName` | `octo-api-tls` | The certificate for `api.host`. The TLS mode and issuer are `ingress.tls`'s. |

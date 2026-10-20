@@ -361,7 +361,6 @@ module "octo" {
   ingress_class           = var.ingress_class
   cluster_issuer          = var.cluster_issuer
   wildcard_tls            = var.wildcard_tls
-  api_enabled             = var.api_enabled
   api_host                = var.api_host
 
   # OIDC SSO. A local deploy supplies client id/secret via terraform.tfvars (which also

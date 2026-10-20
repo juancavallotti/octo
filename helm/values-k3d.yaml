@@ -116,7 +116,6 @@ embeddings:
 # maps to localhost:8095 (deploy/k3d/cluster.yaml). With no Ingress there is no
 # host to derive its origin from, so it is stated.
 api:
-  enabled: true
   repository: octo-devruntime
   url: "http://localhost:8095"
   service:

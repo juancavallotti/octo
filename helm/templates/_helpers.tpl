@@ -490,7 +490,7 @@ password
 {{- if .Values.api.host -}}
 {{- .Values.api.host -}}
 {{- else -}}
-{{- printf "api.%s" (required "api.host (or ingress.host, which it defaults from) is required when api.enabled is true" .Values.ingress.host) -}}
+{{- printf "api.%s" (required "api.host (or ingress.host, which it defaults from) is required: the public API is published there" .Values.ingress.host) -}}
 {{- end -}}
 {{- end }}
 
@@ -533,12 +533,8 @@ password
 
 {{/*
   The audiences iam accepts beyond the client id, comma-separated: the MCP
-  endpoint's resource, and the public API's when it is published.
+  endpoint's resource, and the public API's.
 */}}
 {{- define "octo.iam.acceptedAudiences" -}}
-{{- $audiences := list (include "octo.mcp.resource" .) -}}
-{{- if .Values.api.enabled -}}
-{{- $audiences = append $audiences (include "octo.api.resource" .) -}}
-{{- end -}}
-{{- join "," $audiences -}}
+{{- join "," (list (include "octo.mcp.resource" .) (include "octo.api.resource" .)) -}}
 {{- end }}

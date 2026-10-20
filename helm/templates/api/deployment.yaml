@@ -12,7 +12,6 @@ It keeps no state, so replicas are throughput. The pods roll when the flows
 change, through the checksum below, since an upgrade that only changes a
 ConfigMap otherwise leaves them running the old ones.
 */}}
-{{- if .Values.api.enabled }}
 {{- $name := include "octo-common.componentName" (dict "root" $ "component" "api") }}
 {{- $items := list (dict "key" "openapi.yaml" "path" "static/openapi.yaml") }}
 {{- range $path, $_ := .Files.Glob "files/api/*.yaml" }}
@@ -40,4 +39,3 @@ ConfigMap otherwise leaves them running the old ones.
           "httpGet" (dict "path" "/healthz" "port" .Values.api.service.port)
           "initialDelaySeconds" 3
           "periodSeconds" 10)))) }}
-{{- end }}

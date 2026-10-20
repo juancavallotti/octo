@@ -242,10 +242,6 @@ resource "helm_release" "octo" {
   }
 
   # --- Public API ---
-  set {
-    name  = "api.enabled"
-    value = var.api_enabled
-  }
   dynamic "set" {
     for_each = var.api_host != "" ? toset(["api.host"]) : toset([])
     content {
