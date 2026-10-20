@@ -63,7 +63,7 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 | snapshot | `POST/GET /integrations/{id}/snapshots`, `DELETE /snapshots/{id}`, frozen-resource reads | database |
 | resource | `POST/GET /integrations/{id}/resources`, `GET/PUT/DELETE .../resources/{resourceId}` | database |
 | kv | `GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}` + object browser routes | database |
-| deployment | `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
+| deployment | `GET /deployments`, `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
 | devrun | `POST/GET /devruns`, `GET/DELETE /devruns/{id}`, reload, logs, bundle, expire | database + in-cluster Kubernetes |
 | secret | `GET /secrets`, `PUT/DELETE /secrets/{name}` | database + in-cluster Kubernetes |
 | email | `GET/PUT /settings/email`, `POST /settings/email/test`, `POST /email/send` | database |

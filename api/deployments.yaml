@@ -440,10 +440,11 @@ flows:
   # is up, then one `log` event per line.
   #
   # The open event commits the stream at once, so a pod that is quiet is an open
-  # stream rather than a request that times out waiting for its first line. A
-  # refusal before it (a bad credential, an unknown pod) is still an ordinary
-  # status. Thirty minutes is the most one stream stays open; a client that wants
-  # more reconnects, which is what an EventSource does by itself.
+  # stream rather than a request that times out waiting for its first line. A bad
+  # credential is refused before it, with an ordinary status; anything refused
+  # after it, an unknown pod included, arrives in-band as an `error` event. Thirty
+  # minutes is the most one stream stays open; a client that wants more
+  # reconnects, which is what an EventSource does by itself.
   - name: stream-pod-logs
     source:
       connector: api

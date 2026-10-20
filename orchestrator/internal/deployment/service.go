@@ -32,7 +32,7 @@ type repository interface {
 	UpdateMetadata(ctx context.Context, id string, metadata json.RawMessage) error
 	UpdateMetadataAndSettings(ctx context.Context, id string, metadata, settings json.RawMessage) error
 	Delete(ctx context.Context, id string) error
-	// ListAll is every deployment, oldest first, for the reconciler and List.
+	// ListAll is every deployment on the installation, oldest first.
 	ListAll(ctx context.Context) ([]Deployment, error)
 }
 
