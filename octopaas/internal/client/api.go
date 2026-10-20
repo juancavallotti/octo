@@ -331,13 +331,14 @@ func (c *Client) PodLogs(ctx context.Context, id, pod string, tail int, w io.Wri
 	return err
 }
 
-// StreamPodLogs follows one pod's log, handing every event to fn. It returns
-// when the API ends the stream, which it does after thirty minutes; the caller
-// reconnects if it wants more.
+// StreamPodLogs follows one pod's log, handing every event to fn, starting with
+// the last tail lines; a negative tail lets the platform choose. It returns when
+// the API ends the stream, which it does after thirty minutes; the caller
+// reconnects if it wants more, with a tail of 0 to pick up where it left off.
 func (c *Client) StreamPodLogs(ctx context.Context, id, pod string, tail int, fn func(Event) error) error {
 
 	r := request{route: streamPodLogs, path: []string{id, pod}}
-	if tail > 0 {
+	if tail >= 0 {
 		r.query = url.Values{"tail": {strconv.Itoa(tail)}}
 	}
 	return c.stream(ctx, r, fn)

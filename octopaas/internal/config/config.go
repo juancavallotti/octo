@@ -35,14 +35,14 @@ const (
 // Profile is one platform: where its API is, and optionally an API key to call
 // it with. A profile without a key signs in with `octopaas auth login`.
 type Profile struct {
-	URL    string `yaml:"url"`
-	APIKey string `yaml:"apiKey,omitempty"`
+	URL    string `yaml:"url" json:"url"`
+	APIKey string `yaml:"apiKey,omitempty" json:"apiKey,omitempty"`
 }
 
 // File is config.yaml.
 type File struct {
-	Current  string             `yaml:"current"`
-	Profiles map[string]Profile `yaml:"profiles"`
+	Current  string             `yaml:"current" json:"current"`
+	Profiles map[string]Profile `yaml:"profiles" json:"profiles"`
 }
 
 // header is written above the file every time it is saved, so the guidance a

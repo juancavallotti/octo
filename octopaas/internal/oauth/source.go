@@ -28,6 +28,10 @@ type Source struct {
 	HTTP    *http.Client
 	Home    string
 	Profile string
+	// URL is the API the token is about to be sent to. A session signed in to
+	// any other is refused, so a --url or OCTOPAAS_URL pointing elsewhere can
+	// never carry this platform's token to another host.
+	URL string
 
 	mu      sync.Mutex
 	session credentials.Session
@@ -49,6 +53,10 @@ func (s *Source) Bearer(ctx context.Context, refresh bool) (string, error) {
 		session, ok := store.Sessions[s.Profile]
 		if !ok || session.AccessToken == "" {
 			return "", ErrSignedOut
+		}
+		if strings.TrimRight(session.URL, "/") != strings.TrimRight(s.URL, "/") {
+			return "", fmt.Errorf("%w to %s: this profile's session is for %s, and is never sent anywhere else",
+				ErrSignedOut, s.URL, firstNonEmpty(session.URL, "another platform"))
 		}
 		s.session, s.loaded = session, true
 	}
@@ -131,4 +139,14 @@ func Refresh(ctx context.Context, hc *http.Client, session credentials.Session) 
 		ret.Expiry = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).UTC()
 	}
 	return ret, nil
+}
+
+func firstNonEmpty(values ...string) string {
+
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

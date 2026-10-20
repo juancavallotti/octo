@@ -36,7 +36,7 @@ func (a *App) bearer(r config.Resolved) client.Bearer {
 	if r.APIKey != "" {
 		return apiKey(r.APIKey)
 	}
-	return &oauth.Source{HTTP: a.httpClient(), Home: a.home, Profile: r.Profile}
+	return &oauth.Source{HTTP: a.httpClient(), Home: a.home, Profile: r.Profile, URL: r.URL}
 }
 
 // httpClient is for talking to the identity provider: it says who it is, since
@@ -91,7 +91,8 @@ until you sign out.
 On a machine without a browser, use --no-browser and open the printed link
 anywhere that can reach this machine's localhost.`,
 		Example: `  octopaas auth login
-  octopaas auth login --profile local --url http://localhost:8095
+  octopaas profile add local --url http://localhost:8095
+  octopaas auth login --profile local
   octopaas auth login --no-browser`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -188,6 +189,7 @@ func (a *App) login(ctx context.Context, noBrowser bool, timeout time.Duration) 
 	}
 
 	store.Sessions[r.Profile] = credentials.Session{
+		URL:           r.URL,
 		Issuer:        md.Issuer,
 		Resource:      md.Resource,
 		ClientID:      registration.ClientID,
@@ -203,7 +205,7 @@ func (a *App) login(ctx context.Context, noBrowser bool, timeout time.Duration) 
 
 	//we prove the session works before saying so: a provider can hand out a
 	//token the platform has never heard of.
-	api := client.New(r.URL, &oauth.Source{HTTP: hc, Home: a.home, Profile: r.Profile}, a.userAgent())
+	api := client.New(r.URL, &oauth.Source{HTTP: hc, Home: a.home, Profile: r.Profile, URL: r.URL}, a.userAgent())
 	me, err := api.Me(ctx)
 	if err != nil {
 		return err

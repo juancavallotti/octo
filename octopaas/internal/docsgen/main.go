@@ -186,8 +186,10 @@ func prose(s string) string {
 			code = nil
 		}
 	}
-	for _, para := range strings.Split(strings.TrimSpace(s), "\n\n") {
-		if strings.HasPrefix(para, "  ") {
+	//only the surrounding blank lines go: a leading indent is what marks a code
+	//block, the first paragraph's included.
+	for _, para := range strings.Split(strings.Trim(s, "\n"), "\n\n") {
+		if strings.HasPrefix(para, "  ") || strings.HasPrefix(para, "\t") {
 			code = append(code, para)
 			continue
 		}
@@ -218,7 +220,7 @@ func dedent(s string) string {
 		if strings.TrimSpace(l) == "" {
 			continue
 		}
-		n := len(l) - len(strings.TrimLeft(l, " "))
+		n := len(l) - len(strings.TrimLeft(l, " \t"))
 		if indent < 0 || n < indent {
 			indent = n
 		}

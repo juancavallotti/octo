@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -211,14 +212,14 @@ func TestSourceRenewsAndSaves(t *testing.T) {
 	home := t.TempDir()
 	store, _ := credentials.Load(home)
 	store.Sessions["local"] = credentials.Session{
-		Resource: p.api.URL, ClientID: "client-1", TokenEndpoint: p.idp.URL + "/token",
+		URL: p.api.URL, Resource: p.api.URL, ClientID: "client-1", TokenEndpoint: p.idp.URL + "/token",
 		AccessToken: "old", RefreshToken: "rt-1", Expiry: time.Now().Add(-time.Minute),
 	}
 	if err := store.Save(home); err != nil {
 		t.Fatal(err)
 	}
 
-	src := &Source{HTTP: http.DefaultClient, Home: home, Profile: "local"}
+	src := &Source{HTTP: http.DefaultClient, Home: home, Profile: "local", URL: p.api.URL}
 	got, err := src.Bearer(context.Background(), false)
 	if err != nil || got != "at-2" {
 		t.Fatalf("an expired token should be renewed, got %q %v", got, err)
@@ -228,7 +229,7 @@ func TestSourceRenewsAndSaves(t *testing.T) {
 		t.Errorf("the renewed token should be saved, got %+v", back.Sessions["local"])
 	}
 
-	signedOut := &Source{HTTP: http.DefaultClient, Home: home, Profile: "prod"}
+	signedOut := &Source{HTTP: http.DefaultClient, Home: home, Profile: "prod", URL: p.api.URL}
 	if _, err := signedOut.Bearer(context.Background(), false); err != ErrSignedOut {
 		t.Errorf("a profile with no session should be ErrSignedOut, got %v", err)
 	}
@@ -242,5 +243,31 @@ func TestResourceMetadataFrom(t *testing.T) {
 	}
 	if ResourceMetadataFrom("Bearer realm=x") != "" {
 		t.Error("a challenge without resource_metadata should give nothing")
+	}
+}
+
+// A session is only ever sent to the API it was signed in to: pointing the
+// profile somewhere else with --url or OCTOPAAS_URL must not carry the token
+// along, whatever that somewhere is.
+func TestASessionIsNeverSentToAnotherPlatform(t *testing.T) {
+
+	home := t.TempDir()
+	store, _ := credentials.Load(home)
+	store.Sessions["prod"] = credentials.Session{URL: "https://api.octopaas.dev", AccessToken: "prod-token", Expiry: time.Now().Add(time.Hour)}
+	if err := store.Save(home); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, url := range []string{"https://staging.example.com", "https://api.octopaas.dev.evil.example"} {
+		src := &Source{HTTP: http.DefaultClient, Home: home, Profile: "prod", URL: url}
+		token, err := src.Bearer(context.Background(), false)
+		if !errors.Is(err, ErrSignedOut) || token != "" {
+			t.Errorf("a session for prod handed to %s: token %q, err %v", url, token, err)
+		}
+	}
+
+	same := &Source{HTTP: http.DefaultClient, Home: home, Profile: "prod", URL: "https://api.octopaas.dev/"}
+	if token, err := same.Bearer(context.Background(), false); err != nil || token != "prod-token" {
+		t.Errorf("the platform it was signed in to should get it, trailing slash or not: %q %v", token, err)
 	}
 }

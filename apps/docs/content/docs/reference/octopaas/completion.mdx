@@ -15,17 +15,23 @@ This script depends on the 'bash-completion' package. If it is not installed alr
 
 To load completions in your current shell session:
 
-source &lt;(octopaas completion bash)
+```
+source <(octopaas completion bash)
+```
 
 To load completions for every new session, execute once:
 
 #### Linux:
 
-octopaas completion bash &gt; /etc/bash_completion.d/octopaas
+```
+octopaas completion bash > /etc/bash_completion.d/octopaas
+```
 
 #### macOS:
 
-octopaas completion bash &gt; $(brew --prefix)/etc/bash_completion.d/octopaas
+```
+octopaas completion bash > $(brew --prefix)/etc/bash_completion.d/octopaas
+```
 
 You will need to start a new shell for this setup to take effect.
 
@@ -45,11 +51,15 @@ Generate the autocompletion script for the fish shell.
 
 To load completions in your current shell session:
 
-octopaas completion fish \| source
+```
+octopaas completion fish | source
+```
 
 To load completions for every new session, execute once:
 
-octopaas completion fish &gt; ~/.config/fish/completions/octopaas.fish
+```
+octopaas completion fish > ~/.config/fish/completions/octopaas.fish
+```
 
 You will need to start a new shell for this setup to take effect.
 
@@ -69,7 +79,9 @@ Generate the autocompletion script for powershell.
 
 To load completions in your current shell session:
 
-octopaas completion powershell \| Out-String \| Invoke-Expression
+```
+octopaas completion powershell | Out-String | Invoke-Expression
+```
 
 To load completions for every new session, add the output of the above command to your powershell profile.
 
@@ -89,21 +101,29 @@ Generate the autocompletion script for the zsh shell.
 
 If shell completion is not already enabled in your environment you will need to enable it. You can execute the following once:
 
-echo "autoload -U compinit; compinit" &gt;&gt; ~/.zshrc
+```
+echo "autoload -U compinit; compinit" >> ~/.zshrc
+```
 
 To load completions in your current shell session:
 
-source &lt;(octopaas completion zsh)
+```
+source <(octopaas completion zsh)
+```
 
 To load completions for every new session, execute once:
 
 #### Linux:
 
-octopaas completion zsh &gt; "$&#123;fpath[1]&#125;/_octopaas"
+```
+octopaas completion zsh > "${fpath[1]}/_octopaas"
+```
 
 #### macOS:
 
-octopaas completion zsh &gt; $(brew --prefix)/share/zsh/site-functions/_octopaas
+```
+octopaas completion zsh > $(brew --prefix)/share/zsh/site-functions/_octopaas
+```
 
 You will need to start a new shell for this setup to take effect.
 

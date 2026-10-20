@@ -64,6 +64,9 @@ with its own colour.`,
 					return err
 				}
 				if follow {
+					if !cmd.Flags().Changed("tail") {
+						tail = -1
+					}
 					return a.follow(ctx, api, id, pods, tail)
 				}
 				return a.tailPods(ctx, api, id, pods, tail)
@@ -237,6 +240,9 @@ func (a *App) follow(ctx context.Context, api *client.Client, id string, pods []
 				if err != nil {
 					a.ui.Warn("%s: %v; reconnecting", pod, err)
 				}
+				//a reconnect asks for no history: what came before the cut
+				//has been printed already. A line written while we were away
+				//is lost, which beats replaying hundreds we have shown.
 				start = 0
 				select {
 				case <-ctx.Done():

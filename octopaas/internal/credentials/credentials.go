@@ -29,6 +29,9 @@ type Client struct {
 // Session is one profile signed in: the tokens, and what is needed to refresh
 // them without discovering everything again.
 type Session struct {
+	// URL is the API the session was signed in to. Its tokens are only ever
+	// sent there.
+	URL           string    `yaml:"url"`
 	Issuer        string    `yaml:"issuer"`
 	Resource      string    `yaml:"resource"`
 	ClientID      string    `yaml:"clientId"`

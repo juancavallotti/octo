@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -270,7 +271,11 @@ With --zip, the bundle is saved as it came instead.`,
 			if err != nil {
 				return err
 			}
-			return a.save(buf.Bytes(), args, zipFile, force)
+			dir := filepath.Base(args[0])
+			if len(args) > 1 {
+				dir = args[1]
+			}
+			return a.save(buf.Bytes(), args[0], dir, zipFile, force)
 		},
 	}
 	cmd.Flags().StringVar(&zipFile, "zip", "", "save the bundle as this .zip instead of unpacking it")
@@ -278,9 +283,9 @@ With --zip, the bundle is saved as it came instead.`,
 	return cmd
 }
 
-// save writes a pulled bundle where the person asked: a zip, or a folder named
-// by the second argument or after the first.
-func (a *App) save(data []byte, args []string, zipFile string, force bool) error {
+// save writes a pulled bundle of integration where the person asked: a zip, or
+// dir.
+func (a *App) save(data []byte, integration, dir, zipFile string, force bool) error {
 
 	if zipFile != "" {
 		if err := os.WriteFile(zipFile, data, 0o644); err != nil {
@@ -290,10 +295,6 @@ func (a *App) save(data []byte, args []string, zipFile string, force bool) error
 		return nil
 	}
 
-	dir := filepath.Base(args[0])
-	if len(args) > 1 {
-		dir = args[1]
-	}
 	if !force && !emptyOrMissing(dir) {
 		return usageError{fmt.Errorf("%s already has files in it; add --force to unpack over them, or pick another folder", dir)}
 	}
@@ -301,7 +302,7 @@ func (a *App) save(data []byte, args []string, zipFile string, force bool) error
 	if err != nil {
 		return err
 	}
-	a.ui.Box("Pulled "+args[0], fmt.Sprintf("%d files into %s/", n, dir), "", "Push it back when you are done:", "  octopaas integrations push "+args[0]+" "+dir)
+	a.ui.Box("Pulled "+integration, fmt.Sprintf("%d files into %s/", n, dir), "", "Push it back when you are done:", "  octopaas integrations push "+integration+" "+dir)
 	return nil
 }
 
@@ -376,7 +377,13 @@ suffix.`,
 				return err
 			}
 			if name == "" {
-				name = filepath.Base(args[0])
+				//the folder's or the zip's own name, so `import .` and
+				//`import billing.zip` both name it billing.
+				abs, err := filepath.Abs(args[0])
+				if err != nil {
+					return err
+				}
+				name = strings.TrimSuffix(filepath.Base(abs), ".zip")
 			}
 			api, err := a.client()
 			if err != nil {

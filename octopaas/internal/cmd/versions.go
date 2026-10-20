@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -178,11 +179,11 @@ func (a *App) versionsPullCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			folder := []string{args[0] + "-" + args[1]}
+			dir := filepath.Base(args[0] + "-" + args[1])
 			if len(args) > 2 {
-				folder = append(folder, args[2])
+				dir = args[2]
 			}
-			return a.save(buf.Bytes(), folder, zipFile, force)
+			return a.save(buf.Bytes(), args[0], dir, zipFile, force)
 		},
 	}
 	cmd.Flags().StringVar(&zipFile, "zip", "", "save the bundle as this .zip instead of unpacking it")
