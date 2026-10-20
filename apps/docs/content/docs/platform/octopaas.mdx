@@ -19,6 +19,19 @@ octopaas version
 
 The first command you run writes `~/.octopaas/config.yaml`, with one profile, `default`, pointing at `https://api.octopaas.dev`.
 
+### Stay up to date
+
+octopaas checks for a new release at most once a day, in the background. When one is out, it says so on the line after a command's output. To upgrade in place:
+
+```bash
+octopaas upgrade            # the newest release
+octopaas upgrade --check    # only say whether there is one
+```
+
+`upgrade` downloads the archive for your machine from the release, checks it against the release's `checksums.txt`, and swaps it in for the binary you are running. If any step fails, your current binary stays as it was. A binary installed with `go install` is upgraded with `go install` again, and octopaas prints the exact command. One installed in a folder you cannot write to, such as `/usr/local/bin`, needs `sudo octopaas upgrade`.
+
+The check never runs in CI, without a terminal, or with `-o json`. Set `OCTOPAAS_NO_UPDATE_NOTIFIER` to switch it off everywhere.
+
 ## Sign in
 
 People sign in with their browser:
@@ -93,6 +106,7 @@ octopaas deployments list -o json | jq -r '.[] | select(.status != "running") | 
 | `OCTOPAAS_PROFILE` | The profile to use. `--profile` overrides it. |
 | `OCTOPAAS_HOME` | Where `config.yaml` and `credentials.yaml` live (default `~/.octopaas`). |
 | `NO_COLOR`, `CI` | Either one switches off colours and animations, as `--plain` does. |
+| `OCTOPAAS_NO_UPDATE_NOTIFIER` | Set to anything to stop octopaas checking for, and mentioning, new releases. |
 
 Flags beat the environment, the environment beats the profile, and the profile beats the defaults.
 

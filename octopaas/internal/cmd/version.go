@@ -41,6 +41,8 @@ func environmentTopic() *cobra.Command {
   OCTOPAAS_HOME     Where config.yaml and credentials.yaml live
                     (default ~/.octopaas).
   NO_COLOR, CI      Either one switches off colours and animations.
+  OCTOPAAS_NO_UPDATE_NOTIFIER
+                    Set to anything to stop octopaas mentioning new releases.
 
 Precedence, strongest first: flags, then the environment, then the profile,
 then the defaults.

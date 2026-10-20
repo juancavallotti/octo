@@ -33,11 +33,16 @@ type App struct {
 	output  string
 	plain   bool
 
-	ui       *ui.UI
-	home     string
-	cfg      *config.File
-	resolved config.Resolved
-	api      *client.Client
+	ui   *ui.UI
+	home string
+
+	// latest is the newest release the cache knows of, and refreshed brings a
+	// fresh answer when the cache was stale; both feed the after-command notice.
+	latest    string
+	refreshed chan string
+	cfg       *config.File
+	resolved  config.Resolved
+	api       *client.Client
 }
 
 // Output formats for -o.
@@ -102,7 +107,14 @@ OCTOPAAS_KEY instead and no sign-in or config file is needed.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			return app.setup(cmd)
+			if err := app.setup(cmd); err != nil {
+				return err
+			}
+			app.startUpdateCheck(cmd)
+			return nil
+		},
+		PersistentPostRun: func(*cobra.Command, []string) {
+			app.updateNotice()
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			app.ui.Banner("your reef, from the terminal")
@@ -139,7 +151,7 @@ OCTOPAAS_KEY instead and no sign-in or config file is needed.`,
 		c.GroupID = "run"
 		root.AddCommand(c)
 	}
-	for _, c := range []*cobra.Command{app.apiCommand(), app.versionCommand()} {
+	for _, c := range []*cobra.Command{app.apiCommand(), app.upgradeCommand(), app.versionCommand()} {
 		c.GroupID = "more"
 		root.AddCommand(c)
 	}
