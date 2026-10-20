@@ -315,7 +315,10 @@ func (a *App) integrationsPushCommand() *cobra.Command {
 integration's contents with it. It keeps its id, name, versions and
 deployments; running deployments are untouched until you roll them out.
 
-Hidden files and folders, such as .git and .env, are never pushed.`,
+Hidden files and folders, such as .git and .env, are never pushed, unless the
+platform sent them: a folder you pulled pushes back the hidden resources it came
+with. The octo-bundle.json that pull leaves in the folder is rewritten to match
+the folder, so files you added are pushed and files you deleted are removed.`,
 		Example: `  octopaas integrations push billing
   octopaas integrations push billing ./work/billing
   octopaas integrations push billing billing.zip`,

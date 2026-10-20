@@ -129,7 +129,7 @@ octopaas integrations pull billing --zip billing.zip
 
 Pack a folder (by default the one named after the integration) and replace the integration's contents with it. It keeps its id, name, versions and deployments; running deployments are untouched until you roll them out.
 
-Hidden files and folders, such as .git and .env, are never pushed.
+Hidden files and folders, such as .git and .env, are never pushed, unless the platform sent them: a folder you pulled pushes back the hidden resources it came with. The octo-bundle.json that pull leaves in the folder is rewritten to match the folder, so files you added are pushed and files you deleted are removed.
 
 ```bash
 octopaas integrations push <integration> [folder | bundle.zip]

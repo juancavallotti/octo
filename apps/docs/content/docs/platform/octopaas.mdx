@@ -121,4 +121,4 @@ octopaas deployments rollout billing --version v1.4.0
 octopaas logs billing -f
 ```
 
-`pull` refuses to unpack over a folder that already has files unless you add `--force`. `push` never sends hidden files such as `.git` or `.env`. Commands take integrations and deployments by name or by id, and versions by tag.
+`pull` refuses to unpack over a folder that already has files unless you add `--force`. `push` sends the folder as it is now: files you added go up and files you deleted are removed. It never sends hidden files such as `.git` or a local `.env`, except the hidden resources the platform sent you in the first place. Commands take integrations and deployments by name or by id, and versions by tag.
