@@ -24,6 +24,7 @@ import { refreshDocker } from "./container/status";
 import { containerWebContentsId, onContainerClosed } from "./containerWindow";
 import * as terminal from "./terminal";
 import * as paas from "./platform/controller";
+import { readLink } from "./platform/link";
 import { frontWindow, isPlatformFocus, onPlatformClosed, openPlatform, platformWindow } from "./platformWindow";
 import { mainWindow } from "./window";
 import { openVault, pickVault, recents, reopenCurrent, switchTo } from "./vault";
@@ -168,7 +169,14 @@ export function registerIpc(): void {
   handle("octo:mcp:copy", () => copyMcpUrl());
   handle("octo:vault:get", () => openVault());
   handle("octo:vault:recents", () =>
-    recents().map((v) => ({ path: v.path, name: path.basename(v.path) })),
+    recents().map((v) => {
+      const link = readLink(v.path);
+      return {
+        path: v.path,
+        name: path.basename(v.path),
+        ...(link ? { platform: `${link.integrationName} on ${link.profile}` } : {}),
+      };
+    }),
   );
   // Read-only, and the only settings channel the editor page may touch.
   handle("octo:prefs:get", () => editorPrefs());

@@ -143,8 +143,11 @@ export interface OctoDesktopBridge {
   mcpUrl(): Promise<string>;
   /** The open vault: absolute path and folder name. */
   vault(): Promise<{ path: string; name: string } | null>;
-  /** Recently opened vaults, most recent first. */
-  recents(): Promise<{ path: string; name: string }[]>;
+  /**
+   * Recently opened vaults, most recent first, each with the integration it is on the
+   * platform when it is linked to one.
+   */
+  recents(): Promise<{ path: string; name: string; platform?: string }[]>;
   /** Open the native folder picker and switch to the chosen folder. Resolves to it. */
   pickVault(): Promise<string | null>;
   /** Switch to an already-known folder. */

@@ -8,6 +8,8 @@ import {
   ViewModeToggle,
 } from "@octo/editor";
 import ModeBadge from "./ModeBadge";
+import PlatformChip from "./PlatformChip";
+import PushButton from "./PushButton";
 import UpdateChip from "./UpdateChip";
 import VaultChip from "./VaultChip";
 import { useDesktopMenu } from "./useDesktopMenu";
@@ -16,8 +18,8 @@ import { useDesktopMenu } from "./useDesktopMenu";
    triggers (button, ⌘S, Enter in the rename field) share it. */
 
 /**
- * The editor's top bar: the Octo mark and the folder chip, the view tabs centred on
- * it, and Save and the RUN control on the right. The open file is named and renamed in
+ * The editor's top bar: the Octo mark, the folder chip and its platform chip, the
+ * view tabs centred on it, and Save, Push and the RUN control on the right. The open file is named and renamed in
  * the document bar below, not here.
  */
 export default function StandaloneHeader() {
@@ -46,6 +48,8 @@ export default function StandaloneHeader() {
         {/* Which folder is being served, next to the mark: it names the whole
             window, the way a project does. */}
         <VaultChip />
+        {/* Which integration that folder is on the platform, when it is one. */}
+        <PlatformChip />
       </div>
 
       <ViewModeToggle />
@@ -55,6 +59,7 @@ export default function StandaloneHeader() {
             and it is only ever there when there is something to say. */}
         <UpdateChip />
         <SaveButton />
+        <PushButton />
         <RunBar />
         {/* Last on the bar, VS Code's corner: these are about the window, not about
             the file or the run. */}
