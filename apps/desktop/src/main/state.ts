@@ -29,6 +29,11 @@ export interface DesktopSettings {
    * process acts on them. Absent means every one of them is at its default.
    */
   editor?: { autoLearn?: boolean };
+  /**
+   * Where integrations pulled from the platform land. Absent means the Documents
+   * folder's Octo, the folder the app opens first.
+   */
+  platform?: { projectsDir?: string };
 }
 
 export interface DesktopState {
@@ -100,11 +105,14 @@ function validSettings(s: DesktopSettings | undefined): DesktopSettings | undefi
   const editor = s.editor && typeof s.editor === "object" ? s.editor : undefined;
   const autoLearn = typeof editor?.autoLearn === "boolean" ? editor.autoLearn : undefined;
   const docker = str(s.docker);
+  const platform = s.platform && typeof s.platform === "object" ? s.platform : undefined;
+  const projectsDir = str(platform?.projectsDir);
   return {
     ...(Object.keys(chosen).length > 0 ? { runtime: chosen } : {}),
     ...(docker ? { docker } : {}),
     ...(typeof s.autoUpdateCheck === "boolean" ? { autoUpdateCheck: s.autoUpdateCheck } : {}),
     ...(autoLearn !== undefined ? { editor: { autoLearn } } : {}),
+    ...(projectsDir ? { platform: { projectsDir } } : {}),
   };
 }
 
