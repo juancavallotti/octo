@@ -43,6 +43,9 @@ includes:
   sidecars:
     taskfile: ./sidecars/Taskfile.yml
     dir: ./sidecars
+  octopaas:
+    taskfile: ./octopaas/Taskfile.yml
+    dir: ./octopaas
 
 # Global env reaches every task, including those in included taskfiles (task-level
 # env does not propagate to called tasks). The platform app reads these server-side
@@ -106,9 +109,10 @@ tasks:
       - task: observability:fmt
       - task: iam:fmt
       - task: sidecars:fmt
+      - task: octopaas:fmt
 
   test:
-    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + observability + iam + sidecars)
+    desc: Run tests across all modules (runtime + platform + standalone + orchestrator + observability + iam + sidecars + octopaas)
     cmds:
       - task: runtime:test
       # The sample flows, run through dolphin against a real octo. They are the runtime's
@@ -131,9 +135,10 @@ tasks:
       - task: observability:test
       - task: iam:test
       - task: sidecars:test
+      - task: octopaas:test
 
   build:
-    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + observability + iam + sidecars)
+    desc: Build all modules (CLI binaries + platform + standalone + orchestrator + observability + iam + sidecars + octopaas)
     cmds:
       - task: runtime:build
       - task: platform:build
@@ -142,6 +147,7 @@ tasks:
       - task: observability:build
       - task: iam:build
       - task: sidecars:build
+      - task: octopaas:build
 
   dev:
     desc: Build the runner, then run the standalone editor (local files + RUN enabled)
@@ -157,9 +163,10 @@ tasks:
       - task: observability:tidy
       - task: iam:tidy
       - task: sidecars:tidy
+      - task: octopaas:tidy
 
   lint:
-    desc: Lint all modules (runtime + platform + standalone + orchestrator + observability + iam + sidecars)
+    desc: Lint all modules (runtime + platform + standalone + orchestrator + observability + iam + sidecars + octopaas)
     cmds:
       - task: runtime:lint
       - task: platform:lint
@@ -171,6 +178,7 @@ tasks:
       - task: observability:lint
       - task: iam:lint
       - task: sidecars:lint
+      - task: octopaas:lint
 
   run:
     desc: Run the CLI with a config file
