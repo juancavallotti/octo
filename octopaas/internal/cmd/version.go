@@ -45,20 +45,19 @@ func environmentTopic() *cobra.Command {
 Precedence, strongest first: flags, then the environment, then the profile,
 then the defaults.
 
-CI/CD
+API keys are for automation, such as CI/CD; people should sign in with
+` + "`octopaas auth login`" + `, which keeps no secret on disk beyond a renewable
+session. In a pipeline, set OCTOPAAS_URL and OCTOPAAS_KEY from your secret
+store and run commands directly. No config file is needed, and none is
+written:
 
-  API keys are for automation; people should sign in with ` + "`octopaas auth login`" + `,
-  which needs no secret on disk beyond a renewable session. In a pipeline, set
-  OCTOPAAS_URL and OCTOPAAS_KEY from your secret store and run commands
-  directly. No config file is needed, and none is written:
+  export OCTOPAAS_URL=https://api.octopaas.dev
+  export OCTOPAAS_KEY=${{ secrets.OCTOPAAS_KEY }}
+  octopaas integrations push billing ./billing
+  octopaas versions create billing "$GITHUB_REF_NAME"
+  octopaas deployments rollout billing-prod --version "$GITHUB_REF_NAME"
 
-    export OCTOPAAS_URL=https://api.octopaas.dev
-    export OCTOPAAS_KEY=${{ secrets.OCTOPAAS_KEY }}
-    octopaas integrations push billing ./billing
-    octopaas versions create billing "$GITHUB_REF_NAME"
-    octopaas deployments rollout billing-prod --version "$GITHUB_REF_NAME"
-
-  A key acts as the user who minted it, with that user's current roles. Mint
-  one for an account whose roles fit the pipeline.`,
+A key acts as the user who minted it, with that user's current roles, so mint
+it for an account whose roles fit the pipeline.`,
 	}
 }

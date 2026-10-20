@@ -1,0 +1,23 @@
+---
+title: "octopaas whoami"
+description: "Who you are signed in as, and where"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+Show the platform, the profile and the credential in use, and the account it acts as, with your roles.
+
+It says where each came from (a flag, the environment or the config), which is the quickest way to find out why octopaas is talking to the platform it is.
+
+```bash
+octopaas whoami
+```
+
+**Examples**
+
+```bash
+octopaas whoami
+octopaas whoami -o json | jq -r .user.email
+OCTOPAAS_PROFILE=local octopaas whoami
+```
+

@@ -1,0 +1,95 @@
+---
+title: "octopaas versions"
+description: "Freeze integrations into versions you can deploy"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+A version freezes an integration as it stands, definition and resources, under a tag such as v1.3.0. Deployments run versions, never the live draft, so creating one is how a change becomes deployable. The platform UI calls them snapshots.
+
+Versions are named by tag within their integration, or by id.
+
+Also: `version-tags`, `ver`.
+
+**Examples**
+
+```bash
+octopaas versions create billing v1.3.0
+octopaas versions list billing
+```
+
+### `octopaas versions create`
+
+Freeze an integration under a tag.
+
+```bash
+octopaas versions create <integration> <tag>
+```
+
+**Examples**
+
+```bash
+octopaas versions create billing v1.3.0
+octopaas versions create billing "$(git describe --tags)"
+```
+
+### `octopaas versions list`
+
+List an integration's versions, newest first.
+
+```bash
+octopaas versions list <integration>
+```
+
+Also: `ls`.
+
+**Examples**
+
+```bash
+octopaas versions list billing
+```
+
+### `octopaas versions pull`
+
+Download a version, definition and frozen resources, into a folder (by default &lt;integration&gt;-&lt;tag&gt;), or with --zip as the bundle it came as.
+
+```bash
+octopaas versions pull <integration> <tag> [folder] [flags]
+```
+
+**Examples**
+
+```bash
+octopaas versions pull billing v1.2.0
+octopaas versions pull billing v1.2.0 --zip billing-v1.2.0.zip
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--force` | unpack into a folder that already has files |  |
+| `--zip` | save the bundle as this .zip instead of unpacking it |  |
+
+### `octopaas versions rm`
+
+Delete a version. A version a deployment is running cannot be deleted; undeploy or roll that deployment onto another version first.
+
+```bash
+octopaas versions rm <integration> <tag> [flags]
+```
+
+Also: `delete`.
+
+**Examples**
+
+```bash
+octopaas versions rm billing v1.0.0 --yes
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `-y`, `--yes` | do not ask first |  |
+

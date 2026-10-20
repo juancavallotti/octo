@@ -1,0 +1,185 @@
+---
+title: "octopaas deployments"
+description: "Deploy versions, scale them, roll them out and take them down"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+A deployment runs one version of an integration on the platform. Commands take a deployment by name or by id, and an integration by name or by id.
+
+Deploying, scaling and rolling out wait until the deployment is running (or has failed) and show you how it is going. Add --no-wait to return as soon as the platform has accepted the change.
+
+Also: `deployment`, `deploy`, `dep`.
+
+**Examples**
+
+```bash
+octopaas deployments create billing --version v1.3.0 --replicas 2
+octopaas deployments list
+octopaas deployments rollout billing --version v1.4.0
+```
+
+### `octopaas deployments create`
+
+Deploy one version of an integration, and wait for it to be running.
+
+Every env var the integration declares needs a value: give it one with --env, or point it at a cluster secret with --secret. `deployments options` lists what a deploy of it needs.
+
+```bash
+octopaas deployments create <integration> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas deployments create billing --version v1.3.0
+octopaas deployments create billing --version v1.3.0 --replicas 2 \
+  --env LOG_LEVEL=info --secret STRIPE_KEY=stripe --expose external --subdomain billing
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--access` | what the deployment's own token may do besides its stores: developer, operator |  |
+| `--env` | bind a declared env var to a value, as NAME=value (repeatable) |  |
+| `--expose` | external to publish it outside the cluster |  |
+| `--no-wait` | return once the platform accepts the change |  |
+| `--replicas` | how many replicas to run (default: the platform's) |  |
+| `--runner` | standard or agentic (default: picked from the integration) |  |
+| `--secret` | bind a declared env var to a cluster secret, as NAME=secret-name (repeatable) |  |
+| `--slug` | its internal address label (default: a free one) |  |
+| `--subdomain` | the subdomain to publish it on, with --expose external |  |
+| `--timeout` | how long to wait for it to be running | `5m0s` |
+| `--tracing` | record traces for this deployment |  |
+| `--version` | the version to run, by tag or id |  |
+
+### `octopaas deployments get`
+
+Show a deployment, its pods and where it answers.
+
+```bash
+octopaas deployments get <deployment>
+```
+
+**Examples**
+
+```bash
+octopaas deployments get billing
+```
+
+### `octopaas deployments list`
+
+List deployments, newest first.
+
+```bash
+octopaas deployments list [flags]
+```
+
+Also: `ls`.
+
+**Examples**
+
+```bash
+octopaas deployments list
+octopaas deployments list --integration billing
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `-i`, `--integration` | only this integration's deployments |  |
+
+### `octopaas deployments options`
+
+Show whether an integration serves HTTP, the env vars it declares, and whether a slug is free, before you deploy it.
+
+```bash
+octopaas deployments options <integration> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas deployments options billing --version v1.3.0
+octopaas deployments options billing --slug billing -o json
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--expose` | external to check external exposure |  |
+| `--slug` | check whether this slug is free |  |
+| `--version` | check against this version, by tag or id |  |
+
+### `octopaas deployments rm`
+
+Take a deployment down. Its version stays, so you can deploy it again.
+
+```bash
+octopaas deployments rm <deployment> [flags]
+```
+
+Also: `delete`, `undeploy`.
+
+**Examples**
+
+```bash
+octopaas deployments rm billing --yes
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `-y`, `--yes` | do not ask first |  |
+
+### `octopaas deployments rollout`
+
+Update a deployment in place, one replica at a time. Whatever you leave out keeps what the deployment already has. A version is named by its tag in the deployment's integration, or by id.
+
+```bash
+octopaas deployments rollout <deployment> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas deployments rollout billing --version v1.4.0
+octopaas deployments rollout billing --env LOG_LEVEL=debug --tracing
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--env` | bind a declared env var to a value, as NAME=value (repeatable) |  |
+| `--no-wait` | return once the platform accepts the change |  |
+| `--secret` | bind a declared env var to a cluster secret, as NAME=secret-name (repeatable) |  |
+| `--timeout` | how long to wait for it to be running | `5m0s` |
+| `--tracing` | record traces for this deployment |  |
+| `--version` | the version to run, by tag or id |  |
+
+### `octopaas deployments scale`
+
+Change how many replicas a deployment runs.
+
+```bash
+octopaas deployments scale <deployment> <replicas> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas deployments scale billing 3
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--no-wait` | return once the platform accepts the change |  |
+| `--timeout` | how long to wait for it to be running | `5m0s` |
+

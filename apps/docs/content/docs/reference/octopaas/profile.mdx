@@ -1,0 +1,88 @@
+---
+title: "octopaas profile"
+description: "Switch between the platforms you work with"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+A profile is one platform: its API address, and optionally an API key. You might have one for production and one for a local cluster.
+
+Which one a command uses is, strongest first: --profile, then OCTOPAAS_PROFILE, then the one `profile use` made current.
+
+Also: `profiles`.
+
+### `octopaas profile add`
+
+Add a profile, or change the address or key of one you have.
+
+People should sign in with `octopaas auth login --profile <name>` afterwards. --with-key stores an API key in the profile instead, for a machine that runs octopaas unattended; it is read from stdin, or asked for without echoing, so it never lands in your shell history.
+
+```bash
+octopaas profile add <profile> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas profile add local --url http://localhost:8095 --use
+octopaas auth login --profile local
+
+# an unattended machine
+echo "$KEY" | octopaas profile add builder --url https://api.octopaas.dev --with-key
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--url` | the platform's API address, such as https://api.octopaas.dev |  |
+| `--use` | make it the current profile too |  |
+| `--with-key` | store an API key in the profile, read from stdin |  |
+
+### `octopaas profile list`
+
+List your profiles: which one is current, which one is in effect right now and why, and how each signs in.
+
+```bash
+octopaas profile list
+```
+
+Also: `ls`.
+
+**Examples**
+
+```bash
+octopaas profile list
+OCTOPAAS_PROFILE=local octopaas profile list
+```
+
+### `octopaas profile rm`
+
+Remove a profile and its session.
+
+```bash
+octopaas profile rm <profile>
+```
+
+Also: `remove`.
+
+**Examples**
+
+```bash
+octopaas profile rm staging
+```
+
+### `octopaas profile use`
+
+Make a profile the one commands use when neither --profile nor OCTOPAAS_PROFILE says otherwise.
+
+```bash
+octopaas profile use <profile>
+```
+
+**Examples**
+
+```bash
+octopaas profile use local
+```
+

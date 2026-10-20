@@ -1,0 +1,4 @@
+{
+  "title": "octopaas CLI",
+  "pages": ["index", "auth", "config", "profile", "whoami", "files", "integrations", "resources", "versions", "deployments", "logs", "api", "completion", "version", "environment"]
+}

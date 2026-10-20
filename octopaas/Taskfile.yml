@@ -38,3 +38,15 @@ tasks:
     desc: Run octopaas from source (task octopaas:run -- whoami)
     cmds:
       - '{{.GO}} run . {{.CLI_ARGS}}'
+
+  docs:
+    desc: Regenerate the octopaas command reference in apps/docs from the command tree
+    cmds:
+      - '{{.GO}} run ./internal/docsgen ../apps/docs/content/docs/reference/octopaas'
+
+  docs:check:
+    desc: Fail when the committed octopaas command reference is stale
+    cmds:
+      - rm -rf .docs-check && {{.GO}} run ./internal/docsgen .docs-check
+      - defer: rm -rf .docs-check
+      - diff -ru ../apps/docs/content/docs/reference/octopaas .docs-check || (echo "the octopaas reference is stale; run task octopaas:docs" && exit 1)

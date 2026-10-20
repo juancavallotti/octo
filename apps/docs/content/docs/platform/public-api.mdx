@@ -7,6 +7,8 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 The public API is how a client outside your installation (a script, a CLI, Octo Desktop) works with its integrations: read and edit them, version and deploy them, and follow what they log. It is served at `https://api.{domain}`, for example `https://api.octopaas.dev`, and describes itself at [`/openapi.yaml`](#the-description).
 
+The [octopaas CLI](/platform/octopaas) covers every route below from the terminal and signs you in through the OAuth flow described here, so you only need these details to write a client of your own.
+
 Everything here acts as you. Your roles decide what a request may do, the same way they do in the platform UI, and every change is attributed to you.
 
 ## Authenticate

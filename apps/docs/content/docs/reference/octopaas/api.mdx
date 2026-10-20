@@ -1,0 +1,33 @@
+---
+title: "octopaas api"
+description: "Call any API route with your credential"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+Call any route of the public API, signed in as you, and print what it answers. It is the way to reach something octopaas has no command for yet; the routes are described at /openapi.yaml.
+
+The method is GET, or POST when you send data. --data takes a string, @file, or @- for stdin. A JSON answer is pretty-printed; anything else is printed as it came. A failure status still prints the answer, then exits 1.
+
+```bash
+octopaas api <path> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas api /v1/me
+octopaas api /v1/deployments | jq '.[].status'
+octopaas api -X PATCH /v1/deployments/$ID -d '{"replicas": 2}'
+octopaas api /openapi.yaml > openapi.yaml
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `-H`, `--content-type` | the body's Content-Type | `application/json` |
+| `-X`, `--method` | the HTTP method (default GET, or POST with --data) |  |
+| `-d`, `--data` | the request body: a string, @file, or @- for stdin |  |
+| `-i`, `--include` | print the status line and headers too |  |
+

@@ -1,0 +1,42 @@
+---
+title: "octopaas CLI reference"
+description: "Every octopaas command, its flags and examples, as `--help` prints them."
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+octopaas is the command line for an Octo platform's public API.
+
+It edits integrations and their files, freezes them into versions, deploys those versions and follows what they log, all as you: your roles decide what it may do, and every change is attributed to you.
+
+Sign in once with `octopaas auth login`. For automation, set OCTOPAAS_URL and OCTOPAAS_KEY instead and no sign-in or config file is needed.
+
+For installing it, signing in and using it in CI/CD, see [the octopaas guide](/platform/octopaas).
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| [`octopaas auth`](/reference/octopaas/auth) | Sign in, sign out, and see how you are signed in |
+| [`octopaas config`](/reference/octopaas/config) | Look at the config file |
+| [`octopaas profile`](/reference/octopaas/profile) | Switch between the platforms you work with |
+| [`octopaas whoami`](/reference/octopaas/whoami) | Who you are signed in as, and where |
+| [`octopaas files`](/reference/octopaas/files) | Read and write an integration's config files one at a time |
+| [`octopaas integrations`](/reference/octopaas/integrations) | Create, edit, pull and push integrations |
+| [`octopaas resources`](/reference/octopaas/resources) | Manage the resources an integration carries |
+| [`octopaas versions`](/reference/octopaas/versions) | Freeze integrations into versions you can deploy |
+| [`octopaas deployments`](/reference/octopaas/deployments) | Deploy versions, scale them, roll them out and take them down |
+| [`octopaas logs`](/reference/octopaas/logs) | Read or follow what a deployment logs |
+| [`octopaas api`](/reference/octopaas/api) | Call any API route with your credential |
+| [`octopaas completion`](/reference/octopaas/completion) | Generate the autocompletion script for the specified shell |
+| [`octopaas version`](/reference/octopaas/version) | Print octopaas's version |
+| [`octopaas environment`](/reference/octopaas/environment) | The environment variables octopaas reads, and CI/CD use |
+
+## Flags every command takes
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--plain` | no colours, animations or art, even in a terminal |  |
+| `--url` | the API to talk to, overriding the profile (default: $OCTOPAAS_URL) |  |
+| `-o`, `--output` | how to print results: table, json or yaml | `table` |
+| `-p`, `--profile` | the profile to use (default: $OCTOPAAS_PROFILE, then the config's current one) |  |
