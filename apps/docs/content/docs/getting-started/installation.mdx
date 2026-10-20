@@ -159,6 +159,21 @@ ok   samples/error-handling_test.yaml  (charge-flowlevel)  73ms
 2 passed, 0 failed, 0 errored, 0 skipped  (73ms)
 ```
 
+## Install octopaas
+
+`octopaas` is the command line for a platform's [public API](/platform/public-api): it pulls, pushes, versions and deploys integrations on an Octo platform and follows their logs. You only need it if you use a platform. It ships from the same release:
+
+<DynamicCodeBlock lang="bash" code={`# A prebuilt binary (Apple Silicon; swap the platform as above).
+curl -fsSL -o octopaas.tar.gz \\
+  https://github.com/juancavallotti/octo/releases/download/v${OCTO_VERSION}/octopaas_darwin_arm64.tar.gz
+tar -xzf octopaas.tar.gz
+sudo mv octopaas /usr/local/bin/octopaas
+
+# Or, with a Go toolchain:
+go install github.com/juancavallotti/octo/octopaas@latest`} />
+
+Then sign in with `octopaas auth login`. See [the octopaas guide](/platform/octopaas) for profiles and CI/CD.
+
 From there, [your first test](/testing/first-test) writes one from scratch.
 
 ## Run from Docker

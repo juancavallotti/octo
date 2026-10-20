@@ -63,15 +63,27 @@ drives `octo` to unit-test an integration.
 | Linux (arm64) | [dolphin_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.11.10/dolphin_linux_arm64.tar.gz) |
 | Windows (x86-64) | [dolphin_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.11.10/dolphin_windows_amd64.zip) |
 | Windows (arm64) | [dolphin_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.11.10/dolphin_windows_arm64.zip) |
-| Both | [checksums.txt](https://github.com/juancavallotti/octo/releases/download/v0.11.10/checksums.txt) |
+
+#### octopaas — the platform's admin CLI
+
+| Platform | Download |
+|---|---|
+| macOS (Apple Silicon) | [octopaas_darwin_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.11.10/octopaas_darwin_arm64.tar.gz) |
+| macOS (Intel) | [octopaas_darwin_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.11.10/octopaas_darwin_amd64.tar.gz) |
+| Linux (x86-64) | [octopaas_linux_amd64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.11.10/octopaas_linux_amd64.tar.gz) |
+| Linux (arm64) | [octopaas_linux_arm64.tar.gz](https://github.com/juancavallotti/octo/releases/download/v0.11.10/octopaas_linux_arm64.tar.gz) |
+| Windows (x86-64) | [octopaas_windows_amd64.zip](https://github.com/juancavallotti/octo/releases/download/v0.11.10/octopaas_windows_amd64.zip) |
+| Windows (arm64) | [octopaas_windows_arm64.zip](https://github.com/juancavallotti/octo/releases/download/v0.11.10/octopaas_windows_arm64.zip) |
+| All three | [checksums.txt](https://github.com/juancavallotti/octo/releases/download/v0.11.10/checksums.txt) |
 
 <!-- x-release-please-end-version -->
 
-Have a Go toolchain? Install either CLI straight from source:
+Have a Go toolchain? Install any of the CLIs straight from source:
 
 ```bash
 go install github.com/juancavallotti/octo/runtime/octo@latest
 go install github.com/juancavallotti/octo/runtime/dolphin@latest
+go install github.com/juancavallotti/octo/octopaas@latest
 ```
 
 Prefer Docker? Two public images on Docker Hub, no install at all:

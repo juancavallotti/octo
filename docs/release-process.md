@@ -27,10 +27,10 @@ using Conventional Commits.
 
 `.github/workflows/release.yml` gates on `release-check`, then publishes in parallel:
 
-- `publish-cli` — runs GoReleaser (`.goreleaser.yaml`), which cross-compiles both
-  CLIs — `octo` and `dolphin` — for macOS, Linux, and Windows (amd64 + arm64 each) and
+- `publish-cli` — runs GoReleaser (`.goreleaser.yaml`), which cross-compiles the three
+  CLIs — `octo`, `dolphin` and `octopaas` — for macOS, Linux, and Windows (amd64 + arm64 each) and
   attaches `<cli>_<os>_<arch>.tar.gz` / `.zip` plus one combined `checksums.txt` to
-  the GitHub release. Both are pure Go, so `CGO_ENABLED=0` builds every target on one
+  the GitHub release. All three are pure Go, so `CGO_ENABLED=0` builds every target on one
   Linux runner. release-please has already created the release and its notes by then,
   so GoReleaser runs in `keep-existing` mode and only uploads the assets. Two
   invariants in that config are load-bearing and must survive any edit to it:

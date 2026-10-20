@@ -273,6 +273,7 @@ tasks:
       - test -f .goreleaser.yaml
       - test -f runtime/octo/version.go
       - test -f runtime/dolphin/version.go
+      - test -f octopaas/version.go
       # A chart that names an image the release never publishes installs into a
       # permanent ImagePullBackOff, and nothing else notices: the chart packages
       # clean, the workflow goes green, and the failure surfaces only in whoever
