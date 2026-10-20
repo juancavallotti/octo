@@ -111,6 +111,19 @@ embeddings:
 
 # The editor is on a NodePort, not behind an Ingress. k3s ships Traefik, but
 # there is no DNS name or certificate to attach locally.
+# The public API, on the locally built standalone runtime (the same build as
+# octo-runtime) and reached like the editor: a NodePort the k3d loadbalancer
+# maps to localhost:8095 (deploy/k3d/cluster.yaml). With no Ingress there is no
+# host to derive its origin from, so it is stated.
+api:
+  enabled: true
+  repository: octo-devruntime
+  url: "http://localhost:8095"
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30095
+
 ingress:
   enabled: false
 

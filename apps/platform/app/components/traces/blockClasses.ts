@@ -28,6 +28,8 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   // --- leaves the process ---------------------------------------------------
   rest: "io",
   "rest-dynamic": "io",
+  // Its own time is the wait on the upstream; the lines' work is its children's.
+  "rest-stream": "io",
   sql: "io",
   "queue-dispatch": "io",
   "publish-event": "io",

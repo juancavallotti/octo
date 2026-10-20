@@ -56,7 +56,7 @@ func serviceWith(t *testing.T, m *stubMinter) (*Service, string) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	svc, err := NewService(stubVerifier{}, user.NewService(repo), m)
+	svc, err := NewService(stubVerifier{}, user.NewService(repo), m, stubKeys{})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

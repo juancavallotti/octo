@@ -30,17 +30,6 @@ export interface CreatedApiKey extends ApiKey {
   token: string;
 }
 
-/**
- * The owner a verified bearer token resolves to. Produced by the orchestrator's
- * verify endpoint and consumed server-side by the `/mcp` bearer gate; not a
- * browser-facing shape.
- */
-export interface VerifiedApiKey {
-  id: string;
-  userId: string;
-  name: string;
-}
-
 /** List the caller's active API keys (no secret material). */
 export async function listApiKeys(): Promise<ApiKey[]> {
   return unwrap(await apikeyActions.listApiKeys());

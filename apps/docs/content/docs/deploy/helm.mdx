@@ -774,6 +774,23 @@ scaling to zero removes the claim, and the static volume carries
 | `orchestrator.devRuns.hashSecret` | `""` | **Required when dev runs are on.** Keys the derivation of every dev run's identity and hostname. See [Dev runs](#dev-runs) for why the chart will not generate one. |
 | `orchestrator.devRuns.existingSecret` / `.existingSecretKey` | `""` / `dev-run-hash-secret` | Take that key from a Secret you own instead. With it set, `hashSecret` is not needed, and setting both is refused. |
 
+### Public API
+
+Publishes the [public API](/platform/public-api) on a host of its own, for callers outside the cluster. It is off by default because it is a second public host: give it a DNS record and a certificate before turning it on.
+
+| Value | Default | Purpose |
+| --- | --- | --- |
+| `api.enabled` | `false` | Deploy the API and publish it. |
+| `api.host` | `""` | The host it is served at. Empty is `api.` in front of `ingress.host`. |
+| `api.url` | `""` | Its public origin when that is not `https://{api.host}`, such as a local cluster on a non-default port. It is the OAuth resource identifier, and iam is told to accept tokens minted for it. |
+| `api.tls.secretName` | `octo-api-tls` | The certificate for `api.host`. The TLS mode and issuer are `ingress.tls`'s. |
+| `api.ingress.annotations` | `{}` | Laid over `ingress.annotations`, which the API inherits except for GCE's `kubernetes.io/ingress.global-static-ip-name`: the editor holds that address, so give the API its own here. |
+| `api.repository` / `api.image` | `octo-runtime` / `{}` | The published standalone runtime, at the release's version like every other component. A private registry carries the same build as `octo-devruntime-paas`. |
+| `api.replicas` | `1` | It keeps no state; scale for throughput. |
+| `api.service.port` | `8095` | Its ClusterIP port. |
+
+The API's flows ship inside the chart as a ConfigMap, so an upgrade that changes them rolls its pods.
+
 ### Agentic runner
 
 Configures the image the orchestrator deploys for an integration whose

@@ -29,6 +29,12 @@ type verifier interface {
 type Principal struct {
 	Subject string
 	Roles   []string
+	// Machine is true for a deployment's token, whose subject is the person who
+	// lent it an identity rather than somebody presenting their own.
+	Machine bool
+	// FromAPIKey is true for a token exchanged for one of its subject's API keys
+	// rather than minted at a sign-in.
+	FromAPIKey bool
 }
 
 // HasRole reports whether the principal holds role.
@@ -36,10 +42,13 @@ func (p Principal) HasRole(role string) bool { return slices.Contains(p.Roles, r
 
 type contextKey struct{}
 
-// principalClaims is the half of a platform token this package reads. It is the
-// same `roles` the exchange stamps; only the field it needs is named.
+// principalClaims is the half of a platform token this package reads. They are
+// the same `roles`, `deployment` and `apiKey` the exchange stamps; only the
+// fields it needs are named.
 type principalClaims struct {
-	Roles []string `json:"roles"`
+	Roles      []string `json:"roles"`
+	Deployment string   `json:"deployment"`
+	APIKey     string   `json:"apiKey"`
 }
 
 const (
@@ -73,7 +82,12 @@ func Require(v verifier, roles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
-			p := Principal{Subject: claims.Subject, Roles: private.Roles}
+			p := Principal{
+				Subject:    claims.Subject,
+				Roles:      private.Roles,
+				Machine:    private.Deployment != "",
+				FromAPIKey: private.APIKey != "",
+			}
 			for _, want := range roles {
 				if !p.HasRole(want) {
 					// The role is named: a caller holding the wrong one can act on

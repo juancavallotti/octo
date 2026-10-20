@@ -129,8 +129,8 @@ deployments:
           model: "${EMBEDDINGS_MODEL}"
           dimensions: ${EMBEDDINGS_DIMENSIONS}
 
-# `devspace dev` mode (task cluster:dev): swaps the editor/orchestrator/observability pods
-# for their dev images, live-syncs source for hot reload, and tails all three
+# `devspace dev` mode (task cluster:dev): swaps the editor/orchestrator/observability/iam/api pods
+# for their dev images, live-syncs source for hot reload, and tails their
 # pods' logs to the terminal. No port forwards here — the k3d loadbalancer
 # already exposes the apps on localhost:3000 / :8090 (deploy/k3d/cluster.yaml),
 # and the replacement pods keep their chart labels so the NodePort services
@@ -223,6 +223,24 @@ dev:
         # Restart the container after each upload so `go run` recompiles.
         onUpload:
           restartContainer: true
+    logs: {}
+  # The public API is flows rather than code, so hot reload is the runtime's own:
+  # the agentic runner image is the one carrying a shell (which sync needs) and
+  # the standalone octo, and `--watch` reloads the flows as they land. They sync
+  # to /workspace rather than over the chart's ConfigMap, which is mounted
+  # read-only at /etc/octo/api.
+  api:
+    labelSelector:
+      app.kubernetes.io/name: octo
+      app.kubernetes.io/instance: octo
+      app.kubernetes.io/component: api
+    namespace: octo-dev
+    devImage: octo-agenticrunner:dev
+    command: ["/opt/octo/bin/octo", "run", "--watch", "--config", "/workspace/api"]
+    sync:
+      - path: ./api:/workspace/api
+        excludePaths:
+          - "*_test.yaml"
     logs: {}
   # Postgres is not hot-reloaded; this entry only forwards its logs to the terminal.
   postgres:

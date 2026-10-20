@@ -1,0 +1,50 @@
+# The scale route's own guard. The orchestrator reads a missing or zero replica
+# count as one, so the route refuses anything else before it relays.
+flow: scale-deployment
+
+env:
+  IAM_URL: http://iam.test
+  ORCHESTRATOR_URL: http://orchestrator.test
+  OBSERVABILITY_URL: http://observability.test
+  API_RESOURCE_URL: https://api.example.com
+  OIDC_ISSUER: https://idp.example.com
+
+mocks:
+  # The exchange the route starts with, answered as iam would for a good key.
+  authenticate.exchange[body].call-iam:
+    default:
+      body: { token: platform-jwt, user: { id: user-1 } }
+      vars: { statusCode: 200 }
+  scale-deployment.relay:
+    default:
+      body: { id: d1, replicas: 3 }
+      vars: { statusCode: 200 }
+
+cases:
+  - name: a whole count reaches the orchestrator
+    input:
+      data: { replicas: 3 }
+      vars: { id: d1, Authorization: "Bearer octo_key" }
+    expect:
+      vars: { httpStatus: 200 }
+
+  - name: an empty body is refused rather than read as one replica
+    input:
+      data: {}
+      vars: { id: d1, Authorization: "Bearer octo_key" }
+    expect:
+      vars: { httpStatus: 400 }
+
+  - name: zero is refused
+    input:
+      data: { replicas: 0 }
+      vars: { id: d1, Authorization: "Bearer octo_key" }
+    expect:
+      vars: { httpStatus: 400 }
+
+  - name: a fraction is refused
+    input:
+      data: { replicas: 2.5 }
+      vars: { id: d1, Authorization: "Bearer octo_key" }
+    expect:
+      vars: { httpStatus: 400 }

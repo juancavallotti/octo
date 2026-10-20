@@ -469,7 +469,8 @@ jobs:
           helm push "dist/octo-common-${version}.tgz" "oci://ghcr.io/${OWNER}/charts"
           helm push "dist/octo-${version}.tgz" "oci://ghcr.io/${OWNER}/charts"
 
-  # Cross-compile both CLIs — octo, and dolphin, its test runner — and attach the
+  # Cross-compile the CLIs — octo, dolphin its test runner, and octopaas the
+  # platform's admin CLI — and attach the
   # archives to the GitHub release, so users can install them without a Go toolchain.
   # GoReleaser does the work; .goreleaser.yaml is the source of truth for the targets,
   # the archive names, and the checksums file. release-please has already created the
@@ -663,7 +664,7 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           want="${TAG#v}"
-          for f in runtime/octo/version.go runtime/dolphin/version.go; do
+          for f in runtime/octo/version.go runtime/dolphin/version.go octopaas/version.go; do
             got="$(grep -o 'Version = "[^"]*"' "$f" | cut -d'"' -f2)"
             if [ "$got" != "$want" ]; then
               echo "::error file=$f::says $got, but the tag says $want — is $f listed in release-please-config.json extra-files?"

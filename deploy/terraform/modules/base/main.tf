@@ -193,6 +193,17 @@ resource "google_dns_record_set" "a" {
   rrdatas      = [google_compute_address.static.address]
 }
 
+# Hosts beside the editor's that this release publishes on the same node, such as
+# the public API.
+resource "google_dns_record_set" "extra" {
+  for_each     = toset(var.extra_hostnames)
+  name         = "${each.value}."
+  type         = "A"
+  ttl          = 300
+  managed_zone = data.google_dns_managed_zone.zone.name
+  rrdatas      = [google_compute_address.static.address]
+}
+
 # Wildcard so per-integration subdomains ({slug}.{domain}) resolve to the same
 # node; cert-manager issues a single *.{domain} wildcard cert via DNS-01 that all
 # subdomains share (Stage 2).

@@ -1,10 +1,8 @@
-// Package apikey is the orchestrator feature module for per-user bearer tokens.
-// A key authenticates a machine client (the platform's MCP endpoint) on behalf of
-// its owning user. The plaintext token is shown exactly once at creation; only its
-// SHA-256 hash is stored, so the database holds no usable credential. Verification
-// hashes the presented token and looks the row up by hash, then checks it is
-// neither revoked nor expired. The module follows the same repository/service/
-// handler shape as the integration and snapshot modules.
+// Package apikey holds the per-user bearer tokens iam exchanges for platform
+// tokens. A key belongs to exactly one user and only ever speaks for them: it
+// carries no roles of its own, and what it may do is whatever its owner holds when
+// it is presented. The plaintext token is shown exactly once at creation; only its
+// SHA-256 hash is stored, so the database holds no usable credential.
 package apikey
 
 import (
@@ -54,6 +52,13 @@ func generateToken() (plaintext, hash, prefix, last4 string, err error) {
 	body := base64.RawURLEncoding.EncodeToString(buf)
 	plaintext = tokenPrefix + body
 	return plaintext, hashToken(plaintext), tokenPrefix + body[:4], body[len(body)-4:], nil
+}
+
+// IsKey reports whether a presented bearer is shaped like an API key rather than
+// a JWT. The prefix is enough to route on: a compact JWT opens with its
+// base64url-encoded JSON header, which always begins "eyJ".
+func IsKey(token string) bool {
+	return strings.HasPrefix(token, tokenPrefix)
 }
 
 // hashToken returns the hex SHA-256 of a plaintext token. The same function is

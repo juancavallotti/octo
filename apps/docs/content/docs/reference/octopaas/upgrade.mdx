@@ -1,0 +1,32 @@
+---
+title: "octopaas upgrade"
+description: "Upgrade octopaas to the newest release"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+Download the newest octopaas for this machine from the project's GitHub releases, check it against the release's checksums.txt, and put it in place of the binary you are running. A failure at any step leaves the binary you have untouched.
+
+octopaas also checks for a new release on its own, at most once a day, and mentions it after a command finishes. It never checks in CI, without a terminal, or with -o json, and OCTOPAAS_NO_UPDATE_NOTIFIER=1 turns it off.
+
+A binary installed with `go install` is upgraded with go install, and one in a folder you cannot write to needs sudo; octopaas says which.
+
+```bash
+octopaas upgrade [flags]
+```
+
+**Examples**
+
+```bash
+octopaas upgrade
+octopaas upgrade --check
+octopaas upgrade --version v0.12.0
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--check` | only say whether a newer release exists |  |
+| `--version` | install this release instead of the newest, such as v0.12.0 |  |
+

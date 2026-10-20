@@ -41,6 +41,12 @@ variable "wildcard_dns" {
   default     = true
 }
 
+variable "extra_hostnames" {
+  type        = list(string)
+  description = "Further fully-qualified hosts to point at the same IP, each an A record in dns_managed_zone — e.g. the public API's api.{domain}. A host outside that zone fails the apply rather than being skipped."
+  default     = []
+}
+
 variable "dns_managed_zone" {
   type        = string
   description = "Name (not DNS name) of the existing Cloud DNS managed zone."

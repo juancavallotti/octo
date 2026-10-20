@@ -26,8 +26,8 @@ import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 /**
  * GET/POST/DELETE /mcp — the platform's Model Context Protocol endpoint
  * (streamable HTTP), mounted as an OAuth 2.1 *resource server*: every request must
- * carry a valid bearer access token, either an OAuth JWT minted by the configured
- * OIDC provider or a legacy `octo_…` API key (see verify-token.ts). `withMcpAuth`
+ * carry a valid bearer access token, an OAuth JWT minted by the configured OIDC
+ * provider (see verify-token.ts). `withMcpAuth`
  * extracts the bearer, runs the verifier, and — on a missing or invalid token —
  * returns a spec-correct 401 whose `WWW-Authenticate` points at the
  * protected-resource metadata (RFC 9728), which in turn advertises the provider so

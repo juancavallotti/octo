@@ -35,14 +35,14 @@ const maxDrainBytes = 4 << 10 // 4 KiB
 // request body is replayed via req.GetBody, which net/http populates for the
 // buffered readers the rest block uses; if a body cannot be replayed, retrying
 // stops and the 429 response is returned as-is.
-func (c *Connector) doWithRetry(req *http.Request) (*http.Response, error) {
+func (c *Connector) doWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
 	attempts := c.maxAttempts
 	if attempts < 1 {
 		attempts = 1
 	}
 
 	for attempt := 1; ; attempt++ {
-		resp, err := c.client.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("http-client do %s %s: %w", req.Method, req.URL.Redacted(), err)
 		}

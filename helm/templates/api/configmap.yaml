@@ -1,0 +1,24 @@
+{{- /*
+The public API's flows, which are its whole program: the standalone runtime
+image runs whatever config it is handed, and this is it.
+
+Read from files/api, a link to the repository's api/ directory, so the flows
+the chart ships are the ones CI tested; `helm package` copies them in. ConfigMap
+keys cannot hold a slash, so the spec under static/ goes in flat and the
+deployment puts it back where the config expects it.
+*/}}
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "octo-common.componentName" (dict "root" $ "component" "api") }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "api") | nindent 4 }}
+data:
+  {{- range $path, $_ := .Files.Glob "files/api/*.yaml" }}
+  {{- if not (hasSuffix "_test.yaml" $path) }}
+  {{ base $path }}: {{ $.Files.Get $path | quote }}
+  {{- end }}
+  {{- end }}
+  openapi.yaml: {{ .Files.Get "files/api/static/openapi.yaml" | required "files/api/static/openapi.yaml is missing — the chart is packaged without the api/ link" | quote }}
+{{- end }}

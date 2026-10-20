@@ -1,0 +1,124 @@
+---
+title: "The octopaas CLI"
+description: "Edit, version, deploy and watch your integrations from the terminal, signed in with your browser or, in CI/CD, with an API key."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+`octopaas` is the command line for the [public API](/platform/public-api). Use it to pull an integration into a folder, edit it with any editor, push it back, freeze it as a version and roll it out, then follow what it logs. Every command acts as you, under your roles, the same as the platform UI. This page covers installing it, signing in, profiles and CI/CD. The [command reference](/reference/octopaas) lists every command and flag.
+
+## Install it
+
+Download the archive for your machine from the [latest release](https://github.com/juancavallotti/octo/releases/latest), as `octopaas_<os>_<arch>.tar.gz` (`.zip` on Windows), and put the `octopaas` binary on your `PATH`:
+
+```bash
+tar -xzf octopaas_darwin_arm64.tar.gz
+sudo mv octopaas /usr/local/bin/
+octopaas version
+```
+
+The first command you run writes `~/.octopaas/config.yaml`, with one profile, `default`, pointing at `https://api.octopaas.dev`.
+
+### Stay up to date
+
+octopaas checks for a new release at most once a day, in the background. When one is out, it says so on the line after a command's output. To upgrade in place:
+
+```bash
+octopaas upgrade            # the newest release
+octopaas upgrade --check    # only say whether there is one
+```
+
+`upgrade` downloads the archive for your machine from the release, checks it against the release's `checksums.txt`, and swaps it in for the binary you are running. If any step fails, your current binary stays as it was. A binary installed with `go install` is upgraded with `go install` again, and octopaas prints the exact command. One installed in a folder you cannot write to, such as `/usr/local/bin`, needs `sudo octopaas upgrade`.
+
+The check never runs in CI, without a terminal, or with `-o json`. Set `OCTOPAAS_NO_UPDATE_NOTIFIER` to switch it off everywhere.
+
+## Sign in
+
+People sign in with their browser:
+
+```bash
+octopaas auth login
+octopaas whoami
+```
+
+`auth login` learns everything it needs from the API itself:
+
+1. Calling the API without a credential gets a `401` that points at its OAuth metadata. That metadata names the identity provider.
+2. octopaas registers itself with that provider through dynamic client registration. This happens once per provider, and no client secret is involved.
+3. Your browser opens on the provider's sign-in page. PKCE stands in for a secret, and the token is requested for the API as its resource.
+4. The provider sends your browser back to octopaas on `127.0.0.1:8976`, and the session is saved for the profile.
+
+The session lives in `~/.octopaas/credentials.yaml`, which only you can read. It renews itself until you run `octopaas auth logout`. `whoami` shows the account you act as, your roles, and where the platform address and the credential each came from.
+
+On a machine without a browser, run `octopaas auth login --no-browser` and open the printed link in a browser that can reach that machine's localhost.
+
+<Callout type="info">
+Prefer signing in for anything a person runs. A session carries no long-lived secret, ends when you sign out, and is tied to you. Keep API keys for automation.
+</Callout>
+
+## Work with more than one platform
+
+A profile is one platform: its API address, and optionally an API key. For example, keep production as `default` and add your local cluster:
+
+```bash
+octopaas profile add local --url http://localhost:8095
+octopaas auth login --profile local
+octopaas profile list
+```
+
+A command picks its profile in this order:
+
+1. `--profile` (or `-p`)
+2. `OCTOPAAS_PROFILE`, for one shell or one job, without changing anything
+3. the current profile, which you set with `octopaas profile use <name>`
+
+Naming a profile that does not exist is an error. octopaas never falls back to the current profile on a typo.
+
+## Use it in CI/CD
+
+A pipeline needs no config file and no sign-in. Set the platform and an API key from your secret store, and run commands directly:
+
+```yaml
+# .github/workflows/release.yml (excerpt)
+env:
+  OCTOPAAS_URL: https://api.octopaas.dev
+  OCTOPAAS_KEY: ${{ secrets.OCTOPAAS_KEY }}
+steps:
+  - run: octopaas integrations push billing ./billing
+  - run: octopaas versions create billing "$GITHUB_REF_NAME"
+  - run: octopaas deployments rollout billing --version "$GITHUB_REF_NAME"
+```
+
+Mint the key on your account page (see [API keys](/platform/users-and-api-keys#api-keys)). A key acts as the user who minted it, with that user's current roles, so mint it for an account whose roles fit the job. When both `OCTOPAAS_URL` and `OCTOPAAS_KEY` are set and there is no config file yet, octopaas does not write one, so a read-only home directory is fine.
+
+In CI, the output is plain automatically: no colours, animations or art. Any slow wait, such as a deploy, prints a line each time its state changes. Add `-o json` (or `-o yaml`) to any command for machine-readable output. Results go to stdout and commentary goes to stderr, so piping into `jq` always works:
+
+```bash
+octopaas deployments list -o json | jq -r '.[] | select(.status != "running") | .name'
+```
+
+## Environment variables
+
+| Variable | What it does |
+| --- | --- |
+| `OCTOPAAS_URL` | The API to talk to. Overrides the profile's `url`; `--url` overrides it. |
+| `OCTOPAAS_KEY` | An API key (`octo_…`). Overrides the profile's key and any signed-in session. |
+| `OCTOPAAS_PROFILE` | The profile to use. `--profile` overrides it. |
+| `OCTOPAAS_HOME` | Where `config.yaml` and `credentials.yaml` live (default `~/.octopaas`). |
+| `NO_COLOR`, `CI` | Either one switches off colours and animations, as `--plain` does. |
+| `OCTOPAAS_NO_UPDATE_NOTIFIER` | Set to anything to stop octopaas checking for, and mentioning, new releases. |
+
+Flags beat the environment, the environment beats the profile, and the profile beats the defaults.
+
+## A typical loop
+
+```bash
+octopaas integrations pull billing          # into ./billing
+$EDITOR billing/integration.yaml
+octopaas integrations push billing          # from ./billing
+octopaas versions create billing v1.4.0
+octopaas deployments rollout billing --version v1.4.0
+octopaas logs billing -f
+```
+
+`pull` refuses to unpack over a folder that already has files unless you add `--force`. `push` never sends hidden files such as `.git` or `.env`. Commands take integrations and deployments by name or by id, and versions by tag.

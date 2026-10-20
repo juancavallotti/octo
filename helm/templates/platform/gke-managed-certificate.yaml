@@ -21,3 +21,17 @@ spec:
     - {{ . | quote }}
     {{- end }}
 {{- end }}
+{{- /* The public API's host gets a certificate of its own, so publishing it
+       never re-provisions the editor's. */}}
+{{- if and .Values.api.enabled .Values.ingress.enabled (eq (include "octo-common.ingress.tlsMode" (dict "tls" .Values.ingress.tls)) "gke-managed-cert") }}
+---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ include "octo-common.componentName" (dict "root" $ "component" "api") }}
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" $ "component" "api") | nindent 4 }}
+spec:
+  domains:
+    - {{ include "octo.api.host" . | quote }}
+{{- end }}

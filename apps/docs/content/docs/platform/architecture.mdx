@@ -22,7 +22,7 @@ The platform has a control plane (the Next.js platform app, the Go orchestrator,
    ┌───────────────────────────────────────┐        ┌────────────────┐
    │ Orchestrator (Go)             :8090   │───────▶│ Kubernetes API │
    │  integrations · deployments · KV      │ applies└──────┬─────────┘
-   │  snapshots · secrets · users · keys   │ manifests     │ creates
+   │  snapshots · secrets                  │ manifests     │ creates
    └───────┬──────────────────────┬────────┘               ▼
            │ SQL                  │ publishes   ┌──────────────────────────┐
            ▼                      ▼             │ Runtime pods (data plane)│
@@ -62,9 +62,8 @@ A Go HTTP API, listening on port `8090` by default (`PORT`). It owns all persist
 | folder | `POST/GET /folders`, `GET/PUT/DELETE /folders/{id}`, member routes | database |
 | snapshot | `POST/GET /integrations/{id}/snapshots`, `DELETE /snapshots/{id}`, frozen-resource reads | database |
 | resource | `POST/GET /integrations/{id}/resources`, `GET/PUT/DELETE .../resources/{resourceId}` | database |
-| apikey | `POST/GET /users/{userId}/apikeys`, `DELETE .../apikeys/{id}`, `POST /apikeys/verify` | database |
 | kv | `GET/PUT/DELETE /deployments/{id}/kv/{namespace}/{key}` + object browser routes | database |
-| deployment | `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
+| deployment | `GET /deployments`, `POST/GET /integrations/{id}/deployments`, `GET/PATCH/DELETE /deployments/{id}`, rollout, pod logs | database + in-cluster Kubernetes |
 | devrun | `POST/GET /devruns`, `GET/DELETE /devruns/{id}`, reload, logs, bundle, expire | database + in-cluster Kubernetes |
 | secret | `GET /secrets`, `PUT/DELETE /secrets/{name}` | database + in-cluster Kubernetes |
 | email | `GET/PUT /settings/email`, `POST /settings/email/test`, `POST /email/send` | database |
@@ -82,11 +81,13 @@ A small Go service (port `8093`) that owns identity and authorization for the pl
 
 It signs ES256 and generates, stores and rotates its own keys — there is no signing key for an operator to set. The private halves live in `iam_signing_keys` encrypted under `KV_ENCRYPTION_KEY`, the same key the orchestrator uses for the KV store.
 
-`POST /auth` is the exchange and `POST /auth/refresh` renews the result, re-reading roles from the database so a revocation lands within a token lifetime. It also owns the `users` table and the routes that administer it — those require a platform token carrying `platform:admin`, checked by iam itself and not only by the app in front of it.
+`POST /auth` is the exchange, taking either the provider's token or one of the caller's [API keys](/platform/users-and-api-keys#api-keys), and `POST /auth/refresh` renews the result, re-reading roles from the database so a revocation lands within a token lifetime. It also owns the `users` and `api_keys` tables and the routes that manage them — user administration requires a platform token carrying `platform:admin`, and a person's API keys may be managed only by that person, both checked by iam itself and not only by the app in front of it.
 
 ClusterIP only, and it publishes no OpenAPI: it is not a surface to expose or to hand to an agent as a tool.
 
-The orchestrator's `{userId}` path segments are ids iam issued; it serves no `/users` collection of its own.
+### Public API (`api/`)
+
+The one component meant to be reached from outside: the [public API](/platform/public-api) at `api.{domain}`. It is an Octo integration, the flows under `api/`, run by the standalone `octo-runtime` image, and it relays onto the orchestrator and observability, which stay ClusterIP. Every route starts by handing the caller's bearer, an API key or an identity-provider token, to iam's `POST /auth`, and makes its call with the platform token that comes back. It verifies no credential itself, and every write it relays is attributed to the user iam resolved, never to an `actorId` the caller sent.
 
 ### Postgres
 

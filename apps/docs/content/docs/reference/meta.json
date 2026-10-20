@@ -4,6 +4,7 @@
     "connectors",
     "blocks",
     "cli",
+    "octopaas",
     "cel",
     "flow-file"
   ],

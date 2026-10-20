@@ -1,0 +1,114 @@
+---
+title: "octopaas resources"
+description: "Manage the resources an integration carries"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+Resources are what an integration carries besides its flows: env files, templates, prompts and so on. Each has a kind, a name (its path, which may contain slashes) and content, and is addressed by its id.
+
+Also: `resource`, `res`.
+
+### `octopaas resources create`
+
+Add a resource.
+
+```bash
+octopaas resources create <integration> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas resources create billing --kind template --name templates/invoice.html --from invoice.html
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--from` | the file holding its content, or - for stdin |  |
+| `--kind` | what the resource is, such as env or template |  |
+| `--name` | its path inside the integration (default: the --from file's name) |  |
+
+### `octopaas resources get`
+
+Show a resource.
+
+```bash
+octopaas resources get <integration> <resource-id> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas resources get billing 3f1c…
+octopaas resources get billing 3f1c… --content > prompt.md
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--content` | print only the resource's content |  |
+
+### `octopaas resources list`
+
+List an integration's resources.
+
+```bash
+octopaas resources list <integration>
+```
+
+Also: `ls`.
+
+**Examples**
+
+```bash
+octopaas resources list billing
+```
+
+### `octopaas resources rm`
+
+Delete a resource.
+
+```bash
+octopaas resources rm <integration> <resource-id> [flags]
+```
+
+Also: `delete`.
+
+**Examples**
+
+```bash
+octopaas resources rm billing 3f1c… --yes
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `-y`, `--yes` | do not ask first |  |
+
+### `octopaas resources update`
+
+Replace a resource.
+
+```bash
+octopaas resources update <integration> <resource-id> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas resources update billing 3f1c… --kind template --name templates/invoice.html --from invoice.html
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--from` | the file holding its content, or - for stdin |  |
+| `--kind` | what the resource is, such as env or template |  |
+| `--name` | its path inside the integration (default: the --from file's name) |  |
+

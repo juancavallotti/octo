@@ -88,8 +88,12 @@ function roleCall(
   );
 }
 
-/** One administered request, carrying the caller's own token. */
-async function managed<T>(
+/**
+ * One request to iam carrying the caller's own token. Shared with the API-key
+ * operations, which are the caller's own rather than administered but present the
+ * same credential.
+ */
+export async function managed<T>(
   method: string,
   path: string,
   body?: unknown,

@@ -481,3 +481,64 @@ password
 - name: DATABASE_URL
   value: "postgres://{{ include "octo.database.user" . | urlquery }}@{{ include "octo.database.host" . }}:{{ include "octo.database.port" . }}/{{ include "octo.database.name" . }}?sslmode={{ include "octo.database.sslmode" . }}"
 {{- end }}
+
+{{/*
+  The host the public API is published at: api.host, else "api." in front of the
+  editor's host — api.octopaas.dev beside octopaas.dev.
+*/}}
+{{- define "octo.api.host" -}}
+{{- if .Values.api.host -}}
+{{- .Values.api.host -}}
+{{- else -}}
+{{- printf "api.%s" (required "api.host (or ingress.host, which it defaults from) is required when api.enabled is true" .Values.ingress.host) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+  The public API's own origin, which is also its OAuth resource identifier: what
+  a client asks the identity provider for a token for, and so an audience iam has
+  to accept. api.url names it outright for an install reached on a non-default
+  port, the way auth.url does for the editor.
+*/}}
+{{- define "octo.api.resource" -}}
+{{- if .Values.api.url -}}
+{{- trimSuffix "/" .Values.api.url -}}
+{{- else -}}
+{{- printf "https://%s" (include "octo.api.host" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+  The public API's ingress settings: the editor's — class, annotations, TLS mode
+  and issuer — on the API's own host and certificate. One install terminates TLS
+  one way, so only what differs per host is asked for again.
+
+  Annotations are inherited, so an ALB group or a controller tweak covers both,
+  except GCE's static IP: it names one reserved address, which a second Ingress
+  cannot also hold. api.ingress.annotations is laid over the rest, for whatever
+  the API needs of its own.
+*/}}
+{{- define "octo.api.ingress" -}}
+{{- $ing := deepCopy .Values.ingress -}}
+{{- $ann := omit ($ing.annotations | default dict) "kubernetes.io/ingress.global-static-ip-name" -}}
+{{- $_ := set $ing "annotations" (merge (deepCopy ((.Values.api.ingress | default dict).annotations | default dict)) $ann) -}}
+{{- $_ := set $ing "host" (include "octo.api.host" .) -}}
+{{- $_ = set $ing "extraHosts" list -}}
+{{- $tls := deepCopy ($ing.tls | default dict) -}}
+{{- $_ = set $tls "secretName" .Values.api.tls.secretName -}}
+{{- $_ = set $tls "managedCertificateName" "" -}}
+{{- $_ = set $ing "tls" $tls -}}
+{{- toYaml $ing -}}
+{{- end }}
+
+{{/*
+  The audiences iam accepts beyond the client id, comma-separated: the MCP
+  endpoint's resource, and the public API's when it is published.
+*/}}
+{{- define "octo.iam.acceptedAudiences" -}}
+{{- $audiences := list (include "octo.mcp.resource" .) -}}
+{{- if .Values.api.enabled -}}
+{{- $audiences = append $audiences (include "octo.api.resource" .) -}}
+{{- end -}}
+{{- join "," $audiences -}}
+{{- end }}

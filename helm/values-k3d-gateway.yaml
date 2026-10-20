@@ -28,7 +28,7 @@
 #      Traefik defaults those entrypoints to 8000/8443. Without it the HTTPS
 #      listeners report PortUnavailable and serve nothing.
 #   3. The mkcert Secret `octo-local-tls` present in this namespace (same one the
-#      Ingress profile uses): `mkcert local.octopaas.dev "*.apps.local.octopaas.dev"`.
+#      Ingress profile uses): `mkcert local.octopaas.dev api.local.octopaas.dev "*.apps.local.octopaas.dev"`.
 #
 # Port 8443, not 443, because Docker Desktop persistently occupies host :443 on
 # this machine, so k3d publishes host 8443 -> node 443 -> Traefik websecure.
@@ -121,6 +121,16 @@ devruntime:
 
 agenticrunner:
   repository: octo-agenticrunner
+
+# The public API at https://api.local.octopaas.dev:8443, on the locally built
+# standalone runtime (the same build as octo-runtime) and the same mkcert Secret
+# as the editor, which is why the mkcert command above names its host too.
+api:
+  enabled: true
+  repository: octo-devruntime
+  url: "https://api.local.octopaas.dev:8443"
+  tls:
+    secretName: octo-local-tls
 
 # The embedding server. Still off by default, here as everywhere: it needs a
 # provider key, and there is no sensible local default for one. Turn it on with

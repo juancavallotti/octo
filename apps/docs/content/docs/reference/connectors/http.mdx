@@ -6,6 +6,7 @@ octo_types:
   - http-client
   - rest
   - rest-dynamic
+  - rest-stream
   - sse-event
 ---
 
@@ -311,7 +312,7 @@ curl -N localhost:8080/progress
 
 The `http-client` connector (label: **HTTP Client**) owns a configured client for calling external HTTP APIs: base URL, authentication, default headers, a request timeout, retry on `429`, and an opt-in in-memory response cache for GETs. The `rest` block references it by name.
 
-**Provides a source:** no, it is outbound only. **Blocks that bind to it:** `rest` and `rest-dynamic`.
+**Provides a source:** no, it is outbound only. **Blocks that bind to it:** `rest`, `rest-dynamic` and `rest-stream`.
 
 ### Settings
 
@@ -613,4 +614,73 @@ Relaying a request described by the message, the shape an agent tool takes:
     # Report the status as data rather than failing the flow, so the caller can
     # act on a 404 instead of the message ending.
     failOnError: false
+```
+
+## `rest-stream` block
+
+**Streaming REST Call** makes the same request as [`rest-dynamic`](#rest-dynamic-block) but reads the answer a line at a time as it arrives, running its `body` sub-flow once per line. Use it for an upstream that keeps talking: a log tail, an NDJSON feed, another server's event stream. `rest` and `rest-dynamic` read the whole response before the flow sees any of it, so they cannot relay one.
+
+The request settings are `rest-dynamic`'s, with the same checks on what a rendered request may be. The request body is `requestBody`, because `body` is the sub-flow.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `http-client` connector to use. |
+| `method` | expression | Yes | none | CEL expression for the HTTP method. |
+| `path` | expression | Yes | none | CEL expression for the path, resolved against the connector's base URL. |
+| `query` | expression | No | unset | CEL expression evaluating to a map of query parameters. |
+| `headers` | expression | No | unset | CEL expression evaluating to a map of request headers. |
+| `requestBody` | expression | No | unset | CEL expression for the request body, as `rest-dynamic`'s `body`. |
+| `allowMethods` | list of string | No | unset | Methods this block may issue. |
+| `pathPrefix` | string | No | unset | Path prefix this block may call under. |
+| `failOnError` | boolean | No | `true` | Turn a 400+ status into a flow error. When `false`, the error body is folded into the message as `rest` does, and no line is read. |
+| `statusVar` | string | No | `statusCode` | Variable to store the response status code in. |
+| `as` | string | No | `line` | Variable each line is bound to while the body runs on it. |
+| `maxLineBytes` | int | No | `1048576` | Longest line accepted. A longer one ends the stream with an error. |
+| `maxDuration` | duration | No | unlimited | How long the stream may stay open. Reaching it ends the stream normally, not as a failure. |
+| `body` | flow | Yes | none | Sub-flow run once per line, in order. |
+
+The connector's `timeout` does not apply: it bounds a request that ends, and would cut a healthy stream off. Neither does `maxResponseBytes`, except on a 4xx or 5xx answer, which is read whole. Bound a stream with `maxDuration`, or let the upstream end it.
+
+The stream ends when the upstream closes it, when `maxDuration` passes, or when the body stops or drops the message. A stop is how a relay notices its caller is gone: an [`sse-event`](#sse-event-block) whose stream has closed stops the flow (its default `ifClosed: stop`), and the block stops reading on that line.
+
+<Callout type="warn">
+A stream that goes quiet is only noticed to be orphaned when its next line arrives. Set `maxDuration` on a relay whose upstream can idle, or a caller that hangs up leaves the upstream request open until it next writes.
+</Callout>
+
+### Example
+
+Relaying a log tail to the caller as server-sent events:
+
+```yaml
+flows:
+  - name: tail
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /pods/{pod}/logs/stream
+        sse:
+          enabled: true
+          maxDuration: 30m
+    process:
+      # Commits the stream, so a quiet pod is an open stream and not a 504.
+      - type: sse-event
+        name: opened
+        settings:
+          event: open
+          data: '{"pod": vars.pod}'
+      - type: rest-stream
+        name: follow
+        connector: cluster
+        method: '"GET"'
+        path: '"/pods/" + vars.pod + "/logs"'
+        query: '{"follow": "1"}'
+        maxDuration: 30m
+        body:
+          process:
+            - type: sse-event
+              name: line
+              settings:
+                event: log
+                data: 'vars.line'
 ```

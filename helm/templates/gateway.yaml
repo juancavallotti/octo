@@ -84,6 +84,25 @@ spec:
           from: Same
     {{- end }}
     {{- end }}
+    {{- /* The public API's host, on its own certificate. */}}
+    {{- if and .Values.api.enabled .Values.ingress.enabled }}
+    - name: api
+      hostname: {{ include "octo.api.host" . | quote }}
+      {{- if eq $mode "none" }}
+      protocol: HTTP
+      port: 80
+      {{- else }}
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ .Values.api.tls.secretName | quote }}
+      {{- end }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
     {{- /* The wildcard every per-integration endpoint lands on. It exists only
            when the orchestrator is configured to publish them at all, and it is
            HTTPS only when there is a wildcard certificate to terminate with: a

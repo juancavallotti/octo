@@ -1,0 +1,45 @@
+---
+title: "octopaas logs"
+description: "Read or follow what a deployment logs"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+Read a deployment's logs three ways:
+
+```
+- By default, its stored history: newest last, across every pod it has had,
+  filtered with --level, --grep and --since. --all pages through everything.
+- With --tail, the last lines its pods wrote, straight from the cluster.
+- With --follow, its pods' logs live, line by line, until you press Ctrl-C.
+  The platform ends a stream after thirty minutes; octopaas reconnects.
+```
+
+--pod narrows tail and follow to one pod; without it every pod is read, each with its own colour.
+
+```bash
+octopaas logs <deployment> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas logs billing --since 1h --level ERROR
+octopaas logs billing --grep invoice --all -o json
+octopaas logs billing --tail 100
+octopaas logs billing -f
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--all` | page through every matching entry, not only the newest page |  |
+| `--grep` | only messages containing this text |  |
+| `--level` | only this level: DEBUG, INFO, WARN or ERROR |  |
+| `--limit` | entries per page (at most 1000) | `200` |
+| `--pod` | only this pod (tail and follow) |  |
+| `--since` | only entries newer than this, such as 30m or 24h | `0s` |
+| `--tail` | the last N lines from the cluster; with --follow, how many to start with |  |
+| `-f`, `--follow` | stream new lines as they are written |  |
+

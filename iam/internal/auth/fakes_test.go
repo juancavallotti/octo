@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/juancavallotti/octo/iam/internal/apikey"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
 )
@@ -260,4 +261,18 @@ func (m *memKeys) Rotate(
 	}
 	m.keys = append(m.keys, fresh)
 	return fresh, nil
+}
+
+// stubKeys answers for the API keys a case registered, by plaintext, and refuses
+// every other one the way the real service does. How a key is hashed, stored and
+// expired is the apikey package's business; what is under test here is what the
+// exchange does with its answer.
+type stubKeys map[string]apikey.APIKey
+
+func (k stubKeys) Verify(_ context.Context, plaintext string) (apikey.APIKey, error) {
+	key, ok := k[plaintext]
+	if !ok {
+		return apikey.APIKey{}, apikey.ErrInvalidToken
+	}
+	return key, nil
 }

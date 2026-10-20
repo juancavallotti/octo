@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 #
-# The release artifacts for the two CLIs — octo, the runtime, and dolphin, its test
-# runner — cross-compiled for macOS, Linux and Windows on amd64 and arm64, and
+# The release artifacts for the three CLIs — octo, the runtime; dolphin, its test
+# runner; and octopaas, the platform's admin CLI — cross-compiled for macOS, Linux and Windows on amd64 and arm64, and
 # attached to the GitHub release that release-please has already created for the tag.
 #
 # Two invariants below are load-bearing for the download tables in README.md and the
@@ -45,6 +45,18 @@ builds:
     ldflags: ['-s -w -X main.BuildDate={{ .Date }}']
     mod_timestamp: '{{ .CommitTimestamp }}'
 
+  # octopaas is its own module, so it builds from its own directory.
+  - id: octopaas
+    dir: octopaas
+    main: .
+    binary: octopaas
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ['-s -w -X main.BuildDate={{ .Date }}']
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
 archives:
   # The archive names carry NO version — the tag in the release URL already
   # identifies them. That is not cosmetic: the download tables in README.md sit
@@ -69,8 +81,17 @@ archives:
         formats: [zip]
     files: [LICENSE]
 
+  - id: octopaas
+    ids: [octopaas]
+    name_template: 'octopaas_{{ .Os }}_{{ .Arch }}'
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE]
+
 checksum:
-  # One file covering both archive sets, and named the way the README and the install
+  # One file covering every archive set, and named the way the README and the install
   # docs link to it. The default is <project>_<version>_checksums.txt.
   name_template: checksums.txt
 

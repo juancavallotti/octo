@@ -27,6 +27,7 @@ type harness struct {
 	idp     *fakeIDP
 	signing *signing.Service
 	users   *user.Service
+	keys    stubKeys
 }
 
 func newHarness(t *testing.T, grace ...time.Duration) *harness {
@@ -40,14 +41,15 @@ func newHarness(t *testing.T, grace ...time.Duration) *harness {
 	if err != nil {
 		t.Fatalf("signing.NewService: %v", err)
 	}
-	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer)
+	keys := stubKeys{}
+	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer, keys)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 
 	mux := http.NewServeMux()
 	NewHandler(svc).Register(mux)
-	return &harness{mux: mux, idp: idp, signing: signer, users: users}
+	return &harness{mux: mux, idp: idp, signing: signer, users: users, keys: keys}
 }
 
 func (h *harness) postRefresh(t *testing.T, bearer string) *httptest.ResponseRecorder {
@@ -301,14 +303,16 @@ func TestNewServiceRequiresEveryCollaborator(t *testing.T) {
 		verif verifier
 		store users
 		mint  minter
+		keys  keys
 	}{
-		{"no verifier", nil, allUsers, signer},
-		{"no users", v, nil, signer},
-		{"no minter", v, allUsers, nil},
+		{"no verifier", nil, allUsers, signer, stubKeys{}},
+		{"no users", v, nil, signer, stubKeys{}},
+		{"no minter", v, allUsers, nil, stubKeys{}},
+		{"no keys", v, allUsers, signer, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := NewService(tt.verif, tt.store, tt.mint); !errors.Is(err, ErrNotConfigured) {
+			if _, err := NewService(tt.verif, tt.store, tt.mint, tt.keys); !errors.Is(err, ErrNotConfigured) {
 				t.Errorf("NewService() error = %v, want ErrNotConfigured", err)
 			}
 		})

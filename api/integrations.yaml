@@ -1,0 +1,532 @@
+# Integrations, and everything they are made of: their files, their resources
+# and the whole thing as a bundle.
+#
+# Each route is the same three steps — authenticate, relay, hand back the
+# orchestrator's status — and the relay names its request body field by field.
+# The orchestrator refuses fields it does not know, and the one field a caller
+# must never be able to set, actorId, is always the id iam resolved.
+
+flows:
+  # GET /v1/integrations
+  - name: list-integrations
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # POST /v1/integrations  {"name": "...", "definition": "<yaml>"}
+  - name: create-integration
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations
+        methods: [POST]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"POST"'
+          path: '"/integrations"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: >-
+            {"name": body.?name.orValue(""),
+             "definition": body.?definition.orValue(""),
+             "actorId": vars.userId}
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}
+  - name: get-integration
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # PATCH /v1/integrations/{id}  {"name": "..."}
+  #
+  # A rename. The orchestrator spells it PUT; it is a PATCH here because the name
+  # is the only field it changes, and the definition is edited through the files.
+  - name: rename-integration
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}
+        methods: [PATCH]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"PUT"'
+          path: '"/integrations/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: '{"name": body.?name.orValue(""), "actorId": vars.userId}'
+          failOnError: false
+      - ref: relay-status
+
+  # DELETE /v1/integrations/{id}
+  - name: delete-integration
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}
+        methods: [DELETE]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"DELETE"'
+          path: '"/integrations/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}/bundle — the integration as a zip: its definition
+  # and every resource, the shape the desktop app opens as a folder.
+  - name: download-bundle
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/bundle
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate, Content-Disposition]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/bundle"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+      # The orchestrator's own header does not survive the relay, so a client
+      # saving the response is told what to call it here.
+      - type: set-variable
+        name: attachment
+        settings:
+          name: Content-Disposition
+          value: '"attachment; filename=\"" + vars.id + ".zip\""'
+
+  # PUT /v1/integrations/{id}/bundle — replace the integration with a zip.
+  - name: replace-bundle
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/bundle
+        methods: [PUT]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        rawBody: true
+        maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"PUT"'
+          path: '"/integrations/" + vars.id + "/bundle"'
+          query: '{"actorId": vars.userId}'
+          headers: >-
+            {"Authorization": "Bearer " + vars.platformToken,
+             "Content-Type": "application/zip"}
+          body: 'body.rawData'
+          failOnError: false
+      - ref: relay-status
+
+  # POST /v1/integrations/bundle?name=... — import a zip as a new integration.
+  - name: import-bundle
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/bundle
+        methods: [POST]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        rawBody: true
+        maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"POST"'
+          path: '"/integrations/bundle"'
+          query: '{"name": vars.query.?name.orValue(""), "actorId": vars.userId}'
+          headers: >-
+            {"Authorization": "Bearer " + vars.platformToken,
+             "Content-Type": "application/zip"}
+          body: 'body.rawData'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}/files — the paths, without their contents.
+  - name: list-files
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/files
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/files"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # PUT /v1/integrations/{id}/files  {"files": [{"path": "...", "content": "..."}]}
+  #
+  # Replaces every file at once, which is how a folder edited locally goes back
+  # up in one step.
+  - name: replace-files
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/files
+        methods: [PUT]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"PUT"'
+          path: '"/integrations/" + vars.id + "/files"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: >-
+            {"files": body.?files.orValue([]).map(f,
+               {"path": f.?path.orValue(""), "content": f.?content.orValue("")}),
+             "actorId": vars.userId}
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}/files/content?path=...
+  #
+  # The path is a query parameter rather than a segment: file paths contain
+  # slashes, and a %2F inside a segment does not survive every proxy.
+  - name: get-file
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/files/content
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/files/content"'
+          query: '{"path": vars.query.?path.orValue("")}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # PUT /v1/integrations/{id}/files/content?path=...  {"content": "..."}
+  - name: put-file
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/files/content
+        methods: [PUT]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"PUT"'
+          path: '"/integrations/" + vars.id + "/files/content"'
+          query: '{"path": vars.query.?path.orValue("")}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: '{"content": body.?content.orValue(""), "actorId": vars.userId}'
+          failOnError: false
+      - ref: relay-status
+
+  # DELETE /v1/integrations/{id}/files/content?path=...
+  - name: delete-file
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/files/content
+        methods: [DELETE]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"DELETE"'
+          path: '"/integrations/" + vars.id + "/files/content"'
+          query: '{"path": vars.query.?path.orValue(""), "actorId": vars.userId}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}/resources
+  - name: list-resources
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/resources
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/resources"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # POST /v1/integrations/{id}/resources  {"kind": "...", "name": "...", "content": "..."}
+  - name: create-resource
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/resources
+        methods: [POST]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"POST"'
+          path: '"/integrations/" + vars.id + "/resources"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: >-
+            {"kind": body.?kind.orValue(""),
+             "name": body.?name.orValue(""),
+             "content": body.?content.orValue(""),
+             "actorId": vars.userId}
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}/resources/{resourceId}
+  - name: get-resource
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/resources/{resourceId}
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/resources/" + vars.resourceId'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # PUT /v1/integrations/{id}/resources/{resourceId}  {"kind": "...", "name": "...", "content": "..."}
+  - name: update-resource
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/resources/{resourceId}
+        methods: [PUT]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        maxBodyBytes: 8388608
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"PUT"'
+          path: '"/integrations/" + vars.id + "/resources/" + vars.resourceId'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: >-
+            {"kind": body.?kind.orValue(""),
+             "name": body.?name.orValue(""),
+             "content": body.?content.orValue(""),
+             "actorId": vars.userId}
+          failOnError: false
+      - ref: relay-status
+
+  # DELETE /v1/integrations/{id}/resources/{resourceId}
+  - name: delete-resource
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/resources/{resourceId}
+        methods: [DELETE]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"DELETE"'
+          path: '"/integrations/" + vars.id + "/resources/" + vars.resourceId'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status

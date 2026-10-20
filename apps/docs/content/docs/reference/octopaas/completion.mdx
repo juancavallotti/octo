@@ -1,0 +1,139 @@
+---
+title: "octopaas completion"
+description: "Generate the autocompletion script for the specified shell"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+Generate the autocompletion script for octopaas for the specified shell. See each sub-command's help for details on how to use the generated script.
+
+### `octopaas completion bash`
+
+Generate the autocompletion script for the bash shell.
+
+This script depends on the 'bash-completion' package. If it is not installed already, you can install it via your OS's package manager.
+
+To load completions in your current shell session:
+
+```
+source <(octopaas completion bash)
+```
+
+To load completions for every new session, execute once:
+
+#### Linux:
+
+```
+octopaas completion bash > /etc/bash_completion.d/octopaas
+```
+
+#### macOS:
+
+```
+octopaas completion bash > $(brew --prefix)/etc/bash_completion.d/octopaas
+```
+
+You will need to start a new shell for this setup to take effect.
+
+```bash
+octopaas completion bash
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--no-descriptions` | disable completion descriptions |  |
+
+### `octopaas completion fish`
+
+Generate the autocompletion script for the fish shell.
+
+To load completions in your current shell session:
+
+```
+octopaas completion fish | source
+```
+
+To load completions for every new session, execute once:
+
+```
+octopaas completion fish > ~/.config/fish/completions/octopaas.fish
+```
+
+You will need to start a new shell for this setup to take effect.
+
+```bash
+octopaas completion fish [flags]
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--no-descriptions` | disable completion descriptions |  |
+
+### `octopaas completion powershell`
+
+Generate the autocompletion script for powershell.
+
+To load completions in your current shell session:
+
+```
+octopaas completion powershell | Out-String | Invoke-Expression
+```
+
+To load completions for every new session, add the output of the above command to your powershell profile.
+
+```bash
+octopaas completion powershell [flags]
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--no-descriptions` | disable completion descriptions |  |
+
+### `octopaas completion zsh`
+
+Generate the autocompletion script for the zsh shell.
+
+If shell completion is not already enabled in your environment you will need to enable it. You can execute the following once:
+
+```
+echo "autoload -U compinit; compinit" >> ~/.zshrc
+```
+
+To load completions in your current shell session:
+
+```
+source <(octopaas completion zsh)
+```
+
+To load completions for every new session, execute once:
+
+#### Linux:
+
+```
+octopaas completion zsh > "${fpath[1]}/_octopaas"
+```
+
+#### macOS:
+
+```
+octopaas completion zsh > $(brew --prefix)/share/zsh/site-functions/_octopaas
+```
+
+You will need to start a new shell for this setup to take effect.
+
+```bash
+octopaas completion zsh [flags]
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--no-descriptions` | disable completion descriptions |  |
+

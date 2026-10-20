@@ -8,13 +8,14 @@
 # hostname over HTTPS:
 #
 #   editor  ->  https://local.octopaas.dev:8443
+#   api     ->  https://api.local.octopaas.dev:8443
 #   apps    ->  https://<subdomain>.apps.local.octopaas.dev:8443  (dev runs + deploys)
 #
 # HTTPS (not plain HTTP) because .dev is on the browsers' HSTS preload list: a
 # browser force-upgrades http://*.dev to https:// and refuses a self-signed cert
 # with no click-through. So Traefik terminates TLS with a locally-trusted mkcert
 # certificate, referenced by the Secret `octo-local-tls` (created out of band from
-# `mkcert local.octopaas.dev "*.apps.local.octopaas.dev"`; this chart does not
+# `mkcert local.octopaas.dev api.local.octopaas.dev "*.apps.local.octopaas.dev"`; this chart does not
 # issue it — clusterIssuer is empty everywhere below).
 #
 # Port 8443, not 443, because Docker Desktop persistently occupies host :443 on
@@ -113,6 +114,16 @@ devruntime:
 
 agenticrunner:
   repository: octo-agenticrunner
+
+# The public API at https://api.local.octopaas.dev:8443, on the locally built
+# standalone runtime (the same build as octo-runtime) and the same mkcert Secret
+# as the editor, which is why the mkcert command above names its host too.
+api:
+  enabled: true
+  repository: octo-devruntime
+  url: "https://api.local.octopaas.dev:8443"
+  tls:
+    secretName: octo-local-tls
 
 # The embedding server. Still off by default, here as everywhere: it needs a
 # provider key, and there is no sensible local default for one. Turn it on with

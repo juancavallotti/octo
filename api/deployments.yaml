@@ -1,0 +1,505 @@
+# Versions, the deployments that run them, and what those deployments log.
+#
+# A version is what the orchestrator calls a snapshot: a tag freezing an
+# integration's definition and resources. The routes say "versions" because that
+# is what a person manages; the bodies keep the orchestrator's snapshotId, since
+# every deployment it returns names its version that way.
+
+flows:
+  # GET /v1/integrations/{id}/versions
+  - name: list-versions
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/versions
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/snapshots"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # POST /v1/integrations/{id}/versions  {"tag": "v1.2.0"}
+  #
+  # Freezes the integration as it stands now under that tag.
+  - name: create-version
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/versions
+        methods: [POST]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"POST"'
+          path: '"/integrations/" + vars.id + "/snapshots"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: '{"tag": body.?tag.orValue("")}'
+          failOnError: false
+      - ref: relay-status
+
+  # DELETE /v1/versions/{id}
+  - name: delete-version
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/versions/{id}
+        methods: [DELETE]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"DELETE"'
+          path: '"/snapshots/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/versions/{id}/bundle — one version as a zip, frozen resources and all.
+  - name: download-version-bundle
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/versions/{id}/bundle
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate, Content-Disposition]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/snapshots/" + vars.id + "/bundle"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+      - type: set-variable
+        name: attachment
+        settings:
+          name: Content-Disposition
+          value: '"attachment; filename=\"" + vars.id + ".zip\""'
+
+  # GET /v1/deployments — everything running on the installation.
+  - name: list-deployments
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/deployments"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}/deployments
+  - name: list-integration-deployments
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/deployments
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/deployments"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/integrations/{id}/deployments/options?snapshotId=&slug=&expose=
+  #
+  # What a deploy of this integration would need: whether it serves HTTP, the
+  # env vars it declares, and whether a chosen slug is free.
+  - name: deployment-options
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/deployments/options
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/integrations/" + vars.id + "/deployments/options"'
+          query: >-
+            {?"snapshotId": vars.query.?snapshotId,
+             ?"slug": vars.query.?slug,
+             ?"expose": vars.query.?expose}
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # POST /v1/integrations/{id}/deployments  {"snapshotId": "...", "replicas": 1, "env": {...}, ...}
+  #
+  # The settings are rebuilt like every other body here, each sent only when
+  # given so the orchestrator's defaults stand. Which of them a caller may use —
+  # a privileged runner, the access lent to the deployment's own token — is the
+  # orchestrator's decision, made against the caller's roles. A deploy records
+  # no actor, so none is sent.
+  - name: create-deployment
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/integrations/{id}/deployments
+        methods: [POST]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"POST"'
+          path: '"/integrations/" + vars.id + "/deployments"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: >-
+            {?"snapshotId": body.?snapshotId,
+             ?"replicas": body.?replicas,
+             ?"slug": body.?slug,
+             ?"expose": body.?expose,
+             ?"subdomain": body.?subdomain,
+             ?"env": body.?env,
+             ?"tracing": body.?tracing,
+             ?"access": body.?access,
+             ?"runner": body.?runner}
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/deployments/{id}
+  - name: get-deployment
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/deployments/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # PATCH /v1/deployments/{id}  {"replicas": 3}
+  - name: scale-deployment
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}
+        methods: [PATCH]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      # Refused here because the orchestrator reads a missing or zero count as
+      # one, so `{}` would quietly scale a deployment down to a single replica.
+      - type: validate
+        name: require-replicas
+        rejectStatus: 400
+        rules:
+          - expr: >-
+              type(body) == map && has(body.replicas)
+              && type(body.replicas) in [int, uint, double]
+              && body.replicas >= 1
+              && double(body.replicas) == double(int(body.replicas))
+            message: "replicas must be a whole number of at least 1"
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"PATCH"'
+          path: '"/deployments/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: '{"replicas": int(body.replicas)}'
+          failOnError: false
+      - ref: relay-status
+
+  # POST /v1/deployments/{id}/rollout  {"snapshotId": "...", "env": {...}, "tracing": true}
+  #
+  # Moves a running deployment onto another version in place. A field left out
+  # keeps what the deployment already has, so it is only sent when given.
+  - name: rollout-deployment
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/rollout
+        methods: [POST]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"POST"'
+          path: '"/deployments/" + vars.id + "/rollout"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: >-
+            {?"snapshotId": body.?snapshotId,
+             ?"env": body.?env,
+             ?"tracing": body.?tracing}
+          failOnError: false
+      - ref: relay-status
+
+  # DELETE /v1/deployments/{id}
+  - name: delete-deployment
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}
+        methods: [DELETE]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"DELETE"'
+          path: '"/deployments/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/deployments/{id}/logs?level=&q=&from=&to=&before=&limit=
+  #
+  # What the deployment has logged, newest first, a page at a time; pass the
+  # page's next_before back as before= for the one after it. This is the stored
+  # history in observability, across every pod the deployment has had.
+  - name: deployment-logs
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/logs
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: observability
+          method: '"GET"'
+          path: '"/logs"'
+          query: >-
+            {"deploymentId": vars.id,
+             ?"level": vars.query.?level,
+             ?"q": vars.query.?q,
+             ?"from": vars.query.?from,
+             ?"to": vars.query.?to,
+             ?"before": vars.query.?before,
+             ?"limit": vars.query.?limit}
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/deployments/{id}/pods/{pod}/logs?tail=200 — the last lines one pod
+  # wrote, as plain text, straight from the cluster.
+  - name: pod-logs
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/pods/{pod}/logs
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/deployments/" + vars.id + "/pods/" + vars.pod + "/logs"'
+          query: '{?"tail": vars.query.?tail}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/deployments/{id}/pods/{pod}/logs/stream?tail=50 — one pod's log as
+  # it is written, as server-sent events: an `open` event as soon as the stream
+  # is up, then one `log` event per line.
+  #
+  # The open event commits the stream at once, so a pod that is quiet is an open
+  # stream rather than a request that times out waiting for its first line. A bad
+  # credential is refused before it, with an ordinary status; anything refused
+  # after it, an unknown pod included, arrives in-band as an `error` event. Thirty
+  # minutes is the most one stream stays open; a client that wants more
+  # reconnects, which is what an EventSource does by itself.
+  - name: stream-pod-logs
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/pods/{pod}/logs/stream
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+        sse:
+          enabled: true
+          maxDuration: 30m
+    error:
+      - ref: log-relay-failure
+      - type: sse-event
+        name: failed
+        settings:
+          event: error
+          data: '{"error": "the log stream ended unexpectedly"}'
+          close: true
+          ifClosed: ignore
+    process:
+      - ref: authenticate
+      - type: sse-event
+        name: opened
+        settings:
+          event: open
+          data: '{"deployment": vars.id, "pod": vars.pod}'
+      - type: rest-stream
+        name: follow
+        connector: orchestrator
+        method: '"GET"'
+        path: '"/deployments/" + vars.id + "/pods/" + vars.pod + "/logs"'
+        query: '{"follow": "1", ?"tail": vars.query.?tail}'
+        headers: '{"Authorization": "Bearer " + vars.platformToken}'
+        failOnError: false
+        maxDuration: 30m
+        body:
+          process:
+            - type: sse-event
+              name: line
+              settings:
+                event: log
+                data: 'vars.line'
+      # The orchestrator refused the tail after the stream was already open, so
+      # the refusal is told in-band.
+      - type: if
+        name: refused
+        condition: 'vars.statusCode >= 400'
+        then:
+          process:
+            - type: sse-event
+              name: refusal
+              settings:
+                event: error
+                data: 'body'
+                close: true
+                ifClosed: ignore

@@ -1,0 +1,89 @@
+---
+title: "octopaas files"
+description: "Read and write an integration's config files one at a time"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+An integration's definition is a set of config files: integration.yaml and whatever it splits its flows into. These commands work on one file at a time; to work on all of them, pull and push the integration instead.
+
+A file is named by its path inside the integration, slashes and all.
+
+Also: `file`.
+
+### `octopaas files cat`
+
+Print one config file.
+
+```bash
+octopaas files cat <integration> <path>
+```
+
+Also: `get`.
+
+**Examples**
+
+```bash
+octopaas files cat billing integration.yaml
+octopaas files cat billing flows/invoices.yaml > invoices.yaml
+```
+
+### `octopaas files list`
+
+List an integration's config files.
+
+```bash
+octopaas files list <integration>
+```
+
+Also: `ls`.
+
+**Examples**
+
+```bash
+octopaas files list billing
+```
+
+### `octopaas files put`
+
+Write one config file, creating it if it is new. The content comes from --from, a file or - for stdin.
+
+```bash
+octopaas files put <integration> <path> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas files put billing flows/invoices.yaml --from ./invoices.yaml
+echo "flows: []" | octopaas files put billing flows/empty.yaml --from -
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--from` | the file to upload, or - for stdin |  |
+
+### `octopaas files rm`
+
+Delete one config file.
+
+```bash
+octopaas files rm <integration> <path> [flags]
+```
+
+Also: `delete`.
+
+**Examples**
+
+```bash
+octopaas files rm billing flows/old.yaml --yes
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `-y`, `--yes` | do not ask first |  |
+

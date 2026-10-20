@@ -46,6 +46,7 @@ put everything under `settings`.
 | --- | --- |
 | `rest` | `connector`, `method`, `path` (both **static**), `query`/`headers` (maps of CEL), `body` (CEL), `bodyType` (`raw`\|`multipart`), `failOnError`, `statusVar`. |
 | `rest-dynamic` | Same, but `method`, `path`, `query`, `headers`, `body` are **all** CEL, and `query`/`headers` are one expression evaluating to a whole map. Use when the endpoint itself is data. Also takes `allowMethods` and `pathPrefix`. |
+| `rest-stream` | `rest-dynamic`'s request (its body is `requestBody`), read **a line at a time** as it arrives: the `body` sub-flow runs once per line with it in `vars.line`. For log tails, NDJSON or another server's event stream; put an `sse-event` in the body to relay lines to a caller. Takes `maxDuration`; the connector `timeout` does not apply. |
 | `flow-ref` | `flow`, `oneWay` — invoke another flow by name. |
 | `cli-run` | `program` (CEL, absolute path), `args` (CEL list), `allow` (absolute paths; required when `program` depends on the message), `env`, `workDir`, `timeout`, `onExit`, `events`/`emit` (stdout/stderr/exit). Runs a local program; no shell, argv only. |
 | `jwt-validate` | Filter: verify a bearer JWT against an OIDC provider; claims land in `vars.jwt`. |

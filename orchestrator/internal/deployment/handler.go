@@ -34,9 +34,11 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// Register attaches the deployment routes to mux. Deploy/list are nested under
-// an integration; get/undeploy address a deployment directly.
+// Register attaches the deployment routes to mux. Deploy and the per-integration
+// list are nested under an integration; the installation-wide list, get and
+// undeploy address deployments directly.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /deployments", h.list)
 	mux.HandleFunc("POST /integrations/{id}/deployments", h.deploy)
 	mux.HandleFunc("GET /integrations/{id}/deployments", h.listByIntegration)
 	mux.HandleFunc("GET /integrations/{id}/deployments/options", h.deployOptions)
@@ -312,15 +314,42 @@ func (h *Handler) deployOptions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// list godoc
+//
+//	@Summary		List every deployment
+//	@Description	Across all integrations, newest first, each with its live cluster status. A
+//	@Description	status the cluster cannot report is left as stored rather than failing the list.
+//	@Tags			deployments
+//	@Produce		json
+//	@Success		200	{array}		deploymentResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/deployments [get]
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	items, err := h.svc.List(ctx)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]deploymentResponse, 0, len(items))
+	for _, d := range items {
+		out = append(out, toResponse(d))
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
 // listByIntegration godoc
 //
 //	@Summary		List an integration's deployments
-//	@Description	Each with its live cluster status: replicas, pods and any failure reason.
+//	@Description	Each with its live cluster status: replicas, pods and any failure reason. A
+//	@Description	status the cluster cannot report is left as stored rather than failing the list.
 //	@Tags			deployments
 //	@Produce		json
 //	@Param			id	path		string	true	"Integration id"
 //	@Success		200	{array}		deploymentResponse
-//	@Failure		503	{object}	httpx.ErrorResponse	"no cluster access"
+//	@Failure		500	{object}	httpx.ErrorResponse
 //	@Router			/integrations/{id}/deployments [get]
 func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)

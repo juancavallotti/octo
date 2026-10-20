@@ -21,6 +21,7 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 		{"GET", "/snapshots/s1/resources", append(anyone, RoleRuntime)},
 
 		// Deploying is not something a developer does here; reading is.
+		{"GET", "/deployments", anyone},
 		{"GET", "/deployments/d1", anyone},
 		{"POST", "/deployments/d1/rollout", []string{RoleAdmin, RoleOperator}},
 		{"DELETE", "/deployments/d1", []string{RoleAdmin, RoleOperator}},

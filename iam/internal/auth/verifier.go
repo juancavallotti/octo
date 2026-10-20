@@ -11,7 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -111,13 +111,42 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (Identity, error
 // audienceAccepted reports whether any of the token's audiences is one this
 // install answers for. A token carries a list, and matching any entry is the rule
 // RFC 7519 lays down.
+//
+// Matching is exact but for one spelling: an origin with no path names the same
+// resource as that origin with a "/" path. Providers normalize a resource
+// indicator (RFC 8707) to one or the other, so the public API at
+// https://api.example arrives as "https://api.example/" from some and not from
+// others. Nothing else is folded together: another path, host, port or scheme is
+// another audience.
 func (v *Verifier) audienceAccepted(tokenAudiences []string) bool {
 	for _, aud := range tokenAudiences {
-		if slices.Contains(v.audiences, aud) {
-			return true
+		for _, want := range v.audiences {
+			if sameAudience(aud, want) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// sameAudience reports whether two audience values name the same thing.
+func sameAudience(a, b string) bool {
+	if a == b {
+		return true
+	}
+	return bareOrigin(a) != "" && bareOrigin(a) == bareOrigin(b)
+}
+
+// bareOrigin returns u without its trailing "/" when u is an absolute URL whose
+// path is empty or "/" and that carries nothing else, and "" otherwise.
+func bareOrigin(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" ||
+		(parsed.Path != "" && parsed.Path != "/") ||
+		parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // fromUserinfo asks the provider for the caller's profile, using the caller's own

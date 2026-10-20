@@ -159,9 +159,14 @@ steps:
           # Chart components only. octo-api-paas is built and pushed above but is
           # deliberately absent: the chart deploys nothing from it — it is the
           # image an operator runs outside this cluster, or beside their own
-          # service — so there is no values key for a digest to pin.
-          for c in platform orchestrator observability iam schema runtime devsidecar statssidecar devruntime agenticrunner embeddings; do
+          # service — so there is no values key for a digest to pin. (The chart's
+          # `api` component is the public API, unrelated to octo-api-paas despite
+          # the name.)
+          # api has no image of its own: it runs the standalone runtime, pushed
+          # here as octo-devruntime-paas, so it is pinned to that digest.
+          for c in platform orchestrator observability iam schema runtime devsidecar statssidecar devruntime agenticrunner embeddings api; do
             repo="octo-$${c}-paas"
+            [ "$${c}" = api ] && repo="octo-devruntime-paas"
             # RepoDigests can carry entries for more than one repository, so match
             # this image's rather than trusting the first element.
             digest="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' \

@@ -1,0 +1,37 @@
+---
+title: "octopaas config"
+description: "Look at the config file"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+octopaas keeps its configuration in ~/.octopaas/config.yaml (or under $OCTOPAAS_HOME), written on the first run. Sessions from `auth login` are kept apart, in credentials.yaml beside it.
+
+### `octopaas config path`
+
+Print where the config file is.
+
+```bash
+octopaas config path
+```
+
+**Examples**
+
+```bash
+$EDITOR "$(octopaas config path)"
+```
+
+### `octopaas config view`
+
+Print the configuration, with API keys masked.
+
+```bash
+octopaas config view
+```
+
+**Examples**
+
+```bash
+octopaas config view -o json
+```
+

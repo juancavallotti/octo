@@ -34,6 +34,7 @@ func init() {
 	registerConnector()
 	registerREST()
 	registerRESTDynamic()
+	registerRESTStream()
 }
 
 func registerConnector() {
@@ -170,12 +171,16 @@ type cacheSettings struct {
 // Connector is a configured HTTP client that rest blocks call through. It is
 // safe for concurrent use: *http.Client is, and the cache guards itself.
 type Connector struct {
-	client   *http.Client
-	base     *url.URL
-	auth     authSettings
-	headers  map[string]string
-	maxBytes int64
-	cache    *responseCache
+	client *http.Client
+	// streaming shares client's pool but has no Timeout, which on an
+	// http.Client bounds reading the body too: a stream is bounded by its
+	// caller's context instead. See Stream.
+	streaming *http.Client
+	base      *url.URL
+	auth      authSettings
+	headers   map[string]string
+	maxBytes  int64
+	cache     *responseCache
 
 	// maxAttempts and maxBackoff bound 429 retry behavior (see Do).
 	maxAttempts int
@@ -214,6 +219,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		timeout = defaultTimeout
 	}
 	c.client = newPooledClient(set.Pool, timeout)
+	c.streaming = &http.Client{Transport: c.client.Transport}
 	c.base = base
 	c.auth = set.Auth
 	c.headers = set.Headers
@@ -288,19 +294,7 @@ func (c *Connector) Stop(context.Context) error {
 // authentication, and—for cacheable GETs—serves from or fills the response cache.
 // The returned response body is always non-nil and the caller must close it.
 func (c *Connector) Do(req *http.Request) (*http.Response, error) {
-	if c.client == nil {
-		return nil, fmt.Errorf("http-client connector not started")
-	}
-
-	req.URL = c.resolveURL(req.URL)
-	req.Host = req.URL.Host
-
-	for k, v := range c.headers {
-		if req.Header.Get(k) == "" {
-			req.Header.Set(k, v)
-		}
-	}
-	if err := c.authorize(req); err != nil {
+	if err := c.prepare(req); err != nil {
 		return nil, err
 	}
 
@@ -311,7 +305,7 @@ func (c *Connector) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	resp, err := c.doWithRetry(req)
+	resp, err := c.doWithRetry(c.client, req)
 	if err != nil {
 		return nil, err
 	}
@@ -329,6 +323,35 @@ func (c *Connector) Do(req *http.Request) (*http.Response, error) {
 	// cannot stream an unbounded body into a downstream block.
 	resp.Body = newLimitedBody(resp.Body, c.maxBytes)
 	return resp, nil
+}
+
+// Stream executes req like Do, but for a response read as it arrives: no cache,
+// no cap on the whole body, and no connector timeout, which would cut a stream
+// off however healthy it was. The request's context is what bounds it, so a
+// caller passes one that ends. The caller must close the body.
+func (c *Connector) Stream(req *http.Request) (*http.Response, error) {
+	if err := c.prepare(req); err != nil {
+		return nil, err
+	}
+	return c.doWithRetry(c.streaming, req)
+}
+
+// prepare resolves req against the base URL and applies the default headers
+// (without overwriting ones the caller set) and authentication.
+func (c *Connector) prepare(req *http.Request) error {
+	if c.client == nil {
+		return fmt.Errorf("http-client connector not started")
+	}
+
+	req.URL = c.resolveURL(req.URL)
+	req.Host = req.URL.Host
+
+	for k, v := range c.headers {
+		if req.Header.Get(k) == "" {
+			req.Header.Set(k, v)
+		}
+	}
+	return c.authorize(req)
 }
 
 // resolveURL builds the absolute request URL from the base URL and the block's

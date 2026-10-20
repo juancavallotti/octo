@@ -49,6 +49,7 @@ module "base" {
   # of whether it matches apps_domain.
   domain                 = local.apps_domain_eff
   dns_managed_zone       = var.dns_managed_zone
+  extra_hostnames        = var.api_dns_record ? ["api.${var.domain}"] : []
   ssh_source_ranges      = var.ssh_source_ranges
   kube_api_source_ranges = local.kube_api_source_ranges
   boot_disk_size_gb      = var.boot_disk_size_gb

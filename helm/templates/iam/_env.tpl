@@ -58,10 +58,11 @@
 - name: OIDC_CLIENT_ID
   value: {{ required "auth.oidc.clientId is required — it is the audience iam accepts on a sign-in token." .Values.auth.oidc.clientId | quote }}
 {{- /*
-  The other audience this install answers to. A person signing in to the editor
+  The other audiences this install answers to. A person signing in to the editor
   arrives with a token minted for the client id above; an MCP client arrives with
-  one minted for the /mcp resource identifier. Both are this install, and the
-  exchange has to accept both or MCP callers cannot get a platform token at all.
+  one minted for the /mcp resource identifier, and a public API client with one
+  minted for the API's. All are this install, and the exchange has to accept each
+  or those callers cannot get a platform token at all.
 
   Rendered by the same helper the platform is given, because the two values must
   match exactly: this is an audience check, and a mismatch is either a refused
@@ -69,5 +70,5 @@
   minted for somebody else's application.
 */}}
 - name: IAM_ACCEPTED_AUDIENCES
-  value: {{ include "octo.mcp.resource" . | quote }}
+  value: {{ include "octo.iam.acceptedAudiences" . | quote }}
 {{- end }}
