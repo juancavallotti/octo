@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.11.11](https://github.com/juancavallotti/octo/compare/v0.11.10...v0.11.11) (2026-10-20)
+
+
+### Features
+
+* **api:** answer a failed relay with a 502 that names nothing internal ([957cba9](https://github.com/juancavallotti/octo/commit/957cba9599e269a876482ba39891529421f78fae))
+* **api:** authenticated gateway skeleton ([eba49b8](https://github.com/juancavallotti/octo/commit/eba49b87132a57f651118a0a05f42c2940968143))
+* **api:** integrations, files and resources routes ([f750f81](https://github.com/juancavallotti/octo/commit/f750f815960606d6a2f6756f6cc899b38a94cc52))
+* **api:** serve the identity provider's discovery documents ([de089f3](https://github.com/juancavallotti/octo/commit/de089f3c9f635db79caf468df8bc51ed7fc2966c))
+* **api:** serve the OpenAPI description at /openapi.yaml ([18ff9ad](https://github.com/juancavallotti/octo/commit/18ff9ad1533c8efa9c4ba18072a3a86f803d1b5f))
+* **api:** stream a pod's log over server-sent events ([4d45428](https://github.com/juancavallotti/octo/commit/4d45428e0fd3de0978fa49b7c2c46409512768c9))
+* **api:** tell a caller who they are at GET /v1/me ([fd8b3b2](https://github.com/juancavallotti/octo/commit/fd8b3b2496c391c195e282a0896e246c9c31c990))
+* **api:** versions, deployments and logs routes ([f7b0d91](https://github.com/juancavallotti/octo/commit/f7b0d912af6af792803381eca8cde0cb6d5c20fa))
+* **helm:** publish the public API on api.{domain} ([17adb95](https://github.com/juancavallotti/octo/commit/17adb95cc43446fcc609e9806c1d1191bad08320))
+* **httpclient:** rest-stream reads a response line by line into a sub-flow ([4f7d49a](https://github.com/juancavallotti/octo/commit/4f7d49afb6cc065175b7e4429c2733ea848d9441))
+* **iam:** exchange an API key for a platform JWT at POST /auth ([34cd76f](https://github.com/juancavallotti/octo/commit/34cd76f9281aeeb0fa26682db1bf1cb472262356))
+* **octopaas:** API client over every public route ([4c002fc](https://github.com/juancavallotti/octo/commit/4c002fc22642720780a2fc2e9edbb9a2284afd29))
+* **octopaas:** deploy what you see when no version is named ([3bf909d](https://github.com/juancavallotti/octo/commit/3bf909dfb35ebf99870853dc40a2c447735d164f))
+* **octopaas:** deployments, logs and a raw API escape hatch ([45daa21](https://github.com/juancavallotti/octo/commit/45daa21295e70f9d403453deeef910f061a9e098))
+* **octopaas:** integrations, files, resources and versions ([ba8479f](https://github.com/juancavallotti/octo/commit/ba8479ffef260c3c2adf05dbbc706dc33f7d3731))
+* **octopaas:** module skeleton, config and profiles ([ab3f244](https://github.com/juancavallotti/octo/commit/ab3f244ab729406c20cb4a30c33ca0ce36be13f0))
+* **octopaas:** notice new releases and upgrade in place ([c14c51d](https://github.com/juancavallotti/octo/commit/c14c51de940aad21155e73cfe1cca436b3350675))
+* **octopaas:** sign in with DCR from the API's URL alone ([3ea82c9](https://github.com/juancavallotti/octo/commit/3ea82c958547bdef7b0b25fda16ac63c2f9c656d))
+* **octopaas:** sign in, check who you are, manage profiles ([0054d7a](https://github.com/juancavallotti/octo/commit/0054d7abcc95230803448fc35bbc3f803acc66d1))
+* **octopaas:** the octopus, spinners and tables ([c782989](https://github.com/juancavallotti/octo/commit/c782989f65b2ce892ecd8e18826be4e996b808f8))
+* **orchestrator:** list deployments across integrations ([2c07928](https://github.com/juancavallotti/octo/commit/2c07928c0bcfb0f8d344d6a69c20c623305dfb5b))
+* **terraform:** DNS and release wiring for the public API ([f4ff248](https://github.com/juancavallotti/octo/commit/f4ff248ee21de7a182f12aaf6e182d1c9dbfc19b))
+
+
+### Bug Fixes
+
+* **api:** document log levels in the case observability stores them ([9602cfc](https://github.com/juancavallotti/octo/commit/9602cfca0d622bf07845028f7b2b188b5bd43953))
+* **api:** rebuild the deploy settings like every other body ([0d30dec](https://github.com/juancavallotti/octo/commit/0d30dec469d2fdfdfaf65ef49f7ffb101a2fd867))
+* **api:** validate scale counts and declare every failure the routes return ([9e692f0](https://github.com/juancavallotti/octo/commit/9e692f0fedd72993d65469d04ba5314ece615f0c))
+* **editor:** account for rest-stream in CEL scope and trace classes ([34822c8](https://github.com/juancavallotti/octo/commit/34822c8c9b2b6360fae0f19802a7a73325db0d69))
+* **helm:** keep the editor's static IP off the API's Ingress ([a3f4221](https://github.com/juancavallotti/octo/commit/a3f4221056c292cc0c8db9d499789b71f89e77aa))
+* **httpclient:** rest-stream ends cleanly only on its own deadline ([b04e0e0](https://github.com/juancavallotti/octo/commit/b04e0e0024776175527b76a6ff11f268af6f9d62))
+* **httpclient:** rest-stream restores its line variable however the stream ends ([b7e3cbf](https://github.com/juancavallotti/octo/commit/b7e3cbf5f1f2c9c36fd401bb442925dd60019c6e))
+* **iam:** a token exchanged for an API key cannot manage keys ([77fb693](https://github.com/juancavallotti/octo/commit/77fb693566a5738199cf5b61fe8c9cb27dcda02d))
+* **iam:** a token exchanged for an API key cannot mint a machine token ([95447f9](https://github.com/juancavallotti/octo/commit/95447f9df8351821857f0c6c19b29627622dbc20))
+* **iam:** accept a bare-origin audience with or without its trailing slash ([4aa29fb](https://github.com/juancavallotti/octo/commit/4aa29fbd7ff8349f8f4f902bf61a73f508d65213))
+* **octopaas:** a rollout is done when the old pods are gone ([a68409b](https://github.com/juancavallotti/octo/commit/a68409b80f73ac78670ecb701621b24754ef118f))
+* **octopaas:** address review on sessions, pulls, imports, follow and docs ([4c1ae24](https://github.com/juancavallotti/octo/commit/4c1ae24a4b7ba2e5e79ddbd03dd1edd7ff18a51d))
+* **octopaas:** examples that run as written, and [] for no logs ([4796955](https://github.com/juancavallotti/octo/commit/4796955dcc30028a4c3d4076394a7b50e81a5a0d))
+* **octopaas:** no -H shorthand for api --content-type ([e1b9060](https://github.com/juancavallotti/octo/commit/e1b9060495055bd9c3bd5eafc875625fdd4341cf))
+* **octopaas:** show the sign-in link the way gh does ([39c26b9](https://github.com/juancavallotti/octo/commit/39c26b9ff9469c3ff0e9d3a5e22382fc6899a2d5))
+
+
+### Refactoring
+
+* **iam:** move API keys from the orchestrator into iam ([2a18463](https://github.com/juancavallotti/octo/commit/2a1846325465ecd2d0a9b5fd96c2f5b6370ef89b))
+* **platform:** manage API keys through iam ([8acf30f](https://github.com/juancavallotti/octo/commit/8acf30f2fc11d4dbfb259723490f60d1cc554007))
+
+
+### Documentation
+
+* API keys are iam's, and authenticate through its exchange ([104e4a2](https://github.com/juancavallotti/octo/commit/104e4a271dd6ded6214e62b73d60c18162de863d))
+* GET /deployments in the module table, and comments that hold ([75357ad](https://github.com/juancavallotti/octo/commit/75357adc8bfae4b1fa48a2dc95e8f0b94cc1a322))
+* octopaas CLI ([bc042c3](https://github.com/juancavallotti/octo/commit/bc042c34a7adcbdcb30c777a2fd6a9b4ed2a6991))
+* the public API, and rest-stream for Dr. Octo ([dc5d2e7](https://github.com/juancavallotti/octo/commit/dc5d2e726a0258160b6c0cc34f69f5c3276ab1a8))
+* users and API keys are no longer the orchestrator's in the diagram ([f7830fa](https://github.com/juancavallotti/octo/commit/f7830fadde25a329dea24b638385c3be065c99f4))
+
 ## [0.11.10](https://github.com/juancavallotti/octo/compare/v0.11.9...v0.11.10) (2026-10-18)
 
 

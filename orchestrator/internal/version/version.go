@@ -8,4 +8,4 @@
 // the line it rewrites.
 package version
 
-const Version = "0.11.10" // x-release-please-version
+const Version = "0.11.11" // x-release-please-version
