@@ -1,0 +1,40 @@
+version: '3'
+
+# Tasks for the octopaas CLI module. Included from the root Taskfile under the
+# `octopaas:` namespace, with the working directory set to octopaas/, so all
+# paths here are relative to it.
+
+vars:
+  GO: go
+
+tasks:
+  fmt:
+    desc: Format the octopaas module
+    cmds:
+      - '{{.GO}} fmt ./...'
+
+  build:
+    desc: Build the octopaas binary
+    cmds:
+      - mkdir -p ../bin
+      - '{{.GO}} build -trimpath -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ../bin/octopaas .'
+
+  test:
+    desc: 'Run the octopaas tests (pass go test flags after --, e.g. task octopaas:test -- -race)'
+    cmds:
+      - '{{.GO}} test {{.CLI_ARGS}} ./...'
+
+  lint:
+    desc: Run golangci-lint over the octopaas module
+    cmds:
+      - golangci-lint run ./...
+
+  tidy:
+    desc: Tidy the octopaas module
+    cmds:
+      - '{{.GO}} mod tidy'
+
+  run:
+    desc: Run octopaas from source (task octopaas:run -- whoami)
+    cmds:
+      - '{{.GO}} run . {{.CLI_ARGS}}'
