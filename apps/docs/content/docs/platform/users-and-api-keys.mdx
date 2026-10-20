@@ -112,7 +112,7 @@ API keys are per-user bearer tokens for programmatic access. A key belongs to on
 - Format: `octo_` followed by 32 bytes of random material, base64url-encoded.
 - Shown once: the plaintext is returned only by the create call. iam stores a SHA-256 hash, so a database leak exposes no usable keys, plus the first four and last four characters for display.
 - Expiry: every key has a TTL, capped at 365 days, enforced on every exchange.
-- Revocation: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops exchanging immediately, and the platform tokens it was already exchanged for lapse within one token lifetime.
+- Revocation: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops exchanging immediately, and the platform tokens it was already exchanged for lapse within one token lifetime. Those tokens cannot be refreshed and cannot lend their identity to a deployment, because either would let the key's reach outlive it.
 
 Keys are managed from the platform's account area, backed by these iam endpoints. Only the user in the path may call them — an administrator cannot mint, list or revoke somebody else's keys — and neither a deployment's token nor a token exchanged for a key can call them at all, so a key cannot mint its own successor:
 

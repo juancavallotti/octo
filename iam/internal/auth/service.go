@@ -338,6 +338,13 @@ func (s *Service) owner(ctx context.Context, rawToken string) (user.User, error)
 		return user.User{}, fmt.Errorf(
 			"%w: a machine token cannot mint another", ErrUnauthenticated)
 	}
+	// A machine token renews without a key behind it, so lending one from a token
+	// exchanged for an API key would let the key's reach outlive its revocation.
+	if claims.APIKey != "" {
+		return user.User{}, fmt.Errorf(
+			"%w: a token exchanged for an API key cannot lend its identity to a deployment; sign in instead",
+			ErrForbidden)
+	}
 	u, err := s.users.Get(ctx, verified.Subject)
 	if err != nil {
 		return user.User{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)

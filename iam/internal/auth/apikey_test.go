@@ -89,3 +89,20 @@ func TestATokenFromAnAPIKeyIsNotRefreshed(t *testing.T) {
 		t.Fatalf("POST /auth/refresh = %d, want 401", rec.Code)
 	}
 }
+
+// A machine token renews itself without asking after any key, so one lent from a
+// key's token would keep the key's reach alive after the key is revoked.
+func TestATokenFromAnAPIKeyCannotMintAMachineToken(t *testing.T) {
+	h := newHarness(t)
+	h.keyFor(t, "provider|abc123", "owner@example.com")
+
+	rec := h.post(t, "Bearer "+testKey)
+	var got authResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if rec := h.postMachine(t, "Bearer "+got.Token, "billing"); rec.Code != http.StatusForbidden {
+		t.Fatalf("POST /auth/machine = %d (%s), want 403", rec.Code, rec.Body.String())
+	}
+}
