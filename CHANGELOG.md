@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.11.12](https://github.com/juancavallotti/octo/compare/v0.11.11...v0.11.12) (2026-10-21)
+
+
+### Features
+
+* **desktop:** bundle octopaas ([fae3814](https://github.com/juancavallotti/octo/commit/fae3814ad2cc5f9499147e3bcf4558d58d97a6f2))
+* **desktop:** link a folder to its integration, and a Projects folder ([b91e2f4](https://github.com/juancavallotti/octo/commit/b91e2f40564927e5f6939dd035c015851766a146))
+* **desktop:** load the installations at startup ([cd7c881](https://github.com/juancavallotti/octo/commit/cd7c8811e9795255ce99246768144bdfffc8cf57))
+* **desktop:** platform bridge and window ([ecdef04](https://github.com/juancavallotti/octo/commit/ecdef04845651e423b3b8bdf4e89be60117e013b))
+* **desktop:** Platform menu ([bbf0db4](https://github.com/juancavallotti/octo/commit/bbf0db4d194a3849f0b69ca75d5941ea658e0cad))
+* **desktop:** run octopaas per profile from the main process ([f2fb240](https://github.com/juancavallotti/octo/commit/f2fb240f3770f4a707d48377bfd9ac1348b09087))
+* **desktop:** switch installations and sign in from the Platform menu ([426a604](https://github.com/juancavallotti/octo/commit/426a6041404ac7ab0faf9af9dbb592ad82ef25e4))
+* **desktop:** track how a folder stands against its integration ([078b877](https://github.com/juancavallotti/octo/commit/078b877a9ae4ff6c3deb0f799924e48706a2b5b8))
+* **desktop:** work with the platform from Octo Desktop through octopaas ([4e42b89](https://github.com/juancavallotti/octo/commit/4e42b895dc4a416c4ecdf4dc266b54480f7a6b7e))
+* **editor:** groups, row actions and icons in the WorkspacePicker ([39180f2](https://github.com/juancavallotti/octo/commit/39180f27936accb586c8eb4ad10643f6fcbbd924))
+* **editor:** WorkspacePicker takes several actions, badges and an icon ([40c91e2](https://github.com/juancavallotti/octo/commit/40c91e2fa665a2d31ff4c1c115a383ea54f54e55))
+* **standalone:** the cloud profile's integrations in the folder picker ([6ce4353](https://github.com/juancavallotti/octo/commit/6ce43537e49e437e59bc0c711843d6644d9e1069))
+* **standalone:** the platform in the editor's header ([6a33b90](https://github.com/juancavallotti/octo/commit/6a33b90109e13757e85a9cd916901c38c5144e9a))
+* **standalone:** the Platform window follows the current installation ([62a44d1](https://github.com/juancavallotti/octo/commit/62a44d15f4d47252dd6e0ce9971e608a6a424911))
+* **standalone:** the Platform window's page ([f9cb462](https://github.com/juancavallotti/octo/commit/f9cb462025c72a16621967603a06a61cd01c2bfd))
+
+
+### Bug Fixes
+
+* **desktop:** decode CLI output as a stream, and survive a child that skips its input ([1ea359b](https://github.com/juancavallotti/octo/commit/1ea359b4ee5770a4416d92cf99f6aa291a50ef23))
+* **desktop:** include the octopaas taskfile so desktop:dev resolves its build ([69dfa2b](https://github.com/juancavallotti/octo/commit/69dfa2bc4f109dbfe064dee281125f64843d4ca9))
+* **desktop:** read the integration's timestamp before a pull, and report sync failures ([ffd7d8b](https://github.com/juancavallotti/octo/commit/ffd7d8bfb2ee876aadffa6005f30abddb9a044b7))
+* **desktop:** remove a profile without a confirmation flag octopaas lacks ([8afe2ec](https://github.com/juancavallotti/octo/commit/8afe2ecad80f7c96756e7c1c1b8549ac4576662a))
+* **editor:** keep the env panel's name field narrow ([2ce85e5](https://github.com/juancavallotti/octo/commit/2ce85e5cd057e45e41274e04d87437e6ab180dcb))
+* **octopaas:** keep a pulled bundle's manifest in .octo/ ([a84c469](https://github.com/juancavallotti/octo/commit/a84c469ce3a045d5001fe700b7ddf40f8c7d8b80))
+* **octopaas:** push a listed resource inside a hidden folder ([88d2fa6](https://github.com/juancavallotti/octo/commit/88d2fa67f9b0dcacec20c38e3996ab8e6d2219b3))
+* **octopaas:** push a pulled folder as it is on disk ([76302b5](https://github.com/juancavallotti/octo/commit/76302b5675a4bda0c11562149661f4a09145ee25))
+
+
+### Refactoring
+
+* **desktop:** share exec and ensureSaved ([0247d74](https://github.com/juancavallotti/octo/commit/0247d748e6847ad2d4aa7d65862fe4c9a126c861))
+* **standalone:** drop the platform chip and the Push button ([97f3075](https://github.com/juancavallotti/octo/commit/97f307571fa7562fd2acb004a4bac41ae1e493c7))
+* the public API is part of every install, with no switch ([2227302](https://github.com/juancavallotti/octo/commit/22273023b7ed69308aaa3ce6fd46b318eb8ae121))
+* the public API is part of every install, with no switch ([e86890e](https://github.com/juancavallotti/octo/commit/e86890e9c349fd9d6a56bedd31a044602071a47b))
+
+
+### Documentation
+
+* **helm:** the public API is always deployed, but only published with ingress ([7915acf](https://github.com/juancavallotti/octo/commit/7915acf5c1d7d91e6c384f9e30925b7b3c3a3acb))
+* Octo Desktop and the platform ([b356f57](https://github.com/juancavallotti/octo/commit/b356f579d7f9dd9a37c5f372ace9337302509be8))
+* the running-flows prompt belongs to the server restart ([095bf14](https://github.com/juancavallotti/octo/commit/095bf1473275979acba4fe62f3fad71bdea02d38))
+
 ## [0.11.11](https://github.com/juancavallotti/octo/compare/v0.11.10...v0.11.11) (2026-10-20)
 
 
