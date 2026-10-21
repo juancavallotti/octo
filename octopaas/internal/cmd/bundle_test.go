@@ -170,6 +170,36 @@ func TestPackRewritesAPulledManifest(t *testing.T) {
 	}
 }
 
+// A resource the platform sent inside a hidden folder goes back up with it, or the
+// push would delete it there; the folder's other hidden files stay behind.
+func TestPackKeepsAListedResourceInsideAHiddenFolder(t *testing.T) {
+
+	dir := t.TempDir()
+	pulled := `{"version":2,"name":"orders","configs":["octo.yaml"],
+		"resources":[{"name":".config/app.env","kind":"env"}]}`
+	_, err := unpack(zipOf(t, map[string]string{
+		manifestName:      pulled,
+		"octo.yaml":       "flows: []",
+		".config/app.env": "A=1",
+	}), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, ".config", "local.env"), []byte("SECRET=1"), 0o644)
+	_ = os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]"), 0o644)
+
+	files := packed(t, dir)
+	if files[".config/app.env"] != "A=1" {
+		t.Errorf("the platform's .config/app.env should go back up, got %q", files[".config/app.env"])
+	}
+	for _, name := range []string{".config/local.env", ".git/config"} {
+		if _, ok := files[name]; ok {
+			t.Errorf("%s should not be pushed", name)
+		}
+	}
+}
+
 // A folder an older octopaas pulled has its manifest at the root, and is described
 // by it all the same.
 func TestPackReadsAManifestAtTheRoot(t *testing.T) {

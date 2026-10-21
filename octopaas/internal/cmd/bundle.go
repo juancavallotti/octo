@@ -89,9 +89,11 @@ const manifestName = "octo-bundle.json"
 // reads it as one of the integration's resources.
 var keptManifest = filepath.Join(".octo", manifestName)
 
-// manifest is the part of the bundle's metadata entry that pack rewrites: which
-// entries are config files and what kind each resource is. Unknown fields are
-// kept as they were.
+// manifest is the bundle's metadata entry as pack writes it: which entries are
+// config files and what kind each resource is. Pack writes a fresh one in the
+// current format rather than editing the pulled one, carrying over only the name,
+// the tag and each resource's kind; anything else an older format held is read
+// from the folder instead.
 type manifest struct {
 	Version   int             `json:"version"`
 	Name      string          `json:"name"`
@@ -139,8 +141,10 @@ func pack(dir string) ([]byte, int, error) {
 			return err
 		}
 		name := filepath.ToSlash(rel)
-		if strings.HasPrefix(d.Name(), ".") && !listed[name] {
-			if d.IsDir() {
+		if hiddenPath(name) && !listed[name] {
+			//a hidden folder is still walked when the manifest lists something
+			//inside it; everything else in it stays behind with it.
+			if d.IsDir() && !listsUnder(listed, name) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -223,6 +227,28 @@ func readManifest(dir string) (*manifest, error) {
 		return &m, nil
 	}
 	return nil, nil
+}
+
+// hiddenPath is whether name, or any folder it is in, is hidden.
+func hiddenPath(name string) bool {
+
+	for _, part := range strings.Split(name, "/") {
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// listsUnder is whether the manifest lists a resource somewhere inside dir.
+func listsUnder(listed map[string]bool, dir string) bool {
+
+	for name := range listed {
+		if strings.HasPrefix(name, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // describe is the manifest for files, by the platform's own rule for a folder: a
