@@ -5,6 +5,7 @@ import { toContainer } from "./containerWindow";
 import { registerIpc } from "./ipc";
 import { logPath, recent } from "./log";
 import { buildMenu, followEditorPage } from "./menu";
+import { refresh as refreshPlatform } from "./platform/controller";
 import { choosePort, pinnedPort } from "./port";
 import { current, onServerCrash, start, stop } from "./server";
 import { openSettings } from "./settingsWindow";
@@ -114,6 +115,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     void refreshDocker();
     app.on("browser-window-focus", () => void refreshDocker());
+    // The Platform menu offers the installations and who is signed in to them, so it
+    // reads them now rather than when a platform window first asks.
+    void refreshPlatform();
     return boot();
   });
 
