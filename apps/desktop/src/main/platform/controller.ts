@@ -1,11 +1,17 @@
 import { dialog, shell, type BrowserWindow } from "electron";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { ensureSaved } from "../editorStatus";
+import { stateDir } from "../paths";
 import { mainWindow } from "../window";
 import { openVault, recents, rememberVault, switchTo } from "../vault";
 import { apiUrl, deployArgs, id, rolloutArgs, scaleArgs, signInLink, word, type DeployForm } from "./args";
 import { CliError, list, run, stream } from "./cli";
 import { readLink, removeLink, writeLink, type Link } from "./link";
 import { projectsDir, setProjectsDir } from "./projects";
+import { cachedRows, storeRows, type CachedIntegration } from "./cache";
+import { folderDigest, replaceContents, syncState, type SyncState } from "./sync";
 import { defaultTarget, isFree } from "./target";
 
 /**
@@ -310,8 +316,12 @@ export interface IntegrationView {
   name: string;
   lastUpdated: string;
   updatedByName?: string;
+  /** The icon chosen for it on the platform, by name. */
+  icon?: string;
   /** A folder on this machine already linked to it, from the open one or the recent ones. */
   local?: string;
+  /** How that folder stands against it. */
+  sync?: SyncState;
 }
 
 /** Folders the app knows that are linked to an integration on `profileName`. */
@@ -326,17 +336,78 @@ function localCopies(profileName: string): Map<string, string> {
   return out;
 }
 
+/** What an installation lists now. Each answer is kept, for `cachedIntegrations`. */
 export async function integrations(name: unknown): Promise<IntegrationView[]> {
   const n = profile(name);
-  const rows = await list<IntegrationView>(["integrations", "list"], { profile: n });
+  const rows = await list<CachedIntegration>(["integrations", "list"], { profile: n });
+  await loaded();
+  const url = profiles.find((p) => p.name === n)?.url;
+  if (url) {
+    storeRows(
+      stateDir(),
+      n,
+      url,
+      rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        lastUpdated: r.lastUpdated,
+        ...(r.updatedByName ? { updatedByName: r.updatedByName } : {}),
+        ...(r.icon ? { icon: r.icon } : {}),
+      })),
+    );
+  }
+  return withLocal(n, rows);
+}
+
+/**
+ * What an installation listed last time, without asking it: shown while it is asked
+ * again, and all there is while it cannot be reached. The folders are read now, so
+ * how each stands is current against what the platform last said.
+ */
+export async function cachedIntegrations(name: unknown): Promise<IntegrationView[] | null> {
+  const n = profile(name);
+  await loaded();
+  const url = profiles.find((p) => p.name === n)?.url;
+  const rows = url ? cachedRows(stateDir(), n, url) : null;
+  return rows ? withLocal(n, rows) : null;
+}
+
+/** The integrations, each with the folder here linked to it and how that folder stands. */
+function withLocal(n: string, rows: CachedIntegration[]): IntegrationView[] {
   const local = localCopies(n);
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    lastUpdated: r.lastUpdated,
-    ...(r.updatedByName ? { updatedByName: r.updatedByName } : {}),
-    ...(local.has(r.id) ? { local: local.get(r.id) } : {}),
-  }));
+  return rows.map((r) => {
+    const dir = local.get(r.id);
+    const sync = dir ? standing(dir, r.lastUpdated) : null;
+    return {
+      id: r.id,
+      name: r.name,
+      lastUpdated: r.lastUpdated,
+      ...(r.updatedByName ? { updatedByName: r.updatedByName } : {}),
+      ...(r.icon ? { icon: r.icon } : {}),
+      ...(dir && sync ? { local: dir, sync } : {}),
+    };
+  });
+}
+
+/** How a linked folder stands against its integration; null when it cannot be read. */
+function standing(dir: string, lastUpdated: string): SyncState | null {
+  try {
+    return syncState(readLink(dir)?.synced, folderDigest(dir), lastUpdated);
+  } catch {
+    return null;
+  }
+}
+
+/** Write down that the folder and its integration now hold the same thing. */
+function recordSync(dir: string, link: Link, lastUpdated: string): void {
+  writeLink(dir, { ...link, synced: { digest: folderDigest(dir), lastUpdated } });
+}
+
+/** The integration's lastUpdated, asked for after an operation that does not print it. */
+async function lastUpdatedOf(profileName: string, integrationId: string): Promise<string> {
+  const got = await run<{ lastUpdated: string }>(["integrations", "get", integrationId], { profile: profileName });
+  if (!got) throw new Error("octopaas did not say when the integration changed");
+  return got.lastUpdated;
 }
 
 export interface VersionView {
@@ -387,23 +458,29 @@ export async function pull(name: unknown, integrationId: unknown, integrationNam
       signal,
     }),
   );
-  writeLink(target, {
+  const link: Link = {
     profile: n,
     url: known(n).url,
     integrationId: intId,
     integrationName: label,
     ...(version ? { pulledTag: version } : {}),
     linkedAt: Date.now(),
-  });
+  };
+  writeLink(target, link);
+  recordSync(target, link, await lastUpdatedOf(n, intId));
   rememberVault(target);
   return switchTo(target);
 }
 
+/** A folder the app already knows, the open one or a recent one: the only ones a page may name. */
+function knownFolder(dir: unknown): dir is string {
+  return typeof dir === "string" && (dir === openVault()?.path || recents().some((v) => v.path === dir));
+}
+
 /** Open a folder already linked to an integration; only one the app already knows. */
 export function openLocal(dir: unknown): Promise<boolean> {
-  const known = typeof dir === "string" && (dir === openVault()?.path || recents().some((v) => v.path === dir));
-  if (!known) return Promise.resolve(false);
-  return switchTo(dir as string);
+  if (!knownFolder(dir)) return Promise.resolve(false);
+  return switchTo(dir);
 }
 
 // The open folder ---------------------------------------------------------------
@@ -427,8 +504,12 @@ async function saved(): Promise<void> {
 }
 
 async function pushFolder(dir: string, link: Link, signal: AbortSignal): Promise<void> {
-  await saved();
-  await run(["integrations", "push", link.integrationId, dir], { profile: link.profile, signal });
+  if (dir === openVault()?.path) await saved();
+  const pushed = await run<{ lastUpdated: string }>(["integrations", "push", link.integrationId, dir], {
+    profile: link.profile,
+    signal,
+  });
+  if (pushed) recordSync(dir, link, pushed.lastUpdated);
 }
 
 /** Replace the integration's draft with the open folder, saved first. */
@@ -452,19 +533,21 @@ export async function importVault(name: unknown, integrationName: unknown): Prom
 
   const created = await exclusive(`Importing ${vault.name} into ${n}`, async (signal) => {
     await saved();
-    return run<{ id: string; name: string }>(["integrations", "import", vault.path, `--name=${wanted}`], {
+    return run<{ id: string; name: string; lastUpdated: string }>(["integrations", "import", vault.path, `--name=${wanted}`], {
       profile: n,
       signal,
     });
   });
   if (!created) throw new Error("octopaas did not say what it created");
-  writeLink(vault.path, {
+  const link: Link = {
     profile: n,
     url: known(n).url,
     integrationId: created.id,
     integrationName: created.name,
     linkedAt: Date.now(),
-  });
+  };
+  writeLink(vault.path, link);
+  recordSync(vault.path, link, created.lastUpdated);
   publish();
   return state();
 }
@@ -513,6 +596,80 @@ export async function removeVersion(tag: unknown): Promise<PlatformState> {
     );
   }
   return state();
+}
+
+/**
+ * Bring a linked folder and its integration back into step: push the folder, pull
+ * the integration over it, or — for "ask" — let the user choose. Either direction
+ * overwrites one side, so overwriting changes that side has of its own is confirmed.
+ */
+export async function sync(dir: unknown, direction: unknown): Promise<PlatformState> {
+  if (!knownFolder(dir)) throw new Error("That folder is not one Octo has open or opened before");
+  const folder = dir;
+  const link = readLink(folder);
+  if (!link) throw new Error(`${path.basename(folder)} is not on a platform`);
+  await loaded();
+  known(link.profile);
+  // Unsaved edits are changes the folder has, and the comparison reads the disk.
+  if (folder === openVault()?.path) await saved();
+
+  const lastUpdated = await lastUpdatedOf(link.profile, link.integrationId);
+  const now = syncState(link.synced, folderDigest(folder), lastUpdated);
+  let chosen = direction;
+  if (chosen === "ask") {
+    chosen = await choose(
+      `${path.basename(folder)} and ${link.integrationName} have both changed`,
+      `Push the folder over the platform's draft, or pull the draft over the folder. Either way, the other side's changes are lost.`,
+    );
+    if (!chosen) return state();
+  } else if (chosen === "push" && (now === "behind" || now === "diverged")) {
+    const ok = await confirm(
+      `${link.integrationName} has changed on ${link.profile} since this folder last synced`,
+      "Pushing replaces those changes with the folder.",
+      "Push",
+    );
+    if (!ok) return state();
+  } else if (chosen === "pull" && (now === "ahead" || now === "diverged")) {
+    const ok = await confirm(
+      `${path.basename(folder)} has changes that are not on the platform`,
+      "Pulling replaces them with the platform's draft.",
+      "Pull",
+    );
+    if (!ok) return state();
+  }
+
+  if (chosen === "push") {
+    await exclusive(`Pushing ${link.integrationName} to ${link.profile}`, (signal) => pushFolder(folder, link, signal));
+  } else if (chosen === "pull") {
+    await exclusive(`Pulling ${link.integrationName} from ${link.profile}`, (signal) => pullOver(folder, link, signal));
+  } else {
+    throw new Error("Sync is a push or a pull");
+  }
+  return state();
+}
+
+/** Push, pull, or neither, from a dialog. */
+async function choose(message: string, detail: string): Promise<"push" | "pull" | null> {
+  const parent = dialogParent();
+  const options = { type: "question" as const, message, detail, buttons: ["Cancel", "Pull", "Push"], defaultId: 0, cancelId: 0 };
+  const { response } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+  return response === 2 ? "push" : response === 1 ? "pull" : null;
+}
+
+/**
+ * Pull the draft over a folder that already holds it. octopaas unpacks into a fresh
+ * folder, so a file deleted on the platform is deleted here as well.
+ */
+async function pullOver(dir: string, link: Link, signal: AbortSignal): Promise<void> {
+  const scratch = mkdtempSync(path.join(tmpdir(), "octo-pull-"));
+  try {
+    const into = path.join(scratch, "pulled");
+    await run(["integrations", "pull", link.integrationId, into], { profile: link.profile, signal });
+    replaceContents(into, dir);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  recordSync(dir, link, await lastUpdatedOf(link.profile, link.integrationId));
 }
 
 /** Open one of the open folder's versions in a folder of its own. */

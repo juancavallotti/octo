@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { Synced } from "./sync";
 
 /**
  * Which integration a folder is, on which installation: written when it is pulled or
@@ -20,6 +21,8 @@ export interface Link {
   /** The version it was pulled from, when it was a version rather than the draft. */
   pulledTag?: string;
   linkedAt: number;
+  /** The folder and the integration as of the last pull or push. */
+  synced?: Synced;
 }
 
 export function linkFile(dir: string): string {
@@ -42,6 +45,9 @@ export function readLink(dir: string): Link | null {
       integrationName: raw.integrationName!,
       ...(str(raw.pulledTag) ? { pulledTag: raw.pulledTag } : {}),
       linkedAt: typeof raw.linkedAt === "number" ? raw.linkedAt : 0,
+      ...(raw.synced && str(raw.synced.digest) && str(raw.synced.lastUpdated)
+        ? { synced: { digest: raw.synced.digest, lastUpdated: raw.synced.lastUpdated } }
+        : {}),
     };
   } catch {
     return null;

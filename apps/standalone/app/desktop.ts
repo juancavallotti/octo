@@ -18,8 +18,8 @@ export interface VaultRef {
    */
   path: string;
   name: string;
-  /** The integration the folder is on the platform, "billing on prod", when linked. */
-  platform?: string;
+  /** The integration on the platform the folder is linked to, when it is. */
+  integration?: { name: string; profile: string };
 }
 
 /** How the person using the editor has said it should behave; set in the shell's Settings. */

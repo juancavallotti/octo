@@ -153,6 +153,16 @@ async function setRuntime(name: RuntimeBinary, file: string | null) {
   return settingsView();
 }
 
+/** A folder as the editor page is told of it: where it is, and the integration it is when linked. */
+function vaultRef(dir: string): { path: string; name: string; integration?: { name: string; profile: string } } {
+  const link = readLink(dir);
+  return {
+    path: dir,
+    name: path.basename(dir),
+    ...(link ? { integration: { name: link.integrationName, profile: link.profile } } : {}),
+  };
+}
+
 export function registerIpc(): void {
   onUpdateStatus(publishUpdate);
 
@@ -167,17 +177,11 @@ export function registerIpc(): void {
   // server down on the way out and decides whether an update is there to install.
   handle("octo:update:install", () => restartToUpdate());
   handle("octo:mcp:copy", () => copyMcpUrl());
-  handle("octo:vault:get", () => openVault());
-  handle("octo:vault:recents", () =>
-    recents().map((v) => {
-      const link = readLink(v.path);
-      return {
-        path: v.path,
-        name: path.basename(v.path),
-        ...(link ? { platform: `${link.integrationName} on ${link.profile}` } : {}),
-      };
-    }),
-  );
+  handle("octo:vault:get", () => {
+    const vault = openVault();
+    return vault ? vaultRef(vault.path) : null;
+  });
+  handle("octo:vault:recents", () => recents().map((v) => vaultRef(v.path)));
   // Read-only, and the only settings channel the editor page may touch.
   handle("octo:prefs:get", () => editorPrefs());
   handle("octo:vault:pick", () => pickVault());
@@ -270,11 +274,13 @@ export function registerIpc(): void {
   handle("octo:paas:pickProjectsDir", () => paas.pickProjectsDir());
   handle("octo:paas:resetProjectsDir", () => paas.resetProjectsDir());
   handle("octo:paas:integrations", (_event, name) => paas.integrations(name));
+  handle("octo:paas:cachedIntegrations", (_event, name) => paas.cachedIntegrations(name));
   handle("octo:paas:versions", (_event, name, integrationId) => paas.versions(name, integrationId));
   handle("octo:paas:pull", (_event, name, integrationId, integrationName, tag) =>
     paas.pull(name, integrationId, integrationName, tag),
   );
   handle("octo:paas:openLocal", (_event, dir) => paas.openLocal(dir));
+  handle("octo:paas:sync", (_event, dir, direction) => paas.sync(dir, direction));
   handle("octo:paas:push", () => paas.pushVault());
   handle("octo:paas:import", (_event, name, integrationName) => paas.importVault(name, integrationName));
   handle("octo:paas:unlink", () => paas.unlink());

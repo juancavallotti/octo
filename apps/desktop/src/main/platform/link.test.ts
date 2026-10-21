@@ -21,6 +21,7 @@ const link: Link = {
   integrationName: "billing",
   pulledTag: "v1.0.0",
   linkedAt: 1,
+  synced: { digest: "abc", lastUpdated: "2026-10-20T10:00:00Z" },
 };
 
 describe("link", () => {

@@ -55,9 +55,16 @@ export interface IntegrationSummary {
   name: string;
   lastUpdated: string;
   updatedByName?: string;
+  /** The icon chosen for it on the platform, by name. */
+  icon?: string;
   /** A folder on this machine already linked to it. */
   local?: string;
+  /** How that folder stands against it: in step, changed here, changed there, or both. */
+  sync?: SyncState;
 }
+
+export type SyncState = "synced" | "ahead" | "behind" | "diverged";
+export type SyncDirection = "push" | "pull" | "ask";
 
 export interface VersionSummary {
   id: string;
@@ -136,9 +143,11 @@ export interface PaasBridge {
   pickProjectsDir(): Promise<PlatformState>;
   resetProjectsDir(): Promise<PlatformState>;
   integrations(profile: string): Promise<IntegrationSummary[]>;
+  cachedIntegrations(profile: string): Promise<IntegrationSummary[] | null>;
   versions(profile: string, integrationId: string): Promise<VersionSummary[]>;
   pull(profile: string, integrationId: string, name: string, tag?: string | null): Promise<boolean>;
   openLocal(path: string): Promise<boolean>;
+  sync(path: string, direction: SyncDirection): Promise<PlatformState>;
   push(): Promise<PlatformState>;
   importFolder(profile: string, name: string): Promise<PlatformState>;
   unlink(): Promise<PlatformState>;

@@ -70,9 +70,13 @@ export interface PaasBridge {
   pickProjectsDir(): Promise<unknown>;
   resetProjectsDir(): Promise<unknown>;
   integrations(profile: string): Promise<unknown>;
+  /** What the installation listed last time, without asking it; null when it never has. */
+  cachedIntegrations(profile: string): Promise<unknown>;
   versions(profile: string, integrationId: string): Promise<unknown>;
   pull(profile: string, integrationId: string, name: string, tag?: string | null): Promise<boolean>;
   openLocal(path: string): Promise<boolean>;
+  /** Bring a linked folder and its integration into step: push, pull, or ask which. */
+  sync(path: string, direction: "push" | "pull" | "ask"): Promise<unknown>;
   push(): Promise<unknown>;
   importFolder(profile: string, name: string): Promise<unknown>;
   unlink(): Promise<unknown>;
@@ -115,10 +119,12 @@ const paas: PaasBridge = {
   pickProjectsDir: () => ipcRenderer.invoke("octo:paas:pickProjectsDir"),
   resetProjectsDir: () => ipcRenderer.invoke("octo:paas:resetProjectsDir"),
   integrations: (profile) => ipcRenderer.invoke("octo:paas:integrations", profile),
+  cachedIntegrations: (profile) => ipcRenderer.invoke("octo:paas:cachedIntegrations", profile),
   versions: (profile, integrationId) => ipcRenderer.invoke("octo:paas:versions", profile, integrationId),
   pull: (profile, integrationId, name, tag) =>
     ipcRenderer.invoke("octo:paas:pull", profile, integrationId, name, tag ?? null),
   openLocal: (path) => ipcRenderer.invoke("octo:paas:openLocal", path),
+  sync: (path, direction) => ipcRenderer.invoke("octo:paas:sync", path, direction),
   push: () => ipcRenderer.invoke("octo:paas:push"),
   importFolder: (profile, name) => ipcRenderer.invoke("octo:paas:import", profile, name),
   unlink: () => ipcRenderer.invoke("octo:paas:unlink"),
@@ -136,18 +142,22 @@ const paas: PaasBridge = {
   unfollow: () => ipcRenderer.invoke("octo:paas:unfollow"),
 };
 
+/** A folder, and the integration on the platform it is linked to, when it is. */
+export interface VaultRef {
+  path: string;
+  name: string;
+  integration?: { name: string; profile: string };
+}
+
 export interface OctoDesktopBridge {
   /** Marks this as the desktop shell; the editor gates its UI on this object existing. */
   readonly platform: NodeJS.Platform;
   /** The editor's own URL, which is also its MCP endpoint base. */
   mcpUrl(): Promise<string>;
-  /** The open vault: absolute path and folder name. */
-  vault(): Promise<{ path: string; name: string } | null>;
-  /**
-   * Recently opened vaults, most recent first, each with the integration it is on the
-   * platform when it is linked to one.
-   */
-  recents(): Promise<{ path: string; name: string; platform?: string }[]>;
+  /** The open vault: absolute path, folder name, and the integration it is when linked. */
+  vault(): Promise<VaultRef | null>;
+  /** Recently opened vaults, most recent first, described as `vault` is. */
+  recents(): Promise<VaultRef[]>;
   /** Open the native folder picker and switch to the chosen folder. Resolves to it. */
   pickVault(): Promise<string | null>;
   /** Switch to an already-known folder. */
