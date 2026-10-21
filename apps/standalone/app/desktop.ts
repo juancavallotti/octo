@@ -1,4 +1,5 @@
 import type { EditorCommandStatus } from "@octo/editor";
+import type { PaasBridge } from "./platform/types";
 
 /**
  * The bridge a hosting shell may expose to the page, as the browser sees it.
@@ -17,6 +18,8 @@ export interface VaultRef {
    */
   path: string;
   name: string;
+  /** The integration on the platform the folder is linked to, when it is. */
+  integration?: { name: string; profile: string };
 }
 
 /** How the person using the editor has said it should behave; set in the shell's Settings. */
@@ -68,6 +71,16 @@ export interface DesktopBridge {
   /** Tell the shell what the editor can do now, for its menu to show; null to stop. */
   reportMenuStatus(status: EditorCommandStatus | null): Promise<void>;
   terminal: TerminalBridge;
+  /**
+   * The platform, through the octopaas CLI the shell bundles. Absent on a shell older
+   * than this page.
+   */
+  paas?: PaasBridge;
+}
+
+/** The platform bridge, or null in a browser or under a shell without one. */
+export function paasBridge(): PaasBridge | null {
+  return desktopBridge()?.paas ?? null;
 }
 
 /** The bridge, or null when this is a browser rather than the desktop shell. */

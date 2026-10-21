@@ -16,8 +16,8 @@ import { useDesktopMenu } from "./useDesktopMenu";
    triggers (button, ⌘S, Enter in the rename field) share it. */
 
 /**
- * The editor's top bar: the Octo mark and the folder chip, the view tabs centred on
- * it, and Save and the RUN control on the right. The open file is named and renamed in
+ * The editor's top bar: the Octo mark, the folder chip, the view tabs centred on it,
+ * and Save and the RUN control on the right. The open file is named and renamed in
  * the document bar below, not here.
  */
 export default function StandaloneHeader() {

@@ -74,6 +74,19 @@ export interface MenuInput {
   update: { label: string };
   /** Whether docker can build and run the folder's container right now. */
   docker: "missing" | "stopped" | "running";
+  /** The open folder's integration on the platform, when it is linked to one. */
+  linked: { integration: string; profile: string } | null;
+  /** octopaas's installations, the CLI's current one marked. */
+  installations: Installation[];
+}
+
+/** An installation as the menu shows it: its name, and who is signed in there. */
+export interface Installation {
+  name: string;
+  current: boolean;
+  identity:
+    | { state: "checking" | "signed-out" | "error" }
+    | { state: "signed-in"; credential: "apiKey" | "oauth"; name: string };
 }
 
 export interface MenuActions {
@@ -87,6 +100,14 @@ export interface MenuActions {
   openSettings(): void;
   /** Open the Container window at the part an item names. */
   openContainer(focus: "build" | "push" | "export"): void;
+  /** Open the Platform window at the part an item names. */
+  openPlatform(focus: "integrations" | "folder" | "versions" | "deployments" | "logs" | "settings"): void;
+  /** Push the open folder to its integration. */
+  pushToPlatform(): void;
+  /** Make an installation octopaas's current one, here and in the user's terminal. */
+  useInstallation(name: string): void;
+  signIn(name: string): void;
+  signOut(name: string): void;
   update(): void;
   openDocs(): void;
   showLog(): void;
@@ -373,6 +394,38 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
     ],
   };
 
+  // Pulling and the installations are there with any folder open; the rest act on
+  // the folder's own integration, and the first item names it.
+  const linked = input.linked;
+  const platform: MenuItemConstructorOptions = {
+    label: "Platform",
+    submenu: [
+      ...(linked
+        ? ([
+            { label: `${linked.integration} on ${linked.profile}`, enabled: false },
+            { type: "separator" },
+          ] satisfies MenuItemConstructorOptions[])
+        : []),
+      {
+        label: "Push to Platform",
+        enabled: linked !== null,
+        click: act.pushToPlatform,
+      },
+      { label: "Versions…", enabled: linked !== null, click: () => act.openPlatform("versions") },
+      { label: "Deploy…", enabled: linked !== null, click: () => act.openPlatform("deployments") },
+      { label: "Logs…", enabled: linked !== null, click: () => act.openPlatform("logs") },
+      { type: "separator" },
+      {
+        label: linked ? "This Folder on the Platform…" : "Put This Folder on the Platform…",
+        enabled: input.vaultOpen,
+        click: () => act.openPlatform("folder"),
+      },
+      { label: "Pull Integration…", click: () => act.openPlatform("integrations") },
+      { type: "separator" },
+      ...installationItems(input.installations, act),
+    ],
+  };
+
   return [
     ...(isMac
       ? ([
@@ -396,6 +449,7 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
     view,
     run,
     container,
+    platform,
     { role: "windowMenu" },
     {
       role: "help",
@@ -404,5 +458,60 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
         { label: "Show Server Log", click: act.showLog },
       ],
     },
+  ];
+}
+
+/**
+ * The installation switcher, and signing in to the current one. An API key is not a
+ * session octopaas can sign out of, so it is named rather than offered a Sign Out.
+ */
+function installationItems(installations: Installation[], act: MenuActions): MenuItemConstructorOptions[] {
+  const manage: MenuItemConstructorOptions = {
+    label: installations.length ? "Manage Installations…" : "Add Installation…",
+    click: () => act.openPlatform("settings"),
+  };
+  const switcher: MenuItemConstructorOptions = {
+    label: "Installation",
+    submenu: [
+      ...installations.map(
+        (i): MenuItemConstructorOptions => ({
+          label: i.name,
+          type: "radio",
+          checked: i.current,
+          click: () => {
+            if (!i.current) act.useInstallation(i.name);
+          },
+        }),
+      ),
+      ...(installations.length ? ([{ type: "separator" }] satisfies MenuItemConstructorOptions[]) : []),
+      manage,
+    ],
+  };
+
+  const current = installations.find((i) => i.current);
+  if (!current) return [switcher];
+  const { identity } = current;
+  if (identity.state !== "signed-in") {
+    return [
+      switcher,
+      {
+        label: identity.state === "checking" ? `Checking ${current.name}…` : `Sign In to ${current.name}…`,
+        enabled: identity.state !== "checking",
+        click: () => act.signIn(current.name),
+      },
+    ];
+  }
+  return [
+    switcher,
+    {
+      label:
+        identity.credential === "apiKey"
+          ? `Using an API key on ${current.name}`
+          : `Signed in to ${current.name} as ${identity.name}`,
+      enabled: false,
+    },
+    ...(identity.credential === "oauth"
+      ? ([{ label: `Sign Out of ${current.name}`, click: () => act.signOut(current.name) }] satisfies MenuItemConstructorOptions[])
+      : []),
   ];
 }

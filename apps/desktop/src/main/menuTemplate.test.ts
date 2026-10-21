@@ -30,6 +30,11 @@ function actions(): MenuActions {
     copyMcpUrl: vi.fn(),
     openSettings: vi.fn(),
     openContainer: vi.fn(),
+    openPlatform: vi.fn(),
+    pushToPlatform: vi.fn(),
+    useInstallation: vi.fn(),
+    signIn: vi.fn(),
+    signOut: vi.fn(),
     update: vi.fn(),
     openDocs: vi.fn(),
     showLog: vi.fn(),
@@ -46,6 +51,8 @@ function build(over: Partial<MenuInput> = {}, act = actions()) {
     mcpAvailable: true,
     update: { label: "Check for Updates…" },
     docker: "running",
+    linked: null,
+    installations: [],
     ...over,
   };
   return { menu: menuTemplate(input, act), act };
@@ -76,6 +83,7 @@ describe("menuTemplate", () => {
       "View",
       "Run",
       "Container",
+      "Platform",
       "windowMenu",
       "help",
     ]);
@@ -180,6 +188,63 @@ describe("menuTemplate", () => {
     const { menu, act } = build({ docker: "stopped" });
     click(item(menu, "Container", "Export Dockerfile…"));
     expect(act.openContainer).toHaveBeenCalledWith("export");
+  });
+
+  it("acts on the folder's integration only when the folder is linked to one", () => {
+    const unlinked = build();
+    for (const label of ["Push to Platform", "Versions…", "Deploy…", "Logs…"]) {
+      expect(item(unlinked.menu, "Platform", label).enabled).toBe(false);
+    }
+    expect(item(unlinked.menu, "Platform", "Put This Folder on the Platform…").enabled).toBe(true);
+    expect(item(unlinked.menu, "Platform", "Pull Integration…").enabled).not.toBe(false);
+
+    const { menu, act } = build({ linked: { integration: "billing", profile: "prod" } });
+    expect(item(menu, "Platform", "billing on prod").enabled).toBe(false);
+    click(item(menu, "Platform", "Push to Platform"));
+    expect(act.pushToPlatform).toHaveBeenCalled();
+    click(item(menu, "Platform", "Deploy…"));
+    expect(act.openPlatform).toHaveBeenCalledWith("deployments");
+  });
+
+  it("switches installations, and offers adding one when there is none", () => {
+    expect(item(build().menu, "Platform", "Installation", "Add Installation…").enabled).not.toBe(false);
+
+    const { menu, act } = build({
+      installations: [
+        { name: "dev", current: true, identity: { state: "signed-out" } },
+        { name: "prod", current: false, identity: { state: "checking" } },
+      ],
+    });
+    expect(item(menu, "Platform", "Installation", "dev").checked).toBe(true);
+    click(item(menu, "Platform", "Installation", "dev"));
+    expect(act.useInstallation).not.toHaveBeenCalled();
+    click(item(menu, "Platform", "Installation", "prod"));
+    expect(act.useInstallation).toHaveBeenCalledWith("prod");
+    click(item(menu, "Platform", "Installation", "Manage Installations…"));
+    expect(act.openPlatform).toHaveBeenCalledWith("settings");
+  });
+
+  it("signs in to and out of the current installation", () => {
+    const signedOut = build({ installations: [{ name: "dev", current: true, identity: { state: "signed-out" } }] });
+    click(item(signedOut.menu, "Platform", "Sign In to dev…"));
+    expect(signedOut.act.signIn).toHaveBeenCalledWith("dev");
+
+    const checking = build({ installations: [{ name: "dev", current: true, identity: { state: "checking" } }] });
+    expect(item(checking.menu, "Platform", "Checking dev…").enabled).toBe(false);
+
+    const oauth = build({
+      installations: [{ name: "dev", current: true, identity: { state: "signed-in", credential: "oauth", name: "Juan" } }],
+    });
+    expect(item(oauth.menu, "Platform", "Signed in to dev as Juan").enabled).toBe(false);
+    click(item(oauth.menu, "Platform", "Sign Out of dev"));
+    expect(oauth.act.signOut).toHaveBeenCalledWith("dev");
+
+    // octopaas's logout forgets a session, never a key, so a key has no Sign Out.
+    const key = build({
+      installations: [{ name: "dev", current: true, identity: { state: "signed-in", credential: "apiKey", name: "ci" } }],
+    });
+    expect(item(key.menu, "Platform", "Using an API key on dev").enabled).toBe(false);
+    expect(() => item(key.menu, "Platform", "Sign Out of dev")).toThrow();
   });
 
   it("puts the app items under File off macOS", () => {

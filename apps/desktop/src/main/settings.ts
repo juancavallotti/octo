@@ -5,8 +5,8 @@ import { bundledBinary, stateDir, type RuntimeBinary } from "./paths";
 import { read, write, type DesktopSettings } from "./state";
 
 /**
- * What the user chose, as opposed to what the app shipped with — today, which `octo`
- * and `dolphin` run. Cached because `binary()` is on the path of every server start
+ * What the user chose, as opposed to what the app shipped with — today, which `octo`,
+ * `dolphin` and `octopaas` run. Cached because `binary()` is on the path of every server start
  * and every run; the cache is replaced on write, so the file stays the source of
  * truth.
  */
@@ -49,7 +49,7 @@ const run = promisify(execFile);
 export async function probeVersion(file: string, name: RuntimeBinary): Promise<string | null> {
   if (!existsSync(file)) return null;
   try {
-    // The two disagree on how to be asked for a version.
+    // They disagree on how to be asked for a version.
     const args = name === "octo" ? ["--version"] : ["version"];
     const { stdout } = await run(file, args, { timeout: 5000 });
     return stdout.trim().split("\n")[0] || null;

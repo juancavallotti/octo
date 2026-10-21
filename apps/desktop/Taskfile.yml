@@ -16,6 +16,9 @@ includes:
   standalone:
     taskfile: ../standalone/Taskfile.yml
     dir: ../standalone
+  octopaas:
+    taskfile: ../../octopaas/Taskfile.yml
+    dir: ../../octopaas
 
 tasks:
   install:
@@ -61,7 +64,7 @@ tasks:
       - echo "✓ staged the editor server in apps/desktop/build/server"
 
   bins:
-    desc: Cross-compile octo and dolphin into build/bin/<arch> for packaging
+    desc: Cross-compile octo, dolphin and octopaas into build/bin/<arch> for packaging
     vars:
       # electron-builder's ${arch} macro spells amd64 "x64", and extraResources
       # copies from a directory named by it — so the output dirs use its spelling,
@@ -84,7 +87,10 @@ tasks:
             CGO_ENABLED=0 GOOS=darwin GOARCH="$goarch" go build -trimpath \
               -ldflags "$LD" -o "$out/$cmd" {{.ROOT_DIR}}/runtime/$cmd
           done
-          echo "✓ $out: octo, dolphin (darwin/$goarch)"
+          # octopaas is its own module, so it is built from inside it.
+          (cd {{.ROOT_DIR}}/octopaas && CGO_ENABLED=0 GOOS=darwin GOARCH="$goarch" go build \
+            -trimpath -ldflags "$LD" -o "$OLDPWD/$out/octopaas" .)
+          echo "✓ $out: octo, dolphin, octopaas (darwin/$goarch)"
         done
 
   build:
@@ -131,6 +137,7 @@ tasks:
       # both from the repo (bin/ and build/server), so `task desktop:dev` on a
       # fresh checkout is enough — nothing has to be installed first.
       - runtime:build
+      - octopaas:build
       - stage
       - build
     cmds:

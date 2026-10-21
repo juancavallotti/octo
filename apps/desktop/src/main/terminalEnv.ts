@@ -31,7 +31,7 @@ export interface Launch {
 }
 
 export interface LaunchOptions {
-  /** Where `octo` and `dolphin` link to the binaries the editor runs. */
+  /** Where `octo`, `dolphin` and `octopaas` link to the binaries the app runs. */
   shimDir: string;
   /** Where {@link startupFiles} were written. */
   startupDir: string;

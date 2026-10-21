@@ -157,6 +157,19 @@ describe("settings", () => {
     });
   });
 
+  it("round-trips an octopaas override beside the runtime's", () => {
+    expect(stored({ runtime: { dolphin: "/opt/dolphin", octopaas: "/opt/octopaas" } })).toEqual({
+      runtime: { dolphin: "/opt/dolphin", octopaas: "/opt/octopaas" },
+    });
+  });
+
+  it("round-trips the Projects folder and drops one that is not a path", () => {
+    expect(stored({ platform: { projectsDir: "/work/octo" } })).toEqual({
+      platform: { projectsDir: "/work/octo" },
+    });
+    expect(stored({ platform: { projectsDir: 3 } })).toEqual({});
+  });
+
   it("drops a path that is not a string", () => {
     expect(stored({ runtime: { octo: 7, dolphin: "/opt/dolphin" } })).toEqual({
       runtime: { dolphin: "/opt/dolphin" },

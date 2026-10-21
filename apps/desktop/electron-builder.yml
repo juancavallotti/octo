@@ -57,6 +57,7 @@ mac:
   binaries:
     - Contents/Resources/bin/octo
     - Contents/Resources/bin/dolphin
+    - Contents/Resources/bin/octopaas
 
 dmg:
   contents:

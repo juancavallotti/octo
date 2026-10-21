@@ -7,7 +7,7 @@ import { contextBridge, ipcRenderer } from "electron";
  */
 
 export interface BinaryStatusView {
-  name: "octo" | "dolphin";
+  name: "octo" | "dolphin" | "octopaas";
   path: string;
   bundled: string;
   override?: string;
@@ -39,9 +39,9 @@ export interface SettingsView {
 export interface OctoSettingsBridge {
   get(): Promise<SettingsView>;
   /** Choose a binary; pass null to go back to the bundled one. Resolves to the new view. */
-  setBinary(name: "octo" | "dolphin", path: string | null): Promise<SettingsView>;
+  setBinary(name: BinaryStatusView["name"], path: string | null): Promise<SettingsView>;
   /** Open the file picker for a binary, and apply what was chosen. */
-  pickBinary(name: "octo" | "dolphin"): Promise<SettingsView>;
+  pickBinary(name: BinaryStatusView["name"]): Promise<SettingsView>;
   /** Choose the docker CLI; pass null to go back to searching for one. */
   setDocker(path: string | null): Promise<SettingsView>;
   pickDocker(): Promise<SettingsView>;

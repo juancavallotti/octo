@@ -1,14 +1,17 @@
-import { Menu, app, clipboard, shell, type BrowserWindow } from "electron";
+import { Menu, app, clipboard, dialog, shell, type BrowserWindow } from "electron";
 import path from "node:path";
 import { logPath } from "./log";
 import { current } from "./server";
 import { openSettings } from "./settingsWindow";
 import { openContainer } from "./containerWindow";
+import { openPlatform } from "./platformWindow";
+import { pushVault, signIn, signOut, state as platformState, useProfile } from "./platform/controller";
+import { readLink } from "./platform/link";
 import { dockerStatus } from "./container/status";
 import { checkForUpdates, restartToUpdate, updateStatus } from "./update";
 import { openVault, pickVault, recents, switchTo } from "./vault";
 import { editorStatus, sendCommand, setEditorStatus } from "./editorStatus";
-import { menuTemplate } from "./menuTemplate";
+import { menuTemplate, type Installation } from "./menuTemplate";
 import { mainWindow } from "./window";
 
 /**
@@ -53,6 +56,39 @@ function pageZoom(direction: "in" | "out" | "reset"): void {
   contents.zoomLevel = direction === "reset" ? 0 : contents.zoomLevel + (direction === "in" ? 0.5 : -0.5);
 }
 
+/** The open folder's integration, read from the folder itself. */
+function linkedIntegration(): { integration: string; profile: string } | null {
+  const vault = openVault();
+  const link = vault ? readLink(vault.path) : null;
+  return link ? { integration: link.integrationName, profile: link.profile } : null;
+}
+
+/** octopaas's installations, as the controller last read them. */
+function installations(): Installation[] {
+  return platformState().profiles.map((p) => ({
+    name: p.name,
+    current: p.current,
+    identity:
+      p.identity.state === "signed-in"
+        ? { state: "signed-in", credential: p.identity.credential, name: p.identity.name }
+        : { state: p.identity.state },
+  }));
+}
+
+/**
+ * Run a platform operation the menu started. Its progress shows in the editor; a
+ * failure has no window to say it in when the platform's is closed, so it says it here.
+ */
+function fromMenu(what: string, operation: Promise<unknown>): void {
+  operation.catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === "Cancelled") return;
+    const win = mainWindow();
+    const options = { type: "error" as const, message: what, detail: message };
+    void (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options));
+  });
+}
+
 export function buildMenu(): void {
   const update = updateEntry();
   const template = menuTemplate(
@@ -65,6 +101,8 @@ export function buildMenu(): void {
       mcpAvailable: mcpUrl() !== null,
       update: { label: update.label },
       docker: dockerStatus().state,
+      linked: linkedIntegration(),
+      installations: installations(),
     },
     {
       command: sendCommand,
@@ -75,6 +113,11 @@ export function buildMenu(): void {
       copyMcpUrl,
       openSettings,
       openContainer,
+      openPlatform,
+      pushToPlatform: () => fromMenu("The push did not go through.", pushVault()),
+      useInstallation: (name) => fromMenu(`Could not switch to ${name}.`, useProfile(name)),
+      signIn: (name) => fromMenu(`Could not sign in to ${name}.`, signIn(name)),
+      signOut: (name) => fromMenu(`Could not sign out of ${name}.`, signOut(name)),
       update: update.click,
       openDocs: () => void shell.openExternal("https://octo.juancavallotti.com"),
       showLog: () => shell.showItemInFolder(logPath()),

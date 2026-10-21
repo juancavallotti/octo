@@ -19,7 +19,7 @@ export interface Vault {
  */
 export interface DesktopSettings {
   /** Overrides for the runtime binaries. Absent means the ones inside the app. */
-  runtime?: { octo?: string; dolphin?: string };
+  runtime?: { octo?: string; dolphin?: string; octopaas?: string };
   /** The docker CLI to use. Absent means the first one found on the search path. */
   docker?: string;
   /** Check for a new version of Octo Desktop on launch. Absent means yes. */
@@ -29,6 +29,11 @@ export interface DesktopSettings {
    * process acts on them. Absent means every one of them is at its default.
    */
   editor?: { autoLearn?: boolean };
+  /**
+   * Where integrations pulled from the platform land. Absent means the Documents
+   * folder's Octo, the folder the app opens first.
+   */
+  platform?: { projectsDir?: string };
 }
 
 export interface DesktopState {
@@ -91,16 +96,23 @@ function validSettings(s: DesktopSettings | undefined): DesktopSettings | undefi
   if (!s || typeof s !== "object") return undefined;
   const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
   const runtime = s.runtime && typeof s.runtime === "object" ? s.runtime : undefined;
-  const octo = str(runtime?.octo);
-  const dolphin = str(runtime?.dolphin);
+  const binaries = {
+    octo: str(runtime?.octo),
+    dolphin: str(runtime?.dolphin),
+    octopaas: str(runtime?.octopaas),
+  };
+  const chosen = Object.fromEntries(Object.entries(binaries).filter(([, v]) => v !== undefined));
   const editor = s.editor && typeof s.editor === "object" ? s.editor : undefined;
   const autoLearn = typeof editor?.autoLearn === "boolean" ? editor.autoLearn : undefined;
   const docker = str(s.docker);
+  const platform = s.platform && typeof s.platform === "object" ? s.platform : undefined;
+  const projectsDir = str(platform?.projectsDir);
   return {
-    ...(octo || dolphin ? { runtime: { ...(octo ? { octo } : {}), ...(dolphin ? { dolphin } : {}) } } : {}),
+    ...(Object.keys(chosen).length > 0 ? { runtime: chosen } : {}),
     ...(docker ? { docker } : {}),
     ...(typeof s.autoUpdateCheck === "boolean" ? { autoUpdateCheck: s.autoUpdateCheck } : {}),
     ...(autoLearn !== undefined ? { editor: { autoLearn } } : {}),
+    ...(projectsDir ? { platform: { projectsDir } } : {}),
   };
 }
 

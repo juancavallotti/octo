@@ -12,8 +12,10 @@ import {
   type DevEnvStore,
 } from "../state/devEnvStore";
 
-const INPUT =
-  "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
+const FIELD =
+  "rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
+/** A value field: takes the row's remaining width, and gives it up when the row is narrow. */
+const INPUT = `${FIELD} w-full min-w-0`;
 
 /** Debounce for persisting edits to the backend as the user types. */
 const SAVE_DEBOUNCE_MS = 600;
@@ -254,7 +256,7 @@ function DevEnvEditor({
             onKeyDown={(e) => {
               if (e.key === "Enter") addVar();
             }}
-            className={`${INPUT} w-40 shrink-0 font-mono`}
+            className={`${FIELD} w-40 shrink-0 font-mono`}
           />
           <input
             type={reveal ? "text" : "password"}

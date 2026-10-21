@@ -32,7 +32,7 @@ export function serverEntry(): string {
   return path.join(serverDir(), "apps", "standalone", "server.js");
 }
 
-/** Directory holding the `octo` and `dolphin` binaries for this platform. */
+/** Directory holding the bundled binaries for this platform. */
 export function binDir(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, "bin")
@@ -49,7 +49,17 @@ export function bundledBinary(name: RuntimeBinary): string {
   return path.join(binDir(), process.platform === "win32" ? `${name}.exe` : name);
 }
 
-export type RuntimeBinary = "octo" | "dolphin";
+/**
+ * The binaries the app ships. `octo` and `dolphin` are the runtime the editor server
+ * runs flows with; `octopaas` is the platform's CLI, which the shell runs itself.
+ */
+export const RUNTIME_BINARIES = ["octo", "dolphin", "octopaas"] as const;
+
+export type RuntimeBinary = (typeof RUNTIME_BINARIES)[number];
+
+export function isRuntimeBinary(name: unknown): name is RuntimeBinary {
+  return (RUNTIME_BINARIES as readonly unknown[]).includes(name);
+}
 
 /** Where the shell keeps its own state: the folder list, the port, the settings. */
 export function stateDir(): string {

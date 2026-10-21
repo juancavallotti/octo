@@ -523,7 +523,7 @@ jobs:
       # The exact binaries this release publishes, unpacked into the per-arch
       # layout electron-builder's ${arch} macro copies from — which spells amd64
       # "x64". Deliberately not `task desktop:bins`, which compiles.
-      - name: Fetch the released octo and dolphin
+      - name: Fetch the released octo, dolphin and octopaas
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
@@ -533,7 +533,7 @@ jobs:
             set -- $pair; goarch="$1"; ebarch="$2"
             out="apps/desktop/build/bin/$ebarch"
             mkdir -p "$out"
-            for bin in octo dolphin; do
+            for bin in octo dolphin octopaas; do
               gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
                 --pattern "${bin}_darwin_${goarch}.tar.gz" --output "/tmp/${bin}.tgz" --clobber
               tar -xzf "/tmp/${bin}.tgz" -C "$out" "$bin"

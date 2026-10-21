@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,5 +73,159 @@ func TestPackAndUnpackRoundTrip(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "octo.yaml,resources/env/prod.env" {
 		t.Errorf("packed %v", names)
+	}
+}
+
+func packed(t *testing.T, dir string) map[string]string {
+
+	data, _, err := pack(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, f := range r.File {
+		rc, _ := f.Open()
+		var b bytes.Buffer
+		_, _ = b.ReadFrom(rc)
+		_ = rc.Close()
+		out[f.Name] = b.String()
+	}
+	return out
+}
+
+// A pulled folder edited since the pull pushes as it is now: the manifest pull left
+// behind lists what is on disk, keeps the kinds the platform gave its resources,
+// and still carries the hidden env resources the platform sent — while a local
+// .env the platform never had stays behind.
+func TestPackRewritesAPulledManifest(t *testing.T) {
+
+	dir := t.TempDir()
+	pulled := `{"version":2,"name":"orders","tag":"v0.1.0","configs":["octo.yaml","old.yaml"],
+		"resources":[{"name":".env.prod","kind":"env"},{"name":"resources/env/prod.env","kind":"env"}]}`
+	_, err := unpack(zipOf(t, map[string]string{
+		manifestName:             pulled,
+		"octo.yaml":              "flows: []",
+		"old.yaml":               "flows: []",
+		".env.prod":              "A=1",
+		"resources/env/prod.env": "B=2",
+	}), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(filepath.Join(dir, "old.yaml"))
+	_ = os.WriteFile(filepath.Join(dir, "new.yaml"), []byte("flows: []"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "orders_test.yaml"), []byte("tests: []"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "welcome.tmpl"), []byte("hi"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, ".env.dev"), []byte("SECRET=1"), 0o644)
+	_ = os.MkdirAll(filepath.Join(dir, ".octo"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, ".octo", "platform.json"), []byte("{}"), 0o644)
+
+	files := packed(t, dir)
+	for _, name := range []string{".env.dev", ".octo/platform.json", ".octo/" + manifestName, "old.yaml"} {
+		if _, ok := files[name]; ok {
+			t.Errorf("%s should not be pushed", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".octo", manifestName)); err != nil {
+		t.Errorf("pull should keep the manifest in .octo/: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, manifestName)); err == nil {
+		t.Error("pull left the manifest among the integration's files")
+	}
+	if files[".env.prod"] != "A=1" {
+		t.Errorf("the platform's own .env.prod should go back up, got %q", files[".env.prod"])
+	}
+
+	var m manifest
+	if err := json.Unmarshal([]byte(files[manifestName]), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Name != "orders" || m.Tag != "v0.1.0" || m.Version != 2 {
+		t.Errorf("name, tag and version should carry over, got %+v", m)
+	}
+	if got := strings.Join(m.Configs, ","); got != "new.yaml,octo.yaml" {
+		t.Errorf("configs are what is on disk now, got %s", got)
+	}
+	kinds := map[string]string{}
+	for _, r := range m.Resources {
+		kinds[r.Name] = r.Kind
+	}
+	want := map[string]string{
+		".env.prod":              "env",
+		"resources/env/prod.env": "env",
+		"orders_test.yaml":       "template",
+		"welcome.tmpl":           "template",
+	}
+	if len(kinds) != len(want) {
+		t.Errorf("resources %v, want %v", kinds, want)
+	}
+	for name, kind := range want {
+		if kinds[name] != kind {
+			t.Errorf("%s: kind %q, want %q", name, kinds[name], kind)
+		}
+	}
+}
+
+// A resource the platform sent inside a hidden folder goes back up with it, or the
+// push would delete it there; the folder's other hidden files stay behind.
+func TestPackKeepsAListedResourceInsideAHiddenFolder(t *testing.T) {
+
+	dir := t.TempDir()
+	pulled := `{"version":2,"name":"orders","configs":["octo.yaml"],
+		"resources":[{"name":".config/app.env","kind":"env"}]}`
+	_, err := unpack(zipOf(t, map[string]string{
+		manifestName:      pulled,
+		"octo.yaml":       "flows: []",
+		".config/app.env": "A=1",
+	}), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, ".config", "local.env"), []byte("SECRET=1"), 0o644)
+	_ = os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]"), 0o644)
+
+	files := packed(t, dir)
+	if files[".config/app.env"] != "A=1" {
+		t.Errorf("the platform's .config/app.env should go back up, got %q", files[".config/app.env"])
+	}
+	for _, name := range []string{".config/local.env", ".git/config"} {
+		if _, ok := files[name]; ok {
+			t.Errorf("%s should not be pushed", name)
+		}
+	}
+}
+
+// A folder an older octopaas pulled has its manifest at the root, and is described
+// by it all the same.
+func TestPackReadsAManifestAtTheRoot(t *testing.T) {
+
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, manifestName), []byte(`{"version":2,"name":"orders","configs":["octo.yaml"],"resources":[{"name":"prod.env","kind":"env"}]}`), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "octo.yaml"), []byte("flows: []"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "prod.env"), []byte("A=1"), 0o644)
+
+	files := packed(t, dir)
+	var m manifest
+	if err := json.Unmarshal([]byte(files[manifestName]), &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Resources) != 1 || m.Resources[0].Kind != "env" {
+		t.Errorf("prod.env should keep its env kind, got %+v", m.Resources)
+	}
+}
+
+// A folder that was never pulled has no manifest, and none is made up for it: the
+// platform reads its layout instead.
+func TestPackLeavesAFolderWithoutAManifestAlone(t *testing.T) {
+
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "octo.yaml"), []byte("flows: []"), 0o644)
+	if _, ok := packed(t, dir)[manifestName]; ok {
+		t.Error("pack wrote a manifest for a folder that had none")
 	}
 }
