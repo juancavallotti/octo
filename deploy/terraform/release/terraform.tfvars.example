@@ -89,11 +89,11 @@ oidc_issuer        = "https://idp.example.com" # your OIDC provider
 # repository_id = "octo"
 # namespace     = "octo"
 #
-# The public API at api.{domain}. Point its DNS at the node first: set
-# api_dns_record = true on the infra root when its zone holds `domain`, or make
-# the record wherever the editor's is.
-# api_enabled = true
-# api_host    = ""   # empty is api.{domain}
+# The public API, published at api.{domain} by every release. Point its DNS at
+# the node: set api_dns_record = true on the infra root when its zone holds
+# `domain`, or make the record wherever the editor's is (a wildcard over
+# `domain` already covers it).
+# api_host = ""   # empty is api.{domain}
 #
 # cluster_issuer = "letsencrypt-prod"
 # wildcard_tls   = true # one *.{apps_domain} cert via DNS-01, shared by all

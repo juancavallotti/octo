@@ -1,7 +1,5 @@
-{{- if .Values.api.enabled }}
 {{- include "octo-common.service" (dict
       "root" $
       "component" "api"
       "type" "ClusterIP"
       "ports" (list (dict "name" "http" "port" .Values.api.service.port "targetPort" .Values.api.service.port))) }}
-{{- end }}

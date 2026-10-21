@@ -379,10 +379,8 @@ embeddings:
 #
 # It is the flows in api/ (linked in as files/api) run by the published
 # standalone runtime image, at the release's version like every other component.
-# Off by default because it is a second public host: it needs its own DNS
-# record and certificate.
+# Its host needs a DNS record and a certificate of its own, beside the editor's.
 api:
-  enabled: false
   # The standalone runtime, the one published for running integrations outside
   # a cluster. A private registry has it as octo-devruntime-paas, which is the
   # same build.

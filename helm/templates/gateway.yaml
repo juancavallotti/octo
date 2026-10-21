@@ -85,7 +85,7 @@ spec:
     {{- end }}
     {{- end }}
     {{- /* The public API's host, on its own certificate. */}}
-    {{- if and .Values.api.enabled .Values.ingress.enabled }}
+    {{- if .Values.ingress.enabled }}
     - name: api
       hostname: {{ include "octo.api.host" . | quote }}
       {{- if eq $mode "none" }}

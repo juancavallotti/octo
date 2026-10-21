@@ -119,7 +119,6 @@ agenticrunner:
 # standalone runtime (the same build as octo-runtime) and the same mkcert Secret
 # as the editor, which is why the mkcert command above names its host too.
 api:
-  enabled: true
   repository: octo-devruntime
   url: "https://api.local.octopaas.dev:8443"
   tls:
