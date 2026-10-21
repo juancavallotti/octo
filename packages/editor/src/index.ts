@@ -42,7 +42,9 @@ export { default as CopyMcpUrlButton } from "./app/components/CopyMcpUrlButton";
 export {
   default as WorkspacePicker,
   type PickerAction,
+  type PickerGroup,
   type PickerItem,
+  type PickerRowAction,
 } from "./app/components/WorkspacePicker";
 export { default as IntegrationTitle } from "./app/components/IntegrationTitle";
 export { default as ProjectLoader } from "./app/components/ProjectLoader";
