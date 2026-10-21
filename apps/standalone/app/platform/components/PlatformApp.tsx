@@ -18,14 +18,13 @@ const hasBridge = () => paasBridge() !== null;
 /**
  * The Platform window: a header like the editor's — the mark, which installation, the
  * tabs — over the part of the platform a tab shows, and the running operation's
- * output beneath. Which installation is shown is the window's own choice, starting on
- * the open folder's and otherwise the CLI's current one.
+ * output beneath. The installation shown is octopaas's current one, the same one the
+ * Platform menu and the user's terminal act on; choosing another here switches it.
  */
 export default function PlatformApp({ focus }: { focus?: string }) {
   const desktop = useSyncExternalStore(subscribe, hasBridge, () => true);
   const state = usePlatformState();
   const [tab, setTab] = useState<PlatformTab>(tabFor(focus));
-  const [chosen, setChosen] = useState<string | null>(null);
 
   useEffect(() => {
     const paas = paasBridge();
@@ -42,14 +41,12 @@ export default function PlatformApp({ focus }: { focus?: string }) {
     );
   }
 
-  const names = state?.profiles.map((p) => p.name) ?? [];
-  const fallback =
-    state?.link?.profile ?? state?.profiles.find((p) => p.current)?.name ?? names[0] ?? null;
-  const profile = chosen && names.includes(chosen) ? chosen : fallback;
+  const profile = state?.profiles.find((p) => p.current)?.name ?? state?.profiles[0]?.name ?? null;
+  const use = (name: string) => void paasBridge()?.useProfile(name).catch(() => {});
 
   return (
     <div className="flex h-full flex-col">
-      <PlatformHeader state={state} profile={profile} onProfile={setChosen} tab={tab} onTab={setTab} />
+      <PlatformHeader state={state} profile={profile} onProfile={use} tab={tab} onTab={setTab} />
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
           {state?.cliError && (
