@@ -76,6 +76,17 @@ export interface MenuInput {
   docker: "missing" | "stopped" | "running";
   /** The open folder's integration on the platform, when it is linked to one. */
   linked: { integration: string; profile: string } | null;
+  /** octopaas's installations, the CLI's current one marked. */
+  installations: Installation[];
+}
+
+/** An installation as the menu shows it: its name, and who is signed in there. */
+export interface Installation {
+  name: string;
+  current: boolean;
+  identity:
+    | { state: "checking" | "signed-out" | "error" }
+    | { state: "signed-in"; credential: "apiKey" | "oauth"; name: string };
 }
 
 export interface MenuActions {
@@ -93,6 +104,10 @@ export interface MenuActions {
   openPlatform(focus: "integrations" | "folder" | "versions" | "deployments" | "logs" | "settings"): void;
   /** Push the open folder to its integration. */
   pushToPlatform(): void;
+  /** Make an installation octopaas's current one, here and in the user's terminal. */
+  useInstallation(name: string): void;
+  signIn(name: string): void;
+  signOut(name: string): void;
   update(): void;
   openDocs(): void;
   showLog(): void;
@@ -407,7 +422,7 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
       },
       { label: "Pull Integration…", click: () => act.openPlatform("integrations") },
       { type: "separator" },
-      { label: "Installations…", click: () => act.openPlatform("settings") },
+      ...installationItems(input.installations, act),
     ],
   };
 
@@ -443,5 +458,60 @@ export function menuTemplate(input: MenuInput, act: MenuActions): MenuItemConstr
         { label: "Show Server Log", click: act.showLog },
       ],
     },
+  ];
+}
+
+/**
+ * The installation switcher, and signing in to the current one. An API key is not a
+ * session octopaas can sign out of, so it is named rather than offered a Sign Out.
+ */
+function installationItems(installations: Installation[], act: MenuActions): MenuItemConstructorOptions[] {
+  const manage: MenuItemConstructorOptions = {
+    label: installations.length ? "Manage Installations…" : "Add Installation…",
+    click: () => act.openPlatform("settings"),
+  };
+  const switcher: MenuItemConstructorOptions = {
+    label: "Installation",
+    submenu: [
+      ...installations.map(
+        (i): MenuItemConstructorOptions => ({
+          label: i.name,
+          type: "radio",
+          checked: i.current,
+          click: () => {
+            if (!i.current) act.useInstallation(i.name);
+          },
+        }),
+      ),
+      ...(installations.length ? ([{ type: "separator" }] satisfies MenuItemConstructorOptions[]) : []),
+      manage,
+    ],
+  };
+
+  const current = installations.find((i) => i.current);
+  if (!current) return [switcher];
+  const { identity } = current;
+  if (identity.state !== "signed-in") {
+    return [
+      switcher,
+      {
+        label: identity.state === "checking" ? `Checking ${current.name}…` : `Sign In to ${current.name}…`,
+        enabled: identity.state !== "checking",
+        click: () => act.signIn(current.name),
+      },
+    ];
+  }
+  return [
+    switcher,
+    {
+      label:
+        identity.credential === "apiKey"
+          ? `Using an API key on ${current.name}`
+          : `Signed in to ${current.name} as ${identity.name}`,
+      enabled: false,
+    },
+    ...(identity.credential === "oauth"
+      ? ([{ label: `Sign Out of ${current.name}`, click: () => act.signOut(current.name) }] satisfies MenuItemConstructorOptions[])
+      : []),
   ];
 }

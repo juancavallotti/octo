@@ -32,6 +32,9 @@ function actions(): MenuActions {
     openContainer: vi.fn(),
     openPlatform: vi.fn(),
     pushToPlatform: vi.fn(),
+    useInstallation: vi.fn(),
+    signIn: vi.fn(),
+    signOut: vi.fn(),
     update: vi.fn(),
     openDocs: vi.fn(),
     showLog: vi.fn(),
@@ -49,6 +52,7 @@ function build(over: Partial<MenuInput> = {}, act = actions()) {
     update: { label: "Check for Updates…" },
     docker: "running",
     linked: null,
+    installations: [],
     ...over,
   };
   return { menu: menuTemplate(input, act), act };
@@ -200,6 +204,47 @@ describe("menuTemplate", () => {
     expect(act.pushToPlatform).toHaveBeenCalled();
     click(item(menu, "Platform", "Deploy…"));
     expect(act.openPlatform).toHaveBeenCalledWith("deployments");
+  });
+
+  it("switches installations, and offers adding one when there is none", () => {
+    expect(item(build().menu, "Platform", "Installation", "Add Installation…").enabled).not.toBe(false);
+
+    const { menu, act } = build({
+      installations: [
+        { name: "dev", current: true, identity: { state: "signed-out" } },
+        { name: "prod", current: false, identity: { state: "checking" } },
+      ],
+    });
+    expect(item(menu, "Platform", "Installation", "dev").checked).toBe(true);
+    click(item(menu, "Platform", "Installation", "dev"));
+    expect(act.useInstallation).not.toHaveBeenCalled();
+    click(item(menu, "Platform", "Installation", "prod"));
+    expect(act.useInstallation).toHaveBeenCalledWith("prod");
+    click(item(menu, "Platform", "Installation", "Manage Installations…"));
+    expect(act.openPlatform).toHaveBeenCalledWith("settings");
+  });
+
+  it("signs in to and out of the current installation", () => {
+    const signedOut = build({ installations: [{ name: "dev", current: true, identity: { state: "signed-out" } }] });
+    click(item(signedOut.menu, "Platform", "Sign In to dev…"));
+    expect(signedOut.act.signIn).toHaveBeenCalledWith("dev");
+
+    const checking = build({ installations: [{ name: "dev", current: true, identity: { state: "checking" } }] });
+    expect(item(checking.menu, "Platform", "Checking dev…").enabled).toBe(false);
+
+    const oauth = build({
+      installations: [{ name: "dev", current: true, identity: { state: "signed-in", credential: "oauth", name: "Juan" } }],
+    });
+    expect(item(oauth.menu, "Platform", "Signed in to dev as Juan").enabled).toBe(false);
+    click(item(oauth.menu, "Platform", "Sign Out of dev"));
+    expect(oauth.act.signOut).toHaveBeenCalledWith("dev");
+
+    // octopaas's logout forgets a session, never a key, so a key has no Sign Out.
+    const key = build({
+      installations: [{ name: "dev", current: true, identity: { state: "signed-in", credential: "apiKey", name: "ci" } }],
+    });
+    expect(item(key.menu, "Platform", "Using an API key on dev").enabled).toBe(false);
+    expect(() => item(key.menu, "Platform", "Sign Out of dev")).toThrow();
   });
 
   it("puts the app items under File off macOS", () => {
