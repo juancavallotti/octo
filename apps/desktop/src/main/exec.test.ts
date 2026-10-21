@@ -16,6 +16,16 @@ describe("exec", () => {
     expect(lines.sort()).toEqual(["stderr:err", "stdout:out"]);
   });
 
+  // é is two bytes; written a byte at a time, each half arrives as its own chunk.
+  it("decodes a character split across two chunks", async () => {
+    const lines: string[] = [];
+    const { stdout } = await exec("/bin/sh", ["-c", "printf '\\303'; sleep 0.1; printf '\\251\\n'"], {
+      onLine: (l) => lines.push(l),
+    });
+    expect(stdout).toBe("é\n");
+    expect(lines).toEqual(["é"]);
+  });
+
   it("writes its input to stdin", async () => {
     const { stdout } = await exec("/bin/sh", ["-c", "cat"], { input: "secret\n" });
     expect(stdout).toBe("secret\n");

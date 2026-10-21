@@ -42,8 +42,7 @@ export function exec(file: string, args: string[], opts: ExecOptions = {}): Prom
       flushes.push(() => {
         if (partial) opts.onLine?.(partial, stream);
       });
-      return (chunk: Buffer) => {
-        const text = chunk.toString("utf8");
+      return (text: string) => {
         kept[stream] += text;
         if (!opts.onLine) return;
         if (kept[stream].length > STREAMED_TAIL) kept[stream] = kept[stream].slice(-STREAMED_TAIL);
@@ -52,6 +51,10 @@ export function exec(file: string, args: string[], opts: ExecOptions = {}): Prom
         for (const line of parts) opts.onLine(line, stream);
       };
     };
+    // Decoded by the stream, which holds back a character split across two chunks
+    // rather than turning each half into U+FFFD.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     child.stdout.on("data", lines("stdout"));
     child.stderr.on("data", lines("stderr"));
     child.once("error", reject);
@@ -60,6 +63,10 @@ export function exec(file: string, args: string[], opts: ExecOptions = {}): Prom
       for (const flush of flushes) flush();
       resolve({ code: code ?? 1, stdout: kept.stdout, stderr: kept.stderr });
     });
+    // A child that never reads its input — one that failed to start, or exited
+    // first — makes writing it fail with EPIPE. The exit code and stderr already
+    // say why, and unheard, the stream's error would bring the main process down.
+    child.stdin.on("error", () => {});
     if (opts.input !== undefined) child.stdin.end(opts.input);
     else child.stdin.end();
   });
