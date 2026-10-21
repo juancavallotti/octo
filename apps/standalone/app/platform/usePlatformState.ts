@@ -6,8 +6,8 @@ import type { PlatformState } from "./types";
 
 /**
  * The platform as the shell last reported it, kept current by its pushes. Both the
- * Platform window and the editor's chip read it, so an action in one shows in the
- * other at once.
+ * Platform window and the editor's folder picker read it, so an action in one shows
+ * in the other at once.
  */
 export function usePlatformState(): PlatformState | null {
   const [state, setState] = useState<PlatformState | null>(null);

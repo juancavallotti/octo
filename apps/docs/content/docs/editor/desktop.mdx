@@ -178,8 +178,8 @@ because the runtime image has no shell.
 
 ## The platform
 
-The **Platform** menu, the platform chip beside the folder chip and the **Platform**
-window connect the open folder to an Octo platform. You pull an integration into a
+The **Platform** menu, the folder picker and the **Platform** window connect the
+open folder to an Octo platform. You pull an integration into a
 folder, edit it here, push it back, freeze versions and deploy them, then follow
 what the deployment logs. The app does all of this with the bundled `octopaas` CLI,
 so everything it does, the CLI in your terminal can do too.
@@ -187,18 +187,27 @@ so everything it does, the CLI in your terminal can do too.
 ### Installations
 
 An installation is a platform you work with: a name and its API's address. Open
-**Platform → Installations…** to add one, sign in to it with your browser, or give
-it an API key instead. You can work with several, such as a local one and
-production. These are the `octopaas` CLI's own profiles, kept in `~/.octopaas`, so a
-sign-in here is a sign-in in the terminal, and the other way round. The **default**
-installation is the one the CLI uses in a terminal when you do not pass `--profile`.
+**Platform → Installation → Manage Installations…** to add one, sign in to it with
+your browser, or give it an API key instead. You can work with several, such as a
+local one and production. These are the `octopaas` CLI's own profiles, kept in
+`~/.octopaas`, so a sign-in here is a sign-in in the terminal, and the other way
+round.
+
+One installation is the **current** one. Switch it under **Platform →
+Installation**, or in the Platform window's header. It is the CLI's current
+profile too, so a terminal that does not pass `--profile` follows the switch.
+**Platform → Sign In…** and **Sign Out** act on the current installation.
 
 ### Pull an integration and open it
 
-1. Choose **Platform → Pull Integration…**, or **From the platform…** in the folder
-   picker.
-2. Pick the installation in the window's header, then choose **Pull and open** on
-   an integration. Expand an integration to open one of its versions instead.
+1. Open the folder picker. Under *installation* **cloud profile** it lists the
+   current installation's integrations; pick one that is not on this machine to
+   pull it.
+   For another installation, or for a version, choose **Platform → Pull
+   Integration…** and continue in the Platform window.
+2. In the Platform window, pick the installation in the header, then choose **Pull
+   and open** on an integration. Expand an integration to open one of its versions
+   instead.
 3. Confirm the folder. It defaults to a folder named after the integration in your
    **Projects folder**, `~/Documents/Octo` unless you change it under
    **Installations**. You can choose any new or empty folder for one pull without
@@ -206,13 +215,37 @@ installation is the one the CLI uses in a terminal when you do not pass `--profi
 
 The folder opens in the editor. It remembers which integration it is, on which
 installation, in `.octo/platform.json`, so it always pushes and deploys to the
-platform it came from, whichever installation is selected elsewhere. An integration
-already on this machine shows **Open** instead of **Pull and open**.
+platform it came from, whichever installation is current. An integration already on
+this machine shows **Open** instead of **Pull and open**.
+
+### Keep a folder in sync
+
+The folder picker marks each of the current installation's integrations with how
+its folder here stands against it:
+
+| Mark | Meaning | Clicking it |
+| --- | --- | --- |
+| ✓ | The folder and the draft hold the same files. | — |
+| ↑ | The folder has changed since it last synced. | Pushes the folder. |
+| ↓ | The draft has changed on the platform. | Pulls the draft over the folder. |
+| ↕ | Both have changed. | Asks whether to push or pull. |
+| Download | The integration is not on this machine. | Pulls it into a new folder. |
+
+A folder syncs when you pull, push or import it. A pull over an existing folder
+replaces what a push would send, so a file deleted on the platform is deleted here
+too; hidden files such as `.git` and `.env` stay. When a push or pull would
+overwrite changes the other side has, you are asked first. A folder linked before
+syncs were recorded shows ↕ until its first push or pull.
+
+The picker keeps each installation's last list of integrations and refreshes it in
+place every time it opens. When the platform cannot be reached, it shows the last
+list, marked **offline**, and the marks still follow the changes you make here. A
+push or pull that fails turns the folder chip's icon red; hover over it to see why.
 
 ### Push, versions and deploys
 
-- **Push**, beside Save, saves your changes and replaces the integration's draft on
-  the platform with the folder as it is on disk. Its versions and running
+- **Platform → Push to Platform**, or ↑ in the folder picker, saves your changes and
+  replaces the integration's draft on the platform with the folder as it is on disk. Its versions and running
   deployments stay as they are until you roll them out.
 - **This folder** in the Platform window freezes the draft as a version. Leave
   **Push this folder first** on, and the version is what you see in the editor.
