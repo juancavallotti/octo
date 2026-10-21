@@ -452,6 +452,10 @@ export async function pull(name: unknown, integrationId: unknown, integrationNam
   const target = await pickTarget(version ? `${label}-${version}` : label, n);
   if (!target) return false;
 
+  // Before the pull: a push landing in between then reads as the platform being
+  // ahead, rather than as a folder in step that is not. Without it the folder still
+  // opens, with no sync recorded.
+  const lastUpdated = await lastUpdatedOf(n, intId).catch(() => null);
   await exclusive(`Pulling ${label}${version ? ` ${version}` : ""} from ${n}`, (signal) =>
     run(version ? ["versions", "pull", intId, version, target] : ["integrations", "pull", intId, target], {
       profile: n,
@@ -467,7 +471,7 @@ export async function pull(name: unknown, integrationId: unknown, integrationNam
     linkedAt: Date.now(),
   };
   writeLink(target, link);
-  recordSync(target, link, await lastUpdatedOf(n, intId));
+  if (lastUpdated) recordSync(target, link, lastUpdated);
   rememberVault(target);
   return switchTo(target);
 }
@@ -606,6 +610,29 @@ export async function removeVersion(tag: unknown): Promise<PlatformState> {
 export async function sync(dir: unknown, direction: unknown): Promise<PlatformState> {
   if (!knownFolder(dir)) throw new Error("That folder is not one Octo has open or opened before");
   const folder = dir;
+  const plan = await planSync(folder, direction).catch((err: unknown) =>
+    reportFailure(`Syncing ${path.basename(folder)}`, err),
+  );
+  if (!plan) return state();
+  const { link, chosen, lastUpdated } = plan;
+  if (chosen === "push") {
+    await exclusive(`Pushing ${link.integrationName} to ${link.profile}`, (signal) => pushFolder(folder, link, signal));
+  } else {
+    await exclusive(`Pulling ${link.integrationName} from ${link.profile}`, (signal) =>
+      pullOver(folder, link, lastUpdated, signal),
+    );
+  }
+  return state();
+}
+
+/**
+ * Which way a sync goes, asked and confirmed before anything runs; null when the user
+ * declined. `lastUpdated` is the integration's as it stood before the sync.
+ */
+async function planSync(
+  folder: string,
+  direction: unknown,
+): Promise<{ link: Link; chosen: "push" | "pull"; lastUpdated: string } | null> {
   const link = readLink(folder);
   if (!link) throw new Error(`${path.basename(folder)} is not on a platform`);
   await loaded();
@@ -615,37 +642,48 @@ export async function sync(dir: unknown, direction: unknown): Promise<PlatformSt
 
   const lastUpdated = await lastUpdatedOf(link.profile, link.integrationId);
   const now = syncState(link.synced, folderDigest(folder), lastUpdated);
-  let chosen = direction;
-  if (chosen === "ask") {
+  let chosen: "push" | "pull" | null;
+  if (direction === "ask") {
     chosen = await choose(
       `${path.basename(folder)} and ${link.integrationName} have both changed`,
       `Push the folder over the platform's draft, or pull the draft over the folder. Either way, the other side's changes are lost.`,
     );
-    if (!chosen) return state();
-  } else if (chosen === "push" && (now === "behind" || now === "diverged")) {
+    if (!chosen) return null;
+  } else if (direction === "push" || direction === "pull") {
+    chosen = direction;
+  } else {
+    throw new Error("Sync is a push or a pull");
+  }
+  if (direction === "push" && (now === "behind" || now === "diverged")) {
     const ok = await confirm(
       `${link.integrationName} has changed on ${link.profile} since this folder last synced`,
       "Pushing replaces those changes with the folder.",
       "Push",
     );
-    if (!ok) return state();
-  } else if (chosen === "pull" && (now === "ahead" || now === "diverged")) {
+    if (!ok) return null;
+  } else if (direction === "pull" && (now === "ahead" || now === "diverged")) {
     const ok = await confirm(
       `${path.basename(folder)} has changes that are not on the platform`,
       "Pulling replaces them with the platform's draft.",
       "Pull",
     );
-    if (!ok) return state();
+    if (!ok) return null;
   }
+  return { link, chosen, lastUpdated };
+}
 
-  if (chosen === "push") {
-    await exclusive(`Pushing ${link.integrationName} to ${link.profile}`, (signal) => pushFolder(folder, link, signal));
-  } else if (chosen === "pull") {
-    await exclusive(`Pulling ${link.integrationName} from ${link.profile}`, (signal) => pullOver(folder, link, signal));
-  } else {
-    throw new Error("Sync is a push or a pull");
+/**
+ * Keep a failure that came before an operation could start as the last activity, so
+ * the windows show it as they show one that failed while running. A cancel is not a
+ * failure.
+ */
+function reportFailure(label: string, err: unknown): never {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message !== "Cancelled") {
+    activity = { label, state: "failed", message, at: Date.now() };
+    publish();
   }
-  return state();
+  throw err instanceof Error ? err : new Error(message);
 }
 
 /** Push, pull, or neither, from a dialog. */
@@ -658,9 +696,10 @@ async function choose(message: string, detail: string): Promise<"push" | "pull" 
 
 /**
  * Pull the draft over a folder that already holds it. octopaas unpacks into a fresh
- * folder, so a file deleted on the platform is deleted here as well.
+ * folder, so a file deleted on the platform is deleted here as well. `lastUpdated` is
+ * the integration's from before the pull, for the reason `pull` reads it first.
  */
-async function pullOver(dir: string, link: Link, signal: AbortSignal): Promise<void> {
+async function pullOver(dir: string, link: Link, lastUpdated: string, signal: AbortSignal): Promise<void> {
   const scratch = mkdtempSync(path.join(tmpdir(), "octo-pull-"));
   try {
     const into = path.join(scratch, "pulled");
@@ -669,7 +708,7 @@ async function pullOver(dir: string, link: Link, signal: AbortSignal): Promise<v
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
-  recordSync(dir, link, await lastUpdatedOf(link.profile, link.integrationId));
+  recordSync(dir, link, lastUpdated);
 }
 
 /** Open one of the open folder's versions in a folder of its own. */
