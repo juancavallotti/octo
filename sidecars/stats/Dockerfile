@@ -18,7 +18,7 @@
 ARG BIN_SOURCE=compile
 
 # --- Binary source: compile from the module -----------------------------------
-FROM golang:1.27-alpine AS bin-compile
+FROM golang:1.27.3-alpine AS bin-compile
 WORKDIR /src
 
 # go.sum as well as go.mod, because this sidecar has dependencies: a Redis
