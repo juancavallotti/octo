@@ -20,7 +20,7 @@
 ARG BIN_SOURCE=compile
 
 # --- Binary source: compile from the Go module --------------------------------
-FROM golang:1.27-alpine AS bin-compile
+FROM golang:1.27.3-alpine AS bin-compile
 RUN apk add --no-cache git
 WORKDIR /src
 COPY go.mod go.sum ./
