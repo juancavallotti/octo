@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.13](https://github.com/juancavallotti/octo/compare/v0.11.12...v0.11.13) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** build with Go 1.27.3 for CVE-2026-111943 ([bdc6ac1](https://github.com/juancavallotti/octo/commit/bdc6ac1bdac65a74ad8b3be16dc0124535e92538))
+* **deps:** build with Go 1.27.3 for CVE-2026-111943 ([ff885db](https://github.com/juancavallotti/octo/commit/ff885dba58ea957d2e4856f2d51c6a4916188ec8))
+
 ## [0.11.12](https://github.com/juancavallotti/octo/compare/v0.11.11...v0.11.12) (2026-10-21)
 
 
