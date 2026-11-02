@@ -103,6 +103,14 @@ export interface Folder {
   children?: Folder[];
 }
 
+/** What the editor opens: an integration, its config files, and its folder. */
+export interface IntegrationProject {
+  integration: Integration;
+  files: ConfigFile[];
+  /** Null when the integration is unfiled. */
+  folderId: string | null;
+}
+
 /** Everything the integrations manager draws, read in one go. */
 export interface IntegrationTree {
   folders: Folder[];

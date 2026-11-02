@@ -8,11 +8,9 @@
 import {
   assignIntegration,
   createIntegrationWithFiles,
-  findIntegrationFolderId,
-  getConfigFiles,
-  getIntegration,
   listFolders,
   listIntegrations,
+  loadIntegrationProject,
   replaceConfigFiles,
   unassignIntegration,
   updateIntegration,
@@ -21,13 +19,7 @@ import type { FileSystemCapability } from "@octo/editor";
 
 export const orchestratorFileSystem: FileSystemCapability = {
   async load(id) {
-    // The integration record doesn't carry its folder, so resolve it from
-    // membership (single-membership tree). Matches the old IntegrationLoader.
-    const [integration, files, folderId] = await Promise.all([
-      getIntegration(id),
-      getConfigFiles(id),
-      findIntegrationFolderId(id),
-    ]);
+    const { integration, files, folderId } = await loadIntegrationProject(id);
     return {
       id: integration.id,
       name: integration.name,

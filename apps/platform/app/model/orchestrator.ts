@@ -25,6 +25,7 @@ import type {
   Folder,
   Integration,
   IntegrationInput,
+  IntegrationProject,
   IntegrationRename,
   IntegrationTree,
   Snapshot,
@@ -37,6 +38,13 @@ import type {
 
 export async function listIntegrations(): Promise<Integration[]> {
   return unwrap(await integrationActions.listIntegrations());
+}
+
+/** An integration, its config files and its folder, for the editor to open. */
+export async function loadIntegrationProject(
+  id: string,
+): Promise<IntegrationProject> {
+  return unwrap(await integrationActions.loadIntegrationProject(id));
 }
 
 export async function getIntegration(id: string): Promise<Integration> {
@@ -250,26 +258,3 @@ export async function listSnapshotResources(
   return unwrap(await snapshotActions.listSnapshotResources(snapshotId));
 }
 
-/** Collect every folder id in the tree, depth-first. */
-function folderIds(folders: Folder[]): string[] {
-  return folders.flatMap((f) => [f.id, ...folderIds(f.children ?? [])]);
-}
-
-/**
- * Find which folder an integration belongs to, or null when unfiled. Integrations
- * are single-membership but the integration record doesn't name its folder, so we
- * scan folder memberships.
- */
-export async function findIntegrationFolderId(
-  integrationId: string,
-): Promise<string | null> {
-  const ids = folderIds(await listFolders());
-  const matches = await Promise.all(
-    ids.map((id) =>
-      listFolderIntegrations(id).then((items) =>
-        items.some((i) => i.id === integrationId) ? id : null,
-      ),
-    ),
-  );
-  return matches.find((id): id is string => id !== null) ?? null;
-}

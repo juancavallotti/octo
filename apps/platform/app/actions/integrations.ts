@@ -12,6 +12,7 @@ import type {
   ConfigFile,
   Integration,
   IntegrationInput,
+  IntegrationProject,
   IntegrationRename,
 } from "@/app/model/orchestrator";
 import { withRead, withWrite } from "./_auth";
@@ -26,6 +27,33 @@ export async function getIntegration(
   id: string,
 ): Promise<ActionResult<Integration>> {
   return withRead(() => client.getIntegration(id));
+}
+
+/**
+ * What the editor opens, in one round trip. The integration record does not name
+ * its folder, so finding it means reading every folder's members — a read per
+ * folder that, sent from the browser, went one at a time.
+ */
+export async function loadIntegrationProject(
+  id: string,
+): Promise<ActionResult<IntegrationProject>> {
+  return withRead(async () => {
+    const [integration, files, folders] = await Promise.all([
+      client.getIntegration(id),
+      client.readConfigFiles(id),
+      client.listFolders(),
+    ]);
+    if (!integration.ok) return integration;
+    if (!files.ok) return files;
+    if (!folders.ok) return folders;
+
+    const members = await client.listFolderMembers(folders.data);
+    if (!members.ok) return members;
+    const folderId =
+      Object.entries(members.data).find(([, ids]) => ids.includes(id))?.[0] ?? null;
+
+    return { ok: true, data: { integration: integration.data, files: files.data, folderId } };
+  });
 }
 
 export async function createIntegration(
