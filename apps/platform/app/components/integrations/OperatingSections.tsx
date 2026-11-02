@@ -6,7 +6,9 @@ import type {
   IntegrationDetailData,
   Snapshot,
 } from "@/app/model/orchestrator";
+import type { Loadable } from "@/app/components/ui/loadable";
 import { Section } from "./DetailLayout";
+import { OperatingSkeletons } from "./DetailSkeleton";
 import DeploymentsSection from "./DeploymentsSection";
 import EnvSection from "./EnvSection";
 import ResourcesSection from "./ResourcesSection";
@@ -32,8 +34,8 @@ export default function OperatingSections({
   onOpenLogs,
 }: {
   integration: Integration;
-  /** The pane's first read; null while it is out. */
-  detail: IntegrationDetailData | null;
+  /** The pane's first read. */
+  detail: Loadable<IntegrationDetailData>;
   snapshots: Snapshot[];
   /** The tag in view, or null for the working copy. */
   activeSnapshot: Snapshot | null;
@@ -44,17 +46,8 @@ export default function OperatingSections({
   onSnapshotsChanged: () => void;
   onOpenLogs: (deploymentId: string, podName: string) => void;
 }) {
-  if (detail === null) {
-    return (
-      <>
-        {["Deployments", "Resources", "Env"].map((title) => (
-          <Section key={title} title={title}>
-            <p className="text-sm text-zinc-400">Loading…</p>
-          </Section>
-        ))}
-      </>
-    );
-  }
+  if (detail.status !== "ready") return <OperatingSkeletons />;
+  const first = detail.data;
 
   return (
     <>
@@ -63,7 +56,7 @@ export default function OperatingSections({
         <DeploymentsSection
           key={integration.id}
           integrationId={integration.id}
-          initial={detail.deployments ?? undefined}
+          initial={first.deployments ?? undefined}
           integrationName={integration.name}
           snapshots={snapshots}
           activeSnapshot={activeSnapshot}
@@ -82,7 +75,7 @@ export default function OperatingSections({
         <ResourcesSection
           key={integration.id}
           integrationId={integration.id}
-          initial={detail.resources ?? undefined}
+          initial={first.resources ?? undefined}
           snapshotId={activeSnapshot?.id}
           versionLabel={effectiveTag ?? undefined}
         />
@@ -94,7 +87,7 @@ export default function OperatingSections({
         <EnvSection
           key={integration.id}
           integrationId={integration.id}
-          initial={detail.envVars ?? undefined}
+          initial={first.envVars ?? undefined}
           snapshotId={activeSnapshot?.id}
         />
       </Section>

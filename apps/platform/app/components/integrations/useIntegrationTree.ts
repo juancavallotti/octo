@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
   assignIntegration,
@@ -13,7 +13,8 @@ import {
 } from "@/app/model/orchestrator";
 import { flatten, type FlatFolder } from "./model";
 import type { DragOutcome } from "./dragDrop";
-import { EMPTY, loadData, type Data } from "./managerData";
+import { EMPTY, loadData } from "./managerData";
+import { useLoadable } from "@/app/components/ui/loadable";
 import { runningCountOf } from "./managerViews";
 import { folderIntegrations } from "./treeModel";
 import { useIntegrationActions } from "./useIntegrationActions";
@@ -44,17 +45,12 @@ export function useIntegrationTree({
   }) => Promise<boolean>;
   selectIntegration: (id: string | null) => void;
 }) {
-  const [data, setData] = useState<Data>(EMPTY);
+  // Nothing loads until the orchestrator probe says it is there.
+  const tree = useLoadable(available ? "tree" : null, loadData);
+  const { reload: refresh, update } = tree;
+  const data = tree.state.status === "ready" ? tree.state.data : EMPTY;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(
-    () => loadData().then(setData, (e) => setError((e as Error).message)),
-    [],
-  );
-
-  useEffect(() => {
-    if (available) refresh();
-  }, [available, refresh]);
 
   /** Run a mutation, then refresh; surface failures inline. */
   const run = useCallback(
@@ -130,7 +126,7 @@ export function useIntegrationTree({
     const to = ids.indexOf(overId);
     if (from === -1 || to === -1 || from === to) return;
     const next = arrayMove(ids, from, to);
-    setData((d) => ({ ...d, order: new Map(d.order).set(folderId, next) }));
+    update((d) => ({ ...d, order: new Map(d.order).set(folderId, next) }));
     run(() => reorderFolderIntegrations(folderId, next));
   };
 
@@ -175,14 +171,16 @@ export function useIntegrationTree({
   };
 
   return {
+    /** The tree as loading, ready or failed; `data` is its contents once ready. */
+    state: tree.state,
     data,
     flat,
     selected,
     selectedFolderId,
     runningCount,
-    // Status.
+    // Status. A failed refresh keeps the tree and reports through `error` too.
     busy,
-    error,
+    error: error ?? (tree.state.status === "ready" ? tree.state.error : null),
     setError,
     // Mutations.
     createFolderIn,

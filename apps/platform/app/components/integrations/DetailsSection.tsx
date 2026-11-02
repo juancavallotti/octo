@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { Integration } from "@/app/model/orchestrator";
+import { SkeletonLine } from "@/app/components/ui/Skeleton";
 import DefinitionSection from "./DefinitionSection";
 import { Row, Section } from "./DetailLayout";
 import { folderPathOf, type FlatFolder } from "./managerViews";
@@ -61,7 +62,9 @@ export default function DetailsSection({
           Definition
         </h4>
         {definition === null ? (
-          <p className="text-sm text-zinc-400">Reading {versionLabel}…</p>
+          <div aria-busy aria-label={`Reading ${versionLabel ?? "the definition"}`}>
+            <SkeletonLine width="70%" className="h-5" />
+          </div>
         ) : (
           <DefinitionSection key={versionKey} definition={definition} />
         )}

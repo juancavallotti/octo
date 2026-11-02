@@ -78,11 +78,12 @@ export default function IntegrationDetail({
     listSnapshots(integration.id).then(setReloaded, () => setReloaded([]));
   }, [integration.id]);
   // A first read that could not get the tags leaves them to be read here.
-  const missingTags = detail !== null && detail.snapshots === null;
+  const first = detail.status === "ready" ? detail.data : null;
+  const missingTags = first !== null && first.snapshots === null;
   useEffect(() => {
     if (missingTags) reloadSnapshots();
   }, [missingTags, reloadSnapshots]);
-  const snapshots = reloaded ?? detail?.snapshots ?? [];
+  const snapshots = reloaded ?? first?.snapshots ?? [];
 
   // The active version scoping the Resources (and Env) panels: a tag, or null for
   // the live working copy ("Current").

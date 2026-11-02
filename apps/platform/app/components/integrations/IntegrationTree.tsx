@@ -3,7 +3,10 @@
 import { useMemo, useState } from "react";
 import { SortableContext } from "@dnd-kit/sortable";
 import { FolderPlus } from "lucide-react";
-import type { Data } from "./managerData";
+import Loaded from "@/app/components/ui/Loaded";
+import type { Loadable } from "@/app/components/ui/loadable";
+import { SkeletonRows } from "@/app/components/ui/Skeleton";
+import { EMPTY, type Data } from "./managerData";
 import type { FlatFolder, Filter } from "./model";
 import { ancestorsOf, treeRows } from "./treeModel";
 import { useTreeExpansion } from "./useTreeExpansion";
@@ -21,7 +24,7 @@ import TreeIntegrationRow from "./TreeIntegrationRow";
  * about would move the very target being aimed at.
  */
 export default function IntegrationTree({
-  data,
+  state,
   flat,
   filter,
   runningCount,
@@ -32,7 +35,8 @@ export default function IntegrationTree({
   onRenameFolder,
   onDeleteFolder,
 }: {
-  data: Data;
+  /** The tree as it loads; the counts and rows wait until it is ready. */
+  state: Loadable<Data>;
   flat: FlatFolder[];
   filter: Filter;
   runningCount: number;
@@ -49,6 +53,9 @@ export default function IntegrationTree({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
+  const data = state.status === "ready" ? state.data : EMPTY;
+  const ready = state.status === "ready";
+  const refreshing = ready && state.refreshing;
   const known = selectedId !== null && data.integrations.some((i) => i.id === selectedId);
   const { collapsed, toggle } = useTreeExpansion(
     known ? { id: selectedId, ancestors: ancestorsOf(data, flat, selectedId) } : null,
@@ -76,12 +83,19 @@ export default function IntegrationTree({
     creatingIn != null ? flat.find((f) => f.id === creatingIn)?.name : undefined;
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-r border-black/10 dark:border-white/10">
+    <aside className="relative flex w-72 shrink-0 flex-col border-r border-black/10 dark:border-white/10">
+      {/* A refresh after a change keeps the tree; this bar is all it shows. */}
+      {refreshing && (
+        <span
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-sky-500/60"
+        />
+      )}
       <div className="flex items-center gap-2 px-3 py-2">
         <FilterToggle
           filter={filter}
-          total={data.integrations.length}
-          running={runningCount}
+          total={ready ? data.integrations.length : null}
+          running={ready ? runningCount : null}
           onFilter={onFilter}
         />
         <button
@@ -95,77 +109,81 @@ export default function IntegrationTree({
         </button>
       </div>
 
-      <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {creatingIn !== undefined && (
-          <li>
-            <input
-              autoFocus
-              value={draftName}
-              placeholder={parentName ? `New folder in ${parentName}…` : "New folder…"}
-              onChange={(e) => setDraftName(e.target.value)}
-              onBlur={submitCreate}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitCreate();
-                if (e.key === "Escape") setCreatingIn(undefined);
-              }}
-              style={{ paddingLeft: treeIndent(0) }}
-              className="w-full bg-transparent py-1.5 pr-3 text-sm outline-none ring-1 ring-sky-500/40"
-            />
-          </li>
-        )}
+      <Loaded state={state} skeleton={<SkeletonRows count={8} />}>
+        {() => (
+          <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {creatingIn !== undefined && (
+              <li>
+                <input
+                  autoFocus
+                  value={draftName}
+                  placeholder={parentName ? `New folder in ${parentName}…` : "New folder…"}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  onBlur={submitCreate}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitCreate();
+                    if (e.key === "Escape") setCreatingIn(undefined);
+                  }}
+                  style={{ paddingLeft: treeIndent(0) }}
+                  className="w-full bg-transparent py-1.5 pr-3 text-sm outline-none ring-1 ring-sky-500/40"
+                />
+              </li>
+            )}
 
-        <SortableContext
-          items={rows.map((r) =>
-            r.kind === "folder" ? `folder:${r.folder.id}` : `integration:${r.integration.id}`,
-          )}
-          strategy={() => null}
-        >
-          {rows.map((r) =>
-            r.kind === "folder" ? (
-              <FolderRow
-                key={r.folder.id}
-                f={r.folder}
-                expandable={r.expandable}
-                expanded={r.expanded}
-                count={r.count}
-                editing={editingId === r.folder.id}
-                editName={editName}
-                onEditNameChange={setEditName}
-                onSubmitRename={() => submitRename(r.folder)}
-                onCancelRename={() => setEditingId(null)}
-                onToggle={() => toggle(r.folder.id)}
-                onStartRename={() => {
-                  setEditingId(r.folder.id);
-                  setEditName(r.folder.name);
-                }}
-                onNewSubfolder={() => startCreate(r.folder.id)}
-                onDelete={() => onDeleteFolder(r.folder)}
-              />
-            ) : (
-              <TreeIntegrationRow
-                key={r.integration.id}
-                integration={r.integration}
-                depth={r.depth}
-                running={r.running}
-                selected={selectedId === r.integration.id}
-                onSelect={onSelect}
-              />
-            ),
-          )}
-        </SortableContext>
+            <SortableContext
+              items={rows.map((r) =>
+                r.kind === "folder" ? `folder:${r.folder.id}` : `integration:${r.integration.id}`,
+              )}
+              strategy={() => null}
+            >
+              {rows.map((r) =>
+                r.kind === "folder" ? (
+                  <FolderRow
+                    key={r.folder.id}
+                    f={r.folder}
+                    expandable={r.expandable}
+                    expanded={r.expanded}
+                    count={r.count}
+                    editing={editingId === r.folder.id}
+                    editName={editName}
+                    onEditNameChange={setEditName}
+                    onSubmitRename={() => submitRename(r.folder)}
+                    onCancelRename={() => setEditingId(null)}
+                    onToggle={() => toggle(r.folder.id)}
+                    onStartRename={() => {
+                      setEditingId(r.folder.id);
+                      setEditName(r.folder.name);
+                    }}
+                    onNewSubfolder={() => startCreate(r.folder.id)}
+                    onDelete={() => onDeleteFolder(r.folder)}
+                  />
+                ) : (
+                  <TreeIntegrationRow
+                    key={r.integration.id}
+                    integration={r.integration}
+                    depth={r.depth}
+                    running={r.running}
+                    selected={selectedId === r.integration.id}
+                    onSelect={onSelect}
+                  />
+                ),
+              )}
+            </SortableContext>
 
-        {rows.length === 0 && (
-          <li className="px-3 py-2 text-sm text-zinc-400">
-            {filter === "running" ? "Nothing is deployed." : "No integrations yet."}
-          </li>
+            {rows.length === 0 && (
+              <li className="px-3 py-2 text-sm text-zinc-400">
+                {filter === "running" ? "Nothing is deployed." : "No integrations yet."}
+              </li>
+            )}
+            <TopLevelDropZone />
+          </ul>
         )}
-        <TopLevelDropZone />
-      </ul>
+      </Loaded>
     </aside>
   );
 }
 
-/** All / Running, each with how many it shows. */
+/** All / Running, each with how many it shows once that is known. */
 function FilterToggle({
   filter,
   total,
@@ -173,11 +191,11 @@ function FilterToggle({
   onFilter,
 }: {
   filter: Filter;
-  total: number;
-  running: number;
+  total: number | null;
+  running: number | null;
   onFilter: (filter: Filter) => void;
 }) {
-  const option = (value: Filter, label: string, count: number) => (
+  const option = (value: Filter, label: string, count: number | null) => (
     <button
       type="button"
       aria-pressed={filter === value}
@@ -189,7 +207,7 @@ function FilterToggle({
       }`}
     >
       {label}
-      <span className="tabular-nums text-zinc-400">{count}</span>
+      {count !== null && <span className="tabular-nums text-zinc-400">{count}</span>}
     </button>
   );
   return (

@@ -23,6 +23,7 @@ import IntegrationsUnavailable from "./IntegrationsUnavailable";
 import ManagementNav from "@/app/components/ManagementNav";
 import IntegrationTree from "./IntegrationTree";
 import IntegrationDetail from "./IntegrationDetail";
+import DetailSkeleton from "./DetailSkeleton";
 import {
   INTEGRATIONS_BASE,
   buildPath,
@@ -80,6 +81,7 @@ export default function IntegrationsManager({
   );
 
   const {
+    state,
     data,
     flat,
     selected,
@@ -156,7 +158,7 @@ export default function IntegrationsManager({
       >
         <div className="flex min-h-0 flex-1">
           <IntegrationTree
-            data={data}
+            state={state}
             flat={flat}
             filter={filter}
             runningCount={runningCount}
@@ -184,6 +186,10 @@ export default function IntegrationsManager({
                 onRename={renameSelected}
                 onSelectIcon={setSelectedIcon}
               />
+            ) : selectedId && state.status === "loading" ? (
+              // A deep link names an integration before the tree has loaded it:
+              // that is a wait, not an empty selection.
+              <DetailSkeleton />
             ) : (
               <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400">
                 Select an integration to see its details.
