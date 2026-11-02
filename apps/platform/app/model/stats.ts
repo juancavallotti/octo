@@ -172,3 +172,16 @@ export async function readStatsSeries(
 ): Promise<StatsSeriesPage> {
   return unwrap(await statsActions.readStatsSeries(deploymentId, query));
 }
+
+/** One deployment's answer to a query asked of several. */
+export type StatsSeriesOutcome =
+  | { deploymentId: string; page: StatsSeriesPage }
+  | { deploymentId: string; error: string };
+
+/** The same query against several deployments, in one round trip. */
+export async function readStatsSeriesForEach(
+  deploymentIds: string[],
+  query: StatsSeriesQuery,
+): Promise<StatsSeriesOutcome[]> {
+  return unwrap(await statsActions.readStatsSeriesForEach(deploymentIds, query));
+}

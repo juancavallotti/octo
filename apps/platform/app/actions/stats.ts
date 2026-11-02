@@ -11,6 +11,7 @@
 import type {
   StatsMetricsPage,
   StatsPodsPage,
+  StatsSeriesOutcome,
   StatsSeriesPage,
   StatsSeriesQuery,
 } from "@/app/model/stats";
@@ -36,4 +37,28 @@ export async function readStatsSeries(
   query: StatsSeriesQuery,
 ): Promise<ActionResult<StatsSeriesPage>> {
   return withRead(() => stats.getSeries(deploymentId, query));
+}
+
+/**
+ * The same query against several deployments, read in parallel here: the browser
+ * sends actions one at a time, so asking per deployment from there is a round trip
+ * each. One deployment failing is its own outcome, not the whole call's.
+ */
+export async function readStatsSeriesForEach(
+  deploymentIds: string[],
+  query: StatsSeriesQuery,
+): Promise<ActionResult<StatsSeriesOutcome[]>> {
+  return withRead(async () => {
+    const pages = await Promise.all(
+      deploymentIds.map((id) => stats.getSeries(id, query)),
+    );
+    return {
+      ok: true,
+      data: pages.map((page, i) =>
+        page.ok
+          ? { deploymentId: deploymentIds[i], page: page.data }
+          : { deploymentId: deploymentIds[i], error: page.error },
+      ),
+    };
+  });
 }
