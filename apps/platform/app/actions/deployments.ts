@@ -10,6 +10,7 @@
 import type {
   Deployment,
   DeploymentInput,
+  DeploymentWithIntegration,
   DeployOptions,
   EnvBindingInput,
 } from "@/app/model/orchestrator";
@@ -21,6 +22,35 @@ export async function listDeployments(
   integrationId: string,
 ): Promise<ActionResult<Deployment[]>> {
   return withRead(() => client.listDeployments(integrationId));
+}
+
+/**
+ * Every deployment, named after its integration. Both reads happen here rather
+ * than in the browser, because the browser sends server actions one at a time:
+ * composed there, this was a round trip per integration.
+ */
+export async function listAllDeployments(): Promise<
+  ActionResult<DeploymentWithIntegration[]>
+> {
+  return withRead(async () => {
+    const [deployments, integrations] = await Promise.all([
+      client.listEveryDeployment(),
+      client.listIntegrations(),
+    ]);
+    if (!deployments.ok) return deployments;
+    if (!integrations.ok) return integrations;
+
+    // A deployment whose integration was deleted between the two reads has no
+    // name to show, and is gone on the next poll anyway.
+    const names = new Map(integrations.data.map((i) => [i.id, i.name]));
+    return {
+      ok: true,
+      data: deployments.data.flatMap((d) => {
+        const integrationName = names.get(d.integrationId);
+        return integrationName === undefined ? [] : [{ ...d, integrationName }];
+      }),
+    };
+  });
 }
 
 export async function getDeployment(

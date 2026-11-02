@@ -26,6 +26,12 @@ export function listDeployments(
   );
 }
 
+/** Every deployment across every integration, newest first, each with its live
+ * status. */
+export function listEveryDeployment(): Promise<ActionResult<Deployment[]>> {
+  return call<Deployment[]>("GET", "/deployments");
+}
+
 /**
  * One deployment on its own, by id. The list endpoint is per-integration, and a
  * caller holding only a deployment id has no integration to list.

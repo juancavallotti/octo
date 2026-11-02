@@ -50,6 +50,13 @@ server-action error messages in production, so actions return a result and the
 caller (the browser model or an editor capability provider) unwraps it back into
 value-or-throw, preserving the real error message.
 
+**Compose reads inside one action, never across actions in the browser.** Next.js
+dispatches server actions one at a time per client, so a `Promise.all` over actions
+in a component runs them in a line, a full round trip each, and a poll built that way
+holds every click behind it. When a view needs several reads, write one action that
+runs them in parallel on the server and returns the combined shape. See
+`listAllDeployments` in `actions/deployments.ts`.
+
 **Keep the orchestrator/secret URLs server-only.** They live in the action layer
 (env vars), never in client code.
 
