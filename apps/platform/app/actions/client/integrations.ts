@@ -104,6 +104,28 @@ export function listFolderIntegrations(
   return call<Integration[]>("GET", `/folders/${enc(folderId)}/integrations`);
 }
 
+/** Every folder id in a tree, depth-first. */
+function folderIds(folders: Folder[]): string[] {
+  return folders.flatMap((f) => [f.id, ...folderIds(f.children ?? [])]);
+}
+
+/**
+ * Which integrations each folder holds, in its stored order, keyed by folder id.
+ * The membership is only readable per folder, so this reads them all at once.
+ */
+export async function listFolderMembers(
+  folders: Folder[],
+): Promise<ActionResult<Record<string, string[]>>> {
+  const ids = folderIds(folders);
+  const lists = await Promise.all(ids.map((id) => listFolderIntegrations(id)));
+  const members: Record<string, string[]> = {};
+  for (const [i, list] of lists.entries()) {
+    if (!list.ok) return list;
+    members[ids[i]] = list.data.map((it) => it.id);
+  }
+  return { ok: true, data: members };
+}
+
 export function assignIntegration(
   folderId: string,
   integrationId: string,

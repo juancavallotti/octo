@@ -103,6 +103,16 @@ export interface Folder {
   children?: Folder[];
 }
 
+/** Everything the integrations manager draws, read in one go. */
+export interface IntegrationTree {
+  folders: Folder[];
+  integrations: Integration[];
+  /** Folder id → the integrations it holds, in stored order. */
+  members: Record<string, string[]>;
+  /** The integrations with at least one deployment. */
+  deployed: string[];
+}
+
 /**
  * Body for creating an integration. A non-empty definition becomes its one config
  * file; an empty one creates it with none, for a caller about to write its files.

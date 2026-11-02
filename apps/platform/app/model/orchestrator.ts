@@ -26,6 +26,7 @@ import type {
   Integration,
   IntegrationInput,
   IntegrationRename,
+  IntegrationTree,
   Snapshot,
   SnapshotResource,
 } from "./orchestratorTypes";
@@ -178,6 +179,11 @@ export async function reorderFolders(
   folderIds: string[],
 ): Promise<void> {
   return unwrap(await folderActions.reorderFolders(parentId, folderIds));
+}
+
+/** Folders, integrations, membership and what is deployed, in one round trip. */
+export async function loadIntegrationTree(): Promise<IntegrationTree> {
+  return unwrap(await folderActions.loadIntegrationTree());
 }
 
 export async function listFolderIntegrations(
