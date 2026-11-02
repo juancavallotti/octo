@@ -109,6 +109,30 @@ governs the rest of this section.
   Action payloads go on the `data` field of `ReducerAction`. See
   `packages/editor/src/app/state/editorState.tsx` (the `EditorShell` reducer).
 
+## Loading states
+
+Data a page fetches is a `Loadable<T>` — loading, ready, or failed — from
+`useLoadable(key, load)` in `apps/platform/app/components/ui/loadable.ts`, rendered
+with `<Loaded state skeleton>{(data, refreshing) => …}</Loaded>`.
+
+- **Loading is its own state, never inferred from emptiness.** Show an empty state
+  ("No integrations yet") only once the data is ready and empty; while it loads,
+  show a skeleton (`SkeletonRows`, `SkeletonCard`, `SkeletonLine` in
+  `components/ui/Skeleton.tsx`) shaped like the content it stands in for.
+- **A reload is not a first load.** `reload()` keeps the data on screen and sets
+  `refreshing`; polls and the refresh after a mutation must never flash a skeleton.
+- **The key names what is loaded.** A new key (another integration, another filter)
+  starts from loading, so one subject's data never shows under another's name.
+
+New screens use the pattern; existing "Loading…" paragraphs move to it when their
+screen is next worked on.
+
+## Supported widths
+
+The platform targets **portrait tablet (768 px) up to desktop**; phones are not a
+target. Size against containers (`@container` and its variants), not the viewport:
+a docked panel takes width the viewport does not know about. See `AppHeader`.
+
 ## UI unit testing
 
 - Tests use **Vitest + React Testing Library** (jsdom). Run them per workspace —
