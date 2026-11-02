@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Variable } from "lucide-react";
 import { getDeployOptions, type DeployEnvVar } from "@/app/model/orchestrator";
+import { useSeed } from "./useSeed";
 
 /**
  * Read-only view of the environment variables the selected version's definition
@@ -13,13 +14,18 @@ import { getDeployOptions, type DeployEnvVar } from "@/app/model/orchestrator";
  */
 export default function EnvSection({
   integrationId,
+  initial,
   snapshotId,
 }: {
   integrationId: string;
+  /** The working copy's declared env the pane already read. */
+  initial?: DeployEnvVar[];
   snapshotId?: string;
 }) {
-  const [envVars, setEnvVars] = useState<DeployEnvVar[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [envVars, setEnvVars] = useState<DeployEnvVar[]>(initial ?? []);
+  const [loaded, setLoaded] = useState(initial !== undefined);
+  // Only the working copy's env is handed over; a tag's is always read here.
+  const handed = useSeed(initial !== undefined && snapshotId == null);
 
   // A then-chain (not a synchronous setState in the effect) so switching versions
   // just refetches; the previous list stays until the new one resolves.
@@ -36,8 +42,8 @@ export default function EnvSection({
     );
   }, [integrationId, snapshotId]);
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (!handed()) reload();
+  }, [reload, handed]);
 
   if (loaded && envVars.length === 0) {
     return (

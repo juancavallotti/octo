@@ -114,6 +114,19 @@ export interface IntegrationProject {
   folderId: string | null;
 }
 
+/**
+ * The first view of an integration's detail pane, read in one go. A part that
+ * could not be read is null, and its section reads it again itself, so one
+ * failure costs one section rather than the pane.
+ */
+export interface IntegrationDetailData {
+  snapshots: Snapshot[] | null;
+  deployments: Deployment[] | null;
+  resources: Resource[] | null;
+  /** The working copy's declared env, from the deploy options. */
+  envVars: DeployEnvVar[] | null;
+}
+
 /** Everything the integrations manager draws, read in one go. */
 export interface IntegrationTree {
   folders: Folder[];

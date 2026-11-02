@@ -13,6 +13,7 @@ import {
 } from "@/app/model/orchestrator";
 import type { DeploySubmit } from "./DeployModal";
 import type { RolloutSubmit } from "./RolloutModal";
+import { useSeed } from "./useSeed";
 
 /**
  * Everything the deployments panel does that is not rendering: the live list, how
@@ -52,15 +53,19 @@ export interface DeploymentsController {
 
 export function useDeployments({
   integrationId,
+  initial,
   onDeployOpenChange,
   onSnapshotsChanged,
 }: {
   integrationId: string;
+  /** The list the pane already read, which stands in for the first read. */
+  initial?: Deployment[];
   onDeployOpenChange: (open: boolean) => void;
   onSnapshotsChanged?: () => void;
 }): DeploymentsController {
   const confirm = useConfirm();
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [deployments, setDeployments] = useState<Deployment[]>(initial ?? []);
+  const handed = useSeed(initial !== undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
@@ -91,7 +96,9 @@ export function useDeployments({
         pollRef.current = null;
       }
     };
-    refresh(); // first paint, independent of the stream connecting
+    // First paint, independent of the stream connecting — unless the pane
+    // already read it.
+    if (!handed()) refresh();
     const es = new EventSource(
       `/api/integrations/${encodeURIComponent(integrationId)}/deployments/events`,
     );
@@ -114,7 +121,7 @@ export function useDeployments({
       es.close();
       stopPoll();
     };
-  }, [integrationId, refresh]);
+  }, [integrationId, refresh, handed]);
 
   /** Run a mutation, then refresh; surface failures inline. */
   const run = useCallback(

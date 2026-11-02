@@ -24,6 +24,7 @@ import type {
   EnvBindingInput,
   Folder,
   Integration,
+  IntegrationDetailData,
   IntegrationInput,
   IntegrationProject,
   IntegrationRename,
@@ -46,6 +47,13 @@ export async function loadIntegrationProject(
   id: string,
 ): Promise<IntegrationProject> {
   return unwrap(await integrationActions.loadIntegrationProject(id));
+}
+
+/** The first view of an integration's detail pane, in one round trip. */
+export async function loadIntegrationDetail(
+  id: string,
+): Promise<IntegrationDetailData> {
+  return unwrap(await integrationActions.loadIntegrationDetail(id));
 }
 
 export async function getIntegration(id: string): Promise<Integration> {

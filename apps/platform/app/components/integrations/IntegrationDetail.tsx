@@ -13,15 +13,13 @@ import {
   type Snapshot,
 } from "@/app/model/orchestrator";
 import DetailsSection from "./DetailsSection";
-import DeploymentsSection from "./DeploymentsSection";
-import EnvSection from "./EnvSection";
+import OperatingSections from "./OperatingSections";
 import PodLogPanel from "./PodLogPanel";
-import ResourcesSection from "./ResourcesSection";
 import VersionPills from "./VersionPills";
-import { Section } from "./DetailLayout";
 import type { FlatFolder } from "./managerViews";
 import IntegrationHeader from "./IntegrationHeader";
 import { useSnapshotDefinition } from "./useSnapshotDefinition";
+import { useIntegrationDetail } from "./useIntegrationDetail";
 
 /**
  * Read-only operating details for the selected integration, plus its primary
@@ -72,13 +70,19 @@ export default function IntegrationDetail({
   // The integration's version tags, owned here so creating or deleting one in the
   // Versions section immediately updates the Deployments section's change-version
   // menu.
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  // The pane's first view comes in one read; the tags start from it and are
+  // re-read here whenever a section changes them.
+  const detail = useIntegrationDetail(integration.id);
+  const [reloaded, setReloaded] = useState<Snapshot[] | null>(null);
   const reloadSnapshots = useCallback(() => {
-    listSnapshots(integration.id).then(setSnapshots, () => setSnapshots([]));
+    listSnapshots(integration.id).then(setReloaded, () => setReloaded([]));
   }, [integration.id]);
+  // A first read that could not get the tags leaves them to be read here.
+  const missingTags = detail !== null && detail.snapshots === null;
   useEffect(() => {
-    reloadSnapshots();
-  }, [reloadSnapshots]);
+    if (missingTags) reloadSnapshots();
+  }, [missingTags, reloadSnapshots]);
+  const snapshots = reloaded ?? detail?.snapshots ?? [];
 
   // The active version scoping the Resources (and Env) panels: a tag, or null for
   // the live working copy ("Current").
@@ -170,43 +174,18 @@ export default function IntegrationDetail({
             definition={activeDefinition}
           />
 
-          <Section title="Deployments">
-            {/* Keyed by integration id so switching selection resets its state. */}
-            <DeploymentsSection
-              key={integration.id}
-              integrationId={integration.id}
-              integrationName={integration.name}
-              snapshots={snapshots}
-              activeSnapshot={selectedSnapshot}
-              filterTag={effectiveTag}
-              deployOpen={deployOpen}
-              onDeployOpenChange={setDeployOpen}
-              onDeploymentsChange={onDeploymentsChange}
-              onSnapshotsChanged={reloadSnapshots}
-              onOpenLogs={openPodLogs}
-            />
-          </Section>
-
-          <Section title="Resources">
-            {/* Scoped to the active version: the live working copy, or a tag's
-                frozen (read-only) set. */}
-            <ResourcesSection
-              key={integration.id}
-              integrationId={integration.id}
-              snapshotId={selectedSnapshot?.id}
-              versionLabel={effectiveTag ?? undefined}
-            />
-          </Section>
-
-          <Section title="Env">
-            {/* Read-only declared env for the active version (values are set in
-                the Deploy modal). Scoped to the same version as Resources. */}
-            <EnvSection
-              key={integration.id}
-              integrationId={integration.id}
-              snapshotId={selectedSnapshot?.id}
-            />
-          </Section>
+          <OperatingSections
+            integration={integration}
+            detail={detail}
+            snapshots={snapshots}
+            activeSnapshot={selectedSnapshot}
+            effectiveTag={effectiveTag}
+            deployOpen={deployOpen}
+            onDeployOpenChange={setDeployOpen}
+            onDeploymentsChange={onDeploymentsChange}
+            onSnapshotsChanged={reloadSnapshots}
+            onOpenLogs={openPodLogs}
+          />
         </div>
       </div>
 

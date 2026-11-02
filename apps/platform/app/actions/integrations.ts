@@ -11,6 +11,7 @@
 import type {
   ConfigFile,
   Integration,
+  IntegrationDetailData,
   IntegrationInput,
   IntegrationProject,
   IntegrationRename,
@@ -53,6 +54,32 @@ export async function loadIntegrationProject(
       Object.entries(members.data).find(([, ids]) => ids.includes(id))?.[0] ?? null;
 
     return { ok: true, data: { integration: integration.data, files: files.data, folderId } };
+  });
+}
+
+/**
+ * Everything an integration's detail pane shows first — versions, deployments,
+ * resources, declared env — in one round trip rather than one per section.
+ */
+export async function loadIntegrationDetail(
+  id: string,
+): Promise<ActionResult<IntegrationDetailData>> {
+  return withRead(async () => {
+    const [snapshots, deployments, resources, options] = await Promise.all([
+      client.listSnapshots(id),
+      client.listDeployments(id),
+      client.listResources(id),
+      client.getDeployOptions(id),
+    ]);
+    return {
+      ok: true,
+      data: {
+        snapshots: snapshots.ok ? snapshots.data : null,
+        deployments: deployments.ok ? deployments.data : null,
+        resources: resources.ok ? resources.data : null,
+        envVars: options.ok ? (options.data.envVars ?? []) : null,
+      },
+    };
   });
 }
 
