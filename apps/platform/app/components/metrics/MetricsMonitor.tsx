@@ -68,7 +68,7 @@ export default function MetricsMonitor({
   // The whole catalogue, alongside the overview. A separate hook rather than one
   // larger request: the overview is two metrics and lands immediately, and it
   // should be on screen while the other fifty are still arriving.
-  const catalogue = useDeploymentCatalogue(deploymentId, view, askMs, gridNow);
+  const catalogue = useDeploymentCatalogue(deploymentId, view, gridNow);
 
   const setView = (next: View) => {
     const qs = writeView(next);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { StatsMetric, StatsSeries } from "@/app/model/stats";
 import MetricCard, { labelKey } from "./MetricCard";
-import type { CataloguedMetric } from "./useDeploymentCatalogue";
+import type { CataloguedMetric } from "./deploymentReads";
 
 const NOW = 1_757_000_000_000;
 

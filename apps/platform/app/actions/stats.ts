@@ -10,33 +10,26 @@
 
 import type {
   StatsMetricsPage,
-  StatsPodsPage,
   StatsSeriesOutcome,
-  StatsSeriesPage,
   StatsSeriesQuery,
 } from "@/app/model/stats";
+import {
+  readCatalogue,
+  readOverview,
+  type CataloguePage,
+  type Overview,
+  type StatsReads,
+} from "@/app/components/metrics/deploymentReads";
+import type { View } from "@/app/components/metrics/range";
 import { withRead } from "./_auth";
 import * as stats from "./_stats";
 import type { ActionResult } from "./_client";
-
-export async function listStatsPods(
-  deploymentId: string,
-): Promise<ActionResult<StatsPodsPage>> {
-  return withRead(() => stats.getPods(deploymentId));
-}
 
 export async function listStatsMetrics(
   deploymentId: string,
   opts: { pods?: string[]; prefix?: string },
 ): Promise<ActionResult<StatsMetricsPage>> {
   return withRead(() => stats.getMetrics(deploymentId, opts));
-}
-
-export async function readStatsSeries(
-  deploymentId: string,
-  query: StatsSeriesQuery,
-): Promise<ActionResult<StatsSeriesPage>> {
-  return withRead(() => stats.getSeries(deploymentId, query));
 }
 
 /**
@@ -61,4 +54,31 @@ export async function readStatsSeriesForEach(
       ),
     };
   });
+}
+
+const reads: StatsReads = {
+  getPods: stats.getPods,
+  getMetrics: (id) => stats.getMetrics(id),
+  getSeries: stats.getSeries,
+};
+
+/** A deployment page's overview chart and pods, as one round trip. */
+export async function readDeploymentOverview(
+  deploymentId: string,
+  view: View,
+  nowMs: number,
+): Promise<ActionResult<Overview>> {
+  return withRead(async () => ({
+    ok: true,
+    data: await readOverview(reads, deploymentId, view, nowMs),
+  }));
+}
+
+/** A deployment page's full metric grid, as one round trip. */
+export async function readDeploymentCatalogue(
+  deploymentId: string,
+  view: View,
+  nowMs: number,
+): Promise<ActionResult<CataloguePage>> {
+  return withRead(() => readCatalogue(reads, deploymentId, view, nowMs));
 }

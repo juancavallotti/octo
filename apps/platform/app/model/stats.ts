@@ -19,6 +19,11 @@
  */
 
 import * as statsActions from "@/app/actions/stats";
+import type {
+  CataloguePage,
+  Overview,
+} from "@/app/components/metrics/deploymentReads";
+import type { View } from "@/app/components/metrics/range";
 import { unwrap } from "./bff";
 
 /** Which stored resolution a query reads. `auto` resolves to one of the others. */
@@ -150,27 +155,12 @@ export interface StatsSeriesQuery {
   limit?: number;
 }
 
-/** The pods of a deployment that the stats index still holds. */
-export async function listStatsPods(
-  deploymentId: string,
-): Promise<StatsPodsPage> {
-  return unwrap(await statsActions.listStatsPods(deploymentId));
-}
-
 /** The catalogue: every series a deployment's pods describe, with no rows read. */
 export async function listStatsMetrics(
   deploymentId: string,
   opts: { pods?: string[]; prefix?: string } = {},
 ): Promise<StatsMetricsPage> {
   return unwrap(await statsActions.listStatsMetrics(deploymentId, opts));
-}
-
-/** Points for the named metrics, per pod. */
-export async function readStatsSeries(
-  deploymentId: string,
-  query: StatsSeriesQuery,
-): Promise<StatsSeriesPage> {
-  return unwrap(await statsActions.readStatsSeries(deploymentId, query));
 }
 
 /** One deployment's answer to a query asked of several. */
@@ -184,4 +174,22 @@ export async function readStatsSeriesForEach(
   query: StatsSeriesQuery,
 ): Promise<StatsSeriesOutcome[]> {
   return unwrap(await statsActions.readStatsSeriesForEach(deploymentIds, query));
+}
+
+/** A deployment page's overview chart and the pods behind it. */
+export async function readDeploymentOverview(
+  deploymentId: string,
+  view: View,
+  nowMs: number,
+): Promise<Overview> {
+  return unwrap(await statsActions.readDeploymentOverview(deploymentId, view, nowMs));
+}
+
+/** Every metric a deployment exposes, with its points. */
+export async function readDeploymentCatalogue(
+  deploymentId: string,
+  view: View,
+  nowMs: number,
+): Promise<CataloguePage> {
+  return unwrap(await statsActions.readDeploymentCatalogue(deploymentId, view, nowMs));
 }
