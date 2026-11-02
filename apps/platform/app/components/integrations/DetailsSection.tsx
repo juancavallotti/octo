@@ -2,6 +2,8 @@
 
 import { useMemo } from "react";
 import type { Integration } from "@/app/model/orchestrator";
+import Loaded from "@/app/components/ui/Loaded";
+import type { Loadable } from "@/app/components/ui/loadable";
 import { SkeletonLine } from "@/app/components/ui/Skeleton";
 import DefinitionSection from "./DefinitionSection";
 import { Row, Section } from "./DetailLayout";
@@ -16,7 +18,6 @@ export default function DetailsSection({
   folders,
   folderId,
   versionKey,
-  versionLabel,
   definition,
 }: {
   integration: Integration;
@@ -24,10 +25,8 @@ export default function DetailsSection({
   folderId: string | null;
   /** Identifies the version in view, so its numbers reset when it changes. */
   versionKey: string;
-  /** The tag in view, or null for the working copy. */
-  versionLabel: string | null;
-  /** That version's definition; null while a tag's is still being read. */
-  definition: string | null;
+  /** That version's definition, which a tag's has to be read for. */
+  definition: Loadable<string>;
 }) {
   // Read-only: moving is done by drag and drop in the tree.
   const folderPath = useMemo(
@@ -61,13 +60,12 @@ export default function DetailsSection({
         <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
           Definition
         </h4>
-        {definition === null ? (
-          <div aria-busy aria-label={`Reading ${versionLabel ?? "the definition"}`}>
-            <SkeletonLine width="70%" className="h-5" />
-          </div>
-        ) : (
-          <DefinitionSection key={versionKey} definition={definition} />
-        )}
+        <Loaded
+          state={definition}
+          skeleton={<SkeletonLine width="70%" className="h-5" />}
+        >
+          {(yaml) => <DefinitionSection key={versionKey} definition={yaml} />}
+        </Loaded>
       </div>
     </Section>
   );

@@ -19,6 +19,7 @@ import VersionPills from "./VersionPills";
 import type { FlatFolder } from "./managerViews";
 import IntegrationHeader from "./IntegrationHeader";
 import { useSnapshotDefinition } from "./useSnapshotDefinition";
+import type { Loadable } from "@/app/components/ui/loadable";
 import { useIntegrationDetail } from "./useIntegrationDetail";
 
 /**
@@ -96,11 +97,11 @@ export default function IntegrationDetail({
   const effectiveTag = selectedSnapshot ? selectedTag : null;
 
   // The definition of the version in view: a tag's, read on selection, or the
-  // working copy's. Null while a tag's is still on its way.
+  // working copy's, which is already here.
   const snapshotDefinition = useSnapshotDefinition(selectedSnapshot?.id);
-  const activeDefinition = selectedSnapshot
+  const activeDefinition: Loadable<string> = selectedSnapshot
     ? snapshotDefinition
-    : integration.definition;
+    : { status: "ready", data: integration.definition, refreshing: false, error: null };
 
   // Tags currently deployed, by tag string — unique per integration. What keeps
   // the Versions section from offering to delete a tag something is running.
@@ -136,7 +137,9 @@ export default function IntegrationDetail({
         integration={integration}
         snapshots={snapshots}
         activeSnapshot={selectedSnapshot}
-        activeDefinition={activeDefinition}
+        activeDefinition={
+          activeDefinition.status === "ready" ? activeDefinition.data : null
+        }
         deployedTags={deployedTags}
         busy={busy}
         effectiveTag={effectiveTag}
@@ -171,7 +174,6 @@ export default function IntegrationDetail({
             folders={folders}
             folderId={folderId}
             versionKey={selectedSnapshot?.id ?? integration.id}
-            versionLabel={effectiveTag}
             definition={activeDefinition}
           />
 
