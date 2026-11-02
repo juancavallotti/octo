@@ -11,21 +11,16 @@ import {
   reorderFolders,
   unassignIntegration,
 } from "@/app/model/orchestrator";
-import { flatten, type Bucket, type FlatFolder } from "./model";
+import { flatten, type FlatFolder } from "./model";
 import type { DragOutcome } from "./dragDrop";
 import { EMPTY, loadData, type Data } from "./managerData";
-import {
-  folderCountOf,
-  runningCountOf,
-  shownFor,
-  unfiledCountOf,
-} from "./managerViews";
+import { runningCountOf } from "./managerViews";
+import { folderIntegrations } from "./treeModel";
 import { useIntegrationActions } from "./useIntegrationActions";
 
 /**
  * The integration tree and everything you can do to it: the folders and
- * integrations themselves, the views derived from them for the current bucket,
- * and the mutations — create, import, duplicate, rename, delete, reorder.
+ * integrations themselves, the counts derived from them, and the mutations — create, import, duplicate, rename, delete, reorder.
  *
  * Every mutation goes through `run`, so all of them refresh on success and
  * surface their failure in the same inline banner. `renameSelected` is the one
@@ -34,15 +29,12 @@ import { useIntegrationActions } from "./useIntegrationActions";
  */
 export function useIntegrationTree({
   available,
-  bucket,
   selectedId,
   confirm,
-  selectBucket,
   selectIntegration,
 }: {
   /** The orchestrator probe resolved and it is there; nothing loads until it has. */
   available: boolean;
-  bucket: Bucket;
   selectedId: string | null;
   confirm: (opts: {
     title: string;
@@ -50,7 +42,6 @@ export function useIntegrationTree({
     confirmLabel?: string;
     danger?: boolean;
   }) => Promise<boolean>;
-  selectBucket: (b: Bucket) => void;
   selectIntegration: (id: string | null) => void;
 }) {
   const [data, setData] = useState<Data>(EMPTY);
@@ -85,18 +76,12 @@ export function useIntegrationTree({
   const { folders, integrations, membership } = data;
   const flat = useMemo(() => flatten(folders), [folders]);
 
-  const shown = useMemo(() => shownFor(bucket, data), [bucket, data]);
   const runningCount = useMemo(() => runningCountOf(data), [data]);
-  const unfiledCount = useMemo(() => unfiledCountOf(data), [data]);
-  const folderCount = (id: string) => folderCountOf(data, id);
 
   const selected = integrations.find((i) => i.id === selectedId) ?? null;
   const selectedFolderId = selectedId
     ? (membership.get(selectedId) ?? null)
     : null;
-
-  // A new folder nests under the selected folder, else lives at the root.
-  const createParent = typeof bucket === "object" ? bucket.folder : null;
 
   const {
     importInput,
@@ -118,8 +103,8 @@ export function useIntegrationTree({
     setError,
   });
 
-  const createFolderHere = (name: string) =>
-    run(() => createFolder(name, createParent));
+  const createFolderIn = (name: string, parentId: string | null) =>
+    run(() => createFolder(name, parentId));
 
   const renameFolderTo = (f: FlatFolder, name: string) =>
     run(() => renameFolder(f.id, name, f.parentId));
@@ -132,17 +117,15 @@ export function useIntegrationTree({
       danger: true,
     });
     if (!ok) return;
-    if (typeof bucket === "object" && bucket.folder === f.id)
-      selectBucket("all");
     run(() => deleteFolder(f.id));
   };
 
-  // Persist a new order for the folder currently shown, optimistically reflecting
-  // it so the list doesn't snap back before the refresh lands.
-  const reorderShown = (activeId: string, overId: string) => {
-    if (typeof bucket !== "object") return;
-    const folderId = bucket.folder;
-    const ids = shown.map((i) => i.id);
+  // Persist a new order for an integration's folder, optimistically reflecting it
+  // so the tree doesn't snap back before the refresh lands.
+  const reorderInFolder = (activeId: string, overId: string) => {
+    const folderId = membership.get(activeId);
+    if (!folderId) return;
+    const ids = folderIntegrations(data, folderId).map((i) => i.id);
     const from = ids.indexOf(activeId);
     const to = ids.indexOf(overId);
     if (from === -1 || to === -1 || from === to) return;
@@ -172,7 +155,7 @@ export function useIntegrationTree({
   const applyDrag = (outcome: DragOutcome) => {
     switch (outcome.kind) {
       case "reorder-integration":
-        reorderShown(outcome.id, outcome.beforeId);
+        reorderInFolder(outcome.id, outcome.beforeId);
         break;
       case "file-integration":
         run(() => assignIntegration(outcome.folderId, outcome.integrationId));
@@ -192,25 +175,17 @@ export function useIntegrationTree({
   };
 
   return {
-    // The tree, and the views of it this bucket needs.
-    folders,
-    integrations,
-    membership,
+    data,
     flat,
-    shown,
     selected,
     selectedFolderId,
     runningCount,
-    unfiledCount,
-    folderCount,
-    /** A new folder would nest here — the selected folder, or the root. */
-    createParent,
     // Status.
     busy,
     error,
     setError,
     // Mutations.
-    createFolderHere,
+    createFolderIn,
     renameFolderTo,
     removeFolder,
     importInput,
