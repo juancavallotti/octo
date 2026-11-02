@@ -17,7 +17,6 @@ const SNAPSHOT: Snapshot = {
   id: "snap-1",
   integrationId: "int-1",
   tag: "v1.0",
-  definition: "",
   createdAt: "",
 };
 

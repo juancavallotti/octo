@@ -1361,6 +1361,23 @@
                 },
                 "type": "object"
             },
+            "snapshot.summaryResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "tag": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "websearch.settingsResponse": {
                 "properties": {
                     "configured": {
@@ -5766,6 +5783,7 @@
         },
         "/integrations/{id}/snapshots": {
             "get": {
+                "description": "Newest first, without definitions; GET /snapshots/{id} reads one version's.",
                 "parameters": [
                     {
                         "description": "Integration id",
@@ -5783,7 +5801,7 @@
                             "application/json": {
                                 "schema": {
                                     "items": {
-                                        "$ref": "#/components/schemas/snapshot.snapshotResponse"
+                                        "$ref": "#/components/schemas/snapshot.summaryResponse"
                                     },
                                     "type": "array"
                                 }
@@ -7028,6 +7046,46 @@
                     }
                 },
                 "summary": "Delete a version tag",
+                "tags": [
+                    "snapshots"
+                ]
+            },
+            "get": {
+                "description": "One version with its frozen definition: the integration's config files as they\nstood when it was tagged, merged into one.",
+                "parameters": [
+                    {
+                        "description": "Snapshot id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/snapshot.snapshotResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a version tag",
                 "tags": [
                     "snapshots"
                 ]

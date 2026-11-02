@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useState,
   type RefObject,
 } from "react";
@@ -13,15 +12,16 @@ import {
   type Integration,
   type Snapshot,
 } from "@/app/model/orchestrator";
-import DefinitionSection from "./DefinitionSection";
+import DetailsSection from "./DetailsSection";
 import DeploymentsSection from "./DeploymentsSection";
 import EnvSection from "./EnvSection";
 import PodLogPanel from "./PodLogPanel";
 import ResourcesSection from "./ResourcesSection";
 import VersionPills from "./VersionPills";
-import { Row, Section } from "./DetailLayout";
-import { folderPathOf, type FlatFolder } from "./managerViews";
+import { Section } from "./DetailLayout";
+import type { FlatFolder } from "./managerViews";
 import IntegrationHeader from "./IntegrationHeader";
+import { useSnapshotDefinition } from "./useSnapshotDefinition";
 
 /**
  * Read-only operating details for the selected integration, plus its primary
@@ -90,6 +90,13 @@ export default function IntegrationDetail({
     (selectedTag && snapshots.find((s) => s.tag === selectedTag)) || null;
   const effectiveTag = selectedSnapshot ? selectedTag : null;
 
+  // The definition of the version in view: a tag's, read on selection, or the
+  // working copy's. Null while a tag's is still on its way.
+  const snapshotDefinition = useSnapshotDefinition(selectedSnapshot?.id);
+  const activeDefinition = selectedSnapshot
+    ? snapshotDefinition
+    : integration.definition;
+
   // Tags currently deployed, by tag string — unique per integration. What keeps
   // the Versions section from offering to delete a tag something is running.
   const [deployedTags, setDeployedTags] = useState<ReadonlySet<string>>(
@@ -118,30 +125,13 @@ export default function IntegrationDetail({
   // the modal's visibility is owned here, because the button is in the header.
   const [deployOpen, setDeployOpen] = useState(false);
 
-  // Read-only: moving is done by drag and drop in the tree.
-  const folderPath = useMemo(
-    () => folderPathOf(folders, folderId),
-    [folders, folderId],
-  );
-
-  const updated = new Date(integration.lastUpdated);
-  const updatedLabel = Number.isNaN(updated.getTime())
-    ? integration.lastUpdated
-    : updated.toLocaleString();
-
-  // An em dash when there is no known creator or editor — a row that predates
-  // attribution, or a user who has since been removed.
-  const createdByLabel =
-    integration.createdByEmail ?? integration.createdByName ?? "—";
-  const updatedByLabel =
-    integration.updatedByEmail ?? integration.updatedByName ?? "—";
-
   return (
     <div className="flex h-full flex-col">
       <IntegrationHeader
         integration={integration}
         snapshots={snapshots}
         activeSnapshot={selectedSnapshot}
+        activeDefinition={activeDefinition}
         deployedTags={deployedTags}
         busy={busy}
         effectiveTag={effectiveTag}
@@ -171,31 +161,14 @@ export default function IntegrationDetail({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <Section title="Details">
-            <Row label="Folder" value={folderPath} />
-            <Row label="Created by" value={createdByLabel} />
-            <Row label="Last updated" value={updatedLabel} />
-            <Row label="Updated by" value={updatedByLabel} />
-            <Row
-              label="ID"
-              value={
-                <span className="font-mono text-xs">{integration.id}</span>
-              }
-            />
-            {/* Scoped to the active version: a tag's frozen definition, or the
-                working copy for Current. */}
-            <div className="mt-3 border-t border-black/5 pt-3 dark:border-white/5">
-              <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-                Definition
-              </h4>
-              <DefinitionSection
-                key={selectedSnapshot?.id ?? integration.id}
-                definition={
-                  selectedSnapshot?.definition ?? integration.definition
-                }
-              />
-            </div>
-          </Section>
+          <DetailsSection
+            integration={integration}
+            folders={folders}
+            folderId={folderId}
+            versionKey={selectedSnapshot?.id ?? integration.id}
+            versionLabel={effectiveTag}
+            definition={activeDefinition}
+          />
 
           <Section title="Deployments">
             {/* Keyed by integration id so switching selection resets its state. */}

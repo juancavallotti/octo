@@ -444,10 +444,10 @@ paths:
       summary: List an integration's versions
       responses:
         "200":
-          description: Every version, newest first.
+          description: Every version, newest first, without its definition.
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Version" } }
+              schema: { type: array, items: { $ref: "#/components/schemas/VersionSummary" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "502": { $ref: "#/components/responses/Unavailable" }
@@ -483,6 +483,21 @@ paths:
   /v1/versions/{id}:
     parameters:
       - $ref: "#/components/parameters/VersionId"
+    get:
+      tags: [versions]
+      operationId: getVersion
+      summary: Get one version with its frozen definition
+      responses:
+        "200":
+          description: The version, its definition included.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Version" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+        "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [versions]
       operationId: deleteVersion
@@ -959,6 +974,14 @@ components:
             integrationId: { type: string, format: uuid }
             createdAt: { type: string, format: date-time }
             lastUpdated: { type: string, format: date-time }
+
+    VersionSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        integrationId: { type: string, format: uuid }
+        tag: { type: string }
+        createdAt: { type: string, format: date-time }
 
     Version:
       type: object

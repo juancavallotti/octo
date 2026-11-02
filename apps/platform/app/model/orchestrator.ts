@@ -29,6 +29,7 @@ import type {
   IntegrationRename,
   IntegrationTree,
   Snapshot,
+  SnapshotDetail,
   SnapshotResource,
 } from "./orchestratorTypes";
 
@@ -236,6 +237,11 @@ export async function listSnapshots(
   integrationId: string,
 ): Promise<Snapshot[]> {
   return unwrap(await snapshotActions.listSnapshots(integrationId));
+}
+
+/** One version tag with its frozen definition. */
+export async function getSnapshot(id: string): Promise<SnapshotDetail> {
+  return unwrap(await snapshotActions.getSnapshot(id));
 }
 
 /** Freeze the integration's current definition under a new tag. */

@@ -61,6 +61,33 @@ flows:
           failOnError: false
       - ref: relay-status
 
+  # GET /v1/versions/{id} — one version with its frozen definition. The list
+  # names versions; this is where a version's definition is read.
+  - name: get-version
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/versions/{id}
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/snapshots/" + vars.id'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
   # DELETE /v1/versions/{id}
   - name: delete-version
     source:

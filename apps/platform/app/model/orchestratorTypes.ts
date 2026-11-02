@@ -35,15 +35,18 @@ export interface Integration {
   updatedByName?: string;
 }
 
-/** A version tag: a frozen snapshot of an integration's definition. */
+/** A version tag: a frozen snapshot of an integration, as the list names it. */
 export interface Snapshot {
   id: string;
   integrationId: string;
   tag: string;
-  /** The frozen definition YAML, for version-scoped stats (e.g. the Definition panel). */
-  definition: string;
   /** RFC3339 timestamp of when the tag was created. */
   createdAt: string;
+}
+
+/** One version tag with its frozen definition, read on its own. */
+export interface SnapshotDetail extends Snapshot {
+  definition: string;
 }
 
 /**

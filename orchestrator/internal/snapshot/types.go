@@ -18,6 +18,15 @@ type Snapshot struct {
 	CreatedAt     time.Time
 }
 
+// Summary is a snapshot without its frozen definition: enough to list and pick
+// a version by, without merging every version's config to say so.
+type Summary struct {
+	ID            string
+	IntegrationID string
+	Tag           string
+	CreatedAt     time.Time
+}
+
 // Resource is one of an integration's resources frozen under a snapshot when the
 // integration was tagged. It belongs to a snapshot and never changes, so it
 // carries neither an integration id nor a last_updated stamp. Kind and Name

@@ -8,7 +8,11 @@
  * through the result and surfaces in the UI.
  */
 
-import type { Snapshot, SnapshotResource } from "@/app/model/orchestrator";
+import type {
+  Snapshot,
+  SnapshotDetail,
+  SnapshotResource,
+} from "@/app/model/orchestrator";
 import { toBase64 } from "@/app/model/base64";
 import { withRead, withWrite } from "./_auth";
 import * as client from "./_client";
@@ -18,6 +22,12 @@ export async function listSnapshots(
   integrationId: string,
 ): Promise<ActionResult<Snapshot[]>> {
   return withRead(() => client.listSnapshots(integrationId));
+}
+
+export async function getSnapshot(
+  id: string,
+): Promise<ActionResult<SnapshotDetail>> {
+  return withRead(() => client.getSnapshot(id));
 }
 
 export async function createSnapshot(

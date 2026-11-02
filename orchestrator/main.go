@@ -582,7 +582,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		snapshotHandler := snapshot.NewHandler(snapshotSvc)
 		snapshotHandler.Register(mux)
 		slog.Info("snapshot routes registered",
-			"endpoints", "POST/GET /integrations/{id}/snapshots, DELETE /snapshots/{id}, "+
+			"endpoints", "POST/GET /integrations/{id}/snapshots, GET/DELETE /snapshots/{id}, "+
 				"GET /snapshots/{id}/resources, GET /snapshots/{id}/resources/content")
 
 		// Integration resources (env files, templates). CRUD needs only the

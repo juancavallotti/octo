@@ -157,6 +157,31 @@ func (r *Repo) Get(ctx context.Context, id string) (Snapshot, error) {
 	return s, nil
 }
 
+// ListSummaries returns an integration's snapshots without their definitions,
+// newest first. It reads no frozen files, which ListByIntegration has to merge
+// for every version.
+func (r *Repo) ListSummaries(ctx context.Context, integrationID string) ([]Summary, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT s.id, s.integration_id, s.tag, s.created_at
+		 FROM integration_snapshots s
+		 WHERE s.integration_id = $1
+		 ORDER BY s.created_at DESC`,
+		integrationID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot repo: list summaries: %w", err)
+	}
+	items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Summary, error) {
+		var s Summary
+		err := row.Scan(&s.ID, &s.IntegrationID, &s.Tag, &s.CreatedAt)
+		return s, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("snapshot repo: list summaries: %w", err)
+	}
+	return items, nil
+}
+
 // ListByIntegration returns an integration's snapshots, newest first.
 func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]Snapshot, error) {
 	rows, err := r.pool.Query(ctx,

@@ -22,12 +22,13 @@ Tag names are 1–64 characters from letters, digits, `.`, `-`, and `_` (so they
 | Operation | Endpoint |
 | --- | --- |
 | Create a tag (freeze the current definition + resources) | `POST /integrations/{id}/snapshots` |
-| List an integration's tags (newest first, with definitions) | `GET /integrations/{id}/snapshots` |
+| List an integration's tags (newest first, without definitions) | `GET /integrations/{id}/snapshots` |
+| Read one tag with its frozen definition | `GET /snapshots/{id}` |
 | Delete a tag | `DELETE /snapshots/{id}` |
 | List a tag's frozen resources | `GET /snapshots/{id}/resources` |
 | Read one frozen resource's content | `GET /snapshots/{id}/resources/content?kind=...&name=...` |
 
-The list response includes each tag's frozen definition, so the UI shows version-scoped detail without extra fetches. The frozen-resource content endpoint is also what a **deployed runtime** calls: each tagged deploy carries its snapshot id (`OCTO_SNAPSHOT_ID`), and the pod's resource loader fetches the frozen resources from the orchestrator by it.
+The list names each tag without its definition, so it stays small however long an integration's history grows. Read a tag's frozen definition with `GET /snapshots/{id}`. The frozen-resource content endpoint is also what a **deployed runtime** calls: each tagged deploy carries its snapshot id (`OCTO_SNAPSHOT_ID`), and the pod's resource loader fetches the frozen resources from the orchestrator by it.
 
 ## Deletion is guarded
 
@@ -40,5 +41,5 @@ Tags are the platform's version history: every deploy is pinned to one, and depl
 To **roll back a running deployment**, roll it out to an older tag. A [rollout](/platform/deployments#rolling-out-a-new-version) accepts any of the integration's tags and performs a rolling update in place, keeping the deployment's address and settings.
 
 <Callout type="info">
-There is no API to overwrite the working copy from a tag. Tags restore what *runs* (via rollout); to bring old content back into the working copy, read the tag's frozen definition from the list endpoint and save it as an edit.
+There is no API to overwrite the working copy from a tag. Tags restore what *runs* (via rollout); to bring old content back into the working copy, read the tag's frozen definition with `GET /snapshots/{id}` and save it as an edit.
 </Callout>

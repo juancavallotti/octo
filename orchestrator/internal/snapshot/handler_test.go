@@ -57,6 +57,15 @@ func (m *memRepo) ListByIntegration(_ context.Context, integrationID string) ([]
 	return out, nil
 }
 
+func (m *memRepo) ListSummaries(ctx context.Context, integrationID string) ([]Summary, error) {
+	full, _ := m.ListByIntegration(ctx, integrationID)
+	out := make([]Summary, 0, len(full))
+	for _, s := range full {
+		out = append(out, Summary{ID: s.ID, IntegrationID: s.IntegrationID, Tag: s.Tag, CreatedAt: s.CreatedAt})
+	}
+	return out, nil
+}
+
 // deployed maps a snapshot id to the environment labels referencing it; an entry
 // makes DeploymentsUsingSnapshot report the snapshot as in use.
 func (m *memRepo) DeploymentsUsingSnapshot(_ context.Context, _, snapshotID string) ([]string, error) {
@@ -122,8 +131,20 @@ func TestHandlerListAndDelete(t *testing.T) {
 	mux, _ := newTestHandler(integration.Integration{ID: "int-1", Definition: "yaml"})
 	do(mux, "POST", "/integrations/int-1/snapshots", `{"tag":"v1"}`)
 
-	if rec := do(mux, "GET", "/integrations/int-1/snapshots", ""); rec.Code != http.StatusOK {
+	rec := do(mux, "GET", "/integrations/int-1/snapshots", "")
+	if rec.Code != http.StatusOK {
 		t.Fatalf("list: status = %d, want 200", rec.Code)
+	}
+	// The list names versions; their definitions are read one at a time.
+	if strings.Contains(rec.Body.String(), `"definition"`) {
+		t.Errorf("list carries definitions: %s", rec.Body)
+	}
+	if rec := do(mux, "GET", "/snapshots/snap-1", ""); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"definition"`) {
+		t.Errorf("get: status = %d, body %s; want 200 with a definition", rec.Code, rec.Body)
+	}
+	if rec := do(mux, "GET", "/snapshots/missing", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("get missing: status = %d, want 404", rec.Code)
 	}
 	if rec := do(mux, "DELETE", "/snapshots/snap-1", ""); rec.Code != http.StatusNoContent {
 		t.Errorf("delete: status = %d, want 204", rec.Code)

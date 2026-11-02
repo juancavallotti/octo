@@ -23,6 +23,7 @@ export default function IntegrationHeader({
   integration,
   snapshots,
   activeSnapshot,
+  activeDefinition,
   deployedTags,
   busy,
   effectiveTag,
@@ -38,9 +39,11 @@ export default function IntegrationHeader({
 }: {
   integration: Integration;
   snapshots: Snapshot[];
-  /** The tag the pane is scoped to, or null for the working copy. Its frozen
-   * definition is what the definition download offers. */
+  /** The tag the pane is scoped to, or null for the working copy. */
   activeSnapshot: Snapshot | null;
+  /** The definition of the version in view, which the definition download
+   * offers; null while a tag's is still being read. */
+  activeDefinition: string | null;
   deployedTags: ReadonlySet<string>;
   busy: boolean;
   /** The version the pane is scoped to; null is the working copy. */
@@ -135,12 +138,11 @@ export default function IntegrationHeader({
       <DownloadMenu
         versionLabel={effectiveTag ?? "Current"}
         busy={busy}
-        onDownloadDefinition={() =>
-          downloadDefinition(
-            integration.name,
-            activeSnapshot?.definition ?? integration.definition,
-          )
-        }
+        onDownloadDefinition={() => {
+          if (activeDefinition !== null) {
+            downloadDefinition(integration.name, activeDefinition);
+          }
+        }}
         onDownloadBundle={() =>
           onDownloadBundle(
             activeSnapshot && effectiveTag
