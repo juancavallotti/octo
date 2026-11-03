@@ -89,7 +89,7 @@ With `--watch`, the CLI watches the config path and rebuilds the runtime when it
 
 File changes are debounced (200 ms), so a burst of editor writes coalesces into one reload. Atomic-rename saves, where an editor replaces the file rather than writing in place, are detected too. Watching a directory also notices **added and removed** config files.
 
-The `.env` files consulted during load, and any declared env or template resources, feed the same reload channel, so editing them restarts the runtime just like a config change.
+The `.env` files consulted during load, and every env or template resource the running config read, feed the same reload channel, so editing them restarts the runtime just like a config change. Nothing else counts: a log redirected into the config directory or the working directory, or the trace file `--traces` writes there, does not trigger a reload.
 
 A config that fails to load, build, or start is **not fatal**: the CLI logs the error and waits for the next change, so fixing the file recovers without restarting the process. Runtime services (connections, leases) are built once and reused across reloads, so they are not churned on every save.
 

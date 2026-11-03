@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,7 +40,9 @@ func TestWatchConfigForwardsResourceChanges(t *testing.T) {
 	defer cancel()
 
 	watcher := &fakeResourceWatcher{}
-	changed, err := watchConfig(ctx, cfgPath, watcher)
+	reads := newResourceReads()
+	reads.record(".env.dev")
+	changed, err := watchConfig(ctx, cfgPath, watcher, reads)
 	if err != nil {
 		t.Fatalf("watchConfig: %v", err)
 	}
@@ -52,5 +57,167 @@ func TestWatchConfigForwardsResourceChanges(t *testing.T) {
 	case <-changed:
 	case <-time.After(3 * time.Second):
 		t.Fatal("resource change did not trigger a reload signal")
+	}
+}
+
+// expectSignal reports whether a change arrives on changed within twice the
+// debounce, which is as long as a real change takes to surface.
+func expectSignal(changed <-chan struct{}) bool {
+	select {
+	case <-changed:
+		return true
+	case <-time.After(4 * watchDebounce):
+		return false
+	}
+}
+
+// A runtime writes into its working directory — a redirected log, the default
+// trace file — and that directory is watched for ./.env. Those writes must not
+// count as a config change, or every reload's own output triggers the next one.
+func TestWatchConfigIgnoresUnrelatedWritesBesideTheConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cfgPath := filepath.Join(dir, "app.yaml")
+	if err := os.WriteFile(cfgPath, []byte("service:\n  name: demo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changed, err := watchConfig(ctx, cfgPath, &fakeResourceWatcher{}, newResourceReads())
+	if err != nil {
+		t.Fatalf("watchConfig: %v", err)
+	}
+
+	for _, name := range []string{"run.log", "octo-trace.jsonl", "other.yaml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("noise\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if expectSignal(changed) {
+		t.Fatal("a write to a file the config does not depend on triggered a reload")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("A=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !expectSignal(changed) {
+		t.Fatal("writing ./.env did not trigger a reload")
+	}
+
+	// An editor's atomic save: a temporary file renamed over the config.
+	tmp := filepath.Join(dir, ".app.yaml.swp")
+	if err := os.WriteFile(tmp, []byte("service:\n  name: renamed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	if !expectSignal(changed) {
+		t.Fatal("an atomic save of the config did not trigger a reload")
+	}
+}
+
+// A config directory reloads on the files the loader reads from it, and nothing
+// else: a test suite beside the flows or a stray log is not config.
+func TestWatchConfigDirectoryCoversOnlyConfigFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(filepath.Join(dir, "orders.yaml"), []byte("flows: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changed, err := watchConfig(ctx, dir, &fakeResourceWatcher{}, newResourceReads())
+	if err != nil {
+		t.Fatalf("watchConfig: %v", err)
+	}
+
+	for _, name := range []string{"orders_test.yaml", "run.log"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x: 1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if expectSignal(changed) {
+		t.Fatal("a file the loader skips triggered a reload")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "billing.yml"), []byte("flows: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !expectSignal(changed) {
+		t.Fatal("adding a config file to the directory did not trigger a reload")
+	}
+}
+
+// The resource loader reports every file under the config directory. Only the
+// ones the running generation read can change what it does, so a log or trace
+// file written there is not a reason to reload.
+func TestWatchConfigReloadsOnlyForResourcesTheGenerationRead(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	cfgPath := filepath.Join(dir, "app.yaml")
+	if err := os.WriteFile(cfgPath, []byte("service:\n  name: demo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watcher := &fakeResourceWatcher{}
+	reads := newResourceReads()
+	changed, err := watchConfig(ctx, cfgPath, watcher, reads)
+	if err != nil {
+		t.Fatalf("watchConfig: %v", err)
+	}
+
+	svc := reads.services(fakeServices{loader: watcher})
+	if _, err := svc.Resources().Load(ctx, core.ResourceKindTemplate, "./templates/receipt.tmpl"); !errors.Is(err, core.ErrResourceNotFound) {
+		t.Fatalf("Load = %v, want the loader's own answer passed through", err)
+	}
+
+	watcher.fn(core.ResourceKindTemplate, "trace.jsonl")
+	if expectSignal(changed) {
+		t.Fatal("a file nothing read triggered a reload")
+	}
+	watcher.fn(core.ResourceKindTemplate, "templates/receipt.tmpl")
+	if !expectSignal(changed) {
+		t.Fatal("a resource the generation read did not trigger a reload")
+	}
+
+	reads.reset()
+	watcher.fn(core.ResourceKindTemplate, "templates/receipt.tmpl")
+	if expectSignal(changed) {
+		t.Fatal("a read from the previous generation still triggered a reload")
+	}
+}
+
+// fakeServices is just enough RuntimeServices to hand out a resource loader.
+type fakeServices struct {
+	core.RuntimeServices
+	loader core.ResourceLoader
+}
+
+//nolint:ireturn // implements core.RuntimeServices
+func (f fakeServices) Resources() core.ResourceLoader { return f.loader }
+
+// shippingServices is a module that ships logs, the optional facet the logger
+// connector looks for on the services it is handed.
+type shippingServices struct {
+	fakeServices
+	sink slog.Handler
+}
+
+func (s shippingServices) LogSink() slog.Handler { return s.sink }
+
+// Recording reads must not cost a generation the module's log shipping: the
+// logger connector finds the sink by asserting core.LogShipper on the services.
+func TestRecordingServicesKeepTheLogSink(t *testing.T) {
+	sink := slog.NewTextHandler(io.Discard, nil)
+	svc := newResourceReads().services(shippingServices{sink: sink})
+
+	shipper, ok := svc.(core.LogShipper)
+	if !ok || shipper.LogSink() != sink {
+		t.Fatal("the wrapped services lost the module's log sink")
 	}
 }

@@ -161,7 +161,7 @@ func loadDir(dir string) ([]document, error) {
 
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !isYAML(entry.Name()) || IsTestFile(entry.Name()) {
+		if entry.IsDir() || !IsConfigFile(entry.Name()) {
 			continue
 		}
 		paths = append(paths, filepath.Join(dir, entry.Name()))
@@ -214,6 +214,13 @@ func mergeEnvDecls(docs []document) (envDecls, error) {
 		}
 	}
 	return merged, nil
+}
+
+// IsConfigFile reports whether a file named name, inside a config directory, is
+// one the loader reads: a YAML file that is not a test file. The --watch loop
+// asks the same question, so a file the loader skips cannot trigger a reload.
+func IsConfigFile(name string) bool {
+	return isYAML(name) && !IsTestFile(name)
 }
 
 // isYAML reports whether name has a YAML extension.

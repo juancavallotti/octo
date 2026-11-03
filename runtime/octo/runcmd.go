@@ -212,14 +212,17 @@ func runWithReload(
 	// The services' resource loader backs env-resource combination during load and
 	// the blocks' resource reads, and (as a ResourceWatcher) drives reloads.
 	loader := svc.Resources()
-	changed, err := watchConfig(ctx, configPath, loader)
+	reads := newResourceReads()
+	changed, err := watchConfig(ctx, configPath, loader, reads)
 	if err != nil {
 		return fmt.Errorf("watch config: %w", err)
 	}
 	slog.Info("watching config for changes", "path", configPath)
 
 	for {
-		config, loadErr := runtime.LoadConfig(configPath, loader)
+		reads.reset()
+		generation := reads.services(svc)
+		config, loadErr := runtime.LoadConfig(configPath, generation.Resources())
 		if loadErr != nil {
 			slog.Error("config load failed, waiting for next change", "error", loadErr)
 			// A config that will not load leaves nothing serving, so readiness must
@@ -232,7 +235,7 @@ func runWithReload(
 		}
 		announceConfig(hosted, config)
 
-		reload, runErr := runGeneration(ctx, config, changed, svc, health)
+		reload, runErr := runGeneration(ctx, config, changed, generation, health)
 		if runErr != nil {
 			// In watch mode a build/start failure is not fatal: keep the watcher
 			// alive and wait for the next change, same as a config load error, so
