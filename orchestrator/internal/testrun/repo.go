@@ -61,7 +61,7 @@ func (r *Repo) Get(ctx context.Context, deploymentID, id string) (Run, error) {
 func (r *Repo) ListByDeployment(ctx context.Context, deploymentID string, limit int) ([]Run, error) {
 	return r.list(ctx, "list by deployment",
 		`SELECT `+runColumns+` FROM deployment_test_runs
-		 WHERE deployment_id = $1 ORDER BY created_at DESC LIMIT $2`,
+		 WHERE deployment_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
 		deploymentID, limit)
 }
 
@@ -69,7 +69,7 @@ func (r *Repo) ListByDeployment(ctx context.Context, deploymentID string, limit 
 func (r *Repo) Latest(ctx context.Context) ([]Run, error) {
 	return r.list(ctx, "latest",
 		`SELECT DISTINCT ON (deployment_id) `+runColumns+` FROM deployment_test_runs
-		 ORDER BY deployment_id, created_at DESC`)
+		 ORDER BY deployment_id, created_at DESC, id DESC`)
 }
 
 // ListRunningSince returns the runs still running that were created before t.

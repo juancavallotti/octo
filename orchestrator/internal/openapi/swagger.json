@@ -3247,6 +3247,16 @@
                         },
                         "description": "Not Found"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the test image is another release than the deployed runtime"
+                    },
                     "422": {
                         "content": {
                             "application/json": {

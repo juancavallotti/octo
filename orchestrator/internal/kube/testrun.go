@@ -211,10 +211,11 @@ func testRunState(job *batchv1.Job, pods []corev1.Pod) TestRunState {
 }
 
 // startFailure reports whether a waiting container's reason means it will not
-// start without someone changing something.
+// start without someone changing something. A pull that is backing off is not
+// one: the kubelet keeps retrying it, and the run's deadline is what ends it.
 func startFailure(reason string) bool {
 	switch reason {
-	case "ErrImagePull", "ImagePullBackOff", "InvalidImageName", "CreateContainerConfigError", "CreateContainerError":
+	case "InvalidImageName", "CreateContainerConfigError", "CreateContainerError":
 		return true
 	}
 	return false
@@ -264,6 +265,7 @@ func testBundle(definition string, extra map[string]string) (map[string]string, 
 // standalone octo in the same image.
 func (c *Client) testRunJob(name string, lbls map[string]string, spec TestRunSpec, items []corev1.KeyToPath) *batchv1.Job {
 	backoff := int32(0)
+	noToken := false
 	deadline := int64(testRunDeadlineSeconds)
 	ttl := int32(testRunTTLSeconds)
 
@@ -289,7 +291,8 @@ func (c *Client) testRunJob(name string, lbls map[string]string, spec TestRunSpe
 				Spec: corev1.PodSpec{
 					// No ServiceAccount, like a dev run: the standalone build talks to no
 					// cluster API, so the pod carries no credential at all.
-					RestartPolicy:    corev1.RestartPolicyNever,
+					RestartPolicy:                corev1.RestartPolicyNever,
+					AutomountServiceAccountToken: &noToken,
 					ImagePullSecrets: c.pullSecretRefs(),
 					Containers: []corev1.Container{{
 						Name:            TestContainer,

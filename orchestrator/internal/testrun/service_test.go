@@ -89,9 +89,11 @@ func (f *fakeRepo) get(id string) Run {
 
 // fakeDeployments hands out one plan and counts rollouts.
 type fakeDeployments struct {
-	mu        sync.Mutex
-	plan      deployment.TestPlan
-	all       []deployment.Deployment
+	mu   sync.Mutex
+	plan deployment.TestPlan
+	all  []deployment.Deployment
+	// current is what Get returns, when a test needs the deployment changed.
+	current   *deployment.Deployment
 	rollouts  int
 	rolloutTo string
 }
@@ -112,6 +114,15 @@ func (f *fakeDeployments) Rollout(
 
 func (f *fakeDeployments) CurrentRuntime() string { return "0.11.14" }
 
+func (f *fakeDeployments) Get(_ context.Context, id string) (deployment.Deployment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.current != nil {
+		return *f.current, nil
+	}
+	return deployment.Deployment{ID: id}, nil
+}
+
 func (f *fakeDeployments) List(context.Context) ([]deployment.Deployment, error) { return f.all, nil }
 
 func (f *fakeDeployments) count() int {
@@ -123,12 +134,20 @@ func (f *fakeDeployments) count() int {
 // fakeCluster reports one state for every run and remembers what it was asked to apply.
 type fakeCluster struct {
 	mu      sync.Mutex
+	image   string
 	state   kube.TestRunState
 	logs    string
 	applied []kube.TestRunSpec
 }
 
 func (f *fakeCluster) TestRunsEnabled() bool { return true }
+
+func (f *fakeCluster) TestImage() string {
+	if f.image != "" {
+		return f.image
+	}
+	return "octo-devruntime:0.11.14"
+}
 
 func (f *fakeCluster) ApplyTestRun(_ context.Context, spec kube.TestRunSpec) error {
 	f.mu.Lock()
@@ -292,8 +311,8 @@ func TestUpgradesMarksARunOlderThanTheLastRolloutStale(t *testing.T) {
 	}
 	repo := newFakeRepo()
 	repo.latest = []Run{
-		{ID: "old", DeploymentID: "before", CreatedAt: rolledOut.Add(-time.Minute)},
-		{ID: "new", DeploymentID: "after", CreatedAt: rolledOut.Add(time.Minute)},
+		{ID: "old", DeploymentID: "before", SnapshotID: "s1", CreatedAt: rolledOut.Add(-time.Minute)},
+		{ID: "new", DeploymentID: "after", SnapshotID: "s1", CreatedAt: rolledOut.Add(time.Minute)},
 	}
 	deps := &fakeDeployments{all: []deployment.Deployment{dep("before"), dep("after")}}
 	svc := NewService(repo, deps, fakeSnapshots{}, &fakeCluster{})
@@ -345,6 +364,53 @@ func TestUpgrades(t *testing.T) {
 		w := want[u.Name]
 		if u.UpgradeTo != w.upgradeTo || u.HasSuites != w.suites {
 			t.Errorf("%s: upgradeTo %q hasSuites %v, want %q %v", u.Name, u.UpgradeTo, u.HasSuites, w.upgradeTo, w.suites)
+		}
+	}
+}
+
+func TestStartRefusesATestImageOfAnotherRelease(t *testing.T) {
+	cl := &fakeCluster{image: "octo-devruntime:0.11.13"}
+	svc := NewService(newFakeRepo(), &fakeDeployments{plan: plan(suite("orders_test.yaml"))}, nil, cl)
+	if _, err := svc.Start(context.Background(), "dep-1", "", true, "u"); !errors.Is(err, ErrRuntimeMismatch) {
+		t.Fatalf("err = %v, want ErrRuntimeMismatch", err)
+	}
+}
+
+// A deployment rolled out while its suites ran is not rolled over by the run.
+func TestCompleteLeavesADeploymentChangedDuringTheRun(t *testing.T) {
+	repo := newFakeRepo()
+	run, _ := repo.Create(context.Background(), Run{DeploymentID: "dep-1", SnapshotID: "snap-1", RolloutOnPass: true})
+	later := run.CreatedAt.Add(time.Second)
+	meta, _ := json.Marshal(deployment.Metadata{RolledOutAt: &later})
+	deps := &fakeDeployments{current: &deployment.Deployment{ID: "dep-1", Metadata: meta}}
+	svc := NewService(repo, deps, nil, &fakeCluster{logs: report})
+
+	svc.complete(context.Background(), run, kube.TestRunState{Phase: kube.TestRunExited, Pod: "p"}, true)
+	got := repo.get(run.ID)
+	if deps.count() != 0 || got.Status != StatusPassed || !strings.Contains(got.Error, "Test it again") {
+		t.Errorf("run = %+v, rollouts %d", got, deps.count())
+	}
+}
+
+func TestIsStale(t *testing.T) {
+	t0 := time.Now()
+	at := func(d time.Duration) *time.Time { v := t0.Add(d); return &v }
+	cases := []struct {
+		name      string
+		run       Run
+		snapshot  string
+		rolledOut *time.Time
+		want      bool
+	}{
+		{"current", Run{SnapshotID: "s1", CreatedAt: t0}, "s1", at(-time.Minute), false},
+		{"rolled out since", Run{SnapshotID: "s1", CreatedAt: t0}, "s1", at(time.Minute), true},
+		{"another snapshot", Run{SnapshotID: "s2", CreatedAt: t0}, "s1", nil, true},
+		{"its own rollout", Run{SnapshotID: "s1", CreatedAt: t0, RolledOutAt: at(time.Minute)}, "s1", at(time.Minute), false},
+		{"a rollout after its own", Run{SnapshotID: "s1", CreatedAt: t0, RolledOutAt: at(time.Minute)}, "s1", at(2 * time.Minute), true},
+	}
+	for _, tc := range cases {
+		if got := isStale(tc.run, tc.snapshot, tc.rolledOut); got != tc.want {
+			t.Errorf("%s: stale = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

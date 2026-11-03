@@ -37,6 +37,9 @@ func TestApplyTestRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
+	if tok := job.Spec.Template.Spec.AutomountServiceAccountToken; tok == nil || *tok {
+		t.Error("the test pod mounts a service account token")
+	}
 	// A test pod must never be mistaken for one of the deployment's replicas.
 	if _, ok := job.Spec.Template.Labels[labelDeploymentID]; ok {
 		t.Errorf("test pod carries %s", labelDeploymentID)
@@ -113,9 +116,12 @@ func TestTestRunState(t *testing.T) {
 		{"exited 1", failed("BackoffLimitExceeded"), []corev1.Pod{exited(1)}, TestRunState{Phase: TestRunExited, ExitCode: 1, Pod: "p"}},
 		{"exited 0", &batchv1.Job{}, []corev1.Pod{exited(0)}, TestRunState{Phase: TestRunExited, Pod: "p"}},
 		{"deadline wins", failed("DeadlineExceeded"), []corev1.Pod{exited(137)}, TestRunState{Phase: TestRunDeadlineExceeded, Pod: "p"}},
-		{"image will not pull", &batchv1.Job{}, []corev1.Pod{pod(corev1.ContainerState{
-			Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff", Message: "nope"},
-		})}, TestRunState{Phase: TestRunFailedToStart, Pod: "p", Reason: "ImagePullBackOff: nope"}},
+		{"a pull backing off is still going", &batchv1.Job{}, []corev1.Pod{pod(corev1.ContainerState{
+			Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff", Message: "retrying"},
+		})}, TestRunState{Phase: TestRunActive}},
+		{"a missing secret will not start", &batchv1.Job{}, []corev1.Pod{pod(corev1.ContainerState{
+			Waiting: &corev1.ContainerStateWaiting{Reason: "CreateContainerConfigError", Message: "no key"},
+		})}, TestRunState{Phase: TestRunFailedToStart, Pod: "p", Reason: "CreateContainerConfigError: no key"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

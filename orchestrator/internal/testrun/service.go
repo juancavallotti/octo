@@ -10,6 +10,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
@@ -48,6 +49,7 @@ type deployments interface {
 	) (deployment.Deployment, error)
 	CurrentRuntime() string
 	List(ctx context.Context) ([]deployment.Deployment, error)
+	Get(ctx context.Context, id string) (deployment.Deployment, error)
 }
 
 // snapshots reads the files frozen under a snapshot. *snapshot.Service
@@ -59,6 +61,7 @@ type snapshots interface {
 // cluster is the Kubernetes surface a test run drives. *kube.Client satisfies it.
 type cluster interface {
 	TestRunsEnabled() bool
+	TestImage() string
 	ApplyTestRun(ctx context.Context, spec kube.TestRunSpec) error
 	TestRunState(ctx context.Context, runID string) (kube.TestRunState, error)
 	TestRunLogs(ctx context.Context, pod string) ([]byte, error)
@@ -112,6 +115,11 @@ func (s *Service) Start(ctx context.Context, id, snapshotID string, rolloutOnPas
 	if !s.Enabled() {
 		return Run{}, ErrUnavailable
 	}
+	current := s.deployments.CurrentRuntime()
+	if tested := runtimeversion.ImageTag(s.cluster.TestImage()); runtimeversion.Behind(tested, current) ||
+		runtimeversion.Behind(current, tested) {
+		return Run{}, fmt.Errorf("%w: tests run on %s, rollouts install %s", ErrRuntimeMismatch, tested, current)
+	}
 	plan, err := s.deployments.TestPlan(ctx, id, snapshotID)
 	if err != nil {
 		return Run{}, err
@@ -131,7 +139,7 @@ func (s *Service) Start(ctx context.Context, id, snapshotID string, rolloutOnPas
 	run, err := s.repo.Create(ctx, Run{
 		DeploymentID:   plan.DeploymentID,
 		SnapshotID:     plan.SnapshotID,
-		RuntimeVersion: s.deployments.CurrentRuntime(),
+		RuntimeVersion: current,
 		RolloutOnPass:  rolloutOnPass,
 		CreatedBy:      createdBy,
 	})
@@ -287,21 +295,34 @@ func (s *Service) verdict(ctx context.Context, run Run, state kube.TestRunState)
 
 // rollout rolls a passing run's deployment onto the snapshot it tested, keeping
 // the deployment's env and tracing, and records how that went.
+//
+// A deployment rolled out after the run started is left alone: its env,
+// tracing or version may no longer be what the suites ran with, and rolling
+// the tested snapshot over it would undo someone's change without a word.
 func (s *Service) rollout(ctx context.Context, run Run, canRollout bool) {
 	var at *time.Time
 	msg := ""
-	if !canRollout {
+	switch {
+	case !canRollout:
 		msg = "the suites passed, but the rollout was not performed: the orchestrator replica " +
 			"that started this run stopped before it finished. Roll the deployment out by hand."
-	} else {
+	case s.changedSince(ctx, run):
+		msg = "the suites passed, but the rollout was not performed: the deployment was rolled out " +
+			"while the run was going, so what passed is not what it runs. Test it again."
+	default:
 		rctx, cancel := context.WithTimeout(ctx, rolloutTimeout)
-		_, err := s.deployments.Rollout(rctx, run.DeploymentID, run.SnapshotID, nil, nil, nil)
+		dep, err := s.deployments.Rollout(rctx, run.DeploymentID, run.SnapshotID, nil, nil, nil)
 		cancel()
 		if err != nil {
 			msg = "the suites passed, but the rollout failed: " + err.Error()
 		} else {
-			t := s.now()
-			at = &t
+			// The deployment's own record of when it rolled out, so the run can
+			// tell its rollout from a later one.
+			at = deployment.ParseMetadata(dep.Metadata).RolledOutAt
+			if at == nil {
+				t := s.now()
+				at = &t
+			}
 		}
 	}
 	step, cancel := context.WithTimeout(ctx, stepTimeout)
@@ -309,4 +330,18 @@ func (s *Service) rollout(ctx context.Context, run Run, canRollout bool) {
 	if err := s.repo.RecordRollout(step, run.ID, at, msg); err != nil {
 		slog.Error("record a test run's rollout", "run", run.ID, "error", errors.Join(err, errors.New(msg)))
 	}
+}
+
+// changedSince reports whether run's deployment was deployed or rolled out after
+// the run started. A deployment that cannot be read counts as changed.
+func (s *Service) changedSince(ctx context.Context, run Run) bool {
+	step, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	dep, err := s.deployments.Get(step, run.DeploymentID)
+	if err != nil {
+		slog.Error("read a test run's deployment", "run", run.ID, "error", err)
+		return true
+	}
+	rolledOut := deployment.ParseMetadata(dep.Metadata).RolledOutAt
+	return rolledOut != nil && rolledOut.After(run.CreatedAt)
 }

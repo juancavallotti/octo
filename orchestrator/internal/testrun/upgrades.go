@@ -3,6 +3,7 @@ package testrun
 import (
 	"context"
 	"slices"
+	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
@@ -62,7 +63,7 @@ func (s *Service) Upgrades(ctx context.Context) (string, []Upgrade, error) {
 		}
 		if run, ok := latest[d.ID]; ok {
 			u.LatestRun = &run
-			u.LatestRunStale = meta.RolledOutAt != nil && run.CreatedAt.Before(*meta.RolledOutAt)
+			u.LatestRunStale = isStale(run, settings.SnapshotID, meta.RolledOutAt)
 		}
 		ret = append(ret, u)
 	}
@@ -82,4 +83,21 @@ func (s *Service) hasSuites(ctx context.Context, snapshotID string) (bool, error
 	return slices.ContainsFunc(resources, func(r snapshot.Resource) bool {
 		return projectfile.IsSuite(r.Name)
 	}), nil
+}
+
+// isStale reports whether run no longer speaks for a deployment running
+// snapshotID, last rolled out at rolledOutAt: it tested another snapshot, or the
+// deployment was rolled out after it — by anything but the run's own rollout.
+func isStale(run Run, snapshotID string, rolledOutAt *time.Time) bool {
+	if run.SnapshotID != snapshotID {
+		return true
+	}
+	if rolledOutAt == nil {
+		return false
+	}
+	since := run.CreatedAt
+	if run.RolledOutAt != nil {
+		since = *run.RolledOutAt
+	}
+	return rolledOutAt.After(since)
 }

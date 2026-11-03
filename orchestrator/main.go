@@ -755,9 +755,9 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			deployment.NewHandler(deploymentSvc).Register(mux)
 			testrunSvc := testrun.NewService(testrun.NewRepo(database.Pool()), deploymentSvc, snapshotSvc, kubeClient)
 			testrun.NewHandler(testrunSvc).Register(mux)
-			if testrunSvc.Enabled() {
-				startTestRunSweeper(ctx, testrunSvc)
-			}
+			// Swept even when test runs are switched off, so a run left running when
+			// the image was removed is still finished.
+			startTestRunSweeper(ctx, testrunSvc)
 			slog.Info("test run routes registered", "enabled", testrunSvc.Enabled(),
 				"testImage", kubeClient.TestImage(),
 				"endpoints", "POST/GET /deployments/{id}/testruns, GET /deployments/{id}/testruns/{runId}, GET /upgrades")

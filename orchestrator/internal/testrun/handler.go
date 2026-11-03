@@ -102,6 +102,7 @@ type startRequest struct {
 //	@Success		202		{object}	runResponse
 //	@Failure		400		{object}	httpx.ErrorResponse
 //	@Failure		404		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"the test image is another release than the deployed runtime"
 //	@Failure		422		{object}	httpx.ErrorResponse	"the version has no test suites"
 //	@Failure		503		{object}	httpx.ErrorResponse	"this install cannot run tests"
 //	@Router			/deployments/{id}/testruns [post]
@@ -184,6 +185,8 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, "deployment not found")
 	case errors.Is(err, ErrUnavailable), errors.Is(err, deployment.ErrUnavailable):
 		httpx.WriteError(w, http.StatusServiceUnavailable, "test runs are not available on this installation")
+	case errors.Is(err, ErrRuntimeMismatch):
+		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrNoSuites):
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "this version of the integration has no test suites")
 	case errors.Is(err, kube.ErrTestBundleTooLarge):
