@@ -104,14 +104,16 @@ export function useUpgrades(): UpgradesController {
     [act],
   );
 
-  const behind = useMemo(
-    () => view?.deployments.filter((d) => d.upgradeTo) ?? [],
+  // By name, so a row stays where it was across polls.
+  const sorted = useMemo(
+    () =>
+      [...(view?.deployments ?? [])].sort((a, b) =>
+        a.integrationName.localeCompare(b.integrationName),
+      ),
     [view],
   );
-  const untested = useMemo(
-    () => view?.deployments.filter((d) => !d.hasSuites) ?? [],
-    [view],
-  );
+  const behind = useMemo(() => sorted.filter((d) => d.upgradeTo), [sorted]);
+  const untested = useMemo(() => sorted.filter((d) => !d.hasSuites), [sorted]);
 
   const testAll = useCallback(
     async (rolloutOnPass: boolean) => {
