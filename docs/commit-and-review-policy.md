@@ -11,26 +11,40 @@
   (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, …). Release automation
   derives the changelog and version from these (see [release-process.md](release-process.md)).
 
-## Two gates: the plan, and the push
+## Three gates: the plan, the end-to-end test plan, and the push
 
-The gate exists to protect what is **irreversible or outward-facing**. A local
-commit on a feature branch is neither, so it is not gated. Approving each one in
-turn was the largest source of round-trips on work whose shape was already agreed.
+The gates exist to protect what is **irreversible or outward-facing**. A local
+commit on a feature branch is neither, so it is not gated. Approving commits one
+at a time stopped being practical once the codebase grew to where a single change
+spans the runtime, the orchestrator and the apps.
 
 - **The plan is approved before the work starts.** The commit *sequence* is agreed
   up front — that is where the review value is, and it is what keeps the history
   atomic.
+- **Then go to the end.** Implement and commit the whole agreed sequence without
+  stopping between commits. Nothing mid-sequence is a gate — not an architectural
+  contract change, not a commit you are unsure about. Those are **called out** when
+  the work is presented: which commits change a contract (a new extension point, a
+  schema or migration, a public runtime type), and where you are not confident and
+  why. The one reason to stop early is a design question the plan did not settle
+  and that cannot be answered from the code; that is the plan being incomplete, not
+  a commit gate.
+- **Before any pull request, stop and plan the end-to-end test.** Unit tests and
+  CI prove the pieces; they do not prove the change works in the running system.
+  Once the sequence is committed, present the branch (what each commit does and
+  what covers it) together with an end-to-end test plan:
+  - the user-visible behaviours the change is supposed to produce, and the ones it
+    must not break;
+  - the environment that exercises them — the native platform stack, the local
+    k3d cluster, a `dolphin` suite, the desktop app — and why that one;
+  - the concrete steps and the observable result that counts as a pass;
+  - what the plan cannot cover, and the steps that need a human (sign-in, a real
+    provider credential).
+
+  Agree the plan, run it, and report the result faithfully, failures included.
 - **`git push` and opening a pull request are approved.** Outward-facing, and the
-  point where CI, CodeRabbit and the stack tooling engage anyway.
-- **In between, chain the approved sequence.** Implement and commit it, then
-  present the whole thing: what each commit does and what covers it.
-
-Two cases still stop for approval mid-sequence, and only two:
-
-- A commit that changes an **architectural contract** — a new extension point, a
-  schema or migration, a public runtime type.
-- **Any commit you are not confident about.** "I am unsure" stops. That one is on
-  the agent to notice.
+  point where CI, CodeRabbit and the stack tooling engage anyway. Every merge is
+  approved too, by name.
 
 Whatever the pacing:
 

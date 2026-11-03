@@ -31,10 +31,11 @@ Required reading:
 
 - Break every implementation plan down into a sequence of small, logical commits.
   The **branch** is green, not every commit in it.
-- **Two gates: the plan is approved before the work starts, and `git push` /
-  opening a pull request is approved.** In between, chain the agreed sequence. A
-  commit that changes an architectural contract, or one you are not confident
-  about, still stops. See
+- **Three gates: the plan is approved before the work starts, an end-to-end test
+  plan is agreed before any pull request, and `git push` / opening a pull request
+  is approved.** In between, go to the end: chain the whole agreed sequence without
+  stopping, and call out contract changes and low-confidence commits when
+  presenting the branch. See
   [docs/commit-and-review-policy.md](docs/commit-and-review-policy.md) — which is
   the policy; this is a pointer to it, not a second copy.
 - Use Conventional Commit messages — release automation depends on them.
