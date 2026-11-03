@@ -15,13 +15,18 @@ import TestRunReport, { StatusIcon, failingCases } from "./TestRunReport";
 const BUTTON =
   "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50";
 
-/** The run that speaks for this runtime: the latest, when it ran on it. */
-function runOnRuntime(
+/**
+ * The run that speaks for this deployment on this runtime: the latest, when it
+ * ran on it and the deployment has not been rolled out since. A run still going
+ * always speaks, so its row stays busy.
+ */
+function currentRun(
   d: NamedDeploymentUpgrade,
   runtime?: string,
 ): TestRun | undefined {
   const run = d.latestRun;
   if (!run || !runtime || run.runtimeVersion !== runtime) return undefined;
+  if (d.latestRunStale && run.status !== "running") return undefined;
   return run;
 }
 
@@ -71,7 +76,7 @@ export default function UpgradeRow({
   onUpgrade: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const run = runOnRuntime(d, runtime);
+  const run = currentRun(d, runtime);
   const testing = run?.status === "running";
   const disabled = busy || testing || !canDeploy;
 
@@ -112,7 +117,9 @@ export default function UpgradeRow({
             </button>
           ) : (
             <span className="text-zinc-500 dark:text-zinc-400">
-              Not tested on {runtime}
+              {d.latestRunStale && d.latestRun?.runtimeVersion === runtime
+                ? "Not tested since the last rollout"
+                : `Not tested on ${runtime}`}
             </span>
           )}
         </div>

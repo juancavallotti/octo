@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/caller"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
@@ -370,6 +371,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	if err != nil {
 		return Deployment{}, err
 	}
+	now := time.Now().UTC()
 	metadata, err := json.Marshal(Metadata{
 		Name:        it.Name,
 		Slug:        slug,
@@ -386,6 +388,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		// read back into a version by anybody — not the API, not the UI, not a
 		// person looking at the pod.
 		RuntimeVersion: s.kube.RuntimeVersion(),
+		RolledOutAt:    &now,
 	})
 	if err != nil {
 		return Deployment{}, err
@@ -919,6 +922,8 @@ func (s *Service) Rollout(
 	// orchestrator is configured with now, so the recorded image moves with it.
 	meta.RuntimeImage = s.kube.RunnerImage(resolvedRunner)
 	meta.RuntimeVersion = s.kube.RuntimeVersion()
+	rolledOut := time.Now().UTC()
+	meta.RolledOutAt = &rolledOut
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
 		return Deployment{}, fmt.Errorf("rollout %s: marshal metadata: %w", id, err)

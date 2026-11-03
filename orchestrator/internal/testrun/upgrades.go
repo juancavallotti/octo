@@ -25,6 +25,9 @@ type Upgrade struct {
 	HasSuites bool
 	// LatestRun is the deployment's most recent test run, nil when it has none.
 	LatestRun *Run
+	// LatestRunStale says the deployment was deployed or rolled out after that
+	// run, so its version, env or tracing may no longer be what the run tested.
+	LatestRunStale bool
 }
 
 // Upgrades is every deployment on the installation as an upgrade sees it, and
@@ -59,6 +62,7 @@ func (s *Service) Upgrades(ctx context.Context) (string, []Upgrade, error) {
 		}
 		if run, ok := latest[d.ID]; ok {
 			u.LatestRun = &run
+			u.LatestRunStale = meta.RolledOutAt != nil && run.CreatedAt.Before(*meta.RolledOutAt)
 		}
 		ret = append(ret, u)
 	}

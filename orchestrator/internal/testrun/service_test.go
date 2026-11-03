@@ -16,9 +16,10 @@ import (
 
 // fakeRepo keeps runs in memory, with Finish as conditional as the real one.
 type fakeRepo struct {
-	mu   sync.Mutex
-	runs map[string]Run
-	seq  int
+	mu     sync.Mutex
+	runs   map[string]Run
+	seq    int
+	latest []Run
 }
 
 func newFakeRepo() *fakeRepo { return &fakeRepo{runs: map[string]Run{}} }
@@ -45,7 +46,7 @@ func (f *fakeRepo) Get(_ context.Context, deploymentID, id string) (Run, error) 
 }
 
 func (f *fakeRepo) ListByDeployment(context.Context, string, int) ([]Run, error) { return nil, nil }
-func (f *fakeRepo) Latest(context.Context) ([]Run, error)                        { return nil, nil }
+func (f *fakeRepo) Latest(context.Context) ([]Run, error)                        { return f.latest, nil }
 
 func (f *fakeRepo) ListRunningSince(_ context.Context, t time.Time) ([]Run, error) {
 	f.mu.Lock()
@@ -142,8 +143,10 @@ func (f *fakeCluster) TestRunState(context.Context, string) (kube.TestRunState, 
 	return f.state, nil
 }
 
-func (f *fakeCluster) TestRunLogs(context.Context, string) ([]byte, error) { return []byte(f.logs), nil }
-func (f *fakeCluster) DeleteTestRun(context.Context, string) error         { return nil }
+func (f *fakeCluster) TestRunLogs(context.Context, string) ([]byte, error) {
+	return []byte(f.logs), nil
+}
+func (f *fakeCluster) DeleteTestRun(context.Context, string) error { return nil }
 
 func plan(resources ...snapshot.Resource) deployment.TestPlan {
 	return deployment.TestPlan{
@@ -278,6 +281,32 @@ type fakeSnapshots map[string][]snapshot.Resource
 
 func (f fakeSnapshots) ListResources(_ context.Context, id string) ([]snapshot.Resource, error) {
 	return f[id], nil
+}
+
+func TestUpgradesMarksARunOlderThanTheLastRolloutStale(t *testing.T) {
+	rolledOut := time.Now()
+	dep := func(id string) deployment.Deployment {
+		meta, _ := json.Marshal(deployment.Metadata{Name: id, RolledOutAt: &rolledOut})
+		settings, _ := json.Marshal(deployment.Settings{SnapshotID: "s1"})
+		return deployment.Deployment{ID: id, Metadata: meta, Settings: settings}
+	}
+	repo := newFakeRepo()
+	repo.latest = []Run{
+		{ID: "old", DeploymentID: "before", CreatedAt: rolledOut.Add(-time.Minute)},
+		{ID: "new", DeploymentID: "after", CreatedAt: rolledOut.Add(time.Minute)},
+	}
+	deps := &fakeDeployments{all: []deployment.Deployment{dep("before"), dep("after")}}
+	svc := NewService(repo, deps, fakeSnapshots{}, &fakeCluster{})
+
+	_, got, err := svc.Upgrades(context.Background())
+	if err != nil {
+		t.Fatalf("Upgrades: %v", err)
+	}
+	for _, u := range got {
+		if want := u.Name == "before"; u.LatestRunStale != want {
+			t.Errorf("%s: stale = %v, want %v", u.Name, u.LatestRunStale, want)
+		}
+	}
 }
 
 func TestUpgrades(t *testing.T) {

@@ -219,6 +219,9 @@ type upgradeResponse struct {
 	HasSuites bool `json:"hasSuites"`
 	// LatestRun is its most recent test run; absent when it has none.
 	LatestRun *runResponse `json:"latestRun,omitempty"`
+	// LatestRunStale says the deployment was deployed or rolled out after that
+	// run, so the run no longer speaks for what it runs.
+	LatestRunStale bool `json:"latestRunStale,omitempty"`
 }
 
 // upgradesResponse is every deployment as an upgrade sees it.
@@ -261,6 +264,7 @@ func (h *Handler) upgrades(w http.ResponseWriter, r *http.Request) {
 			RuntimeVersion: u.RuntimeVersion,
 			UpgradeTo:      u.UpgradeTo,
 			HasSuites:      u.HasSuites,
+			LatestRunStale: u.LatestRunStale,
 		}
 		if u.LatestRun != nil {
 			run := toResponse(*u.LatestRun)

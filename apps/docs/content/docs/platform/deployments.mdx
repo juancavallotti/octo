@@ -229,7 +229,7 @@ A run that does not pass shows its report, case by case, and **Open in the edito
 
 ![A failing test run on the Upgrades page](/screenshots/platform-upgrades-failure.png)
 
-`GET /upgrades` serves the same view: the runtime this install deploys and, per deployment, the release it runs, `upgradeTo`, `hasSuites` and its latest test run.
+`GET /upgrades` serves the same view: the runtime this install deploys and, per deployment, the release it runs, `upgradeTo`, `hasSuites` and its latest test run. A run older than the deployment's last deploy or rollout is flagged `latestRunStale`, because the version, env or tracing it tested may have changed since; the Upgrades page shows such a deployment as not tested since the last rollout.
 
 ### Undeploying
 

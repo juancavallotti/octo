@@ -143,6 +143,10 @@ type Metadata struct {
 	// deploys `repo@sha256:…`, which names no tag. Empty on deployments made
 	// before it was recorded, and on installs that never configured it.
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// RolledOutAt is when the deployment was last deployed or rolled out: the
+	// last time its version, env or tracing could have changed. Nil on
+	// deployments made before it was recorded.
+	RolledOutAt *time.Time `json:"rolledOutAt,omitempty"`
 }
 
 // ParseMetadata unmarshals the metadata jsonb, returning a zero Metadata when

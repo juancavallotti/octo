@@ -157,7 +157,6 @@ func toResponse(d Deployment, current string) deploymentResponse {
 	return resp
 }
 
-
 // deploy godoc
 //
 //	@Summary		Deploy an integration

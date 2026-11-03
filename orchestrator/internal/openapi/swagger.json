@@ -1457,6 +1457,10 @@
                     "latestRun": {
                         "$ref": "#/components/schemas/testrun.runResponse"
                     },
+                    "latestRunStale": {
+                        "description": "LatestRunStale says the deployment was deployed or rolled out after that\nrun, so the run no longer speaks for what it runs.",
+                        "type": "boolean"
+                    },
                     "name": {
                         "type": "string"
                     },

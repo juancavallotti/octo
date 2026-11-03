@@ -6,7 +6,8 @@
 import type { TestCaseResult, TestTotals } from "@octo/editor";
 
 /** Where a test run is. */
-export type TestRunStatus = "running" | "passed" | "failed" | "errored" | "timed_out";
+export type TestRunStatus =
+  "running" | "passed" | "failed" | "errored" | "timed_out";
 
 /** One suite in dolphin's report, by the path it ran from. */
 export interface TestReportSuite {
@@ -55,6 +56,9 @@ export interface DeploymentUpgrade {
   /** Whether the version it runs has test suites. */
   hasSuites: boolean;
   latestRun?: TestRun;
+  /** The deployment was deployed or rolled out after its latest run, so that run
+   * no longer speaks for what it runs. */
+  latestRunStale?: boolean;
 }
 
 /** Every deployment as an upgrade sees it, and the runtime this install deploys. */
@@ -64,7 +68,9 @@ export interface UpgradesView {
 }
 
 /** A deployment upgrade named after its integration. */
-export type NamedDeploymentUpgrade = DeploymentUpgrade & { integrationName: string };
+export type NamedDeploymentUpgrade = DeploymentUpgrade & {
+  integrationName: string;
+};
 
 /** The upgrades view with every deployment named. */
 export interface NamedUpgradesView {

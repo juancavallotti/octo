@@ -121,4 +121,24 @@ describe("UpgradeRow", () => {
     );
     expect(onUpgrade).toHaveBeenCalled();
   });
+
+  it("sets aside a run older than the last rollout", () => {
+    renderRow({
+      ...BASE,
+      latestRunStale: true,
+      latestRun: {
+        id: "r",
+        deploymentId: "dep-1",
+        snapshotId: "snap-1",
+        runtimeVersion: "0.11.14",
+        status: "passed",
+        rolloutOnPass: false,
+        createdAt: "",
+      },
+    });
+    expect(screen.queryByText("Passed")).toBeNull();
+    expect(
+      screen.getByText("Not tested since the last rollout"),
+    ).toBeInTheDocument();
+  });
 });
