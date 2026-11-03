@@ -1,5 +1,7 @@
 package user
 
+import "slices"
+
 // The catalogue of what a platform user can be granted. Roles are stored in
 // user_roles, granted and revoked through the user routes, and read back as part
 // of a User.
@@ -58,6 +60,44 @@ func ValidRole(r Role) bool {
 		}
 	}
 	return false
+}
+
+// reach is what each grantable role opens, itself included: somebody holding the
+// key reaches every role in its value. The ladder mirrors the platform's route
+// policies, where everything a developer or a monitor may use also admits the
+// roles above them.
+var reach = map[Role][]Role{
+	RoleAdmin:     {RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor},
+	RoleOperator:  {RoleOperator, RoleDeveloper, RoleMonitor},
+	RoleDeveloper: {RoleDeveloper, RoleMonitor},
+	RoleMonitor:   {RoleMonitor},
+}
+
+// Reaches reports whether u may do everything r grants, either by holding r or by
+// holding a role that contains it. It is the rule for anything u hands on to a
+// credential: nothing may carry a role its owner does not reach.
+func (u User) Reaches(r Role) bool {
+	for _, held := range u.Roles {
+		if slices.Contains(reach[held], r) {
+			return true
+		}
+	}
+	return false
+}
+
+// keyRoles is what an API key may carry: the catalogue without platform:admin. A
+// standing bearer credential never administers the platform, so granting roles,
+// secrets and settings stay with a signed-in session.
+var keyRoles = []Role{RoleMonitor, RoleDeveloper, RoleOperator}
+
+// KeyRoles returns the roles an API key may carry, in presentation order.
+func KeyRoles() []Role {
+	return slices.Clone(keyRoles)
+}
+
+// ValidKeyRole reports whether r may be carried by an API key.
+func ValidKeyRole(r Role) bool {
+	return slices.Contains(keyRoles, r)
 }
 
 // DescribeRole returns a one-line description of r, or "" for a role outside the

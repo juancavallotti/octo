@@ -1,6 +1,9 @@
 package user
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestValidRole(t *testing.T) {
 	tests := []struct {
@@ -71,5 +74,43 @@ func TestAllRolesReturnsACopy(t *testing.T) {
 func TestDescribeUnknownRoleIsEmpty(t *testing.T) {
 	if got := DescribeRole(Role("platform:nope")); got != "" {
 		t.Errorf("DescribeRole(unknown) = %q, want an empty string", got)
+	}
+}
+
+func TestReaches(t *testing.T) {
+	tests := []struct {
+		name string
+		held []Role
+		want []Role
+	}{
+		{"admin reaches everything", []Role{RoleAdmin}, []Role{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor}},
+		{"operator", []Role{RoleOperator}, []Role{RoleOperator, RoleDeveloper, RoleMonitor}},
+		{"developer", []Role{RoleDeveloper}, []Role{RoleDeveloper, RoleMonitor}},
+		{"monitor", []Role{RoleMonitor}, []Role{RoleMonitor}},
+		{"nothing", nil, nil},
+		{"monitor and developer", []Role{RoleMonitor, RoleDeveloper}, []Role{RoleDeveloper, RoleMonitor}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := User{Roles: tt.held}
+			for _, r := range append(AllRoles(), RoleRuntime) {
+				want := slices.Contains(tt.want, r)
+				if got := u.Reaches(r); got != want {
+					t.Errorf("holding %v, Reaches(%q) = %v, want %v", tt.held, r, got, want)
+				}
+			}
+		})
+	}
+}
+
+// A key never carries admin, and every role it may carry is a real one.
+func TestKeyRoles(t *testing.T) {
+	for _, r := range KeyRoles() {
+		if !ValidRole(r) {
+			t.Errorf("KeyRoles() returned %q, which ValidRole() rejects", r)
+		}
+	}
+	if ValidKeyRole(RoleAdmin) || ValidKeyRole(RoleRuntime) {
+		t.Error("admin and runtime must not be carried by a key")
 	}
 }
