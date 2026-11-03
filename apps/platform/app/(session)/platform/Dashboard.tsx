@@ -23,6 +23,7 @@ import {
   type DeployedTile,
 } from "./DashboardTiles";
 import { McpEndpointTile } from "./McpEndpointTile";
+import DashboardUpgrades from "./DashboardUpgrades";
 
 /**
  * The platform dashboard: shortcut tiles for the common actions, then a live grid
@@ -91,7 +92,9 @@ export default function Dashboard({
           {/* Title, with the MCP endpoint sharing the row (when OAuth is configured) */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
             <div className="min-w-0 sm:flex-1">
-              <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+              <h1 className="text-xl font-semibold tracking-tight">
+                Dashboard
+              </h1>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 Your integrations at a glance.
               </p>
@@ -144,6 +147,10 @@ export default function Dashboard({
               external
             />
           </div>
+
+          {deployments && (
+            <DashboardUpgrades deployments={deployments} onChanged={load} />
+          )}
 
           {/* Deployments */}
           <div className="mt-10 flex items-center gap-2">

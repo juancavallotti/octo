@@ -9,10 +9,8 @@ import {
   type DeployedTile,
 } from "@/app/(session)/platform/DashboardTiles";
 import PodLogPanel from "@/app/components/integrations/PodLogPanel";
-import RolloutModal from "@/app/components/integrations/RolloutModal";
 import DeploymentListItem from "./DeploymentListItem";
-import TestRunPanel from "@/app/components/upgrades/TestRunPanel";
-import UpgradeNotice from "./UpgradeNotice";
+import RolloutDialog from "./RolloutDialog";
 import { useRollout } from "./useRollout";
 import { useDeploymentStats } from "./useDeploymentStats";
 
@@ -23,12 +21,6 @@ import { useDeploymentStats } from "./useDeploymentStats";
  * management actions the dedicated page is for: scale it, roll it over to another
  * version (the same dialog that turns tracing on and off), tail one pod's logs, or
  * open the integration in the manager.
- *
- * It also answers the question a fleet raises that a single deployment does not:
- * which of these are running an older runtime than a deploy made today would get.
- * A deployment keeps the image it was created with until somebody rolls it over,
- * so on a cluster that has been upgraded a few times the answer is scattered
- * across the grid — which is why it is also stated once, at the top.
  */
 export default function DeploymentsMonitor() {
   const { available, ready } = useOrchestrator();
@@ -108,23 +100,6 @@ export default function DeploymentsMonitor() {
     ),
   );
 
-  // Which deployments a rollout today would put on a newer runtime. Derived
-  // rather than held: it is a reading of the list that has just been polled.
-  const behind = useMemo(() => sorted.filter((d) => d.upgradeTo), [sorted]);
-
-  // The tags this integration already has running, so the version picker can mark
-  // them. Derived from the list this page has loaded anyway.
-  const deployedTags = useMemo(() => {
-    const target = rollout.target;
-    if (!target) return new Set<string>();
-    return new Set(
-      (deployments ?? [])
-        .filter((d) => d.integrationId === target.integrationId)
-        .map((d) => d.tag)
-        .filter((t): t is string => Boolean(t)),
-    );
-  }, [deployments, rollout.target]);
-
   // A column, not a single scroll area: the log panel docks under the list at a
   // fixed height, so the list has to be the part that scrolls.
   return (
@@ -164,10 +139,6 @@ export default function DeploymentsMonitor() {
             </p>
           )}
 
-          {behind.length > 0 && (
-            <UpgradeNotice behind={behind} onRollOut={rollout.open} />
-          )}
-
           <div className="mt-6">
             {!ready ? null : !available ? (
               <EmptyState
@@ -204,33 +175,7 @@ export default function DeploymentsMonitor() {
         </div>
       </div>
 
-      {rollout.target && (
-        <RolloutModal
-          integrationId={rollout.target.integrationId}
-          integrationName={rollout.target.integrationName}
-          deployments={[rollout.target]}
-          snapshots={rollout.snapshots}
-          deployedTags={deployedTags}
-          versionMode="pick"
-          busy={rollout.busy}
-          error={rollout.error}
-          onSubmit={rollout.submit}
-          onTestSubmit={rollout.test}
-          body={
-            rollout.testRun && (
-              <TestRunPanel
-                key={rollout.testRun.id}
-                initial={rollout.testRun}
-                onFinished={rollout.testFinished}
-                onClose={rollout.close}
-              />
-            )
-          }
-          onClose={() => {
-            if (!rollout.busy) rollout.close();
-          }}
-        />
-      )}
+      <RolloutDialog rollout={rollout} deployments={deployments ?? []} />
 
       {/* Docked pod-log panel, keyed by pod so switching pods resets the stream. */}
       {logsPod && (
