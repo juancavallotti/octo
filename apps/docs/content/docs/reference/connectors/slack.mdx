@@ -74,7 +74,7 @@ source:
     rawBody: true
 ```
 
-The flow's response body is Slack's reply, so a slash command answers with `{"response_type": "ephemeral", "text": ...}` (only the caller sees it) or `in_channel`. See `samples/slack-slash-command.yaml`.
+The flow's response body is Slack's immediate reply, so a slash command answers with `{"response_type": "ephemeral", "text": ...}` (only the caller sees it) or `in_channel`. Slack expects that reply within 3 seconds; slower work goes through [queue-dispatch](/reference/connectors/queue) to a worker that POSTs its result to `body.response_url`. `samples/slack-slash-command/` shows both, and the [Slack bot guide](/guides/slack-bot#reply-later-through-response_url) walks through it.
 
 When the payload is Slack's one-time URL-verification handshake (`type: url_verification`), the block sets `vars.slackChallenge` to `true` so the flow can branch, echo `body.challenge` back, and skip event handling.
 

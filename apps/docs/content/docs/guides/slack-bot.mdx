@@ -165,10 +165,10 @@ lands in the same thread rather than starting a new one.
 Slack posts slash commands (`/deploy staging`) and interactivity (buttons,
 modals, shortcuts) form-encoded rather than as JSON, so the http source must
 keep the body as raw content with `rawBody: true`.
-[`samples/slack-slash-command.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/slack-slash-command.yaml)
-answers `/deploy` with a reply only the caller sees:
+[`samples/slack-slash-command/`](https://github.com/juancavallotti/octo/tree/main/samples/slack-slash-command)
+acknowledges `/deploy` at once and reports the result later:
 
-```yaml title="samples/slack-slash-command.yaml (excerpt)"
+```yaml title="samples/slack-slash-command/config.yaml (excerpt)"
 source:
   connector: api
   type: http
@@ -186,6 +186,10 @@ process:
     condition: body.command == "/deploy" && body.text != ""
     then:
       process:
+        - type: queue-dispatch
+          name: enqueue
+          settings:
+            subject: '"slack-deploy"'
         - type: set-payload
           name: ack
           settings:
@@ -204,12 +208,53 @@ After verifying the signature, `slack-verify-request` parses the form into
 `body`, so Slack's fields read directly: `body.command`, `body.text`,
 `body.user_id`, `body.channel_id` and `body.response_url`. For an interactivity
 request, which carries a single `payload` field holding JSON, `body` becomes
-that JSON, so `body.type` and `body.actions` read directly too. The flow's
-response body is the reply: `response_type: ephemeral` shows it only to the
-caller, and `in_channel` posts it for everyone.
+that JSON, so `body.type` and `body.actions` read directly too.
+
+The flow's response body is the immediate reply: `response_type: ephemeral`
+shows it only to the caller, and `in_channel` posts it for everyone.
+
+### Reply later through `response_url`
+
+Slack shows the caller an error unless the command is answered within 3
+seconds, so the flow above only queues the work and acknowledges it. The
+fire-and-forget `queue-dispatch` hands a worker the parsed command, and the
+worker answers on `response_url`, which Slack accepts for 30 minutes:
+
+```yaml title="samples/slack-slash-command/config.yaml (excerpt)"
+connectors:
+  - name: slack-hooks
+    type: http-client
+    settings:
+      baseURL: ${SLACK_HOOKS_URL}   # defaults to https://hooks.slack.com
+
+flows:
+  - name: deploy-worker
+    source:
+      type: queue
+      settings:
+        subject: slack-deploy
+    process:
+      - type: rest-dynamic
+        name: report
+        settings:
+          connector: slack-hooks
+          method: '"POST"'
+          path: body.response_url.replace(env.SLACK_HOOKS_URL, "")
+          allowMethods: [POST]
+          pathPrefix: /commands
+          body: >-
+            {"response_type": "in_channel",
+             "text": "<@" + body.user_id + "> deployed to " + body.text}
+```
+
+`rest-dynamic` resolves the path against the connector's base URL and refuses a
+full URL, so stripping the webhook host from `response_url` is also the check
+that the reply goes to Slack: a `response_url` on any other host keeps its
+host, and the block fails without making a request.
 
 To try it, add a `/deploy` slash command to your Slack app with its Request URL
-pointing at `/slack/commands`, run the sample, and type `/deploy staging`.
+pointing at `/slack/commands`, run the sample with
+`task run:sample -- slack-slash-command`, and type `/deploy staging`.
 
 ## Try it
 
