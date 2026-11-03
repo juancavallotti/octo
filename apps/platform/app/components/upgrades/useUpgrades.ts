@@ -124,9 +124,8 @@ export function useUpgrades(): UpgradesController {
       try {
         for (const d of behind) {
           // A pinned deployment is tested, but never upgraded in bulk.
-          if (rolloutOnPass && d.pinned) continue;
           if (d.hasSuites && d.latestRun?.status !== "running")
-            await test(d, rolloutOnPass);
+            await test(d, rolloutOnPass && !d.pinned);
         }
       } finally {
         bulk.current = false;
