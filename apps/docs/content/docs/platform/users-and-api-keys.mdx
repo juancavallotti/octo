@@ -107,26 +107,38 @@ The UI reflects the same split the servers enforce, and reflects it only — eve
 
 ## API keys
 
-API keys are per-user bearer tokens for programmatic access. A key belongs to one person and only ever acts as them: it carries no roles of its own, and what it may do is whatever its owner holds at the moment it is presented.
+API keys are per-user bearer tokens for programmatic access. A key belongs to one person and only ever acts as them, limited to the roles you give it when you mint it. Give a CI job only what it needs: a pipeline that pushes and tags integrations needs **developer**, and one that also rolls out needs **operator**.
+
+- Roles: pick at least one of **monitor**, **developer** and **operator**, and only roles you reach yourself. Admin reaches all three, operator reaches developer and monitor, and developer reaches monitor. A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for a role you do not reach is a `403` that names it.
+- Re-checked on every use: a key's token carries only the key's roles that its owner still reaches. Revoke a role from someone and their keys lose it within one token lifetime. A key left with no role is refused with a `403`.
 
 - Format: `octo_` followed by 32 bytes of random material, base64url-encoded.
 - Shown once: the plaintext is returned only by the create call. iam stores a SHA-256 hash, so a database leak exposes no usable keys, plus the first four and last four characters for display.
-- Expiry: every key has a TTL, capped at 365 days, enforced on every exchange.
+- Expiry: you choose the date a key expires, at most two years out. It is enforced on every exchange.
 - Revocation: deleting a key is a soft revoke (the row is kept for audit); a revoked key stops exchanging immediately, and the platform tokens it was already exchanged for lapse within one token lifetime. Those tokens cannot be refreshed and cannot lend their identity to a deployment, because either would let the key's reach outlive it.
 
 Keys are managed from the platform's account area, backed by these iam endpoints. Only the user in the path may call them — an administrator cannot mint, list or revoke somebody else's keys — and neither a deployment's token nor a token exchanged for a key can call them at all, so a key cannot mint its own successor:
 
 | Operation | Endpoint |
 | --- | --- |
-| Mint a key (returns the plaintext once) | `POST /users/{userId}/apikeys` |
+| Mint a key (returns the plaintext once) | `POST /users/{userId}/apikeys` with `{"name", "roles", "expiresAt"}` |
 | List your keys (metadata only) | `GET /users/{userId}/apikeys` |
 | Revoke a key | `DELETE /users/{userId}/apikeys/{id}` |
+
+For example, a key for a pipeline that only pushes and tags, expiring at the end of next quarter:
+
+```bash
+curl -X POST http://iam:8093/users/$USER_ID/apikeys \
+  -H "Authorization: Bearer $PLATFORM_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "ci-billing", "roles": ["platform:developer"], "expiresAt": "2027-03-31T00:00:00Z"}'
+```
 
 ![Managing API keys in the account view](/screenshots/platform-api-keys.png)
 
 ### Using a key
 
-From outside the cluster, send the key to the [public API](/platform/public-api) as a bearer token; it does the exchange below for you. A CI/CD job does this with the [octopaas CLI](/platform/octopaas#use-it-in-cicd) by setting `OCTOPAAS_KEY`, while people sign in with their browser instead. Inside the cluster, present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying their current roles:
+From outside the cluster, send the key to the [public API](/platform/public-api) as a bearer token; it does the exchange below for you. A CI/CD job does this with the [octopaas CLI](/platform/octopaas#use-it-in-cicd) by setting `OCTOPAAS_KEY`, while people sign in with their browser instead. Inside the cluster, present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying the key's roles that the owner still reaches. The `user` in the answer reports those same roles:
 
 ```bash
 curl -X POST http://iam:8093/auth \

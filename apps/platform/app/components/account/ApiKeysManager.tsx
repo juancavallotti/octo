@@ -16,8 +16,8 @@ import ApiKeyRow from "./ApiKeyRow";
 import NewKeyReveal from "./NewKeyReveal";
 
 /**
- * Per-user API-key management. Keys authenticate automation (CI, the CLI, the MCP
- * endpoint) as the signed-in user, limited to the roles chosen for the key. Only
+ * Per-user API-key management. Keys authenticate automation (CI, the CLI, the
+ * public API) as the signed-in user, limited to the roles chosen for the key. Only
  * roles the user reaches are offered, and never admin; iam enforces both. The full
  * token is shown exactly once, right after creation (see NewKeyReveal); the list
  * only ever shows a key's label, roles, non-secret prefix…last4 fragment and expiry.
@@ -126,7 +126,7 @@ export default function ApiKeysManager() {
       <div className="mx-auto w-full max-w-2xl">
         <h1 className="text-xl font-semibold tracking-tight">API keys</h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Bearer tokens for automation such as CI, the CLI and the MCP endpoint.
+          Bearer tokens for automation such as CI, the CLI and the public API.
           Give each key only the roles it needs. Send one as{" "}
           <code className="font-mono">Authorization: Bearer &lt;token&gt;</code>.
           The full token is shown only once, when you create it.
