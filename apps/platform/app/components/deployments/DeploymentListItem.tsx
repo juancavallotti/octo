@@ -57,7 +57,6 @@ function logsHref(d: DeployedTile): string {
 export default function DeploymentListItem({
   deployment: d,
   busy,
-  currentRuntime,
   onScale,
   onOpenRollout,
   onOpenLogs,
@@ -65,8 +64,6 @@ export default function DeploymentListItem({
 }: {
   deployment: DeployedTile;
   busy: boolean;
-  /** The runtime this install deploys now, for the pill to mark an older one. */
-  currentRuntime?: string;
   onScale: (d: DeployedTile, replicas: number) => void;
   /** Open the rollout dialog: change version, env, or tracing. */
   onOpenRollout?: (d: DeployedTile) => void;
@@ -107,7 +104,7 @@ export default function DeploymentListItem({
         tracing={d.tracing}
         runtimeVersion={d.runtimeVersion}
         runtimeImage={d.runtimeImage}
-        currentRuntime={currentRuntime}
+        upgradeTo={d.upgradeTo}
         access={d.access}
         runner={d.runner}
         className="mt-2"

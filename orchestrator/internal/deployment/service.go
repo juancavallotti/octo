@@ -15,6 +15,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
@@ -200,6 +201,16 @@ func (s *Service) resolveRunner(name string) (kube.Runner, error) {
 		return "", fmt.Errorf("%w: %q", ErrRunnerUnavailable, runner)
 	}
 	return runner, nil
+}
+
+// CurrentRuntime is the runtime release a deploy or rollout made now would run:
+// the configured version, or the standard image's tag when none is configured.
+// Empty when neither says, and always empty without a cluster.
+func (s *Service) CurrentRuntime() string {
+	if s.kube == nil {
+		return ""
+	}
+	return runtimeversion.Current(s.kube.RuntimeVersion(), s.kube.RunnerImage(kube.RunnerStandard))
 }
 
 // RunnerAvailable reports whether a deployment could ask for this runner and be

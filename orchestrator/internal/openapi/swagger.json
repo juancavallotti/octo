@@ -526,6 +526,10 @@
                     "tracing": {
                         "description": "Tracing reports whether this deployment's pods run with the runtime tracer on,\nso the rollout dialog can seed the switch from what is actually deployed.",
                         "type": "boolean"
+                    },
+                    "upgradeTo": {
+                        "description": "UpgradeTo is the runtime release a rollout would move this deployment onto,\npresent only when that release is newer than the one it runs.",
+                        "type": "string"
                     }
                 },
                 "type": "object"

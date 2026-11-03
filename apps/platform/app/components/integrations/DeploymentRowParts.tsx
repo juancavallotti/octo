@@ -6,7 +6,6 @@ import type { DeploymentStatus } from "@/app/model/orchestrator";
 import type { DeploymentAccess } from "@/app/model/orchestratorTypes";
 import { AccessPill, RunnerPill } from "./PrivilegePills";
 import { bareHost } from "./podStats";
-import { needsUpgrade } from "@/app/lib/runtimeRelease";
 
 /**
  * The presentational pieces a deployment row is assembled from: its status badge,
@@ -117,7 +116,7 @@ export function DeploymentPills({
   tracing,
   runtimeVersion,
   runtimeImage,
-  currentRuntime,
+  upgradeTo,
   access,
   runner,
   className = "",
@@ -127,8 +126,8 @@ export function DeploymentPills({
   /** The runtime tag the pods report; absent on a workload the cluster can't see. */
   runtimeVersion?: string;
   runtimeImage?: string;
-  /** The runtime this install deploys now; "" when it has no way of knowing. */
-  currentRuntime?: string;
+  /** The newer runtime a rollout would move it onto; absent when it is current. */
+  upgradeTo?: string;
   /** What this deployment's own token opens on the platform; usually nothing. */
   access?: DeploymentAccess[];
   /** Which image the pods are; only "agentic" says anything worth a pill. */
@@ -146,9 +145,7 @@ export function DeploymentPills({
         <RuntimePill
           version={runtimeVersion}
           image={runtimeImage}
-          behind={
-            needsUpgrade(runtimeVersion, currentRuntime ?? "") ? currentRuntime : undefined
-          }
+          behind={upgradeTo}
         />
       )}
       {tracing && <TracedPill />}

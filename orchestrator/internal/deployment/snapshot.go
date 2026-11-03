@@ -10,11 +10,12 @@ func DeploymentsSubject(integrationID string) string {
 
 // MarshalSnapshot encodes deployments as the JSON array the deployments stream
 // carries — the same wire shape the REST list returns, so the browser parses a
-// streamed frame and a polled response identically.
-func MarshalSnapshot(items []Deployment) ([]byte, error) {
+// streamed frame and a polled response identically. current is the runtime
+// release this install deploys.
+func MarshalSnapshot(items []Deployment, current string) ([]byte, error) {
 	out := make([]deploymentResponse, 0, len(items))
 	for _, d := range items {
-		out = append(out, toResponse(d))
+		out = append(out, toResponse(d, current))
 	}
 	return json.Marshal(out)
 }

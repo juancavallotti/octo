@@ -19,13 +19,14 @@ import type { DeployedTile } from "@/app/(session)/platform/DashboardTiles";
  */
 export default function UpgradeNotice({
   behind,
-  currentRuntime,
   onRollOut,
 }: {
   behind: DeployedTile[];
-  currentRuntime: string;
   onRollOut?: (d: DeployedTile) => void;
 }) {
+  // Every deployment that is behind is behind the same release: the one this
+  // install deploys.
+  const currentRuntime = behind[0]?.upgradeTo;
   return (
     <section className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2.5">
       <div className="flex items-center gap-2">

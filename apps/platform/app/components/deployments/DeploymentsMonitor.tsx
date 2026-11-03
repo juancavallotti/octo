@@ -14,7 +14,6 @@ import DeploymentListItem from "./DeploymentListItem";
 import UpgradeNotice from "./UpgradeNotice";
 import { useRollout } from "./useRollout";
 import { useDeploymentStats } from "./useDeploymentStats";
-import { needsUpgrade } from "@/app/lib/runtimeRelease";
 
 /**
  * The deployments view: every active deployment across every integration, shown as
@@ -30,16 +29,7 @@ import { needsUpgrade } from "@/app/lib/runtimeRelease";
  * so on a cluster that has been upgraded a few times the answer is scattered
  * across the grid — which is why it is also stated once, at the top.
  */
-export default function DeploymentsMonitor({
-  currentRuntime = "",
-}: {
-  /**
-   * The octo runtime this install deploys now, from the page's server-only env.
-   * Empty means it has no way of knowing, and nothing is claimed about any
-   * deployment's runtime being old.
-   */
-  currentRuntime?: string;
-}) {
+export default function DeploymentsMonitor() {
   const { available, ready } = useOrchestrator();
   const [deployments, setDeployments] = useState<DeployedTile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,12 +107,9 @@ export default function DeploymentsMonitor({
     ),
   );
 
-  // Which deployments a deploy made today would put on a newer runtime. Derived
+  // Which deployments a rollout today would put on a newer runtime. Derived
   // rather than held: it is a reading of the list that has just been polled.
-  const behind = useMemo(
-    () => sorted.filter((d) => needsUpgrade(d.runtimeVersion, currentRuntime)),
-    [sorted, currentRuntime],
-  );
+  const behind = useMemo(() => sorted.filter((d) => d.upgradeTo), [sorted]);
 
   // The tags this integration already has running, so the version picker can mark
   // them. Derived from the list this page has loaded anyway.
@@ -179,7 +166,7 @@ export default function DeploymentsMonitor({
           )}
 
           {behind.length > 0 && (
-            <UpgradeNotice behind={behind} currentRuntime={currentRuntime} onRollOut={rollout.open} />
+            <UpgradeNotice behind={behind} onRollOut={rollout.open} />
           )}
 
           <div className="mt-6">
@@ -204,7 +191,6 @@ export default function DeploymentsMonitor({
                     key={d.id}
                     deployment={d}
                     busy={busy || rollout.busy}
-                    currentRuntime={currentRuntime}
                     onScale={scale}
                     onOpenRollout={rollout.open}
                     onOpenLogs={(dep, podName) =>

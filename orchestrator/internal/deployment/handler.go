@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 )
 
 // defaultLogTail bounds the history replayed when a pod-log stream connects, so a
@@ -97,6 +97,9 @@ type deploymentResponse struct {
 	// workload).
 	RuntimeImage   string `json:"runtimeImage,omitempty"`
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// UpgradeTo is the runtime release a rollout would move this deployment onto,
+	// present only when that release is newer than the one it runs.
+	UpgradeTo string `json:"upgradeTo,omitempty"`
 	// Access is what this deployment's own token opens on the platform beyond its
 	// own stores, and Runner which image its pods are. Both are reported because
 	// both are things a reader of a deployment has to be able to see without
@@ -108,42 +111,9 @@ type deploymentResponse struct {
 	Runner string   `json:"runner,omitempty"`
 }
 
-// imageTag is the tag part of a container image reference, or "" when the
-// reference is untagged or pinned by digest (nothing readable to show). The colon
-// searched for is the last one, and only past the final slash, so a registry with
-// a port (registry:5000/octo/runtime) is not mistaken for a tag.
-//
-// Both spellings of a digest have to be turned away, because both reach here. A
-// deploy pinned by digest gives `repo@sha256:…`; the kubelet then reports that
-// pod's container image as the bare `sha256:…` with no repository at all, which
-// has no `@` in it and splits into a name of "sha256" and a "tag" of sixty-four
-// hex characters. That is how a digest ends up on screen where a version goes.
-func imageTag(image string) string {
-	if strings.Contains(image, "@") {
-		return ""
-	}
-	name := image
-	if i := strings.LastIndex(image, "/"); i >= 0 {
-		name = image[i+1:]
-	}
-	i := strings.LastIndex(name, ":")
-	if i < 0 {
-		return ""
-	}
-	if isDigestAlgorithm(name[:i]) {
-		return ""
-	}
-	return name[i+1:]
-}
-
-// isDigestAlgorithm reports whether name is one of the digest algorithms a
-// registry reference can carry, which is what makes `name:hex` a digest rather
-// than a repository and a tag.
-func isDigestAlgorithm(name string) bool {
-	return name == "sha256" || name == "sha512"
-}
-
-func toResponse(d Deployment) deploymentResponse {
+// toResponse builds the wire form of d. current is the runtime release this
+// install deploys, which decides UpgradeTo.
+func toResponse(d Deployment, current string) deploymentResponse {
 	meta := ParseMetadata(d.Metadata)
 	settings := ParseSettings(d.Settings)
 	replicas := settings.Replicas
@@ -177,6 +147,9 @@ func toResponse(d Deployment) deploymentResponse {
 		resp.RuntimeImage = d.Detail.RuntimeImage
 	}
 	resp.RuntimeVersion = runtimeVersion(resp.RuntimeImage, meta)
+	if runtimeversion.Behind(resp.RuntimeVersion, current) {
+		resp.UpgradeTo = current
+	}
 	if !d.Detail.CreatedAt.IsZero() {
 		t := d.Detail.CreatedAt
 		resp.CreatedAt = &t
@@ -204,13 +177,13 @@ func toResponse(d Deployment) deploymentResponse {
 // made before either was recorded has neither, and says nothing rather than
 // guessing from the release the orchestrator happens to be on now.
 func runtimeVersion(image string, meta Metadata) string {
-	if tag := imageTag(image); tag != "" {
+	if tag := runtimeversion.ImageTag(image); tag != "" {
 		return tag
 	}
 	if meta.RuntimeVersion != "" {
 		return meta.RuntimeVersion
 	}
-	return imageTag(meta.RuntimeImage)
+	return runtimeversion.ImageTag(meta.RuntimeImage)
 }
 
 // deploy godoc
@@ -248,7 +221,7 @@ func (h *Handler) deploy(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, toResponse(d))
+	httpx.WriteJSON(w, http.StatusCreated, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // deployOptionsResponse is the wire form of the deploy choices for an integration.
@@ -333,9 +306,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	current := h.svc.CurrentRuntime()
 	out := make([]deploymentResponse, 0, len(items))
 	for _, d := range items {
-		out = append(out, toResponse(d))
+		out = append(out, toResponse(d, current))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
@@ -360,9 +334,10 @@ func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	current := h.svc.CurrentRuntime()
 	out := make([]deploymentResponse, 0, len(items))
 	for _, d := range items {
-		out = append(out, toResponse(d))
+		out = append(out, toResponse(d, current))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
@@ -385,7 +360,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
+	httpx.WriteJSON(w, http.StatusOK, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // podLogs streams a pod's container logs as plain text (chunked). With ?follow=1
@@ -460,7 +435,7 @@ func (h *Handler) scale(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
+	httpx.WriteJSON(w, http.StatusOK, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // rolloutRequest is the body of a rollout request: the version tag (snapshot id)
@@ -510,7 +485,7 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
+	httpx.WriteJSON(w, http.StatusOK, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // undeploy godoc

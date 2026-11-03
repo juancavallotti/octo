@@ -740,7 +740,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 					slog.Error("deployment snapshot", "integrationId", integrationID, "error", err)
 					return
 				}
-				data, err := deployment.MarshalSnapshot(items)
+				data, err := deployment.MarshalSnapshot(items, deploymentSvc.CurrentRuntime())
 				if err != nil {
 					slog.Error("deployment snapshot marshal", "integrationId", integrationID, "error", err)
 					return

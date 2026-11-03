@@ -213,6 +213,9 @@ export interface Deployment {
    * a deployment keeps the image it was created with until it is rolled over. */
   runtimeImage?: string;
   runtimeVersion?: string;
+  /** The runtime release a rollout would move this deployment onto, present only
+   * when it is newer than the one the pods run. */
+  upgradeTo?: string;
   /** What this deployment's own token opens on the platform. See {@link DEPLOYMENT_ACCESS}. */
   access?: DeploymentAccess[];
   /** Which image its pods are: "" or "standard" for the default, "agentic" for the
