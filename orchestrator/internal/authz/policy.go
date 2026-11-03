@@ -23,6 +23,10 @@ const (
 	// RoleRuntime is what a deployed integration's own token carries. No person
 	// is ever granted it, and it reaches only the routes a running pod needs.
 	RoleRuntime = "platform:runtime"
+	// RoleCICD is what a pipeline's API key carries. No person holds it: it ships
+	// integrations — uploads code, tags versions, runs their tests, deploys and
+	// rolls out — and reads what that work needs.
+	RoleCICD = "platform:cicd"
 )
 
 // anyone is every role a person can hold — a read that tells you nothing you
@@ -35,6 +39,17 @@ var builds = []string{RoleAdmin, RoleOperator, RoleDeveloper}
 // runs is who may act on a deployment: the two people roles that deploy, plus
 // the pods themselves for the stores they own.
 var runs = []string{RoleAdmin, RoleOperator, RoleRuntime}
+
+// The three lists above, with a pipeline admitted. Written out rather than built
+// with append, so no rule shares a backing array with another.
+var (
+	// readers is anyone, plus a pipeline reading what it is about to ship.
+	readers = []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor, RoleCICD}
+	// ships is who may upload code and tag versions: builds, plus a pipeline.
+	ships = []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleCICD}
+	// deploys is who may create, test and roll out deployments.
+	deploys = []string{RoleAdmin, RoleOperator, RoleCICD}
+)
 
 // rule is one pattern and what it requires. Pattern segments match a path
 // segment literally, or match any single segment when they are "*".
@@ -61,15 +76,15 @@ var policy = []rule{
 	// --- operating ------------------------------------------------------
 	// Reading a pod's logs is monitoring; creating and changing deployments is
 	// not something a developer does here.
-	{"deployments/*/pods", anyone, nil},
-	{"deployments", anyone, []string{RoleAdmin, RoleOperator}},
-	{"upgrades", anyone, nil},
-	{"runtimes", anyone, nil},
+	{"deployments/*/pods", readers, nil},
+	{"deployments", readers, deploys},
+	{"upgrades", readers, nil},
+	{"runtimes", readers, nil},
 
 	// --- building -------------------------------------------------------
-	{"integrations", anyone, builds},
-	{"folders", anyone, builds},
-	{"snapshots", anyone, builds},
+	{"integrations", readers, ships},
+	{"folders", readers, builds},
+	{"snapshots", readers, ships},
 	{"devruns", anyone, builds},
 
 	// --- the installation itself ----------------------------------------

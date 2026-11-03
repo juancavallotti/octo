@@ -21,15 +21,15 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 		{"GET", "/snapshots/s1/resources", append(anyone, RoleRuntime)},
 
 		// Deploying is not something a developer does here; reading is.
-		{"GET", "/deployments", anyone},
-		{"GET", "/deployments/d1", anyone},
-		{"POST", "/deployments/d1/rollout", []string{RoleAdmin, RoleOperator}},
-		{"DELETE", "/deployments/d1", []string{RoleAdmin, RoleOperator}},
-		{"GET", "/deployments/d1/pods/p1/logs", anyone},
+		{"GET", "/deployments", readers},
+		{"GET", "/deployments/d1", readers},
+		{"POST", "/deployments/d1/rollout", deploys},
+		{"DELETE", "/deployments/d1", deploys},
+		{"GET", "/deployments/d1/pods/p1/logs", readers},
 
 		// Building.
-		{"GET", "/integrations", anyone},
-		{"POST", "/integrations", builds},
+		{"GET", "/integrations", readers},
+		{"POST", "/integrations", ships},
 		{"PUT", "/folders/f1", builds},
 		{"POST", "/devruns", builds},
 
@@ -49,6 +49,48 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 				t.Errorf("required = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// A pipeline's key ships integrations and nothing else: it uploads, tags, tests
+// and deploys, and never reaches dev runs, a pod's stores or the installation's
+// configuration.
+func TestAPipelineReachesWhatShippingNeeds(t *testing.T) {
+	may := func(method, path string) bool {
+		for _, r := range required(method, path) {
+			if r == RoleCICD {
+				return true
+			}
+		}
+		return false
+	}
+	for _, ok := range [][2]string{
+		{"PUT", "/integrations/i1/bundle"},
+		{"POST", "/integrations/bundle"},
+		{"POST", "/integrations/i1/snapshots"},
+		{"POST", "/integrations/i1/deployments"},
+		{"POST", "/deployments/d1/rollout"},
+		{"POST", "/deployments/d1/testruns"},
+		{"GET", "/deployments/d1/testruns/r1"},
+		{"GET", "/upgrades"},
+		{"GET", "/deployments/d1/pods/p1/logs"},
+	} {
+		if !may(ok[0], ok[1]) {
+			t.Errorf("a pipeline cannot %s %s, and shipping needs it", ok[0], ok[1])
+		}
+	}
+	for _, no := range [][2]string{
+		{"POST", "/devruns"},
+		{"PUT", "/folders/f1"},
+		{"PUT", "/deployments/d1/kv/ns/key"},
+		{"GET", "/deployments/d1/objects/a"},
+		{"GET", "/secrets"},
+		{"PUT", "/settings/llm"},
+		{"POST", "/email/send"},
+	} {
+		if may(no[0], no[1]) {
+			t.Errorf("a pipeline may %s %s, and it must not", no[0], no[1])
+		}
 	}
 }
 
