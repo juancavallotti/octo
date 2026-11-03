@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { resolveRuntimeSchema, type OctoMcpConfig } from "../backend";
 import { errorResult, guard, jsonResult } from "../result";
 import { EXAMPLES, getExample } from "../examples";
@@ -29,14 +29,14 @@ export function registerDocsTools(
       title: "Get runtime schema",
       description:
         "The catalogue of blocks and connectors the runtime supports. Call with no argument for a compact index ({ type, kind, label, category, description }); pass `elementName` (a block or connector type, e.g. \"log\" or \"http\") to get that one element's full spec including its fields. Read this before authoring a definition instead of guessing type names or fields. For a composite block (if, switch, foreach, fork, handle-errors, ai-agent, …), the spec also carries `addressBranches` — the branch names an `invoke_flow` breakpoint/spy/mock address must use to descend into it, e.g. `handle-errors[process].<block>`.",
-      inputSchema: {
+      inputSchema: z.object({
         elementName: z
           .string()
           .optional()
           .describe(
             "A block or connector type to fetch the full spec for; omit for the index.",
           ),
-      },
+      }),
     },
     ({ elementName }) =>
       guard(async () => {
@@ -58,12 +58,12 @@ export function registerDocsTools(
       title: "Get worked examples",
       description:
         "Worked integration definitions demonstrating idiomatic block usage. Call with no argument for the index ({ slug, title, summary, blocks }); pass `exampleName` (a slug, e.g. \"slack-bot\") to get that example's full runtime YAML. Adapt an example rather than inventing syntax.",
-      inputSchema: {
+      inputSchema: z.object({
         exampleName: z
           .string()
           .optional()
           .describe("An example slug to fetch its full YAML; omit for the index."),
-      },
+      }),
     },
     ({ exampleName }) =>
       guard(async () => {
@@ -99,7 +99,7 @@ export function registerDocsTools(
       title: "Get CEL functions",
       description:
         "The CEL variables and functions available to Octo message expressions (log messages, payloads, if/switch conditions, connector fields). Call with no argument for { variables, functions, libraries }; pass `functionName` (e.g. \"fromFormData\" or \"math.round\") for one function's signature, summary, and example, or `library` (octo, strings, lists, encoders, math, comprehensions, sets, regex, optional) for that library's functions. A name two libraries declare on different receivers (reverse) comes back as { name, entries }. Use this to write expressions instead of guessing what's in scope. The CEL standard library (size, has, map, filter, startsWith, timestamp, …) is always available on top of these and is not listed here.",
-      inputSchema: {
+      inputSchema: z.object({
         functionName: z
           .string()
           .optional()
@@ -108,7 +108,7 @@ export function registerDocsTools(
           .string()
           .optional()
           .describe("A library name to fetch just its functions; omit for all of them."),
-      },
+      }),
     },
     ({ functionName, library }) =>
       guard(async () => {

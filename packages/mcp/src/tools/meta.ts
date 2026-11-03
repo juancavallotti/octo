@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import {
   blockIdAddresses,
   emptyFlowMeta,
@@ -48,14 +48,14 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "List block addresses",
       description:
         "List the address of every block in an integration, grouped as { flow, addresses }. An address is how a block is named to a mock, a spy or a breakpoint — `<flow>.<block>`, descending into a composite with a bracketed branch: `orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`. Call this before `set_mock`, `set_spy` or `invoke_flow`'s `spies`/`breakAt` rather than composing an address by hand.\n\nA block missing from this list has no address: either its name is not unique among its siblings, or it carries a `.`, `[` or `]`. Give it a distinct, plain name in the definition (via `update_flow`) and it will appear here — nothing else can address it.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z
           .string()
           .min(1)
           .optional()
           .describe("Only this flow's addresses; omit for every flow."),
-      },
+      }),
     },
     ({ id, flow }) =>
       guard(async () => {
@@ -80,10 +80,10 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "Get flow meta",
       description:
         "Read the editor's saved bookkeeping for one flow: { inputs, mocks, spies }. `inputs` are the messages the flow can be run with from the editor's ▶ menu; `mocks` are the blocks stood in for, keyed by address, with their bodies as VALUES (the file holds them as JSON text; they are parsed on the way out); `spies` are the addresses being recorded. This is design-time state the editor shows — it is not part of the integration's definition and a deployed runtime never reads it.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow name."),
-      },
+      }),
     },
     ({ id, flow }) =>
       guard(async () => {
@@ -102,7 +102,7 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "Save a test input",
       description:
         "Save a message the flow can be run with from the editor's ▶ menu — the body, and the variables a source would normally have set (no source runs for a manual run, so a flow reading `vars.authorization` needs them here). Give `inputId` to replace an existing one, or omit it to add a new one. Returns the saved input, including the id to address it by later.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow name."),
         name: z
@@ -122,7 +122,7 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
           .min(1)
           .optional()
           .describe("Replace the input with this id; omit to add a new one."),
-      },
+      }),
     },
     ({ id, flow, name, data, vars, inputId }) =>
       guard(async () => {
@@ -154,11 +154,11 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "Delete a test input",
       description:
         "Remove one of a flow's saved test inputs by id (see `get_flow_meta`). Returns the inputs that remain.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow name."),
         inputId: z.string().min(1).describe("The test input's id."),
-      },
+      }),
     },
     ({ id, flow, inputId }) =>
       guard(async () => {
@@ -176,7 +176,7 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "Mock a block",
       description:
         "Stand in for a block on every run the editor makes, so the real one never executes — the way to leave a flow that calls a payment API or an LLM in a state the user can run. Keyed by address (see `list_block_addresses`); the flow is taken from the address.\n\nTwo rules the runtime enforces. (1) A mock REPLACES its target, so a message matching no case FAILS the block — it does not fall through, because there is no real block left. Give a `default`, or a trailing case with `when: \"true\"`, unless an unmatched message really should be an error. (2) A block either returns a message, fails, or drops it, so each case sets exactly ONE of `body`/`error`/`drop`, and `vars` only goes alongside a `body`.\n\nBodies are given as values here. The editor's file holds them as JSON text and the conversion happens for you — unlike the test-suite tools, which hold values throughout.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         address: z
           .string()
@@ -195,7 +195,7 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
           .describe(
             "Whether the mock is active. Defaults to true; a disabled mock is kept but not applied, which is how the editor turns one off for a run without losing it.",
           ),
-      },
+      }),
     },
     ({ id, address, cases, default: fallback, enabled }) =>
       guard(async () => {
@@ -221,10 +221,10 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "Remove a mock",
       description:
         "Remove the mock on a block, so the real block runs again. Returns the mocks that remain on the flow.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         address: z.string().min(1).describe("The mocked block's address."),
-      },
+      }),
     },
     ({ id, address }) =>
       guard(async () => {
@@ -242,10 +242,10 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "Watch a block",
       description:
         "Record every message that crosses a block, without changing what the flow does. The editor shows what each spied block saw, run after run, so a user opening the canvas can see where a message changes shape. Keyed by address (see `list_block_addresses`). Note that a spy inside a MOCKED block can never fire — the mock deleted that subtree — and the runtime refuses such a run outright.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         address: z.string().min(1).describe("The block's address to watch."),
-      },
+      }),
     },
     ({ id, address }) =>
       guard(async () => {
@@ -264,10 +264,10 @@ export function registerMetaTools(server: McpServer, config: OctoMcpConfig): voi
       title: "Stop watching a block",
       description:
         "Stop recording what crosses a block. Returns the addresses still being watched.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         address: z.string().min(1).describe("The watched block's address."),
-      },
+      }),
     },
     ({ id, address }) =>
       guard(async () => {

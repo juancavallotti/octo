@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { parse as parseYaml } from "yaml";
 import { isConfigFileName } from "@octo/editor/runtime";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { IntegrationRecord, OctoMcpConfig, StoredFile } from "../backend";
 import { addFlow, deleteFlow, flowNameOf, flowNames, getFlow, updateFlow } from "../flows";
 import { renameFlowMeta } from "./meta";
@@ -41,7 +41,7 @@ export function registerIntegrationTools(
       title: "List integrations",
       description:
         "List every saved integration as { id, name }. Use `open_integration` to read one's files.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     () => guard(async () => jsonResult(await store.list())),
   );
@@ -52,7 +52,7 @@ export function registerIntegrationTools(
       title: "Open integration",
       description:
         "Read one integration by id, returning { id, name, files: [{ path, content }] }. The files are the runtime YAML the integration runs: the runtime merges them into one application, so a flow in one file may use a connection, processor or flow declared in another.",
-      inputSchema: { id: z.string().min(1).describe("The integration id.") },
+      inputSchema: z.object({ id: z.string().min(1).describe("The integration id.") }),
     },
     ({ id }) => guard(async () => jsonResult(await store.get(id))),
   );
@@ -63,7 +63,7 @@ export function registerIntegrationTools(
       title: "List flows",
       description:
         "List the flows declared across a saved integration's files as { name, source, file } — `source` is the flow's trigger type (e.g. http, cron, queue, events) or null for a sourceless flow callable by name, and `file` is the file that declares it. Use this to discover flow names for `invoke_flow`.",
-      inputSchema: { id: z.string().min(1).describe("The integration id.") },
+      inputSchema: z.object({ id: z.string().min(1).describe("The integration id.") }),
     },
     ({ id }) =>
       guard(async () => {
@@ -78,7 +78,7 @@ export function registerIntegrationTools(
       title: "Validate config files",
       description:
         "Validate a draft set of config files, merged as the runtime merges them, WITHOUT saving it, returning descriptive errors. Use this while authoring to check a draft before create_integration/update_integration. Best-effort: a clean result still isn't a guarantee the runtime will load it (see get_run_logs after a run).",
-      inputSchema: { files: filesSchema.describe("The integration's config files.") },
+      inputSchema: z.object({ files: filesSchema.describe("The integration's config files.") }),
     },
     ({ files }) =>
       guard(async () => {
@@ -94,10 +94,10 @@ export function registerIntegrationTools(
       title: "Create integration",
       description:
         "Create a new integration from a name and its config files. Call `getSchema` first to know the valid blocks and connectors (and `getExamples` for idiomatic usage). A small integration is one file; a larger one reads best as `octo.yaml` holding `service`, `env`, `resources` and the shared connectors, with flows split by domain into sibling files. Returns the created { id, name, files }.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().min(1).describe("Display name for the integration."),
         files: filesSchema.describe("The config files (service, env, connectors, flows), at least one."),
-      },
+      }),
     },
     ({ name, files }) =>
       guard(async () => {
@@ -113,11 +113,11 @@ export function registerIntegrationTools(
       title: "Update integration",
       description:
         "Replace an existing integration's whole set of config files (and optionally rename it): a file it had that is not given is removed. Prefer `write_file` for one file and `update_flow` for one flow. Returns the updated { id, name, files } — the id may change if a rename re-slugs it.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id to update."),
         name: z.string().min(1).optional().describe("New display name; omit to keep the current name."),
         files: filesSchema.describe("Every config file the integration should have."),
-      },
+      }),
     },
     ({ id, name, files }) =>
       guard(async () => {
@@ -133,7 +133,7 @@ export function registerIntegrationTools(
       title: "List config files",
       description:
         "List a saved integration's config files by path, with the flows each declares.",
-      inputSchema: { id: z.string().min(1).describe("The integration id.") },
+      inputSchema: z.object({ id: z.string().min(1).describe("The integration id.") }),
     },
     ({ id }) =>
       guard(async () => {
@@ -147,10 +147,10 @@ export function registerIntegrationTools(
     {
       title: "Get one config file",
       description: "Read one of an integration's config files, exactly as stored (comments and all).",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         path: z.string().min(1).describe("The file's path, e.g. `orders.yaml`."),
-      },
+      }),
     },
     ({ id, path }) =>
       guard(async () => {
@@ -165,14 +165,14 @@ export function registerIntegrationTools(
       title: "Write one config file",
       description:
         "Create or overwrite ONE config file of a saved integration, leaving the others as they are. The integration's files are validated together before saving, so a file that breaks a reference from another — or declares a name another file already has — is refused rather than saved.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         path: z
           .string()
           .min(1)
           .describe("The file's name at the integration root, ending in .yaml or .yml and not in _test."),
         content: z.string().describe("The file's runtime YAML."),
-      },
+      }),
     },
     ({ id, path, content }) =>
       guard(async () => {
@@ -187,10 +187,10 @@ export function registerIntegrationTools(
       title: "Delete one config file",
       description:
         "Remove ONE config file from a saved integration. Refused when it is the last file, or when the files left behind would not validate — a flow-ref or connection the removed file declared that another still uses.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         path: z.string().min(1).describe("The file's path."),
-      },
+      }),
     },
     ({ id, path }) =>
       guard(async () => {
@@ -233,10 +233,10 @@ export function registerIntegrationTools(
       title: "Get one flow",
       description:
         "Read ONE flow's YAML out of a saved integration, exactly as it appears in its file (comments and all), whichever file declares it. Use this with `update_flow` to change a single flow without reproducing the rest of the file. Use `list_flows` to discover names.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow's name."),
-      },
+      }),
     },
     ({ id, flow }) =>
       guard(async () => {
@@ -251,14 +251,14 @@ export function registerIntegrationTools(
       title: "Update one flow",
       description:
         "Replace ONE flow in a saved integration, in place, in whichever file declares it. `definition` is the YAML of that flow alone (a mapping starting with `name:`), NOT the whole file and NOT a `flows:` list. Everything else in the integration — the other flows, the connectors, the comments, the other files — is left exactly as it was, so this is the tool to reach for whenever you are changing a single flow: `write_file` would make you reproduce the whole file from memory and silently lose whatever you got wrong.\n\nGiving the replacement a different `name` renames the flow where it sits, and the editor's saved test inputs, mocks and spies move with it — block addresses begin with the flow's name, so they are re-rooted too. The edit is validated against the whole spliced definition before it is saved, and rejected if it would leave the integration unloadable — so a broken edit costs you nothing. Errors when no flow answers to `flow`.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The name of the flow to replace."),
         definition: z
           .string()
           .min(1)
           .describe("The flow's new YAML — that flow alone, not the whole definition."),
-      },
+      }),
     },
     ({ id, flow, definition }) =>
       guard(async () => {
@@ -312,7 +312,7 @@ export function registerIntegrationTools(
       title: "Add a flow",
       description:
         "Append ONE new flow to a saved integration. `definition` is the YAML of that flow alone (a mapping starting with `name:`), NOT the whole file. `file` names the config file it goes in — an existing one, or a new one, which is created; it may be omitted when the integration has a single file. The rest of the integration is left exactly as it was. Errors when a flow of that name already exists in any file — use `update_flow` to change an existing one. The result is validated before saving, so a bad flow cannot break the integration.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         definition: z
           .string()
@@ -323,7 +323,7 @@ export function registerIntegrationTools(
           .min(1)
           .optional()
           .describe("The config file to add it to, e.g. `orders.yaml`; required when the integration has several."),
-      },
+      }),
     },
     ({ id, definition, file }) =>
       guard(async () => {
@@ -353,10 +353,10 @@ export function registerIntegrationTools(
       title: "Delete a flow",
       description:
         "Remove ONE flow from a saved integration by name, from whichever file declares it, leaving the rest of that file untouched. Errors when no flow answers to that name. The result is validated before saving, so deleting a flow another one still references is refused rather than saved.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The name of the flow to remove."),
-      },
+      }),
     },
     ({ id, flow }) =>
       guard(async () => {

@@ -1,5 +1,5 @@
 import { createMcpHandler } from "mcp-handler";
-import type { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import type { Implementation } from "@modelcontextprotocol/server";
 import type { OctoMcpConfig } from "./backend";
 import type { RunHostPort } from "./run-host";
 import { createNamespaceResolver } from "./namespace";
@@ -60,17 +60,8 @@ export interface OctoMcpHandlerOptions {
    * runner. See {@link RunHostPort}.
    */
   runHost: RunHostPort;
-  /**
-   * Base path mcp-handler derives its endpoints from. The streamable HTTP
-   * endpoint is `${basePath}/mcp`, so a route at `app/api/mcp/route.ts` needs
-   * `basePath: "/api"`, while one at `app/mcp/[transport]/route.ts` needs `"/"`.
-   * @default ""
-   */
-  basePath?: string;
   /** Enable mcp-handler console logging. @default false */
   verboseLogs?: boolean;
-  /** Max request duration in seconds. @default 60 */
-  maxDuration?: number;
   /**
    * Identity reported during the MCP `initialize` handshake. Falls back to the generic
    * {@link DEFAULT_SERVER_INFO}; a host should pass its own so clients can tell one
@@ -83,8 +74,11 @@ export interface OctoMcpHandlerOptions {
  * Build the route handler exposing the Octo integration MCP server. A host supplies its
  * own {@link OctoMcpConfig} — store, validator, runtime schema — and its own
  * {@link RunHostPort}; the namespace resolver is created once here, so a run stays bound
- * to its caller across requests. Only the streamable HTTP transport is served; the
- * spec deprecates SSE.
+ * to its caller across requests — the server itself is rebuilt for every request.
+ *
+ * The handler answers every request it is given, so it serves whatever route the host
+ * mounts it at. It speaks the stateless 2026-07-28 protocol and answers 2025-era
+ * streamable HTTP clients from the same handler.
  */
 export function createOctoMcpHandler(
   config: OctoMcpConfig,
@@ -112,12 +106,7 @@ export function createOctoMcpHandler(
         resources: {},
         prompts: {},
       },
-    },
-    {
-      basePath: options.basePath ?? "",
       verboseLogs: options.verboseLogs ?? false,
-      maxDuration: options.maxDuration ?? 60,
-      disableSse: true,
     },
   );
 }

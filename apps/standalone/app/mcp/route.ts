@@ -24,6 +24,9 @@ import {
  * HTTP), unauthenticated like the rest of it. Integrations come from the local disk
  * store, definitions are validated with the editor's pre-flight, and the runtime
  * catalogue is served as a resource.
+ *
+ * With no caller to tell apart, every MCP client shares one run namespace: this app
+ * is local development, where one client drives one server.
  */
 
 export const runtime = "nodejs";
@@ -103,7 +106,6 @@ const handler = createOctoMcpHandler(
   {
     // This app runs integrations itself, as children of this process.
     runHost: localMcpRunHost,
-    basePath: "", // route lives at /mcp, so the streamable endpoint is /mcp
     serverInfo: {
       name: "octo-standalone",
       version: OCTO_MCP_VERSION,
