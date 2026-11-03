@@ -158,7 +158,7 @@ export function registerSuiteTools(
     {
       title: "Delete a test case",
       description:
-        "Remove one case from a flow's suite by name. Comments in the file are lost, as with `set_test_case`. Returns the cases that remain.",
+        "Remove one case from a flow's suite by name. Comments in the file are lost, as with `set_test_case`. Returns the cases that remain. To remove the whole suite, delete its file with `delete_file`.",
       inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow under test."),

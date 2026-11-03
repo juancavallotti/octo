@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parse as parseYaml } from "yaml";
-import { isConfigFileName } from "@octo/editor/runtime";
+import { isConfigFileName, isSuiteFileName, suiteFileName } from "@octo/editor/runtime";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { IntegrationRecord, OctoMcpConfig, StoredFile } from "../backend";
@@ -21,7 +21,7 @@ export function registerIntegrationTools(
   server: McpServer,
   config: OctoMcpConfig,
 ): void {
-  const { store } = config;
+  const { store, suiteStore } = config;
 
   const filesSchema = z
     .array(
@@ -184,23 +184,51 @@ export function registerIntegrationTools(
   server.registerTool(
     "delete_file",
     {
-      title: "Delete one config file",
+      title: "Delete one file",
       description:
-        "Remove ONE config file from a saved integration. Refused when it is the last file, or when the files left behind would not validate — a flow-ref or connection the removed file declared that another still uses.",
+        "Remove ONE file from a saved integration: a config file, or a flow's test suite (`<flow>_test.yaml`, the `file` that `list_test_suites` reports). Removing a config file is refused when it is the last one, or when the files left behind would not validate — a flow-ref or connection the removed file declared that another still uses. Removing a suite removes every case in it; use `delete_test_case` to drop just one.",
       inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
-        path: z.string().min(1).describe("The file's path."),
+        path: z
+          .string()
+          .min(1)
+          .describe("The file's path, e.g. `orders.yaml`, or `orders_test.yaml` for its test suite."),
       }),
     },
     ({ id, path }) =>
       guard(async () => {
         const rec = await store.get(id);
+        if (isSuiteFileName(path)) return deleteSuite(id, path);
         fileOf(rec, path);
         const rest = rec.files.filter((f) => f.path !== path);
         if (rest.length === 0) return errorResult("an integration needs at least one config file");
         return writeFiles(id, rest);
       }),
   );
+
+  /**
+   * Remove the suite stored as `path`. Suites are addressed by flow everywhere else, so
+   * the file is matched against the name each stored suite would be written as. Two
+   * flows can slug to the same name, and then the path cannot say which one is meant.
+   */
+  async function deleteSuite(id: string, path: string): Promise<CallToolResult> {
+    if (!suiteStore) return errorResult("this host keeps no test suites, so there is no test file to delete");
+    const suites = await suiteStore.list(id);
+    const matches = suites.filter((s) => suiteFileName(s.flow) === path);
+    if (matches.length > 1) {
+      return errorResult(
+        `more than one test suite is stored as "${path}" (flows: ${matches.map((s) => JSON.stringify(s.flow)).join(", ")}), so nothing was deleted`,
+      );
+    }
+    const [found] = matches;
+    if (!found) {
+      return errorResult(
+        `no test suite stored as "${path}" (there are: ${suites.map((s) => suiteFileName(s.flow)).join(", ") || "none"})`,
+      );
+    }
+    await suiteStore.remove(id, found.flow);
+    return jsonResult({ deleted: { flow: found.flow, file: path } });
+  }
 
   /** A set of files that cannot be saved, as the error result saying why; null when it can. */
   async function refuse(files: StoredFile[], id?: string): Promise<CallToolResult | null> {

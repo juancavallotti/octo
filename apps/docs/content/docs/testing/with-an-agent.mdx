@@ -71,6 +71,9 @@ set_test_case   { id: "…", flow: "checkout", case: { … } }
 delete_test_case { id: "…", flow: "checkout", name: "…" }
 ```
 
+To remove a suite outright, delete its file — `delete_file { id: "…", path:
+"checkout_test.yaml" }` — using the `file` that `list_test_suites` reports.
+
 <Callout type="warn">
 **`set_test_case` rewrites the file structurally, so its comments are lost.** It says so
 when it does. To keep them, read the file with `get_test_suite`, edit the text, and

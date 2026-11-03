@@ -199,7 +199,8 @@ export interface OctoMcpConfig {
   /**
    * The integration's dolphin test suites, backing the test-authoring tools
    * (`list_test_suites`, `get_test_suite`, `set_test_suite`, `set_test_case`,
-   * `delete_test_case`, `run_tests`). Omit on a host that keeps none.
+   * `delete_test_case`, `run_tests`) and `delete_file` on a suite's file. Omit on a
+   * host that keeps none.
    */
   suiteStore?: SuiteStore;
   /**
