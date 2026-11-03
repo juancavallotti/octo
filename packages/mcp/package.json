@@ -11,16 +11,17 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.26.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "@octo/editor": "workspace:*",
     "@octo/run-host": "workspace:*",
-    "mcp-handler": "^1.1.0",
-    "yaml": "^2.9.0",
-    "zod": "^4.4.3"
+    "mcp-handler": "^2.3.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "^22.20.1",
     "typescript": "^5",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }

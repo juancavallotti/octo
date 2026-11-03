@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { OctoMcpConfig } from "./backend";
 import { EXAMPLES_INDEX_URI, RUNTIME_SCHEMA_URI } from "./resource";
 
@@ -16,12 +16,12 @@ export function registerPrompts(server: McpServer, config: OctoMcpConfig): void 
       title: "Create an Octo integration",
       description:
         "Step-by-step guidance for authoring, validating, and running an Octo integration over this MCP server.",
-      argsSchema: {
+      argsSchema: z.object({
         goal: z
           .string()
           .optional()
           .describe("What the integration should do (woven into the guidance)."),
-      },
+      }),
     },
     ({ goal }) => ({
       messages: [
@@ -42,12 +42,12 @@ export function registerPrompts(server: McpServer, config: OctoMcpConfig): void 
       title: "Write effective Octo integrations",
       description:
         "Design best practices for Octo integrations: how to structure flows, when to use queues vs. topics, simplifying transforms, error handling, concurrency tuning, and visualizing the design for the user.",
-      argsSchema: {
+      argsSchema: z.object({
         focus: z
           .string()
           .optional()
           .describe("A specific concern to emphasize (woven into the guidance)."),
-      },
+      }),
     },
     ({ focus }) => ({
       messages: [

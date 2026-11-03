@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
   appendCase,
   hasComments,
@@ -47,7 +47,7 @@ export function registerSuiteTools(
       title: "List test suites",
       description:
         "List the dolphin test suites stored for an integration as { flow, file, cases }, where `cases` are the case names in the file. One suite per flow. Use `get_test_suite` to read one, and `run_tests` to run them.",
-      inputSchema: { id: z.string().min(1).describe("The integration id.") },
+      inputSchema: z.object({ id: z.string().min(1).describe("The integration id.") }),
     },
     ({ id }) =>
       guard(async () => {
@@ -75,10 +75,10 @@ export function registerSuiteTools(
       title: "Get a test suite",
       description:
         "Read one flow's test suite as YAML, exactly as it is stored — comments and all. Edit it and write it back with `set_test_suite` to keep every byte you did not change; use `set_test_case` when you only want to add or replace one case. Any problems dolphin would refuse the file over are reported alongside it.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow the suite tests."),
-      },
+      }),
     },
     ({ id, flow }) =>
       guard(async () => {
@@ -95,13 +95,13 @@ export function registerSuiteTools(
       title: "Write a test suite",
       description:
         "Write a whole test suite, byte for byte — the way to author one with comments, or to edit the YAML `get_test_suite` returned. The flow under test is the file's own `flow:` key, and it decides which flow's suite this becomes; there is no separate argument to disagree with it.\n\nThe file is checked the way dolphin checks it before anything is saved, so a suite that would not load costs you nothing. Note that dolphin decodes with unknown keys REJECTED: a misspelled `spys:` does not go quietly, it takes the whole file down — which is deliberate, since a typo that was ignored would look exactly like a test that passes.\n\nA suite is a real, committed file (`<flow>_test.yaml`), run by CI and by `dolphin test` in a terminal, and shown in the editor's Testing tab.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         content: z
           .string()
           .min(1)
           .describe("The suite YAML: `flow:`, optional `inputs:`/`mocks:`/`env:`/`timeout:`, and `cases:`."),
-      },
+      }),
     },
     ({ id, content }) =>
       guard(async () => {
@@ -119,11 +119,11 @@ export function registerSuiteTools(
       title: "Write one test case",
       description:
         "Add a case to a flow's suite, or replace the one with the same name — creating the suite if the flow has none yet. Everything the case does not mention is left as it was.\n\nBodies and variables are VALUES here, not strings of JSON. Note the asymmetry dolphin applies and nothing else will tell you: `expect.body` is an EXACT deep-equal of the whole body, while `expect.vars` is a SUBSET — only the variables you name are checked. A body carrying a generated id or a timestamp will therefore fail on its next run; assert those with `expect.that` instead.\n\nAn absent `expect` is not an empty test: it asserts that the flow completed without failing, which is the assertion most worth having first.\n\nThis rewrites the file from its parsed form, so **comments in the suite are lost** — use `set_test_suite` when the file has comments worth keeping. It is refused outright if the file holds anything the parser cannot represent, rather than dropping it.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow under test."),
         case: caseSchema.describe("The case to add or replace, by name."),
-      },
+      }),
     },
     ({ id, flow, case: input }) =>
       guard(async () => {
@@ -159,11 +159,11 @@ export function registerSuiteTools(
       title: "Delete a test case",
       description:
         "Remove one case from a flow's suite by name. Comments in the file are lost, as with `set_test_case`. Returns the cases that remain.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z.string().min(1).describe("The flow under test."),
         name: z.string().min(1).describe("The case name to remove."),
-      },
+      }),
     },
     ({ id, flow, name }) =>
       guard(async () => {
@@ -191,16 +191,16 @@ export function registerSuiteTools(
       title: "Run the tests",
       description:
         "Run an integration's dolphin test suites and report what happened — the way to check that a test you just wrote actually holds, rather than handing over one that merely looks right.\n\nReturns { ok, timedOut, totals, suites, logs }. **`ok` means a report came back, NOT that the tests passed**: dolphin exits non-zero for a failing case, which is an ordinary outcome of running tests. The verdict is `totals` — read `failed` and `errored`. A FAILED case is a flow that did not do what the case says; an ERRORED case is a suite dolphin could not run (a bad address, an input that does not exist), so fix the test, not the flow.\n\nEvery case is reported with its status; a case that did not pass also carries its `failures` (each with the detail dolphin printed) and its `outcome` — the message the flow actually produced — which is what you compare against what the case expected.\n\nEach case runs the flow in its own process, with the suite's `env:` and mocks applied. Sources are never started, so a case supplies whatever a real trigger would have set.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         flow: z
           .string()
           .min(1)
           .optional()
           .describe("Run only this flow's suite; omit to run every suite."),
-      },
+      }),
     },
-    ({ id, flow }, extra) =>
+    ({ id, flow }, ctx) =>
       guard(async () => {
         const rec = await store.get(id);
         const all = await suiteStore.list(id);
@@ -213,7 +213,7 @@ export function registerSuiteTools(
           );
         }
 
-        const outcome = await runHost.test(resolveNamespace(extra.sessionId), {
+        const outcome = await runHost.test(resolveNamespace(ctx.http?.authInfo), {
           yaml: definitionOf(rec),
           suites: chosen.map((s) => ({ name: s.flow, content: s.content })),
           resources: config.resources?.(id),

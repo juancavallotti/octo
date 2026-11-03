@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parse as parseYaml } from "yaml";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { OctoMcpConfig, ResourceRecord } from "../backend";
 import { definitionOf } from "../project";
 import { guard, jsonResult } from "../result";
@@ -27,7 +27,7 @@ export function registerResourceTools(
       title: "List env var keys",
       description:
         "List every environment variable key an integration makes available, so you know what to fill before running it. Returns { name, default, required, source } — `source` is \"declared\" for a var declared in the definition's `env:` list (referenceable as ${NAME} and {{ env.NAME }}), or \"resource:<name>\" for a KEY= line found in one of the integration's `env` resource files. Check this before `run_integration`: if a required var has no value, ask the user for it (pass via the run's `env`) or persist it with `create_resource` (kind \"env\").",
-      inputSchema: { id: z.string().min(1).describe("The integration id.") },
+      inputSchema: z.object({ id: z.string().min(1).describe("The integration id.") }),
     },
     ({ id }) =>
       guard(async () => {
@@ -45,7 +45,7 @@ export function registerResourceTools(
       title: "List resources",
       description:
         "List an integration's stored resources as { id, kind, name } — `kind` is \"env\" (a .env file merged into the runtime environment) or \"template\" (a text template, may embed {{ }} expressions). Use `open_resource` to read one's content.",
-      inputSchema: { id: z.string().min(1).describe("The integration id.") },
+      inputSchema: z.object({ id: z.string().min(1).describe("The integration id.") }),
     },
     ({ id }) =>
       guard(async () => {
@@ -62,10 +62,10 @@ export function registerResourceTools(
       title: "Open resource",
       description:
         "Read one of an integration's resources by id, returning { id, integrationId, kind, name, content }.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         resourceId: z.string().min(1).describe("The resource id."),
-      },
+      }),
     },
     ({ id, resourceId }) =>
       guard(async () => jsonResult(await resourceStore.get(id, resourceId))),
@@ -77,7 +77,7 @@ export function registerResourceTools(
       title: "Create resource",
       description:
         "Create a resource on an integration. `kind` is \"env\" (a .env-convention file whose KEY=value lines are merged into the runtime environment) or \"template\" (a text template rendered by the template-resource block, may embed {{ env.NAME }} / {{ body.* }} expressions). `name` is path-like (may contain '/') and unique per integration. Returns the created record.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         kind: z
           .enum(["env", "template"])
@@ -87,7 +87,7 @@ export function registerResourceTools(
           .min(1)
           .describe("Path-like resource name, e.g. \".env.dev\" or \"templates/welcome.tmpl\"."),
         content: z.string().describe("The file content."),
-      },
+      }),
     },
     ({ id, kind, name, content }) =>
       guard(async () =>
@@ -101,7 +101,7 @@ export function registerResourceTools(
       title: "Update resource",
       description:
         "Update a resource's content, and optionally its kind or name. Omitted kind/name are kept as-is. Returns the updated record.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         resourceId: z.string().min(1).describe("The resource id to update."),
         content: z.string().describe("The new file content."),
@@ -114,7 +114,7 @@ export function registerResourceTools(
           .min(1)
           .optional()
           .describe("New path-like name; omit to keep the current name."),
-      },
+      }),
     },
     ({ id, resourceId, content, kind, name }) =>
       guard(async () => {
@@ -138,10 +138,10 @@ export function registerResourceTools(
       title: "Delete resource",
       description:
         "Delete a resource from an integration by id. Returns { deleted: true }.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id."),
         resourceId: z.string().min(1).describe("The resource id to delete."),
-      },
+      }),
     },
     ({ id, resourceId }) =>
       guard(async () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { TestRunArgs, TestRunOutcome } from "@octo/run-host";
 import { registerSuiteTools } from "./suite";
 import type { OctoMcpConfig, SuiteStore } from "../backend";
@@ -405,9 +405,8 @@ describe("run_tests", () => {
         "run_tests",
       ]);
 
-    // With no suite store, not one of them is registered — and a server with no tools at
-    // all does not advertise the capability, so even asking is a protocol error.
+    // With no suite store, not one of them is registered.
     const bare = await connect(undefined);
-    await expect(bare.listTools()).rejects.toThrow(/Method not found/);
+    expect((await bare.listTools()).tools).toEqual([]);
   });
 });

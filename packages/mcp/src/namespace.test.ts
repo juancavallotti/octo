@@ -24,19 +24,21 @@ function counterHost(): RunHostPort {
 }
 
 describe("createNamespaceResolver", () => {
-  it("gives each session a stable, distinct namespace", () => {
+  const as = (userId: string, clientId?: string) => ({ clientId, extra: { userId } });
+
+  it("gives each (user, client) a stable, distinct namespace", () => {
     const resolve = createNamespaceResolver(counterHost());
-    const a1 = resolve("session-a");
-    const b1 = resolve("session-b");
-    const a2 = resolve("session-a");
-    expect(a1).toBe(a2); // stable within a session
-    expect(a1).not.toBe(b1); // isolated across sessions
+    const a1 = resolve(as("ada", "claude"));
+    const a2 = resolve(as("ada", "claude"));
+    expect(a1).toBe(a2); // stable across requests, so a refreshed token keeps its run
+    expect(resolve(as("ada", "cursor"))).not.toBe(a1); // one user, two clients
+    expect(resolve(as("bob", "claude"))).not.toBe(a1); // one client, two users
   });
 
-  it("shares one lazily-minted namespace for sessionless callers", () => {
+  it("shares one lazily-minted namespace for unauthenticated callers", () => {
     const resolve = createNamespaceResolver(counterHost());
     const first = resolve(undefined);
-    const second = resolve(undefined);
-    expect(first).toBe(second);
+    expect(resolve({})).toBe(first);
+    expect(resolve({ clientId: "claude" })).toBe(first); // a client without a user is no caller
   });
 });

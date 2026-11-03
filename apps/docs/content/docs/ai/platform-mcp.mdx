@@ -13,8 +13,10 @@ can build, test, and debug integrations against your live platform.
 
 ## How to connect
 
-The platform serves MCP at **`/mcp`** on its public origin (streamable HTTP;
-SSE is not supported). The endpoint is an OAuth 2.1 protected resource:
+The platform serves MCP at **`/mcp`** on its public origin over streamable
+HTTP. It speaks the stateless `2026-07-28` protocol and answers 2025-era
+clients from the same endpoint; the older HTTP+SSE transport is not supported.
+The endpoint is an OAuth 2.1 protected resource:
 
 ```bash
 claude mcp add --transport http octo https://<your-platform-host>/mcp
@@ -28,14 +30,18 @@ bearer access token, the handshake described in
 in: `/mcp` verifies access tokens the identity provider minted, and nothing else.
 
 One-shot calls (`invoke_flow`, `evaluate_cel`, `run_tests`) are isolated per
-MCP session, so concurrent clients never step on each other. A long-running
-[dev run](/platform/dev-runs) belongs to you and one integration, so a second
-session running the same integration attaches to the run already up.
+caller: you, through one client app, as your access token names them. Two
+clients never step on each other, and a client keeps its place across token
+refreshes and reconnects. A long-running [dev run](/platform/dev-runs) belongs
+to you and one integration, so a second client running the same integration
+attaches to the run already up.
 
 <Callout type="info">
-  The **standalone app** exposes the same MCP handler, unauthenticated, at
-  `http://localhost:<port>/mcp`. Every tool below works the same way there,
-  backed by the local disk store.
+  The **standalone app** and the **desktop app** expose the same MCP handler,
+  unauthenticated, at `http://localhost:<port>/mcp`. Every tool below works the
+  same way there, backed by the local disk store. With no token to tell callers
+  apart, every client shares one run, so connect **one MCP client per local
+  server**: that is the assumption local development is built on.
 </Callout>
 
 ## What the server exposes
@@ -97,7 +103,7 @@ with `name:`, not the whole file and not a `flows:` list.
 
 <Callout type="info">
   The three run-control tools take the integration `id` because a run belongs to
-  `(you, that integration)` rather than to your MCP session. A run you start is
+  `(you, that integration)` rather than to the client that started it. A run you start is
   the **same run** the editor attaches to, so an agent can debug what a human is
   looking at. It runs what is **saved**, so an agent must save an edited flow
   (`update_flow` does) before the running app reflects it. The one-shot tools

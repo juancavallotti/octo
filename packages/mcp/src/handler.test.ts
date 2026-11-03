@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createOctoMcpHandler } from "./handler";
 import type { OctoMcpConfig } from "./backend";
 import type { RunHostPort } from "./run-host";
 
 /**
- * Smoke tests for the route handler's wiring. The tools/resource/prompts are
- * covered in full via the in-memory client elsewhere; here we only assert
- * mcp-handler is mounted and routes correctly. We deliberately avoid a full
- * `initialize` (its streamable response is a long-lived SSE stream that would hang
- * `res.text()`), exercising the fast error paths instead.
+ * The route handler's wiring, driven over HTTP by a real client. The tools, resource
+ * and prompts are covered in full via the in-memory client elsewhere; here we only
+ * assert they are reachable through the handler, from a client of either protocol era.
  */
 
 /** An empty tally, for a stub that never runs anything. */
@@ -44,47 +43,51 @@ const config: OctoMcpConfig = {
   runtimeSchema: {},
 };
 
-const initBody = JSON.stringify({
-  jsonrpc: "2.0",
-  id: 1,
-  method: "initialize",
-  params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } },
-});
+/** Connect a client whose every request is answered by `handler`, mounted at `url`. */
+async function connect(
+  handler: (request: Request) => Promise<Response>,
+  url: string,
+  mode?: "legacy" | { pin: string },
+): Promise<Client> {
+  const client = new Client(
+    { name: "t", version: "0" },
+    mode ? { versionNegotiation: { mode } } : undefined,
+  );
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(url), {
+      fetch: (input, init) => handler(new Request(input, init)),
+    }),
+  );
+  return client;
+}
 
 describe("createOctoMcpHandler", () => {
-  it("returns a request handler function", () => {
-    expect(typeof createOctoMcpHandler(config, { runHost: stubRunHost })).toBe("function");
-  });
-
-  it("serves the streamable endpoint at <basePath>/mcp", async () => {
+  it("serves its tools to a 2026-07-28 client at whatever route it is mounted on", async () => {
     const handler = createOctoMcpHandler(config, { runHost: stubRunHost });
-    // Missing text/event-stream in Accept -> the transport rejects fast with a
-    // JSON-RPC 406, proving the request reached the mounted MCP transport.
-    const res = await handler(
-      new Request("http://localhost/mcp", {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: initBody,
-      }),
-    );
-    expect(res.status).toBe(406);
-    const json = (await res.json()) as { error?: { message?: string } };
-    expect(json.error?.message).toContain("text/event-stream");
+    const client = await connect(handler, "http://localhost/api/mcp", { pin: "2026-07-28" });
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("list_integrations");
+    await client.close();
   });
 
-  it("honors basePath when deriving the endpoint", async () => {
-    const handler = createOctoMcpHandler(config, { runHost: stubRunHost, basePath: "/api" });
-    const reach = async (url: string) =>
-      (
-        await handler(
-          new Request(url, {
-            method: "POST",
-            headers: { "content-type": "application/json", accept: "application/json" },
-            body: initBody,
-          }),
-        )
-      ).status;
-    expect(await reach("http://localhost/api/mcp")).toBe(406); // mounted here
-    expect(await reach("http://localhost/mcp")).toBe(404); // not at the bare path
+  it("serves the same tools to a 2025-era client", async () => {
+    const handler = createOctoMcpHandler(config, { runHost: stubRunHost });
+    const client = await connect(handler, "http://localhost/mcp", "legacy");
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("list_integrations");
+    await client.close();
+  });
+
+  it("reports the host's identity, icons included", async () => {
+    const handler = createOctoMcpHandler(config, {
+      runHost: stubRunHost,
+      serverInfo: { name: "octo-test", title: "Octo Test" },
+    });
+    const client = await connect(handler, "http://localhost/mcp", "legacy");
+    const info = client.getServerVersion();
+    expect(info?.name).toBe("octo-test");
+    expect(info?.title).toBe("Octo Test");
+    expect(info?.icons?.length).toBeGreaterThan(0);
+    await client.close();
   });
 });

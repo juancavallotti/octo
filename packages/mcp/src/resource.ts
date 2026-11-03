@@ -1,4 +1,4 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { resolveRuntimeSchema, type OctoMcpConfig } from "./backend";
 import { EXAMPLES } from "./examples";
 

@@ -128,7 +128,6 @@ const handler = createOctoMcpHandler(
   {
     // Dev-run pods for the long-running app, local children for the one-shots.
     runHost: devRunMcpHost,
-    basePath: "", // route lives at /mcp, so the streamable endpoint is /mcp
     serverInfo: {
       name: "octo-platform",
       version: OCTO_MCP_VERSION,

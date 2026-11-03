@@ -3,7 +3,7 @@
  * behind a network API or on local disk, so the tool, resource and prompt layer depends
  * only on these injected capabilities and never on a concrete store. A host supplies an
  * {@link OctoMcpConfig}; run control is handled inside the package, keyed by a
- * per-MCP-session namespace.
+ * per-caller namespace.
  */
 
 import type { ResourceProvider } from "@octo/run-host";

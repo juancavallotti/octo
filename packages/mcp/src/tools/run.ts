@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import type { OctoMcpConfig } from "../backend";
 import { definitionOf } from "../project";
 import type { RunHostPort, RunKey, RunStateLike } from "../run-host";
-import type { NamespaceResolver } from "../namespace";
+import { callerOf, type NamespaceResolver } from "../namespace";
 import { parseEnv } from "../env";
 import { mockSpecSchema } from "../mocks";
 import { errorResult, guard, jsonResult, textResult } from "../result";
@@ -14,8 +14,8 @@ import { errorResult, guard, jsonResult, textResult } from "../result";
  * {@link RunHostPort} so these are testable without spawning a real `octo` process.
  *
  * The three tools that address a long-running app all take the integration's `id`, which
- * is not redundant with the session: a host running the app beside itself keys on the
- * session, one running it elsewhere keys on (user, integration) and has nothing else to
+ * is not redundant with the namespace: a host running the app beside itself keys on the
+ * namespace, one running it elsewhere keys on (user, integration) and has nothing else to
  * find it by.
  */
 export function registerRunTools(
@@ -27,22 +27,16 @@ export function registerRunTools(
   const { store } = config;
 
   /**
-   * The run an addressed call refers to, assembled from the three things this request
-   * knows: the MCP session, the integration named in the arguments, and the caller.
-   *
-   * The user comes off the verified bearer token (`AuthInfo.extra`), never from the
-   * arguments — a host that scopes runs per user must not let one client name another's.
-   * An unauthenticated host has none and keys on the session alone.
+   * The run an addressed call refers to: the caller's namespace, the integration named
+   * in the arguments, and the caller's user. See {@link callerOf} for where the caller
+   * comes from; an unauthenticated host has none and shares one namespace.
    */
-  const runKeyOf = (
-    extra: { sessionId?: string; authInfo?: { extra?: Record<string, unknown> } },
-    integrationId?: string,
-  ): RunKey => {
-    const userId = extra.authInfo?.extra?.userId;
+  const runKeyOf = (ctx: ServerContext, integrationId?: string): RunKey => {
+    const authInfo = ctx.http?.authInfo;
     return {
-      namespace: resolveNamespace(extra.sessionId),
+      namespace: resolveNamespace(authInfo),
       integrationId,
-      userId: typeof userId === "string" ? userId : undefined,
+      userId: callerOf(authInfo).userId,
     };
   };
 
@@ -52,7 +46,7 @@ export function registerRunTools(
       title: "Can start integration",
       description:
         "Check whether an integration is ready to run: whether a runner is available and whether its definition validates. Returns { available, valid, errors }.",
-      inputSchema: { id: z.string().min(1).describe("The integration id.") },
+      inputSchema: z.object({ id: z.string().min(1).describe("The integration id.") }),
     },
     ({ id }) =>
       guard(async () => {
@@ -72,18 +66,18 @@ export function registerRunTools(
       title: "Run integration",
       description:
         "Start (or restart) an integration in the dev runner, optionally injecting env vars. Returns the test URL to exercise a networked integration's HTTP endpoints. Use `get_run_logs` to see output and `stop_integration` to tear it down.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id to run."),
         env: z
           .record(z.string(), z.string())
           .optional()
           .describe("Optional env vars injected into the run (name → value)."),
-      },
+      }),
     },
-    ({ id, env }, extra) =>
+    ({ id, env }, ctx) =>
       guard(async () => {
         const rec = await store.get(id);
-        const key = runKeyOf(extra, id);
+        const key = runKeyOf(ctx, id);
         // No local-binary pre-gate here, unlike the one-shots below: a host whose runner
         // is elsewhere starts a run with no local binary at all, and binaries().available
         // only answers for the local one-shot binary. The runner is the authority — a
@@ -120,7 +114,7 @@ export function registerRunTools(
       title: "Invoke a single flow",
       description:
         "Run ONE named flow once and return its result and logs — without starting the integration's sources. Supply either a saved integration `id` or an inline `definition` (raw runtime YAML), the `flow` name, and optional `data` (JSON request body, or a raw one with `contentType`), `vars` (JSON seeding the message variables), and `env`. This is the fast way to test a flow: returns { ok, timedOut, dropped, output, logs } where `output` is the flow's result MESSAGE as JSON text — `{event_id, variables, body}`, so read `body` for the payload and `variables` for what the flow built up along the way — `dropped` is true when the flow filtered the message (no result), and `logs` are the runner's stderr lines. Because no source runs, nothing populates the message for you — a flow that reads `vars` (e.g. HTTP headers a real request would have carried) needs them supplied via `vars`.\n\nThree debugging features can be combined on a run, each addressing blocks by the same path grammar — `<flow>.<block>`, descending into a composite with a bracketed branch: `orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`. Every segment but the last names a composite you are descending THROUGH, and must name a branch of it — even when that composite has one obvious chain (`weather.handle-errors[process].weather-step`, never `weather.weather-step`). A composite's branch names are listed in its `getSchema(<block type>)` entry under `addressBranches`; read that instead of guessing.\n\n• `breakAt` — run until this block, then stop. The result carries `breakpoint: { reached, block, message, error }`; `reached:false` means the flow never took that branch (a normal outcome, not an error).\n• `spies` — record every message crossing these blocks WITHOUT changing what the flow does. The result carries `spies: [{ address, records: [{ seq, at, input, output?, dropped?, error? }] }]`. A record shows what the block received and what it produced — including the two outcomes that are not a message: it dropped, or it failed. `seq` orders records across ALL spies, so a multi-spy trace reads as one timeline. An empty `records` list is a result, not a gap: the flow may simply have taken a branch that block is not on.\n• `mocks` — stand in for these blocks so the real one NEVER runs: the way to exercise a flow whose blocks call a payment API, an LLM, or anything else you don't want hit. Keyed by address.\n\nTwo mock rules the runtime enforces, both easy to get wrong. (1) A mock REPLACES its target, so a message matching no case FAILS the block — it does not fall through to the real block, because there is no real block left. Always give a `default`, or a trailing case with `when: \"true\"`, unless you mean an unmatched message to be an error. (2) A block either returns a message, fails, or drops it, so each case sets exactly ONE of `body` / `error` / `drop`; `vars` only goes alongside a `body`.\n\nAlso: you cannot `breakAt` or spy a block INSIDE a mocked block — the mock deleted that subtree, so nothing there can ever run, and the runtime rejects the whole request rather than silently reporting nothing. Use `list_flows` to discover flow names.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .string()
           .min(1)
@@ -182,7 +176,7 @@ export function registerRunTools(
           .positive()
           .optional()
           .describe("Max time to wait for the flow, in milliseconds (default 30000)."),
-      },
+      }),
     },
     (
       {
@@ -199,7 +193,7 @@ export function registerRunTools(
         logLevel,
         timeoutMs,
       },
-      extra,
+      ctx,
     ) =>
       guard(async () => {
         if ((id === undefined) === (definition === undefined)) {
@@ -207,7 +201,7 @@ export function registerRunTools(
         }
         const yaml =
           definition !== undefined ? definition : definitionOf(await store.get(id!));
-        const ns = resolveNamespace(extra.sessionId);
+        const ns = resolveNamespace(ctx.http?.authInfo);
         if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
@@ -249,7 +243,7 @@ export function registerRunTools(
       title: "Evaluate a CEL expression",
       description:
         "Evaluate a single CEL expression against a JSON object WITHOUT running a flow — the fast way to test transform, filter, or routing logic. `expression` is the CEL to evaluate; `data` (JSON) is bound to `body`, `vars` (JSON) to `vars`, and `env` to the `env` map — the same variables a flow's message expressions see (body, vars, env, eventID, correlationID, now). Returns { ok, result, error }: on success `ok` is true and `result` holds the evaluated value (which may itself be false, 0, or null); a compile or evaluation failure returns `ok:false` with the message in `error`. Note: `templateResource()` and a real integration's resolved env are not available here — pass any needed values via `env`/`vars`.",
-      inputSchema: {
+      inputSchema: z.object({
         expression: z
           .string()
           .min(1)
@@ -272,13 +266,13 @@ export function registerRunTools(
           .positive()
           .optional()
           .describe("Max time to wait for evaluation, in milliseconds (default 10000)."),
-      },
+      }),
     },
-    ({ expression, data, vars, env, timeoutMs }, extra) =>
+    ({ expression, data, vars, env, timeoutMs }, ctx) =>
       guard(async () => {
-        // Reuse the per-session availability gate for a consistent "runner configured?"
+        // Reuse the same availability gate for a consistent "runner configured?"
         // error, even though eval itself is stateless (no namespace isolation needed).
-        const ns = resolveNamespace(extra.sessionId);
+        const ns = resolveNamespace(ctx.http?.authInfo);
         if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
@@ -304,13 +298,13 @@ export function registerRunTools(
       title: "Stop integration",
       description:
         "Stop the running integration and free its resources. Pass the same `id` you started it with. Returns { running: false }.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id whose run to stop."),
-      },
+      }),
     },
-    ({ id }, extra) =>
+    ({ id }, ctx) =>
       guard(async () => {
-        const st = await runHost.stop(runKeyOf(extra, id));
+        const st = await runHost.stop(runKeyOf(ctx, id));
         return jsonResult({ running: st.running });
       }),
   );
@@ -321,13 +315,13 @@ export function registerRunTools(
       title: "Get run logs",
       description:
         "Read the running integration's output (oldest line first), as plain text. Pass the same `id` you started it with.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z.string().min(1).describe("The integration id whose run to read."),
-      },
+      }),
     },
-    ({ id }, extra) =>
+    ({ id }, ctx) =>
       guard(async () => {
-        const lines = await runHost.snapshot(runKeyOf(extra, id));
+        const lines = await runHost.snapshot(runKeyOf(ctx, id));
         if (lines.length === 0) {
           return textResult("(no logs yet — start a run with run_integration)");
         }

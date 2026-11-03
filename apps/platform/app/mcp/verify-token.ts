@@ -25,7 +25,7 @@ import {
   type JWTPayload,
   type JWTVerifyGetKey,
 } from "jose";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type { AuthInfo } from "@modelcontextprotocol/server";
 import { exchangeIdToken } from "@/app/actions/client/iam";
 import { OIDC_JWKS_URL, trimSlashes } from "@/oidc.config";
 import { MCP_ISSUER, MCP_RESOURCE } from "./oauth-config";
