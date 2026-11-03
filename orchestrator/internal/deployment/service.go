@@ -227,6 +227,7 @@ func (s *Service) runtimeVersion(pin string) string {
 // "latest" follow the install, anything else must be a release this install can
 // pin to (runtimeversion.Pinnable).
 func (s *Service) parseRuntimePin(requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
 	if requested == "" || requested == RuntimeLatest {
 		return "", nil
 	}

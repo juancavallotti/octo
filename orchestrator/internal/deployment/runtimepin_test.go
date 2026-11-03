@@ -38,6 +38,7 @@ func TestRolloutRuntimePin(t *testing.T) {
 		wantMeta string
 	}{
 		{"pins to a release", `{"replicas":1}`, pin("0.11.13"), "0.11.13", "0.11.13"},
+		{"trims the release it pins", `{"replicas":1}`, pin(" 0.11.13 "), "0.11.13", "0.11.13"},
 		{"keeps the pin when not asked", `{"replicas":1,"runtimeVersion":"0.11.13"}`, nil, "0.11.13", "0.11.13"},
 		{"latest unpins", `{"replicas":1,"runtimeVersion":"0.11.13"}`, pin("latest"), "", "0.11.14"},
 	}
