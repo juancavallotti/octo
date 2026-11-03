@@ -140,8 +140,9 @@ flows:
   # On success it leaves vars.platformToken, vars.userId and vars.user (iam's
   # account record for the caller) and the body exactly as it found it — the exchange runs inside an enrich so a route's request body
   # survives it. On failure it answers 401 with a challenge that points an OAuth
-  # client at the metadata below, or relays iam's 403 for somebody who signed in
-  # fine but has no account here.
+  # client at the metadata below, or relays iam's 403 and its reason for somebody
+  # it knows and will not let in: no account here, or an API key whose roles its
+  # owner no longer holds.
   - name: authenticate
     process:
       - type: enrich
@@ -151,6 +152,7 @@ flows:
           platformToken: 'vars.statusCode == 200 ? body.token : ""'
           userId: 'vars.statusCode == 200 ? body.user.id : ""'
           user: 'vars.statusCode == 200 ? body.user : {}'
+          authRefusal: 'vars.statusCode == 403 ? body.?error.orValue("") : ""'
         body:
           process:
             - type: rest
@@ -188,7 +190,7 @@ flows:
               settings:
                 value: >-
                   {"error": vars.httpStatus == 403
-                    ? "this account has not been provisioned on this platform"
+                    ? (vars.authRefusal != "" ? vars.authRefusal : "this platform will not let this account in")
                     : (vars.httpStatus == 401
                       ? "a valid bearer token is required: an API key or an OAuth access token"
                       : "the platform could not check this credential right now")}
