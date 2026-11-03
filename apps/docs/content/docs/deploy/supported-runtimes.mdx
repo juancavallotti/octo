@@ -1,0 +1,27 @@
+---
+title: "Supported Runtimes"
+description: "Which octo runtime releases a deployment can be pinned to, and why the older ones are not."
+---
+
+A deployment follows the runtime release your install deploys unless you [pin it](/platform/deployments#pinning-a-runtime). This page lists the releases you can pin to, and why the older ones are out of support.
+
+## Supported releases
+
+| Release | Notes |
+| --- | --- |
+| 0.11.14 | |
+| 0.11.13 | First release built with Go 1.27.3, which fixes CVE-2026-111943. |
+
+An install can always pin to the release it deploys, and to the supported releases no newer than it: a newer release may not be in your registry yet. `GET /runtimes` returns exactly that list, and a deploy or rollout pinning anything else is refused.
+
+## Unsupported releases
+
+| Releases | Why |
+| --- | --- |
+| 0.11.12 and older | Built with a Go toolchain affected by CVE-2026-111943. A pod on one of these runs a vulnerable binary, so it cannot be pinned there. |
+
+A deployment already pinned to a release that leaves support keeps it until you change its runtime: nothing is moved behind your back. Move it to a supported release, or to **Latest**, from its rollout dialog or the Upgrades page.
+
+## How the list is kept
+
+The list is `orchestrator/internal/runtimeversion/supported.json`, compiled into the orchestrator, so an install supports the releases its own orchestrator knows about. A release is added to it when it ships, and removed, with a row in the table above, when it leaves support.

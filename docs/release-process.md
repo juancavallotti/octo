@@ -85,3 +85,7 @@ separate lists that must agree; when you add an image, add it to both.
   them, and keep one version per annotated line: the generic updater rewrites a single
   match per line.
 - Keep GitHub Actions workflows in sync with the documented process.
+- Add each new runtime release to `orchestrator/internal/runtimeversion/supported.json`
+  (newest first) once it ships, so deployments can be pinned to it after the next
+  orchestrator upgrade. Removing one ends its support: record why in
+  `apps/docs/content/docs/deploy/supported-runtimes.mdx`.

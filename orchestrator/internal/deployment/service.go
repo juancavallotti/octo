@@ -224,12 +224,13 @@ func (s *Service) runtimeVersion(pin string) string {
 }
 
 // parseRuntimePin turns a requested runtime into the pin to store: "" and
-// "latest" follow the install, anything else must be a release.
-func parseRuntimePin(requested string) (string, error) {
+// "latest" follow the install, anything else must be a release this install can
+// pin to (runtimeversion.Pinnable).
+func (s *Service) parseRuntimePin(requested string) (string, error) {
 	if requested == "" || requested == RuntimeLatest {
 		return "", nil
 	}
-	if !runtimeversion.IsRelease(requested) {
+	if !runtimeversion.CanPin(requested, s.CurrentRuntime()) {
 		return "", fmt.Errorf("%w: %q", ErrInvalidRuntimeVersion, requested)
 	}
 	return requested, nil
@@ -369,7 +370,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	if err != nil {
 		return Deployment{}, err
 	}
-	pin, err := parseRuntimePin(settings.RuntimeVersion)
+	pin, err := s.parseRuntimePin(settings.RuntimeVersion)
 	if err != nil {
 		return Deployment{}, err
 	}
@@ -859,7 +860,7 @@ func (s *Service) Rollout(ctx context.Context, id string, change RolloutChange) 
 	// And for the runtime: nil keeps the pin, "latest" lets the deployment follow
 	// the install again, a release pins it there.
 	if change.Runtime != nil {
-		pin, err := parseRuntimePin(*change.Runtime)
+		pin, err := s.parseRuntimePin(*change.Runtime)
 		if err != nil {
 			return Deployment{}, err
 		}

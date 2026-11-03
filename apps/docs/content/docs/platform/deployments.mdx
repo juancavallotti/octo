@@ -234,7 +234,7 @@ A failed run shows its report, case by case; an errored or timed-out run shows w
 
 ### Pinning a runtime
 
-A deployment follows the install's runtime by default: every rollout moves it onto the release the install deploys now. Pin it to keep it on a release instead, for an integration you do not want moved until you have checked it. Pick the runtime beside the version in the deploy or rollout dialog: **Latest** follows the install, and **Pin to** lists the release the install deploys and every release a deployment runs now (`GET /runtimes`).
+A deployment follows the install's runtime by default: every rollout moves it onto the release the install deploys now. Pin it to keep it on a release instead, for an integration you do not want moved until you have checked it. Pick the runtime beside the version in the deploy or rollout dialog: **Latest** follows the install, and **Pin to** lists the release the install deploys and the [supported releases](/deploy/supported-runtimes) no newer than it (`GET /runtimes`).
 
 ![Pinning a deployment to a runtime in the rollout dialog](/screenshots/platform-rollout-runtime.png)
 

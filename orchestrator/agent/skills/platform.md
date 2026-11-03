@@ -82,7 +82,8 @@ A deployment can be pinned to a runtime release (`runtimePin` on it, `pinned` in
 `/upgrades`): `runtimeVersion` on a deploy or rollout pins it, `"latest"` unpins.
 A pinned deployment is never upgraded on a passing run — `rolloutOnPass` is
 refused — so moving it is a rollout with the new `runtimeVersion`, and only when
-someone asked for exactly that. `GET /runtimes` lists what it can be pinned to.
+someone asked for exactly that. `GET /runtimes` lists what it can be pinned to: the install's release and the
+supported ones under it; anything else is refused.
 
 ## When a deployment will not start
 

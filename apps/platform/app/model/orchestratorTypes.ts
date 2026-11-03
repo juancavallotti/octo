@@ -273,7 +273,7 @@ export interface RolloutChange {
 export interface Runtimes {
   /** The release this install deploys; absent when it cannot say. */
   current?: string;
-  /** Newest first: the current release and every one a deployment runs now. */
+  /** Newest first: the current release and the supported ones no newer than it. */
   versions: string[];
 }
 

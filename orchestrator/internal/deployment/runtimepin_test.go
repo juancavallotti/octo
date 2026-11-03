@@ -22,7 +22,7 @@ func pinnedRollout(t *testing.T, settings string, runtime *string) (*fakeKube, *
 	snaps := &fakeSnapshots{ret: snapshot.Snapshot{
 		ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef,
 	}}
-	kc := &fakeKube{status: kube.StatusRunning}
+	kc := &fakeKube{status: kube.StatusRunning, runtimeVersion: "0.11.14"}
 	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
 	_, err := svc.Rollout(context.Background(), "dep-1", RolloutChange{SnapshotID: "snap-2", Runtime: runtime})
 	return kc, repo, err
@@ -39,7 +39,7 @@ func TestRolloutRuntimePin(t *testing.T) {
 	}{
 		{"pins to a release", `{"replicas":1}`, pin("0.11.13"), "0.11.13", "0.11.13"},
 		{"keeps the pin when not asked", `{"replicas":1,"runtimeVersion":"0.11.13"}`, nil, "0.11.13", "0.11.13"},
-		{"latest unpins", `{"replicas":1,"runtimeVersion":"0.11.13"}`, pin("latest"), "", "0.9.0"},
+		{"latest unpins", `{"replicas":1,"runtimeVersion":"0.11.13"}`, pin("latest"), "", "0.11.14"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,8 +53,8 @@ func TestRolloutRuntimePin(t *testing.T) {
 			if got := ParseSettings(repo.gotSettings).RuntimeVersion; got != tc.wantPin {
 				t.Errorf("persisted pin = %q, want %q", got, tc.wantPin)
 			}
-			// An unpinned deployment records the install's release (0.9.0 on
-			// fakeKube), a pinned one its pin.
+			// An unpinned deployment records the install's release, a pinned one
+			// its pin.
 			if got := ParseMetadata(repo.gotMetadata).RuntimeVersion; got != tc.wantMeta {
 				t.Errorf("recorded runtime = %q, want %q", got, tc.wantMeta)
 			}
@@ -62,13 +62,17 @@ func TestRolloutRuntimePin(t *testing.T) {
 	}
 }
 
-func TestRolloutRefusesARuntimeThatIsNotARelease(t *testing.T) {
-	bad := "main"
-	kc, _, err := pinnedRollout(t, `{"replicas":1}`, &bad)
-	if !errors.Is(err, ErrInvalidRuntimeVersion) {
-		t.Fatalf("got %v, want ErrInvalidRuntimeVersion", err)
-	}
-	if kc.gotSpec.ID != "" {
-		t.Error("kube.Rollout ran for an invalid runtime")
+// TestRolloutRefusesAnUnsupportedRuntime covers what may not be pinned: something
+// that is not a release, one older than the supported list, and one newer than
+// the install deploys.
+func TestRolloutRefusesAnUnsupportedRuntime(t *testing.T) {
+	for _, bad := range []string{"main", "0.11.12", "0.12.0"} {
+		kc, _, err := pinnedRollout(t, `{"replicas":1}`, &bad)
+		if !errors.Is(err, ErrInvalidRuntimeVersion) {
+			t.Fatalf("%s: got %v, want ErrInvalidRuntimeVersion", bad, err)
+		}
+		if kc.gotSpec.ID != "" {
+			t.Errorf("%s: kube.Rollout ran for an unsupported runtime", bad)
+		}
 	}
 }

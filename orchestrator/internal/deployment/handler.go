@@ -55,29 +55,22 @@ type runtimesResponse struct {
 	// Current is the runtime release this install deploys; empty when it cannot say.
 	Current string `json:"current,omitempty"`
 	// Versions are the releases a deployment can be pinned to, newest first: the
-	// current one and every one a deployment runs now.
+	// current one and the supported releases no newer than it.
 	Versions []string `json:"versions"`
 }
 
 // runtimes godoc
 //
 //	@Summary		List the runtime releases a deployment can be pinned to
-//	@Description	The release this install deploys, and every release a deployment runs now, newest
+//	@Description	The release this install deploys and the supported releases no newer than it, newest
 //	@Description	first. Pin one with runtimeVersion on a deploy or rollout; "latest" follows the install.
 //	@Tags			deployments
 //	@Produce		json
 //	@Success		200	{object}	runtimesResponse
 //	@Failure		500	{object}	httpx.ErrorResponse
 //	@Router			/runtimes [get]
-func (h *Handler) runtimes(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
-	defer cancel()
-
-	current, versions, err := h.svc.Runtimes(ctx)
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
+func (h *Handler) runtimes(w http.ResponseWriter, _ *http.Request) {
+	current, versions := h.svc.Runtimes()
 	if versions == nil {
 		versions = []string{}
 	}
@@ -542,7 +535,7 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrRunnerUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "the requested runner is not configured on this installation")
 	case errors.Is(err, ErrInvalidRuntimeVersion):
-		httpx.WriteError(w, http.StatusBadRequest, `runtimeVersion must be a release such as 0.11.14, or "latest"`)
+		httpx.WriteError(w, http.StatusBadRequest, `runtimeVersion must be a supported release (GET /runtimes), or "latest"`)
 	case errors.Is(err, ErrInvalidRunner):
 		httpx.WriteError(w, http.StatusBadRequest, "unknown runner")
 	case errors.Is(err, ErrInvalidSubdomain):

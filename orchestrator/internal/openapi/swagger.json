@@ -612,7 +612,7 @@
                         "type": "string"
                     },
                     "versions": {
-                        "description": "Versions are the releases a deployment can be pinned to, newest first: the\ncurrent one and every one a deployment runs now.",
+                        "description": "Versions are the releases a deployment can be pinned to, newest first: the\ncurrent one and the supported releases no newer than it.",
                         "items": {
                             "type": "string"
                         },
@@ -6351,7 +6351,7 @@
         },
         "/runtimes": {
             "get": {
-                "description": "The release this install deploys, and every release a deployment runs now, newest\nfirst. Pin one with runtimeVersion on a deploy or rollout; \"latest\" follows the install.",
+                "description": "The release this install deploys and the supported releases no newer than it, newest\nfirst. Pin one with runtimeVersion on a deploy or rollout; \"latest\" follows the install.",
                 "responses": {
                     "200": {
                         "content": {

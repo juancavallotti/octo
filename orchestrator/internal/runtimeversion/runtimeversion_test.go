@@ -1,6 +1,9 @@
 package runtimeversion
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestImageTag(t *testing.T) {
 	cases := []struct {
@@ -94,5 +97,29 @@ func TestIsRelease(t *testing.T) {
 		if got := IsRelease(tag); got != want {
 			t.Errorf("IsRelease(%q) = %v, want %v", tag, got, want)
 		}
+	}
+}
+
+func TestPinnable(t *testing.T) {
+	cases := []struct {
+		current string
+		want    []string
+	}{
+		// The install's release, then the supported ones no newer than it.
+		{"0.11.14", []string{"0.11.14", "0.11.13"}},
+		// A release the file does not list yet is still pinnable on its own install.
+		{"0.11.15", []string{"0.11.15", "0.11.14", "0.11.13"}},
+		// Nothing newer than the install.
+		{"0.11.13", []string{"0.11.13"}},
+		// An install that cannot say which release it runs offers the list.
+		{"dev", []string{"0.11.14", "0.11.13"}},
+	}
+	for _, tc := range cases {
+		if got := Pinnable(tc.current); !slices.Equal(got, tc.want) {
+			t.Errorf("Pinnable(%q) = %v, want %v", tc.current, got, tc.want)
+		}
+	}
+	if CanPin("0.11.12", "0.11.14") {
+		t.Error("0.11.12 predates the supported releases and must not be pinnable")
 	}
 }

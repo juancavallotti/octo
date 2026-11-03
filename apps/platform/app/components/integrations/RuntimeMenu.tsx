@@ -7,8 +7,8 @@ import { INPUT } from "./inputStyles";
 /**
  * Which runtime a deployment runs: "latest", which follows this install's
  * runtime as it is upgraded, or a release it stays pinned to until someone
- * changes it. A pin the list does not carry (no deployment runs it any more) is
- * still offered, so opening the dialog never silently unpins.
+ * changes it. A pin the list does not carry (its release left support) is still
+ * offered, so opening the dialog never silently unpins.
  */
 export default function RuntimeMenu({
   runtimes,
