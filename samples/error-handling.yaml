@@ -14,12 +14,12 @@ service:
 # discard port, so every `rest` call fails to connect. No external server needed.
 #
 # Try it:
-#   go run ./cli -config samples/error-handling.yaml
+#   octo run --config samples/error-handling.yaml
 #   curl -i -X POST localhost:8080/inline    -d '{"amount": 10}'   # 200, degraded body
 #   curl -i -X POST localhost:8080/flowlevel -d '{"amount": 10}'   # 502, error body
 #
 # Or drive a single flow without the HTTP server:
-#   go run ./cli invoke --config samples/error-handling.yaml \
+#   octo invoke --config samples/error-handling.yaml \
 #     --flow charge-flowlevel --data '{"amount": 10}'
 
 connectors:

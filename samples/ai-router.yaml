@@ -7,8 +7,8 @@ service:
 # model is not confident; the guardrail field describes when to use it.
 #
 #   export ANTHROPIC_API_KEY=sk-ant-...
-#   go run ./cli invoke -config ../samples/ai-router.yaml -flow triage \
-#     -data '{"subject":"I was double charged","body":"Please refund the extra charge."}'
+#   octo invoke --config samples/ai-router.yaml --flow triage \
+#     --data '{"subject":"I was double charged","body":"Please refund the extra charge."}'
 #
 #   -> {"team":"billing"}
 

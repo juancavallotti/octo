@@ -12,7 +12,7 @@ service:
 # Set the API key and run the server:
 #
 #   export GEMINI_API_KEY=...
-#   go run ./cli -config ../samples/ai-quote-cache.yaml
+#   octo run --config samples/ai-quote-cache.yaml
 #
 # Then hit it — the first call is a MISS (calls Gemini, ~seconds), later calls
 # within the 5m TTL are HITs (cached, sub-millisecond) and return the same quote:

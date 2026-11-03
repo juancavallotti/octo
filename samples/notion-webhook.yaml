@@ -12,7 +12,7 @@ service:
 #      you do not have it yet, and the service starts without it:
 #        export NOTION_TOKEN=ntn_...
 #        export NOTION_DATABASE_ID=...                 # a database to query
-#   3. Run: go run ./cli -config samples/notion-webhook.yaml
+#   3. Run: octo run --config samples/notion-webhook.yaml
 #   4. Create a webhook subscription pointing at this service's /notion/events
 #      route (expose it with a tunnel such as ngrok while developing). Notion's
 #      first request is a one-time handshake carrying a verification_token.
@@ -137,8 +137,8 @@ flows:
 
   # 3. Render a page's content to markdown: fetch the page's child blocks, then
   #    convert them. Invoke it with the page id:
-  #      go run ./cli invoke -config samples/notion-webhook.yaml \
-  #        -flow page-to-markdown -data '{"pageId": "<page-id>"}'
+  #      octo invoke --config samples/notion-webhook.yaml \
+  #        --flow page-to-markdown --data '{"pageId": "<page-id>"}'
   #    The first block leaves body.results in the shape the second one reads, and
   #    the result is the rendered markdown as raw content.
   - name: page-to-markdown

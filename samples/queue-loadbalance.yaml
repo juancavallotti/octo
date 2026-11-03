@@ -18,7 +18,7 @@ service:
 # standalone module the queue is in-process; in the k8s module it is NATS-backed.
 #
 # Try it:
-#   go run ./cli -config samples/queue-loadbalance.yaml
+#   octo run --config samples/queue-loadbalance.yaml
 #   curl -s -X POST localhost:8080/api/v1/orders/42 \
 #     -H 'X-Tenant: acme' -H 'X-Request-Id: req-1' \
 #     -d '{"item":"widget","amount":1500}'

@@ -13,7 +13,7 @@ service:
 # receive every message.
 #
 # Run it (starts the sources; watch the log):
-#   go run ./cli -config samples/events.yaml
+#   octo run --config samples/events.yaml
 #   # -> every few seconds: "subscriber A saw tick N" and "subscriber B saw tick N"
 
 connectors:
