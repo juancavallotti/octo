@@ -59,6 +59,8 @@ export default function IntegrationTree({
   const rows = useMemo(() => treeRows(data, toggled, query), [data, toggled, query]);
 
   const startCreate = (parentId: string | null) => {
+    // A closed parent would hide the folder about to be created in it.
+    if (parentId !== null && toggled.has(parentId)) toggle(parentId);
     setCreatingIn(parentId);
     setDraftName("");
   };

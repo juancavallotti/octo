@@ -11,6 +11,7 @@ it("shows the skeleton while loading, and marks the region busy", () => {
     </Loaded>,
   );
   expect(screen.getByText("skeleton")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   expect(screen.queryByText("content")).not.toBeInTheDocument();
   expect(container.firstChild).toHaveAttribute("aria-busy", "true");
 });
@@ -21,7 +22,7 @@ it("shows why a load failed instead of the content", () => {
       {() => <p>content</p>}
     </Loaded>,
   );
-  expect(screen.getByText("no orchestrator")).toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("no orchestrator");
   expect(screen.queryByText("skeleton")).not.toBeInTheDocument();
 });
 
