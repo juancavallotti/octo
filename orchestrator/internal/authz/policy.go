@@ -23,9 +23,8 @@ const (
 	// RoleRuntime is what a deployed integration's own token carries. No person
 	// is ever granted it, and it reaches only the routes a running pod needs.
 	RoleRuntime = "platform:runtime"
-	// RoleCICD is what a pipeline's API key carries. No person holds it: it ships
-	// integrations — uploads code, tags versions, runs their tests, deploys and
-	// rolls out — and reads what that work needs.
+	// RoleCICD is what a pipeline's API key carries. No person holds it, and it
+	// appears in no rule below: what it may do is the pipeline allowlist alone.
 	RoleCICD = "platform:cicd"
 )
 
@@ -39,17 +38,6 @@ var builds = []string{RoleAdmin, RoleOperator, RoleDeveloper}
 // runs is who may act on a deployment: the two people roles that deploy, plus
 // the pods themselves for the stores they own.
 var runs = []string{RoleAdmin, RoleOperator, RoleRuntime}
-
-// The three lists above, with a pipeline admitted. Written out rather than built
-// with append, so no rule shares a backing array with another.
-var (
-	// readers is anyone, plus a pipeline reading what it is about to ship.
-	readers = []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor, RoleCICD}
-	// ships is who may upload code and tag versions: builds, plus a pipeline.
-	ships = []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleCICD}
-	// deploys is who may create, test and roll out deployments.
-	deploys = []string{RoleAdmin, RoleOperator, RoleCICD}
-)
 
 // rule is one pattern and what it requires. Pattern segments match a path
 // segment literally, or match any single segment when they are "*".
@@ -76,15 +64,15 @@ var policy = []rule{
 	// --- operating ------------------------------------------------------
 	// Reading a pod's logs is monitoring; creating and changing deployments is
 	// not something a developer does here.
-	{"deployments/*/pods", readers, nil},
-	{"deployments", readers, deploys},
-	{"upgrades", readers, nil},
-	{"runtimes", readers, nil},
+	{"deployments/*/pods", anyone, nil},
+	{"deployments", anyone, []string{RoleAdmin, RoleOperator}},
+	{"upgrades", anyone, nil},
+	{"runtimes", anyone, nil},
 
 	// --- building -------------------------------------------------------
-	{"integrations", readers, ships},
-	{"folders", readers, builds},
-	{"snapshots", readers, ships},
+	{"integrations", anyone, builds},
+	{"folders", anyone, builds},
+	{"snapshots", anyone, builds},
 	{"devruns", anyone, builds},
 
 	// --- the installation itself ----------------------------------------
@@ -98,6 +86,45 @@ var policy = []rule{
 	// through a server somebody else configured is an operating act, and an
 	// unattended run that has just repaired something has to be able to say so.
 	{"email", []string{RoleAdmin, RoleOperator}, []string{RoleAdmin, RoleOperator}},
+}
+
+// pipeline is the whole of what a platform:cicd token may do: roll out a new
+// version of an integration and a deployment that already exist. Each entry is a
+// method and a path matched segment for segment, so nothing beneath an entry is
+// admitted with it — /integrations/* admits reading one integration, not its
+// resources, bundle or agent memory.
+//
+// Creating, renaming or deleting an integration, creating, scaling or removing a
+// deployment, deleting a version and reading logs are absent on purpose: a person
+// sets an integration up once, and a pipeline only ships to it.
+var pipeline = []struct{ method, pattern string }{
+	{"GET", "integrations"},
+	{"GET", "integrations/*"},
+	{"GET", "integrations/*/deployments"},
+	{"GET", "integrations/*/snapshots"},
+	{"PUT", "integrations/*/bundle"},
+	{"POST", "integrations/*/snapshots"},
+	{"GET", "snapshots/*"},
+	{"GET", "deployments"},
+	{"GET", "deployments/*"},
+	{"POST", "deployments/*/rollout"},
+	{"POST", "deployments/*/testruns"},
+	{"GET", "deployments/*/testruns"},
+	{"GET", "deployments/*/testruns/*"},
+	{"GET", "upgrades"},
+	{"GET", "runtimes"},
+}
+
+// pipelineMay reports whether a platform:cicd token may perform method on path.
+func pipelineMay(method, path string) bool {
+	segments := split(path)
+	for _, p := range pipeline {
+		if p.method == method && len(strings.Split(p.pattern, "/")) == len(segments) &&
+			matches(p.pattern, segments) {
+			return true
+		}
+	}
+	return false
 }
 
 // bypass is the set of paths served without a token at all.

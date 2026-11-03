@@ -15,7 +15,7 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 	}{
 		// The history, readable by anyone who works here and written by nobody:
 		// records arrive over the broker, not over this API.
-		{"GET", "/logs", logReaders},
+		{"GET", "/logs", anyone},
 		{"GET", "/traces/t1/records/r1", anyone},
 		{"GET", "/stats/d1/series", anyone},
 		{"POST", "/logs", nil},

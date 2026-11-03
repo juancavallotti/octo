@@ -20,16 +20,10 @@ const (
 	RoleMonitor   = "platform:monitor"
 	RoleDeveloper = "platform:developer"
 	RoleOperator  = "platform:operator"
-	// RoleCICD is a pipeline's API key, which reads a deployment's logs to say
-	// why a rollout or a test run failed.
-	RoleCICD = "platform:cicd"
 )
 
 // anyone is every role a person can hold.
 var anyone = []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor}
-
-// logReaders is anyone, plus a pipeline.
-var logReaders = []string{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor, RoleCICD}
 
 // admins is the installation's own business: its alerting configuration, how
 // long it keeps what it stores, and what that storage costs.
@@ -53,7 +47,7 @@ var policy = []rule{
 	// A trace carries the request bodies of whatever was traced, so this is the
 	// most revealing read here — but narrowing it further would mean a monitor
 	// who cannot see what they are monitoring.
-	{"logs", logReaders, nil},
+	{"logs", anyone, nil},
 	{"traces", anyone, nil},
 	{"stats", anyone, nil},
 

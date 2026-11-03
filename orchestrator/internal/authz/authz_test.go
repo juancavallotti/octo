@@ -189,3 +189,20 @@ func containsAnyRole(body string) bool {
 	}
 	return false
 }
+
+// A pipeline's token is served on the allowlist and refused everywhere else,
+// however much the route's own rule admits to people.
+func TestAPipelineIsServedOnlyOnTheAllowlist(t *testing.T) {
+	c := stubChecker{principal: Principal{Subject: "user-1", Roles: []string{RoleCICD}}}
+	if rec, _ := call(t, c, "POST", "/deployments/d1/rollout", "a.b.c"); rec.Code != http.StatusOK {
+		t.Errorf("rollout: status = %d, want 200", rec.Code)
+	}
+	for _, path := range []string{"/integrations/i1/resources", "/deployments/d1/pods/p1/logs"} {
+		if rec, _ := call(t, c, "GET", path, "a.b.c"); rec.Code != http.StatusForbidden {
+			t.Errorf("GET %s: status = %d, want 403", path, rec.Code)
+		}
+	}
+	if rec, _ := call(t, c, "POST", "/integrations", "a.b.c"); rec.Code != http.StatusForbidden {
+		t.Errorf("creating an integration: status = %d, want 403", rec.Code)
+	}
+}

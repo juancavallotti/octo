@@ -21,15 +21,15 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 		{"GET", "/snapshots/s1/resources", append(anyone, RoleRuntime)},
 
 		// Deploying is not something a developer does here; reading is.
-		{"GET", "/deployments", readers},
-		{"GET", "/deployments/d1", readers},
-		{"POST", "/deployments/d1/rollout", deploys},
-		{"DELETE", "/deployments/d1", deploys},
-		{"GET", "/deployments/d1/pods/p1/logs", readers},
+		{"GET", "/deployments", anyone},
+		{"GET", "/deployments/d1", anyone},
+		{"POST", "/deployments/d1/rollout", []string{RoleAdmin, RoleOperator}},
+		{"DELETE", "/deployments/d1", []string{RoleAdmin, RoleOperator}},
+		{"GET", "/deployments/d1/pods/p1/logs", anyone},
 
 		// Building.
-		{"GET", "/integrations", readers},
-		{"POST", "/integrations", ships},
+		{"GET", "/integrations", anyone},
+		{"POST", "/integrations", builds},
 		{"PUT", "/folders/f1", builds},
 		{"POST", "/devruns", builds},
 
@@ -52,44 +52,61 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 	}
 }
 
-// A pipeline's key ships integrations and nothing else: it uploads, tags, tests
-// and deploys, and never reaches dev runs, a pod's stores or the installation's
-// configuration.
-func TestAPipelineReachesWhatShippingNeeds(t *testing.T) {
-	may := func(method, path string) bool {
-		for _, r := range required(method, path) {
-			if r == RoleCICD {
-				return true
-			}
-		}
-		return false
-	}
+// A pipeline ships a new version to an integration and deployment that already
+// exist, and does nothing else: no setup, no teardown, no reading what the
+// platform holds beyond what a rollout needs.
+func TestAPipelineOnlyRollsOut(t *testing.T) {
 	for _, ok := range [][2]string{
+		{"GET", "/integrations"},
+		{"GET", "/integrations/i1"},
+		{"GET", "/integrations/i1/snapshots"},
 		{"PUT", "/integrations/i1/bundle"},
-		{"POST", "/integrations/bundle"},
 		{"POST", "/integrations/i1/snapshots"},
-		{"POST", "/integrations/i1/deployments"},
 		{"POST", "/deployments/d1/rollout"},
 		{"POST", "/deployments/d1/testruns"},
 		{"GET", "/deployments/d1/testruns/r1"},
 		{"GET", "/upgrades"},
-		{"GET", "/deployments/d1/pods/p1/logs"},
 	} {
-		if !may(ok[0], ok[1]) {
-			t.Errorf("a pipeline cannot %s %s, and shipping needs it", ok[0], ok[1])
+		if !pipelineMay(ok[0], ok[1]) {
+			t.Errorf("a pipeline cannot %s %s, and rolling out needs it", ok[0], ok[1])
 		}
 	}
 	for _, no := range [][2]string{
-		{"POST", "/devruns"},
-		{"PUT", "/folders/f1"},
+		{"POST", "/integrations"},
+		{"POST", "/integrations/bundle"},
+		{"PUT", "/integrations/i1"},
+		{"DELETE", "/integrations/i1"},
+		{"POST", "/integrations/i1/deployments"},
+		{"PATCH", "/deployments/d1"},
+		{"DELETE", "/deployments/d1"},
+		{"DELETE", "/snapshots/s1"},
+		{"GET", "/integrations/i1/bundle"},
+		{"GET", "/integrations/i1/resources"},
+		{"PUT", "/integrations/i1/files"},
+		{"GET", "/integrations/i1/agent-memory/agents"},
+		{"GET", "/snapshots/s1/resources"},
+		{"GET", "/deployments/d1/pods/p1/logs"},
+		{"GET", "/deployments/d1/objects"},
 		{"PUT", "/deployments/d1/kv/ns/key"},
-		{"GET", "/deployments/d1/objects/a"},
+		{"POST", "/devruns"},
+		{"GET", "/folders"},
 		{"GET", "/secrets"},
 		{"PUT", "/settings/llm"},
 		{"POST", "/email/send"},
 	} {
-		if may(no[0], no[1]) {
+		if pipelineMay(no[0], no[1]) {
 			t.Errorf("a pipeline may %s %s, and it must not", no[0], no[1])
+		}
+	}
+}
+
+// No role list names cicd: the allowlist is the only door it has.
+func TestNoRuleAdmitsAPipeline(t *testing.T) {
+	for _, r := range policy {
+		for _, role := range append(append([]string{}, r.read...), r.write...) {
+			if role == RoleCICD {
+				t.Errorf("rule %q names %s; a pipeline belongs in the allowlist only", r.pattern, RoleCICD)
+			}
 		}
 	}
 }
