@@ -3,7 +3,9 @@
 // bytes using the slack connector's signing secret, and aborts on a bad or stale
 // signature. It sources those bytes from either a message variable holding the raw
 // body or the message's own raw-content mode; in raw-content mode it then parses
-// the verified bytes back into Body so downstream body.* access keeps working.
+// the verified bytes back into Body — JSON for the Events API, form fields for
+// slash commands, the decoded payload for interactivity — so downstream body.*
+// access keeps working.
 //
 // When the payload is Slack's URL-verification handshake it sets a marker variable
 // so the flow can branch, echo the challenge back, and skip event handling.
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/expr"
 	"github.com/juancavallotti/octo/runtime/types"
 )
 
@@ -109,12 +112,10 @@ func (p *verifyProcessor) Process(_ context.Context, msg *types.Message) (*types
 	}
 
 	// In native raw-content mode Body is the {contentType, rawData} envelope, not
-	// the Slack payload. Parse the verified bytes into Body (best-effort: Slack
-	// slash commands are form-encoded, not JSON) so the challenge branch below and
-	// downstream body.* access work the same as with rawBodyVar. SetBodyJSON leaves
-	// raw-content mode on the way, which is what makes this a normal JSON message.
-	if _, _, ok := msg.RawBody(); ok {
-		_ = msg.SetBodyJSON(raw)
+	// the Slack payload. Parse the verified bytes into Body so the challenge branch
+	// below and downstream body.* access work the same as with rawBodyVar.
+	if contentType, _, ok := msg.RawBody(); ok {
+		parseVerifiedBody(msg, contentType, raw)
 	}
 
 	if body, ok := msg.Body.(map[string]any); ok {
@@ -141,4 +142,31 @@ func (p *verifyProcessor) resolveRawBody(msg *types.Message) []byte {
 	}
 	raw, _ := msg.Variables.String(p.rawBodyVar)
 	return []byte(raw)
+}
+
+// interactivityPayloadField is the single form field Slack's interactivity
+// requests (buttons, modals, shortcuts) carry, holding the JSON payload.
+const interactivityPayloadField = "payload"
+
+// parseVerifiedBody replaces a raw-content Body with the parsed Slack payload.
+// Slash commands and interactivity are form-encoded: a slash command becomes its
+// field map, and an interactivity request — a lone payload field holding JSON —
+// becomes that JSON. Anything else is parsed as JSON (the Events API). Parsing is
+// best-effort: a body that fails to parse stays the raw envelope, since the
+// signature already passed and the flow can still read body.rawData.
+func parseVerifiedBody(msg *types.Message, contentType string, raw []byte) {
+	if !expr.IsFormURLEncoded(contentType) {
+		_ = msg.SetBodyJSON(raw)
+		return
+	}
+	fields, err := expr.DecodeFormData(string(raw))
+	if err != nil {
+		return
+	}
+	if payload, ok := fields[interactivityPayloadField].(string); ok && len(fields) == 1 {
+		if err := msg.SetBodyJSON([]byte(payload)); err == nil {
+			return
+		}
+	}
+	msg.SetBody(fields)
 }

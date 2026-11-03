@@ -1,0 +1,126 @@
+service:
+  name: slack-slash-command
+
+# A Slack slash command: receive /deploy over HTTP, verify the request's
+# signature, acknowledge it at once, and report the result later through the
+# command's response_url.
+#
+# Slack posts slash commands form-encoded (command=/deploy&text=staging&...), not
+# as JSON. The http source keeps the exact bytes as raw content (rawBody: true),
+# and slack-verify-request checks the signature over them and then parses the
+# form into body, so body.command, body.text and body.response_url read directly.
+#
+# Slack shows "operation_timeout" unless the command is answered within 3
+# seconds, so the slash-command flow only hands the work to a queue and replies.
+# The deploy-worker flow does the slow part and POSTs its result to
+# response_url, which Slack accepts for 30 minutes after the command.
+#
+# Setup:
+#   1. Create a Slack app and add a slash command named /deploy whose Request URL
+#      points at this service's /slack/commands route (expose it with a tunnel
+#      such as ngrok while developing).
+#   2. Export the credentials:
+#        export SLACK_BOT_TOKEN=xoxb-...
+#        export SLACK_SIGNING_SECRET=...
+#   3. Run: octo run --config samples/slack-slash-command
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: SLACK_BOT_TOKEN
+    required: true
+  - name: SLACK_SIGNING_SECRET
+    required: true
+  # Where Slack's response_url points. Only overridden to aim the sample at a
+  # local stand-in.
+  - name: SLACK_HOOKS_URL
+    default: https://hooks.slack.com
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+
+  - name: slack
+    type: slack
+    settings:
+      botToken: ${SLACK_BOT_TOKEN}
+      signingSecret: ${SLACK_SIGNING_SECRET}
+
+  # Pinning the base URL to Slack's webhook host means a response_url can only
+  # ever be answered on that host.
+  - name: slack-hooks
+    type: http-client
+    settings:
+      baseURL: ${SLACK_HOOKS_URL}
+      timeout: 10s
+
+flows:
+  - name: slash-command
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /slack/commands
+        # Copy Slack's signature headers into vars, and deliver the exact request
+        # bytes as raw content so the signature can be verified over them.
+        headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
+        rawBody: true
+    process:
+      # Authenticate the request (aborts on a bad or stale signature) and parse
+      # the form-encoded command into body.
+      - type: slack-verify-request
+        name: verify
+        settings:
+          connector: slack
+
+      # Queue /deploy for the worker and acknowledge it ephemerally; anything else
+      # gets a usage hint. Slack renders the JSON response body as the reply.
+      - type: if
+        name: known-command
+        condition: body.command == "/deploy" && body.text != ""
+        then:
+          process:
+            # Fire-and-forget: the worker gets the parsed command, response_url
+            # included, and this flow answers without waiting for it.
+            - type: queue-dispatch
+              name: enqueue
+              settings:
+                subject: '"slack-deploy"'
+            - type: set-payload
+              name: ack
+              settings:
+                value: >-
+                  {"response_type": "ephemeral",
+                   "text": "Deploy to " + body.text + " requested by <@" + body.user_id + ">"}
+        else:
+          process:
+            - type: set-payload
+              name: usage
+              settings:
+                value: '{"response_type": "ephemeral", "text": "Usage: /deploy <environment>"}'
+
+  - name: deploy-worker
+    source:
+      type: queue
+      settings:
+        subject: slack-deploy
+    process:
+      # The deployment itself goes here. Whatever it takes, the command's body
+      # rides along, so the report below can still address the caller.
+
+      # Report back on the command's response_url. The path is response_url with
+      # the webhook host stripped; rest-dynamic refuses a full URL, so a
+      # response_url on any other host fails here instead of being called.
+      - type: rest-dynamic
+        name: report
+        settings:
+          connector: slack-hooks
+          method: '"POST"'
+          path: body.response_url.replace(env.SLACK_HOOKS_URL, "")
+          allowMethods: [POST]
+          pathPrefix: /commands
+          body: >-
+            {"response_type": "in_channel",
+             "text": "<@" + body.user_id + "> deployed to " + body.text}

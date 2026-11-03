@@ -1,0 +1,67 @@
+service:
+  name: slack-socket-mode
+
+# A Slack bot over Socket Mode: Slack delivers events and slash commands over a
+# websocket this service opens, so there is no public URL to expose and no
+# request signature to verify. The bot answers /hello and replies to @-mentions.
+#
+# Each Socket Mode envelope reaches the flow with the same body an HTTP flow holds
+# after slack-verify-request, and its kind in vars.slackEnvelopeType:
+# events_api, slash_commands or interactive.
+#
+# Setup:
+#   1. Create a Slack app and turn on Socket Mode. Generate an app-level token
+#      with the connections:write scope.
+#   2. Give the bot the chat:write scope, subscribe to the app_mention event, and
+#      add a slash command named /hello (no Request URL is needed in Socket Mode).
+#   3. Export the credentials:
+#        export SLACK_BOT_TOKEN=xoxb-...
+#        export SLACK_APP_TOKEN=xapp-...
+#   4. Run: octo run --config samples/slack-socket-mode.yaml
+
+env:
+  - name: SLACK_BOT_TOKEN
+    required: true
+  - name: SLACK_APP_TOKEN
+    required: true
+
+connectors:
+  - name: slack
+    type: slack
+    settings:
+      botToken: ${SLACK_BOT_TOKEN}
+      appToken: ${SLACK_APP_TOKEN}
+
+flows:
+  - name: slack-socket
+    source:
+      connector: slack
+      type: slack
+    process:
+      - type: if
+        name: command-or-event
+        condition: vars.slackEnvelopeType == "slash_commands"
+        then:
+          process:
+            # A slash command is acked with the flow's final body, which Slack
+            # shows as the reply: ephemeral, so only the caller sees it.
+            - type: set-payload
+              name: greet
+              settings:
+                value: '{"response_type": "ephemeral", "text": "Hello, <@" + body.user_id + ">!"}'
+        else:
+          process:
+            # Events are acked as soon as they arrive, so the reply below can take
+            # as long as it needs. Keep only @-mentions, ignoring the bot's own.
+            - type: slack-event
+              name: mentions
+              settings:
+                eventTypes: [app_mention]
+                filter: body.botId == null
+            - type: slack-send-message
+              name: reply
+              settings:
+                connector: slack
+                target: body.channel
+                threadTs: body.ts
+                text: '"Hi <@" + body.user + ">, you said: " + body.text'

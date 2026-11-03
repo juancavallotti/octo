@@ -13,18 +13,19 @@ octo_types:
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `slack` connector holds the bot credentials and talks to the Slack Web API; its blocks send and edit messages, add reactions, look up users, and verify and normalize inbound events. Inbound Slack events arrive over the [http](/reference/connectors/http) connector, since Slack posts JSON to a route you own, and the `slack-verify-request` and `slack-event` blocks process that request.
+The `slack` connector holds the bot credentials and talks to the Slack Web API; its blocks send and edit messages, add reactions, look up users, and verify and normalize inbound events. Inbound Slack events, slash commands and interactivity arrive one of two ways. Over the [http](/reference/connectors/http) connector, Slack posts them to a route you own and `slack-verify-request` authenticates them. In Socket Mode, the connector's own `slack` source holds a websocket open to Slack, so no public route or signature is involved. Either way `slack-event` normalizes Events API events.
 
 ## `slack` connector
 
-The connector provides no source; inbound events arrive through an `http` source. The blocks that bind to it are `slack-send-message`, `slack-update-message`, `slack-add-reaction`, `slack-lookup-user` and `slack-verify-request`. `slack-event` is a pure transformer and references no connector.
+The connector provides the `slack` source for [Socket Mode](#slack-source-socket-mode); over HTTP, inbound traffic arrives through an `http` source instead. The blocks that bind to it are `slack-send-message`, `slack-update-message`, `slack-add-reaction`, `slack-lookup-user` and `slack-verify-request`. `slack-event` is a pure transformer and references no connector.
 
 ### Settings
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `botToken` | string | Yes | none | Bot User OAuth token (`xoxb-...`) used to call the Web API. |
-| `signingSecret` | string | No | none | Verifies inbound Slack request signatures; required to receive events. |
+| `signingSecret` | string | No | none | Verifies inbound Slack request signatures; required to receive events over HTTP. |
+| `appToken` | string | No | none | App-level token (`xapp-...`) with the `connections:write` scope; required by the `slack` source (Socket Mode). |
 | `timeout` | duration | No | `30s` | Bounds each Slack Web API call. |
 
 An `apiBaseURL` setting also overrides the Web API base (default `https://slack.com/api`), mainly for tests; it is not exposed in the editor.
@@ -32,6 +33,35 @@ An `apiBaseURL` setting also overrides the Web API base (default `https://slack.
 ### Error handling
 
 Slack signals application errors with an `ok: false` response carrying an `error` code. Every block that calls the Web API has a `failOnError` setting (default `true`): when true a Slack error [fails the flow](/concepts/error-handling), when false the message passes through unchanged.
+
+## `slack` source (Socket Mode)
+
+**Slack Socket Mode** receives events, slash commands and interactivity over a websocket the runtime opens to Slack, instead of Slack posting to a public route. Turn on Socket Mode in your Slack app, generate an app-level token with the `connections:write` scope, and set it as the connector's `appToken`. No Request URL, `signingSecret` or `slack-verify-request` is involved: the connection itself is authenticated by the token.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `ackTimeout` | duration | No | `2500ms` | How long to wait for the flow's result before acknowledging without a response payload. Slack's deadline is 3 seconds. |
+
+```yaml
+source:
+  connector: slack
+  type: slack
+```
+
+Each envelope Slack sends becomes one message. Its `body` is the same payload an HTTP flow holds after `slack-verify-request`, so the blocks after the source are the same either way:
+
+| `vars.slackEnvelopeType` | `body` |
+| --- | --- |
+| `events_api` | The `event_callback` payload; `slack-event` normalizes it. |
+| `slash_commands` | The command's fields: `body.command`, `body.text`, `body.user_id`, `body.channel_id`, `body.response_url`. |
+| `interactive` | The interaction payload, e.g. `body.type`, `body.user.id`, `body.actions`. |
+
+Slack requires every envelope to be acknowledged within 3 seconds:
+
+- An envelope that accepts a response payload (slash commands and most interactivity) is acknowledged with the flow's final body, which Slack shows as the reply, as an HTTP flow's response body would be. If the flow has not finished within `ackTimeout`, fails, or drops the message, the acknowledgement carries no payload and the flow keeps running.
+- Any other envelope, including every Events API event, is acknowledged as soon as it arrives, so a slow flow never makes Slack redeliver it.
+
+The source reconnects when Slack asks it to or the connection drops. Each replica opens its own connection and Slack delivers every envelope to one of them, so scaling out needs no coordination. See `samples/slack-socket-mode.yaml`.
 
 ## `slack-verify-request` block
 
@@ -54,6 +84,27 @@ source:
     headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
     rawBodyVar: rawBody
 ```
+
+In raw-content mode the block parses the verified bytes into `body` according to the request's content type:
+
+| Request | Content type | `body` after verification |
+| --- | --- | --- |
+| Events API | `application/json` | The JSON payload. |
+| Slash command | `application/x-www-form-urlencoded` | The form fields as an object: `body.command`, `body.text`, `body.user_id`, `body.channel_id`, `body.response_url`, `body.trigger_id`. A repeated field becomes a list. |
+| Interactivity (buttons, modals, shortcuts) | `application/x-www-form-urlencoded` with a single `payload` field | The JSON inside `payload`, e.g. `body.type`, `body.user.id`, `body.actions`. |
+
+A body that fails to parse stays the raw `{contentType, rawData}` envelope. Slash commands and interactivity need `rawBody: true` on the http source: without it the source parses every body as JSON and rejects a form post.
+
+```yaml
+source:
+  type: http
+  settings:
+    path: /slack/commands
+    headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
+    rawBody: true
+```
+
+The flow's response body is Slack's immediate reply, so a slash command answers with `{"response_type": "ephemeral", "text": ...}` (only the caller sees it) or `in_channel`. Slack expects that reply within 3 seconds; slower work goes through [queue-dispatch](/reference/connectors/queue) to a worker that POSTs its result to `body.response_url`. `samples/slack-slash-command/` shows both, and the [Slack bot guide](/guides/slack-bot#reply-later-through-response_url) walks through it.
 
 When the payload is Slack's one-time URL-verification handshake (`type: url_verification`), the block sets `vars.slackChallenge` to `true` so the flow can branch, echo `body.challenge` back, and skip event handling.
 

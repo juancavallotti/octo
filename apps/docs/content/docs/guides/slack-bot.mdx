@@ -160,6 +160,102 @@ To answer in a thread, pass the triggering message's timestamp as `threadTs`:
 For a message that is already in a thread, use its `body.threadTs` so the reply
 lands in the same thread rather than starting a new one.
 
+## Handle a slash command
+
+Slack posts slash commands (`/deploy staging`) and interactivity (buttons,
+modals, shortcuts) form-encoded rather than as JSON, so the http source must
+keep the body as raw content with `rawBody: true`.
+[`samples/slack-slash-command/`](https://github.com/juancavallotti/octo/tree/main/samples/slack-slash-command)
+acknowledges `/deploy` at once and reports the result later:
+
+```yaml title="samples/slack-slash-command/config.yaml (excerpt)"
+source:
+  connector: api
+  type: http
+  settings:
+    path: /slack/commands
+    headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
+    rawBody: true
+process:
+  - type: slack-verify-request
+    name: verify
+    settings:
+      connector: slack
+  - type: if
+    name: known-command
+    condition: body.command == "/deploy" && body.text != ""
+    then:
+      process:
+        - type: queue-dispatch
+          name: enqueue
+          settings:
+            subject: '"slack-deploy"'
+        - type: set-payload
+          name: ack
+          settings:
+            value: >-
+              {"response_type": "ephemeral",
+               "text": "Deploy to " + body.text + " requested by <@" + body.user_id + ">"}
+    else:
+      process:
+        - type: set-payload
+          name: usage
+          settings:
+            value: '{"response_type": "ephemeral", "text": "Usage: /deploy <environment>"}'
+```
+
+After verifying the signature, `slack-verify-request` parses the form into
+`body`, so Slack's fields read directly: `body.command`, `body.text`,
+`body.user_id`, `body.channel_id` and `body.response_url`. For an interactivity
+request, which carries a single `payload` field holding JSON, `body` becomes
+that JSON, so `body.type` and `body.actions` read directly too.
+
+The flow's response body is the immediate reply: `response_type: ephemeral`
+shows it only to the caller, and `in_channel` posts it for everyone.
+
+### Reply later through `response_url`
+
+Slack shows the caller an error unless the command is answered within 3
+seconds, so the flow above only queues the work and acknowledges it. The
+fire-and-forget `queue-dispatch` hands a worker the parsed command, and the
+worker answers on `response_url`, which Slack accepts for 30 minutes:
+
+```yaml title="samples/slack-slash-command/config.yaml (excerpt)"
+connectors:
+  - name: slack-hooks
+    type: http-client
+    settings:
+      baseURL: ${SLACK_HOOKS_URL}   # defaults to https://hooks.slack.com
+
+flows:
+  - name: deploy-worker
+    source:
+      type: queue
+      settings:
+        subject: slack-deploy
+    process:
+      - type: rest-dynamic
+        name: report
+        settings:
+          connector: slack-hooks
+          method: '"POST"'
+          path: body.response_url.replace(env.SLACK_HOOKS_URL, "")
+          allowMethods: [POST]
+          pathPrefix: /commands
+          body: >-
+            {"response_type": "in_channel",
+             "text": "<@" + body.user_id + "> deployed to " + body.text}
+```
+
+`rest-dynamic` resolves the path against the connector's base URL and refuses a
+full URL, so stripping the webhook host from `response_url` is also the check
+that the reply goes to Slack: a `response_url` on any other host keeps its
+host, and the block fails without making a request.
+
+To try it, add a `/deploy` slash command to your Slack app with its Request URL
+pointing at `/slack/commands`, run the sample with
+`octo run --config samples/slack-slash-command`, and type `/deploy staging`.
+
 ## Try it
 
 Mention the bot in a channel it has been invited to:
@@ -173,6 +269,66 @@ The bot replies in-channel: `thanks Ada Lovelace, you said: <@U123ABC> hello the
   first and offload slow work (LLM calls, database writes) with
   `queue-dispatch`. See [Events and Queues](/guides/events-and-queues).
 </Callout>
+
+## Use Socket Mode instead of a public URL
+
+Socket Mode has Slack deliver events, slash commands and interactivity over a
+websocket your service opens, so there is no Request URL to expose and no
+signature to verify. That suits development without a tunnel, and services
+that cannot accept inbound traffic.
+[`samples/slack-socket-mode.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/slack-socket-mode.yaml)
+answers `/hello` and replies to @-mentions.
+
+Turn on Socket Mode in your Slack app, generate an app-level token with the
+`connections:write` scope, and give it to the connector as `appToken`. The flow
+binds to the `slack` connector's own source instead of an `http` one:
+
+```yaml title="samples/slack-socket-mode.yaml (excerpt)"
+connectors:
+  - name: slack
+    type: slack
+    settings:
+      botToken: ${SLACK_BOT_TOKEN}
+      appToken: ${SLACK_APP_TOKEN}
+
+flows:
+  - name: slack-socket
+    source:
+      connector: slack
+      type: slack
+    process:
+      - type: if
+        name: command-or-event
+        condition: vars.slackEnvelopeType == "slash_commands"
+        then:
+          process:
+            - type: set-payload
+              name: greet
+              settings:
+                value: '{"response_type": "ephemeral", "text": "Hello, <@" + body.user_id + ">!"}'
+        else:
+          process:
+            - type: slack-event
+              name: mentions
+              settings:
+                eventTypes: [app_mention]
+                filter: body.botId == null
+            - type: slack-send-message
+              name: reply
+              settings:
+                connector: slack
+                target: body.channel
+                threadTs: body.ts
+                text: '"Hi <@" + body.user + ">, you said: " + body.text'
+```
+
+Each message's `body` is what an HTTP flow holds after `slack-verify-request`,
+and `vars.slackEnvelopeType` says which kind it is: `events_api`,
+`slash_commands` or `interactive`. There is no verify step and no
+URL-verification handshake. A slash command is acknowledged with the flow's
+final body, which Slack shows as the reply, so it still has to finish within
+3 seconds. Events are acknowledged as soon as they arrive, so the mention
+branch can take as long as it needs.
 
 ## Where to go next
 

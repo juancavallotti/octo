@@ -1,0 +1,45 @@
+# Tests the deferred half of the slash command: the worker reports its result on
+# the command's response_url, and only ever on Slack's webhook host.
+#
+# The queue source does not run under invoke, so each case seeds the message
+# slash-command queues: the parsed command, response_url included.
+flow: deploy-worker
+
+cases:
+  # `report` is mocked because the real block would call Slack. Its recorded input
+  # is what the request is built from.
+  - name: the result is posted to the command's response_url
+    input:
+      data:
+        command: /deploy
+        text: staging
+        user_id: U1
+        response_url: https://hooks.slack.com/commands/T1/1/abc
+    mocks:
+      deploy-worker.report:
+        default:
+          body: { ok: true }
+    expect:
+      body: { ok: true }
+    spies:
+      deploy-worker.report:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.response_url == "https://hooks.slack.com/commands/T1/1/abc"'
+                - 'body.user_id == "U1"'
+                - 'body.text == "staging"'
+
+  # Not mocked: a response_url on another host keeps its scheme and host after the
+  # webhook host is stripped, and rest-dynamic refuses a full URL before making any
+  # request. This is what the connector's pinned base URL buys.
+  - name: a response_url on another host is refused without a request
+    input:
+      data:
+        command: /deploy
+        text: staging
+        user_id: U1
+        response_url: https://attacker.example/commands/T1/1/abc
+    expect:
+      error: is a full URL

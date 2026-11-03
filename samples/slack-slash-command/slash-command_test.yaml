@@ -1,0 +1,75 @@
+# Tests the slash command's front door and reply: every request is authenticated
+# before anything else runs, and a verified /deploy is queued for the worker and
+# answered ephemerally. The worker is a second flow, tested by
+# deploy-worker_test.yaml beside this file.
+#
+# Sources do not run under invoke, so each case seeds what the http source would
+# have produced: the declared signature headers as vars, and the raw-content
+# envelope {contentType, rawData} as the input data.
+#
+# As in samples/slack-bot_test.yaml, the ACCEPTED cases mock `verify`: Slack's
+# signature covers a timestamp the block rejects once it is more than 5 minutes
+# old, so no committed signature stays valid. The mock hands back the body the
+# real block parses out of the form — the field map — and everything after it is
+# the real flow. The parsing itself is covered by the slack connector's Go tests.
+#
+# `enqueue` is not mocked: it is fire-and-forget, so it really publishes and,
+# with no worker subscribed, the flow carries on to the reply anyway.
+flow: slash-command
+
+cases:
+  - name: an unsigned command is rejected and never queued or answered
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: command=%2Fdeploy&text=staging&user_id=U1
+    expect:
+      error: invalid request signature
+    spies:
+      slash-command.known-command[then].enqueue: { count: 0 }
+      slash-command.known-command[then].ack: { count: 0 }
+      slash-command.known-command[else].usage: { count: 0 }
+
+  - name: a verified /deploy is queued with its response_url and acknowledged ephemerally
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: command=%2Fdeploy&text=staging&user_id=U1&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2FT1%2F1%2Fabc
+    mocks:
+      slash-command.verify:
+        default:
+          body:
+            command: /deploy
+            text: staging
+            user_id: U1
+            response_url: https://hooks.slack.com/commands/T1/1/abc
+    expect:
+      body:
+        response_type: ephemeral
+        text: Deploy to staging requested by <@U1>
+    spies:
+      # The worker reports back through response_url, so the queued message must
+      # still be the parsed command, not the acknowledgement built after it.
+      slash-command.known-command[then].enqueue:
+        count: 1
+        records:
+          - input:
+              that:
+                - 'body.command == "/deploy"'
+                - 'body.response_url == "https://hooks.slack.com/commands/T1/1/abc"'
+
+  - name: a /deploy without an environment gets the usage hint and is not queued
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: command=%2Fdeploy&text=&user_id=U1
+    mocks:
+      slash-command.verify:
+        default:
+          body: { command: /deploy, text: "", user_id: U1 }
+    expect:
+      body:
+        response_type: ephemeral
+        text: "Usage: /deploy <environment>"
+    spies:
+      slash-command.known-command[then].enqueue: { count: 0 }

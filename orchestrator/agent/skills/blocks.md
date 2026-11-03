@@ -123,6 +123,14 @@ always volatile and have no setting for it.
 
 **Slack:** `slack-verify-request`, `slack-event`, `slack-send-message`,
 `slack-update-message`, `slack-add-reaction`, `slack-lookup-user`.
+Slash commands and interactivity post form-encoded bodies: give the http source
+`rawBody: true`, and `slack-verify-request` parses the verified form into `body`
+(`body.command`, `body.text`, `body.response_url`), or an interactivity
+request's `payload` field into its JSON.
+In Socket Mode the flow's source is the slack connector's own `slack` source
+(the connector needs `appToken`, `xapp-...`): no http route and no
+`slack-verify-request`, the same `body` shapes, and the envelope kind in
+`vars.slackEnvelopeType` (`events_api`, `slash_commands`, `interactive`).
 
 **MongoDB:** `mongodb-find`, `mongodb-insert`, `mongodb-update`, `mongodb-delete`,
 `mongodb-aggregate`.

@@ -2,6 +2,8 @@ package slack
 
 import (
 	"context"
+	"net/url"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -101,17 +103,52 @@ func TestVerifyExplicitVarWinsOverRawContent(t *testing.T) {
 	}
 }
 
-func TestVerifyRawContentNonJSON(t *testing.T) {
+func TestVerifyParsesSlashCommand(t *testing.T) {
 	proc, err := newVerify(types.Settings{"connector": "slack"}, blockDeps(t, "http://unused"))
 	if err != nil {
 		t.Fatalf("newVerify: %v", err)
 	}
-	// Slack slash commands arrive form-encoded, not JSON: verification must still
-	// pass and the raw body is left untouched (no JSON reparse).
-	msg := rawContentMessage(t, "application/x-www-form-urlencoded", "token=abc&command=%2Fweather")
+	msg := rawContentMessage(t, "application/x-www-form-urlencoded; charset=utf-8",
+		"command=%2Fdeploy&text=staging&user_id=U1&response_url=https%3A%2F%2Fhooks.slack.com%2Fx")
 
-	if _, err := proc.Process(context.Background(), msg); err != nil {
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
 		t.Fatalf("Process: %v", err)
+	}
+	if out.RawContent {
+		t.Error("expected RawContent cleared after parsing the form body")
+	}
+	want := map[string]any{
+		"command":      "/deploy",
+		"text":         "staging",
+		"user_id":      "U1",
+		"response_url": "https://hooks.slack.com/x",
+	}
+	if !reflect.DeepEqual(out.Body, want) {
+		t.Errorf("body = %v, want %v", out.Body, want)
+	}
+}
+
+func TestVerifyParsesInteractivityPayload(t *testing.T) {
+	proc, err := newVerify(types.Settings{"connector": "slack"}, blockDeps(t, "http://unused"))
+	if err != nil {
+		t.Fatalf("newVerify: %v", err)
+	}
+	payload := `{"type":"block_actions","user":{"id":"U1"},"actions":[{"action_id":"approve"}]}`
+	msg := rawContentMessage(t, "application/x-www-form-urlencoded", "payload="+url.QueryEscape(payload))
+
+	out, err := proc.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	// The payload field's JSON becomes the body itself, not a string under it.
+	want := map[string]any{
+		"type":    "block_actions",
+		"user":    map[string]any{"id": "U1"},
+		"actions": []any{map[string]any{"action_id": "approve"}},
+	}
+	if !reflect.DeepEqual(out.Body, want) {
+		t.Errorf("body = %v, want %v", out.Body, want)
 	}
 }
 

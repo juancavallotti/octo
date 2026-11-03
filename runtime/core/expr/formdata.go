@@ -2,6 +2,7 @@ package expr
 
 import (
 	"fmt"
+	"mime"
 	"net/url"
 
 	"github.com/google/cel-go/cel"
@@ -19,6 +20,8 @@ const (
 	toFormDataFuncName   = "toFormData"
 	fromFormDataFuncName = "fromFormData"
 )
+
+const formURLEncodedMediaType = "application/x-www-form-urlencoded"
 
 func registerFormDataExtension() {
 	RegisterMessageExtension(func(MessageContext) []cel.EnvOption { return formDataOptions() })
@@ -71,8 +74,7 @@ func toFormDataBinding(val ref.Val) ref.Val {
 	return types.String(values.Encode())
 }
 
-// fromFormDataBinding parses a urlencoded form string into an object: a single
-// value becomes a string, repeated keys become a list of strings.
+// fromFormDataBinding parses a urlencoded form string into an object.
 //
 //nolint:ireturn // a CEL UnaryBinding returns the ref.Val interface
 func fromFormDataBinding(val ref.Val) ref.Val {
@@ -80,9 +82,27 @@ func fromFormDataBinding(val ref.Val) ref.Val {
 	if !ok {
 		return types.NewErr("fromFormData: argument must be a string, got %v", val.Type())
 	}
-	parsed, err := url.ParseQuery(s)
+	out, err := DecodeFormData(s)
 	if err != nil {
 		return types.NewErr("fromFormData: %v", err)
+	}
+	return types.DefaultTypeAdapter.NativeToValue(out)
+}
+
+// IsFormURLEncoded reports whether a content type names an
+// application/x-www-form-urlencoded payload, ignoring parameters such as charset.
+func IsFormURLEncoded(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && mediaType == formURLEncodedMediaType
+}
+
+// DecodeFormData parses a urlencoded form string into an object: a single value
+// becomes a string, repeated keys become a list of strings. It is the decoding
+// behind fromFormData, shared with blocks that parse a form body in Go.
+func DecodeFormData(rawData string) (map[string]any, error) {
+	parsed, err := url.ParseQuery(rawData)
+	if err != nil {
+		return nil, fmt.Errorf("parse form data: %w", err)
 	}
 	out := make(map[string]any, len(parsed))
 	for key, vs := range parsed {
@@ -96,7 +116,7 @@ func fromFormDataBinding(val ref.Val) ref.Val {
 		}
 		out[key] = list
 	}
-	return types.DefaultTypeAdapter.NativeToValue(out)
+	return out, nil
 }
 
 // formScalar renders a JSON-native scalar as its form field value. A nil (JSON
