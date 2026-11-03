@@ -392,8 +392,10 @@ END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key ON users (lower(email));
 
--- api_keys are per-user bearer tokens used to authenticate machine clients (the
--- platform MCP endpoint). The plaintext token is shown to the user exactly once at
+-- api_keys are per-user bearer tokens used to authenticate machine clients. Each
+-- carries its own `roles`, a subset of what its owner reaches and never
+-- platform:admin; iam checks both when the key is minted and again whenever it is
+-- presented, so a key shrinks with its owner. The plaintext token is shown to the user exactly once at
 -- creation; only its SHA-256 hash is stored, so a database leak exposes no usable
 -- keys. `prefix`/`last4` are non-secret fragments kept for display. Deletion is a
 -- soft revoke (`revoked_at`) so an audit trail survives; expiry is enforced by the
@@ -408,7 +410,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at   timestamptz NOT NULL DEFAULT now(),
     expires_at   timestamptz NOT NULL,
     last_used_at timestamptz,
-    revoked_at   timestamptz
+    revoked_at   timestamptz,
+    roles        varchar[] NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys (key_hash);
@@ -1265,6 +1268,29 @@ CREATE TABLE IF NOT EXISTS user_roles (
 -- "who holds this role" — the question an admin screen asks, and the one the
 -- primary key above cannot answer, since it leads with user_id.
 CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles (role);
+
+-- Keys minted before they carried roles spoke for everything their owner held.
+-- They keep that reach, frozen at the owner's roles today, except admin: a key
+-- never carries it, so an admin's key takes the three roles admin contains. It
+-- sits after user_roles because it reads it.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'api_keys' AND column_name = 'roles'
+    ) THEN
+        ALTER TABLE api_keys ADD COLUMN roles varchar[] NOT NULL DEFAULT '{}';
+        UPDATE api_keys k SET roles = COALESCE((
+            SELECT array_agg(DISTINCT granted ORDER BY granted)::varchar[]
+            FROM user_roles ur,
+                 unnest(CASE WHEN ur.role = 'platform:admin'
+                             THEN ARRAY['platform:operator', 'platform:developer', 'platform:monitor']
+                             ELSE ARRAY[ur.role::text] END) AS granted
+            WHERE ur.user_id = k.user_id
+        ), '{}');
+        ALTER TABLE api_keys ALTER COLUMN roles DROP DEFAULT;
+    END IF;
+END $$;
 
 -- iam_signing_keys holds the keypairs the iam service signs platform tokens with
 -- and publishes as JWKS. It is a table and not a mounted Secret because the key
