@@ -92,9 +92,10 @@ func (c *Client) MintMachine(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return "", &RefusedError{Reason: strings.TrimSpace(reason(resp))}
+	}
 	if resp.StatusCode != http.StatusOK {
-		// iam's own wording, which says whether the caller may not deploy or was
-		// simply not recognised — the two an operator has to tell apart.
 		return "", fmt.Errorf("iam: mint a machine token: %s: %s",
 			resp.Status, strings.TrimSpace(reason(resp)))
 	}
@@ -110,6 +111,20 @@ func (c *Client) MintMachine(
 	}
 	return answer.Token, nil
 }
+
+// RefusedError is iam declining to mint for this caller, in iam's own wording,
+// which says whether the caller may not deploy or was simply not recognised —
+// the two an operator has to tell apart.
+type RefusedError struct {
+	Reason string
+}
+
+func (e *RefusedError) Error() string {
+	return "iam refused to mint a machine token: " + e.Reason
+}
+
+// Refusal is the reason iam gave, for callers that only know the interface.
+func (e *RefusedError) Refusal() string { return e.Reason }
 
 // reason reads the error iam reported, or "" when the body is not one.
 func reason(resp *http.Response) string {

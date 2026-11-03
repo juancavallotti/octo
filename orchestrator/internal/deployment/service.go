@@ -180,6 +180,10 @@ func (s *Service) identityFor(ctx context.Context, deploymentID string, access [
 			"this deployment needs an identity and the request carried no credential to mint it with")
 	}
 	minted, err := s.identities.MintMachine(ctx, token, deploymentID, access)
+	var refused interface{ Refusal() string }
+	if errors.As(err, &refused) {
+		return "", &IdentityRefusedError{Reason: refused.Refusal()}
+	}
 	if err != nil {
 		return "", fmt.Errorf("lend the deployment an identity: %w", err)
 	}

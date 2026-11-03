@@ -525,7 +525,10 @@ func (h *Handler) undeploy(w http.ResponseWriter, r *http.Request) {
 // writeError maps domain errors to HTTP status codes. Unexpected errors are
 // logged and reported generically so internals do not leak to clients.
 func (h *Handler) writeError(w http.ResponseWriter, err error) {
+	var refused *IdentityRefusedError
 	switch {
+	case errors.As(err, &refused):
+		httpx.WriteError(w, http.StatusForbidden, refused.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "deployment not found")
 	case errors.Is(err, ErrIntegrationNotFound):

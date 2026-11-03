@@ -1481,8 +1481,14 @@ type failingMinter struct{}
 
 func (failingMinter) Configured() bool { return true }
 func (failingMinter) MintMachine(context.Context, string, string, []string) (string, error) {
-	return "", errors.New("iam said no")
+	return "", refusal("api keys cannot lend an identity")
 }
+
+// refusal is iam declining, as the iam client reports it.
+type refusal string
+
+func (r refusal) Error() string   { return "iam refused: " + string(r) }
+func (r refusal) Refusal() string { return string(r) }
 
 // The row is written before the identity is minted, so a mint that fails leaves
 // a deployment that does not exist holding the slug it claimed.
@@ -1522,8 +1528,10 @@ func TestRolloutKeepsTheDeploymentWhenTheIdentityCannotBeMinted(t *testing.T) {
 		WithSnapshots(snaps), WithIdentities(failingMinter{}))
 
 	ctx := caller.With(context.Background(), "a.b.c")
-	if _, err := svc.Rollout(ctx, "dep-1", RolloutChange{SnapshotID: "snap-2"}); err == nil {
-		t.Fatal("Rollout succeeded with no identity to give the deployment")
+	_, err := svc.Rollout(ctx, "dep-1", RolloutChange{SnapshotID: "snap-2"})
+	var refused *IdentityRefusedError
+	if !errors.As(err, &refused) || refused.Reason != "api keys cannot lend an identity" {
+		t.Fatalf("Rollout error = %v, want iam's refusal", err)
 	}
 	if repo.deleted {
 		t.Error("a failed rollout deleted the running deployment's row")
