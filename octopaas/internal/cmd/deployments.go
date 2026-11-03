@@ -30,7 +30,8 @@ platform has accepted the change.`,
   octopaas deployments rollout billing --version v1.4.0`,
 	}
 	cmd.AddCommand(a.deploymentsListCommand(), a.deploymentsGetCommand(), a.deploymentsCreateCommand(),
-		a.deploymentsOptionsCommand(), a.deploymentsScaleCommand(), a.deploymentsRolloutCommand(), a.deploymentsRemoveCommand())
+		a.deploymentsOptionsCommand(), a.deploymentsScaleCommand(), a.deploymentsRolloutCommand(), a.deploymentsRemoveCommand(),
+		a.deploymentsOutdatedCommand(), a.deploymentsTestCommand(), a.deploymentsUpgradeCommand(), a.deploymentsRuntimesCommand())
 	return cmd
 }
 
@@ -152,6 +153,7 @@ type deployFlags struct {
 	env     []string
 	secrets []string
 	tracing bool
+	runtime string
 	noWait  bool
 	timeout time.Duration
 	// replacing are the pods a rollout replaces: until they are gone, the
@@ -165,6 +167,7 @@ func (f *deployFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&f.env, "env", nil, "bind a declared env var to a value, as NAME=value (repeatable)")
 	cmd.Flags().StringArrayVar(&f.secrets, "secret", nil, "bind a declared env var to a cluster secret, as NAME=secret-name (repeatable)")
 	cmd.Flags().BoolVar(&f.tracing, "tracing", false, "record traces for this deployment")
+	cmd.Flags().StringVar(&f.runtime, "runtime", "", "pin to a runtime release (see deployments runtimes), or latest to follow the install")
 	cmd.Flags().BoolVar(&f.noWait, "no-wait", false, "return once the platform accepts the change")
 	cmd.Flags().DurationVar(&f.timeout, "timeout", 5*time.Minute, "how long to wait for it to be running")
 }
@@ -256,7 +259,7 @@ what a deploy of it needs.`,
 				}
 				settings := client.DeploymentSettings{
 					SnapshotID: versionID, Replicas: replicaCount, Slug: slug, Expose: expose,
-					Subdomain: subdomain, Env: env, Access: access, Runner: runner,
+					Subdomain: subdomain, Env: env, Access: access, Runner: runner, RuntimeVersion: f.runtime,
 				}
 				if cmd.Flags().Changed("tracing") {
 					settings.Tracing = &f.tracing
@@ -390,8 +393,8 @@ deployment's integration, or by id.`,
 			if err != nil {
 				return err
 			}
-			if f.version == "" && env == nil && !cmd.Flags().Changed("tracing") {
-				return usageError{fmt.Errorf("say what to roll out: --version, --env, --secret or --tracing")}
+			if f.version == "" && env == nil && !cmd.Flags().Changed("tracing") && f.runtime == "" {
+				return usageError{fmt.Errorf("say what to roll out: --version, --env, --secret, --tracing or --runtime")}
 			}
 			api, err := a.client()
 			if err != nil {
@@ -404,7 +407,7 @@ deployment's integration, or by id.`,
 				if err != nil {
 					return err
 				}
-				rollout := client.Rollout{Env: env}
+				rollout := client.Rollout{Env: env, RuntimeVersion: f.runtime}
 				current, err := api.GetDeployment(ctx, id)
 				if err != nil {
 					return err
@@ -412,6 +415,8 @@ deployment's integration, or by id.`,
 				for _, p := range current.Pods {
 					f.replacing = append(f.replacing, p.Name)
 				}
+				// Without --version it rolls onto the version it already runs.
+				rollout.SnapshotID = current.SnapshotID
 				if f.version != "" {
 					if rollout.SnapshotID, err = a.version(ctx, api, current.IntegrationID, f.version); err != nil {
 						return err

@@ -84,6 +84,9 @@ type DeploymentSettings struct {
 	Tracing    *bool                 `json:"tracing,omitempty"`
 	Access     []string              `json:"access,omitempty"`
 	Runner     string                `json:"runner,omitempty"`
+	// RuntimeVersion pins the deployment to a runtime release; "latest" or empty
+	// follows the install.
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
 }
 
 // Rollout is what a rolling update changes. A nil field keeps what the
@@ -92,6 +95,9 @@ type Rollout struct {
 	SnapshotID string                `json:"snapshotId,omitempty"`
 	Env        map[string]EnvBinding `json:"env,omitempty"`
 	Tracing    *bool                 `json:"tracing,omitempty"`
+	// RuntimeVersion pins the deployment to a runtime release, or "latest" to
+	// follow the install.
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
 }
 
 // Pod is one of a deployment's pods.
@@ -121,6 +127,11 @@ type Deployment struct {
 	ExternalURL     string    `json:"externalUrl"`
 	CreatedAt       time.Time `json:"createdAt"`
 	LastUpdated     time.Time `json:"lastUpdated"`
+	// RuntimeVersion is the runtime release its pods run, UpgradeTo the newer one
+	// a rollout would move it onto, and RuntimePin the release it is pinned to.
+	RuntimeVersion string `json:"runtimeVersion"`
+	UpgradeTo      string `json:"upgradeTo"`
+	RuntimePin     string `json:"runtimePin"`
 
 	raw json.RawMessage
 }
@@ -168,4 +179,80 @@ type LogPage struct {
 type Event struct {
 	Name string
 	Data string
+}
+
+// Runtimes is what a deployment can be pinned to.
+type Runtimes struct {
+	// Current is the runtime release the install deploys.
+	Current string `json:"current"`
+	// Versions are the pinnable releases, newest first.
+	Versions []string `json:"versions"`
+}
+
+// TestCase is one case of a test run's report.
+type TestCase struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Summary  string `json:"summary"`
+	Error    string `json:"error"`
+	Failures []struct {
+		Summary string `json:"summary"`
+		Detail  string `json:"detail"`
+	} `json:"failures"`
+}
+
+// TestReport is dolphin's report of a run, as much of it as the CLI shows.
+type TestReport struct {
+	Totals struct {
+		Cases   int `json:"cases"`
+		Passed  int `json:"passed"`
+		Failed  int `json:"failed"`
+		Errored int `json:"errored"`
+		Skipped int `json:"skipped"`
+	} `json:"totals"`
+	Suites []struct {
+		Path  string     `json:"path"`
+		Flow  string     `json:"flow"`
+		Cases []TestCase `json:"cases"`
+	} `json:"suites"`
+}
+
+// TestRun is one run of a deployment's test suites.
+type TestRun struct {
+	ID             string      `json:"id"`
+	DeploymentID   string      `json:"deploymentId"`
+	SnapshotID     string      `json:"snapshotId"`
+	RuntimeVersion string      `json:"runtimeVersion"`
+	Status         string      `json:"status"`
+	RolloutOnPass  bool        `json:"rolloutOnPass"`
+	RolledOutAt    *time.Time  `json:"rolledOutAt"`
+	Report         *TestReport `json:"report"`
+	Error          string      `json:"error"`
+	CreatedAt      time.Time   `json:"createdAt"`
+	FinishedAt     *time.Time  `json:"finishedAt"`
+}
+
+// Finished reports whether the run has stopped changing.
+func (r TestRun) Finished() bool { return r.Status != "running" }
+
+// Upgrade is one deployment as an upgrade sees it.
+type Upgrade struct {
+	DeploymentID   string   `json:"deploymentId"`
+	IntegrationID  string   `json:"integrationId"`
+	Name           string   `json:"name"`
+	Status         string   `json:"status"`
+	Tag            string   `json:"tag"`
+	SnapshotID     string   `json:"snapshotId"`
+	RuntimeVersion string   `json:"runtimeVersion"`
+	UpgradeTo      string   `json:"upgradeTo"`
+	HasSuites      bool     `json:"hasSuites"`
+	Pinned         bool     `json:"pinned"`
+	LatestRunStale bool     `json:"latestRunStale"`
+	LatestRun      *TestRun `json:"latestRun"`
+}
+
+// Upgrades is every deployment as an upgrade sees it.
+type Upgrades struct {
+	RuntimeVersion string    `json:"runtimeVersion"`
+	Deployments    []Upgrade `json:"deployments"`
 }
