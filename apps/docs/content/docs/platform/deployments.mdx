@@ -230,6 +230,8 @@ A failed run shows its report, case by case; an errored or timed-out run shows w
 
 ![A failing test run on the Upgrades page](/screenshots/platform-upgrades-failure.png)
 
+From a terminal, `octopaas deployments outdated` lists them, `octopaas deployments test <deployment> --upgrade` tests and upgrades one, and `octopaas deployments upgrade <deployment>` upgrades one without testing. See [deployments](/reference/octopaas/deployments).
+
 `GET /upgrades` serves the same view: the runtime this install deploys and, per deployment, the release it runs, `upgradeTo`, `hasSuites` and its latest test run. A run older than the deployment's last deploy or rollout is flagged `latestRunStale`, because the version, env or tracing it tested may have changed since; the Upgrades page shows such a deployment as not tested since the last rollout.
 
 ### Pinning a runtime
