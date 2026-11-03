@@ -189,6 +189,8 @@ Two behaviours are explained in [Traces](/platform/traces#retention): a trace is
 
 `/platform/admin/health` reports rather than configures. It asks the orchestrator whether it can currently reach the five things this installation may run on:
 
+![Platform services: Postgres, Redis, NATS, Kubernetes and the embedding server, each reachable with its round-trip time](/screenshots/platform-admin-services.png)
+
 | Service | What stops working without it |
 | --- | --- |
 | Postgres | Everything. Integrations, deployments, stored logs and traces all live there. |
