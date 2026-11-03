@@ -1757,6 +1757,9 @@ flows:
               GET    /deployments/{id}                  status, reason, pods, restart counts
               PATCH  /deployments/{id}                  {"replicas":n}
               POST   /deployments/{id}/rollout          {"snapshotId","env","tracing"} — omitted keeps current
+              POST   /deployments/{id}/testruns         {"snapshotId","rolloutOnPass":bool} — run its suites on this install's runtime
+              GET    /deployments/{id}/testruns[/{runId}]  status: running|passed|failed|errored|timed_out, report
+              GET    /upgrades                          who runs an older runtime, has suites, last test run
               DELETE /deployments/{id}                  undeploy
               GET    /deployments/{id}/pods/{pod}/logs  LIVE output of a pod that still exists
 

@@ -150,8 +150,11 @@ version. Bumping the chart moves the images with it.
 The application Deployments roll automatically, the schema hook Job re-applies
 `sql/schema.sql` idempotently, and Postgres data is untouched: nothing in the
 chart can remove it, since the StatefulSet retains its claim on uninstall.
-Integrations keep running on the runtime image they were deployed with, so
-redeploy them from the editor to move them to the new `octo-runtime`. See
+Integrations keep running on the runtime image they were deployed with until
+they are rolled out again. The dashboard lists the deployments on an older
+runtime, and the **Upgrades** page runs each one's test suites on the new
+runtime and rolls it over when they pass. See
+[Moving to a new runtime](/platform/deployments#moving-to-a-new-runtime) and
 [Helm chart](/deploy/helm#upgrade).
 
 ### CLI

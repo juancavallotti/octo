@@ -109,6 +109,14 @@ It would make the tab and `dolphin test` disagree, and would let a "test" authen
 with your real credentials.
 </Callout>
 
+## Before a runtime upgrade
+
+On the platform, the orchestrator runs a deployment's suites for you against the
+runtime release the install deploys, with the deployment's env, and can roll the
+deployment over when they pass. The suites are the ones the tag froze, so tag a
+version after you add them. See
+[Moving to a new runtime](/platform/deployments#moving-to-a-new-runtime).
+
 ## In CI
 
 ```yaml title=".github/workflows/validate.yml"
