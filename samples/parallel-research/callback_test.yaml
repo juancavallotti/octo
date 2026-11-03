@@ -63,7 +63,7 @@ cases:
       vars:
         webhook-id: msg_stale_1
         webhook-timestamp: "1767225600"
-        webhook-signature: v1,ZMFQE/t5RwjrnZGLz+sItdZStfPyGwi54q5RwTqOjo8=
+        webhook-signature: v1,ihTo10niQQ2IqX3M1fIXfO7Qn4r/j7CrEGhrJhwSucU=
         rawBody: '{"timestamp":"2026-01-01T00:00:00Z","type":"task_run.status","data":{"run_id":"run_1","status":"completed","metadata":{"correlationId":"req-1"}}}'
     expect:
       error: invalid request signature
@@ -81,7 +81,7 @@ cases:
       vars:
         webhook-id: msg_stale_1
         webhook-timestamp: "1767225600"
-        webhook-signature: v1,ZMFQE/t5RwjrnZGLz+sItdZStfPyGwi54q5RwTqOjo8=
+        webhook-signature: v1,ihTo10niQQ2IqX3M1fIXfO7Qn4r/j7CrEGhrJhwSucU=
         rawBody: '{"timestamp":"2026-01-01T00:00:00Z","type":"task_run.status","data":{"run_id":"run_999","status":"completed"}}'
     expect:
       error: invalid request signature
