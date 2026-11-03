@@ -72,6 +72,16 @@ func (c *Connector) NewSource(
 	}, nil
 }
 
+// Capacity reports the listener count, which caps the flow's in-flight messages
+// because a handler holds its listener until the flow finishes.
+func (s *source) Capacity() core.Capacity {
+	limit := s.listeners
+	if limit <= 0 {
+		limit = core.DefaultListeners
+	}
+	return core.Capacity{Limit: limit, Setting: "listeners"}
+}
+
 // Start subscribes to the subject on the core queue service. The handler runs on
 // the queue's listener goroutines; Subscribe does not block.
 func (s *source) Start(ctx context.Context) error {

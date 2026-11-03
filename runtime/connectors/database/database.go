@@ -154,6 +154,8 @@ func orDefaultInt(v, def int) int {
 // is safe for concurrent use, matching the shared-connector contract.
 type Connector struct {
 	db *sql.DB
+	// maxOpen is the resolved pool cap, written by Start.
+	maxOpen int
 }
 
 // Start parses the settings, opens the pool, applies tuning, and verifies the
@@ -199,8 +201,14 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	}
 
 	c.db = db
+	c.maxOpen = maxOpen
 	slog.Info("database connector started", "connector", config.Name, "driver", set.Driver)
 	return nil
+}
+
+// Capacity reports the pool cap the connector's blocks share.
+func (c *Connector) Capacity() core.Capacity {
+	return core.Capacity{Limit: c.maxOpen, Setting: "maxOpenConns"}
 }
 
 // Stop closes the connection pool if one was opened.

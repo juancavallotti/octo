@@ -58,6 +58,9 @@ type boundFlow struct {
 	implicit bool
 	// sourceDesc is a human-readable description of the flow's source, for logs.
 	sourceDesc string
+	// capacity lists the components the flow drives that cap its concurrency on
+	// their own, checked against workers when the flow starts.
+	capacity []capacityBound
 	// ctx is the flow's own context, captured at start. Resumed tails run under it
 	// (with cancellation stripped) so they carry the runtime services and are not
 	// tied to the lifetime of whichever message scheduled them.

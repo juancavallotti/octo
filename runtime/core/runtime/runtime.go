@@ -504,18 +504,16 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		return nil, err
 	}
 
-	sourceDesc := "implicit"
+	sourceDesc := describeSource(cfg.Source, implicit)
+
+	capacity := newCapacityCheck()
 	if !implicit {
-		if cfg.Source.Connector != "" {
-			sourceDesc = fmt.Sprintf("%s via connector %q", cfg.Source.Type, cfg.Source.Connector)
-		} else {
-			sourceDesc = fmt.Sprintf("%s via default connector", cfg.Source.Type)
-		}
+		capacity.add(cfg.Source.Type+" source", source)
 	}
 
 	p := pool.New(cfg.Pool, 0)
 	deps := core.BlockDeps{
-		Connector:  set.lookup,
+		Connector:  capacity.lookup(set.lookup),
 		Flows:      s.flows,
 		Env:        s.config.ResolvedEnv,
 		Services:   s.services,
@@ -552,10 +550,23 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 		pool:           p,
 		implicit:       implicit,
 		sourceDesc:     sourceDesc,
+		capacity:       capacity.bounds,
 	}
 
 	bf.installResume()
 	return bf, nil
+}
+
+// describeSource is a human-readable description of a flow's source, for logs.
+func describeSource(src *types.SourceConfig, implicit bool) string {
+	switch {
+	case implicit:
+		return "implicit"
+	case src.Connector != "":
+		return fmt.Sprintf("%s via connector %q", src.Type, src.Connector)
+	default:
+		return src.Type + " via default connector"
+	}
 }
 
 // installResume hands each root chain the hook its continuations resume through.
@@ -626,6 +637,7 @@ func (s *Service) startFlows(ctx context.Context, flows []*boundFlow) ([]*boundF
 	for _, flow := range orderForStart(flows) {
 		slog.Info("starting flow", "flow", flow.name, "workers", flow.workers,
 			"workersOrigin", workersOrigin(flow.workersDerived), "source", flow.sourceDesc)
+		flow.warnCapacity()
 		if err := flow.start(ctx); err != nil {
 			return started, fmt.Errorf("start flow %q: %w", flow.name, err)
 		}
