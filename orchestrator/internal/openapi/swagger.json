@@ -605,6 +605,23 @@
                 },
                 "type": "object"
             },
+            "deployment.runtimesResponse": {
+                "properties": {
+                    "current": {
+                        "description": "Current is the runtime release this install deploys; empty when it cannot say.",
+                        "type": "string"
+                    },
+                    "versions": {
+                        "description": "Versions are the releases a deployment can be pinned to, newest first: the\ncurrent one and every one a deployment runs now.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "deployment.scaleRequest": {
                 "properties": {
                     "replicas": {
@@ -1475,6 +1492,10 @@
                     },
                     "name": {
                         "type": "string"
+                    },
+                    "pinned": {
+                        "description": "Pinned says the deployment is pinned to its runtime release, so it is\nupgraded only by changing its runtime, never on a passing test run.",
+                        "type": "boolean"
                     },
                     "runtimeVersion": {
                         "description": "RuntimeVersion is the runtime release the deployment's pods run.",
@@ -3277,7 +3298,7 @@
                                 }
                             }
                         },
-                        "description": "the version has no test suites"
+                        "description": "the version has no test suites, or rolloutOnPass on a pinned deployment"
                     },
                     "503": {
                         "content": {
@@ -6325,6 +6346,37 @@
                 "summary": "The route index",
                 "tags": [
                     "openapi"
+                ]
+            }
+        },
+        "/runtimes": {
+            "get": {
+                "description": "The release this install deploys, and every release a deployment runs now, newest\nfirst. Pin one with runtimeVersion on a deploy or rollout; \"latest\" follows the install.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/deployment.runtimesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the runtime releases a deployment can be pinned to",
+                "tags": [
+                    "deployments"
                 ]
             }
         },

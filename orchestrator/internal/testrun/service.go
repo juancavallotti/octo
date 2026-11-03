@@ -122,6 +122,9 @@ func (s *Service) Start(ctx context.Context, id, snapshotID string, rolloutOnPas
 	if err != nil {
 		return Run{}, err
 	}
+	if rolloutOnPass && plan.RuntimePin != "" {
+		return Run{}, ErrPinned
+	}
 	files := make(map[string]string, len(plan.Resources))
 	var suites []string
 	for _, res := range plan.Resources {

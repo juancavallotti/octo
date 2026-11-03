@@ -29,6 +29,8 @@ type Upgrade struct {
 	// LatestRunStale says the deployment was deployed or rolled out after that
 	// run, so its version, env or tracing may no longer be what the run tested.
 	LatestRunStale bool
+	// Pinned says the deployment is pinned to its runtime release.
+	Pinned bool
 }
 
 // Upgrades is every deployment on the installation as an upgrade sees it, and
@@ -54,6 +56,7 @@ func (s *Service) Upgrades(ctx context.Context) (string, []Upgrade, error) {
 			Tag:            meta.Tag,
 			SnapshotID:     settings.SnapshotID,
 			RuntimeVersion: version,
+			Pinned:         settings.RuntimeVersion != "",
 		}
 		if runtimeversion.Behind(version, current) {
 			u.UpgradeTo = current

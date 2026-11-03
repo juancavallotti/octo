@@ -14,4 +14,7 @@ var (
 	// different release from the one a rollout would install, so a pass would
 	// say nothing about the runtime it authorizes.
 	ErrRuntimeMismatch = errors.New("the test image and the deployed runtime are different releases")
+	// ErrPinned is returned when a run asks to roll out a deployment pinned to a
+	// runtime release: a pinned deployment moves only when someone changes its pin.
+	ErrPinned = errors.New("the deployment is pinned to a runtime release")
 )

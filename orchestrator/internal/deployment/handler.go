@@ -47,6 +47,41 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /deployments/{id}", h.scale)
 	mux.HandleFunc("POST /deployments/{id}/rollout", h.rollout)
 	mux.HandleFunc("DELETE /deployments/{id}", h.undeploy)
+	mux.HandleFunc("GET /runtimes", h.runtimes)
+}
+
+// runtimesResponse is what a deployment can be pinned to.
+type runtimesResponse struct {
+	// Current is the runtime release this install deploys; empty when it cannot say.
+	Current string `json:"current,omitempty"`
+	// Versions are the releases a deployment can be pinned to, newest first: the
+	// current one and every one a deployment runs now.
+	Versions []string `json:"versions"`
+}
+
+// runtimes godoc
+//
+//	@Summary		List the runtime releases a deployment can be pinned to
+//	@Description	The release this install deploys, and every release a deployment runs now, newest
+//	@Description	first. Pin one with runtimeVersion on a deploy or rollout; "latest" follows the install.
+//	@Tags			deployments
+//	@Produce		json
+//	@Success		200	{object}	runtimesResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/runtimes [get]
+func (h *Handler) runtimes(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	current, versions, err := h.svc.Runtimes(ctx)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	if versions == nil {
+		versions = []string{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, runtimesResponse{Current: current, Versions: versions})
 }
 
 // podResponse is the wire representation of one runtime pod.

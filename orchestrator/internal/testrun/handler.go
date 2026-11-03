@@ -103,7 +103,7 @@ type startRequest struct {
 //	@Failure		400		{object}	httpx.ErrorResponse
 //	@Failure		404		{object}	httpx.ErrorResponse
 //	@Failure		409		{object}	httpx.ErrorResponse	"the test image is another release than the deployed runtime"
-//	@Failure		422		{object}	httpx.ErrorResponse	"the version has no test suites"
+//	@Failure		422		{object}	httpx.ErrorResponse	"the version has no test suites, or rolloutOnPass on a pinned deployment"
 //	@Failure		503		{object}	httpx.ErrorResponse	"this install cannot run tests"
 //	@Router			/deployments/{id}/testruns [post]
 func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +187,9 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusServiceUnavailable, "test runs are not available on this installation")
 	case errors.Is(err, ErrRuntimeMismatch):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrPinned):
+		httpx.WriteError(w, http.StatusUnprocessableEntity,
+			"the deployment is pinned to a runtime release; change its runtime to upgrade it")
 	case errors.Is(err, ErrNoSuites):
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "this version of the integration has no test suites")
 	case errors.Is(err, kube.ErrTestBundleTooLarge):
@@ -220,6 +223,9 @@ type upgradeResponse struct {
 	UpgradeTo string `json:"upgradeTo,omitempty"`
 	// HasSuites says whether the version it runs has test suites to run.
 	HasSuites bool `json:"hasSuites"`
+	// Pinned says the deployment is pinned to its runtime release, so it is
+	// upgraded only by changing its runtime, never on a passing test run.
+	Pinned bool `json:"pinned,omitempty"`
 	// LatestRun is its most recent test run; absent when it has none.
 	LatestRun *runResponse `json:"latestRun,omitempty"`
 	// LatestRunStale says the deployment was deployed or rolled out after that
@@ -268,6 +274,7 @@ func (h *Handler) upgrades(w http.ResponseWriter, r *http.Request) {
 			UpgradeTo:      u.UpgradeTo,
 			HasSuites:      u.HasSuites,
 			LatestRunStale: u.LatestRunStale,
+			Pinned:         u.Pinned,
 		}
 		if u.LatestRun != nil {
 			run := toResponse(*u.LatestRun)

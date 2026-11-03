@@ -414,3 +414,32 @@ func TestIsStale(t *testing.T) {
 		}
 	}
 }
+
+func TestStartRefusesToRollOutAPinnedDeployment(t *testing.T) {
+	p := plan(suite("orders_test.yaml"))
+	p.RuntimePin = "0.11.13"
+	cl := &fakeCluster{}
+	svc := NewService(newFakeRepo(), &fakeDeployments{plan: p}, nil, cl)
+
+	if _, err := svc.Start(context.Background(), "dep-1", "", true, "u"); !errors.Is(err, ErrPinned) {
+		t.Fatalf("err = %v, want ErrPinned", err)
+	}
+	if len(cl.applied) != 0 {
+		t.Error("a Job was started for a refused run")
+	}
+}
+
+func TestUpgradesReportsAPinnedDeploymentBehind(t *testing.T) {
+	meta, _ := json.Marshal(deployment.Metadata{Name: "pinned", RuntimeVersion: "0.11.13"})
+	settings, _ := json.Marshal(deployment.Settings{SnapshotID: "s1", RuntimeVersion: "0.11.13"})
+	deps := &fakeDeployments{all: []deployment.Deployment{{ID: "p", Metadata: meta, Settings: settings}}}
+	svc := NewService(newFakeRepo(), deps, fakeSnapshots{}, &fakeCluster{})
+
+	_, got, err := svc.Upgrades(context.Background())
+	if err != nil {
+		t.Fatalf("Upgrades: %v", err)
+	}
+	if !got[0].Pinned || got[0].UpgradeTo != "0.11.14" {
+		t.Errorf("upgrade = %+v, want pinned and behind 0.11.14", got[0])
+	}
+}

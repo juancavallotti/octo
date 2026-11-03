@@ -20,6 +20,9 @@ type TestPlan struct {
 	Resources []snapshot.Resource
 	Env       map[string]string
 	SecretEnv map[string]string
+	// RuntimePin is the release the deployment is pinned to, "" when it follows
+	// the install.
+	RuntimePin string
 }
 
 // TestPlan resolves what testing deployment id against snapshotID needs. An
@@ -64,5 +67,6 @@ func (s *Service) TestPlan(ctx context.Context, id, snapshotID string) (TestPlan
 		Resources:     resources,
 		Env:           literal,
 		SecretEnv:     secret,
+		RuntimePin:    settings.RuntimeVersion,
 	}, nil
 }
