@@ -184,7 +184,7 @@ func TestStandardRunnerPodIsUnchanged(t *testing.T) {
 // image name that is empty.
 func TestAgenticRunnerFallsBackWhenUnconfigured(t *testing.T) {
 	c := testClientFor(testConfig("octo.example.com"))
-	if got := c.RunnerImage(RunnerAgentic); got != "octo-runtime:dev" {
+	if got := c.RunnerImage(RunnerAgentic, ""); got != "octo-runtime:dev" {
 		t.Errorf("unconfigured agentic image = %q, want the standard runtime", got)
 	}
 }
@@ -229,5 +229,19 @@ func TestValidateRejectsAnUnparseableWorkspaceSize(t *testing.T) {
 	cfg.AgenticRunnerWorkspaceSize = "100 megabytes"
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate accepted a workspace size that is not a quantity")
+	}
+}
+
+// TestRunnerImagePin covers a pinned deployment: the image the runner resolves to,
+// at the pinned release.
+func TestRunnerImagePin(t *testing.T) {
+	cfg := testConfig("octo.example.com")
+	cfg.AgenticRunnerImage = "octo-agenticrunner:dev"
+	c := testClientFor(cfg)
+	if got := c.RunnerImage(RunnerStandard, "0.11.13"); got != "octo-runtime:0.11.13" {
+		t.Errorf("standard pinned = %q", got)
+	}
+	if got := c.RunnerImage(RunnerAgentic, "0.11.13"); got != "octo-agenticrunner:0.11.13" {
+		t.Errorf("agentic pinned = %q", got)
 	}
 }

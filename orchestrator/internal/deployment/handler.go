@@ -100,6 +100,9 @@ type deploymentResponse struct {
 	// UpgradeTo is the runtime release a rollout would move this deployment onto,
 	// present only when that release is newer than the one it runs.
 	UpgradeTo string `json:"upgradeTo,omitempty"`
+	// RuntimePin is the runtime release the deployment is pinned to; absent when it
+	// follows the install.
+	RuntimePin string `json:"runtimePin,omitempty"`
 	// Access is what this deployment's own token opens on the platform beyond its
 	// own stores, and Runner which image its pods are. Both are reported because
 	// both are things a reader of a deployment has to be able to see without
@@ -136,6 +139,7 @@ func toResponse(d Deployment, current string) deploymentResponse {
 		Tracing:         settings.Tracing,
 		Access:          settings.Access,
 		Runner:          settings.Runner,
+		RuntimePin:      settings.RuntimeVersion,
 	}
 	resp.RuntimeImage, resp.RuntimeVersion = d.Runtime()
 	if runtimeversion.Behind(resp.RuntimeVersion, current) {
@@ -420,6 +424,9 @@ type rolloutRequest struct {
 	SnapshotID string                `json:"snapshotId"`
 	Env        map[string]EnvBinding `json:"env"`
 	Tracing    *bool                 `json:"tracing"`
+	// RuntimeVersion pins the deployment to a runtime release, or "latest" to
+	// follow the install; omitted keeps the deployment's setting.
+	RuntimeVersion *string `json:"runtimeVersion"`
 }
 
 // rollout godoc
@@ -451,7 +458,9 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 	}
 	// nil: a rollout over the API is a version bump, and the runner is a property of
 	// the workload rather than of the version being shipped. Changing it is a redeploy.
-	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env, req.Tracing, nil)
+	d, err := h.svc.Rollout(ctx, r.PathValue("id"), RolloutChange{
+		SnapshotID: req.SnapshotID, Env: req.Env, Tracing: req.Tracing, Runtime: req.RuntimeVersion,
+	})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -497,6 +506,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, "external endpoints are not configured")
 	case errors.Is(err, ErrRunnerUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "the requested runner is not configured on this installation")
+	case errors.Is(err, ErrInvalidRuntimeVersion):
+		httpx.WriteError(w, http.StatusBadRequest, `runtimeVersion must be a release such as 0.11.14, or "latest"`)
 	case errors.Is(err, ErrInvalidRunner):
 		httpx.WriteError(w, http.StatusBadRequest, "unknown runner")
 	case errors.Is(err, ErrInvalidSubdomain):

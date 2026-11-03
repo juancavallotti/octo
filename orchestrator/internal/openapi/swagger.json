@@ -397,6 +397,10 @@
                         "description": "Runner selects the image this deployment's pods run. Empty and \"standard\"\nare the generic octo-runtime: distroless, one static binary, no shell and\nnothing writable, which is what almost every integration wants.\n\n\"agentic\" additionally carries a shell, curl, jq, the standalone octo CLI,\ndolphin and a scratch workspace at /workspace. It is for an integration built to\ndrive the platform rather than serve it — one whose flows run local commands,\ninvoke other flows, or execute a test suite.\n\nIt is a privileged choice rather than a bigger one: a pod with a shell and a\nruntime it can point at a definition it just wrote is a general execution\nenvironment, so the boundary it offers is the pod, not the `cli-run` allow list\ninside it. Do not grant it to a definition you do not trust.",
                         "type": "string"
                     },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion pins the deployment to a runtime release, so rollouts keep it\nthere rather than moving it onto whatever the install deploys now. Empty, or\n\"latest\" on input, follows the install.",
+                        "type": "string"
+                    },
                     "slug": {
                         "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique across\ndeployments; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
                         "type": "string"
@@ -514,6 +518,10 @@
                         "description": "RuntimeImage is the octo runtime image the pods are actually running, and\nRuntimeVersion its tag on its own — which runtime a misbehaving deployment is\non is the first thing asked when troubleshooting one, and a deployment that\nwas never rolled over keeps running whatever image it was created with.\nOmitted when the cluster reports no image (an undeployed or unreachable\nworkload).",
                         "type": "string"
                     },
+                    "runtimePin": {
+                        "description": "RuntimePin is the runtime release the deployment is pinned to; absent when it\nfollows the install.",
+                        "type": "string"
+                    },
                     "runtimeVersion": {
                         "type": "string"
                     },
@@ -583,6 +591,10 @@
                             "$ref": "#/components/schemas/deployment.EnvBinding"
                         },
                         "type": "object"
+                    },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion pins the deployment to a runtime release, or \"latest\" to\nfollow the install; omitted keeps the deployment's setting.",
+                        "type": "string"
                     },
                     "snapshotId": {
                         "type": "string"

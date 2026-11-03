@@ -86,6 +86,26 @@ type Settings struct {
 	// ships that snapshot's frozen definition rather than the live one. Input only —
 	// the resolved snapshot id/tag are recorded in Metadata.
 	SnapshotID string `json:"snapshotId,omitempty"`
+	// RuntimeVersion pins the deployment to a runtime release, so rollouts keep it
+	// there rather than moving it onto whatever the install deploys now. Empty, or
+	// "latest" on input, follows the install.
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+}
+
+// RuntimeLatest is the runtime a deployment asks for to follow the install
+// rather than stay pinned to a release.
+const RuntimeLatest = "latest"
+
+// RolloutChange is what a rollout changes about a deployment. A nil field keeps
+// the deployment's stored value; SnapshotID is the version to roll onto.
+type RolloutChange struct {
+	SnapshotID string
+	// Env replaces the stored bindings wholesale, even when empty.
+	Env     map[string]EnvBinding
+	Tracing *bool
+	Runner  *string
+	// Runtime pins the deployment to a release, or "latest" to follow the install.
+	Runtime *string
 }
 
 // EnvBinding is how one declared environment variable is filled at deploy time:

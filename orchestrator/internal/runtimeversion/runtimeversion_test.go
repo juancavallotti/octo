@@ -68,3 +68,31 @@ func TestBehind(t *testing.T) {
 		}
 	}
 }
+
+func TestWithTag(t *testing.T) {
+	cases := []struct {
+		image, tag, want string
+	}{
+		{"octo-runtime:0.11.14", "0.11.13", "octo-runtime:0.11.13"},
+		{"ghcr.io/juancavallotti/octo-runtime:0.11.14", "0.11.13", "ghcr.io/juancavallotti/octo-runtime:0.11.13"},
+		{"registry:5000/octo/runtime:dev", "0.11.13", "registry:5000/octo/runtime:0.11.13"},
+		{"registry:5000/octo/runtime", "0.11.13", "registry:5000/octo/runtime:0.11.13"},
+		{"reg/octo-runtime@sha256:abcd", "0.11.13", "reg/octo-runtime:0.11.13"},
+		{"reg/octo-runtime:0.11.14@sha256:abcd", "0.11.13", "reg/octo-runtime:0.11.13"},
+	}
+	for _, tc := range cases {
+		if got := WithTag(tc.image, tc.tag); got != tc.want {
+			t.Errorf("WithTag(%q, %q) = %q, want %q", tc.image, tc.tag, got, tc.want)
+		}
+	}
+}
+
+func TestIsRelease(t *testing.T) {
+	for tag, want := range map[string]bool{
+		"0.11.13": true, "v1.2": true, "latest": false, "dev": false, "0.11.13-rc1": false, "": false,
+	} {
+		if got := IsRelease(tag); got != want {
+			t.Errorf("IsRelease(%q) = %v, want %v", tag, got, want)
+		}
+	}
+}

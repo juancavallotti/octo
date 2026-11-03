@@ -103,12 +103,12 @@ func (f *fakeDeployments) TestPlan(context.Context, string, string) (deployment.
 }
 
 func (f *fakeDeployments) Rollout(
-	_ context.Context, _, snapshotID string, _ map[string]deployment.EnvBinding, _ *bool, _ *string,
+	_ context.Context, _ string, change deployment.RolloutChange,
 ) (deployment.Deployment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rollouts++
-	f.rolloutTo = snapshotID
+	f.rolloutTo = change.SnapshotID
 	return deployment.Deployment{}, nil
 }
 

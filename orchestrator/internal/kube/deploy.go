@@ -132,6 +132,9 @@ type Spec struct {
 	// Runner selects the image these pods run. The zero value is RunnerStandard, so
 	// a deployment written before runners existed keeps exactly the pod it had.
 	Runner Runner
+	// RuntimePin runs the pods on this runtime release instead of the one the
+	// install deploys. Empty follows the install.
+	RuntimePin string
 	// Token is the platform token this deployment presents to the orchestrator,
 	// mounted as a Secret. Empty mounts nothing and injects nothing, which is what
 	// an install with no iam configured gets.
@@ -380,7 +383,7 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 					InitContainers: c.statsSidecarContainers(spec),
 					Containers: []corev1.Container{{
 						Name:            "runtime",
-						Image:           c.RunnerImage(spec.Runner),
+						Image:           c.RunnerImage(spec.Runner, spec.RuntimePin),
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Env:             c.podEnv(spec),
 						Ports:           ports,

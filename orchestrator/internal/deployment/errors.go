@@ -22,6 +22,9 @@ var (
 	// standard runner would produce a healthy pod whose every command fails with
 	// "not found", which reads as a broken flow rather than a missing setting.
 	ErrRunnerUnavailable = errors.New("requested runner is not configured on this installation")
+	// ErrInvalidRuntimeVersion is returned when a deployment asks to be pinned to
+	// something that is not a runtime release.
+	ErrInvalidRuntimeVersion = errors.New("invalid runtime version")
 	// ErrInvalidRunner is returned when a deployment names a runner that does not
 	// exist at all (a typo, rather than one that is merely unconfigured).
 	ErrInvalidRunner = errors.New("unknown runner")

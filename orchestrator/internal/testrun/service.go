@@ -44,9 +44,7 @@ type repository interface {
 // *deployment.Service satisfies it.
 type deployments interface {
 	TestPlan(ctx context.Context, id, snapshotID string) (deployment.TestPlan, error)
-	Rollout(
-		ctx context.Context, id, snapshotID string, env map[string]deployment.EnvBinding, tracing *bool, runner *string,
-	) (deployment.Deployment, error)
+	Rollout(ctx context.Context, id string, change deployment.RolloutChange) (deployment.Deployment, error)
 	CurrentRuntime() string
 	List(ctx context.Context) ([]deployment.Deployment, error)
 	Get(ctx context.Context, id string) (deployment.Deployment, error)
@@ -311,7 +309,7 @@ func (s *Service) rollout(ctx context.Context, run Run, canRollout bool) {
 			"while the run was going, so what passed is not what it runs. Test it again."
 	default:
 		rctx, cancel := context.WithTimeout(ctx, rolloutTimeout)
-		dep, err := s.deployments.Rollout(rctx, run.DeploymentID, run.SnapshotID, nil, nil, nil)
+		dep, err := s.deployments.Rollout(rctx, run.DeploymentID, deployment.RolloutChange{SnapshotID: run.SnapshotID})
 		cancel()
 		if err != nil {
 			msg = "the suites passed, but the rollout failed: " + err.Error()

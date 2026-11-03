@@ -72,6 +72,26 @@ func Behind(deployed, current string) bool {
 	return false
 }
 
+// IsRelease reports whether tag is a dotted release number, the only kind of
+// runtime a deployment can be pinned to.
+func IsRelease(tag string) bool {
+	return release(tag) != nil
+}
+
+// WithTag is image with its tag (or digest) replaced by tag: the same runtime
+// repository, at another release.
+func WithTag(image, tag string) string {
+	name := image
+	if i := strings.Index(name, "@"); i >= 0 {
+		name = name[:i]
+	}
+	slash := strings.LastIndex(name, "/")
+	if i := strings.LastIndex(name, ":"); i > slash {
+		name = name[:i]
+	}
+	return name + ":" + tag
+}
+
 // releasePattern is a dotted release number with an optional leading `v`.
 // Anything after the numbers — `-rc1`, `+build` — fails the match, since ordering
 // prereleases from a tag alone is a judgement this package does not make.
