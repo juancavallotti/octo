@@ -1,14 +1,3 @@
-import type { Data } from "./managerData";
-
-/**
- * How many integrations have something deployed. Counted over the integration
- * list rather than the deployed set, so an id left behind by an integration
- * deleted between two reads cannot inflate it.
- */
-export function runningCountOf(data: Data): number {
-  return data.integrations.filter((i) => data.deployed.has(i.id)).length;
-}
-
 /** One folder in the flattened tree the detail pane is given. */
 export interface FlatFolder {
   id: string;

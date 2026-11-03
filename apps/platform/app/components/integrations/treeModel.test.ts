@@ -35,14 +35,21 @@ const data: Data = {
 
 const label = (rows: TreeRow[]) =>
   rows.map((r) =>
-    r.kind === "folder"
-      ? `${"  ".repeat(r.folder.depth)}[${r.folder.id}]`
-      : `${"  ".repeat(r.depth)}${r.integration.id}`,
+    r.kind === "smart"
+      ? `<${r.id}> ${r.count}`
+      : r.kind === "folder"
+        ? `${"  ".repeat(r.folder.depth)}[${r.folder.id}]`
+        : `${"  ".repeat(r.depth)}${r.integration.id}`,
   );
+
+// Both smart folders closed, so the cases below are about the real tree.
+const smartClosed = ["smart:running", "smart:all"];
 
 describe("treeRows", () => {
   it("nests subfolders before a folder's own integrations, and leaves the unfiled at the top", () => {
-    expect(label(treeRows(data, "all", new Set()))).toEqual([
+    expect(label(treeRows(data, new Set(smartClosed)))).toEqual([
+      "<running> 2",
+      "<all> 4",
       "[ops]",
       "  [alerts]",
       "    b",
@@ -54,32 +61,45 @@ describe("treeRows", () => {
   });
 
   it("hides everything beneath a collapsed folder", () => {
-    expect(label(treeRows(data, "all", new Set(["ops"])))).toEqual([
+    expect(label(treeRows(data, new Set([...smartClosed, "ops"])))).toEqual([
+      "<running> 2",
+      "<all> 4",
       "[ops]",
       "[empty]",
       "d",
     ]);
   });
 
-  // Running cuts across filing, so it keeps a folder only for the deployed
-  // integrations somewhere beneath it — an empty folder is noise there.
-  it("keeps only deployed integrations and the folders leading to them under Running", () => {
-    expect(label(treeRows(data, "running", new Set()))).toEqual([
-      "[ops]",
-      "  [alerts]",
-      "    a",
-      "d",
-    ]);
+  // A smart folder's contents are computed, not filed: Running lists every
+  // deployed integration flat, wherever it is filed, and the real tree still
+  // shows each one where it lives.
+  it("lists a smart folder's integrations flat, beside the real tree", () => {
+    const rows = treeRows(data, new Set(["smart:all", "ops", "empty"]));
+    expect(label(rows)).toEqual(["<running> 2", "  a", "  d", "<all> 4", "[ops]", "[empty]", "d"]);
+    // The copies are their own rows, and say they are computed.
+    const copies = rows.flatMap((r) => (r.kind === "integration" && r.computed ? [r.rowId] : []));
+    expect(copies).toEqual(["smart:running:integration:a", "smart:running:integration:d"]);
   });
 
   it("counts a folder's own integrations and says whether it can expand", () => {
-    const rows = treeRows(data, "all", new Set());
+    const rows = treeRows(data, new Set(smartClosed));
     const folders = Object.fromEntries(
       rows.flatMap((r) => (r.kind === "folder" ? [[r.folder.id, r]] : [])),
     );
     expect(folders.ops).toMatchObject({ count: 1, expandable: true });
     expect(folders.alerts).toMatchObject({ count: 2, expandable: true });
     expect(folders.empty).toMatchObject({ count: 0, expandable: false });
+  });
+
+  // A match inside a closed folder would otherwise be found and not shown.
+  it("searches names, keeping only the folders that lead to a match and opening them", () => {
+    expect(label(treeRows(data, new Set([...smartClosed, "ops", "alerts"]), "A"))).toEqual([
+      "<running> 1",
+      "<all> 1",
+      "[ops]",
+      "  [alerts]",
+      "    a",
+    ]);
   });
 });
 

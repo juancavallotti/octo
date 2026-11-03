@@ -16,13 +16,6 @@ export function flatten(folders: Folder[], depth = 0): FlatFolder[] {
   ]);
 }
 
-/**
- * Which integrations the tree shows: all of them, or only those with something
- * deployed. Running is derived rather than filed, so it narrows the tree rather
- * than being a place anything can be dragged.
- */
-export type Filter = "all" | "running";
-
 /** What a drag source carries (set as the draggable's `data`). */
 export type DragData =
   | { kind: "integration"; id: string; name: string }

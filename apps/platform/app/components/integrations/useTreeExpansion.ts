@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { smartKey } from "./treeModel";
 
 /** localStorage key holding the ids of collapsed folders (so new folders default open). */
 const COLLAPSED_KEY = "octo.folderTree.collapsed";
 
 /**
- * Which folders of the tree are collapsed, remembered per viewer.
+ * Which folders of the tree — smart folders included — are collapsed,
+ * remembered per viewer.
  *
  * Collapsed ids are stored rather than expanded ones so a folder created later
  * starts open. When the selection changes to an integration inside collapsed
@@ -17,7 +19,11 @@ export function useTreeExpansion(
   /** The selected integration's folders, innermost first, once they are known. */
   selection: { id: string; ancestors: string[] } | null,
 ) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // All integrations repeats the whole tree, so it starts closed; everything
+  // else starts open.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    () => new Set([smartKey("all")]),
+  );
   const [revealed, setRevealed] = useState<string | null>(null);
 
   useEffect(() => {

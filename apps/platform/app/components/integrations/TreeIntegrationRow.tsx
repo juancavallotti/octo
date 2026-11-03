@@ -8,21 +8,27 @@ import { iconForIntegration } from "./sourceIcon";
 import { treeIndent } from "./FolderRow";
 
 /**
- * One integration in the tree. It is a drag source, and a drop target meaning
- * "where this one is": beside it in its folder, or into its folder, or to the top
- * level. A plain click selects it (a small pointer activation distance keeps
+ * One integration in the tree. It is a drag source and, where it is filed, a
+ * drop target meaning "where this one is": beside it in its folder, or into its
+ * folder, or to the top level. A smart folder's copy is not a drop target: where
+ * it sits says nothing about where anything goes. A plain click selects it (a small pointer activation distance keeps
  * clicks and drags distinct).
  */
 export default function TreeIntegrationRow({
+  rowId,
   integration: i,
   depth,
   running,
+  computed,
   selected,
   onSelect,
 }: {
+  rowId: string;
   integration: Integration;
   depth: number;
   running: boolean;
+  /** Listed by a smart folder: draggable out, but no place to drop onto. */
+  computed: boolean;
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
@@ -36,8 +42,9 @@ export default function TreeIntegrationRow({
     [i.icon, i.definition],
   );
   const { attributes, listeners, setNodeRef, isDragging, isOver } = useSortable({
-    id: `integration:${i.id}`,
+    id: rowId,
     data,
+    disabled: { droppable: computed },
   });
 
   return (

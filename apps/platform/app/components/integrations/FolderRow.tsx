@@ -5,16 +5,17 @@ import { useSortable } from "@dnd-kit/sortable";
 import {
   ChevronRight,
   Folder as FolderIcon,
-  FolderOpen,
   FolderPlus,
+  Layers,
   Pencil,
+  Rocket,
   Trash2,
 } from "lucide-react";
 import { type DragData, type FlatFolder } from "./model";
 
 /**
- * The folder rows of the integrations tree, and the top-level drop zone beneath
- * them.
+ * The folder rows of the integrations tree — smart and real — and the top-level
+ * drop zone beneath them.
  */
 
 /** How far a row at `depth` is indented, shared so folders and integrations line up. */
@@ -82,7 +83,6 @@ export function FolderRow({
     );
   }
 
-  const Icon = expanded && expandable ? FolderOpen : FolderIcon;
   return (
     <li ref={setNodeRef} className="group/row relative">
       <button
@@ -105,7 +105,7 @@ export function FolderRow({
         ) : (
           <span className="h-[13px] w-[13px] shrink-0" aria-hidden />
         )}
-        <Icon size={15} className="ml-0.5 shrink-0 text-zinc-400" />
+        <FolderIcon size={15} className="ml-0.5 shrink-0 text-zinc-400" />
         <span className="ml-1 min-w-0 flex-1 truncate font-medium">{f.name}</span>
         <span className="text-xs text-zinc-400">{count}</span>
       </button>
@@ -120,6 +120,49 @@ export function FolderRow({
           <Trash2 size={13} />
         </RowAction>
       </div>
+    </li>
+  );
+}
+
+/**
+ * A smart folder: its contents are computed, so it opens and closes like a
+ * folder but is not a drop target — nothing can be put into "Running".
+ */
+export function SmartFolderRow({
+  id,
+  label,
+  title,
+  expanded,
+  count,
+  onToggle,
+}: {
+  id: "running" | "all";
+  label: string;
+  title: string;
+  expanded: boolean;
+  count: number;
+  onToggle: () => void;
+}) {
+  const Icon = id === "running" ? Rocket : Layers;
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        title={title}
+        style={{ paddingLeft: treeIndent(0) }}
+        className="flex w-full items-center gap-1 py-1.5 pr-3 text-left text-sm hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+      >
+        <ChevronRight
+          size={13}
+          aria-hidden
+          className={`shrink-0 text-zinc-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
+        <Icon size={15} className="ml-0.5 shrink-0 text-zinc-400" />
+        <span className="ml-1 min-w-0 flex-1 truncate">{label}</span>
+        <span className="text-xs text-zinc-400">{count}</span>
+      </button>
     </li>
   );
 }

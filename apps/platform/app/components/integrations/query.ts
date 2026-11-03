@@ -1,24 +1,17 @@
 /**
- * URL <-> selection serialization for the integrations manager, so the tree's
- * filter and the selected integration live in the path (not the query string) and
- * are bookmarkable — e.g. a dashboard tile's "Manage" or the editor's
- * "Integrations" button deep-links straight to one. Kept out of the component.
+ * URL <-> selection serialization for the integrations manager, so the selected
+ * integration lives in the path (not the query string) and is bookmarkable — e.g.
+ * a dashboard tile's "Manage" or the editor's "Integrations" button deep-links
+ * straight to one. Kept out of the component.
  *
- * The path after `/platform/integrations` encodes two independent dimensions:
- *   - the filter: nothing (the default "all") or `running`
- *   - the selected integration: nothing, or `i/<integrationId>`
- * so e.g. `/platform/integrations/running/i/<integrationId>` opens an integration
- * with the tree narrowed to what is deployed.
+ * The path after `/platform/integrations` is nothing, or `i/<integrationId>`.
  */
-
-import type { Filter } from "./model";
 
 /** The route prefix the manager's selection path hangs off. */
 export const INTEGRATIONS_BASE = "/platform/integrations";
 
 export interface ManagerSelection {
   selectedId: string | null;
-  filter: Filter;
 }
 
 /** Parse a full pathname (e.g. from usePathname) into a selection. Segments after
@@ -33,20 +26,14 @@ export function parsePathname(pathname: string): ManagerSelection {
 
 /** Parse the catch-all route segments into a selection. */
 export function readSelection(segments: string[]): ManagerSelection {
-  const running = segments[0] === "running";
-  const rest = running ? segments.slice(1) : segments;
-  const selectedId = rest[0] === "i" && rest[1] ? rest[1] : null;
-  return { selectedId, filter: running ? "running" : "all" };
+  return { selectedId: segments[0] === "i" && segments[1] ? segments[1] : null };
 }
 
 /**
  * Serialize a selection into the path suffix (after INTEGRATIONS_BASE), including a
- * leading slash, or "" for the default (all, nothing selected) so the URL stays
- * clean. Segments are encoded for safe use in a path.
+ * leading slash, or "" when nothing is selected so the URL stays clean. Segments
+ * are encoded for safe use in a path.
  */
 export function buildPath(sel: ManagerSelection): string {
-  const segs: string[] = [];
-  if (sel.filter === "running") segs.push("running");
-  if (sel.selectedId) segs.push("i", sel.selectedId);
-  return segs.length ? `/${segs.map(encodeURIComponent).join("/")}` : "";
+  return sel.selectedId ? `/i/${encodeURIComponent(sel.selectedId)}` : "";
 }

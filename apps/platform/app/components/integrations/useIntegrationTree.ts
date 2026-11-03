@@ -15,7 +15,6 @@ import { flatten, type FlatFolder } from "./model";
 import type { DragOutcome } from "./dragDrop";
 import { EMPTY, loadData } from "./managerData";
 import { useLoadable } from "@/app/components/ui/loadable";
-import { runningCountOf } from "./managerViews";
 import { folderIntegrations } from "./treeModel";
 import { useIntegrationActions } from "./useIntegrationActions";
 
@@ -71,8 +70,6 @@ export function useIntegrationTree({
 
   const { folders, integrations, membership } = data;
   const flat = useMemo(() => flatten(folders), [folders]);
-
-  const runningCount = useMemo(() => runningCountOf(data), [data]);
 
   const selected = integrations.find((i) => i.id === selectedId) ?? null;
   const selectedFolderId = selectedId
@@ -177,7 +174,6 @@ export function useIntegrationTree({
     flat,
     selected,
     selectedFolderId,
-    runningCount,
     // Status. A failed refresh keeps the tree and reports through `error` too.
     busy,
     error: error ?? (tree.state.status === "ready" ? tree.state.error : null),

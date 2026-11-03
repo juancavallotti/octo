@@ -15,7 +15,7 @@ import { Folder as FolderIcon, Workflow } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
-import { type DragData, type DropData, type Filter } from "./model";
+import { type DragData, type DropData } from "./model";
 import { resolveDrag } from "./dragDrop";
 import { useIntegrationTree } from "./useIntegrationTree";
 import IntegrationsToolbar from "./IntegrationsToolbar";
@@ -51,10 +51,10 @@ export default function IntegrationsManager({
   const pathname = usePathname();
 
   // The URL is the source of truth for the selection, so it's bookmarkable and
-  // navigated client-side: the filter + integration are derived from the path, and
+  // navigated client-side: the integration is derived from the path, and
   // selecting something is a router navigation (below). The manager lives in the
   // route's layout, so these navigations don't remount it — only the path updates.
-  const { filter, selectedId } = useMemo(
+  const { selectedId } = useMemo(
     () => parsePathname(pathname),
     [pathname],
   );
@@ -71,13 +71,9 @@ export default function IntegrationsManager({
       router.push(`${INTEGRATIONS_BASE}${buildPath(sel)}`, { scroll: false }),
     [router],
   );
-  const selectFilter = useCallback(
-    (f: Filter) => go({ filter: f, selectedId }),
-    [go, selectedId],
-  );
   const selectIntegration = useCallback(
-    (id: string | null) => go({ filter, selectedId: id }),
-    [go, filter],
+    (id: string | null) => go({ selectedId: id }),
+    [go],
   );
 
   const {
@@ -86,7 +82,6 @@ export default function IntegrationsManager({
     flat,
     selected,
     selectedFolderId,
-    runningCount,
     busy,
     error,
     createFolderIn,
@@ -160,10 +155,7 @@ export default function IntegrationsManager({
           <IntegrationTree
             state={state}
             flat={flat}
-            filter={filter}
-            runningCount={runningCount}
             selectedId={selectedId}
-            onFilter={selectFilter}
             onSelect={selectIntegration}
             onCreateFolder={createFolderIn}
             onRenameFolder={renameFolderTo}

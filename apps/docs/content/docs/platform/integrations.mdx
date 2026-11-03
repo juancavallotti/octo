@@ -121,7 +121,7 @@ Entry names are validated on the way in and out (absolute paths, `..` segments a
 
 Integrations are organized in a folder tree. Folders nest arbitrarily (each folder has an optional parent), and an integration lives in **at most one folder**, so adding it to another folder moves it. Both folders among their siblings and integrations within a folder keep a manual order: new entries are appended, and reorder operations persist the position.
 
-The platform shows folders and the integrations filed in them as one tree, with unfiled integrations at the top level. Drag an integration onto a folder, or onto another integration, to move it there; drop it on the space below the tree to unfile it. The **Running** filter narrows the tree to integrations with a deployment.
+The platform shows folders and the integrations filed in them as one tree, with unfiled integrations at the top level. Drag an integration onto a folder, or onto another integration, to move it there; drop it on the space below the tree to unfile it. Above the folders, two smart folders list integrations by what they are rather than where they are filed: **Running apps** holds every integration with a deployment, and **All integrations** holds every one. The search box at the top narrows the whole tree to integrations whose name matches.
 
 The folder API mirrors the integration API:
 

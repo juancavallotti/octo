@@ -2,22 +2,23 @@
 
 import { useMemo, useState } from "react";
 import { SortableContext } from "@dnd-kit/sortable";
-import { FolderPlus } from "lucide-react";
+import { FolderPlus, Search } from "lucide-react";
 import Loaded from "@/app/components/ui/Loaded";
 import type { Loadable } from "@/app/components/ui/loadable";
 import { SkeletonRows } from "@/app/components/ui/Skeleton";
 import { EMPTY, type Data } from "./managerData";
-import type { FlatFolder, Filter } from "./model";
-import { ancestorsOf, treeRows } from "./treeModel";
+import type { FlatFolder } from "./model";
+import { ancestorsOf, smartKey, treeRows } from "./treeModel";
 import { useTreeExpansion } from "./useTreeExpansion";
-import { FolderRow, TopLevelDropZone, treeIndent } from "./FolderRow";
+import { FolderRow, SmartFolderRow, TopLevelDropZone, treeIndent } from "./FolderRow";
 import TreeIntegrationRow from "./TreeIntegrationRow";
 
 /**
- * The integrations sidebar: folders and the integrations filed in them as one
- * tree, with the unfiled ones at the top level, narrowed to what is deployed by
- * the Running filter. It owns only transient UI state — which folders are open,
- * an inline create or rename — and hands every change to the manager.
+ * The integrations sidebar: the smart folders — Running apps, All integrations —
+ * above the real folders and the integrations filed in them, with the unfiled
+ * ones at the top level, and a search over names. It owns only transient UI
+ * state — which folders are open, the search, an inline create or rename — and
+ * hands every change to the manager.
  *
  * Rows do not shift out of the way while something is dragged over them: a drop
  * means "here, where this row is", shown by the row lighting up, and rows sliding
@@ -26,10 +27,7 @@ import TreeIntegrationRow from "./TreeIntegrationRow";
 export default function IntegrationTree({
   state,
   flat,
-  filter,
-  runningCount,
   selectedId,
-  onFilter,
   onSelect,
   onCreateFolder,
   onRenameFolder,
@@ -38,10 +36,7 @@ export default function IntegrationTree({
   /** The tree as it loads; the counts and rows wait until it is ready. */
   state: Loadable<Data>;
   flat: FlatFolder[];
-  filter: Filter;
-  runningCount: number;
   selectedId: string | null;
-  onFilter: (filter: Filter) => void;
   onSelect: (id: string) => void;
   onCreateFolder: (name: string, parentId: string | null) => void;
   onRenameFolder: (folder: FlatFolder, name: string) => void;
@@ -52,6 +47,7 @@ export default function IntegrationTree({
   const [draftName, setDraftName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [query, setQuery] = useState("");
 
   const data = state.status === "ready" ? state.data : EMPTY;
   const ready = state.status === "ready";
@@ -60,7 +56,7 @@ export default function IntegrationTree({
   const { collapsed, toggle } = useTreeExpansion(
     known ? { id: selectedId, ancestors: ancestorsOf(data, flat, selectedId) } : null,
   );
-  const rows = useMemo(() => treeRows(data, filter, collapsed), [data, filter, collapsed]);
+  const rows = useMemo(() => treeRows(data, collapsed, query), [data, collapsed, query]);
 
   const startCreate = (parentId: string | null) => {
     setCreatingIn(parentId);
@@ -92,18 +88,26 @@ export default function IntegrationTree({
         />
       )}
       <div className="flex items-center gap-2 px-3 py-2">
-        <FilterToggle
-          filter={filter}
-          total={ready ? data.integrations.length : null}
-          running={ready ? runningCount : null}
-          onFilter={onFilter}
-        />
+        <label className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-black/[0.04] px-2 py-1 text-sm focus-within:ring-1 focus-within:ring-sky-500/40 dark:bg-white/[0.06]">
+          <Search size={13} aria-hidden className="shrink-0 text-zinc-400" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQuery("");
+            }}
+            placeholder="Search integrations"
+            aria-label="Search integrations"
+            className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-zinc-400"
+          />
+        </label>
         <button
           type="button"
           onClick={() => startCreate(null)}
           title="New folder"
           aria-label="New folder"
-          className="ml-auto rounded p-1 text-zinc-400 hover:bg-black/[0.04] hover:text-zinc-700 dark:hover:bg-white/[0.06]"
+          className="rounded p-1 text-zinc-400 hover:bg-black/[0.04] hover:text-zinc-700 dark:hover:bg-white/[0.06]"
         >
           <FolderPlus size={16} />
         </button>
@@ -131,13 +135,27 @@ export default function IntegrationTree({
             )}
 
             <SortableContext
-              items={rows.map((r) =>
-                r.kind === "folder" ? `folder:${r.folder.id}` : `integration:${r.integration.id}`,
+              items={rows.flatMap((r) =>
+                r.kind === "folder"
+                  ? [`folder:${r.folder.id}`]
+                  : r.kind === "integration"
+                    ? [r.rowId]
+                    : [],
               )}
               strategy={() => null}
             >
               {rows.map((r) =>
-                r.kind === "folder" ? (
+                r.kind === "smart" ? (
+                  <SmartFolderRow
+                    key={smartKey(r.id)}
+                    id={r.id}
+                    label={r.label}
+                    title={r.title}
+                    expanded={r.expanded}
+                    count={r.count}
+                    onToggle={() => toggle(smartKey(r.id))}
+                  />
+                ) : r.kind === "folder" ? (
                   <FolderRow
                     key={r.folder.id}
                     f={r.folder}
@@ -159,10 +177,12 @@ export default function IntegrationTree({
                   />
                 ) : (
                   <TreeIntegrationRow
-                    key={r.integration.id}
+                    key={r.rowId}
+                    rowId={r.rowId}
                     integration={r.integration}
                     depth={r.depth}
                     running={r.running}
+                    computed={r.computed}
                     selected={selectedId === r.integration.id}
                     onSelect={onSelect}
                   />
@@ -170,50 +190,16 @@ export default function IntegrationTree({
               )}
             </SortableContext>
 
-            {rows.length === 0 && (
-              <li className="px-3 py-2 text-sm text-zinc-400">
-                {filter === "running" ? "Nothing is deployed." : "No integrations yet."}
-              </li>
-            )}
+            {data.integrations.length === 0 ? (
+              <li className="px-3 py-2 text-sm text-zinc-400">No integrations yet.</li>
+            ) : query.trim() !== "" &&
+              !rows.some((r) => r.kind === "integration") ? (
+              <li className="px-3 py-2 text-sm text-zinc-400">No integration matches.</li>
+            ) : null}
             <TopLevelDropZone />
           </ul>
         )}
       </Loaded>
     </aside>
-  );
-}
-
-/** All / Running, each with how many it shows once that is known. */
-function FilterToggle({
-  filter,
-  total,
-  running,
-  onFilter,
-}: {
-  filter: Filter;
-  total: number | null;
-  running: number | null;
-  onFilter: (filter: Filter) => void;
-}) {
-  const option = (value: Filter, label: string, count: number | null) => (
-    <button
-      type="button"
-      aria-pressed={filter === value}
-      onClick={() => onFilter(value)}
-      className={`flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium ${
-        filter === value
-          ? "bg-white text-zinc-800 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
-          : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-      }`}
-    >
-      {label}
-      {count !== null && <span className="tabular-nums text-zinc-400">{count}</span>}
-    </button>
-  );
-  return (
-    <div className="flex items-center rounded-md bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
-      {option("all", "All", total)}
-      {option("running", "Running", running)}
-    </div>
   );
 }
