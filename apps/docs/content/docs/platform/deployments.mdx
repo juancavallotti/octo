@@ -236,6 +236,8 @@ A failed run shows its report, case by case; an errored or timed-out run shows w
 
 A deployment follows the install's runtime by default: every rollout moves it onto the release the install deploys now. Pin it to keep it on a release instead, for an integration you do not want moved until you have checked it. Pick the runtime beside the version in the deploy or rollout dialog: **Latest** follows the install, and **Pin to** lists the release the install deploys and every release a deployment runs now (`GET /runtimes`).
 
+![Pinning a deployment to a runtime in the rollout dialog](/screenshots/platform-rollout-runtime.png)
+
 Over the API, pass `runtimeVersion` on a deploy or rollout: a release pins, `"latest"` unpins, and leaving it out of a rollout keeps the current setting. The pods run the configured runtime image at that release's tag, so the release has to exist in your registry.
 
 A pinned deployment that is behind is still listed on the dashboard and the Upgrades page, marked **Pinned**, and its suites can still be run against the new runtime. It is never upgraded for you: a test run asking to roll it out is refused, **Test & upgrade all** tests it without upgrading it, and **Move pin to** is the manual upgrade, which keeps it pinned at the new release.
