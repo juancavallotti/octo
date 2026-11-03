@@ -77,26 +77,27 @@ func TestDescribeUnknownRoleIsEmpty(t *testing.T) {
 	}
 }
 
-func TestReaches(t *testing.T) {
+// Roles are not a ladder: only admin may delegate a role it does not hold.
+func TestMayDelegate(t *testing.T) {
 	tests := []struct {
 		name string
 		held []Role
 		want []Role
 	}{
-		{"admin reaches everything", []Role{RoleAdmin}, []Role{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor}},
-		{"operator", []Role{RoleOperator}, []Role{RoleOperator, RoleDeveloper, RoleMonitor}},
-		{"developer", []Role{RoleDeveloper}, []Role{RoleDeveloper, RoleMonitor}},
-		{"monitor", []Role{RoleMonitor}, []Role{RoleMonitor}},
+		{"admin may delegate every role", []Role{RoleAdmin}, []Role{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor}},
+		{"operator only operator", []Role{RoleOperator}, []Role{RoleOperator}},
+		{"developer only developer", []Role{RoleDeveloper}, []Role{RoleDeveloper}},
+		{"monitor only monitor", []Role{RoleMonitor}, []Role{RoleMonitor}},
 		{"nothing", nil, nil},
-		{"monitor and developer", []Role{RoleMonitor, RoleDeveloper}, []Role{RoleDeveloper, RoleMonitor}},
+		{"each role held", []Role{RoleMonitor, RoleOperator}, []Role{RoleMonitor, RoleOperator}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			u := User{Roles: tt.held}
 			for _, r := range append(AllRoles(), RoleRuntime) {
 				want := slices.Contains(tt.want, r)
-				if got := u.Reaches(r); got != want {
-					t.Errorf("holding %v, Reaches(%q) = %v, want %v", tt.held, r, got, want)
+				if got := u.MayDelegate(r); got != want {
+					t.Errorf("holding %v, MayDelegate(%q) = %v, want %v", tt.held, r, got, want)
 				}
 			}
 		})

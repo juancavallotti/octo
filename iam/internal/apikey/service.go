@@ -38,7 +38,7 @@ func NewService(repo repository) *Service {
 // here and nowhere else, since only its hash is persisted.
 //
 // owner must carry the roles they hold now: a key may carry only roles that owner
-// reaches, so the check is only as current as the user it is given.
+// may delegate, so the check is only as current as the user it is given.
 func (s *Service) Create(
 	ctx context.Context, owner user.User, name string, roles []user.Role, expiresAt time.Time,
 ) (APIKey, string, error) {
@@ -74,7 +74,7 @@ func (s *Service) Create(
 
 // keyRoles validates what a key is asked to carry and returns it deduplicated in
 // catalogue order. An empty set, or a role no key may carry, is ErrInvalidRoles;
-// a role owner does not reach is ErrEscalation, naming it.
+// a role owner may not delegate is ErrEscalation, naming it.
 func keyRoles(owner user.User, roles []user.Role) ([]user.Role, error) {
 	if len(roles) == 0 {
 		return nil, fmt.Errorf("%w: a key needs at least one role", ErrInvalidRoles)
@@ -83,7 +83,7 @@ func keyRoles(owner user.User, roles []user.Role) ([]user.Role, error) {
 		if !user.ValidKeyRole(r) {
 			return nil, fmt.Errorf("%w: %q cannot be carried by a key", ErrInvalidRoles, string(r))
 		}
-		if !owner.Reaches(r) {
+		if !owner.MayDelegate(r) {
 			return nil, fmt.Errorf("%w: %s", ErrEscalation, r)
 		}
 	}

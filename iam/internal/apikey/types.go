@@ -1,7 +1,8 @@
 // Package apikey holds the per-user bearer tokens iam exchanges for platform
 // tokens. A key belongs to exactly one user and only ever speaks for them, with
 // the roles it was minted with: never platform:admin, never one its owner does not
-// reach, and only those its owner still reaches when it is presented. The plaintext token is shown exactly once at creation; only its
+// hold (an admin may give any), and only those its owner still holds when it is
+// presented. The plaintext token is shown exactly once at creation; only its
 // SHA-256 hash is stored, so the database holds no usable credential.
 package apikey
 

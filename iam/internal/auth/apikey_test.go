@@ -99,19 +99,19 @@ func TestAKeyShrinksWithItsOwner(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	owner := h.keyFor(t, "provider|op", "op@example.com", user.RoleDeveloper, user.RoleOperator)
-	if err := h.users.Grant(ctx, owner.User.ID, user.RoleOperator, nil); err != nil {
-		t.Fatalf("Grant: %v", err)
+	for _, r := range []user.Role{user.RoleDeveloper, user.RoleOperator} {
+		if err := h.users.Grant(ctx, owner.User.ID, r, nil); err != nil {
+			t.Fatalf("Grant: %v", err)
+		}
 	}
 	if got := h.exchangedRoles(t); !slices.Equal(got, []user.Role{user.RoleDeveloper, user.RoleOperator}) {
-		t.Fatalf("as an operator, roles = %v, want both the key carries", got)
+		t.Fatalf("holding both, roles = %v, want both the key carries", got)
 	}
 
-	// Demoted to developer: operator falls off the key, developer stays.
+	// Operator revoked: it falls off the key, developer stays. Holding operator
+	// never implied developer, so the two are checked one by one.
 	if err := h.users.Revoke(ctx, owner.User.ID, user.RoleOperator); err != nil {
 		t.Fatalf("Revoke: %v", err)
-	}
-	if err := h.users.Grant(ctx, owner.User.ID, user.RoleDeveloper, nil); err != nil {
-		t.Fatalf("Grant: %v", err)
 	}
 	if got := h.exchangedRoles(t); !slices.Equal(got, []user.Role{user.RoleDeveloper}) {
 		t.Fatalf("as a developer, roles = %v, want [%s]", got, user.RoleDeveloper)

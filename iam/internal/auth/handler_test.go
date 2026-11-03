@@ -674,6 +674,30 @@ func TestMachineTokenRefusesSomebodyWhoMayNotDeploy(t *testing.T) {
 	}
 }
 
+// Roles are not a ladder: an operator who holds no developer row may not lend a
+// deployment developer access.
+func TestAnOperatorCannotLendDeveloperAccess(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	admin := h.signIn(t, "provider|admin", "admin@example.com")
+	if _, err := h.users.Create(ctx, "op@example.com", "", nil, nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	op := h.signIn(t, "provider|op", "op@example.com")
+	if err := h.users.Grant(ctx, op.User.ID, user.RoleOperator, &admin.User.ID); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	op = h.signIn(t, "provider|op", "op@example.com")
+
+	if rec := h.postMachineWith(t, "Bearer "+op.Token, "dep-1", AccessOperator); rec.Code != http.StatusOK {
+		t.Fatalf("lending operator access = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if rec := h.postMachineWith(t, "Bearer "+op.Token, "dep-1", AccessDeveloper); rec.Code != http.StatusForbidden {
+		t.Errorf("lending developer access = %d (%s), want 403", rec.Code, rec.Body.String())
+	}
+}
+
 // Somebody who runs deployments may lend one an identity.
 func TestMachineTokenAdmitsAnOperator(t *testing.T) {
 	h := newHarness(t)

@@ -62,27 +62,12 @@ func ValidRole(r Role) bool {
 	return false
 }
 
-// reach is what each grantable role opens, itself included: somebody holding the
-// key reaches every role in its value. The ladder mirrors the platform's route
-// policies, where everything a developer or a monitor may use also admits the
-// roles above them.
-var reach = map[Role][]Role{
-	RoleAdmin:     {RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor},
-	RoleOperator:  {RoleOperator, RoleDeveloper, RoleMonitor},
-	RoleDeveloper: {RoleDeveloper, RoleMonitor},
-	RoleMonitor:   {RoleMonitor},
-}
-
-// Reaches reports whether u may do everything r grants, either by holding r or by
-// holding a role that contains it. It is the rule for anything u hands on to a
-// credential: nothing may carry a role its owner does not reach.
-func (u User) Reaches(r Role) bool {
-	for _, held := range u.Roles {
-		if slices.Contains(reach[held], r) {
-			return true
-		}
-	}
-	return false
+// MayDelegate reports whether u may hand r on to a credential they give out: they
+// hold r themselves, or they are an admin, who can do everything. Roles are not a
+// ladder, so holding one says nothing about another; nothing u gives out may
+// carry a role u could not exercise directly.
+func (u User) MayDelegate(r Role) bool {
+	return ValidRole(r) && (u.HasRole(r) || u.HasRole(RoleAdmin))
 }
 
 // keyRoles is what an API key may carry: the catalogue without platform:admin. A

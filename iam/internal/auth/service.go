@@ -110,8 +110,8 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 
 // exchangeKey mints a platform token for the owner of an API key.
 //
-// The token carries the key's roles that the owner still reaches now, so a key
-// never outranks the person it belongs to and shrinks when they are demoted. A key
+// The token carries the key's roles that the owner may still delegate now, so a
+// key never outranks the person it belongs to and shrinks when they are demoted. A key
 // left with none is refused rather than answered with an empty token. The result's
 // user carries those same roles: they are what this credential may do.
 // `last_login_at` is not touched: presenting a key is not a sign-in.
@@ -134,7 +134,7 @@ func (s *Service) exchangeKey(ctx context.Context, rawKey string) (Result, error
 
 	var roles []user.Role
 	for _, r := range k.Roles {
-		if u.Reaches(r) {
+		if u.MayDelegate(r) {
 			roles = append(roles, r)
 		}
 	}

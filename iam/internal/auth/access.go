@@ -71,11 +71,11 @@ func accessOf(roles []user.Role) []Access {
 	return access
 }
 
-// mayLend reports whether owner may give a deployment this much access: no more
-// than they reach themselves.
+// mayLend reports whether owner may give a deployment this much access: only
+// roles they could exercise themselves.
 func mayLend(owner user.User, access []Access) bool {
 	for _, a := range access {
-		if !owner.Reaches(accessRole[a]) {
+		if !owner.MayDelegate(accessRole[a]) {
 			return false
 		}
 	}

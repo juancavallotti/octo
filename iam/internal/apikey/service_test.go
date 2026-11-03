@@ -80,8 +80,7 @@ func (f *fakeRepo) TouchLastUsed(_ context.Context, id string) error {
 	return nil
 }
 
-// developer is an owner holding platform:developer, which reaches developer and
-// monitor.
+// developer is an owner holding platform:developer, and nothing else.
 func developer(id string) user.User {
 	return user.User{ID: id, Roles: []user.Role{user.RoleDeveloper}}
 }
@@ -144,7 +143,7 @@ func TestCreateRejectsBadNameAndExpiry(t *testing.T) {
 	}
 }
 
-func TestCreateScopesRolesToWhatTheOwnerReaches(t *testing.T) {
+func TestCreateScopesRolesToWhatTheOwnerHolds(t *testing.T) {
 	admin := user.User{ID: "a", Roles: []user.Role{user.RoleAdmin}}
 	tests := []struct {
 		name  string
@@ -158,9 +157,10 @@ func TestCreateScopesRolesToWhatTheOwnerReaches(t *testing.T) {
 		{"runtime is never on a key", admin, []user.Role{user.RoleRuntime}, ErrInvalidRoles, nil},
 		{"unknown role", admin, []user.Role{"platform:root"}, ErrInvalidRoles, nil},
 		{"a developer cannot mint operator", developer("d"), []user.Role{user.RoleOperator}, ErrEscalation, nil},
-		{"a developer may mint monitor", developer("d"), []user.Role{user.RoleMonitor}, nil, []user.Role{user.RoleMonitor}},
+		{"roles are not a ladder: a developer cannot mint monitor", developer("d"), []user.Role{user.RoleMonitor}, ErrEscalation, nil},
+		{"a developer may mint developer", developer("d"), []user.Role{user.RoleDeveloper}, nil, []user.Role{user.RoleDeveloper}},
 		{
-			"an admin may mint what admin contains, deduplicated in catalogue order",
+			"an admin may mint any key role, deduplicated in catalogue order",
 			admin, []user.Role{user.RoleOperator, user.RoleMonitor, user.RoleOperator}, nil,
 			[]user.Role{user.RoleMonitor, user.RoleOperator},
 		},
