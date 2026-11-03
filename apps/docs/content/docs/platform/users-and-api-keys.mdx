@@ -109,8 +109,8 @@ The UI reflects the same split the servers enforce, and reflects it only — eve
 
 API keys are per-user bearer tokens for programmatic access. A key belongs to one person and only ever acts as them, limited to the roles you give it when you mint it. Give a CI job only what it needs: a pipeline that pushes and tags integrations needs **developer**, and one that also rolls out needs **operator**.
 
-- Roles: pick at least one of **monitor**, **developer** and **operator**, and only roles you reach yourself. Admin reaches all three, operator reaches developer and monitor, and developer reaches monitor. A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for a role you do not reach is a `403` that names it.
-- Re-checked on every use: a key's token carries only the key's roles that its owner still reaches. Revoke a role from someone and their keys lose it within one token lifetime. A key left with no role is refused with a `403`.
+- Roles: pick at least one of **monitor**, **developer** and **operator**, and only roles you hold yourself. Roles are separate facets, not levels: holding operator does not let you give a key developer. An admin may give a key any of the three. A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for a role you do not hold is a `403` that names it.
+- Re-checked on every use: a key's token carries only the key's roles that its owner still holds. Revoke a role from someone and their keys lose it within one token lifetime. A key left with no role is refused with a `403`.
 
 - Format: `octo_` followed by 32 bytes of random material, base64url-encoded.
 - Shown once: the plaintext is returned only by the create call. iam stores a SHA-256 hash, so a database leak exposes no usable keys, plus the first four and last four characters for display.
@@ -140,7 +140,7 @@ On the account page, hover a role, on its checkbox or on a key's role pill, to s
 
 ### Using a key
 
-From outside the cluster, send the key to the [public API](/platform/public-api) as a bearer token; it does the exchange below for you. A CI/CD job does this with the [octopaas CLI](/platform/octopaas#use-it-in-cicd) by setting `OCTOPAAS_KEY`, while people sign in with their browser instead. Inside the cluster, present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying the key's roles that the owner still reaches. The `user` in the answer reports those same roles:
+From outside the cluster, send the key to the [public API](/platform/public-api) as a bearer token; it does the exchange below for you. A CI/CD job does this with the [octopaas CLI](/platform/octopaas#use-it-in-cicd) by setting `OCTOPAAS_KEY`, while people sign in with their browser instead. Inside the cluster, present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying the key's roles that the owner still holds. The `user` in the answer reports those same roles:
 
 ```bash
 curl -X POST http://iam:8093/auth \

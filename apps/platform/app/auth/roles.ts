@@ -23,20 +23,13 @@ export const ROLE_LABELS: Record<string, string> = {
 };
 
 /**
- * What each role opens, itself included, mirroring `reach` in
- * iam/internal/user/roles.go. iam decides; this only keeps a person from being
- * offered a key role it would refuse.
+ * Whether somebody holding `held` may hand `role` on to a key, mirroring
+ * MayDelegate in iam/internal/user/roles.go: they hold it, or they are an admin.
+ * Roles are facets, not a ladder. iam decides; this only keeps a person from being
+ * offered a role it would refuse.
  */
-const ROLE_REACH: Record<string, readonly string[]> = {
-  [PLATFORM_ADMIN]: [PLATFORM_ADMIN, PLATFORM_OPERATOR, PLATFORM_DEVELOPER, PLATFORM_MONITOR],
-  [PLATFORM_OPERATOR]: [PLATFORM_OPERATOR, PLATFORM_DEVELOPER, PLATFORM_MONITOR],
-  [PLATFORM_DEVELOPER]: [PLATFORM_DEVELOPER, PLATFORM_MONITOR],
-  [PLATFORM_MONITOR]: [PLATFORM_MONITOR],
-};
-
-/** Whether somebody holding `held` may do everything `role` grants. */
-export function reaches(held: readonly string[], role: string): boolean {
-  return held.some((h) => ROLE_REACH[h]?.includes(role));
+export function mayDelegate(held: readonly string[], role: string): boolean {
+  return held.includes(role) || held.includes(PLATFORM_ADMIN);
 }
 
 /** The roles an API key may carry, in presentation order: never admin. */

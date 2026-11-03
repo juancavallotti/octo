@@ -14,23 +14,23 @@ interface KeyRoleAbility {
 
 const KEY_ROLE_ABILITIES: Record<string, KeyRoleAbility> = {
   [PLATFORM_MONITOR]: {
-    summary: "Watches, never touches.",
-    can: ["Read integrations, versions and deployments", "Read logs, traces and metrics"],
-    cannot: ["Change anything"],
+    summary: "Monitoring",
+    can: ["Read logs, traces and metrics", "Read alerts"],
+    cannot: ["Change integrations or deployments"],
   },
   [PLATFORM_DEVELOPER]: {
-    summary: "Builds integrations.",
+    summary: "Development",
     can: [
-      "Everything Monitor can",
       "Create and change integrations and their resources",
-      "Tag versions and start dev runs",
+      "Tag versions",
+      "Start dev runs and tests",
     ],
-    cannot: ["Deploy, roll out or scale"],
+    cannot: ["Deploy or operate deployments"],
   },
   [PLATFORM_OPERATOR]: {
-    summary: "Ships and runs them.",
+    summary: "Operating the platform",
     can: [
-      "Everything Developer can",
+      "Upload code and tag versions",
       "Deploy, roll out, scale and remove deployments",
       "Send email",
     ],

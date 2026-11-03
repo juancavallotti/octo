@@ -16,7 +16,7 @@ export interface ApiKey {
   prefix: string;
   /** Last 4 characters of the token, for identifying a key. */
   last4: string;
-  /** The roles the key carries; a token from it holds those its owner still reaches. */
+  /** The roles the key carries; a token from it holds those its owner may still delegate. */
   roles: string[];
   /** RFC3339 timestamp of creation. */
   createdAt: string;

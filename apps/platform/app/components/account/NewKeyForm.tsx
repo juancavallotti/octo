@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { useRoles } from "@/app/auth/RolesContext";
-import { KEY_ROLES, ROLE_LABELS, reaches } from "@/app/auth/roles";
+import { KEY_ROLES, ROLE_LABELS, mayDelegate } from "@/app/auth/roles";
 import HoverCard from "@/app/components/HoverCard";
 import { keyRoleCard } from "./keyRoles";
 
 /**
  * The form that mints an API key: a label, the date it expires, and the roles it
- * carries. Only roles the signed-in user reaches are offered, and never admin;
+ * carries. Only roles the signed-in user holds are offered (any, for an admin),
+ * and never admin;
  * iam enforces both, so this only keeps a person from asking for what it would
  * refuse. Clears itself once onCreate reports success.
  */
@@ -43,7 +44,7 @@ export default function NewKeyForm({
   onCreate: (name: string, roles: string[], expiresAt: string) => Promise<boolean>;
 }) {
   const { roles: held } = useRoles();
-  const offered = KEY_ROLES.filter((r) => reaches(held, r));
+  const offered = KEY_ROLES.filter((r) => mayDelegate(held, r));
   const [name, setName] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
   const [expires, setExpires] = useState(() => dateIn(30));

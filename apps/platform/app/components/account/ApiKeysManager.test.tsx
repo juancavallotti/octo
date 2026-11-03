@@ -47,11 +47,11 @@ describe("ApiKeysManager", () => {
     expect(screen.queryByRole("checkbox", { name: "Admin" })).toBeNull();
   });
 
-  it("offers a developer only what a developer reaches", async () => {
+  it("offers a developer only developer: roles are facets, not a ladder", async () => {
     renderAs([PLATFORM_DEVELOPER]);
     await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
     expect(screen.getByRole("checkbox", { name: "Developer" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Monitor" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Monitor" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "Operator" })).toBeNull();
   });
 
@@ -67,7 +67,7 @@ describe("ApiKeysManager", () => {
       expiresAt: "2026-12-03T00:00:00Z",
       token: "octo_secret",
     });
-    renderAs([PLATFORM_OPERATOR]);
+    renderAs([PLATFORM_OPERATOR, PLATFORM_MONITOR]);
     await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
 
     await user.type(screen.getByPlaceholderText(/Key name/), "ci");
@@ -100,7 +100,7 @@ describe("ApiKeysManager", () => {
       .getAllByText("Developer")
       .find((el) => el.closest("[aria-describedby]") && !el.closest("label") && !el.closest("[role=tooltip]"));
     expect(pill?.closest("[aria-describedby]")).toHaveAccessibleDescription(
-      expect.stringContaining("Deploy, roll out or scale"),
+      expect.stringContaining("Deploy or operate deployments"),
     );
   });
 
