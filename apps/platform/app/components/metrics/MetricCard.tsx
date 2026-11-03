@@ -3,7 +3,7 @@
 import MiniChart, { type MiniSeries } from "@/app/components/stats/chart/MiniChart";
 import { latest, toCores, toGauge } from "@/app/components/stats/chart/metrics";
 import type { StatsSeries } from "@/app/model/stats";
-import type { CataloguedMetric } from "./useDeploymentCatalogue";
+import type { CataloguedMetric } from "./deploymentReads";
 import { unitFor } from "./units";
 
 /**

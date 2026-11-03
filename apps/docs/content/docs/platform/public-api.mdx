@@ -46,7 +46,7 @@ The paths below are all under `/v1`. Bodies and answers are JSON unless noted, a
 | Bundles | `GET/PUT /integrations/{id}/bundle` (zip), `POST /integrations/bundle?name=` (import a zip) |
 | Config files | `GET/PUT /integrations/{id}/files`, `GET/PUT/DELETE /integrations/{id}/files/content?path=` |
 | Resources | `GET/POST /integrations/{id}/resources`, `GET/PUT/DELETE /integrations/{id}/resources/{resourceId}` |
-| Versions | `GET/POST /integrations/{id}/versions`, `DELETE /versions/{id}`, `GET /versions/{id}/bundle` (zip) |
+| Versions | `GET/POST /integrations/{id}/versions`, `GET/DELETE /versions/{id}`, `GET /versions/{id}/bundle` (zip) |
 | Deployments | `GET /deployments`, `GET/POST /integrations/{id}/deployments`, `GET /integrations/{id}/deployments/options`, `GET/PATCH/DELETE /deployments/{id}`, `POST /deployments/{id}/rollout` |
 | Logs | `GET /deployments/{id}/logs` (stored history), `GET /deployments/{id}/pods/{pod}/logs?tail=` (plain text), `GET /deployments/{id}/pods/{pod}/logs/stream` (server-sent events) |
 

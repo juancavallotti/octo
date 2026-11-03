@@ -15,15 +15,15 @@ import { Folder as FolderIcon, Workflow } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
 import { useConfirm } from "@/app/components/ConfirmDialog";
 import { useOrchestrator } from "@/app/run/OrchestratorContext";
-import { type Bucket, type DragData, type DropData } from "./model";
+import { type DragData, type DropData } from "./model";
 import { resolveDrag } from "./dragDrop";
 import { useIntegrationTree } from "./useIntegrationTree";
 import IntegrationsToolbar from "./IntegrationsToolbar";
 import IntegrationsUnavailable from "./IntegrationsUnavailable";
 import ManagementNav from "@/app/components/ManagementNav";
-import FolderTree from "./FolderTree";
-import IntegrationList from "./IntegrationList";
+import IntegrationTree from "./IntegrationTree";
 import IntegrationDetail from "./IntegrationDetail";
+import DetailSkeleton from "./DetailSkeleton";
 import {
   INTEGRATIONS_BASE,
   buildPath,
@@ -32,9 +32,9 @@ import {
 } from "./query";
 
 /**
- * The `/integrations` management route: a folder tree (with full CRUD) on the
- * left, the selected bucket's integrations in the middle, and operating details
- * for the selected integration on the right. All mutations go through the BFF
+ * The `/integrations` management route: folders and integrations as one tree
+ * (with full folder CRUD) on the left, and operating details for the selected
+ * integration on the right. All mutations go through the BFF
  * client and refresh the view. Folder membership is single-folder, derived by
  * querying each folder's members. Sibling sections (secrets, queues) are their own
  * routes, reached via the shared ManagementNav in the header.
@@ -51,10 +51,10 @@ export default function IntegrationsManager({
   const pathname = usePathname();
 
   // The URL is the source of truth for the selection, so it's bookmarkable and
-  // navigated client-side: the bucket + integration are derived from the path, and
+  // navigated client-side: the integration is derived from the path, and
   // selecting something is a router navigation (below). The manager lives in the
   // route's layout, so these navigations don't remount it — only the path updates.
-  const { bucket, selectedId } = useMemo(
+  const { selectedId } = useMemo(
     () => parsePathname(pathname),
     [pathname],
   );
@@ -71,29 +71,20 @@ export default function IntegrationsManager({
       router.push(`${INTEGRATIONS_BASE}${buildPath(sel)}`, { scroll: false }),
     [router],
   );
-  const selectBucket = useCallback(
-    (b: Bucket) => go({ bucket: b, selectedId }),
-    [go, selectedId],
-  );
   const selectIntegration = useCallback(
-    (id: string | null) => go({ bucket, selectedId: id }),
-    [go, bucket],
+    (id: string | null) => go({ selectedId: id }),
+    [go],
   );
 
   const {
-    integrations,
-    membership,
+    state,
+    data,
     flat,
-    shown,
     selected,
     selectedFolderId,
-    runningCount,
-    unfiledCount,
-    folderCount,
-    createParent,
     busy,
     error,
-    createFolderHere,
+    createFolderIn,
     renameFolderTo,
     removeFolder,
     importInput,
@@ -108,10 +99,8 @@ export default function IntegrationsManager({
     applyDrag,
   } = useIntegrationTree({
     available,
-    bucket,
     selectedId,
     confirm,
-    selectBucket,
     selectIntegration,
   });
 
@@ -127,7 +116,7 @@ export default function IntegrationsManager({
       resolveDrag(
         e.active.data.current as DragData | undefined,
         e.over?.data.current as DropData | DragData | undefined,
-        { flat, membership },
+        { flat, membership: data.membership },
       ),
     );
   };
@@ -163,25 +152,14 @@ export default function IntegrationsManager({
         onDragCancel={() => setActiveDrag(null)}
       >
         <div className="flex min-h-0 flex-1">
-          <FolderTree
-            folders={flat}
-            bucket={bucket}
-            total={integrations.length}
-            runningCount={runningCount}
-            unfiledCount={unfiledCount}
-            folderCount={folderCount}
-            nesting={createParent !== null}
-            onSelect={selectBucket}
-            onCreate={createFolderHere}
-            onRename={renameFolderTo}
-            onDelete={removeFolder}
-          />
-
-          <IntegrationList
-            integrations={shown}
+          <IntegrationTree
+            state={state}
+            flat={flat}
             selectedId={selectedId}
             onSelect={selectIntegration}
-            reorderable={typeof bucket === "object"}
+            onCreateFolder={createFolderIn}
+            onRenameFolder={renameFolderTo}
+            onDeleteFolder={removeFolder}
           />
 
           <div className="min-w-0 flex-1">
@@ -200,6 +178,10 @@ export default function IntegrationsManager({
                 onRename={renameSelected}
                 onSelectIcon={setSelectedIcon}
               />
+            ) : selectedId && state.status === "loading" ? (
+              // A deep link names an integration before the tree has loaded it:
+              // that is a wait, not an empty selection.
+              <DetailSkeleton />
             ) : (
               <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400">
                 Select an integration to see its details.

@@ -51,13 +51,14 @@ func NewHandler(svc *Service) *Handler {
 }
 
 // Register attaches the snapshot routes to mux. Create/list are nested under an
-// integration; delete addresses a snapshot directly. The resource routes serve
+// integration; get and delete address a snapshot directly. The resource routes serve
 // the resources frozen alongside the definition: a deployed runtime reads them
 // from the content route (kind and name are query params, not path segments,
 // because a name is path-like and may contain '/').
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /integrations/{id}/snapshots", h.create)
 	mux.HandleFunc("GET /integrations/{id}/snapshots", h.listByIntegration)
+	mux.HandleFunc("GET /snapshots/{id}", h.get)
 	mux.HandleFunc("DELETE /snapshots/{id}", h.delete)
 	mux.HandleFunc("GET /snapshots/{id}/resources", h.listResources)
 	mux.HandleFunc("GET /snapshots/{id}/resources/content", h.resourceContent)
@@ -69,9 +70,8 @@ type createRequest struct {
 	Tag string `json:"tag"`
 }
 
-// snapshotResponse is the wire representation of a snapshot, including its frozen
-// definition so clients can show version-scoped stats (e.g. the detail pane's
-// Definition panel) without a second fetch. ListByIntegration already loads it.
+// snapshotResponse is the wire representation of one snapshot, with its frozen
+// definition.
 type snapshotResponse struct {
 	ID            string    `json:"id"`
 	IntegrationID string    `json:"integrationId"`
@@ -86,6 +86,19 @@ type snapshotResponse struct {
 // the wire should be taken anyway.
 func toResponse(s Snapshot) snapshotResponse {
 	return snapshotResponse(s)
+}
+
+// summaryResponse is the wire representation of a snapshot without its frozen
+// definition, as the list returns it.
+type summaryResponse struct {
+	ID            string    `json:"id"`
+	IntegrationID string    `json:"integrationId"`
+	Tag           string    `json:"tag"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+func toSummaryResponse(s Summary) summaryResponse {
+	return summaryResponse(s)
 }
 
 // create godoc
@@ -126,26 +139,50 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 // listByIntegration godoc
 //
 //	@Summary		List an integration's version tags
+//	@Description	Newest first, without definitions; GET /snapshots/{id} reads one version's.
 //	@Tags			snapshots
 //	@Produce		json
 //	@Param			id	path		string	true	"Integration id"
-//	@Success		200	{array}		snapshotResponse
+//	@Success		200	{array}		summaryResponse
 //	@Failure		404	{object}	httpx.ErrorResponse
 //	@Router			/integrations/{id}/snapshots [get]
 func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	items, err := h.svc.ListByIntegration(ctx, r.PathValue("id"))
+	items, err := h.svc.ListSummaries(ctx, r.PathValue("id"))
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	out := make([]snapshotResponse, 0, len(items))
+	out := make([]summaryResponse, 0, len(items))
 	for _, s := range items {
-		out = append(out, toResponse(s))
+		out = append(out, toSummaryResponse(s))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// get godoc
+//
+//	@Summary		Get a version tag
+//	@Description	One version with its frozen definition: the integration's config files as they
+//	@Description	stood when it was tagged, merged into one.
+//	@Tags			snapshots
+//	@Produce		json
+//	@Param			id	path		string	true	"Snapshot id"
+//	@Success		200	{object}	snapshotResponse
+//	@Failure		404	{object}	httpx.ErrorResponse
+//	@Router			/snapshots/{id} [get]
+func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	s, err := h.svc.Get(ctx, r.PathValue("id"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toResponse(s))
 }
 
 // delete godoc

@@ -51,6 +51,10 @@ func (f *fakeRepo) ListByIntegration(_ context.Context, _ string) ([]Snapshot, e
 	return f.listResult, nil
 }
 
+func (f *fakeRepo) ListSummaries(_ context.Context, _ string) ([]Summary, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) DeploymentsUsingSnapshot(_ context.Context, _, _ string) ([]string, error) {
 	return f.deployedLabels, f.deployedErr
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CataloguedMetric } from "./useDeploymentCatalogue";
+import type { CataloguedMetric } from "./deploymentReads";
 import { byFamily } from "./family";
 import MetricCard from "./MetricCard";
 

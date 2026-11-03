@@ -16,19 +16,6 @@ export function flatten(folders: Folder[], depth = 0): FlatFolder[] {
   ]);
 }
 
-/**
- * Which bucket of integrations the middle column shows.
- *
- * "running" is derived rather than filed: it is every integration with something
- * deployed, so nothing can be dragged into or out of it.
- */
-export type Bucket = "all" | "running" | "unfiled" | { folder: string };
-
-/** Whether `bucket` is the given folder. */
-export function isFolderBucket(bucket: Bucket, id: string): boolean {
-  return typeof bucket === "object" && bucket.folder === id;
-}
-
 /** What a drag source carries (set as the draggable's `data`). */
 export type DragData =
   | { kind: "integration"; id: string; name: string }
@@ -37,8 +24,7 @@ export type DragData =
 /** What a drop target accepts (set as the droppable's `data`). */
 export type DropData =
   | { kind: "folder"; id: string } // file into / reparent under this folder
-  | { kind: "unfiled" } // remove an integration from its folder
-  | { kind: "root" }; // move a folder to the top level
+  | { kind: "root" }; // the top level: unfile an integration, lift a folder
 
 /** Whether `candidateId` lies within `folderId`'s subtree (used to block a folder
  * being dropped onto itself or one of its own descendants). */

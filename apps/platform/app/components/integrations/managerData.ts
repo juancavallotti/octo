@@ -1,12 +1,9 @@
 import {
-  listDeployments,
-  listFolderIntegrations,
-  listFolders,
-  listIntegrations,
+  loadIntegrationTree,
   type Folder,
   type Integration,
+  type IntegrationTree,
 } from "@/app/model/orchestrator";
-import { flatten } from "./model";
 
 /** The data behind the management view, fetched together so it can be refreshed atomically. */
 export interface Data {
@@ -28,50 +25,28 @@ export const EMPTY: Data = {
   deployed: new Set(),
 };
 
-/**
- * Fetch the folder tree, all integrations, and derive folder membership and the
- * per-folder ordering. The orchestrator returns each folder's integrations already
- * in stored order, which we keep so the middle column can honor it.
- */
+/** Fetch the whole tree in one round trip and index it for the view. */
 export async function loadData(): Promise<Data> {
-  const [folders, integrations] = await Promise.all([
-    listFolders(),
-    listIntegrations(),
-  ]);
-  const [lists, deployed] = await Promise.all([
-    Promise.all(
-      flatten(folders).map((f) =>
-        listFolderIntegrations(f.id).then((items) => ({
-          folderId: f.id,
-          ids: items.map((i) => i.id),
-        })),
-      ),
-    ),
-    loadDeployed(integrations),
-  ]);
-  const membership = new Map<string, string>();
-  const order = new Map<string, string[]>();
-  for (const { folderId, ids } of lists) {
-    order.set(folderId, ids);
-    for (const id of ids) membership.set(id, folderId);
-  }
-  return { folders, integrations, membership, order, deployed };
+  return toData(await loadIntegrationTree());
 }
 
 /**
- * Which integrations have something deployed. Deployments are listed per
- * integration, so one unreachable integration contributes nothing rather than
- * failing the load — the folder tree is still usable without this, and blanking
- * it over a deployment read would be a poor trade.
+ * Index the tree as it travels — plain arrays and records — into the lookups the
+ * view reads. Each folder's list keeps the backend's stored order, which the
+ * folder honors when it shows its integrations.
  */
-async function loadDeployed(integrations: Integration[]): Promise<Set<string>> {
-  const counts = await Promise.all(
-    integrations.map((i) =>
-      listDeployments(i.id).then(
-        (ds) => (ds.length > 0 ? i.id : null),
-        () => null,
-      ),
-    ),
-  );
-  return new Set(counts.filter((id): id is string => id !== null));
+export function toData(tree: IntegrationTree): Data {
+  const membership = new Map<string, string>();
+  const order = new Map<string, string[]>();
+  for (const [folderId, ids] of Object.entries(tree.members)) {
+    order.set(folderId, ids);
+    for (const id of ids) membership.set(id, folderId);
+  }
+  return {
+    folders: tree.folders,
+    integrations: tree.integrations,
+    membership,
+    order,
+    deployed: new Set(tree.deployed),
+  };
 }

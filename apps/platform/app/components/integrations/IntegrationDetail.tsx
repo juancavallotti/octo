@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useState,
   type RefObject,
 } from "react";
@@ -13,15 +12,15 @@ import {
   type Integration,
   type Snapshot,
 } from "@/app/model/orchestrator";
-import DefinitionSection from "./DefinitionSection";
-import DeploymentsSection from "./DeploymentsSection";
-import EnvSection from "./EnvSection";
+import DetailsSection from "./DetailsSection";
+import OperatingSections from "./OperatingSections";
 import PodLogPanel from "./PodLogPanel";
-import ResourcesSection from "./ResourcesSection";
 import VersionPills from "./VersionPills";
-import { Row, Section } from "./DetailLayout";
-import { folderPathOf, type FlatFolder } from "./managerViews";
+import type { FlatFolder } from "./managerViews";
 import IntegrationHeader from "./IntegrationHeader";
+import { useSnapshotDefinition } from "./useSnapshotDefinition";
+import type { Loadable } from "@/app/components/ui/loadable";
+import { useIntegrationDetail } from "./useIntegrationDetail";
 
 /**
  * Read-only operating details for the selected integration, plus its primary
@@ -72,13 +71,20 @@ export default function IntegrationDetail({
   // The integration's version tags, owned here so creating or deleting one in the
   // Versions section immediately updates the Deployments section's change-version
   // menu.
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  // The pane's first view comes in one read; the tags start from it and are
+  // re-read here whenever a section changes them.
+  const detail = useIntegrationDetail(integration.id);
+  const [reloaded, setReloaded] = useState<Snapshot[] | null>(null);
   const reloadSnapshots = useCallback(() => {
-    listSnapshots(integration.id).then(setSnapshots, () => setSnapshots([]));
+    listSnapshots(integration.id).then(setReloaded, () => setReloaded([]));
   }, [integration.id]);
+  // A first read that could not get the tags leaves them to be read here.
+  const first = detail.status === "ready" ? detail.data : null;
+  const missingTags = first !== null && first.snapshots === null;
   useEffect(() => {
-    reloadSnapshots();
-  }, [reloadSnapshots]);
+    if (missingTags) reloadSnapshots();
+  }, [missingTags, reloadSnapshots]);
+  const snapshots = reloaded ?? first?.snapshots ?? [];
 
   // The active version scoping the Resources (and Env) panels: a tag, or null for
   // the live working copy ("Current").
@@ -89,6 +95,13 @@ export default function IntegrationDetail({
   const selectedSnapshot =
     (selectedTag && snapshots.find((s) => s.tag === selectedTag)) || null;
   const effectiveTag = selectedSnapshot ? selectedTag : null;
+
+  // The definition of the version in view: a tag's, read on selection, or the
+  // working copy's, which is already here.
+  const snapshotDefinition = useSnapshotDefinition(selectedSnapshot?.id);
+  const activeDefinition: Loadable<string> = selectedSnapshot
+    ? snapshotDefinition
+    : { status: "ready", data: integration.definition, refreshing: false, error: null };
 
   // Tags currently deployed, by tag string — unique per integration. What keeps
   // the Versions section from offering to delete a tag something is running.
@@ -118,30 +131,15 @@ export default function IntegrationDetail({
   // the modal's visibility is owned here, because the button is in the header.
   const [deployOpen, setDeployOpen] = useState(false);
 
-  // Read-only: moving is done by drag and drop in the tree.
-  const folderPath = useMemo(
-    () => folderPathOf(folders, folderId),
-    [folders, folderId],
-  );
-
-  const updated = new Date(integration.lastUpdated);
-  const updatedLabel = Number.isNaN(updated.getTime())
-    ? integration.lastUpdated
-    : updated.toLocaleString();
-
-  // An em dash when there is no known creator or editor — a row that predates
-  // attribution, or a user who has since been removed.
-  const createdByLabel =
-    integration.createdByEmail ?? integration.createdByName ?? "—";
-  const updatedByLabel =
-    integration.updatedByEmail ?? integration.updatedByName ?? "—";
-
   return (
     <div className="flex h-full flex-col">
       <IntegrationHeader
         integration={integration}
         snapshots={snapshots}
         activeSnapshot={selectedSnapshot}
+        activeDefinition={
+          activeDefinition.status === "ready" ? activeDefinition.data : null
+        }
         deployedTags={deployedTags}
         busy={busy}
         effectiveTag={effectiveTag}
@@ -171,69 +169,26 @@ export default function IntegrationDetail({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <Section title="Details">
-            <Row label="Folder" value={folderPath} />
-            <Row label="Created by" value={createdByLabel} />
-            <Row label="Last updated" value={updatedLabel} />
-            <Row label="Updated by" value={updatedByLabel} />
-            <Row
-              label="ID"
-              value={
-                <span className="font-mono text-xs">{integration.id}</span>
-              }
-            />
-            {/* Scoped to the active version: a tag's frozen definition, or the
-                working copy for Current. */}
-            <div className="mt-3 border-t border-black/5 pt-3 dark:border-white/5">
-              <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-                Definition
-              </h4>
-              <DefinitionSection
-                key={selectedSnapshot?.id ?? integration.id}
-                definition={
-                  selectedSnapshot?.definition ?? integration.definition
-                }
-              />
-            </div>
-          </Section>
+          <DetailsSection
+            integration={integration}
+            folders={folders}
+            folderId={folderId}
+            versionKey={selectedSnapshot?.id ?? integration.id}
+            definition={activeDefinition}
+          />
 
-          <Section title="Deployments">
-            {/* Keyed by integration id so switching selection resets its state. */}
-            <DeploymentsSection
-              key={integration.id}
-              integrationId={integration.id}
-              integrationName={integration.name}
-              snapshots={snapshots}
-              activeSnapshot={selectedSnapshot}
-              filterTag={effectiveTag}
-              deployOpen={deployOpen}
-              onDeployOpenChange={setDeployOpen}
-              onDeploymentsChange={onDeploymentsChange}
-              onSnapshotsChanged={reloadSnapshots}
-              onOpenLogs={openPodLogs}
-            />
-          </Section>
-
-          <Section title="Resources">
-            {/* Scoped to the active version: the live working copy, or a tag's
-                frozen (read-only) set. */}
-            <ResourcesSection
-              key={integration.id}
-              integrationId={integration.id}
-              snapshotId={selectedSnapshot?.id}
-              versionLabel={effectiveTag ?? undefined}
-            />
-          </Section>
-
-          <Section title="Env">
-            {/* Read-only declared env for the active version (values are set in
-                the Deploy modal). Scoped to the same version as Resources. */}
-            <EnvSection
-              key={integration.id}
-              integrationId={integration.id}
-              snapshotId={selectedSnapshot?.id}
-            />
-          </Section>
+          <OperatingSections
+            integration={integration}
+            detail={detail}
+            snapshots={snapshots}
+            activeSnapshot={selectedSnapshot}
+            effectiveTag={effectiveTag}
+            deployOpen={deployOpen}
+            onDeployOpenChange={setDeployOpen}
+            onDeploymentsChange={onDeploymentsChange}
+            onSnapshotsChanged={reloadSnapshots}
+            onOpenLogs={openPodLogs}
+          />
         </div>
       </div>
 

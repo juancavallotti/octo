@@ -14,9 +14,23 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
  * otherwise every restart draws a cliff.
  */
 
+// The hook asks for every deployment in one call; the cases below are about what
+// each deployment answers, so they stub one deployment at a time and this folds
+// those answers into the batch's outcomes.
 const readStatsSeries = vi.fn();
+const readStatsSeriesForEach = vi.fn((ids: string[], q: unknown) =>
+  Promise.all(
+    ids.map((id) =>
+      Promise.resolve(readStatsSeries(id, q)).then(
+        (page) => ({ deploymentId: id, page }),
+        (err: Error) => ({ deploymentId: id, error: err.message }),
+      ),
+    ),
+  ),
+);
 vi.mock("@/app/model/stats", () => ({
-  readStatsSeries: (id: string, q: unknown) => readStatsSeries(id, q),
+  readStatsSeriesForEach: (ids: string[], q: unknown) =>
+    readStatsSeriesForEach(ids, q),
 }));
 
 import { useDeploymentStats } from "./useDeploymentStats";
@@ -60,13 +74,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it("asks for a five minute live window per deployment", async () => {
+it("asks for a five minute live window for every deployment in one call", async () => {
   readStatsSeries.mockResolvedValue(page([]));
 
   renderHook(() => useDeploymentStats(["dep-1", "dep-2"]));
 
-  await waitFor(() => expect(readStatsSeries).toHaveBeenCalledTimes(2));
-  const query = readStatsSeries.mock.calls[0][1];
+  await waitFor(() => expect(readStatsSeriesForEach).toHaveBeenCalledTimes(1));
+  expect(readStatsSeriesForEach.mock.calls[0][0]).toEqual(["dep-1", "dep-2"]);
+  const query = readStatsSeriesForEach.mock.calls[0][1] as { tier: string; from: string; to: string };
   expect(query.tier).toBe("live");
   const width = Date.parse(query.to) - Date.parse(query.from);
   expect(width).toBe(5 * 60_000);
@@ -152,5 +167,5 @@ it("holds nothing for a page with no running deployments", async () => {
   const { result } = renderHook(() => useDeploymentStats([]));
 
   expect(result.current.data.size).toBe(0);
-  expect(readStatsSeries).not.toHaveBeenCalled();
+  expect(readStatsSeriesForEach).not.toHaveBeenCalled();
 });

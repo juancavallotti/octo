@@ -1,18 +1,17 @@
 /**
- * Integrations and everything filed under one: the folder tree that organizes
- * them, the version tags that freeze them, and the env/template resources they
- * load. They travel together because a caller working on one is usually working
- * on the others.
+ * Integrations and what belongs to one: the version tags that freeze them and the
+ * env/template resources they load. They travel together because a caller working
+ * on one is usually working on the others. The folder tree is in `folders.ts`.
  */
 
 import { call, enc } from "./http";
 import type {
-  Folder,
   Integration,
   IntegrationInput,
   IntegrationRename,
   Resource,
   Snapshot,
+  SnapshotDetail,
   SnapshotResource,
 } from "@/app/model/orchestrator";
 import type { ActionResult } from "@octo/http";
@@ -66,73 +65,6 @@ export function deleteIntegration(id: string): Promise<ActionResult<void>> {
   return call<void>("DELETE", `/integrations/${enc(id)}`);
 }
 
-// --- Folders --------------------------------------------------------------
-
-export function listFolders(): Promise<ActionResult<Folder[]>> {
-  return call<Folder[]>("GET", "/folders");
-}
-
-export function createFolder(
-  name: string,
-  parentId: string | null,
-): Promise<ActionResult<Folder>> {
-  return call<Folder>("POST", "/folders", { name, parentId });
-}
-
-export function renameFolder(
-  id: string,
-  name: string,
-  parentId: string | null,
-): Promise<ActionResult<Folder>> {
-  return call<Folder>("PUT", `/folders/${enc(id)}`, { name, parentId });
-}
-
-export function deleteFolder(id: string): Promise<ActionResult<void>> {
-  return call<void>("DELETE", `/folders/${enc(id)}`);
-}
-
-export function reorderFolders(
-  parentId: string | null,
-  folderIds: string[],
-): Promise<ActionResult<void>> {
-  return call<void>("PUT", "/folders/reorder", { parentId, folderIds });
-}
-
-export function listFolderIntegrations(
-  folderId: string,
-): Promise<ActionResult<Integration[]>> {
-  return call<Integration[]>("GET", `/folders/${enc(folderId)}/integrations`);
-}
-
-export function assignIntegration(
-  folderId: string,
-  integrationId: string,
-): Promise<ActionResult<void>> {
-  return call<void>(
-    "PUT",
-    `/folders/${enc(folderId)}/integrations/${enc(integrationId)}`,
-  );
-}
-
-export function unassignIntegration(
-  folderId: string,
-  integrationId: string,
-): Promise<ActionResult<void>> {
-  return call<void>(
-    "DELETE",
-    `/folders/${enc(folderId)}/integrations/${enc(integrationId)}`,
-  );
-}
-
-export function reorderFolderIntegrations(
-  folderId: string,
-  integrationIds: string[],
-): Promise<ActionResult<void>> {
-  return call<void>("PUT", `/folders/${enc(folderId)}/integration-order`, {
-    integrationIds,
-  });
-}
-
 // --- Snapshots (version tags) ---------------------------------------------
 
 export function listSnapshots(
@@ -142,6 +74,10 @@ export function listSnapshots(
     "GET",
     `/integrations/${enc(integrationId)}/snapshots`,
   );
+}
+
+export function getSnapshot(id: string): Promise<ActionResult<SnapshotDetail>> {
+  return call<SnapshotDetail>("GET", `/snapshots/${enc(id)}`);
 }
 
 export function createSnapshot(

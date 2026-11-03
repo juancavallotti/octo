@@ -21,6 +21,7 @@ type repository interface {
 	Create(ctx context.Context, integrationID, tag string) (Snapshot, error)
 	Get(ctx context.Context, id string) (Snapshot, error)
 	ListByIntegration(ctx context.Context, integrationID string) ([]Snapshot, error)
+	ListSummaries(ctx context.Context, integrationID string) ([]Summary, error)
 	DeploymentsUsingSnapshot(ctx context.Context, integrationID, snapshotID string) ([]string, error)
 	Delete(ctx context.Context, id string) error
 	ListResources(ctx context.Context, snapshotID string) ([]Resource, error)
@@ -73,6 +74,12 @@ func (s *Service) Get(ctx context.Context, id string) (Snapshot, error) {
 // ListByIntegration returns an integration's snapshots, newest first.
 func (s *Service) ListByIntegration(ctx context.Context, integrationID string) ([]Snapshot, error) {
 	return s.repo.ListByIntegration(ctx, integrationID)
+}
+
+// ListSummaries returns an integration's snapshots without their definitions,
+// newest first.
+func (s *Service) ListSummaries(ctx context.Context, integrationID string) ([]Summary, error) {
+	return s.repo.ListSummaries(ctx, integrationID)
 }
 
 // Delete removes a snapshot, refusing if it is still deployed. A deployment pins

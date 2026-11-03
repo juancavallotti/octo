@@ -201,6 +201,15 @@ func (c *Client) CreateVersion(ctx context.Context, id, tag string) (Version, er
 	return ret, err
 }
 
+// GetVersion reads one version with its frozen definition, which the list
+// leaves out.
+func (c *Client) GetVersion(ctx context.Context, id string) (Version, error) {
+
+	var ret Version
+	err := c.call(ctx, request{route: getVersion, path: []string{id}}, &ret)
+	return ret, err
+}
+
 // DeleteVersion deletes a version nothing is running.
 func (c *Client) DeleteVersion(ctx context.Context, id string) error {
 	return c.call(ctx, request{route: deleteVersion, path: []string{id}}, nil)

@@ -14,12 +14,35 @@ import userEvent from "@testing-library/user-event";
  * they are pinned here rather than left to whoever edits the component next.
  */
 
+// The page reads through two server actions that compose the stats reads on the
+// server. The composition is the real one, run over fakes of the reads it makes,
+// so these cases still say what each read answering or failing does to the page.
 const listStatsPods = vi.fn();
 const readStatsSeries = vi.fn();
-vi.mock("@/app/model/stats", () => ({
-  listStatsPods: (id: string) => listStatsPods(id),
-  readStatsSeries: (id: string, q: unknown) => readStatsSeries(id, q),
-}));
+const listStatsMetrics = vi.fn();
+vi.mock("@/app/model/stats", async () => {
+  const { readOverview, readCatalogue } = await import("./deploymentReads");
+  const settle = <T,>(p: Promise<T>) =>
+    p.then(
+      (data) => ({ ok: true as const, data }),
+      (err: Error) => ({ ok: false as const, error: err.message }),
+    );
+  const reads = {
+    getPods: (id: string) => settle(Promise.resolve().then(() => listStatsPods(id))),
+    getMetrics: (id: string) => settle(Promise.resolve().then(() => listStatsMetrics(id))),
+    getSeries: (id: string, q: unknown) =>
+      settle(Promise.resolve().then(() => readStatsSeries(id, q))),
+  };
+  return {
+    readDeploymentOverview: (id: string, view: "live" | "historic", now: number) =>
+      readOverview(reads, id, view, now),
+    readDeploymentCatalogue: async (id: string, view: "live" | "historic", now: number) => {
+      const res = await readCatalogue(reads, id, view, now);
+      if (!res.ok) throw new Error(res.error);
+      return res.data;
+    },
+  };
+});
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -67,6 +90,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   listStatsPods.mockResolvedValue({ deploymentId: "dep-1", items: [], truncated: false });
   readStatsSeries.mockResolvedValue(seriesPage());
+  listStatsMetrics.mockResolvedValue({ deploymentId: "dep-1", items: [], warnings: [], truncated: false });
 });
 
 describe("when there is nothing to draw", () => {

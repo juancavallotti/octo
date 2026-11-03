@@ -8,8 +8,10 @@ import {
   listResources,
   listSnapshotResources,
   snapshotResourceContent,
+  type Resource,
 } from "@/app/model/orchestrator";
 import { downloadResource } from "./files";
+import { useSeed } from "./useSeed";
 import ResourceUploadForm from "./ResourceUploadForm";
 import { useRoles } from "@/app/auth/RolesContext";
 import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
@@ -30,10 +32,13 @@ import { fromFrozen, fromLive, type DisplayResource } from "./resources";
  */
 export default function ResourcesSection({
   integrationId,
+  initial,
   snapshotId,
   versionLabel,
 }: {
   integrationId: string;
+  /** The live set the pane already read, standing in for the first read. */
+  initial?: Resource[];
   /** When set, show this tag's frozen resources (read-only) instead of the live
    * working-copy set. */
   snapshotId?: string;
@@ -43,7 +48,11 @@ export default function ResourcesSection({
   const confirm = useConfirm();
   const { can } = useRoles();
   const frozen = snapshotId != null;
-  const [resources, setResources] = useState<DisplayResource[]>([]);
+  const [resources, setResources] = useState<DisplayResource[]>(
+    initial?.map(fromLive) ?? [],
+  );
+  // Only the live set is handed over; a tag's frozen set is always read here.
+  const handed = useSeed(initial !== undefined && snapshotId == null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,8 +72,8 @@ export default function ResourcesSection({
     }
   }, [integrationId, snapshotId]);
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (!handed()) reload();
+  }, [reload, handed]);
 
   // Download one resource under its own name. A live resource's content came with
   // the list, so it saves without a round trip; a frozen one is metadata only, so

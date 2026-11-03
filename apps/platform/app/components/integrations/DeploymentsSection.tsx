@@ -17,6 +17,7 @@ import RolloutModal from "./RolloutModal";
 
 export default function DeploymentsSection({
   integrationId,
+  initial,
   integrationName,
   snapshots,
   activeSnapshot,
@@ -28,6 +29,8 @@ export default function DeploymentsSection({
   onOpenLogs,
 }: {
   integrationId: string;
+  /** The deployments the pane already read, standing in for the first read. */
+  initial?: Deployment[];
   integrationName: string;
   /** The integration's tags (owned by the parent), for the change-version menu. */
   snapshots: Snapshot[];
@@ -63,7 +66,12 @@ export default function DeploymentsSection({
     rollout,
     scale,
     undeploy,
-  } = useDeployments({ integrationId, onDeployOpenChange, onSnapshotsChanged });
+  } = useDeployments({
+    integrationId,
+    initial,
+    onDeployOpenChange,
+    onSnapshotsChanged,
+  });
 
   // Scope the list to the active version: a tag shows only its deployments; Current
   // (null) shows them all so everything is manageable in one place.

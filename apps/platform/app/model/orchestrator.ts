@@ -24,9 +24,13 @@ import type {
   EnvBindingInput,
   Folder,
   Integration,
+  IntegrationDetailData,
   IntegrationInput,
+  IntegrationProject,
   IntegrationRename,
+  IntegrationTree,
   Snapshot,
+  SnapshotDetail,
   SnapshotResource,
 } from "./orchestratorTypes";
 
@@ -36,6 +40,20 @@ import type {
 
 export async function listIntegrations(): Promise<Integration[]> {
   return unwrap(await integrationActions.listIntegrations());
+}
+
+/** An integration, its config files and its folder, for the editor to open. */
+export async function loadIntegrationProject(
+  id: string,
+): Promise<IntegrationProject> {
+  return unwrap(await integrationActions.loadIntegrationProject(id));
+}
+
+/** The first view of an integration's detail pane, in one round trip. */
+export async function loadIntegrationDetail(
+  id: string,
+): Promise<IntegrationDetailData> {
+  return unwrap(await integrationActions.loadIntegrationDetail(id));
 }
 
 export async function getIntegration(id: string): Promise<Integration> {
@@ -87,24 +105,11 @@ export type DeploymentWithIntegration = Deployment & {
   integrationName: string;
 };
 
-/**
- * Aggregate every deployment across every integration into one flat, named list.
- * A per-integration failure contributes nothing rather than failing the whole
- * call, so one unreachable integration can't blank the view.
- */
+/** Every deployment across every integration, newest first, each named. */
 export async function listAllDeployments(): Promise<
   DeploymentWithIntegration[]
 > {
-  const integrations = await listIntegrations();
-  const lists = await Promise.all(
-    integrations.map((i) =>
-      listDeployments(i.id).then(
-        (ds) => ds.map((d) => ({ ...d, integrationName: i.name })),
-        () => [] as DeploymentWithIntegration[],
-      ),
-    ),
-  );
-  return lists.flat();
+  return unwrap(await deploymentActions.listAllDeployments());
 }
 
 /**
@@ -193,6 +198,11 @@ export async function reorderFolders(
   return unwrap(await folderActions.reorderFolders(parentId, folderIds));
 }
 
+/** Folders, integrations, membership and what is deployed, in one round trip. */
+export async function loadIntegrationTree(): Promise<IntegrationTree> {
+  return unwrap(await folderActions.loadIntegrationTree());
+}
+
 export async function listFolderIntegrations(
   folderId: string,
 ): Promise<Integration[]> {
@@ -237,6 +247,11 @@ export async function listSnapshots(
   return unwrap(await snapshotActions.listSnapshots(integrationId));
 }
 
+/** One version tag with its frozen definition. */
+export async function getSnapshot(id: string): Promise<SnapshotDetail> {
+  return unwrap(await snapshotActions.getSnapshot(id));
+}
+
 /** Freeze the integration's current definition under a new tag. */
 export async function createSnapshot(
   integrationId: string,
@@ -257,26 +272,3 @@ export async function listSnapshotResources(
   return unwrap(await snapshotActions.listSnapshotResources(snapshotId));
 }
 
-/** Collect every folder id in the tree, depth-first. */
-function folderIds(folders: Folder[]): string[] {
-  return folders.flatMap((f) => [f.id, ...folderIds(f.children ?? [])]);
-}
-
-/**
- * Find which folder an integration belongs to, or null when unfiled. Integrations
- * are single-membership but the integration record doesn't name its folder, so we
- * scan folder memberships.
- */
-export async function findIntegrationFolderId(
-  integrationId: string,
-): Promise<string | null> {
-  const ids = folderIds(await listFolders());
-  const matches = await Promise.all(
-    ids.map((id) =>
-      listFolderIntegrations(id).then((items) =>
-        items.some((i) => i.id === integrationId) ? id : null,
-      ),
-    ),
-  );
-  return matches.find((id): id is string => id !== null) ?? null;
-}

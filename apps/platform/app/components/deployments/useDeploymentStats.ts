@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { readStatsSeries } from "@/app/model/stats";
+import { readStatsSeriesForEach, type StatsSeriesPage } from "@/app/model/stats";
 import {
   CPU_METRIC,
   MEM_METRIC,
@@ -67,25 +67,26 @@ export function useDeploymentStats(deploymentIds: string[]): DeploymentStats {
       const to = new Date();
       const from = new Date(to.getTime() - WINDOW_MS);
 
-      const settled = await Promise.allSettled(
-        ids.map((id) =>
-          readStatsSeries(id, {
-            metrics: [CPU_METRIC, MEM_METRIC],
-            tier: "live",
-            from: from.toISOString(),
-            to: to.toISOString(),
-          }).then((page) => [id, fold(page)] as const),
-        ),
-      );
+      let outcomes: Awaited<ReturnType<typeof readStatsSeriesForEach>>;
+      try {
+        outcomes = await readStatsSeriesForEach(ids, {
+          metrics: [CPU_METRIC, MEM_METRIC],
+          tier: "live",
+          from: from.toISOString(),
+          to: to.toISOString(),
+        });
+      } catch {
+        outcomes = [];
+      }
       if (stopped || sequence.current !== mine) return;
 
       const next = new Map<string, SparkData>();
       let succeeded = 0;
-      for (const outcome of settled) {
-        if (outcome.status !== "fulfilled") continue;
+      for (const outcome of outcomes) {
+        if (!("page" in outcome)) continue;
         succeeded++;
-        const [id, spark] = outcome.value;
-        if (spark) next.set(id, spark);
+        const spark = fold(outcome.page);
+        if (spark) next.set(outcome.deploymentId, spark);
       }
 
       // Last good data is kept on a total failure: a transient blip should not
@@ -112,7 +113,7 @@ export function useDeploymentStats(deploymentIds: string[]): DeploymentStats {
  * Pods are folded rather than drawn separately: at this size two overlaid lines
  * of the same colour are one thicker line. Both sum, because two pods each using
  * half a core is a deployment using one. */
-function fold(page: Awaited<ReturnType<typeof readStatsSeries>>): SparkData | null {
+function fold(page: StatsSeriesPage): SparkData | null {
   const stepMs = parseGoDuration(page.step) ?? 1000;
 
   let cpu: Points | null = null;

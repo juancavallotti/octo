@@ -24,12 +24,24 @@ const folder = (id: string) => ({ kind: "folder" as const, id, name: id });
 const integration = (id: string) => ({ kind: "integration" as const, id, name: id });
 
 describe("resolveDrag: integrations", () => {
-  it("reorders onto a peer", () => {
-    expect(resolveDrag(integration("i1"), integration("i2"), ctx())).toEqual({
-      kind: "reorder-integration",
-      id: "i1",
-      beforeId: "i2",
-    });
+  it("reorders beside a peer in the same folder", () => {
+    expect(
+      resolveDrag(integration("i1"), integration("i2"), ctx({ i1: "a", i2: "a" })),
+    ).toEqual({ kind: "reorder-integration", id: "i1", beforeId: "i2" });
+  });
+
+  // Dropping on a row means "where that one is", which is the tree's whole
+  // vocabulary for moving an integration without aiming at a folder row.
+  it("moves into another folder by dropping on an integration there", () => {
+    expect(
+      resolveDrag(integration("i1"), integration("i2"), ctx({ i1: "a", i2: "d" })),
+    ).toEqual({ kind: "file-integration", folderId: "d", integrationId: "i1" });
+  });
+
+  it("unfiles by dropping on an integration at the top level", () => {
+    expect(
+      resolveDrag(integration("i1"), integration("i2"), ctx({ i1: "a" })),
+    ).toEqual({ kind: "unfile-integration", folderId: "a", integrationId: "i1" });
   });
 
   it("files into a folder it is not already in", () => {
@@ -40,9 +52,9 @@ describe("resolveDrag: integrations", () => {
     });
   });
 
-  it("unfiles onto Unfiled", () => {
+  it("unfiles onto the top level", () => {
     expect(
-      resolveDrag(integration("i1"), { kind: "unfiled" }, ctx({ i1: "a" })),
+      resolveDrag(integration("i1"), { kind: "root" }, ctx({ i1: "a" })),
     ).toEqual({ kind: "unfile-integration", folderId: "a", integrationId: "i1" });
   });
 
@@ -54,12 +66,9 @@ describe("resolveDrag: integrations", () => {
     expect(
       resolveDrag(integration("i1"), { kind: "folder", id: "a" }, ctx({ i1: "a" })),
     ).toEqual(none);
-    // Not in a folder to begin with.
-    expect(resolveDrag(integration("i1"), { kind: "unfiled" }, ctx())).toEqual(none);
-    // "All" is a view, not a place an integration can be.
-    expect(resolveDrag(integration("i1"), { kind: "root" }, ctx({ i1: "a" }))).toEqual(
-      none,
-    );
+    // Already at the top level, which keeps no order to change.
+    expect(resolveDrag(integration("i1"), { kind: "root" }, ctx())).toEqual(none);
+    expect(resolveDrag(integration("i1"), integration("i2"), ctx())).toEqual(none);
   });
 });
 
@@ -82,7 +91,7 @@ describe("resolveDrag: folders", () => {
     });
   });
 
-  it("lifts to the root off the All bucket", () => {
+  it("lifts to the top level", () => {
     expect(resolveDrag(folder("c"), { kind: "root" }, ctx())).toEqual({
       kind: "reparent-folder",
       id: "c",
@@ -106,8 +115,8 @@ describe("resolveDrag: folders", () => {
     const none = { kind: "none" };
     // Already at the root.
     expect(resolveDrag(folder("a"), { kind: "root" }, ctx())).toEqual(none);
-    // A folder has no business on Unfiled.
-    expect(resolveDrag(folder("a"), { kind: "unfiled" }, ctx())).toEqual(none);
+    // A folder dropped on an integration row means nothing.
+    expect(resolveDrag(folder("a"), integration("i1"), ctx())).toEqual(none);
     // Unknown ids on either side.
     expect(resolveDrag(folder("zz"), { kind: "folder", id: "a" }, ctx())).toEqual(none);
     expect(resolveDrag(folder("a"), { kind: "folder", id: "zz" }, ctx())).toEqual(none);

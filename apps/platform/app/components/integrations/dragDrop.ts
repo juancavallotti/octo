@@ -8,15 +8,15 @@ import {
 /**
  * What a drop should do — decided, not done.
  *
- * The tree accepts several kinds of drag onto several kinds of target, and most
- * pairs mean nothing: a folder onto Unfiled, an integration onto All, anything
- * onto itself. Separating the decision from the mutation keeps those rules
+ * The tree accepts several kinds of drag onto several kinds of target, and many
+ * pairs mean nothing: an unfiled integration onto the top level, anything onto
+ * itself. Separating the decision from the mutation keeps those rules
  * checkable — not least that a folder dropped into its own subtree would detach
  * that subtree from the tree entirely.
  */
 export type DragOutcome =
   | { kind: "none" }
-  /** Move an integration before another in the shown list. */
+  /** Move an integration before another in its folder. */
   | { kind: "reorder-integration"; id: string; beforeId: string }
   | { kind: "file-integration"; folderId: string; integrationId: string }
   | { kind: "unfile-integration"; folderId: string; integrationId: string }
@@ -30,8 +30,8 @@ const NONE: DragOutcome = { kind: "none" };
 /**
  * Resolve a drop into the one thing it should do.
  *
- * `over` is either a drop zone (DropData) or, for the sortable list, a peer card
- * (DragData) — the two arrive through the same channel, so the shape has to be
+ * `over` is either a drop zone (DropData) or another row of the tree (DragData)
+ * — the two arrive through the same channel, so the shape has to be
  * discriminated rather than assumed.
  */
 export function resolveDrag(
@@ -56,26 +56,38 @@ function resolveIntegrationDrop(
   over: DropData | DragData,
   membership: ReadonlyMap<string, string | null>,
 ): DragOutcome {
-  // Dropped on a peer card: reorder within the current folder.
+  const current = membership.get(active.id) ?? null;
+
+  // Dropped on another integration: put it where that one is. Beside a peer in
+  // the same folder that is a reorder; in another folder it is a move there; at
+  // the top level it is an unfile.
   if (over.kind === "integration") {
-    return over.id === active.id
-      ? NONE
-      : { kind: "reorder-integration", id: active.id, beforeId: over.id };
+    if (over.id === active.id) return NONE;
+    const target = membership.get(over.id) ?? null;
+    if (target === current) {
+      // The top level keeps no order of its own, so there is nothing to reorder.
+      return current === null
+        ? NONE
+        : { kind: "reorder-integration", id: active.id, beforeId: over.id };
+    }
+    if (target !== null) {
+      return { kind: "file-integration", folderId: target, integrationId: active.id };
+    }
+    return current
+      ? { kind: "unfile-integration", folderId: current, integrationId: active.id }
+      : NONE;
   }
 
-  const current = membership.get(active.id) ?? null;
   if (over.kind === "folder") {
     // Already there: a drop that changes nothing is not a write.
     return over.id === current
       ? NONE
       : { kind: "file-integration", folderId: over.id, integrationId: active.id };
   }
-  if (over.kind === "unfiled" && current) {
-    return { kind: "unfile-integration", folderId: current, integrationId: active.id };
-  }
-  // Dropping an integration on "All" is a no-op: root is not a place an
-  // integration can be, only a view that shows every one of them.
-  return NONE;
+  // The top level: out of its folder, if it is in one.
+  return current
+    ? { kind: "unfile-integration", folderId: current, integrationId: active.id }
+    : NONE;
 }
 
 function resolveFolderDrop(
@@ -103,7 +115,7 @@ function resolveFolderDrop(
       : { kind: "reparent-folder", id: active.id, name: folder.name, parentId: over.id };
   }
 
-  // Onto the "All" bucket: lift to the top level, unless it is already there.
+  // Onto the top level: lift it there, unless it is already there.
   if (over.kind === "root" && parentId !== null) {
     return { kind: "reparent-folder", id: active.id, name: folder.name, parentId: null };
   }

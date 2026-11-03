@@ -1,94 +1,37 @@
 "use client";
 
+import { useDndContext, useDroppable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
-import { useDroppable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronRight,
   Folder as FolderIcon,
+  FolderPlus,
+  Layers,
   Pencil,
+  Rocket,
   Trash2,
 } from "lucide-react";
-import { type DragData, type DropData, type FlatFolder } from "./model";
+import { type DragData, type FlatFolder } from "./model";
 
 /**
- * The two row shapes the folder tree renders: a fixed bucket (All / Unfiled) and
- * a folder, which is simultaneously a sortable item, a drop target, and an inline
- * rename field.
+ * The folder rows of the integrations tree — smart and real — and the top-level
+ * drop zone beneath them.
  */
 
-/** The shared row chrome both a bucket and a folder wear. */
-const bucketRow = (active: boolean) =>
-  `flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
-    active
-      ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
-      : "hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-  }`;
-
-/**
- * A bucket that is only a view of the integrations, not a place any of them can
- * be put, so it is not a drop target: a row that lights up under the pointer and
- * then does nothing is worse than one that never lights up.
- */
-export function ViewRow({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <li>
-      <button type="button" onClick={onClick} className={bucketRow(active)}>
-        {children}
-      </button>
-    </li>
-  );
-}
-
-/** A top-level bucket ("All"/"Unfiled") that is also a drop target. */
-export function BucketRow({
-  dropId,
-  dropData,
-  active,
-  onClick,
-  children,
-}: {
-  dropId: string;
-  dropData: DropData;
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: dropId, data: dropData });
-  return (
-    <li>
-      <button
-        ref={setNodeRef}
-        type="button"
-        onClick={onClick}
-        className={`${bucketRow(active)} ${
-          isOver ? "ring-1 ring-inset ring-sky-500/60" : ""
-        }`}
-      >
-        {children}
-      </button>
-    </li>
-  );
+/** How far a row at `depth` is indented, shared so folders and integrations line up. */
+export function treeIndent(depth: number): string {
+  return `${0.75 + depth * 0.85}rem`;
 }
 
 /**
- * One folder row: a drop target (its container) wrapping a chevron toggle and the
- * draggable folder-name button, with hover rename/delete actions. While editing,
- * the name is replaced by an inline input.
+ * One folder: a sortable item (reorder among siblings), a drop target (file an
+ * integration here, or reparent a folder dragged from another group) and, while
+ * renaming, an inline field. Clicking it opens or closes it.
  */
 export function FolderRow({
   f,
   expandable,
-  collapsed,
-  selected,
+  expanded,
   count,
   editing,
   editName,
@@ -96,14 +39,13 @@ export function FolderRow({
   onSubmitRename,
   onCancelRename,
   onToggle,
-  onSelect,
   onStartRename,
+  onNewSubfolder,
   onDelete,
 }: {
   f: FlatFolder;
   expandable: boolean;
-  collapsed: boolean;
-  selected: boolean;
+  expanded: boolean;
   count: number;
   editing: boolean;
   editName: string;
@@ -111,29 +53,16 @@ export function FolderRow({
   onSubmitRename: () => void;
   onCancelRename: () => void;
   onToggle: () => void;
-  onSelect: () => void;
   onStartRename: () => void;
+  onNewSubfolder: () => void;
   onDelete: () => void;
 }) {
-  // Indent by depth; the chevron column (1rem) keeps folder icons aligned whether
-  // or not a row is expandable.
-  const indent = `${0.75 + f.depth * 0.85}rem`;
-  // The row is both a sortable item (reorder among siblings) and a drop target
-  // (file an integration here, or reparent a folder dragged from another group).
+  const indent = treeIndent(f.depth);
   const data: DragData = { kind: "folder", id: f.id, name: f.name };
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: `folder:${f.id}`, data });
-  const sortableStyle = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+  const { attributes, listeners, setNodeRef, isDragging, isOver } = useSortable({
+    id: `folder:${f.id}`,
+    data,
+  });
 
   if (editing) {
     return (
@@ -155,63 +84,131 @@ export function FolderRow({
   }
 
   return (
-    <li ref={setNodeRef} style={sortableStyle} className="group/row relative">
-      <div
-        className={`flex w-full items-center pr-14 text-sm ${
-          isDragging ? "opacity-40" : ""
-        } ${
-          selected
-            ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
-            : "hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-        } ${isOver ? "ring-1 ring-inset ring-sky-500/60" : ""}`}
+    <li ref={setNodeRef} className="group/row relative">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expandable ? expanded : undefined}
+        {...attributes}
+        {...listeners}
         style={{ paddingLeft: indent }}
+        className={`flex w-full items-center gap-1 py-1.5 pr-20 text-left text-sm hover:bg-black/[0.04] dark:hover:bg-white/[0.06] ${
+          isDragging ? "opacity-40" : ""
+        } ${isOver ? "ring-1 ring-inset ring-sky-500/60" : ""}`}
       >
         {expandable ? (
-          <button
-            type="button"
-            aria-label={collapsed ? `Expand ${f.name}` : `Collapse ${f.name}`}
-            aria-expanded={!collapsed}
-            onClick={onToggle}
-            className="flex h-4 w-4 shrink-0 items-center justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-          >
-            <ChevronRight
-              size={13}
-              className={`transition-transform ${collapsed ? "" : "rotate-90"}`}
-            />
-          </button>
+          <ChevronRight
+            size={13}
+            aria-hidden
+            className={`shrink-0 text-zinc-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+          />
         ) : (
-          <span className="h-4 w-4 shrink-0" aria-hidden />
+          <span className="h-[13px] w-[13px] shrink-0" aria-hidden />
         )}
-        <button
-          type="button"
-          onClick={onSelect}
-          {...attributes}
-          {...listeners}
-          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-1 text-left"
-        >
-          <FolderIcon size={15} className="shrink-0 text-zinc-400" />
-          <span className="flex-1 truncate">{f.name}</span>
-          <span className="text-xs text-zinc-400">{count}</span>
-        </button>
-      </div>
-      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/row:opacity-100">
-        <button
-          type="button"
-          aria-label={`Rename ${f.name}`}
-          onClick={onStartRename}
-          className="rounded p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-        >
+        <FolderIcon size={15} className="ml-0.5 shrink-0 text-zinc-400" />
+        <span className="ml-1 min-w-0 flex-1 truncate font-medium">{f.name}</span>
+        <span className="text-xs text-zinc-400">{count}</span>
+      </button>
+      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
+        <RowAction label={`New folder in ${f.name}`} onClick={onNewSubfolder}>
+          <FolderPlus size={13} />
+        </RowAction>
+        <RowAction label={`Rename ${f.name}`} onClick={onStartRename}>
           <Pencil size={13} />
-        </button>
-        <button
-          type="button"
-          aria-label={`Delete ${f.name}`}
-          onClick={onDelete}
-          className="rounded p-1 text-zinc-400 hover:text-red-500"
-        >
+        </RowAction>
+        <RowAction label={`Delete ${f.name}`} onClick={onDelete} danger>
           <Trash2 size={13} />
-        </button>
+        </RowAction>
       </div>
+    </li>
+  );
+}
+
+/**
+ * A smart folder: its contents are computed, so it opens and closes like a
+ * folder but is not a drop target — nothing can be put into "Running".
+ */
+export function SmartFolderRow({
+  id,
+  label,
+  title,
+  expanded,
+  count,
+  onToggle,
+}: {
+  id: "running" | "all";
+  label: string;
+  title: string;
+  expanded: boolean;
+  count: number;
+  onToggle: () => void;
+}) {
+  const Icon = id === "running" ? Rocket : Layers;
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        title={title}
+        style={{ paddingLeft: treeIndent(0) }}
+        className="flex w-full items-center gap-1 py-1.5 pr-3 text-left text-sm hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+      >
+        <ChevronRight
+          size={13}
+          aria-hidden
+          className={`shrink-0 text-zinc-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+        />
+        <Icon size={15} className="ml-0.5 shrink-0 text-zinc-400" />
+        <span className="ml-1 min-w-0 flex-1 truncate">{label}</span>
+        <span className="text-xs text-zinc-400">{count}</span>
+      </button>
+    </li>
+  );
+}
+
+function RowAction({
+  label,
+  onClick,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`rounded p-1 text-zinc-400 ${
+        danger ? "hover:text-red-500" : "hover:text-zinc-700 dark:hover:text-zinc-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The top level as a place to drop: an integration dropped here leaves its folder,
+ * a folder dropped here moves to the top. It fills the space under the rows, and
+ * says what it does only while something is being dragged.
+ */
+export function TopLevelDropZone() {
+  const { active } = useDndContext();
+  const { setNodeRef, isOver } = useDroppable({ id: "tree:root", data: { kind: "root" } });
+  return (
+    <li
+      ref={setNodeRef}
+      className={`flex min-h-12 flex-1 items-start px-3 py-2 text-xs ${
+        isOver ? "bg-sky-500/5 text-sky-600 ring-1 ring-inset ring-sky-500/60" : "text-zinc-400"
+      }`}
+    >
+      {active ? "Drop here to move to the top level" : null}
     </li>
   );
 }

@@ -35,15 +35,18 @@ export interface Integration {
   updatedByName?: string;
 }
 
-/** A version tag: a frozen snapshot of an integration's definition. */
+/** A version tag: a frozen snapshot of an integration, as the list names it. */
 export interface Snapshot {
   id: string;
   integrationId: string;
   tag: string;
-  /** The frozen definition YAML, for version-scoped stats (e.g. the Definition panel). */
-  definition: string;
   /** RFC3339 timestamp of when the tag was created. */
   createdAt: string;
+}
+
+/** One version tag with its frozen definition, read on its own. */
+export interface SnapshotDetail extends Snapshot {
+  definition: string;
 }
 
 /**
@@ -101,6 +104,37 @@ export interface Folder {
   name: string;
   /** Present on the tree returned by `listFolders`; nested children. */
   children?: Folder[];
+}
+
+/** What the editor opens: an integration, its config files, and its folder. */
+export interface IntegrationProject {
+  integration: Integration;
+  files: ConfigFile[];
+  /** Null when the integration is unfiled. */
+  folderId: string | null;
+}
+
+/**
+ * The first view of an integration's detail pane, read in one go. A part that
+ * could not be read is null, and its section reads it again itself, so one
+ * failure costs one section rather than the pane.
+ */
+export interface IntegrationDetailData {
+  snapshots: Snapshot[] | null;
+  deployments: Deployment[] | null;
+  resources: Resource[] | null;
+  /** The working copy's declared env, from the deploy options. */
+  envVars: DeployEnvVar[] | null;
+}
+
+/** Everything the integrations manager draws, read in one go. */
+export interface IntegrationTree {
+  folders: Folder[];
+  integrations: Integration[];
+  /** Folder id → the integrations it holds, in stored order. */
+  members: Record<string, string[]>;
+  /** The integrations with at least one deployment. */
+  deployed: string[];
 }
 
 /**

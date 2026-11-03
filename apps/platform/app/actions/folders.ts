@@ -7,13 +7,51 @@
  * model layer (`app/model/orchestrator.ts`) unwraps the ActionResult.
  */
 
-import type { Folder, Integration } from "@/app/model/orchestrator";
+import type {
+  Folder,
+  Integration,
+  IntegrationTree,
+} from "@/app/model/orchestrator";
 import { withRead, withWrite } from "./_auth";
 import * as client from "./_client";
 import type { ActionResult } from "./_client";
 
 export async function listFolders(): Promise<ActionResult<Folder[]>> {
   return withRead(() => client.listFolders());
+}
+
+/**
+ * The folder tree, every integration, which folder holds which, and which are
+ * deployed — in one round trip, since the browser sends actions one at a time and
+ * this is four kinds of read and one per folder.
+ */
+export async function loadIntegrationTree(): Promise<ActionResult<IntegrationTree>> {
+  return withRead(async () => {
+    const [folders, integrations, deployments] = await Promise.all([
+      client.listFolders(),
+      client.listIntegrations(),
+      client.listEveryDeployment(),
+    ]);
+    if (!folders.ok) return folders;
+    if (!integrations.ok) return integrations;
+
+    const members = await client.listFolderMembers(folders.data);
+    if (!members.ok) return members;
+
+    return {
+      ok: true,
+      data: {
+        folders: folders.data,
+        integrations: integrations.data,
+        members: members.data,
+        // The tree is usable without this, and blanking it over a deployment
+        // read would be a poor trade: a failed read just means no running marks.
+        deployed: deployments.ok
+          ? [...new Set(deployments.data.map((d) => d.integrationId))]
+          : [],
+      },
+    };
+  });
 }
 
 export async function createFolder(

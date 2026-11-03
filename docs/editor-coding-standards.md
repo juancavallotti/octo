@@ -50,6 +50,13 @@ server-action error messages in production, so actions return a result and the
 caller (the browser model or an editor capability provider) unwraps it back into
 value-or-throw, preserving the real error message.
 
+**Compose reads inside one action, never across actions in the browser.** Next.js
+dispatches server actions one at a time per client, so a `Promise.all` over actions
+in a component runs them in a line, a full round trip each, and a poll built that way
+holds every click behind it. When a view needs several reads, write one action that
+runs them in parallel on the server and returns the combined shape. See
+`listAllDeployments` in `actions/deployments.ts`.
+
 **Keep the orchestrator/secret URLs server-only.** They live in the action layer
 (env vars), never in client code.
 
@@ -101,6 +108,30 @@ governs the rest of this section.
   ```
   Action payloads go on the `data` field of `ReducerAction`. See
   `packages/editor/src/app/state/editorState.tsx` (the `EditorShell` reducer).
+
+## Loading states
+
+Data a page fetches is a `Loadable<T>` — loading, ready, or failed — from
+`useLoadable(key, load)` in `apps/platform/app/components/ui/loadable.ts`, rendered
+with `<Loaded state skeleton>{(data, refreshing) => …}</Loaded>`.
+
+- **Loading is its own state, never inferred from emptiness.** Show an empty state
+  ("No integrations yet") only once the data is ready and empty; while it loads,
+  show a skeleton (`SkeletonRows`, `SkeletonCard`, `SkeletonLine` in
+  `components/ui/Skeleton.tsx`) shaped like the content it stands in for.
+- **A reload is not a first load.** `reload()` keeps the data on screen and sets
+  `refreshing`; polls and the refresh after a mutation must never flash a skeleton.
+- **The key names what is loaded.** A new key (another integration, another filter)
+  starts from loading, so one subject's data never shows under another's name.
+
+New screens use the pattern; existing "Loading…" paragraphs move to it when their
+screen is next worked on.
+
+## Supported widths
+
+The platform targets **portrait tablet (768 px) up to desktop**; phones are not a
+target. Size against containers (`@container` and its variants), not the viewport:
+a docked panel takes width the viewport does not know about. See `AppHeader`.
 
 ## UI unit testing
 
