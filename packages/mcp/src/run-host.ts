@@ -7,8 +7,8 @@
  * `octo` process.
  *
  * The long-running half is addressed by a {@link RunKey} — run-host's own, not a copy —
- * carrying the namespace (resolved once per MCP session, so a session's run stays its
- * own), the integration and the calling user; a host reads the halves it keys on. The
+ * carrying the namespace (resolved once per caller, so a caller's run stays its own),
+ * the integration and the calling user; a host reads the halves it keys on. The
  * one-shots take a bare namespace, which only names where their files are staged.
  *
  * The asynchronous signatures are the other half of the seam: they are what lets a host

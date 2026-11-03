@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OctoMcpConfig } from "../backend";
 import { definitionOf } from "../project";
 import type { RunHostPort, RunKey, RunStateLike } from "../run-host";
-import type { NamespaceResolver } from "../namespace";
+import { callerOf, type AuthInfoLike, type NamespaceResolver } from "../namespace";
 import { parseEnv } from "../env";
 import { mockSpecSchema } from "../mocks";
 import { errorResult, guard, jsonResult, textResult } from "../result";
@@ -14,8 +14,8 @@ import { errorResult, guard, jsonResult, textResult } from "../result";
  * {@link RunHostPort} so these are testable without spawning a real `octo` process.
  *
  * The three tools that address a long-running app all take the integration's `id`, which
- * is not redundant with the session: a host running the app beside itself keys on the
- * session, one running it elsewhere keys on (user, integration) and has nothing else to
+ * is not redundant with the namespace: a host running the app beside itself keys on the
+ * namespace, one running it elsewhere keys on (user, integration) and has nothing else to
  * find it by.
  */
 export function registerRunTools(
@@ -27,22 +27,15 @@ export function registerRunTools(
   const { store } = config;
 
   /**
-   * The run an addressed call refers to, assembled from the three things this request
-   * knows: the MCP session, the integration named in the arguments, and the caller.
-   *
-   * The user comes off the verified bearer token (`AuthInfo.extra`), never from the
-   * arguments — a host that scopes runs per user must not let one client name another's.
-   * An unauthenticated host has none and keys on the session alone.
+   * The run an addressed call refers to: the caller's namespace, the integration named
+   * in the arguments, and the caller's user. See {@link callerOf} for where the caller
+   * comes from; an unauthenticated host has none and shares one namespace.
    */
-  const runKeyOf = (
-    extra: { sessionId?: string; authInfo?: { extra?: Record<string, unknown> } },
-    integrationId?: string,
-  ): RunKey => {
-    const userId = extra.authInfo?.extra?.userId;
+  const runKeyOf = (extra: { authInfo?: AuthInfoLike }, integrationId?: string): RunKey => {
     return {
-      namespace: resolveNamespace(extra.sessionId),
+      namespace: resolveNamespace(extra.authInfo),
       integrationId,
-      userId: typeof userId === "string" ? userId : undefined,
+      userId: callerOf(extra.authInfo).userId,
     };
   };
 
@@ -207,7 +200,7 @@ export function registerRunTools(
         }
         const yaml =
           definition !== undefined ? definition : definitionOf(await store.get(id!));
-        const ns = resolveNamespace(extra.sessionId);
+        const ns = resolveNamespace(extra.authInfo);
         if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }
@@ -276,9 +269,9 @@ export function registerRunTools(
     },
     ({ expression, data, vars, env, timeoutMs }, extra) =>
       guard(async () => {
-        // Reuse the per-session availability gate for a consistent "runner configured?"
+        // Reuse the same availability gate for a consistent "runner configured?"
         // error, even though eval itself is stateless (no namespace isolation needed).
-        const ns = resolveNamespace(extra.sessionId);
+        const ns = resolveNamespace(extra.authInfo);
         if (!runHost.binaries().available) {
           return errorResult("Runner not available (OCTO_BIN_PATH unset).");
         }

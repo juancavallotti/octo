@@ -15,7 +15,7 @@ import { errorResult, guard, jsonResult, textResult } from "../result";
  * application — a flow in one may use a connection declared in another — so every
  * write is validated against the whole set before it is saved. They delegate straight
  * to the host's injected {@link OctoMcpConfig.store}; the run-control tools live
- * separately (they also need the per-session namespace).
+ * separately (they also need the per-caller namespace).
  */
 export function registerIntegrationTools(
   server: McpServer,

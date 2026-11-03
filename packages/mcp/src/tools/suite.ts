@@ -213,7 +213,7 @@ export function registerSuiteTools(
           );
         }
 
-        const outcome = await runHost.test(resolveNamespace(extra.sessionId), {
+        const outcome = await runHost.test(resolveNamespace(extra.authInfo), {
           yaml: definitionOf(rec),
           suites: chosen.map((s) => ({ name: s.flow, content: s.content })),
           resources: config.resources?.(id),

@@ -83,7 +83,7 @@ export interface OctoMcpHandlerOptions {
  * Build the route handler exposing the Octo integration MCP server. A host supplies its
  * own {@link OctoMcpConfig} — store, validator, runtime schema — and its own
  * {@link RunHostPort}; the namespace resolver is created once here, so a run stays bound
- * to its MCP session across requests. Only the streamable HTTP transport is served; the
+ * to its caller across requests. Only the streamable HTTP transport is served; the
  * spec deprecates SSE.
  */
 export function createOctoMcpHandler(

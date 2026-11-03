@@ -8,8 +8,9 @@ import { snapshot } from "@/app/run/session";
  * every operation is a local one. It is declared rather than defaulted to, so nothing
  * can silently fall back to a runner in the wrong place.
  *
- * Of the run key, only the namespace is read: a run here is a child of this process
- * keyed by the MCP session, and nothing outlives the machine.
+ * Of the run key, only the namespace is read: a run here is a child of this process,
+ * and nothing outlives the machine. This endpoint does not authenticate, so every MCP
+ * client shares one namespace — local development assumes one client per server.
  */
 export const localMcpRunHost: RunHostPort = {
   binaries,
