@@ -88,16 +88,20 @@ describe("ApiKeysManager", () => {
     expect(days).toBeLessThanOrEqual(7);
   });
 
-  it("explains what each role lets a key do, on the checkbox and on the pill", async () => {
+  it("opens a card on each role saying what a key with it may do", async () => {
     listApiKeys.mockResolvedValue([key("k1", "ci", [PLATFORM_DEVELOPER], 30)]);
     renderAs([PLATFORM_ADMIN]);
     await screen.findByText("ci");
-    expect(screen.getByRole("checkbox", { name: "Operator" }).closest("label")).toHaveAttribute(
-      "title",
-      expect.stringContaining("deploy, roll out"),
+    const checkbox = screen.getByRole("checkbox", { name: "Operator" });
+    expect(checkbox.closest("[aria-describedby]")).toHaveAccessibleDescription(
+      expect.stringContaining("Deploy, roll out, scale and remove deployments"),
     );
-    const pills = screen.getAllByText("Developer").filter((el) => el.tagName === "SPAN");
-    expect(pills.some((p) => p.getAttribute("title")?.includes("Cannot deploy"))).toBe(true);
+    const pill = screen
+      .getAllByText("Developer")
+      .find((el) => el.closest("[aria-describedby]") && !el.closest("label") && !el.closest("[role=tooltip]"));
+    expect(pill?.closest("[aria-describedby]")).toHaveAccessibleDescription(
+      expect.stringContaining("Deploy, roll out or scale"),
+    );
   });
 
   it("deletes every expired key, and only those, after confirming", async () => {

@@ -3,7 +3,7 @@
 import { KeyRound, Trash2 } from "lucide-react";
 import type { ApiKey } from "@/app/model/apikeys";
 import RoleBadges from "@/app/components/admin/users/RoleBadges";
-import { KEY_ROLE_ABILITIES } from "./keyRoles";
+import { keyRoleCard } from "./keyRoles";
 
 /**
  * One row in the API-keys list: the key's label, the roles it carries and its
@@ -41,7 +41,7 @@ export default function ApiKeyRow({
           {apiKey.prefix}…{apiKey.last4}
         </span>
         <div className="mt-1">
-          <RoleBadges roles={apiKey.roles} titles={KEY_ROLE_ABILITIES} />
+          <RoleBadges roles={apiKey.roles} describe={keyRoleCard} />
         </div>
       </div>
       <div className="hidden flex-col items-end text-xs text-zinc-400 sm:flex">

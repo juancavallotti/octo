@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { useRoles } from "@/app/auth/RolesContext";
 import { KEY_ROLES, ROLE_LABELS, reaches } from "@/app/auth/roles";
-import { KEY_ROLE_ABILITIES } from "./keyRoles";
+import HoverCard from "@/app/components/HoverCard";
+import { keyRoleCard } from "./keyRoles";
 
 /**
  * The form that mints an API key: a label, the date it expires, and the roles it
@@ -112,19 +113,17 @@ export default function NewKeyForm({
           </span>
         ) : (
           offered.map((r) => (
-            <label
-              key={r}
-              title={KEY_ROLE_ABILITIES[r]}
-              className="inline-flex items-center gap-1.5"
-            >
-              <input
-                type="checkbox"
-                checked={roles.includes(r)}
-                disabled={busy}
-                onChange={() => toggle(r)}
-              />
-              {ROLE_LABELS[r] ?? r}
-            </label>
+            <HoverCard key={r} card={keyRoleCard(r)}>
+              <label className="inline-flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={roles.includes(r)}
+                  disabled={busy}
+                  onChange={() => toggle(r)}
+                />
+                {ROLE_LABELS[r] ?? r}
+              </label>
+            </HoverCard>
           ))
         )}
       </fieldset>
