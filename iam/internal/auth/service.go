@@ -368,9 +368,8 @@ func (s *Service) owner(ctx context.Context, rawToken string) (user.User, platfo
 // operator, and then only the basic one.
 //
 // A machine token renews without a key behind it, so whatever a key lends
-// outlives the key's revocation. The basic identity reaches only the
-// deployment's own stores; an access grant would leave a revoked key's reach
-// running in a pod, so granting one takes a signed-in person.
+// outlives the key's revocation. An access grant therefore takes a signed-in
+// person.
 func keyMayLend(roles []user.Role, access []Access) error {
 	if !slices.Contains(roles, user.RoleCICD) && !slices.Contains(roles, user.RoleOperator) {
 		return fmt.Errorf(

@@ -96,12 +96,13 @@ func (a *App) credentialHint() string {
 }
 
 // forbiddenHint is what to do about a refusal from a platform that knows who the
-// caller is. An API key carries only the roles it was minted with, so its refusal
-// is usually the key's scope and not the account's.
+// caller is. An API key carries only the roles it was minted with, and only those
+// its owner may still give it, so its refusal is about the key and not the
+// account; the message above it says which.
 func (a *App) forbiddenHint() string {
 
 	if a.resolved.APIKey != "" {
-		return fmt.Sprintf("API key %s does not carry a role this needs. `octopaas whoami` shows the roles it carries; mint a key with the role you need on your account page.",
+		return fmt.Sprintf("API key %s was refused this: its roles do not cover it, or its owner may no longer give them. `octopaas whoami` shows the roles it carries; mint a key that fits on your account page.",
 			config.MaskKey(a.resolved.APIKey))
 	}
 	return "The platform knows who you are, but this needs a role you do not have. Ask an administrator; `octopaas whoami` shows your roles."

@@ -1277,7 +1277,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'api_keys' AND column_name = 'roles'
+        WHERE table_schema = current_schema()
+          AND table_name = 'api_keys' AND column_name = 'roles'
     ) THEN
         ALTER TABLE api_keys ADD COLUMN roles varchar[] NOT NULL DEFAULT '{}';
         UPDATE api_keys k SET roles = COALESCE((

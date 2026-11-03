@@ -111,7 +111,7 @@ API keys are per-user bearer tokens for programmatic access. A key belongs to on
 
 - Roles: pick at least one of **monitor**, **developer**, **operator** and **CI/CD**. Roles are separate facets, not levels: holding operator does not let you give a key developer.
   - **monitor**, **developer** and **operator** go on a key only if you hold them, or if you are an admin.
-  - **CI/CD** is for pipelines on any CI platform. It rolls out new versions of an integration and a deployment that already exist, and nothing else; see [what CI/CD can and cannot do](#what-cicd-can-and-cannot-do). Nobody holds CI/CD as a person: an admin may put it on a key, and so may anyone holding both developer and operator.
+  - **CI/CD** is for pipelines on any CI platform. It pushes code to an existing integration, tags versions, runs a deployment's tests and rolls out an existing deployment, reading what that takes; [what CI/CD can and cannot do](#what-cicd-can-and-cannot-do) lists every route. Nobody holds CI/CD as a person: an admin may put it on a key, and so may anyone holding both developer and operator.
   - A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for **admin**, an unknown role or no role at all is a `400`; asking for a role you may not give is a `403` that names it.
 - Deploying with a key: a key with **operator** may deploy and roll out, and a key with **CI/CD** may roll out, always with the deployment's basic identity, which reaches only its own stores. Deploying or rolling out an integration that needs [platform access](/platform/deployments#platform-access) takes a signed-in person, because a deployment's token outlives the key that deployed it.
 

@@ -327,7 +327,7 @@ func (a *App) statusCommand(use, path string) *cobra.Command {
 		Short: "Show who you are signed in as, and with what",
 		Long: `Show the platform, the profile and the credential in use, and the account
 it acts as, with your roles. With an API key, the roles are the ones the key
-carries that you still hold, which is all it may do.
+carries that you may still give it, which is all it may do.
 
 It says where each came from (a flag, the environment or the config), which is
 the quickest way to find out why octopaas is talking to the platform it is.`,
