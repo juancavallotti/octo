@@ -22,7 +22,7 @@ service:
 #   2. Export the credentials:
 #        export SLACK_BOT_TOKEN=xoxb-...
 #        export SLACK_SIGNING_SECRET=...
-#   3. Run: task run:sample -- slack-slash-command
+#   3. Run: octo run --config samples/slack-slash-command
 
 env:
   - name: HTTP_PORT
