@@ -137,7 +137,9 @@ by default the version it runs — with the deployment's env, on the runtime
 release the platform deploys now. With --upgrade, a run in which every case
 passes rolls the deployment onto that version; a pinned deployment refuses it.
 
-The command waits for the verdict and exits 1 when the suites do not pass.`,
+The command waits for the verdict and exits 1 when the suites do not pass.
+Rolling out needs a signed-in session (octopaas auth login): a deployment
+cannot borrow the identity of an API key.`,
 		Example: `  octopaas deployments test billing
   octopaas deployments test billing --upgrade
   octopaas deployments test billing --version v1.5.0`,
@@ -267,7 +269,9 @@ func (a *App) deploymentsUpgradeCommand() *cobra.Command {
 version, env and tracing. A pinned deployment stays pinned, at the new release.
 
 With --test the deployment's suites run first and it is upgraded only when
-every case passes (the same as deployments test --upgrade).`,
+every case passes (the same as deployments test --upgrade). It needs a
+signed-in session (octopaas auth login): a deployment cannot borrow the
+identity of an API key.`,
 		Example: `  octopaas deployments upgrade billing --test
   octopaas deployments upgrade billing`,
 		Args: cobra.ExactArgs(1),
