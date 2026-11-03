@@ -1,5 +1,91 @@
 # Changelog
 
+## [0.11.14](https://github.com/juancavallotti/octo/compare/v0.11.13...v0.11.14) (2026-11-03)
+
+
+### Features
+
+* **editor:** give a test input a raw body with a content type ([1873c63](https://github.com/juancavallotti/octo/commit/1873c63b0ddc31f76000e8ddc07e472bb27cbd36)), closes [#163](https://github.com/juancavallotti/octo/issues/163)
+* **mcp:** accept a contentType on invoke_flow ([e6eb106](https://github.com/juancavallotti/octo/commit/e6eb106caba3a7cf9302b7d19ec3737b81de2af2)), closes [#163](https://github.com/juancavallotti/octo/issues/163)
+* **mcp:** serve the 2026-07-28 protocol on MCP SDK v2 ([fe5836c](https://github.com/juancavallotti/octo/commit/fe5836cb787fcc39f0d122a3c69a706622bc22ee))
+* **mcp:** serve the 2026-07-28 protocol on MCP SDK v2 ([3de1f4e](https://github.com/juancavallotti/octo/commit/3de1f4e418d2dfe54644c31e031ebea0a9fdfe7d))
+* **orchestrator:** list snapshots without their definitions ([1912dad](https://github.com/juancavallotti/octo/commit/1912dadc4f5576ebcf6982cec011915acf154df9))
+* **platform:** a loading-state pattern for data the page fetches ([7156516](https://github.com/juancavallotti/octo/commit/71565161c1a80979e8a5f91650b3d8f3926fcb19))
+* **platform:** All and Running as smart folders, and a search over the tree ([13fdafc](https://github.com/juancavallotti/octo/commit/13fdafc161fb61934cc957e2bd1b0accacc40698))
+* **platform:** show the integrations manager loading instead of empty ([d3972c8](https://github.com/juancavallotti/octo/commit/d3972c8e58d19cddb3bdc5261462317e722ccbfb))
+* **run-host:** pass a raw body's content type to octo invoke ([9f82157](https://github.com/juancavallotti/octo/commit/9f82157899b2da94a755d7fab4962f58c602e0d4)), closes [#163](https://github.com/juancavallotti/octo/issues/163)
+* **runtime:** report each flow's queue depth and capacity ([8bf0709](https://github.com/juancavallotti/octo/commit/8bf0709e3b490237340a3e4720a8b68ae68b00b7)), closes [#191](https://github.com/juancavallotti/octo/issues/191)
+* **runtime:** warn when a flow's workers exceed a connector's capacity ([9eef217](https://github.com/juancavallotti/octo/commit/9eef217a514e8e216bf162defb122ccf86843279))
+* **runtime:** warn when a flow's workers exceed a connector's capacity ([d73d5ee](https://github.com/juancavallotti/octo/commit/d73d5ee91243a4ec7286fd40268bffff0e9e4902)), closes [#194](https://github.com/juancavallotti/octo/issues/194)
+* **slack:** add a Socket Mode source ([f04972c](https://github.com/juancavallotti/octo/commit/f04972c4b3f635ebf5c4cb5329a5c3a41766ad32))
+* **slack:** add a Socket Mode source ([f98df17](https://github.com/juancavallotti/octo/commit/f98df178d732dcb0603a6dc8ab590c0777d7d527))
+* **slack:** parse form-encoded slash commands and interactivity in verify ([974030f](https://github.com/juancavallotti/octo/commit/974030ff1247393b62b8badd4eb61cbd7a5ad421))
+* thread invoke --content-type through run-host, MCP and the editor ([49144ee](https://github.com/juancavallotti/octo/commit/49144ee1b6d5b27766c675de83573c7ee2c614e9))
+
+
+### Bug Fixes
+
+* **deps:** lift vulnerable indirect dependencies ([f32204e](https://github.com/juancavallotti/octo/commit/f32204e413d6c290ceb418a28c6316eaeb90cb02))
+* **deps:** minor and patch sweep across the workspace ([1a192d7](https://github.com/juancavallotti/octo/commit/1a192d74a6e7b22ce884869756a3b781711bcae2))
+* **deps:** upgrade Electron to 44.10.1 ([727cfac](https://github.com/juancavallotti/octo/commit/727cfac967aa2a90ab0785f25762d0b36c1a1689))
+* **deps:** upgrade go-jose to v4.1.8 ([4678bb3](https://github.com/juancavallotti/octo/commit/4678bb3d7e3b8dd0823201b9c99b890a0c04ed3d))
+* **deps:** upgrade next-auth to 5.0.0-beta.32 ([fd2ca5a](https://github.com/juancavallotti/octo/commit/fd2ca5a3b5cd7bed6eead26329c6148d84c5b589))
+* **deps:** upgrade Next.js to 16.4.4 ([904705a](https://github.com/juancavallotti/octo/commit/904705a38e9e3e4ea7b0f90ebf7505332b784fc8))
+* **deps:** upgrade the MCP SDK to 1.32.2 ([a01c6d0](https://github.com/juancavallotti/octo/commit/a01c6d07b87721e9e5a4ab3eaa8d56833f39354b))
+* mark the sample webhook secret as a sample, and upgrade go-jose ([1f716d8](https://github.com/juancavallotti/octo/commit/1f716d867dfea2dc3e72de4d12b5a55f720e42ae))
+* **octopaas:** read the newest version's definition on its own ([ac86e5e](https://github.com/juancavallotti/octo/commit/ac86e5e966d755ca2532d8bb12b5bb978e88b56c))
+* **orchestrator:** refuse redirects from iam when minting machine tokens ([efe435f](https://github.com/juancavallotti/octo/commit/efe435ff440a2f1d9bc10f340e3d2af579a1ec51)), closes [#474](https://github.com/juancavallotti/octo/issues/474)
+* **platform:** advertise the sign-in scopes to MCP clients ([4ef72b2](https://github.com/juancavallotti/octo/commit/4ef72b210dae5e38d2dd44f3fd30ec75dcfb615a))
+* **platform:** advertise the sign-in scopes to MCP clients ([0fdbb0b](https://github.com/juancavallotti/octo/commit/0fdbb0b9661fbde832add4b73521b833132475a4))
+* **platform:** announce loading to screen readers, and open a folder before adding to it ([cd46445](https://github.com/juancavallotti/octo/commit/cd46445bff46f6b2658214a0321f3991049a0348))
+* **platform:** offer the duration histogram by a name the stats store holds ([e7db8dc](https://github.com/juancavallotti/octo/commit/e7db8dcd7bec5d8b4c642984bfd5cd36acde06c2))
+* **platform:** offer the duration histogram by a name the stats store holds ([87a86b4](https://github.com/juancavallotti/octo/commit/87a86b48470843e03c0b01a03be050f3c4b810b0))
+* **platform:** read no deployments as none on an install without a cluster ([dfc3437](https://github.com/juancavallotti/octo/commit/dfc343751b0481eba35624f4fb41d2cd0171fc19))
+* **platform:** say when a tag's definition could not be read ([9ba5c7b](https://github.com/juancavallotti/octo/commit/9ba5c7b6503259a625aa7d627b854580d2600996))
+* **platform:** start the smart folders closed, and remember them opened ([a1fac82](https://github.com/juancavallotti/octo/commit/a1fac82003f0499493d4211cc2d29abe37952a0e))
+* refuse redirects on the iam mint and refresh clients ([c37dc59](https://github.com/juancavallotti/octo/commit/c37dc59b494b40deed8b5261bb03f69ac776ad17))
+* **runtime:** address review on queue gauges and trace capture ([32a7d89](https://github.com/juancavallotti/octo/commit/32a7d895215edf5365fcfeeab6e572632af41fe0))
+* **runtime:** drop oversized trace variables one at a time ([efe3dac](https://github.com/juancavallotti/octo/commit/efe3dac8b16e568d01e20db07d78a67153473aff)), closes [#515](https://github.com/juancavallotti/octo/issues/515)
+* **runtime:** ignore unrelated writes in directories --watch observes ([9878922](https://github.com/juancavallotti/octo/commit/9878922982b5c92217495dd4842015593bf69c5f))
+* **runtime:** label a flow's source by its type in the capacity warning ([ad9a545](https://github.com/juancavallotti/octo/commit/ad9a54524f8f6e9c238a74b9e0340ca6be88e1e5)), closes [#194](https://github.com/juancavallotti/octo/issues/194)
+* **runtime:** observability — per-variable trace caps, error series, queue depth ([20eb7af](https://github.com/juancavallotti/octo/commit/20eb7af2e586a912178c424f9b2ed6334b9ccf57))
+* **runtime:** pre-create one error series per flow ([3e350d0](https://github.com/juancavallotti/octo/commit/3e350d0b5d3b49865bced33a01292acbd5f4c5c2)), closes [#441](https://github.com/juancavallotti/octo/issues/441)
+* **runtime:** refuse redirects when renewing the pod's iam token ([3576521](https://github.com/juancavallotti/octo/commit/35765219a914425c49fe478a2c4b022421005f74)), closes [#474](https://github.com/juancavallotti/octo/issues/474)
+* **runtime:** reload only for resources the running config read ([7d54ca4](https://github.com/juancavallotti/octo/commit/7d54ca41ec7686c619583bbba84e09468070a807))
+* **runtime:** stop --watch reloading on its own output ([6f40ea5](https://github.com/juancavallotti/octo/commit/6f40ea53cd0af295ba9b30506fd5c9cc7c435ec0))
+
+
+### Performance
+
+* **platform:** compose page loads server-side; one integrations tree with smart folders ([c97add5](https://github.com/juancavallotti/octo/commit/c97add593bed697d6d3fae84f0501c1a819e02b8))
+* **platform:** list every deployment in one call ([9db4552](https://github.com/juancavallotti/octo/commit/9db4552ee90cca0bdf52241a8cc53b69fce22cfe))
+* **platform:** load the detail pane's first view in one action ([96e8e3d](https://github.com/juancavallotti/octo/commit/96e8e3d870d7697a33663110069e3fc666c53795))
+* **platform:** load the integration tree in one server action ([23ff330](https://github.com/juancavallotti/octo/commit/23ff33052a577f2f02b54929e1916bee51f0d53d))
+* **platform:** one action per poll on a deployment's metrics page ([b6fade3](https://github.com/juancavallotti/octo/commit/b6fade341766bfa8bd851df82d84092cfb857281))
+* **platform:** open an integration in the editor in one action ([ea12e17](https://github.com/juancavallotti/octo/commit/ea12e17ab87f3ed50567084475a8bbeb8372fdf6))
+* **platform:** read every deployment's sparkline in one action ([9bc7ab3](https://github.com/juancavallotti/octo/commit/9bc7ab3280bafd4ff25f675f4b7b1dc01d9d6cae))
+
+
+### Refactoring
+
+* **mcp:** key run namespaces on the caller, not the MCP session ([c1a58ee](https://github.com/juancavallotti/octo/commit/c1a58ee8920df8db080ce8e47a29cd5faf3aeda9))
+* **platform:** fold folders and integrations into one tree ([7db2da1](https://github.com/juancavallotti/octo/commit/7db2da1259e895037f94eda0303d67d829fb8ae9))
+
+
+### Documentation
+
+* describe the workers-over-capacity startup warning ([1886a68](https://github.com/juancavallotti/octo/commit/1886a688e01e333937a60fd17f9a0a3a3418efd1)), closes [#194](https://github.com/juancavallotti/octo/issues/194)
+* document raw bodies for invoke_flow and editor test inputs ([2597460](https://github.com/juancavallotti/octo/commit/25974608c79b2a1c147464a790ea7e7839e01604)), closes [#163](https://github.com/juancavallotti/octo/issues/163)
+* document Slack slash commands and add a slash-command sample ([84e874c](https://github.com/juancavallotti/octo/commit/84e874c18c04fedd3fae5a3b3c11d5c46da016ff)), closes [#118](https://github.com/juancavallotti/octo/issues/118)
+* document the Slack Socket Mode source ([d590116](https://github.com/juancavallotti/octo/commit/d5901162c6c895cf4181c32c765d09696b4f7ed9))
+* **mcp:** per-caller isolation and one client per local server ([7146aed](https://github.com/juancavallotti/octo/commit/7146aed25e8138769db176fa6f8a32d5994de8ac))
+* **orchestrator:** describe snapshot summaries by what they hold ([c5fa310](https://github.com/juancavallotti/octo/commit/c5fa310a9237336f93b4aee173085fd01a61d2be))
+* reply to Slack slash commands later through response_url ([9998606](https://github.com/juancavallotti/octo/commit/99986065dfbfe14149c8dbce6489b5ec43534b3e)), closes [#118](https://github.com/juancavallotti/octo/issues/118)
+* **samples:** use the octo CLI in sample run instructions ([d2ff4b7](https://github.com/juancavallotti/octo/commit/d2ff4b78fba3593ace6bd6bf77841b4417ea23c4))
+* **samples:** use the octo CLI in sample run instructions ([1bf477e](https://github.com/juancavallotti/octo/commit/1bf477eeb536479c89aaf05424fb73920a6fcfc9)), closes [#519](https://github.com/juancavallotti/octo/issues/519)
+* **samples:** use the octo CLI in the slash-command sample's run instructions ([000effa](https://github.com/juancavallotti/octo/commit/000effa7b861d9301ba14a62b6ff01036c6bb2b8))
+* **samples:** use the octo CLI in the Socket Mode sample's run instructions ([cb794ec](https://github.com/juancavallotti/octo/commit/cb794ec5c8f3359dc68a2f3cc7098890c632e4a8))
+
 ## [0.11.13](https://github.com/juancavallotti/octo/compare/v0.11.12...v0.11.13) (2026-10-23)
 
 
