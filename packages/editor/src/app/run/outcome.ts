@@ -96,11 +96,13 @@ export function classify(
  * A saved input holds JSON *text* — it is edited in a box, and half-written text is the
  * thing that has to survive — while a test case holds values. This is where the one
  * becomes the other, on the way to a result that can be promoted. Text that will not
- * parse yields nothing rather than a body that is a string of JSON.
+ * parse yields nothing rather than a body that is a string of JSON. A raw body yields
+ * nothing either: a test case's body is JSON, so a raw one has no form there, and
+ * parsing it anyway would promote `42` sent as text/plain as the number it is not.
  */
 export function inputValues(input: TestInput | undefined): RunSetup["input"] {
   if (!input) return undefined;
-  const data = parseJson(input.data);
+  const data = input.contentType ? undefined : parseJson(input.data);
   const vars = parseJson(input.vars) as Record<string, unknown> | undefined;
   if (data === undefined && vars === undefined) return undefined;
   return { ...(data === undefined ? {} : { data }), ...(vars === undefined ? {} : { vars }) };

@@ -30,6 +30,13 @@ describe("fromTestInputs", () => {
     expect(keys(shape.body)).toEqual(["a", "b"]);
   });
 
+  it("reads a raw input as the envelope the flow receives, not as JSON", () => {
+    const shape = fromTestInputs([
+      { id: "1", name: "xml", data: "<order/>", contentType: "application/xml" },
+    ]);
+    expect(keys(shape.body)).toEqual(["contentType", "rawData"]);
+  });
+
   it("skips one that is still being typed", () => {
     expect(fromTestInputs([{ id: "1", name: "x", data: '{"a":' }]).body).toBeUndefined();
   });

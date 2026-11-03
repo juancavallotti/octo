@@ -94,8 +94,10 @@ export interface FlowRunRequest {
   flow: string;
   /** The open integration, so the host can resolve its resources; absent for a draft. */
   integrationId?: string;
-  /** JSON request body bound to the message's `body`. */
+  /** Request body bound to the message's `body`: JSON unless `contentType` is set. */
   data?: string;
+  /** The MIME type of a raw `data`; absent sends `data` as JSON. */
+  contentType?: string;
   /** JSON object seeding the message's variables — what a source would normally set. */
   vars?: string;
   /** A breakpoint address (see planBreakpoint): run until this block, then stop. */

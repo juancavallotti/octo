@@ -72,6 +72,12 @@ function addOutput(evidence: Evidence, flow: string, shape: MessageShape): void 
   evidence.output.set(flow, mergeMessages(evidence.output.get(flow), shape));
 }
 
+/** The body a flow sees for an input: a raw one arrives wrapped, never parsed. */
+function bodyOf(input: TestInput): unknown {
+  if (!input.contentType) return parse(input.data);
+  return input.data === undefined ? undefined : { contentType: input.contentType, rawData: input.data };
+}
+
 /**
  * Saved test inputs: what the user runs the flow with, so what its body starts as.
  *
@@ -82,7 +88,7 @@ export function fromTestInputs(inputs: readonly TestInput[]): MessageShape {
   return inputs.reduce<MessageShape>(
     (acc, input) =>
       mergeMessages(acc, {
-        body: shapeOf(parse(input.data), "sample", "seen in a test input"),
+        body: shapeOf(bodyOf(input), "sample", "seen in a test input"),
         vars: shapeOf(parse(input.vars), "sample", "seen in a test input"),
       }),
     {},

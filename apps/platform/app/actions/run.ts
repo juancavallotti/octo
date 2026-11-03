@@ -163,6 +163,7 @@ export async function runInvoke(
     try {
       const r = await invoke(ns, req.yaml, req.flow, {
         data: req.data,
+        contentType: req.contentType,
         vars: req.vars,
         breakAt: req.breakAt,
         spies: req.spies,

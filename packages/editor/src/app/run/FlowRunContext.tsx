@@ -188,6 +188,7 @@ export function FlowRunProvider({
           flow: flowName,
           integrationId: integrationId ?? undefined,
           data: input?.data,
+          contentType: input?.contentType,
           vars: input?.vars,
           breakAt,
           ...(spyAddresses.length > 0 ? { spies: spyAddresses } : {}),
