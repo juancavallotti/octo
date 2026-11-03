@@ -48,6 +48,9 @@ type metrics struct {
 	// Per-generation, set from the config each generation starts with.
 	flows      prometheus.Gauge
 	connectors prometheus.Gauge
+
+	// Read from the running generation at scrape time.
+	queues *queueCollector
 }
 
 // newMetrics builds the registry and every collector on it. health backs the
@@ -56,7 +59,7 @@ type metrics struct {
 func newMetrics(health *services.Health) *metrics {
 	m := newFlowCollectors()
 	m.registry.MustRegister(
-		m.flowMessages, m.flowErrors, m.flowDuration, m.flowInFlight, m.flows, m.connectors,
+		m.flowMessages, m.flowErrors, m.flowDuration, m.flowInFlight, m.flows, m.connectors, m.queues,
 	)
 	m.registerProcessCollectors(health)
 	return m
@@ -105,6 +108,8 @@ func newFlowCollectors() *metrics {
 			Name:      "connectors",
 			Help:      "Connectors in the running configuration.",
 		}),
+
+		queues: newQueueCollector(),
 	}
 }
 
@@ -183,8 +188,11 @@ func (m *metrics) observeConfig(config types.Config) {
 			m.flowMessages.WithLabelValues(flow.Name, outcome)
 			m.flowDuration.WithLabelValues(flow.Name, outcome)
 		}
+		// One error series per flow, with the empty block a failure carries when it
+		// did not come from a block. Without it octo_flow_errors_total is absent
+		// until the first failure, so an alert on it cannot be written in advance.
+		// Each failing block still adds its own series the first time it fails;
+		// pre-creating one per block would guess which blocks can fail.
+		m.flowErrors.WithLabelValues(flow.Name, "")
 	}
-	// octo_flow_errors_total is deliberately not pre-created: its block label is
-	// only known once something fails, and inventing a series per (flow, block)
-	// pair would be a guess about which blocks can fail.
 }

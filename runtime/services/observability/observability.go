@@ -139,9 +139,9 @@ func (s *Service) Usage() string {
   on one host must not fail over a port none of its flows asked for. Give each
   run its own --observability-addr to have both serve.
 
-  --metrics exports per-flow rate, errors and duration, the in-flight count per
-  flow, and the Go runtime and process collectors (goroutines, heap, GC, RSS, CPU,
-  open files). Every label comes from the config — never from message data — so
+  --metrics exports per-flow rate, errors and duration, the in-flight count and
+  queue depth and capacity per flow, and the Go runtime and process collectors
+  (goroutines, heap, GC, RSS, CPU, open files). Every label comes from the config — never from message data — so
   cardinality is bounded by what you wrote.
 
   --metrics-blocks adds per-block timings, for named blocks only:
@@ -257,6 +257,16 @@ func (s *Service) Configured(config types.Config) {
 		return
 	}
 	s.collectors.observeConfig(config)
+}
+
+// Running hands the metrics the generation's started flows, so the queue gauges
+// read their input channels at scrape time, or nil once the generation stopped.
+// It implements services.RunningAware.
+func (s *Service) Running(flows services.RunningFlows) {
+	if s.collectors == nil {
+		return
+	}
+	s.collectors.queues.observe(flows)
 }
 
 // Stop releases the flow-event subscription and shuts the admin server down,

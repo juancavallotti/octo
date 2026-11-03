@@ -208,6 +208,12 @@ Three obligations that are easy to miss:
 every reload. A generation is not a fresh start: counters and other accumulated
 state must survive it. Treat the call as "the config is now X", not "begin".
 
+`RunningAware` is the other optional half, called once per generation after every
+flow has started and before readiness opens. It hands over `services.RunningFlows`,
+which reads the generation's live state — today the backlog in front of each flow's
+workers. It is called again with `nil` once the generation has stopped, so a
+service never reads flows that are no longer running.
+
 ## `connectors` — what a flow can do
 
 A connector owns a resource (a server, a pool, a client) and the things a flow

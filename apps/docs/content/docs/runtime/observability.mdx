@@ -94,14 +94,18 @@ curl -s localhost:39999/metrics
 | `octo_flow_errors_total` | counter | `flow`, `block` |
 | `octo_flow_duration_seconds` | histogram | `flow`, `outcome` |
 | `octo_flow_in_flight` | gauge | `flow` |
+| `octo_flow_queue_depth` | gauge | `flow` |
+| `octo_flow_queue_capacity` | gauge | `flow` |
 
 **`octo_flow_in_flight` is the one to put on a dashboard first.** It is the number of messages a flow is processing right now, and the only signal that distinguishes "quiet" from "stuck". A flow whose workers are all blocked on a slow database shows in-flight pinned at its worker count (see [worker pools](/runtime/processing-pipeline)) while throughput and CPU both sit flat. [Performance Tuning](/runtime/performance-tuning) says what to do about it.
+
+**`octo_flow_queue_depth` says how far behind a flow is.** In-flight pinned at the worker count says every worker is busy; depth says how many messages are waiting behind them. It is the messages the source has handed over that no worker has picked up, and `octo_flow_queue_capacity` is the flow's `buffer`, so `depth / capacity` is a ratio without knowing the config. A queue at capacity means the source is blocked on its next message: for an `http` source, backpressure has reached the client. Both are read from the flow's buffer at scrape time, so they stay accurate when no message is moving, and a flow a reload removed stops being reported.
 
 **`octo_flow_errors_total` counts unhandled failures only.** A message that failed and whose flow-level [error path](/concepts/error-handling) recovered it is reported as `completed`, so it is not counted here. The metric is therefore an error *rate*, and a flow that handles its errors reads as healthy.
 
 The `block` label names the block the failure came from, so you get "the `charge` block is failing" rather than "this integration is failing". It is empty for a failure that did not originate in a block.
 
-A flow that has taken no traffic still exports its series at zero, so a silent flow is visible as `0` rather than missing. Reloading the config under `--watch` only ever adds series; counters are never reset, because a reset makes `rate()` invent a spike.
+A flow that has taken no traffic still exports its series at zero, so a silent flow is visible as `0` rather than missing. That includes one `octo_flow_errors_total{block=""}` series per flow, so the metric is there to select and preview before anything has failed. Each block's own series appears the first time that block fails, already at `1`, and `rate()` and `increase()` need two samples of a series, so they miss that first failure. To alert on the first failure, use `octo_flow_messages_total{outcome="failed"}`, which exists at zero from the start; use `octo_flow_errors_total` to find which block it was. Reloading the config under `--watch` only ever adds series; counters are never reset, because a reset makes `rate()` invent a spike.
 
 ### Per block
 
@@ -174,6 +178,9 @@ histogram_quantile(0.95,
 
 # Saturation: every worker busy, throughput flat
 octo_flow_in_flight
+
+# How full each flow's buffer is
+octo_flow_queue_depth / octo_flow_queue_capacity
 ```
 
 ## See also

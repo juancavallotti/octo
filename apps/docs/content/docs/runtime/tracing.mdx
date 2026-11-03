@@ -206,7 +206,17 @@ so that a block filter cannot make a trace under-report what a run spent.
 Payloads are on by default because "what did the message look like here" is the
 question tracing exists to answer. A body over `--traces-max-payload` (32 KiB) is
 **omitted whole** and flagged `truncated`, never cut short, because a JSON document
-sliced at a byte boundary would break every reader after it in the stream.
+sliced at a byte boundary would break every reader after it in the stream. The
+record's `bodyBytes` attribute carries the size that was refused.
+
+Variables share the same cap, but a map has a boundary per entry, so the cap drops
+entries rather than the map. Variables are admitted smallest first while they fit;
+any left out are named with their sizes in the `varsDropped` attribute — for
+example `{"responseMedia": 1483920}` — and the record is flagged `truncated`. One
+generated image in a variable costs the trace that variable, not every other one.
+A variable that cannot be encoded as JSON at all, such as a function a block put
+there, is left out the same way and named with its error in the `varsError`
+attribute.
 
 <Callout type="warn">
 Bodies and variables can carry personal data and credentials: the `http` source

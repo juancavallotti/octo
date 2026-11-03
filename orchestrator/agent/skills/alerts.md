@@ -56,9 +56,17 @@ per-pod series collapse to one number, because a watch is about the deployment a
 the pods underneath it come and go.
 
 **One caveat worth knowing on pod stats.** A metric only appears there once it has
-reported at least once, so a counter that has never been incremented cannot be
-selected — `octo_flow_errors_total` most notably. For "this app is erroring", the
-trace-based `error_rate` is both always present and the better question anyway.
+been scraped at least once. The runtime creates every flow's counters at zero on
+config load — `octo_flow_errors_total` included, as one `block=""` series per flow
+— so a running deployment lists them before anything has failed. A block's own
+error series appears only when that block first fails, already at 1, so a rate
+over it misses that first failure: to catch it, watch
+`octo_flow_messages_total` scoped to the label `outcome=failed`, or the trace-based
+`failed_traces`. For "this app is erroring", the
+trace-based `error_rate` is the better question anyway. `octo_flow_queue_depth` and
+`octo_flow_queue_capacity` appear once the flows have started. Depth rising toward
+capacity is the saturation watch: at capacity, the source blocks on its next
+message.
 
 ## The three kinds of condition
 

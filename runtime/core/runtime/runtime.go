@@ -42,6 +42,9 @@ type Service struct {
 	// the process-wide dispatcher; see WithBlockEvents.
 	events *core.BlockEvents
 	ready  chan struct{}
+	// running is the flows this generation started. It is written once, before
+	// ready closes, and never again, so anything that has seen ready may read it.
+	running []*boundFlow
 }
 
 // ServiceOption customizes a Service at construction.
@@ -160,6 +163,21 @@ func (s *Service) Started() <-chan struct{} {
 	return s.ready
 }
 
+// Queues reports the backlog in front of each started flow's workers, read from
+// its input channel at the moment of the call. It is empty until Started closes.
+func (s *Service) Queues() []types.FlowQueue {
+	select {
+	case <-s.ready:
+	default:
+		return nil
+	}
+	ret := make([]types.FlowQueue, 0, len(s.running))
+	for _, flow := range s.running {
+		ret = append(ret, types.FlowQueue{Flow: flow.name, Depth: len(flow.in), Capacity: cap(flow.in)})
+	}
+	return ret
+}
+
 // Run starts all configured connectors and flows, then stops them when ctx is
 // done. Connectors start first (flows bind to them); on shutdown flows drain
 // before connectors release their resources.
@@ -194,6 +212,7 @@ func (s *Service) Run(ctx context.Context) error {
 		return err
 	}
 
+	s.running = started
 	close(s.ready)
 	slog.Info("runtime ready", "connectors", len(set.running), "flows", len(started))
 

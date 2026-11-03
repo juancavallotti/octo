@@ -43,7 +43,7 @@ Two measurements, both at `workers: 8`, show how closely it predicts:
 4. **Size the connector pools to match.** Thirty-two workers sharing a `database` connector with `maxOpenConns: 4` queue for connections instead of for workers; the bottleneck moves, it does not go away. Give the pool at least as many connections as the busiest flow using it has workers, within what the database server allows across all replicas.
 5. **Leave `buffer` alone** unless arrivals come in bursts. A deeper buffer turns rejected work into waiting work; it does not process anything faster.
 6. **Raise `pool` with `workers` if the flow forks.** Every worker submits its message's branches into the one shared pool, which holds `pool` running tasks plus 64 queued ones and panics when that overflows, rather than risk a deadlock. So it must hold `workers × branches per message`: at 32 workers, a three-branch `fork` needs room for 96 tasks, which the default `pool: 8` does not have.
-7. **Verify with `octo_flow_in_flight`.** If it sits at the worker count (or, for a queue-fed flow, at `listeners`) while throughput stays flat, every slot is still waiting and the limit is still too low.
+7. **Verify with `octo_flow_in_flight`.** If it sits at the worker count (or, for a queue-fed flow, at `listeners`) while throughput stays flat, every slot is still waiting and the limit is still too low. `octo_flow_queue_depth` says by how much: a backlog that keeps growing means messages arrive faster than the workers drain them, and one held at `octo_flow_queue_capacity` means the source is blocked.
 
 ## The symptom points the wrong way
 

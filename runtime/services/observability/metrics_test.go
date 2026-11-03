@@ -192,6 +192,30 @@ func TestConfiguredPreCreatesFlowSeriesAtZero(t *testing.T) {
 	}
 }
 
+// An alert on the error counter has to be writable before the first failure, so
+// every flow gets one zero error series; the block breakdown still appears when a
+// block first fails, and sum by (flow) counts both.
+func TestConfiguredPreCreatesOneErrorSeriesPerFlow(t *testing.T) {
+	m := newMetrics(services.NewHealth())
+
+	m.observeConfig(types.Config{Flows: []types.FlowConfig{{Name: "orders"}, {Name: "audit"}}})
+
+	const want = `
+		# HELP octo_flow_errors_total Unhandled failures, by the block they came from. A message a flow's error path recovered completed and is not counted here.
+		# TYPE octo_flow_errors_total counter
+		octo_flow_errors_total{block="",flow="audit"} 0
+		octo_flow_errors_total{block="",flow="orders"} 0
+	`
+	if err := testutil.CollectAndCompare(m.flowErrors, strings.NewReader(want)); err != nil {
+		t.Error(err)
+	}
+
+	m.onFlowEvent(flowEvent(types.FlowEventFailed, "orders", 0, "charge"))
+	if got := testutil.CollectAndCount(m.flowErrors); got != 3 {
+		t.Errorf("error series after a block failure = %d, want the two zeros plus charge", got)
+	}
+}
+
 // A reload must not reset counters: rate() reads a reset as a counter restart and
 // invents a spike. Reloads only ever add series.
 func TestConfiguredDoesNotResetCountersOnReload(t *testing.T) {
