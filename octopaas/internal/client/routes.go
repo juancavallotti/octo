@@ -57,6 +57,7 @@ var (
 
 	listVersions          = route{"listVersions", http.MethodGet, "/v1/integrations/{id}/versions"}
 	createVersion         = route{"createVersion", http.MethodPost, "/v1/integrations/{id}/versions"}
+	getVersion            = route{"getVersion", http.MethodGet, "/v1/versions/{id}"}
 	deleteVersion         = route{"deleteVersion", http.MethodDelete, "/v1/versions/{id}"}
 	downloadVersionBundle = route{"downloadVersionBundle", http.MethodGet, "/v1/versions/{id}/bundle"}
 
@@ -86,7 +87,7 @@ var routes = []route{
 	downloadBundle, replaceBundle, importBundle,
 	listFiles, replaceFiles, getFile, putFile, deleteFile,
 	listResources, createResource, getResource, updateResource, deleteResource,
-	listVersions, createVersion, deleteVersion, downloadVersionBundle,
+	listVersions, createVersion, getVersion, deleteVersion, downloadVersionBundle,
 	listDeployments, listIntegrationDeployments, createDeployment, deploymentOptions,
 	getDeployment, scaleDeployment, deleteDeployment, rolloutDeployment,
 	deploymentLogs, podLogs, streamPodLogs,

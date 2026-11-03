@@ -61,9 +61,6 @@ func (a *App) versionsListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for i := range all {
-				all[i].Definition = ""
-			}
 			return a.emit(all, func() {
 				rows := make([][]string, 0, len(all))
 				for _, v := range all {
@@ -285,8 +282,16 @@ func (a *App) currentVersion(ctx context.Context, api *client.Client, integratio
 	if err != nil {
 		return ret, false, err
 	}
-	if latest, ok := newest(versions); ok && isCurrent(in, latest) {
-		return latest, false, nil
+	if latest, ok := newest(versions); ok {
+		// The list leaves definitions out, so the newest one is read on its own
+		// to tell whether it is the integration as it stands.
+		frozen, err := api.GetVersion(ctx, latest.ID)
+		if err != nil {
+			return ret, false, err
+		}
+		if isCurrent(in, frozen) {
+			return frozen, false, nil
+		}
 	}
 	ret, err = api.CreateVersion(ctx, integrationID, nextTag(versions, time.Now()))
 	return ret, err == nil, err
