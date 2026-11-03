@@ -101,6 +101,9 @@ export type {
 // The Testing tab's half of the transport contract — a host implements `test()` with
 // these, and maps them onto whatever @octo/run-host returns.
 export { emptyTotals } from "./app/run/testTransport";
+// A test report's rendering, for a host showing a run that happened outside the editor.
+export { default as SuiteResults } from "./app/components/console/SuiteResults";
+export { default as TestTally } from "./app/components/TestTally";
 export type {
   TestRunRequest,
   TestRunOutcome,

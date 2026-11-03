@@ -11,6 +11,7 @@ import {
 import PodLogPanel from "@/app/components/integrations/PodLogPanel";
 import RolloutModal from "@/app/components/integrations/RolloutModal";
 import DeploymentListItem from "./DeploymentListItem";
+import TestRunPanel from "@/app/components/upgrades/TestRunPanel";
 import UpgradeNotice from "./UpgradeNotice";
 import { useRollout } from "./useRollout";
 import { useDeploymentStats } from "./useDeploymentStats";
@@ -131,9 +132,7 @@ export default function DeploymentsMonitor() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-6xl px-6 py-8">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">
-              Metrics
-            </h1>
+            <h1 className="text-xl font-semibold tracking-tight">Metrics</h1>
             {sorted.length > 0 && (
               <span className="rounded-full bg-black/[0.06] px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-400">
                 {sorted.length}
@@ -155,8 +154,8 @@ export default function DeploymentsMonitor() {
             )}
           </div>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Every active deployment, its live status, and the last five minutes of
-            what it has been using.
+            Every active deployment, its live status, and the last five minutes
+            of what it has been using.
           </p>
 
           {error && (
@@ -216,6 +215,17 @@ export default function DeploymentsMonitor() {
           busy={rollout.busy}
           error={rollout.error}
           onSubmit={rollout.submit}
+          onTestSubmit={rollout.test}
+          body={
+            rollout.testRun && (
+              <TestRunPanel
+                key={rollout.testRun.id}
+                initial={rollout.testRun}
+                onFinished={rollout.testFinished}
+                onClose={rollout.close}
+              />
+            )
+          }
           onClose={() => {
             if (!rollout.busy) rollout.close();
           }}

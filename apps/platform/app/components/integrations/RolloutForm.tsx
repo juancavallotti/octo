@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { GitCompareArrows, Tag } from "lucide-react";
+import { Tag } from "lucide-react";
 import type { Deployment, Snapshot } from "@/app/model/orchestrator";
 import { suggestNextTag } from "@/app/model/tags";
 import VersionMenu from "./VersionMenu";
@@ -12,6 +12,8 @@ import { INPUT } from "./inputStyles";
 import Field from "./Field";
 import TracingToggle from "./TracingToggle";
 import type { RolloutSubmit } from "./RolloutModal";
+import RolloutActions from "./RolloutActions";
+import { sameEnv } from "./sameEnv";
 
 /** The version + env form for a single deployment. Split out so it can be keyed by
  * the deployment: a change remounts it, re-seeding env from the new deployment. */
@@ -25,6 +27,7 @@ export default function RolloutForm({
   busy,
   error,
   onSubmit,
+  onTestSubmit,
   onClose,
 }: {
   integrationId: string;
@@ -36,6 +39,8 @@ export default function RolloutForm({
   busy: boolean;
   error: string | null;
   onSubmit: (input: RolloutSubmit) => void;
+  /** Run the target version's suites first, rolling out only when they pass. */
+  onTestSubmit?: (input: RolloutSubmit) => void;
   onClose: () => void;
 }) {
   // In pick mode default to the deployment's current version (an env-only re-rollout
@@ -88,16 +93,31 @@ export default function RolloutForm({
     (!creatingNewTag || newTag.trim() !== "") &&
     envComplete;
 
+  const input = (): RolloutSubmit => ({
+    deploymentId: deployment.id,
+    ...(creatingNewTag
+      ? { newTag: newTag.trim() }
+      : { snapshotId: targetSnapshot!.id }),
+    env: buildEnv(),
+    tracing,
+  });
+
   const submit = () => {
     if (!canRollout) return;
-    onSubmit({
-      deploymentId: deployment.id,
-      ...(creatingNewTag
-        ? { newTag: newTag.trim() }
-        : { snapshotId: targetSnapshot!.id }),
-      env: buildEnv(),
-      tracing,
-    });
+    onSubmit(input());
+  };
+
+  // A test run uses the deployment's saved env and tracing, and so does the
+  // rollout it makes on pass — so an edited env or tracing is rolled out directly.
+  const edited =
+    canRollout &&
+    (tracing !== (deployment.tracing ?? false) ||
+      !sameEnv(buildEnv(), deployment.env ?? {}));
+  const canTest = canRollout && !edited;
+
+  const testSubmit = () => {
+    if (!canTest || !onTestSubmit) return;
+    onTestSubmit(input());
   };
 
   return (
@@ -175,7 +195,9 @@ export default function RolloutForm({
               {missingRequired.length > 0 && (
                 <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                   Provide a value or secret for:{" "}
-                  <span className="font-mono">{missingRequired.join(", ")}</span>
+                  <span className="font-mono">
+                    {missingRequired.join(", ")}
+                  </span>
                 </p>
               )}
             </Field>
@@ -185,25 +207,17 @@ export default function RolloutForm({
         {error && <p className="text-sm text-red-500">{error}</p>}
       </div>
 
-      <footer className="flex justify-end gap-2 border-t border-black/10 px-4 py-3 dark:border-white/10">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={busy}
-          className="rounded-md px-3 py-1 text-sm text-zinc-600 transition-colors hover:bg-black/[0.06] disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-white/[0.08]"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!canRollout}
-          className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
-        >
-          <GitCompareArrows size={14} />
-          {actionLabel}
-        </button>
-      </footer>
+      <RolloutActions
+        actionLabel={actionLabel}
+        busy={busy}
+        canRollout={canRollout}
+        canTest={onTestSubmit ? canTest : undefined}
+        edited={edited}
+        onClose={onClose}
+        onSubmit={submit}
+        onTestSubmit={testSubmit}
+      />
     </>
   );
 }
+

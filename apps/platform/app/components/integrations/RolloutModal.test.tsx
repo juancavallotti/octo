@@ -132,7 +132,9 @@ describe("RolloutModal", () => {
     await userEvent.type(tag, "v2.0.0");
 
     // New-tag mode reads options from the live definition (no snapshotId).
-    await waitFor(() => expect(getDeployOptions).toHaveBeenCalledWith("int-1", {}));
+    await waitFor(() =>
+      expect(getDeployOptions).toHaveBeenCalledWith("int-1", {}),
+    );
 
     const roll = screen.getByRole("button", { name: "Roll out" });
     await waitFor(() => expect(roll).toBeEnabled());
@@ -208,5 +210,27 @@ describe("RolloutModal", () => {
       expect.objectContaining({ snapshotId: "snap-1" }),
     );
     expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("newTag");
+  });
+
+  it("tests and rolls out with the deployment's saved env", async () => {
+    const onTestSubmit = vi.fn();
+    renderModal(vi.fn(), { onTestSubmit });
+    const test = await screen.findByRole("button", { name: "Test & roll out" });
+    await waitFor(() => expect(test).toBeEnabled());
+    await userEvent.click(test);
+    expect(onTestSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ deploymentId: "dep-1", snapshotId: "snap-1" }),
+    );
+  });
+
+  it("does not test an edited env, which the test run would not carry", async () => {
+    renderModal(vi.fn(), { onTestSubmit: vi.fn() });
+    const field = (await screen.findByDisplayValue(
+      "seeded",
+    )) as HTMLInputElement;
+    await userEvent.type(field, "-changed");
+    const test = screen.getByRole("button", { name: "Test & roll out" });
+    await waitFor(() => expect(test).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Roll out" })).toBeEnabled();
   });
 });

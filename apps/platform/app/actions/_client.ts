@@ -20,5 +20,6 @@ export * from "./client/folders";
 export * from "./client/configFiles";
 export * from "./client/bundles";
 export * from "./client/deployments";
+export * from "./client/upgrades";
 export * from "./client/settings";
 export * from "./client/agent";

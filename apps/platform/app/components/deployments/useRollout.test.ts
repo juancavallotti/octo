@@ -24,6 +24,11 @@ vi.mock("@/app/model/orchestrator", () => ({
   ) => rolloutDeployment(id, snapshotId, env, tracing),
 }));
 
+const startTestRun = vi.fn();
+vi.mock("@/app/model/upgrades", () => ({
+  startTestRun: (id: string, opts: unknown) => startTestRun(id, opts),
+}));
+
 import { useRollout } from "./useRollout";
 import type { DeployedTile } from "@/app/(session)/platform/DashboardTiles";
 
@@ -111,7 +116,7 @@ describe("useRollout", () => {
     });
 
     expect(result.current.target).toBeNull();
-    expect(result.current.snapshots).toEqual([]);
+    expect(result.current.snapshots).toBeNull();
   });
 
   it("cuts a new tag before rolling over to it, then refreshes", async () => {
@@ -158,5 +163,28 @@ describe("useRollout", () => {
 
     expect(result.current.error).toBe("cluster said no");
     expect(result.current.target?.id).toBe("dep-1");
+  });
+
+  it("tests the version and leaves the rollout to the run", async () => {
+    listSnapshots.mockResolvedValue([]);
+    startTestRun.mockResolvedValue({ id: "run-1", status: "running" });
+
+    const { result } = renderHook(() => useRollout(() => {}));
+    act(() => result.current.open(tile("dep-1", "int-1")));
+    await act(() =>
+      result.current.test({
+        deploymentId: "dep-1",
+        snapshotId: "s-1",
+        env: {},
+        tracing: false,
+      }),
+    );
+
+    expect(startTestRun).toHaveBeenCalledWith("dep-1", {
+      snapshotId: "s-1",
+      rolloutOnPass: true,
+    });
+    expect(rolloutDeployment).not.toHaveBeenCalled();
+    expect(result.current.testRun).toEqual({ id: "run-1", status: "running" });
   });
 });
