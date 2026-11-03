@@ -9,12 +9,10 @@ import {
   type DeployedTile,
 } from "@/app/(session)/platform/DashboardTiles";
 import PodLogPanel from "@/app/components/integrations/PodLogPanel";
-import RolloutModal from "@/app/components/integrations/RolloutModal";
 import DeploymentListItem from "./DeploymentListItem";
-import UpgradeNotice from "./UpgradeNotice";
+import RolloutDialog from "./RolloutDialog";
 import { useRollout } from "./useRollout";
 import { useDeploymentStats } from "./useDeploymentStats";
-import { needsUpgrade } from "@/app/lib/runtimeRelease";
 
 /**
  * The deployments view: every active deployment across every integration, shown as
@@ -23,23 +21,8 @@ import { needsUpgrade } from "@/app/lib/runtimeRelease";
  * management actions the dedicated page is for: scale it, roll it over to another
  * version (the same dialog that turns tracing on and off), tail one pod's logs, or
  * open the integration in the manager.
- *
- * It also answers the question a fleet raises that a single deployment does not:
- * which of these are running an older runtime than a deploy made today would get.
- * A deployment keeps the image it was created with until somebody rolls it over,
- * so on a cluster that has been upgraded a few times the answer is scattered
- * across the grid — which is why it is also stated once, at the top.
  */
-export default function DeploymentsMonitor({
-  currentRuntime = "",
-}: {
-  /**
-   * The octo runtime this install deploys now, from the page's server-only env.
-   * Empty means it has no way of knowing, and nothing is claimed about any
-   * deployment's runtime being old.
-   */
-  currentRuntime?: string;
-}) {
+export default function DeploymentsMonitor() {
   const { available, ready } = useOrchestrator();
   const [deployments, setDeployments] = useState<DeployedTile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,26 +100,6 @@ export default function DeploymentsMonitor({
     ),
   );
 
-  // Which deployments a deploy made today would put on a newer runtime. Derived
-  // rather than held: it is a reading of the list that has just been polled.
-  const behind = useMemo(
-    () => sorted.filter((d) => needsUpgrade(d.runtimeVersion, currentRuntime)),
-    [sorted, currentRuntime],
-  );
-
-  // The tags this integration already has running, so the version picker can mark
-  // them. Derived from the list this page has loaded anyway.
-  const deployedTags = useMemo(() => {
-    const target = rollout.target;
-    if (!target) return new Set<string>();
-    return new Set(
-      (deployments ?? [])
-        .filter((d) => d.integrationId === target.integrationId)
-        .map((d) => d.tag)
-        .filter((t): t is string => Boolean(t)),
-    );
-  }, [deployments, rollout.target]);
-
   // A column, not a single scroll area: the log panel docks under the list at a
   // fixed height, so the list has to be the part that scrolls.
   return (
@@ -144,9 +107,7 @@ export default function DeploymentsMonitor({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-6xl px-6 py-8">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">
-              Metrics
-            </h1>
+            <h1 className="text-xl font-semibold tracking-tight">Metrics</h1>
             {sorted.length > 0 && (
               <span className="rounded-full bg-black/[0.06] px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-white/[0.08] dark:text-zinc-400">
                 {sorted.length}
@@ -168,18 +129,14 @@ export default function DeploymentsMonitor({
             )}
           </div>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Every active deployment, its live status, and the last five minutes of
-            what it has been using.
+            Every active deployment, its live status, and the last five minutes
+            of what it has been using.
           </p>
 
           {error && (
             <p className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-500">
               {error}
             </p>
-          )}
-
-          {behind.length > 0 && (
-            <UpgradeNotice behind={behind} currentRuntime={currentRuntime} onRollOut={rollout.open} />
           )}
 
           <div className="mt-6">
@@ -204,7 +161,6 @@ export default function DeploymentsMonitor({
                     key={d.id}
                     deployment={d}
                     busy={busy || rollout.busy}
-                    currentRuntime={currentRuntime}
                     onScale={scale}
                     onOpenRollout={rollout.open}
                     onOpenLogs={(dep, podName) =>
@@ -219,22 +175,7 @@ export default function DeploymentsMonitor({
         </div>
       </div>
 
-      {rollout.target && (
-        <RolloutModal
-          integrationId={rollout.target.integrationId}
-          integrationName={rollout.target.integrationName}
-          deployments={[rollout.target]}
-          snapshots={rollout.snapshots}
-          deployedTags={deployedTags}
-          versionMode="pick"
-          busy={rollout.busy}
-          error={rollout.error}
-          onSubmit={rollout.submit}
-          onClose={() => {
-            if (!rollout.busy) rollout.close();
-          }}
-        />
-      )}
+      <RolloutDialog rollout={rollout} />
 
       {/* Docked pod-log panel, keyed by pod so switching pods resets the stream. */}
       {logsPod && (

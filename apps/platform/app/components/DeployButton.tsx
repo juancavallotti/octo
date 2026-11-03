@@ -16,9 +16,8 @@ import {
   type Snapshot,
 } from "@/app/model/orchestrator";
 import DeployModal, { type DeploySubmit } from "./integrations/DeployModal";
-import RolloutModal, {
-  type RolloutSubmit,
-} from "./integrations/RolloutModal";
+import { toDeploymentInput } from "./integrations/deployInput";
+import RolloutModal, { type RolloutSubmit } from "./integrations/RolloutModal";
 
 /**
  * Editor-header control that ships the current integration in one step. Clicking it
@@ -99,7 +98,12 @@ export default function DeployButton({
     setError(null);
     try {
       const snap = await createSnapshot(rollout.id, input.newTag);
-      await rolloutDeployment(input.deploymentId, snap.id, input.env, input.tracing);
+      await rolloutDeployment(input.deploymentId, {
+        snapshotId: snap.id,
+        env: input.env,
+        tracing: input.tracing,
+        runtimeVersion: input.runtimeVersion,
+      });
       setRollout(null);
     } catch (e) {
       setError((e as Error).message);
@@ -115,15 +119,7 @@ export default function DeployButton({
     setError(null);
     try {
       const snap = await createSnapshot(firstDeploy.id, input.newTag);
-      await createDeployment(firstDeploy.id, {
-        snapshotId: snap.id,
-        replicas: input.replicas,
-        ...(input.slug ? { slug: input.slug } : {}),
-        ...(input.expose ? { expose: input.expose } : {}),
-        ...(input.env ? { env: input.env } : {}),
-        ...(input.tracing ? { tracing: true } : {}),
-        ...(input.access?.length ? { access: input.access } : {}),
-      });
+      await createDeployment(firstDeploy.id, toDeploymentInput(input, snap.id));
       setFirstDeploy(null);
     } catch (e) {
       setError((e as Error).message);
@@ -165,13 +161,6 @@ export default function DeployButton({
           integrationName={rollout.name}
           deployments={rollout.deployments}
           snapshots={rollout.snapshots}
-          deployedTags={
-            new Set(
-              rollout.deployments
-                .map((d) => d.tag)
-                .filter((t): t is string => Boolean(t)),
-            )
-          }
           versionMode="new-tag"
           actionLabel="Deploy"
           busy={busy}

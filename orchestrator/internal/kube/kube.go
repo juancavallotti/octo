@@ -24,6 +24,8 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 )
 
 const (
@@ -443,11 +445,18 @@ func (c *Client) RuntimeVersion() string { return c.runtimeVersion }
 // Exported because a deploy records the image it shipped in the deployment's
 // metadata — a fact the cluster stops being able to answer once the workload is
 // gone.
-func (c *Client) RunnerImage(r Runner) string {
+//
+// A pin names a runtime release: the same image repository at that tag, so a
+// pinned deployment keeps its release while the install moves on.
+func (c *Client) RunnerImage(r Runner, pin string) string {
+	ret := c.runtimeImage
 	if r == RunnerAgentic && c.agenticRunnerImage != "" {
-		return c.agenticRunnerImage
+		ret = c.agenticRunnerImage
 	}
-	return c.runtimeImage
+	if pin != "" {
+		ret = runtimeversion.WithTag(ret, pin)
+	}
+	return ret
 }
 
 // parseWorkspaceSize turns the configured workspace cap into a Quantity, falling

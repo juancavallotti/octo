@@ -22,6 +22,9 @@ var (
 	// standard runner would produce a healthy pod whose every command fails with
 	// "not found", which reads as a broken flow rather than a missing setting.
 	ErrRunnerUnavailable = errors.New("requested runner is not configured on this installation")
+	// ErrInvalidRuntimeVersion is returned when a deployment asks to be pinned to
+	// something that is not a supported runtime release.
+	ErrInvalidRuntimeVersion = errors.New("unsupported runtime version")
 	// ErrInvalidRunner is returned when a deployment names a runner that does not
 	// exist at all (a typo, rather than one that is merely unconfigured).
 	ErrInvalidRunner = errors.New("unknown runner")
@@ -63,3 +66,13 @@ var (
 	// express; the caller should undeploy and redeploy instead.
 	ErrRolloutTopologyChange = errors.New("version tag changes the HTTP source; undeploy and redeploy instead")
 )
+
+// IdentityRefusedError is iam declining to lend a deployment an identity on the
+// caller's authority, carrying iam's reason so the caller learns which it was.
+type IdentityRefusedError struct {
+	Reason string
+}
+
+func (e *IdentityRefusedError) Error() string {
+	return "the deployment cannot be lent an identity: " + e.Reason
+}

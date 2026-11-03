@@ -3,7 +3,9 @@ import { buildPath, parsePathname } from "./query";
 
 it("round-trips the selection through the path", () => {
   for (const sel of [{ selectedId: null }, { selectedId: "int-1" }]) {
-    expect(parsePathname(`/platform/integrations${buildPath(sel)}`)).toEqual(sel);
+    expect(parsePathname(`/platform/integrations${buildPath(sel)}`)).toEqual(
+      sel,
+    );
   }
 });
 

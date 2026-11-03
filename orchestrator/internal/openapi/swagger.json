@@ -397,6 +397,10 @@
                         "description": "Runner selects the image this deployment's pods run. Empty and \"standard\"\nare the generic octo-runtime: distroless, one static binary, no shell and\nnothing writable, which is what almost every integration wants.\n\n\"agentic\" additionally carries a shell, curl, jq, the standalone octo CLI,\ndolphin and a scratch workspace at /workspace. It is for an integration built to\ndrive the platform rather than serve it — one whose flows run local commands,\ninvoke other flows, or execute a test suite.\n\nIt is a privileged choice rather than a bigger one: a pod with a shell and a\nruntime it can point at a definition it just wrote is a general execution\nenvironment, so the boundary it offers is the pod, not the `cli-run` allow list\ninside it. Do not grant it to a definition you do not trust.",
                         "type": "string"
                     },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion pins the deployment to a runtime release, so rollouts keep it\nthere rather than moving it onto whatever the install deploys now. Empty, or\n\"latest\" on input, follows the install.",
+                        "type": "string"
+                    },
                     "slug": {
                         "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique across\ndeployments; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
                         "type": "string"
@@ -514,7 +518,15 @@
                         "description": "RuntimeImage is the octo runtime image the pods are actually running, and\nRuntimeVersion its tag on its own — which runtime a misbehaving deployment is\non is the first thing asked when troubleshooting one, and a deployment that\nwas never rolled over keeps running whatever image it was created with.\nOmitted when the cluster reports no image (an undeployed or unreachable\nworkload).",
                         "type": "string"
                     },
+                    "runtimePin": {
+                        "description": "RuntimePin is the runtime release the deployment is pinned to; absent when it\nfollows the install.",
+                        "type": "string"
+                    },
                     "runtimeVersion": {
+                        "type": "string"
+                    },
+                    "snapshotId": {
+                        "description": "SnapshotID is the version the deployment runs, by id: what a rollout that\nchanges only env, tracing or runtime rolls it onto again.",
                         "type": "string"
                     },
                     "status": {
@@ -526,6 +538,10 @@
                     "tracing": {
                         "description": "Tracing reports whether this deployment's pods run with the runtime tracer on,\nso the rollout dialog can seed the switch from what is actually deployed.",
                         "type": "boolean"
+                    },
+                    "upgradeTo": {
+                        "description": "UpgradeTo is the runtime release a rollout would move this deployment onto,\npresent only when that release is newer than the one it runs.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -580,11 +596,32 @@
                         },
                         "type": "object"
                     },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion pins the deployment to a runtime release, or \"latest\" to\nfollow the install; omitted keeps the deployment's setting.",
+                        "type": "string"
+                    },
                     "snapshotId": {
                         "type": "string"
                     },
                     "tracing": {
                         "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "deployment.runtimesResponse": {
+                "properties": {
+                    "current": {
+                        "description": "Current is the runtime release this install deploys; empty when it cannot say.",
+                        "type": "string"
+                    },
+                    "versions": {
+                        "description": "Versions are the releases a deployment can be pinned to, newest first: the\ncurrent one and the supported releases no newer than it.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -1373,6 +1410,128 @@
                         "type": "string"
                     },
                     "tag": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "testrun.runResponse": {
+                "description": "LatestRun is its most recent test run; absent when it has none.",
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "description": "Error says why a run errored, or why a rollout it asked for did not happen.",
+                        "type": "string"
+                    },
+                    "finishedAt": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "report": {
+                        "additionalProperties": {},
+                        "description": "Report is dolphin's JSON report: totals, and every suite and case.",
+                        "type": "object"
+                    },
+                    "rolledOutAt": {
+                        "type": "string"
+                    },
+                    "rolloutOnPass": {
+                        "type": "boolean"
+                    },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion is the runtime release the suites ran against.",
+                        "type": "string"
+                    },
+                    "snapshotId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is running, passed, failed, errored or timed_out.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "testrun.startRequest": {
+                "properties": {
+                    "rolloutOnPass": {
+                        "description": "RolloutOnPass rolls the deployment onto that version when every case passes,\nkeeping its env and tracing.",
+                        "type": "boolean"
+                    },
+                    "snapshotId": {
+                        "description": "SnapshotID is the version to test; empty tests the one the deployment runs.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "testrun.upgradeResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "hasSuites": {
+                        "description": "HasSuites says whether the version it runs has test suites to run.",
+                        "type": "boolean"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "latestRun": {
+                        "$ref": "#/components/schemas/testrun.runResponse"
+                    },
+                    "latestRunStale": {
+                        "description": "LatestRunStale says the deployment was deployed or rolled out after that\nrun, so the run no longer speaks for what it runs.",
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "pinned": {
+                        "description": "Pinned says the deployment is pinned to its runtime release, so it is\nupgraded only by changing its runtime, never on a passing test run.",
+                        "type": "boolean"
+                    },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion is the runtime release the deployment's pods run.",
+                        "type": "string"
+                    },
+                    "snapshotId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "tag": {
+                        "type": "string"
+                    },
+                    "upgradeTo": {
+                        "description": "UpgradeTo is the newer release a rollout would move it onto; absent when\nit is current.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "testrun.upgradesResponse": {
+                "properties": {
+                    "deployments": {
+                        "items": {
+                            "$ref": "#/components/schemas/testrun.upgradeResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion is the runtime release this install deploys; empty when it\ncannot say.",
                         "type": "string"
                     }
                 },
@@ -2970,13 +3129,13 @@
                                     {
                                         "$ref": "#/components/schemas/deployment.rolloutRequest",
                                         "summary": "body",
-                                        "description": "Target tag, and optionally env and tracing"
+                                        "description": "Target tag (omitted keeps the one it runs), and optionally env, tracing and runtime"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Target tag, and optionally env and tracing",
+                    "description": "Target tag (omitted keeps the one it runs), and optionally env, tracing and runtime",
                     "required": true
                 },
                 "responses": {
@@ -3012,6 +3171,201 @@
                     }
                 },
                 "summary": "Roll a deployment onto a different version, env or tracing setting",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/deployments/{id}/testruns": {
+            "get": {
+                "description": "The most recent runs, newest first.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/testrun.runResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List a deployment's test runs",
+                "tags": [
+                    "deployments"
+                ]
+            },
+            "post": {
+                "description": "Runs the suites frozen under a version of the deployment's integration, with the\ndeployment's env, against the runtime release this install deploys. The run happens in\na Job of its own; poll it for the verdict. With rolloutOnPass, a run in which every case\npasses rolls the deployment onto the tested version.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/testrun.startRequest",
+                                        "summary": "body",
+                                        "description": "Version to test, and whether to roll out on pass"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Version to test, and whether to roll out on pass",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/testrun.runResponse"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the test image is another release than the deployed runtime"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version has no test suites, or rolloutOnPass on a pinned deployment"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "this install cannot run tests"
+                    }
+                },
+                "summary": "Run a deployment's test suites",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/deployments/{id}/testruns/{runId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Test run id",
+                        "in": "path",
+                        "name": "runId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/testrun.runResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a test run",
                 "tags": [
                     "deployments"
                 ]
@@ -5999,6 +6353,37 @@
                 ]
             }
         },
+        "/runtimes": {
+            "get": {
+                "description": "The release this install deploys and the supported releases no newer than it, newest\nfirst. Pin one with runtimeVersion on a deploy or rollout; \"latest\" follows the install.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/deployment.runtimesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the runtime releases a deployment can be pinned to",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
         "/secrets": {
             "get": {
                 "description": "Names only. Values live in the cluster's own Secret and are never read back\nthrough this API; a deployment references one by name.",
@@ -7227,6 +7612,37 @@
                 "summary": "Read one frozen resource",
                 "tags": [
                     "snapshots"
+                ]
+            }
+        },
+        "/upgrades": {
+            "get": {
+                "description": "The runtime release this install deploys, and every deployment with the release it\nruns, the newer one a rollout would move it onto, whether it has test suites to prove\nthat move, and its most recent test run.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/testrun.upgradesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List deployments as an upgrade sees them",
+                "tags": [
+                    "deployments"
                 ]
             }
         }

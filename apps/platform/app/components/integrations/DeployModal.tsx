@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Rocket, X } from "lucide-react";
-import type { EnvBindingInput, Snapshot } from "@/app/model/orchestrator";
+import { type EnvBindingInput, type Snapshot } from "@/app/model/orchestrator";
+import { RUNTIME_LATEST } from "@/app/model/orchestratorTypes";
 import type { DeploymentAccess } from "@/app/model/orchestratorTypes";
 import { suggestNextTag } from "@/app/model/tags";
 import { useDeployOptions } from "./useDeployOptions";
@@ -33,6 +34,8 @@ export interface DeploySubmit {
   tracing?: boolean;
   access?: DeploymentAccess[];
   runner?: string;
+  /** A runtime release to pin to; absent follows the install. */
+  runtimeVersion?: string;
 }
 
 export default function DeployModal({
@@ -68,6 +71,7 @@ export default function DeployModal({
   // Which image the pods run. Empty is the distroless default; "agentic" is the
   // privileged one, so it is opt-in like the grants above.
   const [runner, setRunner] = useState("");
+  const [runtime, setRuntime] = useState(RUNTIME_LATEST);
   // A tag reads its frozen definition, Current the live working copy. The
   // suggestion prefills the slug box on load, but not on the failure fallback —
   // see useDeployOptions.
@@ -122,6 +126,7 @@ export default function DeployModal({
       ...(tracing ? { tracing: true } : {}),
       ...(access.length > 0 ? { access } : {}),
       ...(runner ? { runner } : {}),
+      ...(runtime !== RUNTIME_LATEST ? { runtimeVersion: runtime } : {}),
     });
   };
 
@@ -174,6 +179,8 @@ export default function DeployModal({
           onAccess={setAccess}
           runner={runner}
           onRunner={setRunner}
+          runtime={runtime}
+          onRuntime={setRuntime}
           envVars={envVars}
           bindings={bindings}
           secretNames={secretNames}

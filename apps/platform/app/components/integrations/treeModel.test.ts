@@ -5,9 +5,15 @@ vi.mock("@/app/model/orchestrator", () => ({}));
 import type { Integration } from "@/app/model/orchestrator";
 import type { Data } from "./managerData";
 import { flatten } from "./model";
-import { ancestorsOf, folderIntegrations, treeRows, type TreeRow } from "./treeModel";
+import {
+  ancestorsOf,
+  folderIntegrations,
+  treeRows,
+  type TreeRow,
+} from "./treeModel";
 
-const integration = (id: string) => ({ id, name: id, definition: "" }) as Integration;
+const integration = (id: string) =>
+  ({ id, name: id, definition: "" }) as Integration;
 
 // ops
 // └── alerts      (holds b, a — stored in that order)
@@ -48,8 +54,12 @@ const smartClosed: string[] = [];
 describe("treeRows", () => {
   it("starts the smart folders closed and the real folders open", () => {
     const rows = treeRows(data, new Set());
-    expect(rows.flatMap((r) => (r.kind === "smart" ? [r.expanded] : []))).toEqual([false, false]);
-    expect(rows.find((r) => r.kind === "folder")).toMatchObject({ expanded: true });
+    expect(
+      rows.flatMap((r) => (r.kind === "smart" ? [r.expanded] : [])),
+    ).toEqual([false, false]);
+    expect(rows.find((r) => r.kind === "folder")).toMatchObject({
+      expanded: true,
+    });
   });
 
   it("nests subfolders before a folder's own integrations, and leaves the unfiled at the top", () => {
@@ -81,10 +91,23 @@ describe("treeRows", () => {
   // shows each one where it lives.
   it("lists a smart folder's integrations flat, beside the real tree", () => {
     const rows = treeRows(data, new Set(["smart:running", "ops", "empty"]));
-    expect(label(rows)).toEqual(["<running> 2", "  a", "  d", "<all> 4", "[ops]", "[empty]", "d"]);
+    expect(label(rows)).toEqual([
+      "<running> 2",
+      "  a",
+      "  d",
+      "<all> 4",
+      "[ops]",
+      "[empty]",
+      "d",
+    ]);
     // The copies are their own rows, and say they are computed.
-    const copies = rows.flatMap((r) => (r.kind === "integration" && r.computed ? [r.rowId] : []));
-    expect(copies).toEqual(["smart:running:integration:a", "smart:running:integration:d"]);
+    const copies = rows.flatMap((r) =>
+      r.kind === "integration" && r.computed ? [r.rowId] : [],
+    );
+    expect(copies).toEqual([
+      "smart:running:integration:a",
+      "smart:running:integration:d",
+    ]);
   });
 
   it("counts a folder's own integrations and says whether it can expand", () => {
@@ -99,13 +122,9 @@ describe("treeRows", () => {
 
   // A match inside a closed folder would otherwise be found and not shown.
   it("searches names, keeping only the folders that lead to a match and opening them", () => {
-    expect(label(treeRows(data, new Set([...smartClosed, "ops", "alerts"]), "A"))).toEqual([
-      "<running> 1",
-      "<all> 1",
-      "[ops]",
-      "  [alerts]",
-      "    a",
-    ]);
+    expect(
+      label(treeRows(data, new Set([...smartClosed, "ops", "alerts"]), "A")),
+    ).toEqual(["<running> 1", "<all> 1", "[ops]", "  [alerts]", "    a"]);
   });
 });
 
@@ -117,17 +136,18 @@ describe("folderIntegrations", () => {
       ...data,
       membership: new Map([...data.membership, ["d", "alerts"]]),
     };
-    expect(folderIntegrations(justAssigned, "alerts").map((i) => i.id)).toEqual([
-      "b",
-      "a",
-      "d",
-    ]);
+    expect(folderIntegrations(justAssigned, "alerts").map((i) => i.id)).toEqual(
+      ["b", "a", "d"],
+    );
   });
 });
 
 describe("ancestorsOf", () => {
   it("walks from an integration's folder up to the top", () => {
-    expect(ancestorsOf(data, flatten(data.folders), "a")).toEqual(["alerts", "ops"]);
+    expect(ancestorsOf(data, flatten(data.folders), "a")).toEqual([
+      "alerts",
+      "ops",
+    ]);
     expect(ancestorsOf(data, flatten(data.folders), "d")).toEqual([]);
   });
 });

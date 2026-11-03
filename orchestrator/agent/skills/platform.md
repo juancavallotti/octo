@@ -64,6 +64,27 @@ turning it on replaces the pods.
 A tag that adds or removes the integration's HTTP source is refused: that changes the
 Service topology, which a rolling update cannot express. Undeploy and redeploy.
 
+## Moving a deployment to a newer runtime
+
+A deployment keeps the runtime image it was rolled out on. `upgradeTo` on a
+deployment names the newer release a rollout would move it onto; `GET /upgrades`
+lists every deployment with that, whether the version it runs has test suites, and
+its latest test run.
+
+Prove the move before making it: `POST /deployments/{id}/testruns`
+`{"rolloutOnPass": true}` runs the suites of the version it runs, with its env,
+against the install's runtime, and rolls it onto that version only if every case
+passes. Poll `GET /deployments/{id}/testruns/{runId}` for `status` and `report`. A
+deployment whose version has no suites can only be rolled out untested — say so
+rather than doing it quietly.
+
+A deployment can be pinned to a runtime release (`runtimePin` on it, `pinned` in
+`/upgrades`): `runtimeVersion` on a deploy or rollout pins it, `"latest"` unpins.
+A pinned deployment is never upgraded on a passing run — `rolloutOnPass` is
+refused — so moving it is a rollout with the new `runtimeVersion`, and only when
+someone asked for exactly that. `GET /runtimes` lists what it can be pinned to: the install's release and the
+supported ones under it; anything else is refused.
+
 ## When a deployment will not start
 
 Work through it in this order, because each step rules out the one below:

@@ -22,12 +22,15 @@ vi.mock("@/app/model/orchestrator", () => ({
   listDeployments: (id: string) => listDeployments(id),
   listSnapshots: (id: string) => listSnapshots(id),
   createSnapshot: (id: string, tag: string) => createSnapshot(id, tag),
-  rolloutDeployment: (id: string, snap: string, env?: unknown) =>
-    rolloutDeployment(id, snap, env),
+  rolloutDeployment: (id: string, change: unknown) =>
+    rolloutDeployment(id, change),
+  listRuntimes: () => Promise.resolve({ versions: [] }),
   createDeployment: (id: string, input: unknown) => createDeployment(id, input),
   getDeployOptions: (id: string, opts?: unknown) => getDeployOptions(id, opts),
 }));
-vi.mock("@/app/model/secrets", () => ({ listSecrets: () => Promise.resolve([]) }));
+vi.mock("@/app/model/secrets", () => ({
+  listSecrets: () => Promise.resolve([]),
+}));
 
 import DeployButton from "./DeployButton";
 import { RolesProvider } from "@/app/auth/RolesContext";
@@ -59,7 +62,13 @@ describe("DeployButton (editor)", () => {
   beforeEach(() => {
     getIntegration.mockResolvedValue({ id: "int-1", name: "Orders" });
     listSnapshots.mockResolvedValue([
-      { id: "snap-1", integrationId: "int-1", tag: "v1.0", definition: "", createdAt: "" },
+      {
+        id: "snap-1",
+        integrationId: "int-1",
+        tag: "v1.0",
+        definition: "",
+        createdAt: "",
+      },
     ]);
     createSnapshot.mockResolvedValue({ id: "snap-2", tag: "v1.1" });
     rolloutDeployment.mockResolvedValue({});
@@ -97,7 +106,10 @@ describe("DeployButton (editor)", () => {
     await waitFor(() =>
       expect(createSnapshot).toHaveBeenCalledWith("int-1", expect.any(String)),
     );
-    expect(rolloutDeployment).toHaveBeenCalledWith("dep-1", "snap-2", {});
+    expect(rolloutDeployment).toHaveBeenCalledWith(
+      "dep-1",
+      expect.objectContaining({ snapshotId: "snap-2", env: {} }),
+    );
     expect(createDeployment).not.toHaveBeenCalled();
   });
 

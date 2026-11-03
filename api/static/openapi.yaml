@@ -34,6 +34,7 @@ tags:
   - name: resources
   - name: versions
   - name: deployments
+  - name: upgrades
   - name: logs
   - name: discovery
 
@@ -681,9 +682,12 @@ paths:
             schema:
               type: object
               properties:
-                snapshotId: { type: string, description: The version to run. }
+                snapshotId: { type: string, description: The version to run; left out keeps the one it runs. }
                 env: { $ref: "#/components/schemas/EnvBindings" }
                 tracing: { type: boolean }
+                runtimeVersion:
+                  type: string
+                  description: A supported runtime release to pin the deployment to, or `latest` to follow the install. Left out keeps its setting.
       responses:
         "200":
           description: The deployment, rolling out.
@@ -696,6 +700,108 @@ paths:
         "503": { $ref: "#/components/responses/Unavailable" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/runtimes:
+    get:
+      tags: [upgrades]
+      operationId: listRuntimes
+      summary: List the runtime releases a deployment can be pinned to
+      description: The release this install deploys and the supported releases no newer than it, newest first.
+      responses:
+        "200":
+          description: What a deployment can be pinned to.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runtimes" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /v1/upgrades:
+    get:
+      tags: [upgrades]
+      operationId: listUpgrades
+      summary: List deployments as an upgrade sees them
+      description: The runtime release this install deploys, and every deployment with the release it runs, the newer one a rollout would move it onto, whether it has test suites, whether it is pinned, and its last test run.
+      responses:
+        "200":
+          description: Every deployment as an upgrade sees it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Upgrades" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /v1/deployments/{id}/testruns:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+    get:
+      tags: [upgrades]
+      operationId: listTestRuns
+      summary: List a deployment's test runs
+      description: The most recent runs, newest first.
+      responses:
+        "200":
+          description: Its test runs.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/TestRun" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    post:
+      tags: [upgrades]
+      operationId: startTestRun
+      summary: Run a deployment's test suites
+      description: Runs the suites frozen under a version (by default the one the deployment runs), with the deployment's env, against the runtime release this install deploys. With rolloutOnPass, a run in which every case passes rolls the deployment onto that version; a pinned deployment refuses it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                snapshotId: { type: string, description: The version to test; left out tests the one it runs. }
+                rolloutOnPass: { type: boolean, default: false }
+      responses:
+        "202":
+          description: The run, started. Poll it for the verdict.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestRun" }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /v1/deployments/{id}/testruns/{runId}:
+    parameters:
+      - $ref: "#/components/parameters/DeploymentId"
+      - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [upgrades]
+      operationId: getTestRun
+      summary: Get a test run
+      responses:
+        "200":
+          description: The run, with its report once it has one.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestRun" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+        "503": { $ref: "#/components/responses/Unavailable" }
 
   /v1/deployments/{id}/logs:
     parameters:
@@ -1017,6 +1123,54 @@ components:
           description: What the deployment's own token is lent beyond its stores.
           items: { type: string, enum: [developer, operator] }
         runner: { type: string, enum: ["", standard, agentic] }
+        runtimeVersion:
+          type: string
+          description: A supported runtime release to pin the deployment to (see /v1/runtimes), or `latest` to follow the install.
+
+    Runtimes:
+      type: object
+      properties:
+        current: { type: string, description: The runtime release this install deploys. }
+        versions: { type: array, items: { type: string }, description: What a deployment can be pinned to, newest first. }
+
+    TestRun:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string, format: uuid }
+        deploymentId: { type: string, format: uuid }
+        snapshotId: { type: string, format: uuid }
+        runtimeVersion: { type: string, description: The runtime release the suites ran against. }
+        status: { type: string, enum: [running, passed, failed, errored, timed_out] }
+        rolloutOnPass: { type: boolean }
+        rolledOutAt: { type: string, format: date-time }
+        report: { type: object, additionalProperties: true, description: "dolphin's JSON report: totals, and every suite and case." }
+        error: { type: string, description: Why the run errored, or why a rollout it asked for did not happen. }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+
+    Upgrades:
+      type: object
+      properties:
+        runtimeVersion: { type: string, description: The runtime release this install deploys. }
+        deployments:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              deploymentId: { type: string, format: uuid }
+              integrationId: { type: string, format: uuid }
+              name: { type: string }
+              status: { type: string }
+              tag: { type: string }
+              snapshotId: { type: string }
+              runtimeVersion: { type: string }
+              upgradeTo: { type: string, description: The newer release a rollout would move it onto; absent when current. }
+              hasSuites: { type: boolean }
+              pinned: { type: boolean }
+              latestRunStale: { type: boolean }
+              latestRun: { $ref: "#/components/schemas/TestRun" }
 
     Deployment:
       type: object
@@ -1026,6 +1180,7 @@ components:
         integrationId: { type: string, format: uuid }
         name: { type: string }
         tag: { type: string, description: The version tag it runs. }
+        snapshotId: { type: string, format: uuid, description: The version it runs, by id. }
         status: { type: string }
         replicas: { type: integer }
         readyReplicas: { type: integer }
@@ -1044,3 +1199,6 @@ components:
         externalUrl: { type: string }
         createdAt: { type: string, format: date-time }
         lastUpdated: { type: string, format: date-time }
+        runtimeVersion: { type: string, description: The runtime release its pods run. }
+        upgradeTo: { type: string, description: The newer runtime release a rollout would move it onto; absent when it is current. }
+        runtimePin: { type: string, description: The runtime release it is pinned to; absent when it follows the install. }

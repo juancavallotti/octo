@@ -16,12 +16,13 @@ const rolloutDeployment = vi.fn();
 vi.mock("@/app/model/orchestrator", () => ({
   listSnapshots: (id: string) => listSnapshots(id),
   createSnapshot: (id: string, tag: string) => createSnapshot(id, tag),
-  rolloutDeployment: (
-    id: string,
-    snapshotId: string,
-    env: unknown,
-    tracing: boolean,
-  ) => rolloutDeployment(id, snapshotId, env, tracing),
+  rolloutDeployment: (id: string, change: unknown) =>
+    rolloutDeployment(id, change),
+}));
+
+const startTestRun = vi.fn();
+vi.mock("@/app/model/upgrades", () => ({
+  startTestRun: (id: string, opts: unknown) => startTestRun(id, opts),
 }));
 
 import { useRollout } from "./useRollout";
@@ -111,7 +112,7 @@ describe("useRollout", () => {
     });
 
     expect(result.current.target).toBeNull();
-    expect(result.current.snapshots).toEqual([]);
+    expect(result.current.snapshots).toBeNull();
   });
 
   it("cuts a new tag before rolling over to it, then refreshes", async () => {
@@ -133,7 +134,11 @@ describe("useRollout", () => {
     });
 
     expect(createSnapshot).toHaveBeenCalledWith("int-1", "v2");
-    expect(rolloutDeployment).toHaveBeenCalledWith("dep-1", "s-new", {}, true);
+    expect(rolloutDeployment).toHaveBeenCalledWith("dep-1", {
+      snapshotId: "s-new",
+      env: {},
+      tracing: true,
+    });
     expect(onDone).toHaveBeenCalled();
     expect(result.current.target).toBeNull();
   });
@@ -158,5 +163,28 @@ describe("useRollout", () => {
 
     expect(result.current.error).toBe("cluster said no");
     expect(result.current.target?.id).toBe("dep-1");
+  });
+
+  it("tests the version and leaves the rollout to the run", async () => {
+    listSnapshots.mockResolvedValue([]);
+    startTestRun.mockResolvedValue({ id: "run-1", status: "running" });
+
+    const { result } = renderHook(() => useRollout(() => {}));
+    act(() => result.current.open(tile("dep-1", "int-1")));
+    await act(() =>
+      result.current.test({
+        deploymentId: "dep-1",
+        snapshotId: "s-1",
+        env: {},
+        tracing: false,
+      }),
+    );
+
+    expect(startTestRun).toHaveBeenCalledWith("dep-1", {
+      snapshotId: "s-1",
+      rolloutOnPass: true,
+    });
+    expect(rolloutDeployment).not.toHaveBeenCalled();
+    expect(result.current.testRun).toEqual({ id: "run-1", status: "running" });
   });
 });

@@ -3,6 +3,7 @@ package iam
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -73,8 +74,9 @@ func TestMintMachineReportsWhatIAMSaid(t *testing.T) {
 	if err == nil {
 		t.Fatal("MintMachine succeeded against a 403")
 	}
-	if !strings.Contains(err.Error(), "platform:operator") {
-		t.Errorf("error = %v, want it to carry iam's reason", err)
+	var refused *RefusedError
+	if !errors.As(err, &refused) || !strings.Contains(refused.Reason, "platform:operator") {
+		t.Errorf("error = %v, want a refusal carrying iam's reason", err)
 	}
 }
 

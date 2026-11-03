@@ -12,7 +12,8 @@ import type {
   DeploymentInput,
   DeploymentWithIntegration,
   DeployOptions,
-  EnvBindingInput,
+  RolloutChange,
+  Runtimes,
 } from "@/app/model/orchestrator";
 import { withRead, withWrite } from "./_auth";
 import * as client from "./_client";
@@ -78,11 +79,18 @@ export async function createDeployment(
 
 export async function rolloutDeployment(
   id: string,
-  snapshotId: string,
-  env?: Record<string, EnvBindingInput>,
-  tracing?: boolean,
+  change: RolloutChange,
 ): Promise<ActionResult<Deployment>> {
-  return withWrite(() => client.rolloutDeployment(id, snapshotId, env, tracing));
+  return withWrite(() => client.rolloutDeployment(id, change));
+}
+
+export async function listRuntimes(): Promise<ActionResult<Runtimes>> {
+  return withRead(async () => {
+    const res = await client.listRuntimes();
+    // An install with no cluster serves no runtimes route: nothing to pin to.
+    if (!res.ok && res.status === 404) return { ok: true, data: { versions: [] } };
+    return res;
+  });
 }
 
 export async function scaleDeployment(

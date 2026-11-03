@@ -7,6 +7,8 @@ const getDeployOptions = vi.fn();
 const listSecrets = vi.fn();
 vi.mock("@/app/model/orchestrator", () => ({
   getDeployOptions: (id: string, opts?: unknown) => getDeployOptions(id, opts),
+  listRuntimes: () =>
+    Promise.resolve({ current: "0.11.14", versions: ["0.11.14", "0.11.13"] }),
 }));
 vi.mock("@/app/model/secrets", () => ({ listSecrets: () => listSecrets() }));
 
@@ -44,7 +46,6 @@ function renderModal(
       integrationName="Orders"
       deployments={[DEPLOYMENT]}
       snapshots={[SNAPSHOT]}
-      deployedTags={new Set(["v1.0"])}
       versionMode="pick"
       busy={false}
       error={null}
@@ -132,7 +133,9 @@ describe("RolloutModal", () => {
     await userEvent.type(tag, "v2.0.0");
 
     // New-tag mode reads options from the live definition (no snapshotId).
-    await waitFor(() => expect(getDeployOptions).toHaveBeenCalledWith("int-1", {}));
+    await waitFor(() =>
+      expect(getDeployOptions).toHaveBeenCalledWith("int-1", {}),
+    );
 
     const roll = screen.getByRole("button", { name: "Roll out" });
     await waitFor(() => expect(roll).toBeEnabled());
@@ -181,5 +184,90 @@ describe("RolloutModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ tracing: true }),
     );
+  });
+
+  // The deployments page fetches the tags after opening: the form must wait for
+  // them, or it seeds itself on "Current" and the roll out cuts a new tag.
+  it("waits for the tags, then rolls out to the deployed one", async () => {
+    const onSubmit = vi.fn();
+    const props = {
+      integrationId: "int-1",
+      integrationName: "Orders",
+      deployments: [DEPLOYMENT],
+      versionMode: "pick" as const,
+      busy: false,
+      error: null,
+      onSubmit,
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(<RolloutModal {...props} snapshots={null} />);
+    expect(screen.getByText("Loading versions…")).toBeInTheDocument();
+
+    rerender(<RolloutModal {...props} snapshots={[SNAPSHOT]} />);
+    const roll = await screen.findByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(roll);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ snapshotId: "snap-1" }),
+    );
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("newTag");
+  });
+
+  it("tests and rolls out with the deployment's saved env", async () => {
+    const onTestSubmit = vi.fn();
+    renderModal(vi.fn(), { onTestSubmit });
+    const test = await screen.findByRole("button", { name: "Test & roll out" });
+    await waitFor(() => expect(test).toBeEnabled());
+    await userEvent.click(test);
+    expect(onTestSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ deploymentId: "dep-1", snapshotId: "snap-1" }),
+    );
+  });
+
+  it("does not test an edited env, which the test run would not carry", async () => {
+    renderModal(vi.fn(), { onTestSubmit: vi.fn() });
+    const field = (await screen.findByDisplayValue(
+      "seeded",
+    )) as HTMLInputElement;
+    await userEvent.type(field, "-changed");
+    const test = screen.getByRole("button", { name: "Test & roll out" });
+    await waitFor(() => expect(test).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Roll out" })).toBeEnabled();
+  });
+
+  it("pins on roll out, which a test run would not carry", async () => {
+    const onSubmit = renderModal(vi.fn(), { onTestSubmit: vi.fn() });
+    const menu = await screen.findByRole("button", { name: "Runtime" });
+    await waitFor(() => expect(menu).toBeEnabled());
+    await userEvent.click(menu);
+    await userEvent.click(
+      screen.getByRole("menuitemradio", { name: "Pin to 0.11.13" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Test & roll out" }),
+    ).toBeDisabled();
+    const roll = screen.getByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(roll);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeVersion: "0.11.13" }),
+    );
+  });
+
+  it("keeps a pinned deployment pinned, and out of test & roll out", async () => {
+    const onSubmit = renderModal(vi.fn(), {
+      onTestSubmit: vi.fn(),
+      deployments: [{ ...DEPLOYMENT, runtimePin: "0.11.13" }],
+    });
+    expect(
+      await screen.findByRole("button", { name: "Runtime" }),
+    ).toHaveTextContent("Pinned to 0.11.13");
+    expect(
+      screen.getByRole("button", { name: "Test & roll out" }),
+    ).toBeDisabled();
+    const roll = screen.getByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(roll);
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("runtimeVersion");
   });
 });

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 )
 
 // Deployment is one deployed instance of an integration. IDs are UUIDs in
@@ -85,6 +86,27 @@ type Settings struct {
 	// ships that snapshot's frozen definition rather than the live one. Input only —
 	// the resolved snapshot id/tag are recorded in Metadata.
 	SnapshotID string `json:"snapshotId,omitempty"`
+	// RuntimeVersion pins the deployment to a runtime release, so rollouts keep it
+	// there rather than moving it onto whatever the install deploys now. Empty, or
+	// "latest" on input, follows the install.
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+}
+
+// RuntimeLatest is the runtime a deployment asks for to follow the install
+// rather than stay pinned to a release.
+const RuntimeLatest = "latest"
+
+// RolloutChange is what a rollout changes about a deployment. A nil field keeps
+// the deployment's stored value; SnapshotID is the version to roll onto.
+type RolloutChange struct {
+	// SnapshotID is the version to roll onto; empty keeps the one it runs.
+	SnapshotID string
+	// Env replaces the stored bindings wholesale, even when empty.
+	Env     map[string]EnvBinding
+	Tracing *bool
+	Runner  *string
+	// Runtime pins the deployment to a release, or "latest" to follow the install.
+	Runtime *string
 }
 
 // EnvBinding is how one declared environment variable is filled at deploy time:
@@ -142,6 +164,10 @@ type Metadata struct {
 	// deploys `repo@sha256:…`, which names no tag. Empty on deployments made
 	// before it was recorded, and on installs that never configured it.
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// RolledOutAt is when the deployment was last deployed or rolled out: the
+	// last time its version, env or tracing could have changed. Nil on
+	// deployments made before it was recorded.
+	RolledOutAt *time.Time `json:"rolledOutAt,omitempty"`
 }
 
 // ParseMetadata unmarshals the metadata jsonb, returning a zero Metadata when
@@ -170,4 +196,31 @@ func ParseSettings(raw json.RawMessage) Settings {
 	}
 	_ = json.Unmarshal(raw, &s)
 	return s
+}
+
+// Runtime is the octo runtime image a deployment is on and which release that
+// is, "" for either when nothing knows.
+//
+// What the pods report wins over what was recorded at deploy time: during a
+// rollout, or while a new image will not pull, the recorded image is already the
+// new one while the old one is still serving. The recorded image answers when
+// the cluster cannot.
+//
+// The release is the tag on that image first, then the version recorded at deploy
+// time, which is what carries a digest-pinned install whose reference has no tag
+// in it. A deployment made before either was recorded says nothing rather than
+// guessing.
+func (d Deployment) Runtime() (image, version string) {
+	meta := ParseMetadata(d.Metadata)
+	image = meta.RuntimeImage
+	if d.Detail.RuntimeImage != "" {
+		image = d.Detail.RuntimeImage
+	}
+	if version = runtimeversion.ImageTag(image); version != "" {
+		return image, version
+	}
+	if meta.RuntimeVersion != "" {
+		return image, meta.RuntimeVersion
+	}
+	return image, runtimeversion.ImageTag(meta.RuntimeImage)
 }

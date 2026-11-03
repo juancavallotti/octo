@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 )
 
 // defaultLogTail bounds the history replayed when a pod-log stream connects, so a
@@ -47,6 +47,34 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /deployments/{id}", h.scale)
 	mux.HandleFunc("POST /deployments/{id}/rollout", h.rollout)
 	mux.HandleFunc("DELETE /deployments/{id}", h.undeploy)
+	mux.HandleFunc("GET /runtimes", h.runtimes)
+}
+
+// runtimesResponse is what a deployment can be pinned to.
+type runtimesResponse struct {
+	// Current is the runtime release this install deploys; empty when it cannot say.
+	Current string `json:"current,omitempty"`
+	// Versions are the releases a deployment can be pinned to, newest first: the
+	// current one and the supported releases no newer than it.
+	Versions []string `json:"versions"`
+}
+
+// runtimes godoc
+//
+//	@Summary		List the runtime releases a deployment can be pinned to
+//	@Description	The release this install deploys and the supported releases no newer than it, newest
+//	@Description	first. Pin one with runtimeVersion on a deploy or rollout; "latest" follows the install.
+//	@Tags			deployments
+//	@Produce		json
+//	@Success		200	{object}	runtimesResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/runtimes [get]
+func (h *Handler) runtimes(w http.ResponseWriter, _ *http.Request) {
+	current, versions := h.svc.Runtimes()
+	if versions == nil {
+		versions = []string{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, runtimesResponse{Current: current, Versions: versions})
 }
 
 // podResponse is the wire representation of one runtime pod.
@@ -69,10 +97,13 @@ type envBindingResponse struct {
 // name, replica count and URLs are lifted out of the jsonb columns; the replica
 // counts, pods, reason and createdAt come from the live cluster status.
 type deploymentResponse struct {
-	ID              string        `json:"id"`
-	IntegrationID   string        `json:"integrationId"`
-	Name            string        `json:"name"`
-	Tag             string        `json:"tag,omitempty"`
+	ID            string `json:"id"`
+	IntegrationID string `json:"integrationId"`
+	Name          string `json:"name"`
+	Tag           string `json:"tag,omitempty"`
+	// SnapshotID is the version the deployment runs, by id: what a rollout that
+	// changes only env, tracing or runtime rolls it onto again.
+	SnapshotID      string        `json:"snapshotId,omitempty"`
 	Status          string        `json:"status"`
 	Replicas        int           `json:"replicas"`
 	ReadyReplicas   int32         `json:"readyReplicas"`
@@ -97,6 +128,12 @@ type deploymentResponse struct {
 	// workload).
 	RuntimeImage   string `json:"runtimeImage,omitempty"`
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// UpgradeTo is the runtime release a rollout would move this deployment onto,
+	// present only when that release is newer than the one it runs.
+	UpgradeTo string `json:"upgradeTo,omitempty"`
+	// RuntimePin is the runtime release the deployment is pinned to; absent when it
+	// follows the install.
+	RuntimePin string `json:"runtimePin,omitempty"`
 	// Access is what this deployment's own token opens on the platform beyond its
 	// own stores, and Runner which image its pods are. Both are reported because
 	// both are things a reader of a deployment has to be able to see without
@@ -108,42 +145,9 @@ type deploymentResponse struct {
 	Runner string   `json:"runner,omitempty"`
 }
 
-// imageTag is the tag part of a container image reference, or "" when the
-// reference is untagged or pinned by digest (nothing readable to show). The colon
-// searched for is the last one, and only past the final slash, so a registry with
-// a port (registry:5000/octo/runtime) is not mistaken for a tag.
-//
-// Both spellings of a digest have to be turned away, because both reach here. A
-// deploy pinned by digest gives `repo@sha256:…`; the kubelet then reports that
-// pod's container image as the bare `sha256:…` with no repository at all, which
-// has no `@` in it and splits into a name of "sha256" and a "tag" of sixty-four
-// hex characters. That is how a digest ends up on screen where a version goes.
-func imageTag(image string) string {
-	if strings.Contains(image, "@") {
-		return ""
-	}
-	name := image
-	if i := strings.LastIndex(image, "/"); i >= 0 {
-		name = image[i+1:]
-	}
-	i := strings.LastIndex(name, ":")
-	if i < 0 {
-		return ""
-	}
-	if isDigestAlgorithm(name[:i]) {
-		return ""
-	}
-	return name[i+1:]
-}
-
-// isDigestAlgorithm reports whether name is one of the digest algorithms a
-// registry reference can carry, which is what makes `name:hex` a digest rather
-// than a repository and a tag.
-func isDigestAlgorithm(name string) bool {
-	return name == "sha256" || name == "sha512"
-}
-
-func toResponse(d Deployment) deploymentResponse {
+// toResponse builds the wire form of d. current is the runtime release this
+// install deploys, which decides UpgradeTo.
+func toResponse(d Deployment, current string) deploymentResponse {
 	meta := ParseMetadata(d.Metadata)
 	settings := ParseSettings(d.Settings)
 	replicas := settings.Replicas
@@ -155,6 +159,7 @@ func toResponse(d Deployment) deploymentResponse {
 		IntegrationID:   d.IntegrationID,
 		Name:            meta.Name,
 		Tag:             meta.Tag,
+		SnapshotID:      meta.SnapshotID,
 		Status:          d.Status,
 		Replicas:        replicas,
 		ReadyReplicas:   d.Detail.ReadyReplicas,
@@ -166,17 +171,12 @@ func toResponse(d Deployment) deploymentResponse {
 		Tracing:         settings.Tracing,
 		Access:          settings.Access,
 		Runner:          settings.Runner,
+		RuntimePin:      settings.RuntimeVersion,
 	}
-	// What the pods report wins over what was recorded at deploy time: during a
-	// rollout, or while a new image will not pull, the recorded image is already
-	// the new one while the old one is still serving. The recorded image is what
-	// answers when the cluster cannot — an unreachable or torn-down workload — and
-	// is the only answer for a deployment whose pods have not started yet.
-	resp.RuntimeImage = meta.RuntimeImage
-	if d.Detail.RuntimeImage != "" {
-		resp.RuntimeImage = d.Detail.RuntimeImage
+	resp.RuntimeImage, resp.RuntimeVersion = d.Runtime()
+	if runtimeversion.Behind(resp.RuntimeVersion, current) {
+		resp.UpgradeTo = current
 	}
-	resp.RuntimeVersion = runtimeVersion(resp.RuntimeImage, meta)
 	if !d.Detail.CreatedAt.IsZero() {
 		t := d.Detail.CreatedAt
 		resp.CreatedAt = &t
@@ -191,26 +191,6 @@ func toResponse(d Deployment) deploymentResponse {
 		}
 	}
 	return resp
-}
-
-// runtimeVersion is which octo a deployment is running, from the best source that
-// has an answer.
-//
-// The tag on the image actually in play comes first: it describes what is
-// running, and during a rollout it is the only one that is current. The version
-// recorded at deploy time comes next, and it is what carries a digest-pinned
-// install — there the reference is `repo@sha256:…`, and no amount of parsing
-// produces a version from it because the version was never in it. A deployment
-// made before either was recorded has neither, and says nothing rather than
-// guessing from the release the orchestrator happens to be on now.
-func runtimeVersion(image string, meta Metadata) string {
-	if tag := imageTag(image); tag != "" {
-		return tag
-	}
-	if meta.RuntimeVersion != "" {
-		return meta.RuntimeVersion
-	}
-	return imageTag(meta.RuntimeImage)
 }
 
 // deploy godoc
@@ -248,7 +228,7 @@ func (h *Handler) deploy(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, toResponse(d))
+	httpx.WriteJSON(w, http.StatusCreated, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // deployOptionsResponse is the wire form of the deploy choices for an integration.
@@ -333,9 +313,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	current := h.svc.CurrentRuntime()
 	out := make([]deploymentResponse, 0, len(items))
 	for _, d := range items {
-		out = append(out, toResponse(d))
+		out = append(out, toResponse(d, current))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
@@ -360,9 +341,10 @@ func (h *Handler) listByIntegration(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	current := h.svc.CurrentRuntime()
 	out := make([]deploymentResponse, 0, len(items))
 	for _, d := range items {
-		out = append(out, toResponse(d))
+		out = append(out, toResponse(d, current))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
@@ -385,7 +367,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
+	httpx.WriteJSON(w, http.StatusOK, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // podLogs streams a pod's container logs as plain text (chunked). With ?follow=1
@@ -460,7 +442,7 @@ func (h *Handler) scale(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
+	httpx.WriteJSON(w, http.StatusOK, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // rolloutRequest is the body of a rollout request: the version tag (snapshot id)
@@ -474,6 +456,9 @@ type rolloutRequest struct {
 	SnapshotID string                `json:"snapshotId"`
 	Env        map[string]EnvBinding `json:"env"`
 	Tracing    *bool                 `json:"tracing"`
+	// RuntimeVersion pins the deployment to a runtime release, or "latest" to
+	// follow the install; omitted keeps the deployment's setting.
+	RuntimeVersion *string `json:"runtimeVersion"`
 }
 
 // rollout godoc
@@ -489,7 +474,7 @@ type rolloutRequest struct {
 //	@Accept			json
 //	@Produce		json
 //	@Param			id		path		string			true	"Deployment id"
-//	@Param			body	body		rolloutRequest	true	"Target tag, and optionally env and tracing"
+//	@Param			body	body		rolloutRequest	true	"Target tag (omitted keeps the one it runs), and optionally env, tracing and runtime"
 //	@Success		200		{object}	deploymentResponse
 //	@Failure		400		{object}	httpx.ErrorResponse	"a topology change or an unbound required env var"
 //	@Failure		404		{object}	httpx.ErrorResponse
@@ -505,12 +490,14 @@ func (h *Handler) rollout(w http.ResponseWriter, r *http.Request) {
 	}
 	// nil: a rollout over the API is a version bump, and the runner is a property of
 	// the workload rather than of the version being shipped. Changing it is a redeploy.
-	d, err := h.svc.Rollout(ctx, r.PathValue("id"), req.SnapshotID, req.Env, req.Tracing, nil)
+	d, err := h.svc.Rollout(ctx, r.PathValue("id"), RolloutChange{
+		SnapshotID: req.SnapshotID, Env: req.Env, Tracing: req.Tracing, Runtime: req.RuntimeVersion,
+	})
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, toResponse(d))
+	httpx.WriteJSON(w, http.StatusOK, toResponse(d, h.svc.CurrentRuntime()))
 }
 
 // undeploy godoc
@@ -538,7 +525,10 @@ func (h *Handler) undeploy(w http.ResponseWriter, r *http.Request) {
 // writeError maps domain errors to HTTP status codes. Unexpected errors are
 // logged and reported generically so internals do not leak to clients.
 func (h *Handler) writeError(w http.ResponseWriter, err error) {
+	var refused *IdentityRefusedError
 	switch {
+	case errors.As(err, &refused):
+		httpx.WriteError(w, http.StatusForbidden, refused.Error())
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "deployment not found")
 	case errors.Is(err, ErrIntegrationNotFound):
@@ -551,6 +541,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, "external endpoints are not configured")
 	case errors.Is(err, ErrRunnerUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "the requested runner is not configured on this installation")
+	case errors.Is(err, ErrInvalidRuntimeVersion):
+		httpx.WriteError(w, http.StatusBadRequest, `runtimeVersion must be a supported release (GET /runtimes), or "latest"`)
 	case errors.Is(err, ErrInvalidRunner):
 		httpx.WriteError(w, http.StatusBadRequest, "unknown runner")
 	case errors.Is(err, ErrInvalidSubdomain):

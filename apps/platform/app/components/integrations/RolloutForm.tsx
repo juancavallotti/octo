@@ -1,17 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { GitCompareArrows, Tag } from "lucide-react";
-import type { Deployment, Snapshot } from "@/app/model/orchestrator";
+import { type Deployment, type Snapshot } from "@/app/model/orchestrator";
+import { RUNTIME_LATEST } from "@/app/model/orchestratorTypes";
 import { suggestNextTag } from "@/app/model/tags";
-import VersionMenu from "./VersionMenu";
+import RolloutVersionField from "./RolloutVersionField";
+import { useRuntimes } from "./useRuntimes";
 import DeployEnvFields from "./DeployEnvFields";
 import { useDeployEnv } from "./useDeployEnv";
 import { useDeployOptions } from "./useDeployOptions";
-import { INPUT } from "./inputStyles";
 import Field from "./Field";
 import TracingToggle from "./TracingToggle";
 import type { RolloutSubmit } from "./RolloutModal";
+import RolloutActions from "./RolloutActions";
+import { sameEnv } from "./sameEnv";
 
 /** The version + env form for a single deployment. Split out so it can be keyed by
  * the deployment: a change remounts it, re-seeding env from the new deployment. */
@@ -19,23 +21,24 @@ export default function RolloutForm({
   integrationId,
   deployment,
   snapshots,
-  deployedTags,
   versionMode,
   actionLabel,
   busy,
   error,
   onSubmit,
+  onTestSubmit,
   onClose,
 }: {
   integrationId: string;
   deployment: Deployment;
   snapshots: Snapshot[];
-  deployedTags: ReadonlySet<string>;
   versionMode: "pick" | "new-tag";
   actionLabel: string;
   busy: boolean;
   error: string | null;
   onSubmit: (input: RolloutSubmit) => void;
+  /** Run the target version's suites first, rolling out only when they pass. */
+  onTestSubmit?: (input: RolloutSubmit) => void;
   onClose: () => void;
 }) {
   // In pick mode default to the deployment's current version (an env-only re-rollout
@@ -55,6 +58,10 @@ export default function RolloutForm({
   // current state rather than as a blank instruction. The form is keyed by
   // deployment, so switching target re-seeds it.
   const [tracing, setTracing] = useState(deployment.tracing ?? false);
+  // Seeded from the deployment's pin, so a plain roll out keeps it where it is.
+  const pinned = deployment.runtimePin ?? RUNTIME_LATEST;
+  const [runtime, setRuntime] = useState(pinned);
+  const runtimes = useRuntimes();
 
   const targetSnapshot = useMemo(
     () =>
@@ -88,67 +95,58 @@ export default function RolloutForm({
     (!creatingNewTag || newTag.trim() !== "") &&
     envComplete;
 
+  const input = (): RolloutSubmit => ({
+    deploymentId: deployment.id,
+    ...(creatingNewTag
+      ? { newTag: newTag.trim() }
+      : { snapshotId: targetSnapshot!.id }),
+    env: buildEnv(),
+    tracing,
+    ...(runtime !== pinned ? { runtimeVersion: runtime } : {}),
+  });
+
   const submit = () => {
     if (!canRollout) return;
-    onSubmit({
-      deploymentId: deployment.id,
-      ...(creatingNewTag
-        ? { newTag: newTag.trim() }
-        : { snapshotId: targetSnapshot!.id }),
-      env: buildEnv(),
-      tracing,
-    });
+    onSubmit(input());
+  };
+
+  // A test run uses the deployment's saved env, tracing and runtime, and so does
+  // the rollout it makes on pass — so an edit to any of them is rolled out
+  // directly. A pinned deployment is never rolled out by a test run at all.
+  const edited =
+    canRollout &&
+    (tracing !== (deployment.tracing ?? false) ||
+      runtime !== pinned ||
+      !sameEnv(buildEnv(), deployment.env ?? {}));
+  const testBlocked = edited
+    ? "Tests run with the deployment's saved environment, tracing and runtime. Roll out your changes directly."
+    : deployment.runtimePin
+      ? `Pinned to ${deployment.runtimePin}: it moves only when you change its runtime.`
+      : undefined;
+  const canTest = canRollout && !testBlocked;
+
+  const testSubmit = () => {
+    if (!canTest || !onTestSubmit) return;
+    onTestSubmit(input());
   };
 
   return (
     <>
       <div className="flex max-h-[70vh] flex-col gap-5 overflow-y-auto px-4 py-4">
-        {versionMode === "pick" ? (
-          <Field
-            label="Version"
-            hint={
-              creatingNewTag
-                ? "Current tags the working copy first, then rolls to that frozen version."
-                : "Rolls this deployment over to the selected tag's frozen definition."
-            }
-          >
-            <VersionMenu
-              snapshots={snapshots}
-              deployedTags={deployedTags}
-              value={targetTag}
-              onChange={setTargetTag}
-            />
-            {creatingNewTag && (
-              <div className="mt-2 flex items-center gap-2">
-                <Tag size={14} className="shrink-0 text-zinc-400" />
-                <input
-                  value={newTag}
-                  disabled={busy}
-                  placeholder="e.g. v1.0.0"
-                  onChange={(e) => setNewTag(e.target.value)}
-                  className={`${INPUT} w-full`}
-                />
-              </div>
-            )}
-          </Field>
-        ) : (
-          <Field
-            label="New version"
-            hint="Ships the on-screen definition: tags the working copy, then rolls out."
-          >
-            <div className="flex items-center gap-2">
-              <Tag size={14} className="shrink-0 text-zinc-400" />
-              <input
-                value={newTag}
-                disabled={busy}
-                placeholder="e.g. v1.0.0"
-                onChange={(e) => setNewTag(e.target.value)}
-                className={`${INPUT} w-full`}
-              />
-            </div>
-          </Field>
-        )}
-
+        <RolloutVersionField
+          versionMode={versionMode}
+          snapshots={snapshots}
+          runningTag={deployment.tag}
+          targetTag={targetTag}
+          onTargetTag={setTargetTag}
+          creatingNewTag={creatingNewTag}
+          newTag={newTag}
+          onNewTag={setNewTag}
+          runtimes={runtimes}
+          runtime={runtime}
+          onRuntime={setRuntime}
+          busy={busy}
+        />
         <Field
           label="Tracing"
           hint="Records every flow, block and model call, with what each one cost. For troubleshooting only — it significantly reduces throughput. Takes effect on this rollout, since the pods read it at startup."
@@ -175,7 +173,9 @@ export default function RolloutForm({
               {missingRequired.length > 0 && (
                 <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                   Provide a value or secret for:{" "}
-                  <span className="font-mono">{missingRequired.join(", ")}</span>
+                  <span className="font-mono">
+                    {missingRequired.join(", ")}
+                  </span>
                 </p>
               )}
             </Field>
@@ -185,25 +185,16 @@ export default function RolloutForm({
         {error && <p className="text-sm text-red-500">{error}</p>}
       </div>
 
-      <footer className="flex justify-end gap-2 border-t border-black/10 px-4 py-3 dark:border-white/10">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={busy}
-          className="rounded-md px-3 py-1 text-sm text-zinc-600 transition-colors hover:bg-black/[0.06] disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-white/[0.08]"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!canRollout}
-          className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
-        >
-          <GitCompareArrows size={14} />
-          {actionLabel}
-        </button>
-      </footer>
+      <RolloutActions
+        actionLabel={actionLabel}
+        busy={busy}
+        canRollout={canRollout}
+        canTest={onTestSubmit ? canTest : undefined}
+        testBlocked={testBlocked}
+        onClose={onClose}
+        onSubmit={submit}
+        onTestSubmit={testSubmit}
+      />
     </>
   );
 }

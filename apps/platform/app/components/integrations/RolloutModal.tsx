@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { GitCompareArrows, Server, X } from "lucide-react";
 import type {
   Deployment,
@@ -34,6 +34,8 @@ export interface RolloutSubmit {
   newTag?: string;
   env: Record<string, EnvBindingInput>;
   tracing: boolean;
+  /** A runtime release to pin to, or "latest" to follow the install. */
+  runtimeVersion?: string;
 }
 
 export default function RolloutModal({
@@ -41,28 +43,33 @@ export default function RolloutModal({
   integrationName,
   deployments,
   snapshots,
-  deployedTags,
   versionMode,
   actionLabel = "Roll out",
   busy,
   error,
   onSubmit,
+  onTestSubmit,
+  body,
   onClose,
 }: {
   integrationId: string;
   integrationName: string;
   /** Candidate deployments to upgrade; one is fixed, several show a selector. */
   deployments: Deployment[];
-  /** The integration's tags, for the version picker (pick mode) and tag suggestion. */
-  snapshots: Snapshot[];
-  /** Tags currently deployed, for the version picker's "deployed" hint. */
-  deployedTags?: ReadonlySet<string>;
+  /** The integration's tags, for the version picker (pick mode) and tag suggestion;
+   * null while they load. The form is seeded from them once, so it waits. */
+  snapshots: Snapshot[] | null;
   versionMode: "pick" | "new-tag";
   /** Verb for the header and submit button (e.g. "Roll out", "Deploy"). */
   actionLabel?: string;
   busy: boolean;
   error: string | null;
   onSubmit: (input: RolloutSubmit) => void;
+  /** Offer "Test & roll out": run the target version's suites, roll out on pass. */
+  onTestSubmit?: (input: RolloutSubmit) => void;
+  /** Shown in place of the form once a submission has something to follow, such
+   * as the test run "Test & roll out" started. */
+  body?: ReactNode;
   onClose: () => void;
 }) {
   const [selectedId, setSelectedId] = useState(deployments[0]?.id ?? "");
@@ -134,21 +141,28 @@ export default function RolloutModal({
         )}
 
         {/* Keyed by the deployment so switching it re-seeds env from that deployment. */}
-        <RolloutForm
-          key={selected.id}
-          integrationId={integrationId}
-          deployment={selected}
-          snapshots={snapshots}
-          deployedTags={deployedTags ?? new Set()}
-          versionMode={versionMode}
-          actionLabel={actionLabel}
-          busy={busy}
-          error={error}
-          onSubmit={onSubmit}
-          onClose={onClose}
-        />
+        {body ? (
+          body
+        ) : snapshots === null ? (
+          <p className="px-4 py-6 text-sm text-zinc-500 dark:text-zinc-400">
+            {error ?? "Loading versions…"}
+          </p>
+        ) : (
+          <RolloutForm
+            key={selected.id}
+            integrationId={integrationId}
+            deployment={selected}
+            snapshots={snapshots}
+            versionMode={versionMode}
+            actionLabel={actionLabel}
+            busy={busy}
+            error={error}
+            onSubmit={onSubmit}
+            onTestSubmit={onTestSubmit}
+            onClose={onClose}
+          />
+        )}
       </div>
     </div>
   );
 }
-

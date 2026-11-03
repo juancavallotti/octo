@@ -33,7 +33,11 @@ function renderManager() {
 describe("SecretsManager", () => {
   beforeEach(() => {
     listSecrets.mockResolvedValue([
-      { name: "API_KEY", createdAt: "2026-01-01T00:00:00Z", lastUpdated: "2026-01-02T00:00:00Z" },
+      {
+        name: "API_KEY",
+        createdAt: "2026-01-01T00:00:00Z",
+        lastUpdated: "2026-01-02T00:00:00Z",
+      },
     ]);
     setSecret.mockResolvedValue({ name: "X", createdAt: "", lastUpdated: "" });
     deleteSecret.mockResolvedValue(undefined);
@@ -82,8 +86,12 @@ describe("SecretsManager", () => {
 
     // Open the row's delete confirm, accept it, then accept the force-delete
     // dialog that appears once the orchestrator reports the secret is in use.
-    await userEvent.click(screen.getByRole("button", { name: "Delete API_KEY" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete API_KEY" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Delete" }),
+    );
     await userEvent.click(
       await screen.findByRole("button", { name: "Force delete" }),
     );

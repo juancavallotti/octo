@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 # Cluster runtime image (octo-runtime).
 #
-# A generic image that runs ANY integration: it carries only the compiled `octo`
-# binary and, by default, runs `octo run --config /etc/octo/integrations`. The
+# A generic image that runs ANY integration: it carries the compiled `octo`
+# binary (plus `dolphin` in a standalone build) and, by default, runs
+# `octo run --config /etc/octo/integrations`. The
 # orchestrator deploys one Deployment per integration from this image, mounting
 # the integration's YAML into /etc/octo/integrations via a per-deployment
 # ConfigMap (octo loads every .yaml/.yml in that directory).
@@ -61,6 +62,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -tags "${GOTAGS}" \
     -ldflags "-s -w -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/octo ./runtime/octo
+# A standalone image also carries dolphin, the test runner, built from the same
+# source so a suite runs against exactly the octo beside it. A k8s or api image
+# does not: dolphin drives `octo invoke`, which needs the standalone provider.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    if [ -z "${GOTAGS}" ]; then \
+      CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/dolphin ./runtime/dolphin; \
+    fi
 
 # --- Binary source: copy a host-built binary ----------------------------------
 # TARGETARCH keys the directory so one form serves a native build and a
@@ -72,6 +81,7 @@ COPY --from=prebuilt linux_${TARGETARCH}/octo-k8s /out/octo
 FROM scratch AS bin-prebuilt-standalone
 ARG TARGETARCH
 COPY --from=prebuilt linux_${TARGETARCH}/octo /out/octo
+COPY --from=prebuilt linux_${TARGETARCH}/dolphin /out/dolphin
 
 FROM scratch AS bin-prebuilt-api
 ARG TARGETARCH
@@ -81,7 +91,8 @@ FROM bin-${BIN_SOURCE} AS bin
 
 # --- Final stage: minimal runtime image ---------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=bin /out/octo /usr/local/bin/octo
+# Every binary the variant produced: octo, and dolphin for a standalone build.
+COPY --from=bin /out/ /usr/local/bin/
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/octo"]
 # Load every integration YAML mounted into this directory.

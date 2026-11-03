@@ -6,6 +6,8 @@ const getDeployOptions = vi.fn();
 const listSecrets = vi.fn();
 vi.mock("@/app/model/orchestrator", () => ({
   getDeployOptions: () => getDeployOptions(),
+  listRuntimes: () =>
+    Promise.resolve({ current: "0.11.14", versions: ["0.11.14", "0.11.13"] }),
 }));
 vi.mock("@/app/model/secrets", () => ({ listSecrets: () => listSecrets() }));
 
@@ -143,5 +145,21 @@ describe("DeployModal tracing", () => {
       replicas: 1,
       tracing: true,
     });
+  });
+});
+
+describe("DeployModal runtime", () => {
+  it("pins the deployment to the picked runtime", async () => {
+    const onSubmit = renderModal();
+    const menu = await screen.findByRole("button", { name: "Runtime" });
+    await waitFor(() => expect(menu).toBeEnabled());
+    await userEvent.click(menu);
+    await userEvent.click(
+      screen.getByRole("menuitemradio", { name: "Pin to 0.11.13" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeVersion: "0.11.13" }),
+    );
   });
 });

@@ -1,0 +1,218 @@
+FAIL /work/config/.octo/tests/cel-extensions_test.yaml  (normalize)  80ms
+  --- FAIL: a reference with no order id falls back instead of failing (20ms)
+        expect.body:
+              want: {"email":"b@example.com","idempotencyKey":"dW5rbm93bjpiQGV4YW1wbGUuY29t","orderId":"unknown","quantities":{"a-1":2},"region":"eu-west","roles":["sales"],"topLineCents":601}
+              got:  {"email":"b@example.com","idempotencyKey":"dW5rbm93bjpiQGV4YW1wbGUuY29t","orderId":"unknown","quantities":{"a-1":2},"region":"eu-west","roles":["sales"],"topLineCents":600}
+        reproduce: /usr/local/bin/octo invoke --config /work/config --flow normalize --run-debug-config /tmp/dolphin-1037033346/cel-extensions_test.1.yaml --timeout 30s --envelope-out /tmp/dolphin-1037033346/cel-extensions_test.1.outcome.json
+
+2 passed, 1 failed, 0 errored, 0 skipped  (80ms)
+
+the runs are in /tmp/dolphin-1037033346
+{
+  "dolphin": "dolphin 0.11.14",
+  "wallMs": 37,
+  "workDir": "/tmp/dolphin-1037033346",
+  "totals": {
+    "cases": 3,
+    "passed": 2,
+    "failed": 1,
+    "errored": 0,
+    "skipped": 0,
+    "notRun": 0,
+    "elapsedMs": 79
+  },
+  "suites": [
+    {
+      "path": "/work/config/.octo/tests/cel-extensions_test.yaml",
+      "config": "/work/config",
+      "flow": "normalize",
+      "elapsedMs": 79,
+      "cases": [
+        {
+          "name": "it normalizes every field with the extension libraries, no foreach",
+          "status": "passed",
+          "elapsedMs": 24,
+          "reproduce": "/usr/local/bin/octo invoke --config /work/config --flow normalize --run-debug-config /tmp/dolphin-1037033346/cel-extensions_test.0.yaml --timeout 30s --envelope-out /tmp/dolphin-1037033346/cel-extensions_test.0.outcome.json",
+          "outcome": {
+            "result": {
+              "event_id": "5567513721a959dab9d8fffb66624232",
+              "variables": {
+                "email": "ada.lovelace@example.com",
+                "idempotencyKey": "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=",
+                "invoiceable": true,
+                "orderId": "1042",
+                "region": "eu-west",
+                "roles": [
+                  "admin",
+                  "billing"
+                ],
+                "topLineCents": 5997
+              },
+              "body": {
+                "email": "ada.lovelace@example.com",
+                "idempotencyKey": "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=",
+                "orderId": "1042",
+                "quantities": {
+                  "a-1": 1,
+                  "b-2": 3
+                },
+                "region": "eu-west",
+                "roles": [
+                  "admin",
+                  "billing"
+                ],
+                "topLineCents": 5997
+              }
+            },
+            "spies": {
+              "normalize.billing-contact[then].mark-invoiceable": [
+                {
+                  "seq": 1,
+                  "at": "2026-11-03T12:50:55.848675511Z",
+                  "input": {
+                    "event_id": "5567513721a959dab9d8fffb66624232",
+                    "variables": {
+                      "email": "ada.lovelace@example.com",
+                      "idempotencyKey": "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=",
+                      "orderId": "1042",
+                      "region": "eu-west",
+                      "roles": [
+                        "admin",
+                        "billing"
+                      ],
+                      "topLineCents": 5997
+                    },
+                    "body": {
+                      "email": "ada.lovelace@example.com",
+                      "idempotencyKey": "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=",
+                      "orderId": "1042",
+                      "quantities": {
+                        "a-1": 1,
+                        "b-2": 3
+                      },
+                      "region": "eu-west",
+                      "roles": [
+                        "admin",
+                        "billing"
+                      ],
+                      "topLineCents": 5997
+                    }
+                  },
+                  "output": {
+                    "event_id": "5567513721a959dab9d8fffb66624232",
+                    "variables": {
+                      "email": "ada.lovelace@example.com",
+                      "idempotencyKey": "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=",
+                      "invoiceable": true,
+                      "orderId": "1042",
+                      "region": "eu-west",
+                      "roles": [
+                        "admin",
+                        "billing"
+                      ],
+                      "topLineCents": 5997
+                    },
+                    "body": {
+                      "email": "ada.lovelace@example.com",
+                      "idempotencyKey": "MTA0MjphZGEubG92ZWxhY2VAZXhhbXBsZS5jb20=",
+                      "orderId": "1042",
+                      "quantities": {
+                        "a-1": 1,
+                        "b-2": 3
+                      },
+                      "region": "eu-west",
+                      "roles": [
+                        "admin",
+                        "billing"
+                      ],
+                      "topLineCents": 5997
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "a reference with no order id falls back instead of failing",
+          "status": "failed",
+          "elapsedMs": 20,
+          "summary": "expect.body: want: {\"email\":\"b@example.com\",\"idempotencyKey\":\"dW5rbm93bjpiQGV4YW1wbGUuY29t\",\"orderId\":\"unknown\",\"quantities\":{\"a-1\":2},\"region\":\"eu-west\",\"roles…",
+          "failures": [
+            {
+              "summary": "expect.body: want: {\"email\":\"b@example.com\",\"idempotencyKey\":\"dW5rbm93bjpiQGV4YW1wbGUuY29t\",\"orderId\":\"unknown\",\"quantities\":{\"a-1\":2},\"region\":\"eu-west\",\"roles…",
+              "detail": "expect.body:\n      want: {\"email\":\"b@example.com\",\"idempotencyKey\":\"dW5rbm93bjpiQGV4YW1wbGUuY29t\",\"orderId\":\"unknown\",\"quantities\":{\"a-1\":2},\"region\":\"eu-west\",\"roles\":[\"sales\"],\"topLineCents\":601}\n      got:  {\"email\":\"b@example.com\",\"idempotencyKey\":\"dW5rbm93bjpiQGV4YW1wbGUuY29t\",\"orderId\":\"unknown\",\"quantities\":{\"a-1\":2},\"region\":\"eu-west\",\"roles\":[\"sales\"],\"topLineCents\":600}"
+            }
+          ],
+          "reproduce": "/usr/local/bin/octo invoke --config /work/config --flow normalize --run-debug-config /tmp/dolphin-1037033346/cel-extensions_test.1.yaml --timeout 30s --envelope-out /tmp/dolphin-1037033346/cel-extensions_test.1.outcome.json",
+          "outcome": {
+            "result": {
+              "event_id": "572f66d252ef7fdd3d6da28a36495511",
+              "variables": {
+                "email": "b@example.com",
+                "idempotencyKey": "dW5rbm93bjpiQGV4YW1wbGUuY29t",
+                "orderId": "unknown",
+                "region": "eu-west",
+                "roles": [
+                  "sales"
+                ],
+                "topLineCents": 600
+              },
+              "body": {
+                "email": "b@example.com",
+                "idempotencyKey": "dW5rbm93bjpiQGV4YW1wbGUuY29t",
+                "orderId": "unknown",
+                "quantities": {
+                  "a-1": 2
+                },
+                "region": "eu-west",
+                "roles": [
+                  "sales"
+                ],
+                "topLineCents": 600
+              }
+            }
+          }
+        },
+        {
+          "name": "a customer without the billing role is not marked invoiceable",
+          "status": "passed",
+          "elapsedMs": 35,
+          "reproduce": "/usr/local/bin/octo invoke --config /work/config --flow normalize --run-debug-config /tmp/dolphin-1037033346/cel-extensions_test.2.yaml --timeout 30s --envelope-out /tmp/dolphin-1037033346/cel-extensions_test.2.outcome.json",
+          "outcome": {
+            "result": {
+              "event_id": "90f1fed2db51f845725aecd031481377",
+              "variables": {
+                "email": "c@example.com",
+                "idempotencyKey": "NzpjQGV4YW1wbGUuY29t",
+                "orderId": "7",
+                "region": "us-east",
+                "roles": [
+                  "support"
+                ],
+                "topLineCents": 3015
+              },
+              "body": {
+                "email": "c@example.com",
+                "idempotencyKey": "NzpjQGV4YW1wbGUuY29t",
+                "orderId": "7",
+                "quantities": {
+                  "z-9": 3
+                },
+                "region": "us-east",
+                "roles": [
+                  "support"
+                ],
+                "topLineCents": 3015
+              }
+            },
+            "spies": {
+              "normalize.billing-contact[then].mark-invoiceable": []
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+time=2026-11-03T12:50:55.864Z level=ERROR msg="dolphin stopped with error" error="1 case(s) failed"

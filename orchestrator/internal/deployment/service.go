@@ -10,11 +10,13 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/caller"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
@@ -77,7 +79,7 @@ type kubeClient interface {
 	RunnerEnabled(runner kube.Runner) bool
 	// RunnerImage is the image that runner resolves to, recorded in the
 	// deployment's metadata so it survives the workload it describes.
-	RunnerImage(runner kube.Runner) string
+	RunnerImage(runner kube.Runner, pin string) string
 	// RuntimeVersion is which octo that image is, for the digest-pinned case
 	// where the reference carries no tag.
 	RuntimeVersion() string
@@ -178,6 +180,10 @@ func (s *Service) identityFor(ctx context.Context, deploymentID string, access [
 			"this deployment needs an identity and the request carried no credential to mint it with")
 	}
 	minted, err := s.identities.MintMachine(ctx, token, deploymentID, access)
+	var refused interface{ Refusal() string }
+	if errors.As(err, &refused) {
+		return "", &IdentityRefusedError{Reason: refused.Refusal()}
+	}
 	if err != nil {
 		return "", fmt.Errorf("lend the deployment an identity: %w", err)
 	}
@@ -200,6 +206,39 @@ func (s *Service) resolveRunner(name string) (kube.Runner, error) {
 		return "", fmt.Errorf("%w: %q", ErrRunnerUnavailable, runner)
 	}
 	return runner, nil
+}
+
+// CurrentRuntime is the runtime release a deploy or rollout made now would run:
+// the configured version, or the standard image's tag when none is configured.
+// Empty when neither says, and always empty without a cluster.
+func (s *Service) CurrentRuntime() string {
+	if s.kube == nil {
+		return ""
+	}
+	return runtimeversion.Current(s.kube.RuntimeVersion(), s.kube.RunnerImage(kube.RunnerStandard, ""))
+}
+
+// runtimeVersion is the release a deployment pinned to pin runs: the pin itself,
+// or the configured release when it follows the install.
+func (s *Service) runtimeVersion(pin string) string {
+	if pin != "" {
+		return pin
+	}
+	return s.kube.RuntimeVersion()
+}
+
+// parseRuntimePin turns a requested runtime into the pin to store: "" and
+// "latest" follow the install, anything else must be a release this install can
+// pin to (runtimeversion.Pinnable).
+func (s *Service) parseRuntimePin(requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" || requested == RuntimeLatest {
+		return "", nil
+	}
+	if !runtimeversion.CanPin(requested, s.CurrentRuntime()) {
+		return "", fmt.Errorf("%w: %q", ErrInvalidRuntimeVersion, requested)
+	}
+	return requested, nil
 }
 
 // RunnerAvailable reports whether a deployment could ask for this runner and be
@@ -336,6 +375,10 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	if err != nil {
 		return Deployment{}, err
 	}
+	pin, err := s.parseRuntimePin(settings.RuntimeVersion)
+	if err != nil {
+		return Deployment{}, err
+	}
 
 	persisted := Settings{Replicas: replicas}
 	if external {
@@ -354,11 +397,13 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// this field-by-field copy it would reach the cluster on the first deploy and be
 	// demoted to the standard image on the first rollout.
 	persisted.Runner = settings.Runner
+	persisted.RuntimeVersion = pin
 	persisted.SnapshotID = snapID
 	settingsJSON, err := json.Marshal(persisted)
 	if err != nil {
 		return Deployment{}, err
 	}
+	now := time.Now().UTC()
 	metadata, err := json.Marshal(Metadata{
 		Name:        it.Name,
 		Slug:        slug,
@@ -370,11 +415,12 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		// spec uses — recorded here rather than read back later, because the answer
 		// changes when the orchestrator is upgraded and this deployment's pods do
 		// not move with it.
-		RuntimeImage: s.kube.RunnerImage(runner),
+		RuntimeImage: s.kube.RunnerImage(runner, pin),
 		// Recorded beside the image, because a digest-pinned reference cannot be
 		// read back into a version by anybody — not the API, not the UI, not a
 		// person looking at the pod.
-		RuntimeVersion: s.kube.RuntimeVersion(),
+		RuntimeVersion: s.runtimeVersion(pin),
+		RolledOutAt:    &now,
 	})
 	if err != nil {
 		return Deployment{}, err
@@ -401,6 +447,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Subdomain:     subdomain,
 		Tracing:       settings.Tracing,
 		Runner:        runner,
+		RuntimePin:    pin,
 	}
 	if spec.Token, err = s.identityFor(ctx, dep.ID, settings.Access); err != nil {
 		// The row is already written, and nothing has been created in the cluster
@@ -773,9 +820,7 @@ func (s *Service) Scale(ctx context.Context, id string, replicas int) (Deploymen
 // A tag that changes the integration's HTTP source (networked vs not) would change
 // the Service/Ingress topology, which a rolling update cannot express, so it is
 // rejected — undeploy and redeploy instead.
-func (s *Service) Rollout(
-	ctx context.Context, id, snapshotID string, env map[string]EnvBinding, tracing *bool, runner *string,
-) (Deployment, error) {
+func (s *Service) Rollout(ctx context.Context, id string, change RolloutChange) (Deployment, error) {
 	if s.kube == nil {
 		return Deployment{}, ErrUnavailable
 	}
@@ -785,6 +830,12 @@ func (s *Service) Rollout(
 	dep, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return Deployment{}, err
+	}
+	// No version asked for keeps the one the deployment runs, read from its row
+	// here rather than from what a caller read earlier, which may be stale.
+	snapshotID := change.SnapshotID
+	if snapshotID == "" {
+		snapshotID = ParseSettings(dep.Settings).SnapshotID
 	}
 	snap, err := s.resolveSnapshot(ctx, dep.IntegrationID, snapshotID)
 	if err != nil {
@@ -797,24 +848,34 @@ func (s *Service) Rollout(
 	// An explicit env set replaces the deployment's stored bindings (the operator
 	// edited/extended env on rollout); a nil map preserves them (a plain version
 	// bump keeps the same env).
-	if env != nil {
-		settings.Env = env
+	if change.Env != nil {
+		settings.Env = change.Env
 	}
 
 	// Same convention for tracing: nil leaves the deployment's stored setting alone
 	// (a plain version bump keeps whatever it was running with), a value sets it.
 	// OCTO_TRACING is read at pod startup, so the change only reaches a live
 	// deployment by replacing its pods.
-	if tracing != nil {
-		settings.Tracing = *tracing
+	if change.Tracing != nil {
+		settings.Tracing = *change.Tracing
 	}
 
 	// Same convention again. A rollout normally leaves the workload's shape alone,
 	// but a deployment whose row names no runner would take the distroless image and
 	// crash-loop on a definition that needs one — so passing a runner is how a caller
 	// that knows better says so, and nil is the ordinary version bump.
-	if runner != nil {
-		settings.Runner = *runner
+	if change.Runner != nil {
+		settings.Runner = *change.Runner
+	}
+
+	// And for the runtime: nil keeps the pin, "latest" lets the deployment follow
+	// the install again, a release pins it there.
+	if change.Runtime != nil {
+		pin, err := s.parseRuntimePin(*change.Runtime)
+		if err != nil {
+			return Deployment{}, err
+		}
+		settings.RuntimeVersion = pin
 	}
 
 	// The runtime port/env come from the new frozen definition. A networked
@@ -881,6 +942,7 @@ func (s *Service) Rollout(
 		Subdomain:     settings.Subdomain,
 		Tracing:       settings.Tracing,
 		Runner:        resolvedRunner,
+		RuntimePin:    settings.RuntimeVersion,
 	}
 	// Re-minted rather than carried over: a rollout is a fresh authorisation by
 	// whoever is performing it, and the pods are replaced anyway.
@@ -906,8 +968,10 @@ func (s *Service) Rollout(
 	meta.Tag = snap.Tag
 	// A rollout is also where a deployment moves onto whatever runtime image the
 	// orchestrator is configured with now, so the recorded image moves with it.
-	meta.RuntimeImage = s.kube.RunnerImage(resolvedRunner)
-	meta.RuntimeVersion = s.kube.RuntimeVersion()
+	meta.RuntimeImage = s.kube.RunnerImage(resolvedRunner, settings.RuntimeVersion)
+	meta.RuntimeVersion = s.runtimeVersion(settings.RuntimeVersion)
+	rolledOut := time.Now().UTC()
+	meta.RolledOutAt = &rolledOut
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
 		return Deployment{}, fmt.Errorf("rollout %s: marshal metadata: %w", id, err)

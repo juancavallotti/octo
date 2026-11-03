@@ -9,7 +9,8 @@
     "eks",
     "gcp-terraform",
     "docker-images",
-    "releases-and-upgrades"
+    "releases-and-upgrades",
+    "supported-runtimes"
   ],
   "title": "Deployment"
 }

@@ -54,10 +54,7 @@ type (
 	// every method that needs it checks first rather than assuming.
 	deployer interface {
 		Deploy(ctx context.Context, integrationID string, settings deployment.Settings) (deployment.Deployment, error)
-		Rollout(
-			ctx context.Context, id, snapshotID string,
-			env map[string]deployment.EnvBinding, tracing *bool, runner *string,
-		) (deployment.Deployment, error)
+		Rollout(ctx context.Context, id string, change deployment.RolloutChange) (deployment.Deployment, error)
 		Get(ctx context.Context, id string) (deployment.Deployment, error)
 		Undeploy(ctx context.Context, id string) error
 		RunnerAvailable(runner string) bool
@@ -893,7 +890,7 @@ func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stor
 	// runner is stated rather than inherited, because a deployment whose row names
 	// none would otherwise be preserved onto an image the bundle cannot run on.
 	runner := agenticRunner
-	dep, err := s.deployments.Rollout(ctx, cur.DeploymentID, snap.ID, bindings, nil, &runner)
+	dep, err := s.deployments.Rollout(ctx, cur.DeploymentID, deployment.RolloutChange{SnapshotID: snap.ID, Env: bindings, Runner: &runner})
 	if err != nil {
 		return cur, err
 	}
@@ -928,7 +925,7 @@ func (s *Service) SetTracing(ctx context.Context, on bool) (Status, error) {
 		if cur.DeploymentID == "" {
 			return cur, ErrNotDeployed
 		}
-		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, nil, &on, nil); err != nil {
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, deployment.RolloutChange{SnapshotID: cur.SnapshotID, Tracing: &on}); err != nil {
 			return cur, err
 		}
 		next := cur
@@ -980,7 +977,7 @@ func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status,
 		// The runner is stated for the same reason Rollout states it: a row that names
 		// none would otherwise be preserved onto an image the flow cannot load from.
 		runner := agenticRunner
-		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, deployment.RolloutChange{SnapshotID: cur.SnapshotID, Env: bindings, Runner: &runner}); err != nil {
 			return cur, err
 		}
 
@@ -1037,7 +1034,7 @@ func (s *Service) SetDeploymentSettings(
 			return cur, err
 		}
 		runner := agenticRunner
-		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, deployment.RolloutChange{SnapshotID: cur.SnapshotID, Env: bindings, Runner: &runner}); err != nil {
 			return cur, err
 		}
 
@@ -1079,7 +1076,7 @@ func (s *Service) SetAutoFix(ctx context.Context, on bool) (Status, error) {
 			return cur, err
 		}
 		runner := agenticRunner
-		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, cur.SnapshotID, bindings, nil, &runner); err != nil {
+		if _, err := s.deployments.Rollout(ctx, cur.DeploymentID, deployment.RolloutChange{SnapshotID: cur.SnapshotID, Env: bindings, Runner: &runner}); err != nil {
 			return cur, err
 		}
 

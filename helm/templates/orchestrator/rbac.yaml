@@ -19,6 +19,11 @@
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "create", "update", "delete"]
+# Test runs: one Job per run of a deployment's suites, read back for its verdict
+# and deleted when the run is abandoned.
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "create", "delete"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
   # patch is required to scale an existing deployment (merge-patch on spec.replicas).

@@ -301,6 +301,55 @@ func (c *Client) RolloutDeployment(ctx context.Context, id string, rollout Rollo
 	return ret, err
 }
 
+// ListRuntimes lists the runtime releases a deployment can be pinned to.
+func (c *Client) ListRuntimes(ctx context.Context) (Runtimes, error) {
+
+	var ret Runtimes
+	err := c.call(ctx, request{route: listRuntimes}, &ret)
+	return ret, err
+}
+
+// ListUpgrades lists every deployment as an upgrade sees it.
+func (c *Client) ListUpgrades(ctx context.Context) (Upgrades, error) {
+
+	var ret Upgrades
+	err := c.call(ctx, request{route: listUpgrades}, &ret)
+	return ret, err
+}
+
+// StartTestRun runs a deployment's suites; an empty snapshotID tests the version
+// it runs. With rolloutOnPass, a passing run rolls the deployment onto it.
+func (c *Client) StartTestRun(ctx context.Context, id, snapshotID string, rolloutOnPass bool) (TestRun, error) {
+
+	var ret TestRun
+	body := map[string]any{"rolloutOnPass": rolloutOnPass}
+	if snapshotID != "" {
+		body["snapshotId"] = snapshotID
+	}
+	r, err := jsonBody(request{route: startTestRun, path: []string{id}}, body)
+	if err != nil {
+		return ret, err
+	}
+	err = c.call(ctx, r, &ret)
+	return ret, err
+}
+
+// ListTestRuns lists a deployment's most recent test runs, newest first.
+func (c *Client) ListTestRuns(ctx context.Context, id string) ([]TestRun, error) {
+
+	var ret []TestRun
+	err := c.call(ctx, request{route: listTestRuns, path: []string{id}}, &ret)
+	return ret, err
+}
+
+// GetTestRun reads one test run.
+func (c *Client) GetTestRun(ctx context.Context, id, runID string) (TestRun, error) {
+
+	var ret TestRun
+	err := c.call(ctx, request{route: getTestRun, path: []string{id, runID}}, &ret)
+	return ret, err
+}
+
 // DeploymentLogs reads one page of a deployment's stored logs.
 func (c *Client) DeploymentLogs(ctx context.Context, id string, q LogQuery) (LogPage, error) {
 

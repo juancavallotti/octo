@@ -136,7 +136,7 @@ export default function IntegrationHeader({
           integration (definition + every resource) as a bundle. A tag exports its
           frozen definition, not the working copy's. */}
       <DownloadMenu
-        versionLabel={effectiveTag ?? "Current"}
+        versionLabel={effectiveTag ?? "Working copy"}
         busy={busy}
         onDownloadDefinition={() => {
           if (activeDefinition !== null) {

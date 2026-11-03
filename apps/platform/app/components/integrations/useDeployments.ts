@@ -12,6 +12,7 @@ import {
   type Deployment,
 } from "@/app/model/orchestrator";
 import type { DeploySubmit } from "./DeployModal";
+import { toDeploymentInput } from "./deployInput";
 import type { RolloutSubmit } from "./RolloutModal";
 import { useSeed } from "./useSeed";
 
@@ -155,15 +156,10 @@ export function useDeployments({
           onSnapshotsChanged?.();
         }
         if (!snapshotId) throw new Error("no version selected to deploy");
-        await createDeployment(integrationId, {
-          snapshotId,
-          replicas: input.replicas,
-          ...(input.slug ? { slug: input.slug } : {}),
-          ...(input.expose ? { expose: input.expose } : {}),
-          ...(input.env ? { env: input.env } : {}),
-          ...(input.tracing ? { tracing: true } : {}),
-          ...(input.access?.length ? { access: input.access } : {}),
-        });
+        await createDeployment(
+          integrationId,
+          toDeploymentInput(input, snapshotId),
+        );
         await refresh();
         onDeployOpenChange(false);
       } catch (e) {
@@ -193,12 +189,12 @@ export function useDeployments({
           onSnapshotsChanged?.();
         }
         if (!snapshotId) throw new Error("no version selected to roll out");
-        await rolloutDeployment(
-          input.deploymentId,
+        await rolloutDeployment(input.deploymentId, {
           snapshotId,
-          input.env,
-          input.tracing,
-        );
+          env: input.env,
+          tracing: input.tracing,
+          runtimeVersion: input.runtimeVersion,
+        });
         await refresh();
         setRolloutTarget(null);
       } catch (e) {

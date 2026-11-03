@@ -48,6 +48,7 @@ The paths below are all under `/v1`. Bodies and answers are JSON unless noted, a
 | Resources | `GET/POST /integrations/{id}/resources`, `GET/PUT/DELETE /integrations/{id}/resources/{resourceId}` |
 | Versions | `GET/POST /integrations/{id}/versions`, `GET/DELETE /versions/{id}`, `GET /versions/{id}/bundle` (zip) |
 | Deployments | `GET /deployments`, `GET/POST /integrations/{id}/deployments`, `GET /integrations/{id}/deployments/options`, `GET/PATCH/DELETE /deployments/{id}`, `POST /deployments/{id}/rollout` |
+| Upgrades | `GET /upgrades` (who runs an older runtime, has suites, is pinned), `GET /runtimes` (what a deployment can be pinned to), `GET/POST /deployments/{id}/testruns`, `GET /deployments/{id}/testruns/{runId}`; `runtimeVersion` on a deploy or rollout pins a release, `"latest"` unpins |
 | Logs | `GET /deployments/{id}/logs` (stored history), `GET /deployments/{id}/pods/{pod}/logs?tail=` (plain text), `GET /deployments/{id}/pods/{pod}/logs/stream` (server-sent events) |
 
 A **version** is what the platform calls a [snapshot](/platform/snapshots): a tag freezing the definition and resources. Deploying and rolling out name the version by its id as `snapshotId`, the same field every deployment reports.

@@ -4,6 +4,7 @@ description: "Deploying integrations as Kubernetes workloads: rollouts and rollb
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 
 Deploying an integration runs a [version tag](/platform/snapshots) of it as its own Kubernetes workload: a Deployment of the generic `octo-runtime` image with the tag's frozen definition mounted in. One integration can be deployed many times (say, a staging and a production deployment on different tags), and each deployment has its own address, scale, and environment bindings.
 
@@ -175,6 +176,8 @@ Deleting a row is not recoverable: its settings and env bindings go with it. Red
 | --- | --- | --- |
 | Scale | `PATCH /deployments/{id}` | Changes the replica count in place; the Service keeps balancing across the new set. |
 | Roll out a new version | `POST /deployments/{id}/rollout` | Upgrades the deployment to a different tag in place. |
+| Pin a runtime | `POST /deployments/{id}/rollout` with `runtimeVersion` | Keeps the deployment on a runtime release, or `"latest"` to follow the install again. |
+| Test a version | `POST /deployments/{id}/testruns` | Runs a tag's test suites with the deployment's env on this install's runtime, and optionally rolls out when they pass. |
 | Undeploy | `DELETE /deployments/{id}` | Removes the cluster resources and the record. |
 
 ### Rolling out a new version
@@ -188,6 +191,58 @@ The new tag, env bindings and tracing setting are recorded in one write once the
 <Callout type="info">
 Deploying "Current" from the editor first creates a tag of the working copy, then deploys that tag, so even ad-hoc deploys are pinned to an immutable version.
 </Callout>
+
+### Moving to a new runtime
+
+A deployment keeps the `octo-runtime` image it was last rolled out on. After you upgrade the platform, existing deployments run the older runtime until they are rolled out again, and every rollout moves a deployment onto the runtime this install deploys now. A deployment that is behind carries `upgradeTo` (the newer release) in its API response and an arrow on its runtime pill, and the dashboard lists them all.
+
+Prove the move before you make it with a **test run**: the orchestrator runs the dolphin suites frozen under a tag (by default the one the deployment runs), with the deployment's env bindings, against the runtime release this install deploys. The run is a Kubernetes Job in the standalone runtime image, which carries `dolphin` beside the same `octo`. With `rolloutOnPass`, a run in which every case passes rolls the deployment onto the tested tag, keeping its env and tracing.
+
+<DynamicCodeBlock lang="bash" code={`curl -X POST "$ORCHESTRATOR/deployments/$DEPLOYMENT/testruns" \\
+  -H "Authorization: Bearer $TOKEN" \\
+  -d '{"rolloutOnPass": true}'`} />
+
+Poll `GET /deployments/{id}/testruns/{runId}` for the verdict:
+
+| `status` | Meaning |
+| --- | --- |
+| `running` | The Job has not finished. |
+| `passed` | Every case passed. When the run asked for a rollout, `rolledOutAt` says when it happened; a rollout that could not be made (the deployment was rolled out during the run, or the rollout failed) leaves `rolledOutAt` empty and says why in `error`. |
+| `failed` | A case ran and did not do what it expected. `report` holds dolphin's JSON report. |
+| `errored` | Nothing could be tested: a suite or the config is wrong, or the pod never started. `error` says which. |
+| `timed_out` | The run took longer than five minutes. |
+
+Suites are the `.octo/tests/*_test.yaml` files an integration's [Testing view](/testing/in-the-editor) saves, frozen into each tag like any other file. A tag with none cannot be tested, and starting a run on it returns `422`.
+
+In the platform, the dashboard lists every deployment on an older runtime. Each one opens its rollout dialog, and **Review upgrades** opens the Upgrades page.
+
+![Deployments on an older runtime, on the dashboard](/screenshots/platform-dashboard-upgrades.png)
+
+**Test & roll out** in the rollout dialog tests the selected tag and rolls out only on a pass. It uses the deployment's saved env and tracing, so it is unavailable once you edit either in the dialog; roll those changes out directly.
+
+![The rollout dialog with Test & roll out](/screenshots/platform-rollout-test.png)
+
+The **Upgrades** page, in the user menu, lists every deployment on an older runtime with how its suites last went on the new one. **Test** and **Test & upgrade** act on one deployment; **Test all** and **Test & upgrade all** act on every one that has suites, and the second upgrades each one whose suites pass. Deployments whose version has no suites are called out in their own section, with **Upgrade untested** as their only option, since an upgrade cannot be checked before it ships.
+
+![The Upgrades page](/screenshots/platform-upgrades-page.png)
+
+A failed run shows its report, case by case; an errored or timed-out run shows why it could not test, and the report too when dolphin got far enough to write one. **Open in the editor** takes you to the integration to fix the suite or the flow. Nothing moves the deployment until you upgrade it, or a **Test & upgrade** run passes.
+
+![A failing test run on the Upgrades page](/screenshots/platform-upgrades-failure.png)
+
+From a terminal, `octopaas deployments outdated` lists them, `octopaas deployments test <deployment> --upgrade` tests and upgrades one, and `octopaas deployments upgrade <deployment>` upgrades one without testing. See [deployments](/reference/octopaas/deployments).
+
+`GET /upgrades` serves the same view: the runtime this install deploys and, per deployment, the release it runs, `upgradeTo`, `hasSuites` and its latest test run. A run older than the deployment's last deploy or rollout is flagged `latestRunStale`, because the version, env or tracing it tested may have changed since; the Upgrades page shows such a deployment as not tested since the last rollout.
+
+### Pinning a runtime
+
+A deployment follows the install's runtime by default: every rollout moves it onto the release the install deploys now. Pin it to keep it on a release instead, for an integration you do not want moved until you have checked it. Pick the runtime beside the version in the deploy or rollout dialog: **Latest** follows the install, and **Pin to** lists the release the install deploys and the [supported releases](/deploy/supported-runtimes) no newer than it (`GET /runtimes`).
+
+![Pinning a deployment to a runtime in the rollout dialog](/screenshots/platform-rollout-runtime.png)
+
+Over the API, pass `runtimeVersion` on a deploy or rollout: a release pins, `"latest"` unpins, and leaving it out of a rollout keeps the current setting. The pods run the configured runtime image at that release's tag, so the release has to exist in your registry.
+
+A pinned deployment that is behind is still listed on the dashboard and the Upgrades page, marked **Pinned**, and its suites can still be run against the new runtime. It is never upgraded for you: a test run asking to roll it out is refused, **Test & upgrade all** tests it without upgrading it, and **Move pin to** is the manual upgrade, which keeps it pinned at the new release.
 
 ### Undeploying
 

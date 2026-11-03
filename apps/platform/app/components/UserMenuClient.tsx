@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { KeyRound, LogOut, ShieldCheck } from "lucide-react";
+import { ArrowUpCircle, KeyRound, LogOut, ShieldCheck } from "lucide-react";
 import { useRoles } from "@/app/auth/RolesContext";
 
 /** Initials fallback for when the IdP returns no picture. */
@@ -113,6 +113,15 @@ export default function UserMenuClient({
               Admin
             </Link>
           )}
+          <Link
+            href="/platform/upgrades"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-black/5 dark:text-zinc-200 dark:hover:bg-white/10"
+          >
+            <ArrowUpCircle className="h-4 w-4" />
+            Upgrades
+          </Link>
           <Link
             href="/platform/account"
             role="menuitem"

@@ -7,6 +7,7 @@ import {
   rolloutDeployment,
   type Snapshot,
 } from "@/app/model/orchestrator";
+import { startTestRun, type TestRun } from "@/app/model/upgrades";
 import type { DeployedTile } from "@/app/(session)/platform/DashboardTiles";
 import type { RolloutSubmit } from "@/app/components/integrations/RolloutModal";
 
@@ -24,13 +25,19 @@ import type { RolloutSubmit } from "@/app/components/integrations/RolloutModal";
 export interface RolloutController {
   /** The deployment whose dialog is open, or null. */
   target: DeployedTile | null;
-  /** The target integration's tags; empty until the fetch lands. */
-  snapshots: Snapshot[];
+  /** The target integration's tags; null until the fetch lands. */
+  snapshots: Snapshot[] | null;
   busy: boolean;
   error: string | null;
+  /** The test run "Test & roll out" started, which the dialog follows; null before. */
+  testRun: TestRun | null;
   open: (d: DeployedTile) => void;
   close: () => void;
   submit: (input: RolloutSubmit) => Promise<void>;
+  /** Run the target version's suites, rolling the deployment out when they pass. */
+  test: (input: RolloutSubmit) => Promise<void>;
+  /** Refresh once the followed test run finishes, since it may have rolled out. */
+  testFinished: () => void;
 }
 
 export function useRollout(
@@ -38,9 +45,10 @@ export function useRollout(
   onDone: () => Promise<void> | void,
 ): RolloutController {
   const [target, setTarget] = useState<DeployedTile | null>(null);
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testRun, setTestRun] = useState<TestRun | null>(null);
   // Which fetch the dialog is waiting on. Opening or closing invalidates the one
   // before it, because the tags of a deployment nobody is looking at any more
   // must not land in the dialog of the one they are: two integrations' versions
@@ -51,7 +59,8 @@ export function useRollout(
   const open = useCallback((d: DeployedTile) => {
     const mine = ++request.current;
     setError(null);
-    setSnapshots([]);
+    setSnapshots(null);
+    setTestRun(null);
     setTarget(d);
     listSnapshots(d.integrationId).then(
       (tags) => {
@@ -66,8 +75,23 @@ export function useRollout(
   const close = useCallback(() => {
     request.current += 1;
     setError(null);
+    setTestRun(null);
     setTarget(null);
   }, []);
+
+  // The version to act on: an existing tag as it is, a new one cut from the
+  // working copy first.
+  const resolveSnapshot = useCallback(
+    async (input: RolloutSubmit): Promise<string> => {
+      if (input.snapshotId) return input.snapshotId;
+      if (target && input.newTag) {
+        const snap = await createSnapshot(target.integrationId, input.newTag);
+        return snap.id;
+      }
+      throw new Error("no version selected to roll out");
+    },
+    [target],
+  );
 
   // Mirrors the integrations panel's rollout: an existing tag rolls straight over,
   // a new one is cut from the working copy first. Failure keeps the dialog open
@@ -79,18 +103,13 @@ export function useRollout(
       setBusy(true);
       setError(null);
       try {
-        let snapshotId = input.snapshotId;
-        if (!snapshotId && input.newTag) {
-          const snap = await createSnapshot(target.integrationId, input.newTag);
-          snapshotId = snap.id;
-        }
-        if (!snapshotId) throw new Error("no version selected to roll out");
-        await rolloutDeployment(
-          input.deploymentId,
+        const snapshotId = await resolveSnapshot(input);
+        await rolloutDeployment(input.deploymentId, {
           snapshotId,
-          input.env,
-          input.tracing,
-        );
+          env: input.env,
+          tracing: input.tracing,
+          runtimeVersion: input.runtimeVersion,
+        });
         await onDone();
         setTarget(null);
       } catch (e) {
@@ -99,8 +118,47 @@ export function useRollout(
         setBusy(false);
       }
     },
-    [target, onDone],
+    [target, onDone, resolveSnapshot],
   );
 
-  return { target, snapshots, busy, error, open, close, submit };
+  // The orchestrator runs the suites and makes the rollout itself, with the
+  // deployment's saved env and tracing; the dialog follows the run.
+  const test = useCallback(
+    async (input: RolloutSubmit) => {
+      if (!target) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const snapshotId = await resolveSnapshot(input);
+        setTestRun(
+          await startTestRun(input.deploymentId, {
+            snapshotId,
+            rolloutOnPass: true,
+          }),
+        );
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [target, resolveSnapshot],
+  );
+
+  const testFinished = useCallback(() => {
+    void onDone();
+  }, [onDone]);
+
+  return {
+    target,
+    snapshots,
+    busy,
+    error,
+    testRun,
+    open,
+    close,
+    submit,
+    test,
+    testFinished,
+  };
 }

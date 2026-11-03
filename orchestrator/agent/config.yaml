@@ -1756,7 +1756,11 @@ flows:
                       "tracing":bool,"observabilityApi":bool,"orchestratorApi":bool,"runner":""}
               GET    /deployments/{id}                  status, reason, pods, restart counts
               PATCH  /deployments/{id}                  {"replicas":n}
-              POST   /deployments/{id}/rollout          {"snapshotId","env","tracing"} — omitted keeps current
+              POST   /deployments/{id}/rollout          {"snapshotId","env","tracing","runtimeVersion"} — omitted keeps current; runtimeVersion pins a release, "latest" unpins
+              POST   /deployments/{id}/testruns         {"snapshotId","rolloutOnPass":bool} — run its suites on this install's runtime
+              GET    /deployments/{id}/testruns[/{runId}]  status: running|passed|failed|errored|timed_out, report
+              GET    /upgrades                          who runs an older runtime, has suites, is pinned, last test run
+              GET    /runtimes                          the releases a deployment can be pinned to
               DELETE /deployments/{id}                  undeploy
               GET    /deployments/{id}/pods/{pod}/logs  LIVE output of a pod that still exists
 

@@ -141,13 +141,6 @@ export default function DeploymentsSection({
           integrationName={integrationName}
           deployments={[rolloutTarget]}
           snapshots={snapshots}
-          deployedTags={
-            new Set(
-              deployments
-                .map((d) => d.tag)
-                .filter((t): t is string => Boolean(t)),
-            )
-          }
           versionMode="pick"
           busy={busy}
           error={rolloutError}

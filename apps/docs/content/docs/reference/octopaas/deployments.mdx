@@ -50,6 +50,7 @@ octopaas deployments create billing --version v1.3.0 --replicas 2 \
 | `--no-wait` | return once the platform accepts the change |  |
 | `--replicas` | how many replicas to run (default: the platform's) |  |
 | `--runner` | standard or agentic (default: picked from the integration) |  |
+| `--runtime` | pin to a runtime release (see deployments runtimes), or latest to follow the install |  |
 | `--secret` | bind a declared env var to a cluster secret, as NAME=secret-name (repeatable) |  |
 | `--slug` | its internal address label (default: a free one) |  |
 | `--subdomain` | the subdomain to publish it on, with --expose external |  |
@@ -117,6 +118,21 @@ octopaas deployments options billing --slug billing -o json
 | `--slug` | check whether this slug is free |  |
 | `--version` | check against this version, by tag or id |  |
 
+### `octopaas deployments outdated`
+
+List every deployment that runs an older runtime release than the one the platform deploys now: the move a rollout would make, whether it is pinned, and how its test suites last went on the new runtime. Deployments whose version has no test suites are called out, since an upgrade cannot be checked before it ships. With -o json or yaml only the outdated deployments are listed.
+
+```bash
+octopaas deployments outdated
+```
+
+**Examples**
+
+```bash
+octopaas deployments outdated
+octopaas deployments outdated -o json | jq -r '.deployments[] | select(.hasSuites | not) | .name'
+```
+
 ### `octopaas deployments rm`
 
 Take a deployment down. Its version stays, so you can deploy it again.
@@ -160,10 +176,26 @@ octopaas deployments rollout billing --env LOG_LEVEL=debug --tracing
 | --- | --- | --- |
 | `--env` | bind a declared env var to a value, as NAME=value (repeatable) |  |
 | `--no-wait` | return once the platform accepts the change |  |
+| `--runtime` | pin to a runtime release (see deployments runtimes), or latest to follow the install |  |
 | `--secret` | bind a declared env var to a cluster secret, as NAME=secret-name (repeatable) |  |
 | `--timeout` | how long to wait for it to be running | `5m0s` |
 | `--tracing` | record traces for this deployment |  |
 | `--version` | the version to run, by tag or id (create: default the integration as it stands) |  |
+
+### `octopaas deployments runtimes`
+
+List the runtime release the platform deploys and the supported releases no newer than it. Pin a deployment with --runtime on deployments create or rollout; --runtime latest follows the install again.
+
+```bash
+octopaas deployments runtimes
+```
+
+**Examples**
+
+```bash
+octopaas deployments runtimes
+octopaas deployments rollout billing --runtime 0.11.13
+```
 
 ### `octopaas deployments scale`
 
@@ -185,4 +217,56 @@ octopaas deployments scale billing 3
 | --- | --- | --- |
 | `--no-wait` | return once the platform accepts the change |  |
 | `--timeout` | how long to wait for it to be running | `5m0s` |
+
+### `octopaas deployments test`
+
+Run the test suites frozen under a version of the deployment's integration — by default the version it runs — with the deployment's env, on the runtime release the platform deploys now. With --upgrade, a run in which every case passes rolls the deployment onto that version; a pinned deployment refuses it.
+
+The command waits for the verdict and exits 1 when the suites do not pass. On an install that lends deployments an identity, rolling out needs a signed-in session (octopaas auth login) rather than an API key.
+
+```bash
+octopaas deployments test <deployment> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas deployments test billing
+octopaas deployments test billing --upgrade
+octopaas deployments test billing --version v1.5.0
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--no-wait` | return once the run has started |  |
+| `--timeout` | how long to wait for the verdict | `10m0s` |
+| `--upgrade` | roll the deployment onto the tested version when every case passes |  |
+| `--version` | the version to test, by tag or id (default: the one it runs) |  |
+
+### `octopaas deployments upgrade`
+
+Roll a deployment onto the runtime release the platform deploys now, keeping its version, env and tracing. A pinned deployment stays pinned, at the new release.
+
+With --test the deployment's suites run first and it is upgraded only when every case passes; a pinned one is tested, then has its pin moved. On an install that lends deployments an identity, upgrading needs a signed-in session (octopaas auth login) rather than an API key.
+
+```bash
+octopaas deployments upgrade <deployment> [flags]
+```
+
+**Examples**
+
+```bash
+octopaas deployments upgrade billing --test
+octopaas deployments upgrade billing
+```
+
+**Flags**
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--no-wait` | return once the platform accepts the change |  |
+| `--test` | run the deployment's test suites first, and upgrade only if they pass |  |
+| `--timeout` | how long to wait | `10m0s` |
 

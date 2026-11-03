@@ -63,6 +63,8 @@ var policy = []rule{
 	// not something a developer does here.
 	{"deployments/*/pods", anyone, nil},
 	{"deployments", anyone, []string{RoleAdmin, RoleOperator}},
+	{"upgrades", anyone, nil},
+	{"runtimes", anyone, nil},
 
 	// --- building -------------------------------------------------------
 	{"integrations", anyone, builds},

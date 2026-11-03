@@ -37,10 +37,14 @@ describe("isBundleFile", () => {
   // Browsers report zip under several MIME types (and sometimes none), so the
   // extension — what the user actually picked — is what decides.
   it("recognizes a bundle by its extension, whatever the reported type", () => {
-    expect(isBundleFile(new File([], "order-sync.zip", { type: "" }))).toBe(true);
+    expect(isBundleFile(new File([], "order-sync.zip", { type: "" }))).toBe(
+      true,
+    );
     expect(isBundleFile(new File([], "ORDER-SYNC.ZIP"))).toBe(true);
     expect(
-      isBundleFile(new File([], "order-sync.yaml", { type: "application/zip" })),
+      isBundleFile(
+        new File([], "order-sync.yaml", { type: "application/zip" }),
+      ),
     ).toBe(false);
   });
 });

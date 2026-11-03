@@ -8,7 +8,8 @@ import type {
   Deployment,
   DeploymentInput,
   DeployOptions,
-  EnvBindingInput,
+  RolloutChange,
+  Runtimes,
 } from "@/app/model/orchestrator";
 import type { ClusterSecret } from "@/app/model/secrets";
 import type { DevRun, EnsuredDevRun } from "@/app/model/devruns";
@@ -70,18 +71,22 @@ export function createDeployment(
 
 export function rolloutDeployment(
   id: string,
-  snapshotId: string,
-  env?: Record<string, EnvBindingInput>,
-  tracing?: boolean,
+  change: RolloutChange,
 ): Promise<ActionResult<Deployment>> {
+  // Each optional field is sent only when the caller has an opinion: the
+  // orchestrator reads an absent one as "leave this deployment's setting alone",
+  // which is what a plain version bump wants.
   return call<Deployment>("POST", `/deployments/${enc(id)}/rollout`, {
-    snapshotId,
-    ...(env ? { env } : {}),
-    // Sent only when the caller has an opinion: the orchestrator reads an absent
-    // tracing field as "leave this deployment's setting alone", which is what a
-    // plain version bump wants.
-    ...(tracing === undefined ? {} : { tracing }),
+    snapshotId: change.snapshotId,
+    ...(change.env ? { env: change.env } : {}),
+    ...(change.tracing === undefined ? {} : { tracing: change.tracing }),
+    ...(change.runtimeVersion ? { runtimeVersion: change.runtimeVersion } : {}),
   });
+}
+
+/** The runtime releases a deployment can be pinned to. */
+export function listRuntimes(): Promise<ActionResult<Runtimes>> {
+  return call<Runtimes>("GET", "/runtimes");
 }
 
 export function scaleDeployment(

@@ -221,10 +221,9 @@ func (f *fakeDeployments) Deploy(_ context.Context, integrationID string, s depl
 }
 
 func (f *fakeDeployments) Rollout(
-	_ context.Context, id, snapshotID string,
-	env map[string]deployment.EnvBinding, tracing *bool, runner *string,
+	_ context.Context, id string, change deployment.RolloutChange,
 ) (deployment.Deployment, error) {
-	f.rollouts = append(f.rollouts, rolloutCall{id, snapshotID, env, tracing, runner})
+	f.rollouts = append(f.rollouts, rolloutCall{id, change.SnapshotID, change.Env, change.Tracing, change.Runner})
 	meta, _ := json.Marshal(deployment.Metadata{InternalURL: "http://octo-int-dr-octo.octo:8080"})
 	return deployment.Deployment{ID: id, Metadata: meta}, nil
 }
