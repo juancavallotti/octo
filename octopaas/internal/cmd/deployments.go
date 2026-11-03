@@ -238,6 +238,11 @@ what a deploy of it needs.`,
 				if err != nil {
 					return err
 				}
+				// Checked before anything is frozen, so a mistyped release
+				// leaves no new version behind.
+				if err := a.checkRuntime(ctx, api, f.runtime); err != nil {
+					return err
+				}
 				var versionID string
 				if f.version != "" {
 					if versionID, err = a.version(ctx, api, id, f.version); err != nil {
@@ -415,8 +420,8 @@ deployment's integration, or by id.`,
 				for _, p := range current.Pods {
 					f.replacing = append(f.replacing, p.Name)
 				}
-				// Without --version it rolls onto the version it already runs.
-				rollout.SnapshotID = current.SnapshotID
+				// Without --version no version is sent, and the platform keeps the
+				// one the deployment runs.
 				if f.version != "" {
 					if rollout.SnapshotID, err = a.version(ctx, api, current.IntegrationID, f.version); err != nil {
 						return err

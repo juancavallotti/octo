@@ -23,6 +23,8 @@ type fakeAPI struct {
 	rolloutOnPass bool
 	rolledOutAt   any
 	runError      string
+	// what reached an integration's routes, which create must not touch first
+	integrationCalls []string
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +45,13 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"deploymentId": "d1", "name": "billing", "tag": "v1.0.0", "runtimeVersion": "0.11.13", "upgradeTo": "0.11.14", "hasSuites": true},
 			map[string]any{"deploymentId": "d2", "name": "timer", "runtimeVersion": "0.11.13", "upgradeTo": "0.11.14", "hasSuites": false, "pinned": true},
 		}})
+	case r.URL.Path == "/v1/runtimes":
+		write(200, map[string]any{"current": "0.11.14", "versions": []any{"0.11.14", "0.11.13"}})
+	case r.URL.Path == "/v1/integrations" && r.Method == http.MethodGet:
+		write(200, []any{map[string]any{"id": "i1", "name": "billing"}})
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/i1/"):
+		f.integrationCalls = append(f.integrationCalls, r.Method+" "+r.URL.Path)
+		write(500, map[string]any{"error": "the fake does not deploy"})
 	case r.URL.Path == "/v1/deployments" && r.Method == http.MethodGet:
 		write(200, []any{f.deployRow})
 	case r.URL.Path == "/v1/deployments/d1" && r.Method == http.MethodGet:
@@ -132,8 +141,75 @@ func TestUpgradeKeepsAPinPinned(t *testing.T) {
 	if status, out := run(t, api, "deployments", "upgrade", "billing", "--no-wait", "--plain"); status != 0 {
 		t.Fatalf("status %d: %s", status, out)
 	}
-	if len(api.rollouts) != 1 || api.rollouts[0]["snapshotId"] != "s1" || api.rollouts[0]["runtimeVersion"] != "0.11.14" {
-		t.Errorf("rollouts = %v, want snapshot s1 re-pinned to 0.11.14", api.rollouts)
+	if len(api.rollouts) != 1 || api.rollouts[0]["snapshotId"] != nil || api.rollouts[0]["runtimeVersion"] != "0.11.14" {
+		t.Errorf("rollouts = %v, want no version and the pin moved to 0.11.14", api.rollouts)
+	}
+}
+
+// The platform will not roll a pinned deployment out on a pass, so the run is
+// started without asking and the pin is moved once it passes.
+func TestUpgradeWithTestsMovesAPinAfterAPass(t *testing.T) {
+
+	api := &fakeAPI{verdict: "passed", deployRow: map[string]any{
+		"id": "d1", "name": "billing", "status": "running",
+		"replicas": 1, "readyReplicas": 1, "desiredReplicas": 1,
+		"upgradeTo": "0.11.14", "runtimePin": "0.11.13",
+	}}
+	if status, out := run(t, api, "deployments", "upgrade", "billing", "--test", "--plain"); status != 0 {
+		t.Fatalf("status %d: %s", status, out)
+	}
+	if len(api.started) != 1 || api.started[0]["rolloutOnPass"] != false {
+		t.Errorf("started = %v, want one run that does not roll out", api.started)
+	}
+	if len(api.rollouts) != 1 || api.rollouts[0]["runtimeVersion"] != "0.11.14" {
+		t.Errorf("rollouts = %v, want the pin moved to 0.11.14", api.rollouts)
+	}
+}
+
+// A failing run moves nothing.
+func TestUpgradeWithTestsLeavesAPinOnAFailure(t *testing.T) {
+
+	api := &fakeAPI{verdict: "failed", deployRow: map[string]any{
+		"id": "d1", "name": "billing", "upgradeTo": "0.11.14", "runtimePin": "0.11.13",
+	}}
+	if status, out := run(t, api, "deployments", "upgrade", "billing", "--test", "--plain"); status != 1 {
+		t.Fatalf("status %d, want 1: %s", status, out)
+	}
+	if len(api.rollouts) != 0 {
+		t.Errorf("rollouts = %v, want none after failing suites", api.rollouts)
+	}
+}
+
+func TestOutdatedJSONListsOnlyTheOutdated(t *testing.T) {
+
+	api := &fakeAPI{}
+	status, out := run(t, api, "deployments", "outdated", "-o", "json")
+	if status != 0 {
+		t.Fatalf("status %d: %s", status, out)
+	}
+	var view struct {
+		Deployments []struct {
+			Name string `json:"name"`
+		} `json:"deployments"`
+	}
+	if err := json.Unmarshal([]byte(out), &view); err != nil {
+		t.Fatalf("decode %q: %v", out, err)
+	}
+	if len(view.Deployments) != 2 {
+		t.Errorf("deployments = %v, want the two outdated ones", view.Deployments)
+	}
+}
+
+// A release the platform does not support is refused before a draft is frozen.
+func TestCreateRefusesAnUnsupportedRuntimeFirst(t *testing.T) {
+
+	api := &fakeAPI{}
+	status, out := run(t, api, "deployments", "create", "billing", "--runtime", "0.9.0", "--plain")
+	if status == 0 || !strings.Contains(out, "0.11.14, 0.11.13") {
+		t.Fatalf("status %d, want a refusal listing the releases: %s", status, out)
+	}
+	if len(api.integrationCalls) != 0 {
+		t.Errorf("reached %v before refusing", api.integrationCalls)
 	}
 }
 

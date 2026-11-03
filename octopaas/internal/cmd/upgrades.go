@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,9 +33,10 @@ func (a *App) deploymentsOutdatedCommand() *cobra.Command {
 platform deploys now: the move a rollout would make, whether it is pinned,
 and how its test suites last went on the new runtime. Deployments whose
 version has no test suites are called out, since an upgrade cannot be
-checked before it ships.`,
+checked before it ships. With -o json or yaml only the outdated deployments
+are listed.`,
 		Example: `  octopaas deployments outdated
-  octopaas deployments outdated -o json | jq '.deployments[] | select(.hasSuites | not)'`,
+  octopaas deployments outdated -o json | jq -r '.deployments[] | select(.hasSuites | not) | .name'`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 
@@ -51,7 +53,16 @@ checked before it ships.`,
 			if err != nil {
 				return err
 			}
-			return a.emit(view, func() { a.printOutdated(view) })
+			// Machine output is the outdated deployments alone, as the name
+			// says; the table also calls out the untested ones that are not.
+			outdated := view
+			outdated.Deployments = nil
+			for _, u := range view.Deployments {
+				if u.UpgradeTo != "" {
+					outdated.Deployments = append(outdated.Deployments, u)
+				}
+			}
+			return a.emit(outdated, func() { a.printOutdated(view) })
 		},
 	}
 	return cmd
@@ -64,10 +75,13 @@ func (a *App) printOutdated(view client.Upgrades) {
 		return
 	}
 	var rows [][]string
-	var untested []string
+	var untested, unknown []string
 	for _, u := range view.Deployments {
 		if !u.HasSuites {
 			untested = append(untested, u.Name)
+		}
+		if u.RuntimeVersion == "" {
+			unknown = append(unknown, u.Name)
 		}
 		if u.UpgradeTo == "" {
 			continue
@@ -78,15 +92,40 @@ func (a *App) printOutdated(view client.Upgrades) {
 		}
 		rows = append(rows, []string{u.Name, u.Tag, u.RuntimeVersion + " → " + u.UpgradeTo, pinned, a.testState(u, view.RuntimeVersion), u.DeploymentID})
 	}
-	if len(rows) == 0 {
+	switch {
+	case len(rows) == 0 && len(unknown) == 0:
 		a.ui.Success("Every deployment runs %s.", view.RuntimeVersion)
-	} else {
+	case len(rows) == 0:
+		a.ui.Say("The platform deploys %s, and no deployment reports an older one.", a.ui.Bold(view.RuntimeVersion))
+	default:
 		a.ui.Say("The platform deploys %s.", a.ui.Bold(view.RuntimeVersion))
 		a.ui.Table([]string{"NAME", "VERSION", "RUNTIME", "PIN", "TESTS", "ID"}, rows)
+	}
+	if len(unknown) > 0 {
+		a.ui.Warn("No runtime reported yet, so these cannot be compared: %s", strings.Join(unknown, ", "))
 	}
 	if len(untested) > 0 {
 		a.ui.Warn("No test suites, so an upgrade cannot be checked: %s", strings.Join(untested, ", "))
 	}
+}
+
+// checkRuntime refuses a --runtime the platform does not support, listing the
+// ones it does. Empty and latest need no asking.
+func (a *App) checkRuntime(ctx context.Context, api *client.Client, runtime string) error {
+
+	runtime = strings.TrimSpace(runtime)
+	if runtime == "" || runtime == "latest" {
+		return nil
+	}
+	rt, err := api.ListRuntimes(ctx)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(rt.Versions, runtime) {
+		return nil
+	}
+	return usageError{fmt.Errorf("--runtime %s is not a supported release; pick one of %s, or latest",
+		runtime, strings.Join(rt.Versions, ", "))}
 }
 
 // testState says how a deployment's suites last went on the runtime it would
@@ -138,14 +177,18 @@ release the platform deploys now. With --upgrade, a run in which every case
 passes rolls the deployment onto that version; a pinned deployment refuses it.
 
 The command waits for the verdict and exits 1 when the suites do not pass.
-Rolling out needs a signed-in session (octopaas auth login): a deployment
-cannot borrow the identity of an API key.`,
+On an install that lends deployments an identity, rolling out needs a
+signed-in session (octopaas auth login) rather than an API key.`,
 		Example: `  octopaas deployments test billing
   octopaas deployments test billing --upgrade
   octopaas deployments test billing --version v1.5.0`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runTests(cmd.Context(), args[0], version, upgrade, noWait, timeout)
+			mode := testOnly
+			if upgrade {
+				mode = testRollout
+			}
+			return a.runTests(cmd.Context(), args[0], version, mode, noWait, timeout)
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "", "the version to test, by tag or id (default: the one it runs)")
@@ -155,30 +198,55 @@ cannot borrow the identity of an API key.`,
 	return cmd
 }
 
-// runTests starts a test run of ref and, unless noWait, follows it to its verdict.
-func (a *App) runTests(ctx context.Context, ref, version string, upgrade, noWait bool, timeout time.Duration) error {
+// testMode is what a test run does once its suites pass.
+type testMode int
+
+const (
+	// testOnly reports the verdict and changes nothing.
+	testOnly testMode = iota
+	// testRollout asks the platform to roll the deployment out on a pass, which
+	// it refuses for a pinned deployment.
+	testRollout
+	// testUpgrade upgrades the deployment on a pass: through the platform for one
+	// that follows the install, and by moving the pin for a pinned one.
+	testUpgrade
+)
+
+// runTests starts a test run of ref and, unless noWait, follows it to its
+// verdict and whatever mode does on a pass.
+func (a *App) runTests(ctx context.Context, ref, version string, mode testMode, noWait bool, timeout time.Duration) error {
 
 	api, err := a.client()
 	if err != nil {
 		return err
 	}
 	var run client.TestRun
+	var current client.Deployment
+	var movePin bool
 	err = a.ui.Spin(ui.Tentacles, "Starting the tests of "+ref, func(*ui.Live) error {
 		id, err := a.deployment(ctx, api, ref)
 		if err != nil {
 			return err
 		}
+		if current, err = api.GetDeployment(ctx, id); err != nil {
+			return err
+		}
+		if mode == testUpgrade && current.UpgradeTo == "" {
+			return fmt.Errorf("%s already runs the runtime this install deploys", ref)
+		}
+		// A pinned deployment is upgraded by moving its pin, which the platform
+		// will not do on a pass: test it alone, and move the pin here after.
+		movePin = mode == testUpgrade && current.RuntimePin != ""
+		if movePin && noWait {
+			return usageError{fmt.Errorf("%s is pinned, so its pin is moved after the tests pass: drop --no-wait", ref)}
+		}
 		snapshotID := ""
 		if version != "" {
-			current, err := api.GetDeployment(ctx, id)
-			if err != nil {
-				return err
-			}
 			if snapshotID, err = a.version(ctx, api, current.IntegrationID, version); err != nil {
 				return err
 			}
 		}
-		run, err = api.StartTestRun(ctx, id, snapshotID, upgrade)
+		run, err = api.StartTestRun(ctx, id, snapshotID, mode != testOnly && !movePin)
 		return err
 	})
 	if err != nil {
@@ -218,10 +286,52 @@ func (a *App) runTests(ctx context.Context, ref, version string, upgrade, noWait
 	if run.Status != "passed" {
 		return errTestsFailed
 	}
-	if run.RolloutOnPass && run.RolledOutAt == nil {
+
+	// What a pass does next, waited on until the replaced pods are gone.
+	flags := deployFlags{timeout: timeout, replacing: podNames(current)}
+	switch {
+	case movePin:
+		var d client.Deployment
+		err := a.ui.Spin(ui.Rocket, "Moving "+ref+" to "+current.UpgradeTo, func(*ui.Live) error {
+			d, err = api.RolloutDeployment(ctx, current.ID, upgradeRollout(current))
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		return a.settle(ctx, api, d, flags, "Upgraded")
+	case run.RolloutOnPass && run.RolledOutAt == nil:
 		return errNotUpgraded
+	case run.RolloutOnPass:
+		d, err := api.GetDeployment(ctx, current.ID)
+		if err != nil {
+			return err
+		}
+		return a.settle(ctx, api, d, flags, "Upgraded")
 	}
 	return nil
+}
+
+// upgradeRollout is the rollout that moves d onto the install's runtime: no
+// version, so the platform keeps the one it runs, and a pin moved to the new
+// release so a pinned deployment stays pinned.
+func upgradeRollout(d client.Deployment) client.Rollout {
+
+	var ret client.Rollout
+	if d.RuntimePin != "" {
+		ret.RuntimeVersion = d.UpgradeTo
+	}
+	return ret
+}
+
+// podNames are a deployment's pods, which a rollout replaces.
+func podNames(d client.Deployment) []string {
+
+	ret := make([]string, 0, len(d.Pods))
+	for _, p := range d.Pods {
+		ret = append(ret, p.Name)
+	}
+	return ret
 }
 
 // settledRun reports whether a run has nothing more to say: it finished and,
@@ -269,9 +379,9 @@ func (a *App) deploymentsUpgradeCommand() *cobra.Command {
 version, env and tracing. A pinned deployment stays pinned, at the new release.
 
 With --test the deployment's suites run first and it is upgraded only when
-every case passes (the same as deployments test --upgrade). It needs a
-signed-in session (octopaas auth login): a deployment cannot borrow the
-identity of an API key.`,
+every case passes; a pinned one is tested, then has its pin moved. On an
+install that lends deployments an identity, upgrading needs a signed-in
+session (octopaas auth login) rather than an API key.`,
 		Example: `  octopaas deployments upgrade billing --test
   octopaas deployments upgrade billing`,
 		Args: cobra.ExactArgs(1),
@@ -279,40 +389,32 @@ identity of an API key.`,
 
 			ctx := cmd.Context()
 			if test {
-				return a.runTests(ctx, args[0], "", true, noWait, timeout)
+				return a.runTests(ctx, args[0], "", testUpgrade, noWait, timeout)
 			}
 			api, err := a.client()
 			if err != nil {
 				return err
 			}
 			var d client.Deployment
-			var replacing []string
+			var current client.Deployment
 			err = a.ui.Spin(ui.Rocket, "Upgrading "+args[0], func(*ui.Live) error {
 				id, err := a.deployment(ctx, api, args[0])
 				if err != nil {
 					return err
 				}
-				current, err := api.GetDeployment(ctx, id)
-				if err != nil {
+				if current, err = api.GetDeployment(ctx, id); err != nil {
 					return err
 				}
 				if current.UpgradeTo == "" {
 					return fmt.Errorf("%s already runs the runtime this install deploys", args[0])
 				}
-				rollout := client.Rollout{SnapshotID: current.SnapshotID}
-				for _, p := range current.Pods {
-					replacing = append(replacing, p.Name)
-				}
-				if current.RuntimePin != "" {
-					rollout.RuntimeVersion = current.UpgradeTo
-				}
-				d, err = api.RolloutDeployment(ctx, id, rollout)
+				d, err = api.RolloutDeployment(ctx, id, upgradeRollout(current))
 				return err
 			})
 			if err != nil {
 				return err
 			}
-			return a.settle(ctx, api, d, deployFlags{noWait: noWait, timeout: timeout, replacing: replacing}, "Upgraded")
+			return a.settle(ctx, api, d, deployFlags{noWait: noWait, timeout: timeout, replacing: podNames(current)}, "Upgraded")
 		},
 	}
 	cmd.Flags().BoolVar(&test, "test", false, "run the deployment's test suites first, and upgrade only if they pass")
