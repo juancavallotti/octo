@@ -191,6 +191,32 @@ func TestCredentialKeepsTheOldTokenWhenRenewalFails(t *testing.T) {
 	}
 }
 
+// iam never redirects, so a renewal that is redirected keeps the token it holds
+// rather than taking one from wherever the redirect pointed.
+func TestCredentialRefusesARedirectedRenewal(t *testing.T) {
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("the renewal followed a redirect")
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": "forged"})
+	}))
+	defer elsewhere.Close()
+	iam := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/auth/refresh", http.StatusTemporaryRedirect)
+	}))
+	defer iam.Close()
+
+	path := filepath.Join(t.TempDir(), "token")
+	held := mintToken(t, time.Minute)
+	if err := os.WriteFile(path, []byte(held), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	c := newCredential(credentialConfig{Seed: path, IAMURL: iam.URL})
+	c.start(t.Context())
+
+	if got := c.get(); got != held {
+		t.Errorf("get() = %q, want the token we already had", got)
+	}
+}
+
 // A credential must not print itself into a log line.
 func TestCredentialDoesNotPrintItsToken(t *testing.T) {
 	c := staticCredential("super-secret")
