@@ -64,7 +64,7 @@ octo run --config samples/hello-world.yaml
 | `--traces-file` | path | (auto) | Where the standalone runtime writes its JSONL trace. Defaults to `octo-trace-<time>-<pid>.jsonl` in the working directory. |
 | `--traces-bodies` | bool | `true` | Include message bodies in trace records. |
 | `--traces-vars` | bool | `true` | Include message variables in trace records. |
-| `--traces-max-payload` | bytes | `32768` | Drop a captured body or variable map larger than this. |
+| `--traces-max-payload` | bytes | `32768` | Drop a captured body larger than this; variables over it drop entry by entry, smallest kept first. |
 | `--traces-buffer` | int | `4096` | How many records to queue before dropping. |
 
 These configure the [observability runtime service](/runtime/observability),

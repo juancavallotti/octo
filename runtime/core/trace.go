@@ -78,7 +78,8 @@ type TraceOptions struct {
 	Bodies bool
 	Vars   bool
 	// MaxPayload caps a captured payload in bytes. A payload over the cap is
-	// omitted whole rather than cut, because a sliced JSON document is not JSON.
+	// omitted whole rather than cut, because a sliced JSON document is not JSON;
+	// the variable map is capped as a whole but drops entries, not the map.
 	MaxPayload int
 }
 

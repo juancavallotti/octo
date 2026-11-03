@@ -1,8 +1,11 @@
 package tracing
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"slices"
+	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -162,34 +165,75 @@ func (s *Service) captureVars(record *types.TraceEvent, msg *types.Message) {
 	if len(msg.Variables) == 0 {
 		return
 	}
-	captured := make(map[string]any, len(msg.Variables))
+	// Variables hold arbitrary values, including ones a block put there that
+	// point into structures the flow still owns. Round-tripping each through JSON
+	// is what turns it into a value the record can own outright.
+	encoded := make([]encodedVar, 0, len(msg.Variables))
+	failed := map[string]string{}
 	for name, value := range msg.Variables {
 		if types.IsInternalVar(name) {
 			continue
 		}
-		captured[name] = value
+		raw, err := json.Marshal(value)
+		if err != nil {
+			failed[name] = err.Error()
+			continue
+		}
+		// A string always marshals; its encoded length counts the quotes and
+		// whatever escaping the name needs.
+		key, _ := json.Marshal(name)
+		encoded = append(encoded, encodedVar{name: name, raw: raw, cost: len(key) + len(raw) + varFraming})
 	}
-	if len(captured) == 0 {
-		return
-	}
-	// Variables hold arbitrary values, including ones a block put there that
-	// point into structures the flow still owns. Round-tripping through JSON is
-	// what turns them into a value the record can own outright — and it applies
-	// the same cap the body gets, since a variable can hold a whole document.
-	raw, err := json.Marshal(captured)
-	if err != nil {
-		record.SetAttr("varsError", err.Error())
-		return
-	}
-	if len(raw) > s.maxPayload {
+	if len(failed) > 0 {
 		record.Truncated = true
-		record.SetAttr("varsBytes", len(raw))
+		record.SetAttr("varsError", failed)
+	}
+	if len(encoded) == 0 {
 		return
 	}
-	var owned map[string]any
-	if err := json.Unmarshal(raw, &owned); err != nil {
-		record.SetAttr("varsError", err.Error())
-		return
+
+	// The map shares one cap, since a variable can hold a whole document. Unlike a
+	// body it has a natural boundary per entry, so the cap drops entries rather
+	// than the map: smallest first, so one oversized variable costs only itself.
+	slices.SortFunc(encoded, func(a, b encodedVar) int {
+		return cmp.Or(cmp.Compare(a.cost, b.cost), strings.Compare(a.name, b.name))
+	})
+	owned := make(map[string]any, len(encoded))
+	dropped := map[string]int{}
+	// The map's braces cost two bytes, and the last entry has no comma.
+	budget := s.maxPayload - 1
+	for _, v := range encoded {
+		if v.cost > budget {
+			dropped[v.name] = len(v.raw)
+			continue
+		}
+		var value any
+		if err := json.Unmarshal(v.raw, &value); err != nil {
+			failed[v.name] = err.Error()
+			record.Truncated = true
+			record.SetAttr("varsError", failed)
+			continue
+		}
+		owned[v.name] = value
+		budget -= v.cost
 	}
-	record.Vars = owned
+	if len(dropped) > 0 {
+		record.Truncated = true
+		record.SetAttr("varsDropped", dropped)
+	}
+	if len(owned) > 0 {
+		record.Vars = owned
+	}
+}
+
+// varFraming is what an entry costs in the map beyond its encoded name and value:
+// the colon and the comma.
+const varFraming = 2
+
+// encodedVar is one variable already marshalled, so its size is known before it
+// is admitted under the cap.
+type encodedVar struct {
+	name string
+	raw  []byte
+	cost int
 }

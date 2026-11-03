@@ -261,3 +261,75 @@ func TestListenersAreInertWhileTheTracerIsDisabled(t *testing.T) {
 	s.onBlockEvent(context.Background(), blockEvent(msg))
 	s.onFlowEvent(types.FlowEvent{Kind: types.FlowEventCompleted, Flow: "orders", Result: msg})
 }
+
+// Variables have a per-entry boundary a body does not, so the cap drops the
+// entries that do not fit and keeps the rest — one generated image must not blind
+// the trace to every small variable beside it.
+func TestOversizedVariableIsDroppedAloneAndNamed(t *testing.T) {
+	c := collecting(t)
+	s := &Service{enabled: true, vars: true, maxPayload: 64}
+	msg := traceMessage(t, nil)
+	msg.Variables.Set("httpStatus", 200)
+	msg.Variables.Set("tenant", "acme")
+	msg.Variables.Set("responseMedia", strings.Repeat("x", 512))
+
+	s.onBlockEvent(context.Background(), blockEvent(msg))
+	record := c.only(t)
+
+	if _, ok := record.Vars["responseMedia"]; ok {
+		t.Error("captured the variable over the cap")
+	}
+	if record.Vars["httpStatus"] != float64(200) || record.Vars["tenant"] != "acme" {
+		t.Errorf("Vars = %v, want the variables that fit kept", record.Vars)
+	}
+	if !record.Truncated {
+		t.Error("a dropped variable was not flagged as truncated")
+	}
+	dropped, ok := record.Attrs["varsDropped"].(map[string]int)
+	if !ok || len(dropped) != 1 || dropped["responseMedia"] < 512 {
+		t.Errorf("varsDropped = %v, want responseMedia and its size", record.Attrs["varsDropped"])
+	}
+}
+
+// The cap bounds the map as a whole, not each entry: variables that fit one by
+// one still cannot add up past it.
+func TestVariablesShareOneCap(t *testing.T) {
+	c := collecting(t)
+	s := &Service{enabled: true, vars: true, maxPayload: 64}
+	msg := traceMessage(t, nil)
+	msg.Variables.Set("a", strings.Repeat("a", 40))
+	msg.Variables.Set("b", strings.Repeat("b", 40))
+
+	s.onBlockEvent(context.Background(), blockEvent(msg))
+	record := c.only(t)
+
+	if len(record.Vars) != 1 {
+		t.Errorf("Vars = %v, want only one of the two under the shared cap", record.Vars)
+	}
+	if dropped, _ := record.Attrs["varsDropped"].(map[string]int); len(dropped) != 1 {
+		t.Errorf("varsDropped = %v, want the other one named", record.Attrs["varsDropped"])
+	}
+}
+
+// A variable that will not marshal is left out like an oversized one: the record
+// is flagged, and the variable is named rather than silently missing.
+func TestUnmarshallableVariableIsNamedAndFlagged(t *testing.T) {
+	c := collecting(t)
+	s := capturingService()
+	msg := traceMessage(t, nil)
+	msg.Variables.Set("tenant", "acme")
+	msg.Variables.Set("callback", func() {})
+
+	s.onBlockEvent(context.Background(), blockEvent(msg))
+	record := c.only(t)
+
+	if record.Vars["tenant"] != "acme" {
+		t.Errorf("Vars = %v, want the variable that marshals kept", record.Vars)
+	}
+	if !record.Truncated {
+		t.Error("a variable left out for failing to marshal was not flagged")
+	}
+	if failed, _ := record.Attrs["varsError"].(map[string]string); failed["callback"] == "" {
+		t.Errorf("varsError = %v, want callback named", record.Attrs["varsError"])
+	}
+}

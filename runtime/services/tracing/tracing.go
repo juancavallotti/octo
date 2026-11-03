@@ -105,7 +105,7 @@ func (s *Service) Flags(fs *flag.FlagSet) {
 	fs.BoolVar(&s.vars, "traces-vars", services.EnvBool(envVars, true),
 		"include message variables in trace records")
 	fs.IntVar(&s.maxPayload, "traces-max-payload", services.EnvInt(envMaxPayload, defaultMaxPayload),
-		"drop a captured body or variable map larger than this many bytes")
+		"cap a captured body, or the variable map entry by entry, at this many bytes")
 	fs.IntVar(&s.buffer, "traces-buffer", services.EnvInt(envBuffer, defaultBuffer),
 		"how many trace records to queue before dropping")
 }
@@ -132,9 +132,10 @@ func (s *Service) Usage() string {
   --traces-bodies=false / --traces-vars=false
                      record the sequence without message payloads
   --traces-max-payload <bytes>
-                     drop a captured body or variable map larger than this
-                     (default 32768). Oversized payloads are omitted whole and
+                     cap a captured body, or the variable map, at this size
+                     (default 32768). An oversized body is omitted whole and
                      flagged, never cut short: truncated JSON is not JSON.
+                     Variables drop only the entries that do not fit.
   --traces-buffer <n>
                      how many records to queue before dropping (default 4096)
 

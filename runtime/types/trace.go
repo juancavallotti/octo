@@ -142,13 +142,17 @@ type TraceEvent struct {
 	Body json.RawMessage `json:"body,omitempty"`
 
 	// Vars is the message's variables at capture, minus the runtime's internal
-	// ones (see IsInternalVar). Nil when variable capture is off.
+	// ones (see IsInternalVar). Nil when variable capture is off. A variable that
+	// did not fit under the cap is left out on its own — see Truncated.
 	Vars map[string]any `json:"vars,omitempty"`
 
-	// Truncated reports that a payload was dropped for exceeding the cap. The
-	// payload is omitted whole rather than cut short: a sliced JSON document is
-	// not JSON, and one in the stream poisons every reader downstream of it.
-	// Attrs carries the size that was refused.
+	// Truncated reports that a payload was dropped for exceeding the cap. A body
+	// is omitted whole rather than cut short: a sliced JSON document is not JSON,
+	// and one in the stream poisons every reader downstream of it. Vars keeps the
+	// entries that fit and leaves out only those that do not. Attrs carries what
+	// was refused: bodyBytes for the body, varsDropped naming each variable left
+	// out with its size, and varsError naming each variable that would not
+	// marshal with its error.
 	Truncated bool `json:"truncated,omitempty"`
 
 	// Attrs carries whatever is specific to this record's kind — the model and
