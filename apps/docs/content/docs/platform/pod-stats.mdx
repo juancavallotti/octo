@@ -51,7 +51,7 @@ Counters store growth rather than a sum of readings because a Prometheus counter
 
 ## Seeing it in the platform
 
-Every card on **Deployments** carries the last five minutes of the deployment's CPU and memory: a sparkline with the current readings beside it. The two lines are scaled independently, since cores and bytes share no axis. A deployment whose pods are not reporting has no sparkline, which is what an install with the sidecar switched off looks like.
+Every card on **Metrics** carries the last five minutes of the deployment's CPU and memory: a sparkline with the current readings beside it. The two lines are scaled independently, since cores and bytes share no axis. A deployment whose pods are not reporting has no sparkline, which is what an install with the sidecar switched off looks like.
 
 Clicking it opens that deployment's **metrics page**, which draws the same two metrics properly: CPU against a left axis in cores, memory against a right one in bytes, one line per pod, over anything from the last five minutes to the last week. Comparing the heights of the two lines means nothing, but seeing that a memory climb and a CPU spike began at the same moment is usually the whole question.
 
