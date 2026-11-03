@@ -57,8 +57,8 @@ func TestExtractReportFromPodOutput(t *testing.T) {
 		file           string
 		passed, failed int
 	}{
-		{"testdata/passed.log", 3, 0},
-		{"testdata/failed.log", 2, 1},
+		{"testdata/passed.txt", 3, 0},
+		{"testdata/failed.txt", 2, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
