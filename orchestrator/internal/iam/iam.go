@@ -32,8 +32,19 @@ type Client struct {
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		http:    &http.Client{Timeout: requestTimeout},
+		http:    &http.Client{Timeout: requestTimeout, CheckRedirect: refuseRedirect},
 	}
+}
+
+// refuseRedirect stops the client following any redirect at all.
+//
+// iam answers these endpoints itself and has no reason to send a caller anywhere
+// else. A redirect that stays on the host keeps the caller's Authorization header
+// (net/http only drops it across hosts), and the token that comes back from
+// wherever it pointed is lent to a deployment unexamined — so a redirect is an
+// error rather than a hop.
+func refuseRedirect(req *http.Request, _ []*http.Request) error {
+	return fmt.Errorf("iam: refusing a redirect to %s: iam does not redirect", req.URL.Redacted())
 }
 
 // Configured reports whether this client has an address to reach iam at.

@@ -113,3 +113,22 @@ func TestMintMachineRefusesAnEmptyToken(t *testing.T) {
 		t.Error("MintMachine accepted a reply with no token")
 	}
 }
+
+// iam never redirects, so a redirect is refused rather than followed with the
+// caller's token still attached.
+func TestMintMachineRefusesARedirect(t *testing.T) {
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("the mint followed a redirect")
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": "forged"})
+	}))
+	defer elsewhere.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/auth/machine", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	token, err := New(srv.URL).MintMachine(context.Background(), "caller.token", "dep-1", nil)
+	if err == nil {
+		t.Fatalf("MintMachine = %q, want an error for the redirect", token)
+	}
+}
