@@ -18,8 +18,14 @@ export interface TestInput {
   /** Stable id, so a rename of `name` doesn't lose which input was last used. */
   id: string;
   name: string;
-  /** JSON request body, bound to the message's `body`. */
+  /** Request body, bound to the message's `body`: JSON unless `contentType` is set. */
   data?: string;
+  /**
+   * The MIME type of a raw `data`. Its presence is what makes the input raw: the flow
+   * sees `body` as `{ contentType, rawData }`, as an http source with `rawBody` would
+   * deliver it.
+   */
+  contentType?: string;
   /**
    * JSON object seeding the message's variables. Sources are not started for an
    * invoke, so nothing sets these for you — this is where the headers an HTTP source

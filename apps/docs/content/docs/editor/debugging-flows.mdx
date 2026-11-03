@@ -44,6 +44,15 @@ that reads `vars["x-api-key"]` fails with `no such key` if you only fill in the
 body; the variables field stands in for that. Inputs are saved per flow and
 survive a reload. Hover a row in the menu to edit or delete it.
 
+### Raw bodies
+
+For a flow whose HTTP source sets `rawBody: true`, switch the body from **JSON**
+to **Raw**, enter the content type (for example `application/xml`), and type the
+body as it would arrive. The flow receives it as `{contentType, rawData}`, exactly
+as the source would deliver it; see [Raw Content](/concepts/raw-content). The
+saved input carries a `contentType` field beside its `data`. A raw input is not
+carried into a test case when you promote a run, because a case's body is JSON.
+
 <Callout type="info">
 An integration you have not saved yet has nowhere to keep its inputs. You can
 still run it with a scratch input; the menu tells you to save the flow first if

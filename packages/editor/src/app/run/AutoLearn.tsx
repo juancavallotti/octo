@@ -79,7 +79,14 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
     // The input's CONTENT, not just its id: editing a saved input in place keeps its
     // id, so keying on the id alone means the flow is never re-run and completion goes
     // on offering shapes learned from the body the user just replaced.
-    const signature = [flow.name, input?.id ?? "", input?.data ?? "", input?.vars ?? "", yaml].join(SEP);
+    const signature = [
+      flow.name,
+      input?.id ?? "",
+      input?.data ?? "",
+      input?.contentType ?? "",
+      input?.vars ?? "",
+      yaml,
+    ].join(SEP);
     if (ranRef.current === signature) return;
 
     const timer = setTimeout(() => {
@@ -97,6 +104,8 @@ export default function AutoLearn({ transport }: { transport: RunTransport }) {
             flow: flow.name,
             integrationId: integrationId ?? undefined,
             data: input?.data ?? data,
+            // The content type describes the input's own body, never the derived one.
+            contentType: input?.data !== undefined ? input.contentType : undefined,
             vars: input?.vars,
             learnShapes: true,
           }),

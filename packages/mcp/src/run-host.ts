@@ -125,6 +125,8 @@ export interface RunHostPort {
     flow: string,
     opts?: {
       data?: string;
+      /** Treat `data` as a raw body of this MIME type instead of JSON. */
+      contentType?: string;
       vars?: string;
       env?: Record<string, string>;
       timeoutMs?: number;

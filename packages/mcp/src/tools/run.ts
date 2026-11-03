@@ -119,7 +119,7 @@ export function registerRunTools(
     {
       title: "Invoke a single flow",
       description:
-        "Run ONE named flow once and return its result and logs — without starting the integration's sources. Supply either a saved integration `id` or an inline `definition` (raw runtime YAML), the `flow` name, and optional `data` (JSON request body), `vars` (JSON seeding the message variables), and `env`. This is the fast way to test a flow: returns { ok, timedOut, dropped, output, logs } where `output` is the flow's result MESSAGE as JSON text — `{event_id, variables, body}`, so read `body` for the payload and `variables` for what the flow built up along the way — `dropped` is true when the flow filtered the message (no result), and `logs` are the runner's stderr lines. Because no source runs, nothing populates the message for you — a flow that reads `vars` (e.g. HTTP headers a real request would have carried) needs them supplied via `vars`.\n\nThree debugging features can be combined on a run, each addressing blocks by the same path grammar — `<flow>.<block>`, descending into a composite with a bracketed branch: `orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`. Every segment but the last names a composite you are descending THROUGH, and must name a branch of it — even when that composite has one obvious chain (`weather.handle-errors[process].weather-step`, never `weather.weather-step`). A composite's branch names are listed in its `getSchema(<block type>)` entry under `addressBranches`; read that instead of guessing.\n\n• `breakAt` — run until this block, then stop. The result carries `breakpoint: { reached, block, message, error }`; `reached:false` means the flow never took that branch (a normal outcome, not an error).\n• `spies` — record every message crossing these blocks WITHOUT changing what the flow does. The result carries `spies: [{ address, records: [{ seq, at, input, output?, dropped?, error? }] }]`. A record shows what the block received and what it produced — including the two outcomes that are not a message: it dropped, or it failed. `seq` orders records across ALL spies, so a multi-spy trace reads as one timeline. An empty `records` list is a result, not a gap: the flow may simply have taken a branch that block is not on.\n• `mocks` — stand in for these blocks so the real one NEVER runs: the way to exercise a flow whose blocks call a payment API, an LLM, or anything else you don't want hit. Keyed by address.\n\nTwo mock rules the runtime enforces, both easy to get wrong. (1) A mock REPLACES its target, so a message matching no case FAILS the block — it does not fall through to the real block, because there is no real block left. Always give a `default`, or a trailing case with `when: \"true\"`, unless you mean an unmatched message to be an error. (2) A block either returns a message, fails, or drops it, so each case sets exactly ONE of `body` / `error` / `drop`; `vars` only goes alongside a `body`.\n\nAlso: you cannot `breakAt` or spy a block INSIDE a mocked block — the mock deleted that subtree, so nothing there can ever run, and the runtime rejects the whole request rather than silently reporting nothing. Use `list_flows` to discover flow names.",
+        "Run ONE named flow once and return its result and logs — without starting the integration's sources. Supply either a saved integration `id` or an inline `definition` (raw runtime YAML), the `flow` name, and optional `data` (JSON request body, or a raw one with `contentType`), `vars` (JSON seeding the message variables), and `env`. This is the fast way to test a flow: returns { ok, timedOut, dropped, output, logs } where `output` is the flow's result MESSAGE as JSON text — `{event_id, variables, body}`, so read `body` for the payload and `variables` for what the flow built up along the way — `dropped` is true when the flow filtered the message (no result), and `logs` are the runner's stderr lines. Because no source runs, nothing populates the message for you — a flow that reads `vars` (e.g. HTTP headers a real request would have carried) needs them supplied via `vars`.\n\nThree debugging features can be combined on a run, each addressing blocks by the same path grammar — `<flow>.<block>`, descending into a composite with a bracketed branch: `orders.charge`, `orders.checkHeader[else].api-call`, `orders[error].notify`. Every segment but the last names a composite you are descending THROUGH, and must name a branch of it — even when that composite has one obvious chain (`weather.handle-errors[process].weather-step`, never `weather.weather-step`). A composite's branch names are listed in its `getSchema(<block type>)` entry under `addressBranches`; read that instead of guessing.\n\n• `breakAt` — run until this block, then stop. The result carries `breakpoint: { reached, block, message, error }`; `reached:false` means the flow never took that branch (a normal outcome, not an error).\n• `spies` — record every message crossing these blocks WITHOUT changing what the flow does. The result carries `spies: [{ address, records: [{ seq, at, input, output?, dropped?, error? }] }]`. A record shows what the block received and what it produced — including the two outcomes that are not a message: it dropped, or it failed. `seq` orders records across ALL spies, so a multi-spy trace reads as one timeline. An empty `records` list is a result, not a gap: the flow may simply have taken a branch that block is not on.\n• `mocks` — stand in for these blocks so the real one NEVER runs: the way to exercise a flow whose blocks call a payment API, an LLM, or anything else you don't want hit. Keyed by address.\n\nTwo mock rules the runtime enforces, both easy to get wrong. (1) A mock REPLACES its target, so a message matching no case FAILS the block — it does not fall through to the real block, because there is no real block left. Always give a `default`, or a trailing case with `when: \"true\"`, unless you mean an unmatched message to be an error. (2) A block either returns a message, fails, or drops it, so each case sets exactly ONE of `body` / `error` / `drop`; `vars` only goes alongside a `body`.\n\nAlso: you cannot `breakAt` or spy a block INSIDE a mocked block — the mock deleted that subtree, so nothing there can ever run, and the runtime rejects the whole request rather than silently reporting nothing. Use `list_flows` to discover flow names.",
       inputSchema: {
         id: z
           .string()
@@ -136,6 +136,13 @@ export function registerRunTools(
           .string()
           .optional()
           .describe("Optional JSON request body passed to the flow."),
+        contentType: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Optional MIME type that makes `data` a RAW body instead of JSON — e.g. `application/xml`, `text/csv`, `application/x-www-form-urlencoded`. The flow then sees `body` as `{ contentType, rawData }`, exactly as an http source with `rawBody` would deliver it. Omit for a JSON body.",
+          ),
         vars: z
           .string()
           .optional()
@@ -178,7 +185,20 @@ export function registerRunTools(
       },
     },
     (
-      { id, definition, flow, data, vars, env, breakAt, spies, mocks, logLevel, timeoutMs },
+      {
+        id,
+        definition,
+        flow,
+        data,
+        contentType,
+        vars,
+        env,
+        breakAt,
+        spies,
+        mocks,
+        logLevel,
+        timeoutMs,
+      },
       extra,
     ) =>
       guard(async () => {
@@ -199,6 +219,7 @@ export function registerRunTools(
         }
         const r = await runHost.invoke(ns, yaml, flow, {
           data,
+          contentType,
           vars,
           env: parsedEnv,
           breakAt,

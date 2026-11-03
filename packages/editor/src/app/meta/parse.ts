@@ -40,7 +40,13 @@ function parseInput(raw: unknown): TestInput | null {
   const id = str(raw.id);
   const name = str(raw.name);
   if (!id || !name) return null; // an input we cannot address or label is not one
-  return { id, name, data: str(raw.data), vars: str(raw.vars) };
+  return {
+    id,
+    name,
+    data: str(raw.data),
+    contentType: str(raw.contentType) || undefined,
+    vars: str(raw.vars),
+  };
 }
 
 /**

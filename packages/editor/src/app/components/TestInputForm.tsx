@@ -11,7 +11,11 @@ const CODE =
   "rounded-md border border-black/10 dark:border-white/15 overflow-auto octo-code";
 
 /**
- * The form behind "Add test input": a name, the JSON body, and the message variables.
+ * The form behind "Add test input": a name, the body, and the message variables.
+ *
+ * The body is JSON by default. Raw mode is for a flow fed a non-JSON body — an http
+ * source with `rawBody` — and sends the text as-is under the content type given, so the
+ * flow sees the same `{ contentType, rawData }` it would in production.
  *
  * Variables are offered because an invoked flow starts no sources, so nothing populates
  * them — a flow reading a header an HTTP source would normally have copied across sees
@@ -30,6 +34,8 @@ export default function TestInputForm({
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [data, setData] = useState(initial?.data ?? "");
+  const [raw, setRaw] = useState(initial?.contentType !== undefined);
+  const [contentType, setContentType] = useState(initial?.contentType ?? "");
   const [vars, setVars] = useState(initial?.vars ?? "");
 
   const invalid = (text: string) => {
@@ -41,9 +47,10 @@ export default function TestInputForm({
       return true;
     }
   };
-  const badData = invalid(data);
+  const badData = !raw && invalid(data);
   const badVars = invalid(vars);
-  const canSave = name.trim() !== "" && !badData && !badVars;
+  const missingType = raw && contentType.trim() === "";
+  const canSave = name.trim() !== "" && !badData && !badVars && !missingType;
 
   return (
     <form
@@ -52,7 +59,10 @@ export default function TestInputForm({
         if (!canSave) return;
         onSubmit({
           name: name.trim(),
-          data: data.trim() || undefined,
+          // A raw body is sent byte for byte, so its whitespace is kept; only an empty
+          // one counts as no body.
+          data: (raw ? data : data.trim()) || undefined,
+          contentType: raw ? contentType.trim() : undefined,
           vars: vars.trim() || undefined,
         });
       }}
@@ -70,12 +80,36 @@ export default function TestInputForm({
         />
       </label>
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-zinc-500">Body (JSON)</span>
-        <div className={`${CODE} ${badData ? "border-rose-400/70" : ""}`}>
-          <JsonEditor value={data} onChange={setData} placeholder='{ "orderId": 42 }' />
-        </div>
-      </label>
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center justify-between text-xs font-medium text-zinc-500">
+          Body
+          <BodyModeToggle raw={raw} onChange={setRaw} />
+        </span>
+        {raw ? (
+          <>
+            <input
+              type="text"
+              aria-label="Content type"
+              value={contentType}
+              placeholder="application/xml"
+              onChange={(e) => setContentType(e.target.value)}
+              className={`${FIELD} ${missingType ? "border-rose-400/70" : ""}`}
+            />
+            <textarea
+              aria-label="Raw body"
+              value={data}
+              rows={5}
+              placeholder={`<order id="42"/>`}
+              onChange={(e) => setData(e.target.value)}
+              className={`${CODE} bg-transparent px-2 py-1 font-mono text-xs outline-none`}
+            />
+          </>
+        ) : (
+          <div className={`${CODE} ${badData ? "border-rose-400/70" : ""}`}>
+            <JsonEditor value={data} onChange={setData} placeholder='{ "orderId": 42 }' />
+          </div>
+        )}
+      </div>
 
       <label className="flex flex-col gap-1">
         <span className="flex items-center justify-between text-xs font-medium text-zinc-500">
@@ -110,5 +144,31 @@ export default function TestInputForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/** The JSON / Raw switch above the body. */
+function BodyModeToggle({ raw, onChange }: { raw: boolean; onChange(raw: boolean): void }) {
+  return (
+    <span role="group" aria-label="Body format" className="flex items-center gap-0.5">
+      {(["JSON", "Raw"] as const).map((label) => {
+        const active = raw === (label === "Raw");
+        return (
+          <button
+            key={label}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(label === "Raw")}
+            className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
+              active
+                ? "bg-black/10 text-zinc-900 dark:bg-white/15 dark:text-zinc-100"
+                : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+            }`}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </span>
   );
 }

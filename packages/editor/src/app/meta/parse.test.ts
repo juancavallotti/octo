@@ -15,6 +15,7 @@ const SAMPLE = {
         orders: {
           inputs: [
             { id: "i1", name: "happy path", data: '{"orderId":42}', vars: '{"tier":"gold"}' },
+            { id: "i2", name: "xml order", data: "<order/>", contentType: "application/xml" },
           ],
         },
       },
@@ -32,6 +33,16 @@ describe("parseEditorMeta", () => {
       name: "happy path",
       data: '{"orderId":42}',
       vars: '{"tier":"gold"}',
+    });
+  });
+
+  it("keeps a raw input's content type", () => {
+    const meta = parseEditorMeta(JSON.stringify(SAMPLE));
+    expect(meta.resources["orders.yaml"].flows.orders.inputs[1]).toEqual({
+      id: "i2",
+      name: "xml order",
+      data: "<order/>",
+      contentType: "application/xml",
     });
   });
 

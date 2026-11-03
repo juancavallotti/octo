@@ -206,6 +206,11 @@ export async function invoke(
   flow: string,
   opts?: {
     data?: string;
+    /**
+     * Treat `data` as a raw body of this MIME type instead of JSON (the CLI's
+     * `--content-type`). Absent or empty keeps the JSON default.
+     */
+    contentType?: string;
     /** JSON object seeding the message variables (the CLI's `-vars`). */
     vars?: string;
     env?: Record<string, string>;
@@ -250,6 +255,7 @@ export async function invoke(
     `${timeoutMs}ms`,
   ];
   if (opts?.data !== undefined) args.push("-data", opts.data);
+  if (opts?.contentType) args.push("--content-type", opts.contentType);
   if (opts?.vars !== undefined) args.push("-vars", opts.vars);
   if (opts?.breakAt !== undefined) args.push("--break-at", opts.breakAt);
 

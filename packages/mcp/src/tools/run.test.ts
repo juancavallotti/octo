@@ -31,6 +31,7 @@ function stubRunHost(opts: { available?: boolean; startError?: string } = {}) {
       flow: string;
       opts?: {
         data?: string;
+        contentType?: string;
         vars?: string;
         env?: Record<string, string>;
         timeoutMs?: number;
@@ -401,6 +402,17 @@ describe("run tools", () => {
     expect(calls.invoked?.opts?.vars).toBe('{"tier":"gold"}');
     expect(calls.invoked?.opts?.breakAt).toBe("greet.charge");
     expect(calls.invoked?.opts?.logLevel).toBe("error");
+  });
+
+  it("invoke_flow forwards a raw body's content type to the runner", async () => {
+    const { host, calls } = stubRunHost();
+    const client = await connect(config(), host);
+    await client.callTool({
+      name: "invoke_flow",
+      arguments: { id: "a", flow: "greet", data: "<order/>", contentType: "application/xml" },
+    });
+    expect(calls.invoked?.opts?.data).toBe("<order/>");
+    expect(calls.invoked?.opts?.contentType).toBe("application/xml");
   });
 
   it("invoke_flow surfaces the breakpoint envelope", async () => {

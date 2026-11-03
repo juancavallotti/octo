@@ -98,6 +98,17 @@ describe("invoke", () => {
     expect(r.output).toContain("--break-at greet.charge");
   });
 
+  it("forwards a raw body's content type, and omits the flag when empty", async () => {
+    process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-args", 'echo "$@"');
+    const raw = await invoke(NS, "service:\n  name: t\n", "greet", {
+      data: "<order/>",
+      contentType: "application/xml",
+    });
+    expect(raw.output).toContain("-data <order/> --content-type application/xml");
+    const json = await invoke(NS, "service:\n  name: t\n", "greet", { data: "{}", contentType: "" });
+    expect(json.output).not.toContain("--content-type");
+  });
+
   it("applies logLevel as LOG_LEVEL, but lets an explicit env value win", async () => {
     process.env.OCTO_BIN_PATH = await fakeBin(dir, "octo-level", 'echo "$LOG_LEVEL"');
 

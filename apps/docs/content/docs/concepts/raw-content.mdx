@@ -100,6 +100,11 @@ process:
       value: 'fromFormData(body.rawData)'   # parse the raw string into JSON
 ```
 
+To run such a flow without sending a request, give it the same envelope
+directly: `octo invoke --content-type` on the [CLI](/reference/cli#raw-bodies), a
+**Raw** [test input](/editor/debugging-flows#raw-bodies) in the editor, or
+`contentType` on the MCP [`invoke_flow`](/ai/platform-mcp) tool.
+
 A `multipart/form-data` request needs no setting: it is decoded whatever
 `rawBody` says, its parts are reachable at `body.parts`, and `rawData` keeps
 every byte. See [Multipart bodies](/reference/connectors/http#multipart-bodies).
