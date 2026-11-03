@@ -72,7 +72,7 @@ whole set first, so a file that breaks a reference from another is refused.
 | `list_files` | The integration's config files, with the flows each declares. |
 | `get_file` | One file, exactly as stored. |
 | `write_file` | Create or overwrite one file. The path must be a `.yaml` or `.yml` at the root that does not end in `_test`. |
-| `delete_file` | Remove one file. The last file is kept. |
+| `delete_file` | Remove one file. The last config file is kept. A `<flow>_test.yaml` path removes that flow's test suite. |
 
 ### Flow tools
 
@@ -209,7 +209,7 @@ A [dolphin test suite](/testing/writing-cases) is committed, CI runs it, and
 | `get_test_suite` | One flow's suite as YAML, exactly as stored, comments and all. |
 | `set_test_suite` | Write a whole suite byte for byte. The flow under test is the file's own `flow:` key. |
 | `set_test_case` | Add or replace one case, structurally. Rewrites the file, so **comments are lost**; use `set_test_suite` when they matter. |
-| `delete_test_case` | Remove one case by name. |
+| `delete_test_case` | Remove one case by name. To remove a whole suite, `delete_file` its `<flow>_test.yaml`. |
 | `run_tests` | Run the suites and report what happened. |
 
 [Testing with an agent](/testing/with-an-agent) walks a whole session through

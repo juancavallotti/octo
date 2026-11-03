@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { registerIntegrationTools } from "./integration";
-import type { IntegrationRecord, MetaStore, OctoMcpConfig, StoredFile } from "../backend";
+import type { IntegrationRecord, MetaStore, OctoMcpConfig, StoredFile, SuiteStore } from "../backend";
 
 /** One config file, the shape a single-file integration takes. */
 const one = (content: string): StoredFile[] => [{ path: "octo.yaml", content }];
@@ -541,6 +541,36 @@ flows:
         arguments: { id: "a", path: "octo.yaml" },
       })) as CallToolResult;
       expect(last.isError).toBe(true);
+    });
+
+    it("deletes a test suite by its file name, leaving the config files alone", async () => {
+      const store = seeded();
+      const suites = new Map([["Order Intake", "flow: Order Intake\ncases: []\n"]]);
+      const suiteStore: SuiteStore = {
+        list: async () => [...suites].map(([flow, content]) => ({ flow, content })),
+        save: async () => {
+          throw new Error("unused");
+        },
+        remove: async (_id, flow) => {
+          suites.delete(flow);
+        },
+      };
+      const client = await connect({ ...baseConfig(store), suiteStore });
+
+      const missing = (await client.callTool({
+        name: "delete_file",
+        arguments: { id: "a", path: "orders_test.yaml" },
+      })) as CallToolResult;
+      expect(missing.isError).toBe(true);
+      expect(text(missing)).toContain("order-intake_test.yaml");
+
+      const res = (await client.callTool({
+        name: "delete_file",
+        arguments: { id: "a", path: "order-intake_test.yaml" },
+      })) as CallToolResult;
+      expect(res.isError).toBeFalsy();
+      expect(suites.size).toBe(0);
+      expect(store.rows.get("a")!.files.map((f) => f.path)).toEqual(["octo.yaml", "orders.yaml"]);
     });
   });
 });
