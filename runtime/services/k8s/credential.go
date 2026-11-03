@@ -94,12 +94,22 @@ func newCredential(cfg credentialConfig) *credential {
 	c := &credential{
 		seedPath: strings.TrimSpace(cfg.Seed),
 		iamURL:   strings.TrimRight(strings.TrimSpace(cfg.IAMURL), "/"),
-		http:     &http.Client{Timeout: renewTimeout},
+		http:     &http.Client{Timeout: renewTimeout, CheckRedirect: refuseRedirect},
 	}
 	if c.seedPath == "" {
 		c.set(strings.TrimSpace(cfg.Inline))
 	}
 	return c
+}
+
+// refuseRedirect stops the renewal following any redirect at all.
+//
+// iam answers /auth/refresh itself and has no reason to send a pod anywhere else.
+// A redirect that stays on the host keeps the pod's Authorization header (net/http
+// only drops it across hosts), and whatever token comes back would replace the
+// one the pod holds — so a redirect is an error rather than a hop.
+func refuseRedirect(req *http.Request, _ []*http.Request) error {
+	return fmt.Errorf("k8s: refusing a redirect to %s: iam does not redirect", req.URL.Redacted())
 }
 
 // start loads the token and renews it once, so that the seed is spent
