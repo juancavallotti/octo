@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -19,9 +20,9 @@ import (
 const watchDebounce = 200 * time.Millisecond
 
 // watchConfig watches the config path for changes, emitting on the returned
-// channel (debounced) whenever the file or directory contents change. When path
-// is a directory the directory itself is watched, so added/removed config files
-// are noticed too. The .env files consulted during loading are watched as well, so
+// channel (debounced) whenever the config changes — see watchScope for what that
+// covers. When path is a directory, config files added to or removed from it are
+// noticed too. The .env files consulted during loading are watched as well, so
 // editing them triggers the same full restart as a config change. When resources
 // is non-nil and supports change notification, its resource edits feed the same
 // debounced channel, so an imported env file or template change reloads too. The
@@ -32,19 +33,16 @@ func watchConfig(ctx context.Context, path string, resources core.ResourceLoader
 		return nil, fmt.Errorf("new watcher: %w", err)
 	}
 
-	// Register the config target plus each .env directory, deduping so a .env that
-	// sits beside the config does not error on a repeat Add.
-	targets := append([]string{watchTarget(path)}, dotEnvTargets()...)
-	added := make(map[string]struct{}, len(targets))
-	for _, target := range targets {
-		if _, dup := added[target]; dup {
-			continue
-		}
+	scope, err := newWatchScope(path, runtime.DotEnvPaths())
+	if err != nil {
+		_ = watcher.Close()
+		return nil, err
+	}
+	for _, target := range scope.targets() {
 		if err := watcher.Add(target); err != nil {
 			_ = watcher.Close()
 			return nil, fmt.Errorf("watch %q: %w", target, err)
 		}
-		added[target] = struct{}{}
 	}
 
 	changed := make(chan struct{}, 1)
@@ -61,34 +59,85 @@ func watchConfig(ctx context.Context, path string, resources core.ResourceLoader
 		}
 	}
 
-	go watchLoop(ctx, watcher, resourceCh, changed)
+	go watchLoop(ctx, watcher, scope, resourceCh, changed)
 	return changed, nil
 }
 
-// dotEnvTargets returns the directories to watch for .env changes, using the same
-// parent-directory trick as watchTarget so atomic-rename saves are observed. A path
-// whose parent directory does not exist is skipped (the file cannot appear there).
-func dotEnvTargets() []string {
-	var targets []string
-	for _, path := range runtime.DotEnvPaths() {
-		dir := filepath.Dir(path)
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-			continue
-		}
-		targets = append(targets, dir)
-	}
-	return targets
+// watchScope is what a reload depends on: the config file or directory and the
+// .env files consulted while loading it.
+//
+// The watcher has to register directories rather than files, because an editor
+// that saves by writing a temporary file and renaming it over the original
+// replaces the file a file-level watch was attached to. A directory sees every
+// write inside it, though — the working directory, where ./.env lives, is also
+// where a redirected log or the default trace file is written — so each event is
+// checked against the files that actually matter before it counts as a change.
+// Without that, a runtime writing into its own working directory reloads itself
+// in a loop.
+type watchScope struct {
+	// files are the individual files a change to which reloads.
+	files map[string]struct{}
+	// configDir is set when the config is a directory: any file in it the loader
+	// would read counts.
+	configDir string
 }
 
-// watchTarget returns the path to register with the watcher. For a file we watch
-// its parent directory so atomic-rename saves (editors replacing rather than
-// writing in place) are still observed; for a directory we watch it directly.
-func watchTarget(path string) string {
-	info, err := os.Stat(path)
-	if err == nil && !info.IsDir() {
-		return filepath.Dir(path)
+// newWatchScope resolves the config path and .env paths to absolute paths, so
+// they compare equal to the event names fsnotify reports for the directories
+// registered from them.
+func newWatchScope(configPath string, dotEnvPaths []string) (watchScope, error) {
+	scope := watchScope{files: map[string]struct{}{}}
+	config, err := filepath.Abs(configPath)
+	if err != nil {
+		return watchScope{}, fmt.Errorf("resolve config path %q: %w", configPath, err)
 	}
-	return path
+	if info, statErr := os.Stat(config); statErr == nil && info.IsDir() {
+		scope.configDir = config
+	} else {
+		scope.files[config] = struct{}{}
+	}
+	for _, path := range dotEnvPaths {
+		abs, absErr := filepath.Abs(path)
+		if absErr != nil {
+			return watchScope{}, fmt.Errorf("resolve .env path %q: %w", path, absErr)
+		}
+		scope.files[abs] = struct{}{}
+	}
+	return scope, nil
+}
+
+// targets returns the directories to register, once each. A .env whose directory
+// does not exist is skipped: the file cannot appear there.
+func (s watchScope) targets() []string {
+	seen := map[string]struct{}{}
+	var ret []string
+	add := func(dir string) {
+		if _, dup := seen[dir]; dup {
+			return
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			return
+		}
+		seen[dir] = struct{}{}
+		ret = append(ret, dir)
+	}
+	if s.configDir != "" {
+		add(s.configDir)
+	}
+	for file := range s.files {
+		add(filepath.Dir(file))
+	}
+	slices.Sort(ret)
+	return ret
+}
+
+// covers reports whether an event on name is a change a reload depends on.
+func (s watchScope) covers(name string) bool {
+	name = filepath.Clean(name)
+	if _, ok := s.files[name]; ok {
+		return true
+	}
+	return s.configDir != "" && filepath.Dir(name) == s.configDir && runtime.IsConfigFile(filepath.Base(name))
 }
 
 // watchLoop forwards debounced change notifications until ctx is cancelled or the
@@ -96,7 +145,8 @@ func watchTarget(path string) string {
 // events (resourceCh, nil when no ResourceWatcher is wired) share one debounce
 // timer, so a burst across both coalesces into a single reload.
 func watchLoop(
-	ctx context.Context, watcher *fsnotify.Watcher, resourceCh <-chan struct{}, changed chan<- struct{},
+	ctx context.Context, watcher *fsnotify.Watcher, scope watchScope, resourceCh <-chan struct{},
+	changed chan<- struct{},
 ) {
 	defer func() { _ = watcher.Close() }()
 	var timer *time.Timer
@@ -105,11 +155,13 @@ func watchLoop(
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-watcher.Events:
+		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			timer, timerC = armDebounce(timer)
+			if scope.covers(event.Name) {
+				timer, timerC = armDebounce(timer)
+			}
 		case <-resourceCh:
 			timer, timerC = armDebounce(timer)
 		case err, ok := <-watcher.Errors:
