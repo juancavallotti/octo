@@ -131,7 +131,7 @@ For example, a key for a pipeline that only pushes and tags, expiring at the end
 curl -X POST http://iam:8093/users/$USER_ID/apikeys \
   -H "Authorization: Bearer $PLATFORM_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "ci-billing", "roles": ["platform:developer"], "expiresAt": "2027-03-31T00:00:00Z"}'
+  -d '{"name": "ci-billing", "roles": ["platform:developer"], "expiresAt": "2027-04-01T00:00:00Z"}'
 ```
 
 On the account page, hover a role, on its checkbox or on a key's role pill, to see what a key with that role may do. **Delete expired** revokes every expired key at once.

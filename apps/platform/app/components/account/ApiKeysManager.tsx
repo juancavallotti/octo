@@ -82,7 +82,15 @@ export default function ApiKeysManager() {
       danger: true,
     });
     if (!ok) return;
-    run(() => Promise.all(expired.map((k) => deleteApiKey(k.id))));
+    run(async () => {
+      const results = await Promise.allSettled(expired.map((k) => deleteApiKey(k.id)));
+      const failed = expired.filter((_, i) => results[i].status === "rejected");
+      if (failed.length > 0) {
+        // Some went, so the list has changed even though this fails.
+        await refresh();
+        throw new Error(`Could not delete ${failed.map((k) => `"${k.name}"`).join(", ")}.`);
+      }
+    });
   };
 
   const remove = async (id: string) => {

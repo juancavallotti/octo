@@ -117,6 +117,25 @@ describe("ApiKeysManager", () => {
     expect(deleteApiKey.mock.calls.map((c) => c[0]).sort()).toEqual(["old1", "old2"]);
   });
 
+  it("refreshes after a partial bulk delete and names the keys that failed", async () => {
+    const user = userEvent.setup();
+    listApiKeys.mockResolvedValue([
+      key("old1", "old1", [PLATFORM_MONITOR], -1),
+      key("old2", "old2", [PLATFORM_MONITOR], -10),
+    ]);
+    deleteApiKey.mockImplementation((id: string) =>
+      id === "old2" ? Promise.reject(new Error("boom")) : Promise.resolve(),
+    );
+    renderAs([PLATFORM_ADMIN]);
+
+    await user.click(await screen.findByRole("button", { name: "Delete expired (2)" }));
+    const calls = listApiKeys.mock.calls.length;
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText('Could not delete "old2".')).toBeInTheDocument();
+    expect(listApiKeys.mock.calls.length).toBeGreaterThan(calls);
+  });
+
   it("offers no bulk delete when nothing has expired", async () => {
     listApiKeys.mockResolvedValue([key("live", "live", [PLATFORM_MONITOR], 30)]);
     renderAs([PLATFORM_ADMIN]);
