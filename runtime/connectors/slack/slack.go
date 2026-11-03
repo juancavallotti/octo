@@ -3,10 +3,11 @@
 // messages, verify inbound event requests, filter and normalize events, and
 // enrich a message with Slack data.
 //
-// Inbound Slack events are JSON posted to a route the flow owns; the
-// slack-verify-request and slack-event blocks process that request. Signature
-// verification runs over the exact request bytes, so the route has to make them
-// available unparsed.
+// Inbound Slack traffic arrives one of two ways. Over HTTP, Slack posts to a
+// route the flow owns and the slack-verify-request block authenticates it;
+// signature verification runs over the exact request bytes, so the route has to
+// make them available unparsed. In Socket Mode, the connector's own slack source
+// holds a websocket open to Slack and needs no public route and no signature.
 package slack
 
 import (
@@ -55,6 +56,12 @@ func registerConnector() {
 		Type:     "slack",
 		Label:    displayName,
 		Settings: reflect.TypeFor[connectorSettings](),
+		Sources: []core.SourceMeta{{
+			Type:     socketSourceType,
+			Label:    "Slack Socket Mode",
+			Icon:     displayName,
+			Settings: reflect.TypeFor[socketSettings](),
+		}},
 	})
 }
 
@@ -76,8 +83,11 @@ const (
 type connectorSettings struct {
 	// Bot User OAuth token (xoxb-...) used to call the Web API.
 	BotToken string `json:"botToken" octo:"label=Bot token,required"`
-	// Verifies inbound Slack request signatures; required to receive events.
+	// Verifies inbound Slack request signatures; required to receive events over HTTP.
 	SigningSecret string `json:"signingSecret" octo:"label=Signing secret"`
+	// App-level token (xapp-...) with the connections:write scope; required to
+	// receive events in Socket Mode.
+	AppToken string `json:"appToken" octo:"label=App token"`
 	// APIBaseURL overrides the Slack Web API base (default https://slack.com/api),
 	// mainly so tests can point at a stub server. Not exposed in the editor schema.
 	APIBaseURL string `json:"apiBaseURL"`
@@ -87,18 +97,20 @@ type connectorSettings struct {
 
 // Connector holds Slack credentials and an HTTP client for the Slack Web API.
 // Blocks resolve it by name and either call the Web API through Call or verify
-// an inbound request through VerifySignature. It is safe for concurrent use:
+// an inbound request through VerifySignature; flows bound to it receive Socket
+// Mode traffic through its slack source. It is safe for concurrent use:
 // *http.Client is, and the credentials are read-only after Start.
 type Connector struct {
 	client        *http.Client
 	baseURL       string
 	botToken      string
 	signingSecret string
+	appToken      string
 }
 
 // Start decodes the settings and builds the Web API client. A bot token is
-// required; the signing secret is optional here and validated by the verify
-// block when a flow actually receives events.
+// required; the signing secret and app token are optional here and validated by
+// the verify block and the slack source when a flow actually receives events.
 func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error {
 	var set connectorSettings
 	if err := config.Settings.Decode(&set); err != nil {
@@ -120,6 +132,7 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 	c.baseURL = strings.TrimRight(base, "/")
 	c.botToken = set.BotToken
 	c.signingSecret = set.SigningSecret
+	c.appToken = set.AppToken
 	// A pooled transport: a nil one means http.DefaultTransport, whose idle pool
 	// is two connections per host — see httppool.
 	c.client = httppool.NewClient(timeout)
@@ -135,6 +148,12 @@ func (c *Connector) Stop(context.Context) error { return nil }
 // Go error (the decoded body is still returned for context). The bot token
 // authenticates the request.
 func (c *Connector) Call(ctx context.Context, method string, payload any) (map[string]any, error) {
+	return c.call(ctx, c.botToken, method, payload)
+}
+
+// call is Call authenticated with an explicit token, so the app-level methods
+// Socket Mode needs go through the same request and error handling.
+func (c *Connector) call(ctx context.Context, token, method string, payload any) (map[string]any, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("slack %s: encode payload: %w", method, err)
@@ -145,7 +164,7 @@ func (c *Connector) Call(ctx context.Context, method string, payload any) (map[s
 		return nil, fmt.Errorf("slack %s: build request: %w", method, err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	req.Header.Set("Authorization", "Bearer "+c.botToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
