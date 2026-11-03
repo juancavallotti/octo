@@ -183,8 +183,11 @@ func (m *metrics) observeConfig(config types.Config) {
 			m.flowMessages.WithLabelValues(flow.Name, outcome)
 			m.flowDuration.WithLabelValues(flow.Name, outcome)
 		}
+		// One error series per flow, with the empty block a failure carries when it
+		// did not come from a block. Without it octo_flow_errors_total is absent
+		// until the first failure, so an alert on it cannot be written in advance.
+		// Each failing block still adds its own series the first time it fails;
+		// pre-creating one per block would guess which blocks can fail.
+		m.flowErrors.WithLabelValues(flow.Name, "")
 	}
-	// octo_flow_errors_total is deliberately not pre-created: its block label is
-	// only known once something fails, and inventing a series per (flow, block)
-	// pair would be a guess about which blocks can fail.
 }

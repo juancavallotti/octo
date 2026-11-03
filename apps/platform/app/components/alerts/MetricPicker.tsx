@@ -8,9 +8,9 @@ import { listStatsMetrics } from "@/app/model/stats";
  * A runtime metric, chosen from what the deployment is actually exporting — plus
  * the ones that are not there yet and should be.
  *
- * The second half is the point. `octo_flow_errors_total` is only created the
- * first time something fails, so the metric anybody most wants to alert on is
- * absent right up until the moment it would have fired. Known runtime series are
+ * The second half is the point. A deployment that has not been scraped yet, or
+ * runs a runtime older than the one that pre-creates its error series, reports
+ * nothing for the metric anybody most wants to alert on. Known runtime series are
  * always offered, marked when nothing has reported them yet.
  */
 
@@ -25,7 +25,7 @@ const KNOWN: { name: string; hint: string }[] = [
   },
   {
     name: "octo_flow_errors_total",
-    hint: "Unhandled failures, by the block they came from. Only exists once something has failed.",
+    hint: "Unhandled failures, by the block they came from. A block's series starts at its first failure, so rates miss that one; alert on messages_total{outcome=failed}.",
   },
   {
     name: "octo_flow_duration_seconds",
