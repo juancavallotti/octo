@@ -53,8 +53,9 @@ export default function RolloutModal({
   integrationName: string;
   /** Candidate deployments to upgrade; one is fixed, several show a selector. */
   deployments: Deployment[];
-  /** The integration's tags, for the version picker (pick mode) and tag suggestion. */
-  snapshots: Snapshot[];
+  /** The integration's tags, for the version picker (pick mode) and tag suggestion;
+   * null while they load. The form is seeded from them once, so it waits. */
+  snapshots: Snapshot[] | null;
   /** Tags currently deployed, for the version picker's "deployed" hint. */
   deployedTags?: ReadonlySet<string>;
   versionMode: "pick" | "new-tag";
@@ -134,21 +135,26 @@ export default function RolloutModal({
         )}
 
         {/* Keyed by the deployment so switching it re-seeds env from that deployment. */}
-        <RolloutForm
-          key={selected.id}
-          integrationId={integrationId}
-          deployment={selected}
-          snapshots={snapshots}
-          deployedTags={deployedTags ?? new Set()}
-          versionMode={versionMode}
-          actionLabel={actionLabel}
-          busy={busy}
-          error={error}
-          onSubmit={onSubmit}
-          onClose={onClose}
-        />
+        {snapshots === null ? (
+          <p className="px-4 py-6 text-sm text-zinc-500 dark:text-zinc-400">
+            {error ?? "Loading versions…"}
+          </p>
+        ) : (
+          <RolloutForm
+            key={selected.id}
+            integrationId={integrationId}
+            deployment={selected}
+            snapshots={snapshots}
+            deployedTags={deployedTags ?? new Set()}
+            versionMode={versionMode}
+            actionLabel={actionLabel}
+            busy={busy}
+            error={error}
+            onSubmit={onSubmit}
+            onClose={onClose}
+          />
+        )}
       </div>
     </div>
   );
 }
-

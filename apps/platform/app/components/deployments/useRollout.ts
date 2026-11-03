@@ -24,8 +24,8 @@ import type { RolloutSubmit } from "@/app/components/integrations/RolloutModal";
 export interface RolloutController {
   /** The deployment whose dialog is open, or null. */
   target: DeployedTile | null;
-  /** The target integration's tags; empty until the fetch lands. */
-  snapshots: Snapshot[];
+  /** The target integration's tags; null until the fetch lands. */
+  snapshots: Snapshot[] | null;
   busy: boolean;
   error: string | null;
   open: (d: DeployedTile) => void;
@@ -38,7 +38,7 @@ export function useRollout(
   onDone: () => Promise<void> | void,
 ): RolloutController {
   const [target, setTarget] = useState<DeployedTile | null>(null);
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Which fetch the dialog is waiting on. Opening or closing invalidates the one
@@ -51,7 +51,7 @@ export function useRollout(
   const open = useCallback((d: DeployedTile) => {
     const mine = ++request.current;
     setError(null);
-    setSnapshots([]);
+    setSnapshots(null);
     setTarget(d);
     listSnapshots(d.integrationId).then(
       (tags) => {

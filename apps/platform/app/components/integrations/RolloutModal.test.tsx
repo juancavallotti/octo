@@ -182,4 +182,31 @@ describe("RolloutModal", () => {
       expect.objectContaining({ tracing: true }),
     );
   });
+
+  // The deployments page fetches the tags after opening: the form must wait for
+  // them, or it seeds itself on "Current" and the roll out cuts a new tag.
+  it("waits for the tags, then rolls out to the deployed one", async () => {
+    const onSubmit = vi.fn();
+    const props = {
+      integrationId: "int-1",
+      integrationName: "Orders",
+      deployments: [DEPLOYMENT],
+      versionMode: "pick" as const,
+      busy: false,
+      error: null,
+      onSubmit,
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(<RolloutModal {...props} snapshots={null} />);
+    expect(screen.getByText("Loading versions…")).toBeInTheDocument();
+
+    rerender(<RolloutModal {...props} snapshots={[SNAPSHOT]} />);
+    const roll = await screen.findByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(roll);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ snapshotId: "snap-1" }),
+    );
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("newTag");
+  });
 });
