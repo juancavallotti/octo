@@ -16,9 +16,10 @@ export function listApiKeys(userId: string): Promise<ActionResult<ApiKey[]>> {
 export function createApiKey(
   userId: string,
   name: string,
-  ttlSeconds: number,
+  roles: string[],
+  expiresAt: string,
 ): Promise<ActionResult<CreatedApiKey>> {
-  return managed<CreatedApiKey>("POST", keysPath(userId), { name, ttlSeconds });
+  return managed<CreatedApiKey>("POST", keysPath(userId), { name, roles, expiresAt });
 }
 
 export function deleteApiKey(

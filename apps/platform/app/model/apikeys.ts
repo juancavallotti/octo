@@ -16,6 +16,8 @@ export interface ApiKey {
   prefix: string;
   /** Last 4 characters of the token, for identifying a key. */
   last4: string;
+  /** The roles the key carries; a token from it holds those its owner still reaches. */
+  roles: string[];
   /** RFC3339 timestamp of creation. */
   createdAt: string;
   /** RFC3339 timestamp after which the key no longer authenticates. */
@@ -35,12 +37,13 @@ export async function listApiKeys(): Promise<ApiKey[]> {
   return unwrap(await apikeyActions.listApiKeys());
 }
 
-/** Create a key that expires after ttlSeconds; returns the one-time token. */
+/** Create a key carrying roles that expires at expiresAt (RFC3339); returns the one-time token. */
 export async function createApiKey(
   name: string,
-  ttlSeconds: number,
+  roles: string[],
+  expiresAt: string,
 ): Promise<CreatedApiKey> {
-  return unwrap(await apikeyActions.createApiKey(name, ttlSeconds));
+  return unwrap(await apikeyActions.createApiKey(name, roles, expiresAt));
 }
 
 /** Revoke one of the caller's keys. */

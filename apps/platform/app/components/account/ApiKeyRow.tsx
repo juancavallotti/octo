@@ -2,10 +2,11 @@
 
 import { KeyRound, Trash2 } from "lucide-react";
 import type { ApiKey } from "@/app/model/apikeys";
+import RoleBadges from "@/app/components/admin/users/RoleBadges";
 
 /**
- * One row in the API-keys list: the key's label and its non-secret prefix…last4
- * fragment, with its expiry/last-used detail and a delete (revoke) action. The
+ * One row in the API-keys list: the key's label, the roles it carries and its
+ * non-secret prefix…last4 fragment, with its expiry/last-used detail and a delete (revoke) action. The
  * secret token is never shown here — it only ever appears once, at creation. The
  * parent performs the actual delete (and the refresh).
  */
@@ -38,6 +39,9 @@ export default function ApiKeyRow({
         <span className="truncate font-mono text-xs text-zinc-400">
           {apiKey.prefix}…{apiKey.last4}
         </span>
+        <div className="mt-1">
+          <RoleBadges roles={apiKey.roles} />
+        </div>
       </div>
       <div className="hidden flex-col items-end text-xs text-zinc-400 sm:flex">
         <span>

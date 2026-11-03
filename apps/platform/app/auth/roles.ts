@@ -21,3 +21,23 @@ export const ROLE_LABELS: Record<string, string> = {
   [PLATFORM_DEVELOPER]: "Developer",
   [PLATFORM_MONITOR]: "Monitor",
 };
+
+/**
+ * What each role opens, itself included, mirroring `reach` in
+ * iam/internal/user/roles.go. iam decides; this only keeps a person from being
+ * offered a key role it would refuse.
+ */
+const ROLE_REACH: Record<string, readonly string[]> = {
+  [PLATFORM_ADMIN]: [PLATFORM_ADMIN, PLATFORM_OPERATOR, PLATFORM_DEVELOPER, PLATFORM_MONITOR],
+  [PLATFORM_OPERATOR]: [PLATFORM_OPERATOR, PLATFORM_DEVELOPER, PLATFORM_MONITOR],
+  [PLATFORM_DEVELOPER]: [PLATFORM_DEVELOPER, PLATFORM_MONITOR],
+  [PLATFORM_MONITOR]: [PLATFORM_MONITOR],
+};
+
+/** Whether somebody holding `held` may do everything `role` grants. */
+export function reaches(held: readonly string[], role: string): boolean {
+  return held.some((h) => ROLE_REACH[h]?.includes(role));
+}
+
+/** The roles an API key may carry, in presentation order: never admin. */
+export const KEY_ROLES = [PLATFORM_MONITOR, PLATFORM_DEVELOPER, PLATFORM_OPERATOR] as const;
