@@ -17,6 +17,11 @@ import { listStatsMetrics } from "@/app/model/stats";
 /**
  * Series the runtime defines, whether or not one has been observed. Short on
  * purpose — the ones worth alerting on, not a copy of the whole registry.
+ *
+ * Each name is one the pod-stats store holds and a watch can query. A histogram
+ * is stored as its `_bucket`, `_sum` and `_count` series and never under its own
+ * name, so offering the bare name would mark it unreported forever and give a
+ * watch nothing to read.
  */
 const KNOWN: { name: string; hint: string }[] = [
   {
@@ -28,8 +33,8 @@ const KNOWN: { name: string; hint: string }[] = [
     hint: "Unhandled failures, by the block they came from. Only exists once something has failed.",
   },
   {
-    name: "octo_flow_duration_seconds",
-    hint: "How long a flow took, as a histogram.",
+    name: "octo_flow_duration_seconds_sum",
+    hint: "Seconds flows spent processing, as growth per window: rises when messages get slower or more numerous.",
   },
   {
     name: "octo_flow_in_flight",
