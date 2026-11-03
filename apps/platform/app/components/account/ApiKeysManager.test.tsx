@@ -41,7 +41,7 @@ describe("ApiKeysManager", () => {
   it("offers an admin every key role but admin", async () => {
     renderAs([PLATFORM_ADMIN]);
     await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
-    for (const label of ["Monitor", "Developer", "Operator"]) {
+    for (const label of ["Monitor", "Developer", "Operator", "CI/CD"]) {
       expect(screen.getByRole("checkbox", { name: label })).toBeInTheDocument();
     }
     expect(screen.queryByRole("checkbox", { name: "Admin" })).toBeNull();
@@ -53,6 +53,14 @@ describe("ApiKeysManager", () => {
     expect(screen.getByRole("checkbox", { name: "Developer" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Monitor" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "Operator" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "CI/CD" })).toBeNull();
+  });
+
+  it("offers CI/CD to somebody holding both developer and operator", async () => {
+    renderAs([PLATFORM_DEVELOPER, PLATFORM_OPERATOR]);
+    await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
+    expect(screen.getByRole("checkbox", { name: "CI/CD" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Monitor" })).toBeNull();
   });
 
   it("creates nothing until a role is ticked, then sends the roles and the date", async () => {

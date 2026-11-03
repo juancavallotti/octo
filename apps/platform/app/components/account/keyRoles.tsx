@@ -1,5 +1,11 @@
 import { Check, X } from "lucide-react";
-import { PLATFORM_DEVELOPER, PLATFORM_MONITOR, PLATFORM_OPERATOR, ROLE_LABELS } from "@/app/auth/roles";
+import {
+  PLATFORM_CICD,
+  PLATFORM_DEVELOPER,
+  PLATFORM_MONITOR,
+  PLATFORM_OPERATOR,
+  ROLE_LABELS,
+} from "@/app/auth/roles";
 
 /**
  * What an API key carrying each role may do, for the hover cards on the account
@@ -35,6 +41,19 @@ const KEY_ROLE_ABILITIES: Record<string, KeyRoleAbility> = {
       "Send email",
     ],
     cannot: ["Change secrets, settings or roles"],
+  },
+  [PLATFORM_CICD]: {
+    summary: "Shipping from a pipeline",
+    can: [
+      "Upload code and tag versions",
+      "Run a deployment's tests",
+      "Deploy and roll out with the basic identity",
+      "Read deployments and their logs",
+    ],
+    cannot: [
+      "Grant a deployment access, which takes a signed-in person",
+      "Use the editor, dev runs, secrets or settings",
+    ],
   },
 };
 

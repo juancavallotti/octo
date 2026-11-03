@@ -107,9 +107,13 @@ The UI reflects the same split the servers enforce, and reflects it only — eve
 
 ## API keys
 
-API keys are per-user bearer tokens for programmatic access. A key belongs to one person and only ever acts as them, limited to the roles you give it when you mint it. Give a CI job only what it needs: a pipeline that pushes and tags integrations needs **developer**, and one that also rolls out needs **operator**.
+API keys are per-user bearer tokens for programmatic access. A key belongs to one person and only ever acts as them, limited to the roles you give it when you mint it. Give each key only what its job needs.
 
-- Roles: pick at least one of **monitor**, **developer** and **operator**, and only roles you hold yourself. Roles are separate facets, not levels: holding operator does not let you give a key developer. An admin may give a key any of the three. A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for a role you do not hold is a `403` that names it.
+- Roles: pick at least one of **monitor**, **developer**, **operator** and **CI/CD**. Roles are separate facets, not levels: holding operator does not let you give a key developer.
+  - **monitor**, **developer** and **operator** go on a key only if you hold them, or if you are an admin.
+  - **CI/CD** is for pipelines. It uploads code, tags versions, runs a deployment's tests, deploys and rolls out, and reads deployments and their logs. It never reaches the editor, dev runs, secrets or settings. Nobody holds CI/CD as a person: an admin may put it on a key, and so may anyone holding both developer and operator.
+  - A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for a role you may not give is a `403` that names it.
+- Deploying with a key: a key with **CI/CD** or **operator** may deploy and roll out with the deployment's basic identity, which reaches only its own stores. Deploying or rolling out an integration that needs [platform access](/platform/deployments#platform-access) takes a signed-in person, because a deployment's token outlives the key that deployed it.
 - Re-checked on every use: a key's token carries only the key's roles that its owner still holds. Revoke a role from someone and their keys lose it within one token lifetime. A key left with no role is refused with a `403`.
 
 - Format: `octo_` followed by 32 bytes of random material, base64url-encoded.
@@ -125,13 +129,13 @@ Keys are managed from the platform's account area, backed by these iam endpoints
 | List your keys (metadata only) | `GET /users/{userId}/apikeys` |
 | Revoke a key | `DELETE /users/{userId}/apikeys/{id}` |
 
-For example, a key for a pipeline that only pushes and tags, expiring at the end of next quarter:
+For example, a key for a pipeline, expiring at the end of next quarter:
 
 ```bash
 curl -X POST http://iam:8093/users/$USER_ID/apikeys \
   -H "Authorization: Bearer $PLATFORM_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "ci-billing", "roles": ["platform:developer"], "expiresAt": "2027-04-01T00:00:00Z"}'
+  -d '{"name": "ci-billing", "roles": ["platform:cicd"], "expiresAt": "2027-04-01T00:00:00Z"}'
 ```
 
 On the account page, hover a role, on its checkbox or on a key's role pill, to see what a key with that role may do. **Delete expired** revokes every expired key at once.
