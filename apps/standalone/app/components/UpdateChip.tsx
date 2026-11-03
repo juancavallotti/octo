@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowUpCircle } from "lucide-react";
+import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { HEADER_LABEL } from "@octo/editor";
 import { desktopBridge, type UpdateStatusView } from "../desktop";
 
@@ -17,6 +17,10 @@ import { desktopBridge, type UpdateStatusView } from "../desktop";
 export default function UpdateChip() {
   const bridge = desktopBridge();
   const [status, setStatus] = useState<UpdateStatusView | null>(null);
+  // Set from the click until the window goes away. The shell shuts the editor server
+  // down before handing over to the installer, which takes a few seconds — long
+  // enough that a button doing nothing visible invites a second click.
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     // Absent on a shell older than this page — the two are declared against each
@@ -52,21 +56,32 @@ export default function UpdateChip() {
 
   if (!bridge || status?.stage !== "ready" || !status.version) return null;
 
-  const label = "Restart to update";
+  const label = restarting ? "Restarting…" : "Restart to update";
+  const Icon = restarting ? Loader2 : ArrowUpCircle;
+
+  function restart() {
+    if (!bridge || restarting) return;
+    setRestarting(true);
+    // A rejected call means the shell is still here and not quitting, so the button
+    // goes back to being something you can press.
+    bridge.installUpdate().catch(() => setRestarting(false));
+  }
 
   return (
     <button
       type="button"
-      onClick={() => void bridge.installUpdate()}
+      onClick={restart}
+      disabled={restarting}
+      aria-busy={restarting}
       aria-label={label}
       title={`Octo ${status.version} is ready — you have ${status.current}`}
       // Save's and Run's shape exactly — it sits beside them and is the same kind
       // of thing: a filled button that acts on the window. Violet rather than their
       // sky and emerald, because it is neither of those actions and the one button
       // here that takes the app away from under you.
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-sm font-medium text-white hover:bg-violet-500"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-sm font-medium text-white hover:bg-violet-500 disabled:cursor-wait disabled:hover:bg-violet-600 aria-busy:animate-pulse"
     >
-      <ArrowUpCircle className="h-3.5 w-3.5 shrink-0" />
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${restarting ? "animate-spin" : ""}`} />
       {/* Icon-only on a narrow header, like the controls beside it (HEADER_LABEL).
           Hiding the button itself is not the trade — an update nobody is told
           about is the bug this whole thing fixes. */}
