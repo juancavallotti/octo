@@ -87,4 +87,54 @@ describe("ApiKeysManager", () => {
     expect(days).toBeGreaterThan(5.9);
     expect(days).toBeLessThanOrEqual(7);
   });
+
+  it("explains what each role lets a key do, on the checkbox and on the pill", async () => {
+    listApiKeys.mockResolvedValue([key("k1", "ci", [PLATFORM_DEVELOPER], 30)]);
+    renderAs([PLATFORM_ADMIN]);
+    await screen.findByText("ci");
+    expect(screen.getByRole("checkbox", { name: "Operator" }).closest("label")).toHaveAttribute(
+      "title",
+      expect.stringContaining("deploy, roll out"),
+    );
+    const pills = screen.getAllByText("Developer").filter((el) => el.tagName === "SPAN");
+    expect(pills.some((p) => p.getAttribute("title")?.includes("Cannot deploy"))).toBe(true);
+  });
+
+  it("deletes every expired key, and only those, after confirming", async () => {
+    const user = userEvent.setup();
+    listApiKeys.mockResolvedValue([
+      key("live", "live", [PLATFORM_MONITOR], 30),
+      key("old1", "old1", [PLATFORM_MONITOR], -1),
+      key("old2", "old2", [PLATFORM_MONITOR], -10),
+    ]);
+    deleteApiKey.mockResolvedValue(undefined);
+    renderAs([PLATFORM_ADMIN]);
+
+    await user.click(await screen.findByRole("button", { name: "Delete expired (2)" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteApiKey).toHaveBeenCalledTimes(2));
+    expect(deleteApiKey.mock.calls.map((c) => c[0]).sort()).toEqual(["old1", "old2"]);
+  });
+
+  it("offers no bulk delete when nothing has expired", async () => {
+    listApiKeys.mockResolvedValue([key("live", "live", [PLATFORM_MONITOR], 30)]);
+    renderAs([PLATFORM_ADMIN]);
+    await screen.findByText("live");
+    expect(screen.queryByRole("button", { name: /Delete expired/ })).toBeNull();
+  });
 });
+
+/** A listed key expiring `days` from now (negative for one already expired). */
+function key(id: string, name: string, roles: string[], days: number) {
+  return {
+    id,
+    name,
+    prefix: "octo_abcd",
+    last4: "wxyz",
+    roles,
+    createdAt: "2026-01-01T00:00:00Z",
+    expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+    lastUsedAt: null,
+  };
+}

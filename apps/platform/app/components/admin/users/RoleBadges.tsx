@@ -13,7 +13,14 @@ import { ROLE_LABELS } from "@/app/auth/roles";
  * hold is a question the dialog answers, with the catalogue's own description of
  * each role beside it.
  */
-export default function RoleBadges({ roles }: { roles: string[] }) {
+export default function RoleBadges({
+  roles,
+  titles,
+}: {
+  roles: string[];
+  /** A tooltip for each role, by role; a role without one gets none. */
+  titles?: Record<string, string>;
+}) {
   if (roles.length === 0) {
     return <span className="text-xs text-zinc-400 italic">No roles</span>;
   }
@@ -22,6 +29,7 @@ export default function RoleBadges({ roles }: { roles: string[] }) {
       {roles.map((role) => (
         <span
           key={role}
+          title={titles?.[role]}
           className="rounded-full bg-zinc-900 px-2 py-0.5 text-xs text-white dark:bg-white dark:text-zinc-900"
         >
           {ROLE_LABELS[role] ?? role}
