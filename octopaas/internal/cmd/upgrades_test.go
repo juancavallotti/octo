@@ -19,6 +19,10 @@ type fakeAPI struct {
 	reads     int
 	verdict   string
 	deployRow map[string]any
+	// what the run reads back with, for a run that asked to roll out
+	rolloutOnPass bool
+	rolledOutAt   any
+	runError      string
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +53,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/v1/deployments/d1/testruns/r1":
 		f.reads++
 		write(200, map[string]any{"id": "r1", "deploymentId": "d1", "status": f.verdict, "runtimeVersion": "0.11.14",
+			"rolloutOnPass": f.rolloutOnPass, "rolledOutAt": f.rolledOutAt, "error": f.runError,
 			"report": map[string]any{"totals": map[string]any{"cases": 1, "failed": 1}, "suites": []any{
 				map[string]any{"path": "t_test.yaml", "cases": []any{map[string]any{"name": "it prices", "status": f.verdict, "summary": "want USD"}}},
 			}}})
@@ -129,5 +134,16 @@ func TestUpgradeKeepsAPinPinned(t *testing.T) {
 	}
 	if len(api.rollouts) != 1 || api.rollouts[0]["snapshotId"] != "s1" || api.rollouts[0]["runtimeVersion"] != "0.11.14" {
 		t.Errorf("rollouts = %v, want snapshot s1 re-pinned to 0.11.14", api.rollouts)
+	}
+}
+
+// A passing run whose rollout was not made is not a success for --upgrade.
+func TestTestUpgradeFailsWhenTheRolloutWasNotMade(t *testing.T) {
+
+	api := &fakeAPI{verdict: "passed", rolloutOnPass: true, runError: "the deployment was rolled out while the run was going",
+		deployRow: map[string]any{"id": "d1", "name": "billing"}}
+	status, out := run(t, api, "deployments", "test", "billing", "--upgrade", "--plain")
+	if status != 1 || !strings.Contains(out, "not upgraded") {
+		t.Fatalf("status %d, want 1 with not upgraded: %s", status, out)
 	}
 }

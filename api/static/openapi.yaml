@@ -1180,6 +1180,7 @@ components:
         integrationId: { type: string, format: uuid }
         name: { type: string }
         tag: { type: string, description: The version tag it runs. }
+        snapshotId: { type: string, format: uuid, description: The version it runs, by id. }
         status: { type: string }
         replicas: { type: integer }
         readyReplicas: { type: integer }

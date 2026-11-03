@@ -16,8 +16,12 @@ import (
 // testRunPoll is how often a test run being waited on is read again.
 const testRunPoll = 2 * time.Second
 
-// errTestsFailed is returned when a run did not pass, so the command exits 1.
-var errTestsFailed = errors.New("the tests did not pass")
+// errTestsFailed is returned when a run did not pass, and errNotUpgraded when it
+// passed but the rollout it asked for was not made, so the command exits 1.
+var (
+	errTestsFailed = errors.New("the tests did not pass")
+	errNotUpgraded = errors.New("the tests passed, but the deployment was not upgraded")
+)
 
 func (a *App) deploymentsOutdatedCommand() *cobra.Command {
 
@@ -187,7 +191,7 @@ func (a *App) runTests(ctx context.Context, ref, version string, upgrade, noWait
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	err = a.ui.Spin(ui.Tentacles, "Testing "+ref+" on "+run.RuntimeVersion, func(l *ui.Live) error {
-		for !run.Finished() {
+		for !settledRun(run) {
 			select {
 			case <-waitCtx.Done():
 				return fmt.Errorf("the run is still going after %s; check it later with octopaas api /v1/deployments/%s/testruns/%s",
@@ -212,7 +216,22 @@ func (a *App) runTests(ctx context.Context, ref, version string, upgrade, noWait
 	if run.Status != "passed" {
 		return errTestsFailed
 	}
+	if run.RolloutOnPass && run.RolledOutAt == nil {
+		return errNotUpgraded
+	}
 	return nil
+}
+
+// settledRun reports whether a run has nothing more to say: it finished and,
+// when it asked for a rollout on a pass, that rollout happened or failed.
+func settledRun(run client.TestRun) bool {
+	if !run.Finished() {
+		return false
+	}
+	if run.Status == "passed" && run.RolloutOnPass {
+		return run.RolledOutAt != nil || run.Error != ""
+	}
+	return true
 }
 
 func (a *App) printRun(ref string, run client.TestRun) {
@@ -263,6 +282,7 @@ every case passes (the same as deployments test --upgrade).`,
 				return err
 			}
 			var d client.Deployment
+			var replacing []string
 			err = a.ui.Spin(ui.Rocket, "Upgrading "+args[0], func(*ui.Live) error {
 				id, err := a.deployment(ctx, api, args[0])
 				if err != nil {
@@ -276,6 +296,9 @@ every case passes (the same as deployments test --upgrade).`,
 					return fmt.Errorf("%s already runs the runtime this install deploys", args[0])
 				}
 				rollout := client.Rollout{SnapshotID: current.SnapshotID}
+				for _, p := range current.Pods {
+					replacing = append(replacing, p.Name)
+				}
 				if current.RuntimePin != "" {
 					rollout.RuntimeVersion = current.UpgradeTo
 				}
@@ -285,7 +308,7 @@ every case passes (the same as deployments test --upgrade).`,
 			if err != nil {
 				return err
 			}
-			return a.settle(ctx, api, d, deployFlags{noWait: noWait, timeout: timeout}, "Upgraded")
+			return a.settle(ctx, api, d, deployFlags{noWait: noWait, timeout: timeout, replacing: replacing}, "Upgraded")
 		},
 	}
 	cmd.Flags().BoolVar(&test, "test", false, "run the deployment's test suites first, and upgrade only if they pass")
