@@ -112,7 +112,7 @@ API keys are per-user bearer tokens for programmatic access. A key belongs to on
 - Roles: pick at least one of **monitor**, **developer**, **operator** and **CI/CD**. Roles are separate facets, not levels: holding operator does not let you give a key developer.
   - **monitor**, **developer** and **operator** go on a key only if you hold them, or if you are an admin.
   - **CI/CD** is for pipelines on any CI platform. It rolls out new versions of an integration and a deployment that already exist, and nothing else; see [what CI/CD can and cannot do](#what-cicd-can-and-cannot-do). Nobody holds CI/CD as a person: an admin may put it on a key, and so may anyone holding both developer and operator.
-  - A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for a role you may not give is a `403` that names it.
+  - A key never carries **admin**, so secrets, settings and role grants stay with a signed-in session. Asking for **admin**, an unknown role or no role at all is a `400`; asking for a role you may not give is a `403` that names it.
 - Deploying with a key: a key with **operator** may deploy and roll out, and a key with **CI/CD** may roll out, always with the deployment's basic identity, which reaches only its own stores. Deploying or rolling out an integration that needs [platform access](/platform/deployments#platform-access) takes a signed-in person, because a deployment's token outlives the key that deployed it.
 
 <Callout type="warn" title="A deployment outlives whoever deployed it">
@@ -128,7 +128,7 @@ A key makes this easier to abuse, because it is a standing secret that lives in 
 CI/CD is not yet scoped to particular integrations: within what it may do, it reaches every integration and deployment on the installation, not only the ones its pipeline ships. Keys scoped to the exact integrations a pipeline ships are planned. Until then, weigh this risk before you mint one.
 </Callout>
 
-- Re-checked on every use: a key's token carries only the key's roles that its owner still holds. Revoke a role from someone and their keys lose it within one token lifetime. A key left with no role is refused with a `403`.
+- Re-checked on every use: a key's token carries only the key's roles that its owner could still give it, by the same rule as when it was minted. Revoke a role from someone and their keys lose it within one token lifetime; a CI/CD key stays usable while its owner is an admin or holds both developer and operator. A key left with no role is refused with a `403`.
 - Format: `octo_` followed by 32 bytes of random material, base64url-encoded.
 - Shown once: the plaintext is returned only by the create call. iam stores a SHA-256 hash, so a database leak exposes no usable keys, plus the first four and last four characters for display.
 - Expiry: you choose the date a key expires, at most two years out. It is enforced on every exchange.
@@ -168,13 +168,14 @@ Keys are managed from the platform's account area, backed by these iam endpoints
 | List your keys (metadata only) | `GET /users/{userId}/apikeys` |
 | Revoke a key | `DELETE /users/{userId}/apikeys/{id}` |
 
-For example, a key for a pipeline, expiring at the end of next quarter:
+For example, a key for a pipeline that expires in 90 days. `expiresAt` must be in the future and at most two years out:
 
 ```bash
+EXPIRES_AT=$(date -u -d '+90 days' +%Y-%m-%dT%H:%M:%SZ)   # macOS: date -u -v+90d +%Y-%m-%dT%H:%M:%SZ
 curl -X POST http://iam:8093/users/$USER_ID/apikeys \
   -H "Authorization: Bearer $PLATFORM_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "ci-billing", "roles": ["platform:cicd"], "expiresAt": "2027-04-01T00:00:00Z"}'
+  -d "{\"name\": \"ci-billing\", \"roles\": [\"platform:cicd\"], \"expiresAt\": \"$EXPIRES_AT\"}"
 ```
 
 On the account page, hover a role, on its checkbox or on a key's role pill, to see what a key with that role may do. **Delete expired** revokes every expired key at once.
@@ -183,7 +184,7 @@ On the account page, hover a role, on its checkbox or on a key's role pill, to s
 
 ### Using a key
 
-From outside the cluster, send the key to the [public API](/platform/public-api) as a bearer token; it does the exchange below for you. A CI/CD job does this with the [octopaas CLI](/platform/octopaas#use-it-in-cicd) by setting `OCTOPAAS_KEY`, while people sign in with their browser instead. Inside the cluster, present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying the key's roles that the owner still holds. The `user` in the answer reports those same roles:
+From outside the cluster, send the key to the [public API](/platform/public-api) as a bearer token; it does the exchange below for you. A CI/CD job does this with the [octopaas CLI](/platform/octopaas#use-it-in-cicd) by setting `OCTOPAAS_KEY`, while people sign in with their browser instead. Inside the cluster, present the key as a bearer token at iam's `POST /auth`, the same exchange a sign-in uses. iam answers with a platform token for the key's owner, carrying the key's roles that the owner could still give it. The `user` in the answer reports those same roles:
 
 ```bash
 curl -X POST http://iam:8093/auth \

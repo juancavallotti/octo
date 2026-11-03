@@ -177,9 +177,10 @@ release the platform deploys now. With --upgrade, a run in which every case
 passes rolls the deployment onto that version; a pinned deployment refuses it.
 
 The command waits for the verdict and exits 1 when the suites do not pass.
-On an install that lends deployments an identity, an API key rolls out only
-with the CI/CD or operator role, and only a deployment with no access grants;
-otherwise sign in (octopaas auth login).`,
+An API key starts a test run with the CI/CD or operator role. With --upgrade,
+on an install that lends deployments an identity, the rollout after a pass is
+refused for a deployment with access grants; sign in for those
+(octopaas auth login).`,
 		Example: `  octopaas deployments test billing
   octopaas deployments test billing --upgrade
   octopaas deployments test billing --version v1.5.0`,
