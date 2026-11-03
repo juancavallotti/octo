@@ -208,12 +208,19 @@ export function registerIntegrationTools(
 
   /**
    * Remove the suite stored as `path`. Suites are addressed by flow everywhere else, so
-   * the file is matched against the name each stored suite would be written as.
+   * the file is matched against the name each stored suite would be written as. Two
+   * flows can slug to the same name, and then the path cannot say which one is meant.
    */
   async function deleteSuite(id: string, path: string): Promise<CallToolResult> {
     if (!suiteStore) return errorResult("this host keeps no test suites, so there is no test file to delete");
     const suites = await suiteStore.list(id);
-    const found = suites.find((s) => suiteFileName(s.flow) === path);
+    const matches = suites.filter((s) => suiteFileName(s.flow) === path);
+    if (matches.length > 1) {
+      return errorResult(
+        `more than one test suite is stored as "${path}" (flows: ${matches.map((s) => JSON.stringify(s.flow)).join(", ")}), so nothing was deleted`,
+      );
+    }
+    const [found] = matches;
     if (!found) {
       return errorResult(
         `no test suite stored as "${path}" (there are: ${suites.map((s) => suiteFileName(s.flow)).join(", ") || "none"})`,
