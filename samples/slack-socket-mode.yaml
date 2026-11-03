@@ -17,7 +17,7 @@ service:
 #   3. Export the credentials:
 #        export SLACK_BOT_TOKEN=xoxb-...
 #        export SLACK_APP_TOKEN=xapp-...
-#   4. Run: task run:sample -- slack-socket-mode.yaml
+#   4. Run: octo run --config samples/slack-socket-mode.yaml
 
 env:
   - name: SLACK_BOT_TOKEN
