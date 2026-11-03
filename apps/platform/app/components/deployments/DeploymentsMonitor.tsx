@@ -175,7 +175,7 @@ export default function DeploymentsMonitor() {
         </div>
       </div>
 
-      <RolloutDialog rollout={rollout} deployments={deployments ?? []} />
+      <RolloutDialog rollout={rollout} />
 
       {/* Docked pod-log panel, keyed by pod so switching pods resets the stream. */}
       {logsPod && (

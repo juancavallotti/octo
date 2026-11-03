@@ -87,7 +87,7 @@ export default function IntegrationDetail({
   const snapshots = reloaded ?? first?.snapshots ?? [];
 
   // The active version scoping the Resources (and Env) panels: a tag, or null for
-  // the live working copy ("Current").
+  // the live working copy.
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   // Resolved against the current tags so a deleted or absent tag falls back to
   // Current — derived rather than corrected in an effect, so the dropdown and the

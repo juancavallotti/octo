@@ -46,7 +46,6 @@ function renderModal(
       integrationName="Orders"
       deployments={[DEPLOYMENT]}
       snapshots={[SNAPSHOT]}
-      deployedTags={new Set(["v1.0"])}
       versionMode="pick"
       busy={false}
       error={null}

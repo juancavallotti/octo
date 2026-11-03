@@ -161,13 +161,6 @@ export default function DeployButton({
           integrationName={rollout.name}
           deployments={rollout.deployments}
           snapshots={rollout.snapshots}
-          deployedTags={
-            new Set(
-              rollout.deployments
-                .map((d) => d.tag)
-                .filter((t): t is string => Boolean(t)),
-            )
-          }
           versionMode="new-tag"
           actionLabel="Deploy"
           busy={busy}

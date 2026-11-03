@@ -21,7 +21,6 @@ export default function RolloutForm({
   integrationId,
   deployment,
   snapshots,
-  deployedTags,
   versionMode,
   actionLabel,
   busy,
@@ -33,7 +32,6 @@ export default function RolloutForm({
   integrationId: string;
   deployment: Deployment;
   snapshots: Snapshot[];
-  deployedTags: ReadonlySet<string>;
   versionMode: "pick" | "new-tag";
   actionLabel: string;
   busy: boolean;
@@ -138,7 +136,7 @@ export default function RolloutForm({
         <RolloutVersionField
           versionMode={versionMode}
           snapshots={snapshots}
-          deployedTags={deployedTags}
+          runningTag={deployment.tag}
           targetTag={targetTag}
           onTargetTag={setTargetTag}
           creatingNewTag={creatingNewTag}

@@ -7,6 +7,8 @@ import RuntimeMenu from "./RuntimeMenu";
 import { INPUT } from "./inputStyles";
 import Field from "./Field";
 
+const NONE: ReadonlySet<string> = new Set();
+
 /**
  * The rollout dialog's version section: the tag to roll onto (or a new one to
  * cut from the working copy) and, beside it, the runtime the deployment runs.
@@ -14,7 +16,7 @@ import Field from "./Field";
 export default function RolloutVersionField({
   versionMode,
   snapshots,
-  deployedTags,
+  runningTag,
   targetTag,
   onTargetTag,
   creatingNewTag,
@@ -27,7 +29,8 @@ export default function RolloutVersionField({
 }: {
   versionMode: "pick" | "new-tag";
   snapshots: Snapshot[];
-  deployedTags: ReadonlySet<string>;
+  /** The tag this deployment runs, marked in the version menu. */
+  runningTag?: string;
   /** The picked tag; null is Current, which cuts a new tag. */
   targetTag: string | null;
   onTargetTag: (tag: string | null) => void;
@@ -76,14 +79,15 @@ export default function RolloutVersionField({
       label="Version"
       hint={
         creatingNewTag
-          ? "Current tags the working copy first, then rolls to that frozen version."
+          ? "Tags the working copy first, then rolls to that frozen version."
           : "Rolls this deployment over to the selected tag's frozen definition."
       }
     >
       <div className="flex flex-wrap items-center gap-2">
         <VersionMenu
           snapshots={snapshots}
-          deployedTags={deployedTags}
+          deployedTags={runningTag ? new Set([runningTag]) : NONE}
+          align="start"
           value={targetTag}
           onChange={onTargetTag}
         />

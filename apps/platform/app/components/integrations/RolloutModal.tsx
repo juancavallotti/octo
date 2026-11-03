@@ -43,7 +43,6 @@ export default function RolloutModal({
   integrationName,
   deployments,
   snapshots,
-  deployedTags,
   versionMode,
   actionLabel = "Roll out",
   busy,
@@ -60,8 +59,6 @@ export default function RolloutModal({
   /** The integration's tags, for the version picker (pick mode) and tag suggestion;
    * null while they load. The form is seeded from them once, so it waits. */
   snapshots: Snapshot[] | null;
-  /** Tags currently deployed, for the version picker's "deployed" hint. */
-  deployedTags?: ReadonlySet<string>;
   versionMode: "pick" | "new-tag";
   /** Verb for the header and submit button (e.g. "Roll out", "Deploy"). */
   actionLabel?: string;
@@ -156,7 +153,6 @@ export default function RolloutModal({
             integrationId={integrationId}
             deployment={selected}
             snapshots={snapshots}
-            deployedTags={deployedTags ?? new Set()}
             versionMode={versionMode}
             actionLabel={actionLabel}
             busy={busy}

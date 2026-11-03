@@ -6,22 +6,26 @@ import type { Snapshot } from "@/app/model/orchestrator";
 
 /**
  * A GitHub-style version picker: a button showing the active version that opens a
- * popover menu of "Current" (the working copy) plus every tag, with a check on the
- * selected one and a green "deployed" dot on tags that are live. Closes on outside
- * click or Escape. Selecting a version drives the whole detail pane (Resources/Env
- * scope, the Deploy target, the deployments filter), so it lives in the header.
+ * popover menu of the working copy plus every tag, with a check on the selected
+ * one and a green dot on the tags in `deployedTags`. Closes on outside click or
+ * Escape.
  */
 export default function VersionMenu({
   snapshots,
   deployedTags,
   value,
   onChange,
+  align = "end",
 }: {
   snapshots: Snapshot[];
+  /** The tags marked with a green dot: the ones the caller calls deployed. */
   deployedTags: ReadonlySet<string>;
   /** The active tag, or null for Current (the working copy). */
   value: string | null;
   onChange: (tag: string | null) => void;
+  /** Which edge of the button the menu lines up with: "end" opens leftward, for
+   * a button near the right of the page; "start" opens rightward. */
+  align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -47,7 +51,7 @@ export default function VersionMenu({
     setOpen(false);
   };
 
-  const label = value ?? "Current";
+  const label = value ?? "Working copy";
 
   return (
     <div ref={ref} className="relative shrink-0">
@@ -67,7 +71,7 @@ export default function VersionMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-black/10 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-zinc-900"
+          className={`absolute ${align === "start" ? "left-0" : "right-0"} top-full z-30 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-black/10 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-zinc-900`}
         >
           <button
             type="button"
@@ -80,8 +84,9 @@ export default function VersionMenu({
               size={14}
               className={value === null ? "text-sky-500" : "invisible"}
             />
-            <span className="flex-1 truncate">Current</span>
-            <span className="text-xs text-zinc-400">working copy</span>
+            <GitBranch size={12} className="shrink-0 text-zinc-400" />
+            <span className="flex-1 truncate">Working copy</span>
+            <Dot deployed={false} />
           </button>
 
           {snapshots.length > 0 && (
@@ -106,20 +111,25 @@ export default function VersionMenu({
                 />
                 <Tag size={12} className="shrink-0 text-zinc-400" />
                 <span className="flex-1 truncate">{s.tag}</span>
-                {deployed && (
-                  <span
-                    className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400"
-                    title="Deployed"
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    deployed
-                  </span>
-                )}
+                <Dot deployed={deployed} />
               </button>
             );
           })}
         </div>
       )}
     </div>
+  );
+}
+
+/** A version's mark: green when it is deployed, gray otherwise. */
+function Dot({ deployed }: { deployed: boolean }) {
+  return (
+    <span
+      aria-label={deployed ? "deployed" : undefined}
+      title={deployed ? "Deployed" : undefined}
+      className={`h-2 w-2 shrink-0 rounded-full ${
+        deployed ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"
+      }`}
+    />
   );
 }

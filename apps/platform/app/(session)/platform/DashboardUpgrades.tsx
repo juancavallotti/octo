@@ -35,7 +35,7 @@ export default function DashboardUpgrades({
           onRollOut={can.deploy ? rollout.open : undefined}
         />
       )}
-      <RolloutDialog rollout={rollout} deployments={deployments} />
+      <RolloutDialog rollout={rollout} />
     </>
   );
 }

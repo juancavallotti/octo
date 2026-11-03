@@ -119,7 +119,7 @@ export default function ResourcesSection({
         <p className="mb-2 flex items-center gap-1.5 text-xs text-zinc-400">
           <Lock size={12} className="shrink-0" />
           Frozen at {versionLabel ?? "this version"} — read-only. Select
-          “Current” to edit.
+          “Working copy” to edit.
         </p>
       ) : !can.build ? (
         <p className="mb-2 flex items-center gap-1.5 text-xs text-zinc-400">

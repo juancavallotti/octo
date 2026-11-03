@@ -42,7 +42,7 @@ export default function DeployVersionField({
     return (
       <Field
         label="New version"
-        hint="Deploying Current tags the working copy first, then ships that frozen version."
+        hint="Deploying the working copy tags it first, then ships that frozen version."
       >
         <div className="flex items-center gap-2">
           <Tag size={14} className="shrink-0 text-zinc-400" />
