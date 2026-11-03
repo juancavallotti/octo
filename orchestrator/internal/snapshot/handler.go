@@ -88,9 +88,8 @@ func toResponse(s Snapshot) snapshotResponse {
 	return snapshotResponse(s)
 }
 
-// summaryResponse is a snapshot as the list carries it: no definition, because
-// merging every version's config to fill a version picker made the list grow
-// with the integration's history.
+// summaryResponse is the wire representation of a snapshot without its frozen
+// definition, as the list returns it.
 type summaryResponse struct {
 	ID            string    `json:"id"`
 	IntegrationID string    `json:"integrationId"`

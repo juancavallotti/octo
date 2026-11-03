@@ -18,8 +18,7 @@ type Snapshot struct {
 	CreatedAt     time.Time
 }
 
-// Summary is a snapshot without its frozen definition: enough to list and pick
-// a version by, without merging every version's config to say so.
+// Summary is a snapshot without its frozen definition.
 type Summary struct {
 	ID            string
 	IntegrationID string

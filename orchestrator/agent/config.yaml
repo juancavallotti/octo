@@ -1741,7 +1741,7 @@ flows:
               GET|PUT|DELETE /integrations/{id}/resources/{resourceId}
 
             version tags — an immutable freeze of the definition AND its resources
-              GET    /integrations/{id}/snapshots       names and ids only, newest first
+              GET    /integrations/{id}/snapshots       id, integrationId, tag, createdAt — no definition; newest first
               POST   /integrations/{id}/snapshots       {"tag":"v4"}
               GET    /snapshots/{id}                    one tag with its frozen definition
               DELETE /snapshots/{id}
