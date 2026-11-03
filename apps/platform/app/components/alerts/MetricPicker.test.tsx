@@ -24,10 +24,10 @@ describe("MetricPicker", () => {
     render(<MetricPicker deploymentId="dep-1" value="" onChange={() => {}} />);
 
     await userEvent.click(await screen.findByText("Search metrics…"));
-    const row = (await screen.findAllByText("octo_flow_duration_seconds_sum"))[0].closest("span.flex-col");
+    // The name and its "not reported yet" marker share one parent in the row.
+    const name = await screen.findByText("octo_flow_duration_seconds_sum");
 
-    expect(row).not.toBeNull();
-    expect(row?.textContent).not.toContain("not reported yet");
+    expect(name.parentElement?.textContent).toBe("octo_flow_duration_seconds_sum");
     expect(screen.queryByText("octo_flow_duration_seconds")).toBeNull();
   });
 });
