@@ -488,7 +488,9 @@ func (s *Service) buildFlow(ctx context.Context, cfg types.FlowConfig, set *conn
 	sourceDesc := describeSource(cfg.Source, implicit)
 
 	capacity := newCapacityCheck()
-	capacity.add("source "+sourceDesc, source)
+	if !implicit {
+		capacity.add(cfg.Source.Type+" source", source)
+	}
 
 	p := pool.New(cfg.Pool, 0)
 	deps := core.BlockDeps{
