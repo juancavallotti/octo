@@ -35,6 +35,10 @@ const KNOWN: { name: string; hint: string }[] = [
     name: "octo_flow_in_flight",
     hint: "Messages a flow is processing right now.",
   },
+  {
+    name: "octo_flow_queue_depth",
+    hint: "Messages waiting for a worker. At octo_flow_queue_capacity, the source is blocked.",
+  },
 ];
 
 interface MetricChoice {

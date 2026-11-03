@@ -45,6 +45,19 @@ func (c *configAware) Configured(config types.Config) {
 	c.seen = append(c.seen, config.Service.Name)
 }
 
+type runningAware struct {
+	fakeHosted
+	seen []services.RunningFlows
+}
+
+func (r *runningAware) Running(flows services.RunningFlows) {
+	r.seen = append(r.seen, flows)
+}
+
+type fixedQueues []types.FlowQueue
+
+func (f fixedQueues) Queues() []types.FlowQueue { return f }
+
 // A hosted service's flags have no YAML to document them, so its section has to
 // reach the help page — and the "one or two dashes" note is about every flag on
 // the page, so it must stay last.
@@ -183,5 +196,20 @@ func TestAnnounceConfigReachesOnlyConfigAware(t *testing.T) {
 
 	if len(aware.seen) != 2 || aware.seen[0] != "gen-1" || aware.seen[1] != "gen-2" {
 		t.Fatalf("ConfigAware saw %v, want [gen-1 gen-2] — one call per generation", aware.seen)
+	}
+}
+
+func TestAnnounceRunningReachesOnlyRunningAware(t *testing.T) {
+	var log []string
+	plain := &fakeHosted{name: "plain", log: &log}
+	aware := &runningAware{fakeHosted: fakeHosted{name: "aware", log: &log}}
+	flows := fixedQueues{{Flow: "orders", Capacity: 8}}
+
+	hosted := []services.HostedService{plain, aware}
+	announceRunning(hosted, flows)
+	announceRunning(hosted, nil)
+
+	if len(aware.seen) != 2 || aware.seen[0].Queues()[0].Flow != "orders" || aware.seen[1] != nil {
+		t.Fatalf("RunningAware saw %v, want the generation's flows and then nil once it stopped", aware.seen)
 	}
 }

@@ -50,6 +50,22 @@ type ConfigAware interface {
 	Configured(config types.Config)
 }
 
+// RunningAware is the other optional half: a service that wants to read the
+// generation's flows while they run. It is called once per generation after every
+// flow has started and before readiness opens, and again with nil once that
+// generation has stopped, so a service never holds flows that are no longer
+// running.
+type RunningAware interface {
+	Running(flows RunningFlows)
+}
+
+// RunningFlows is what a running generation answers about its flows. Every
+// method reads live state, so it is cheap enough to call on each scrape.
+type RunningFlows interface {
+	// Queues reports the backlog in front of each flow's workers.
+	Queues() []types.FlowQueue
+}
+
 var (
 	hostedMu sync.Mutex
 	hosted   []HostedService

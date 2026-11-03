@@ -135,3 +135,12 @@ type BlockEvent struct {
 	// only.
 	Dropped bool
 }
+
+// FlowQueue is the backlog in front of one running flow's workers: the messages
+// its source has handed over that no worker has picked up yet, and how many the
+// buffer holds before the source blocks on the next one.
+type FlowQueue struct {
+	Flow     string
+	Depth    int
+	Capacity int
+}

@@ -155,6 +155,16 @@ func announceConfig(hosted []services.HostedService, config types.Config) {
 	}
 }
 
+// announceRunning hands a generation whose flows have all started to every hosted
+// service that asked to read them, or nil once that generation has stopped.
+func announceRunning(hosted []services.HostedService, flows services.RunningFlows) {
+	for _, service := range hosted {
+		if aware, ok := service.(services.RunningAware); ok {
+			aware.Running(flows)
+		}
+	}
+}
+
 // runOnce loads the config and runs a single service generation.
 func runOnce(
 	ctx context.Context, configPath string, svc core.RuntimeServices,
@@ -168,7 +178,7 @@ func runOnce(
 	announceConfig(hosted, config)
 
 	service := runtime.NewService(config, core.DefaultRegistry(), runtime.WithRuntimeServices(svc))
-	go announceWhenReady(ctx, service, health, config)
+	go announceWhenReady(ctx, service, hosted, health, config)
 	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		health.SetState(services.StateStopped)
 		return err
@@ -178,14 +188,16 @@ func runOnce(
 	return nil
 }
 
-// announceWhenReady prints the friendly startup banner and opens the readiness
-// gate once the service reports it is ready — every connector and flow started,
+// announceWhenReady hands the running flows to the hosted services that read them,
+// prints the friendly startup banner and opens the readiness gate once the
+// service reports it is ready — every connector and flow started,
 // which for an http-backed flow includes its listener being bound. It returns
 // without doing either if the context is cancelled first, including a failed
 // startup, where the run path surfaces the error and cancels the context on the
 // way out.
 func announceWhenReady(
-	ctx context.Context, service *runtime.Service, health *services.Health, config types.Config,
+	ctx context.Context, service *runtime.Service, hosted []services.HostedService,
+	health *services.Health, config types.Config,
 ) {
 	select {
 	case <-service.Started():
@@ -196,6 +208,7 @@ func announceWhenReady(
 		if ctx.Err() != nil {
 			return
 		}
+		announceRunning(hosted, service)
 		health.SetState(services.StateReady)
 		fmt.Println(readyBanner(len(config.Flows), len(config.Connectors)))
 	case <-ctx.Done():
@@ -232,7 +245,7 @@ func runWithReload(
 		}
 		announceConfig(hosted, config)
 
-		reload, runErr := runGeneration(ctx, config, changed, svc, health)
+		reload, runErr := runGeneration(ctx, config, changed, svc, hosted, health)
 		if runErr != nil {
 			// In watch mode a build/start failure is not fatal: keep the watcher
 			// alive and wait for the next change, same as a config load error, so
@@ -255,7 +268,7 @@ func runWithReload(
 // reload (rebuild from config) or stop.
 func runGeneration(
 	ctx context.Context, config types.Config, changed <-chan struct{}, svc core.RuntimeServices,
-	health *services.Health,
+	hosted []services.HostedService, health *services.Health,
 ) (bool, error) {
 	slog.Info("starting runtime", "version", Version, "connectors", len(config.Connectors), "flows", len(config.Flows))
 	runCtx, cancel := context.WithCancel(ctx)
@@ -265,17 +278,19 @@ func runGeneration(
 	announced := make(chan struct{})
 	go func() {
 		defer close(announced)
-		announceWhenReady(runCtx, service, health, config)
+		announceWhenReady(runCtx, service, hosted, health, config)
 	}()
 	go func() { done <- service.Run(runCtx) }()
 
-	// settle records this generation's final readiness state. It cancels first so
+	// settle records this generation's final readiness state and withdraws its
+	// flows from the hosted services that read them. It cancels first so
 	// the announcer always wakes — a generation that failed before reporting ready
 	// leaves Started() closed forever — and waits for it to exit, so a late
 	// announcement can never land after the state written here.
 	settle := func(state services.State) {
 		cancel()
 		<-announced
+		announceRunning(hosted, nil)
 		health.SetState(state)
 	}
 

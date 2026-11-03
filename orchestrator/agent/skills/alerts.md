@@ -62,7 +62,9 @@ config load — `octo_flow_errors_total` included, as one `block=""` series per 
 error series appears only when that block first fails, already at 1, so a rate
 over it misses that first failure: to catch it, watch
 `octo_flow_messages_total{outcome="failed"}`. For "this app is erroring", the
-trace-based `error_rate` is the better question anyway.
+trace-based `error_rate` is the better question anyway. `octo_flow_queue_depth` and
+`octo_flow_queue_capacity` appear once the flows have started; depth held near
+capacity is the saturation watch, since the source is then blocked.
 
 ## The three kinds of condition
 

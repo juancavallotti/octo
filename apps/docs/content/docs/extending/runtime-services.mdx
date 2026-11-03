@@ -115,6 +115,16 @@ func (s *Service) Configured(config types.Config) { /* ... */ }
 
 It is called once per generation, again on every `--watch` reload. A generation is **not** a fresh start: anything you accumulate must survive it. The observability service pre-creates each flow's metric series here without resetting a counter, since a reset would make `rate()` read a reload as a restart.
 
+### Reading the running flows
+
+Implement the optional `services.RunningAware` to read a generation's flows while they run:
+
+```go
+func (s *Service) Running(flows services.RunningFlows) { /* flows.Queues() */ }
+```
+
+It is called once per generation, after every flow has started and before readiness opens. `RunningFlows` reads live state, so it is cheap enough to call on every scrape: `Queues()` reports each flow's buffered messages and buffer size. It is called again with `nil` once the generation stops, so you never read flows that are no longer running. The observability service reads it at scrape time for `octo_flow_queue_depth` and `octo_flow_queue_capacity`.
+
 ## CLI commands
 
 A module may bring subcommands, registered from the same `init` manifest:

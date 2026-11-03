@@ -48,6 +48,9 @@ type metrics struct {
 	// Per-generation, set from the config each generation starts with.
 	flows      prometheus.Gauge
 	connectors prometheus.Gauge
+
+	// Read from the running generation at scrape time.
+	queues *queueCollector
 }
 
 // newMetrics builds the registry and every collector on it. health backs the
@@ -56,7 +59,7 @@ type metrics struct {
 func newMetrics(health *services.Health) *metrics {
 	m := newFlowCollectors()
 	m.registry.MustRegister(
-		m.flowMessages, m.flowErrors, m.flowDuration, m.flowInFlight, m.flows, m.connectors,
+		m.flowMessages, m.flowErrors, m.flowDuration, m.flowInFlight, m.flows, m.connectors, m.queues,
 	)
 	m.registerProcessCollectors(health)
 	return m
@@ -105,6 +108,8 @@ func newFlowCollectors() *metrics {
 			Name:      "connectors",
 			Help:      "Connectors in the running configuration.",
 		}),
+
+		queues: newQueueCollector(),
 	}
 }
 
