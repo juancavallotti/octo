@@ -53,10 +53,10 @@ export default function IntegrationTree({
   const ready = state.status === "ready";
   const refreshing = ready && state.refreshing;
   const known = selectedId !== null && data.integrations.some((i) => i.id === selectedId);
-  const { collapsed, toggle } = useTreeExpansion(
+  const { toggled, toggle } = useTreeExpansion(
     known ? { id: selectedId, ancestors: ancestorsOf(data, flat, selectedId) } : null,
   );
-  const rows = useMemo(() => treeRows(data, collapsed, query), [data, collapsed, query]);
+  const rows = useMemo(() => treeRows(data, toggled, query), [data, toggled, query]);
 
   const startCreate = (parentId: string | null) => {
     setCreatingIn(parentId);

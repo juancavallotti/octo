@@ -42,10 +42,16 @@ const label = (rows: TreeRow[]) =>
         : `${"  ".repeat(r.depth)}${r.integration.id}`,
   );
 
-// Both smart folders closed, so the cases below are about the real tree.
-const smartClosed = ["smart:running", "smart:all"];
+// Smart folders start closed; listing one in the toggled set opens it.
+const smartClosed: string[] = [];
 
 describe("treeRows", () => {
+  it("starts the smart folders closed and the real folders open", () => {
+    const rows = treeRows(data, new Set());
+    expect(rows.flatMap((r) => (r.kind === "smart" ? [r.expanded] : []))).toEqual([false, false]);
+    expect(rows.find((r) => r.kind === "folder")).toMatchObject({ expanded: true });
+  });
+
   it("nests subfolders before a folder's own integrations, and leaves the unfiled at the top", () => {
     expect(label(treeRows(data, new Set(smartClosed)))).toEqual([
       "<running> 2",
@@ -74,7 +80,7 @@ describe("treeRows", () => {
   // deployed integration flat, wherever it is filed, and the real tree still
   // shows each one where it lives.
   it("lists a smart folder's integrations flat, beside the real tree", () => {
-    const rows = treeRows(data, new Set(["smart:all", "ops", "empty"]));
+    const rows = treeRows(data, new Set(["smart:running", "ops", "empty"]));
     expect(label(rows)).toEqual(["<running> 2", "  a", "  d", "<all> 4", "[ops]", "[empty]", "d"]);
     // The copies are their own rows, and say they are computed.
     const copies = rows.flatMap((r) => (r.kind === "integration" && r.computed ? [r.rowId] : []));

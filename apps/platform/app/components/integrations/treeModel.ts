@@ -22,7 +22,7 @@ export const SMART_FOLDERS = [
 
 export type SmartFolderId = (typeof SMART_FOLDERS)[number]["id"];
 
-/** The key a smart folder's open/closed state is remembered under, beside folder ids. */
+/** The key a smart folder's open state is remembered under, beside folder ids. */
 export const smartKey = (id: SmartFolderId) => `smart:${id}`;
 
 export type TreeRow =
@@ -74,7 +74,9 @@ export function folderIntegrations(data: Data, folderId: string): Integration[] 
 
 export function treeRows(
   data: Data,
-  collapsed: ReadonlySet<string>,
+  /** The folders turned away from their default: a real folder listed here is
+   * closed, a smart folder listed here (by its smartKey) is open. */
+  toggled: ReadonlySet<string>,
   /** A search over integration names; empty shows everything. */
   query = "",
 ): TreeRow[] {
@@ -97,7 +99,7 @@ export function treeRows(
     const holds = data.integrations.filter(
       (i) => (f.id === "all" || data.deployed.has(i.id)) && matches(i),
     );
-    const expanded = !collapsed.has(smartKey(f.id));
+    const expanded = toggled.has(smartKey(f.id));
     const row: TreeRow = { kind: "smart", ...f, expanded, count: holds.length };
     return expanded
       ? [row, ...holds.map((i) => leaf(i, 1, smartKey(f.id), true))]
@@ -109,7 +111,7 @@ export function treeRows(
       const below = walk(f.children ?? [], depth + 1);
       const own = folderIntegrations(data, f.id).filter(matches);
       if (searching && below.length === 0 && own.length === 0) return [];
-      const expanded = searching || !collapsed.has(f.id);
+      const expanded = searching || !toggled.has(f.id);
       const row: TreeRow = {
         kind: "folder",
         folder: { id: f.id, name: f.name, parentId: f.parentId, depth },
