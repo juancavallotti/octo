@@ -59,3 +59,28 @@ func TestIsTestFile(t *testing.T) {
 		}
 	}
 }
+
+// The cases mirror the platform's suite store (apps/platform/app/lib/suiteResources.ts),
+// which writes suites where this reads them.
+func TestIsSuite(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{".octo/tests/orders_test.yaml", true},
+		{".octo/tests/order-intake-2_test.yml", true},
+		{".octo/tests/Orders_TEST.YAML", true},
+
+		{"orders_test.yaml", false},
+		{".octo/tests/orders.yaml", false},
+		{".octo/tests/nested/orders_test.yaml", false},
+		{".octo/tests/.hidden_test.yaml", false},
+		{".octo/editor-meta.json", false},
+		{"templates/.octo/tests/orders_test.yaml", false},
+	}
+	for _, c := range cases {
+		if got := IsSuite(c.path); got != c.want {
+			t.Errorf("IsSuite(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}

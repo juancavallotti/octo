@@ -10,6 +10,7 @@ package projectfile
 
 import (
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -72,4 +73,20 @@ func isYAML(name string) bool {
 		return true
 	}
 	return false
+}
+
+// SuiteDir is where an integration's dolphin suites are stored, as resources.
+// Undeclared, so a deployed runtime never loads them.
+const SuiteDir = ".octo/tests/"
+
+// suiteName is a stored suite's filename: one segment starting with an
+// alphanumeric and ending _test.yaml or _test.yml, matched without regard to case
+// the way the editor names them.
+var suiteName = regexp.MustCompile(`(?i)^[a-z0-9][a-z0-9._-]*_test\.ya?ml$`)
+
+// IsSuite reports whether a stored path is one of the integration's test suites:
+// a file directly under SuiteDir with a suite's name.
+func IsSuite(p string) bool {
+	name, ok := strings.CutPrefix(p, SuiteDir)
+	return ok && suiteName.MatchString(name)
 }
