@@ -28,7 +28,7 @@ export default function RuntimeMenu({
       ? [value, ...versions]
       : versions;
   return (
-    <label className="inline-flex items-center gap-1.5" title="Runtime">
+    <label className="inline-flex items-center gap-1.5">
       <Pin
         size={14}
         className={
@@ -37,6 +37,7 @@ export default function RuntimeMenu({
             : "text-amber-600 dark:text-amber-400"
         }
       />
+      <span className="text-sm text-zinc-500 dark:text-zinc-400">Runtime</span>
       <select
         aria-label="Runtime"
         value={value}
