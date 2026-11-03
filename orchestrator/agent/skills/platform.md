@@ -78,6 +78,12 @@ passes. Poll `GET /deployments/{id}/testruns/{runId}` for `status` and `report`.
 deployment whose version has no suites can only be rolled out untested — say so
 rather than doing it quietly.
 
+A deployment can be pinned to a runtime release (`runtimePin` on it, `pinned` in
+`/upgrades`): `runtimeVersion` on a deploy or rollout pins it, `"latest"` unpins.
+A pinned deployment is never upgraded on a passing run — `rolloutOnPass` is
+refused — so moving it is a rollout with the new `runtimeVersion`, and only when
+someone asked for exactly that. `GET /runtimes` lists what it can be pinned to.
+
 ## When a deployment will not start
 
 Work through it in this order, because each step rules out the one below:
