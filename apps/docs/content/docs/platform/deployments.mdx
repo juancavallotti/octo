@@ -213,10 +213,21 @@ Poll `GET /deployments/{id}/testruns/{runId}` for the verdict:
 
 Suites are the `.octo/tests/*_test.yaml` files an integration's [Testing view](/testing/in-the-editor) saves, frozen into each tag like any other file. A tag with none cannot be tested, and starting a run on it returns `422`.
 
-In the platform:
+In the platform, the dashboard lists every deployment on an older runtime. Each one opens its rollout dialog, and **Review upgrades** opens the Upgrades page.
 
-- **Test & roll out** in the rollout dialog tests the selected tag and rolls out only on a pass. It uses the deployment's saved env and tracing, so it is unavailable once you edit either in the dialog.
-- The **Upgrades** page in the user menu lists every deployment on an older runtime, how its suites last went on the new one, and **Test**, **Test & upgrade** and **Test all**. Deployments whose version has no suites are called out in their own section, since an upgrade cannot be checked before it ships.
+![Deployments on an older runtime, on the dashboard](/screenshots/platform-dashboard-upgrades.png)
+
+**Test & roll out** in the rollout dialog tests the selected tag and rolls out only on a pass. It uses the deployment's saved env and tracing, so it is unavailable once you edit either in the dialog; roll those changes out directly.
+
+![The rollout dialog with Test & roll out](/screenshots/platform-rollout-test.png)
+
+The **Upgrades** page, in the user menu, lists every deployment on an older runtime with how its suites last went on the new one. **Test** and **Test & upgrade** act on one deployment; **Test all** and **Test & upgrade all** act on every one that has suites, and the second upgrades each one whose suites pass. Deployments whose version has no suites are called out in their own section, with **Upgrade untested** as their only option, since an upgrade cannot be checked before it ships.
+
+![The Upgrades page](/screenshots/platform-upgrades-page.png)
+
+A run that does not pass shows its report, case by case, and **Open in the editor** takes you to the integration to fix the suite or the flow. The deployment stays on its runtime until a run passes.
+
+![A failing test run on the Upgrades page](/screenshots/platform-upgrades-failure.png)
 
 `GET /upgrades` serves the same view: the runtime this install deploys and, per deployment, the release it runs, `upgradeTo`, `hasSuites` and its latest test run.
 
