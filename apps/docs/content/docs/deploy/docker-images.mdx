@@ -169,8 +169,10 @@ The Go services write nothing to disk, so they also tolerate
 
 ### octo-runtime
 
-A generic image that runs *any* integration: it carries only the compiled `octo`
-binary, built `CGO_ENABLED=0`. The final stage is
+A generic image that runs *any* integration: it carries the compiled `octo`
+binary, built `CGO_ENABLED=0`, and a standalone build (empty `GOTAGS`) also
+carries `dolphin` at `/usr/local/bin/dolphin`, so the same image can run an
+integration's test suites against exactly that octo. The final stage is
 `gcr.io/distroless/static-debian12:nonroot`, so no shell, no package manager, and
 it runs as `nonroot`. The default command is
 `octo run --config /etc/octo/integrations`, which loads every `.yaml`/`.yml`
@@ -184,7 +186,7 @@ binary:
 |---|---|---|---|
 | **Cluster** `octo-runtime` | `k8s` (default) | Lease-based leader election, orchestrator-backed KV, NATS queues | Your registry, by `cloudbuild.yaml` |
 | **Public** `juancavallotti/octo-runtime` | *empty* | Standalone: in-process queues, in-memory KV, no external infrastructure | Docker Hub, by the release workflow |
-| **Dev runs** `octo-devruntime` | *empty* | The same standalone provider, published to your registry for the editor's Run | Your registry, by `cloudbuild.yaml` |
+| **Dev runs** `octo-devruntime` | *empty* | The same standalone provider, published to your registry for the editor's Run and for deployment test runs | Your registry, by `cloudbuild.yaml` |
 | **Platform API** `juancavallotti/octo-api` | `api` | Every capability delegated to the HTTP server at `OCTO_PLATFORM_API_URL` | Docker Hub, by the release workflow |
 
 The build tags are mutually exclusive, which is why the dev-run image is separate
