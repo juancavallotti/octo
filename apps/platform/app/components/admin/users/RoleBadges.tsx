@@ -29,8 +29,11 @@ export default function RoleBadges({
   return (
     <div className="flex flex-wrap gap-1">
       {roles.map((role) => {
-        const pill = (
-          <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-xs text-white dark:bg-white dark:text-zinc-900">
+        const pill = (cardId?: string) => (
+          <span
+            aria-describedby={cardId}
+            className="rounded-full bg-zinc-900 px-2 py-0.5 text-xs text-white dark:bg-white dark:text-zinc-900"
+          >
             {ROLE_LABELS[role] ?? role}
           </span>
         );
@@ -40,7 +43,7 @@ export default function RoleBadges({
             {pill}
           </HoverCard>
         ) : (
-          <span key={role}>{pill}</span>
+          <span key={role}>{pill()}</span>
         );
       })}
     </div>

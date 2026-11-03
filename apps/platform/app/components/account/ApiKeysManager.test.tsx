@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const listApiKeys = vi.fn();
@@ -91,25 +91,39 @@ describe("ApiKeysManager", () => {
     const [name, roles, expiresAt] = createApiKey.mock.calls[0];
     expect(name).toBe("ci");
     expect(roles).toEqual([PLATFORM_OPERATOR, PLATFORM_MONITOR]);
+    // Seven days from now, give or take a daylight-saving hour.
     const days = (new Date(expiresAt).getTime() - Date.now()) / 86_400_000;
-    expect(days).toBeGreaterThan(5.9);
-    expect(days).toBeLessThanOrEqual(7);
+    expect(days).toBeGreaterThan(6.95);
+    expect(days).toBeLessThan(7.05);
+  });
+
+  it("keeps Create disabled for an expiry iam would refuse", async () => {
+    const user = userEvent.setup();
+    renderAs([PLATFORM_ADMIN]);
+    await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText(/Key name/), "ci");
+    await user.click(screen.getByRole("checkbox", { name: "Monitor" }));
+    const create = screen.getByRole("button", { name: /Create/ });
+    const date = screen.getByLabelText("Expires on");
+
+    expect(create).toBeEnabled();
+    for (const out of ["2020-01-01", "2999-01-01"]) {
+      fireEvent.change(date, { target: { value: out } });
+      expect(create).toBeDisabled();
+    }
   });
 
   it("opens a card on each role saying what a key with it may do", async () => {
     listApiKeys.mockResolvedValue([key("k1", "ci", [PLATFORM_DEVELOPER], 30)]);
     renderAs([PLATFORM_ADMIN]);
     await screen.findByText("ci");
-    const checkbox = screen.getByRole("checkbox", { name: "Operator" });
-    expect(checkbox.closest("[aria-describedby]")).toHaveAccessibleDescription(
+    expect(screen.getByRole("checkbox", { name: "Operator" })).toHaveAccessibleDescription(
       expect.stringContaining("Deploy, roll out, scale and remove deployments"),
     );
     const pill = screen
       .getAllByText("Developer")
-      .find((el) => el.closest("[aria-describedby]") && !el.closest("label") && !el.closest("[role=tooltip]"));
-    expect(pill?.closest("[aria-describedby]")).toHaveAccessibleDescription(
-      expect.stringContaining("Deploy or operate deployments"),
-    );
+      .find((el) => el.hasAttribute("aria-describedby"));
+    expect(pill).toHaveAccessibleDescription(expect.stringContaining("Deploy or operate deployments"));
   });
 
   it("deletes every expired key, and only those, after confirming", async () => {

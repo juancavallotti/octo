@@ -49,6 +49,13 @@ export default function ApiKeysManager() {
     refresh();
   }, [refresh]);
 
+  // A key can expire while the page stays open; move the clock on without
+  // reloading the list, once the first load has set it.
+  useEffect(() => {
+    const tick = setInterval(() => setNow((t) => (t === 0 ? 0 : Date.now())), 60_000);
+    return () => clearInterval(tick);
+  }, []);
+
   /** Run a mutation, then refresh; surface failures inline. Resolves to whether it worked. */
   const run = useCallback(
     async (fn: () => Promise<unknown>): Promise<boolean> => {

@@ -18,21 +18,33 @@ import { keyRoleCard } from "./keyRoles";
 const INPUT =
   "rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
 
-const DAY_MS = 86_400_000;
 const PRESET_DAYS = [7, 30, 90, 365];
 /** iam refuses an expiry more than two years out. */
 const MAX_DAYS = 730;
 
 /** The local calendar date `days` from today, as a date input's YYYY-MM-DD value. */
 function dateIn(days: number): string {
-  const d = new Date(Date.now() + days * DAY_MS);
+  const d = new Date();
+  d.setDate(d.getDate() + days);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** The start of a YYYY-MM-DD local date, as the RFC3339 instant iam takes. */
-function expiryOf(date: string): string {
-  return new Date(`${date}T00:00:00`).toISOString();
+/**
+ * The instant a key picked for a YYYY-MM-DD local date expires: that date at the
+ * current time of day, so "7 days" is seven days from now.
+ */
+function expiryOf(date: string): Date {
+  const [y, m, d] = date.split("-").map(Number);
+  const at = new Date();
+  at.setFullYear(y, m - 1, d);
+  return at;
+}
+
+/** Whether a date picked now falls inside the window iam accepts. */
+function inWindow(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  return date >= dateIn(1) && date <= dateIn(MAX_DAYS);
 }
 
 export default function NewKeyForm({
@@ -49,14 +61,15 @@ export default function NewKeyForm({
   const [roles, setRoles] = useState<string[]>([]);
   const [expires, setExpires] = useState(() => dateIn(30));
 
-  const canAdd = !busy && name.trim().length > 0 && roles.length > 0 && expires !== "";
+  const canAdd = !busy && name.trim().length > 0 && roles.length > 0 && inWindow(expires);
 
   const toggle = (role: string) =>
     setRoles((rs) => (rs.includes(role) ? rs.filter((r) => r !== role) : [...rs, role]));
 
   const submit = async () => {
-    if (!canAdd) return;
-    if (await onCreate(name.trim(), roles, expiryOf(expires))) {
+    // Checked again here: a form left open past midnight keeps a stale canAdd.
+    if (!canAdd || !inWindow(expires)) return;
+    if (await onCreate(name.trim(), roles, expiryOf(expires).toISOString())) {
       setName("");
       setRoles([]);
     }
@@ -115,15 +128,18 @@ export default function NewKeyForm({
         ) : (
           offered.map((r) => (
             <HoverCard key={r} card={keyRoleCard(r)}>
-              <label className="inline-flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={roles.includes(r)}
-                  disabled={busy}
-                  onChange={() => toggle(r)}
-                />
-                {ROLE_LABELS[r] ?? r}
-              </label>
+              {(cardId) => (
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    aria-describedby={cardId}
+                    checked={roles.includes(r)}
+                    disabled={busy}
+                    onChange={() => toggle(r)}
+                  />
+                  {ROLE_LABELS[r] ?? r}
+                </label>
+              )}
             </HoverCard>
           ))
         )}

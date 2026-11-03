@@ -4,15 +4,22 @@ import { useId, type ReactNode } from "react";
 
 /**
  * A small card that opens under its trigger while the pointer is over it, or while
- * it holds keyboard focus. The card is linked to the trigger through
- * aria-describedby, so a screen reader reads it with the control. Nothing in it
- * should be interactive: it closes as soon as the pointer leaves.
+ * it holds keyboard focus. `children` receives the card's id, to set as
+ * aria-describedby on the element the card describes, so a screen reader reads
+ * the card with that control. Nothing in it should be interactive: it closes as
+ * soon as the pointer leaves.
  */
-export default function HoverCard({ card, children }: { card: ReactNode; children: ReactNode }) {
+export default function HoverCard({
+  card,
+  children,
+}: {
+  card: ReactNode;
+  children: (cardId: string) => ReactNode;
+}) {
   const id = useId();
   return (
-    <span className="group relative inline-flex" aria-describedby={id}>
-      {children}
+    <span className="group relative inline-flex">
+      {children(id)}
       <span
         id={id}
         role="tooltip"
