@@ -110,8 +110,10 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 
 // exchangeKey mints a platform token for the owner of an API key.
 //
-// The token carries the owner's roles as they stand now and not as they stood
-// when the key was minted, so a key never outranks the person it belongs to.
+// The token carries the key's roles that the owner still reaches now, so a key
+// never outranks the person it belongs to and shrinks when they are demoted. A key
+// left with none is refused rather than answered with an empty token. The result's
+// user carries those same roles: they are what this credential may do.
 // `last_login_at` is not touched: presenting a key is not a sign-in.
 func (s *Service) exchangeKey(ctx context.Context, rawKey string) (Result, error) {
 	k, err := s.keys.Verify(ctx, rawKey)
@@ -129,6 +131,18 @@ func (s *Service) exchangeKey(ctx context.Context, rawKey string) (Result, error
 		}
 		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
+
+	var roles []user.Role
+	for _, r := range k.Roles {
+		if u.Reaches(r) {
+			roles = append(roles, r)
+		}
+	}
+	if len(roles) == 0 {
+		return Result{}, fmt.Errorf(
+			"%w: this API key's roles are no longer held by its owner; mint a new key", ErrForbidden)
+	}
+	u.Roles = roles
 
 	token, err := s.mint(ctx, u, k.ID)
 	if err != nil {
