@@ -23,6 +23,13 @@ export default function UpgradesView() {
   const u = useUpgrades();
   const runtime = u.view?.runtimeVersion;
   const testable = u.behind.filter((d) => d.hasSuites);
+  const loadError =
+    u.state.status === "failed"
+      ? u.state.error
+      : u.state.status === "ready"
+        ? u.state.error
+        : null;
+  const bulkDisabled = !can.deploy || u.bulkRunning;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
@@ -43,10 +50,16 @@ export default function UpgradesView() {
           : "This install does not say which runtime it deploys, so nothing can be compared."}
       </p>
 
-      {u.error && (
-        <p className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-500">
-          {u.error}
-        </p>
+      {[loadError, u.actionError].map(
+        (message, i) =>
+          message && (
+            <p
+              key={i}
+              className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-500"
+            >
+              {message}
+            </p>
+          ),
       )}
 
       <section className="mt-8">
@@ -66,7 +79,7 @@ export default function UpgradesView() {
             >
               <button
                 type="button"
-                disabled={!can.deploy}
+                disabled={bulkDisabled}
                 onClick={() => void u.testAll(false)}
                 className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-black/[0.04] disabled:opacity-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
               >
@@ -75,7 +88,7 @@ export default function UpgradesView() {
               </button>
               <button
                 type="button"
-                disabled={!can.deploy}
+                disabled={bulkDisabled}
                 title="Test every deployment with suites, and upgrade each one whose suites pass."
                 onClick={() => void u.testAll(true)}
                 className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
@@ -86,8 +99,17 @@ export default function UpgradesView() {
             </div>
           )}
         </div>
-        {u.view === null ? (
+        {u.state.status === "loading" ? (
           <p className="mt-4 text-sm text-zinc-400">Loading…</p>
+        ) : u.state.status === "failed" ? (
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+            The upgrades could not be read.
+          </p>
+        ) : !runtime ? (
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+            Without the runtime this install deploys, no deployment can be
+            called behind.
+          </p>
         ) : u.behind.length === 0 ? (
           <p className="mt-4 inline-flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
             <CircleCheck size={15} />

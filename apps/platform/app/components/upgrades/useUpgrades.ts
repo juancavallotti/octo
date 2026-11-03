@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rolloutDeployment } from "@/app/model/orchestrator";
+import { useLoadable, type Loadable } from "@/app/components/ui/loadable";
 import {
   listUpgrades,
   startTestRun,
@@ -16,39 +17,35 @@ const IDLE_POLL_MS = 15000;
 
 /** The upgrades page's state and the actions it offers on each deployment. */
 export interface UpgradesController {
+  state: Loadable<NamedUpgradesView>;
+  /** The view once it has loaded, null before. */
   view: NamedUpgradesView | null;
-  error: string | null;
+  /** Why the last action failed; kept until the next action starts. */
+  actionError: string | null;
   /** Deployments a rollout would move onto a newer runtime. */
   behind: NamedDeploymentUpgrade[];
   /** Deployments whose running version has no test suites. */
   untested: NamedDeploymentUpgrade[];
   /** Deployment ids with an action in flight. */
   pending: ReadonlySet<string>;
+  /** A Test all or Test & upgrade all batch is going. */
+  bulkRunning: boolean;
   refresh: () => Promise<void>;
   test: (d: NamedDeploymentUpgrade, rolloutOnPass: boolean) => Promise<void>;
   /** Roll a deployment onto the version it runs, which moves it to this runtime. */
   upgrade: (d: NamedDeploymentUpgrade) => Promise<void>;
   /** Test every behind deployment that has suites; with `rolloutOnPass`, each one
-   * whose suites pass is upgraded. */
+   * whose suites pass is upgraded. Ignored while a batch is already going. */
   testAll: (rolloutOnPass: boolean) => Promise<void>;
 }
 
 export function useUpgrades(): UpgradesController {
-  const [view, setView] = useState<NamedUpgradesView | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { state, reload } = useLoadable("upgrades", listUpgrades);
+  const view = state.status === "ready" ? state.data : null;
+  const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
-
-  const refresh = useCallback(
-    () =>
-      listUpgrades().then(
-        (v) => {
-          setView(v);
-          setError(null);
-        },
-        (e) => setError((e as Error).message),
-      ),
-    [],
-  );
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const bulk = useRef(false);
 
   const running = useMemo(
     () =>
@@ -57,23 +54,22 @@ export function useUpgrades(): UpgradesController {
   );
 
   useEffect(() => {
-    void refresh();
-    const id = setInterval(refresh, running ? ACTIVE_POLL_MS : IDLE_POLL_MS);
+    const id = setInterval(reload, running ? ACTIVE_POLL_MS : IDLE_POLL_MS);
     return () => clearInterval(id);
-  }, [refresh, running]);
+  }, [reload, running]);
 
   // One action per deployment at a time; the id is held until the view has been
   // read back, so the row shows what the action did rather than flicker.
   const act = useCallback(
     async (id: string, fn: () => Promise<unknown>) => {
+      setActionError(null);
       setPending((p) => new Set(p).add(id));
       try {
         await fn();
-        setError(null);
       } catch (e) {
-        setError((e as Error).message);
+        setActionError((e as Error).message);
       } finally {
-        await refresh();
+        await reload();
         setPending((p) => {
           const next = new Set(p);
           next.delete(id);
@@ -81,7 +77,7 @@ export function useUpgrades(): UpgradesController {
         });
       }
     },
-    [refresh],
+    [reload],
   );
 
   const test = useCallback(
@@ -117,21 +113,31 @@ export function useUpgrades(): UpgradesController {
 
   const testAll = useCallback(
     async (rolloutOnPass: boolean) => {
-      for (const d of behind) {
-        if (d.hasSuites && d.latestRun?.status !== "running")
-          await test(d, rolloutOnPass);
+      if (bulk.current) return;
+      bulk.current = true;
+      setBulkRunning(true);
+      try {
+        for (const d of behind) {
+          if (d.hasSuites && d.latestRun?.status !== "running")
+            await test(d, rolloutOnPass);
+        }
+      } finally {
+        bulk.current = false;
+        setBulkRunning(false);
       }
     },
     [behind, test],
   );
 
   return {
+    state,
     view,
-    error,
+    actionError,
     behind,
     untested,
     pending,
-    refresh,
+    bulkRunning,
+    refresh: reload,
     test,
     upgrade,
     testAll,

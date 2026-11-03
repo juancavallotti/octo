@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useRoles } from "@/app/auth/RolesContext";
 import UpgradeNotice from "@/app/components/deployments/UpgradeNotice";
 import RolloutDialog from "@/app/components/deployments/RolloutDialog";
 import { useRollout } from "@/app/components/deployments/useRollout";
@@ -19,6 +20,7 @@ export default function DashboardUpgrades({
   /** Reload the dashboard's list once a rollout lands. */
   onChanged: () => Promise<void> | void;
 }) {
+  const { can } = useRoles();
   const rollout = useRollout(onChanged);
   const behind = useMemo(
     () => deployments.filter((d) => d.upgradeTo),
@@ -28,7 +30,10 @@ export default function DashboardUpgrades({
   return (
     <>
       {behind.length > 0 && (
-        <UpgradeNotice behind={behind} onRollOut={rollout.open} />
+        <UpgradeNotice
+          behind={behind}
+          onRollOut={can.deploy ? rollout.open : undefined}
+        />
       )}
       <RolloutDialog rollout={rollout} deployments={deployments} />
     </>

@@ -36,7 +36,10 @@ function runSummary(run: TestRun): string {
     case "running":
       return run.rolloutOnPass ? "Testing, then upgrading" : "Testing";
     case "passed":
-      return run.rolledOutAt ? "Passed and upgraded" : "Passed";
+      if (run.rolledOutAt) return "Passed and upgraded";
+      // A rollout the run asked for and could not make leaves its reason in
+      // error; one still on its way has neither.
+      return run.rolloutOnPass && run.error ? "Passed, not upgraded" : "Passed";
     case "failed": {
       const n = failingCases(run.report);
       return `${n} failing case${n === 1 ? "" : "s"}`;
@@ -152,9 +155,13 @@ export default function UpgradeRow({
           ) : (
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || !d.snapshotId}
               onClick={onUpgrade}
-              title="Rolls out without testing: this version has no test suites."
+              title={
+                d.snapshotId
+                  ? "Rolls out without testing: this version has no test suites."
+                  : "It runs no version tag, so there is nothing to roll out. Deploy a tagged version first."
+              }
               className={`${BUTTON} border border-amber-500/40 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400`}
             >
               <GitCompareArrows size={13} />

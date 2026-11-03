@@ -206,7 +206,7 @@ Poll `GET /deployments/{id}/testruns/{runId}` for the verdict:
 | `status` | Meaning |
 | --- | --- |
 | `running` | The Job has not finished. |
-| `passed` | Every case passed; `rolledOutAt` is set when the run asked for a rollout. |
+| `passed` | Every case passed. When the run asked for a rollout, `rolledOutAt` says when it happened; a rollout that could not be made (the deployment was rolled out during the run, or the rollout failed) leaves `rolledOutAt` empty and says why in `error`. |
 | `failed` | A case ran and did not do what it expected. `report` holds dolphin's JSON report. |
 | `errored` | Nothing could be tested: a suite or the config is wrong, or the pod never started. `error` says which. |
 | `timed_out` | The run took longer than five minutes. |
@@ -225,7 +225,7 @@ The **Upgrades** page, in the user menu, lists every deployment on an older runt
 
 ![The Upgrades page](/screenshots/platform-upgrades-page.png)
 
-A run that does not pass shows its report, case by case, and **Open in the editor** takes you to the integration to fix the suite or the flow. The deployment stays on its runtime until a run passes.
+A failed run shows its report, case by case; an errored or timed-out run shows why it could not test, and the report too when dolphin got far enough to write one. **Open in the editor** takes you to the integration to fix the suite or the flow. Nothing moves the deployment until you upgrade it, or a **Test & upgrade** run passes.
 
 ![A failing test run on the Upgrades page](/screenshots/platform-upgrades-failure.png)
 
