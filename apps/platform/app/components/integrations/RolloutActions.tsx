@@ -11,7 +11,7 @@ export default function RolloutActions({
   busy,
   canRollout,
   canTest,
-  edited,
+  testBlocked,
   onClose,
   onSubmit,
   onTestSubmit,
@@ -21,8 +21,8 @@ export default function RolloutActions({
   canRollout: boolean;
   /** Whether testing first is possible; undefined hides the button. */
   canTest?: boolean;
-  /** Whether env or tracing was edited, which a test run would not carry. */
-  edited: boolean;
+  /** Why testing first is unavailable, shown on the button; undefined when it is. */
+  testBlocked?: string;
   onClose: () => void;
   onSubmit: () => void;
   onTestSubmit: () => void;
@@ -43,9 +43,8 @@ export default function RolloutActions({
           onClick={onTestSubmit}
           disabled={!canTest}
           title={
-            edited
-              ? "Tests run with the deployment's saved environment and tracing. Roll out your changes directly."
-              : "Run this version's test suites on this install's runtime, and roll out only if they pass."
+            testBlocked ??
+            "Run this version's test suites on this install's runtime, and roll out only if they pass."
           }
           className="inline-flex items-center gap-1.5 rounded-md border border-sky-600/40 px-3 py-1 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-500/10 disabled:opacity-50 dark:text-sky-300"
         >

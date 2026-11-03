@@ -95,7 +95,7 @@ export function useUpgrades(): UpgradesController {
           throw new Error(
             `${d.integrationName} runs no version tag to roll out`,
           );
-        await rolloutDeployment(d.deploymentId, d.snapshotId);
+        await rolloutDeployment(d.deploymentId, { snapshotId: d.snapshotId });
       }),
     [act],
   );

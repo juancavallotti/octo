@@ -34,6 +34,8 @@ export interface RolloutSubmit {
   newTag?: string;
   env: Record<string, EnvBindingInput>;
   tracing: boolean;
+  /** A runtime release to pin to, or "latest" to follow the install. */
+  runtimeVersion?: string;
 }
 
 export default function RolloutModal({

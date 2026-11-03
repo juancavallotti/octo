@@ -1,6 +1,6 @@
 "use client";
 
-import { Globe, Tag } from "lucide-react";
+import { Globe } from "lucide-react";
 import type { DeployEnvVar } from "@/app/model/orchestrator";
 import type { DeploymentAccess } from "@/app/model/orchestratorTypes";
 
@@ -10,6 +10,7 @@ import DeployEnvFields, { type EnvBinding } from "./DeployEnvFields";
 import Field from "./Field";
 import TracingToggle from "./TracingToggle";
 import AdvancedDeployFields from "./AdvancedDeployFields";
+import DeployVersionField from "./DeployVersionField";
 
 /**
  * The deploy dialog's scrolling body: version, scale, address, tracing, env, and
@@ -41,6 +42,8 @@ export default function DeployFormFields({
   onAccess,
   runner,
   onRunner,
+  runtime,
+  onRuntime,
   envVars,
   bindings,
   secretNames,
@@ -77,6 +80,9 @@ export default function DeployFormFields({
   /** Which runner image the pods run: "" (the default) or "agentic". */
   runner: string;
   onRunner: (runner: string) => void;
+  /** RUNTIME_LATEST or a release to pin to. */
+  runtime: string;
+  onRuntime: (runtime: string) => void;
   envVars: DeployEnvVar[];
   bindings: Record<string, EnvBinding>;
   secretNames: string[];
@@ -88,33 +94,15 @@ export default function DeployFormFields({
 }) {
   return (
     <div className="flex max-h-[70vh] flex-col gap-5 overflow-y-auto px-4 py-4">
-      {currentMode ? (
-        <Field
-          label="New version"
-          hint="Deploying Current tags the working copy first, then ships that frozen version."
-        >
-          <div className="flex items-center gap-2">
-            <Tag size={14} className="shrink-0 text-zinc-400" />
-            <input
-              value={newTag}
-              disabled={busy}
-              placeholder="e.g. v1.0.0"
-              onChange={(e) => onNewTag(e.target.value)}
-              className={`${INPUT} w-full`}
-            />
-          </div>
-        </Field>
-      ) : (
-        <Field
-          label="Version"
-          hint="Ships this tag's frozen definition. Pick a different version from the header."
-        >
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-500/10 px-2 py-1 text-sm font-medium text-sky-600 dark:text-sky-400">
-            <Tag size={14} />
-            {activeVersionLabel}
-          </span>
-        </Field>
-      )}
+      <DeployVersionField
+        currentMode={currentMode}
+        activeVersionLabel={activeVersionLabel}
+        newTag={newTag}
+        onNewTag={onNewTag}
+        runtime={runtime}
+        onRuntime={onRuntime}
+        busy={busy}
+      />
 
       <Field
         label="Scale"

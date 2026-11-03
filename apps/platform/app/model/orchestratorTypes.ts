@@ -216,6 +216,8 @@ export interface Deployment {
   /** The runtime release a rollout would move this deployment onto, present only
    * when it is newer than the one the pods run. */
   upgradeTo?: string;
+  /** The runtime release the deployment is pinned to; absent when it follows the install. */
+  runtimePin?: string;
   /** What this deployment's own token opens on the platform. See {@link DEPLOYMENT_ACCESS}. */
   access?: DeploymentAccess[];
   /** Which image its pods are: "" or "standard" for the default, "agentic" for the
@@ -250,7 +252,33 @@ export interface DeploymentInput {
    * {@link DEPLOYMENT_ACCESS}. Absent or empty opens nothing more.
    */
   access?: DeploymentAccess[];
+  /** Which image the pods run: absent for the default, "agentic" for the runner with a shell. */
+  runner?: string;
+  /** Pin the deployment to a runtime release; absent or "latest" follows the install. */
+  runtimeVersion?: string;
 }
+
+/** What a rollout changes. An absent field keeps the deployment's stored value. */
+export interface RolloutChange {
+  /** The version tag (snapshot id) to roll onto. */
+  snapshotId: string;
+  /** Replaces the stored env bindings wholesale. */
+  env?: Record<string, EnvBindingInput>;
+  tracing?: boolean;
+  /** A runtime release to pin to, or "latest" to follow the install. */
+  runtimeVersion?: string;
+}
+
+/** The runtime releases a deployment can be pinned to. */
+export interface Runtimes {
+  /** The release this install deploys; absent when it cannot say. */
+  current?: string;
+  /** Newest first: the current release and every one a deployment runs now. */
+  versions: string[];
+}
+
+/** The runtime value that follows the install instead of pinning a release. */
+export const RUNTIME_LATEST = "latest";
 
 /**
  * One thing a deployment's own token opens beyond its own stores.

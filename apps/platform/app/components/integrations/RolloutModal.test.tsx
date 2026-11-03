@@ -7,6 +7,8 @@ const getDeployOptions = vi.fn();
 const listSecrets = vi.fn();
 vi.mock("@/app/model/orchestrator", () => ({
   getDeployOptions: (id: string, opts?: unknown) => getDeployOptions(id, opts),
+  listRuntimes: () =>
+    Promise.resolve({ current: "0.11.14", versions: ["0.11.14", "0.11.13"] }),
 }));
 vi.mock("@/app/model/secrets", () => ({ listSecrets: () => listSecrets() }));
 
@@ -232,5 +234,37 @@ describe("RolloutModal", () => {
     const test = screen.getByRole("button", { name: "Test & roll out" });
     await waitFor(() => expect(test).toBeDisabled());
     expect(screen.getByRole("button", { name: "Roll out" })).toBeEnabled();
+  });
+
+  it("pins on roll out, which a test run would not carry", async () => {
+    const onSubmit = renderModal(vi.fn(), { onTestSubmit: vi.fn() });
+    const menu = await screen.findByRole("combobox", { name: "Runtime" });
+    await waitFor(() => expect(menu).toBeEnabled());
+    await userEvent.selectOptions(menu, "0.11.13");
+    expect(
+      screen.getByRole("button", { name: "Test & roll out" }),
+    ).toBeDisabled();
+    const roll = screen.getByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(roll);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeVersion: "0.11.13" }),
+    );
+  });
+
+  it("keeps a pinned deployment pinned, and out of test & roll out", async () => {
+    const onSubmit = renderModal(vi.fn(), {
+      onTestSubmit: vi.fn(),
+      deployments: [{ ...DEPLOYMENT, runtimePin: "0.11.13" }],
+    });
+    const menu = await screen.findByRole("combobox", { name: "Runtime" });
+    expect(menu).toHaveValue("0.11.13");
+    expect(
+      screen.getByRole("button", { name: "Test & roll out" }),
+    ).toBeDisabled();
+    const roll = screen.getByRole("button", { name: "Roll out" });
+    await waitFor(() => expect(roll).toBeEnabled());
+    await userEvent.click(roll);
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("runtimeVersion");
   });
 });

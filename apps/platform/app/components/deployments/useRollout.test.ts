@@ -16,12 +16,8 @@ const rolloutDeployment = vi.fn();
 vi.mock("@/app/model/orchestrator", () => ({
   listSnapshots: (id: string) => listSnapshots(id),
   createSnapshot: (id: string, tag: string) => createSnapshot(id, tag),
-  rolloutDeployment: (
-    id: string,
-    snapshotId: string,
-    env: unknown,
-    tracing: boolean,
-  ) => rolloutDeployment(id, snapshotId, env, tracing),
+  rolloutDeployment: (id: string, change: unknown) =>
+    rolloutDeployment(id, change),
 }));
 
 const startTestRun = vi.fn();
@@ -138,7 +134,11 @@ describe("useRollout", () => {
     });
 
     expect(createSnapshot).toHaveBeenCalledWith("int-1", "v2");
-    expect(rolloutDeployment).toHaveBeenCalledWith("dep-1", "s-new", {}, true);
+    expect(rolloutDeployment).toHaveBeenCalledWith("dep-1", {
+      snapshotId: "s-new",
+      env: {},
+      tracing: true,
+    });
     expect(onDone).toHaveBeenCalled();
     expect(result.current.target).toBeNull();
   });

@@ -27,7 +27,10 @@ describe("indexSecretUsage", () => {
       deployment({
         id: "d2",
         integrationName: "Labeler",
-        env: { TOKEN: { secret: "GITHUB_TOKEN" }, KEY: { secret: "OPENAI_KEY" } },
+        env: {
+          TOKEN: { secret: "GITHUB_TOKEN" },
+          KEY: { secret: "OPENAI_KEY" },
+        },
       }),
     ]);
 

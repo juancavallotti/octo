@@ -21,7 +21,8 @@ import type {
   DeployOptions,
   Deployment,
   DeploymentInput,
-  EnvBindingInput,
+  RolloutChange,
+  Runtimes,
   Folder,
   Integration,
   IntegrationDetailData,
@@ -136,18 +137,20 @@ export async function createDeployment(
  * Roll a live deployment over to a different version tag (rolling update).
  * An `env` map replaces the deployment's stored bindings (edit/extend on rollout);
  * omitting it preserves them (a plain version bump keeps the same env). `tracing`
- * follows the same rule — omitted keeps the deployment's setting, so a version bump
- * never silently stops tracing a deployment someone is investigating.
+ * and `runtimeVersion` follow the same rule — omitted keeps the deployment's
+ * setting, so a version bump never silently stops tracing a deployment someone is
+ * investigating, or moves one off the runtime it is pinned to.
  */
 export async function rolloutDeployment(
   id: string,
-  snapshotId: string,
-  env?: Record<string, EnvBindingInput>,
-  tracing?: boolean,
+  change: RolloutChange,
 ): Promise<Deployment> {
-  return unwrap(
-    await deploymentActions.rolloutDeployment(id, snapshotId, env, tracing),
-  );
+  return unwrap(await deploymentActions.rolloutDeployment(id, change));
+}
+
+/** The runtime releases a deployment can be pinned to. */
+export async function listRuntimes(): Promise<Runtimes> {
+  return unwrap(await deploymentActions.listRuntimes());
 }
 
 /** Scale an existing deployment to a new desired replica count. */

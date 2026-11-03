@@ -104,12 +104,12 @@ export function useRollout(
       setError(null);
       try {
         const snapshotId = await resolveSnapshot(input);
-        await rolloutDeployment(
-          input.deploymentId,
+        await rolloutDeployment(input.deploymentId, {
           snapshotId,
-          input.env,
-          input.tracing,
-        );
+          env: input.env,
+          tracing: input.tracing,
+          runtimeVersion: input.runtimeVersion,
+        });
         await onDone();
         setTarget(null);
       } catch (e) {
