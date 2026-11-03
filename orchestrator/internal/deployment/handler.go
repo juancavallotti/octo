@@ -97,13 +97,13 @@ type envBindingResponse struct {
 // name, replica count and URLs are lifted out of the jsonb columns; the replica
 // counts, pods, reason and createdAt come from the live cluster status.
 type deploymentResponse struct {
-	ID              string        `json:"id"`
-	IntegrationID   string        `json:"integrationId"`
-	Name            string        `json:"name"`
-	Tag             string        `json:"tag,omitempty"`
+	ID            string `json:"id"`
+	IntegrationID string `json:"integrationId"`
+	Name          string `json:"name"`
+	Tag           string `json:"tag,omitempty"`
 	// SnapshotID is the version the deployment runs, by id: what a rollout that
 	// changes only env, tracing or runtime rolls it onto again.
-	SnapshotID string `json:"snapshotId,omitempty"`
+	SnapshotID      string        `json:"snapshotId,omitempty"`
 	Status          string        `json:"status"`
 	Replicas        int           `json:"replicas"`
 	ReadyReplicas   int32         `json:"readyReplicas"`
