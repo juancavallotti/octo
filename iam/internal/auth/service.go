@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/go-jose/go-jose/v4/jwt"
@@ -291,16 +292,19 @@ func (s *Service) MintMachine(
 		return Result{}, err
 	}
 
-	owner, err := s.owner(ctx, rawToken)
+	owner, claims, err := s.owner(ctx, rawToken)
 	if err != nil {
 		return Result{}, err
 	}
-	if !mayDeploy(owner) {
+	if claims.APIKey != "" {
+		if err := keyMayLend(claims.Roles, access); err != nil {
+			return Result{}, err
+		}
+	} else if !mayDeploy(owner) {
 		return Result{}, fmt.Errorf(
 			"%w: lending an identity to a deployment requires %s or %s",
 			ErrForbidden, user.RoleOperator, user.RoleAdmin)
-	}
-	if !mayLend(owner, access) {
+	} else if !mayLend(owner, access) {
 		// The access is named and the caller's roles are not: they asked for this
 		// much and may not have it, which is a thing they can act on.
 		return Result{}, fmt.Errorf(
@@ -342,28 +346,43 @@ func (s *Service) mintMachine(
 //
 // A machine token must not be able to mint another, or one leaked credential
 // becomes an unbounded family of them that no person authorised.
-func (s *Service) owner(ctx context.Context, rawToken string) (user.User, error) {
+func (s *Service) owner(ctx context.Context, rawToken string) (user.User, platformClaims, error) {
 	var claims platformClaims
 	verified, err := s.minter.Verify(ctx, rawToken, &claims)
 	if err != nil {
-		return user.User{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		return user.User{}, claims, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 	}
 	if claims.Deployment != "" {
-		return user.User{}, fmt.Errorf(
+		return user.User{}, claims, fmt.Errorf(
 			"%w: a machine token cannot mint another", ErrUnauthenticated)
-	}
-	// A machine token renews without a key behind it, so lending one from a token
-	// exchanged for an API key would let the key's reach outlive its revocation.
-	if claims.APIKey != "" {
-		return user.User{}, fmt.Errorf(
-			"%w: a token exchanged for an API key cannot lend its identity to a deployment; sign in instead",
-			ErrForbidden)
 	}
 	u, err := s.users.Get(ctx, verified.Subject)
 	if err != nil {
-		return user.User{}, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		return user.User{}, claims, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 	}
-	return u, nil
+	return u, claims, nil
+}
+
+// keyMayLend decides for a token exchanged for an API key, whose roles are the
+// key's own: it may lend a deployment an identity when it carries cicd or
+// operator, and then only the basic one.
+//
+// A machine token renews without a key behind it, so whatever a key lends
+// outlives the key's revocation. The basic identity reaches only the
+// deployment's own stores; an access grant would leave a revoked key's reach
+// running in a pod, so granting one takes a signed-in person.
+func keyMayLend(roles []user.Role, access []Access) error {
+	if !slices.Contains(roles, user.RoleCICD) && !slices.Contains(roles, user.RoleOperator) {
+		return fmt.Errorf(
+			"%w: an API key lends a deployment an identity only when it carries %s or %s",
+			ErrForbidden, user.RoleCICD, user.RoleOperator)
+	}
+	if len(access) > 0 {
+		return fmt.Errorf(
+			"%w: an API key may lend a deployment only its basic identity; sign in to grant it %s access",
+			ErrForbidden, describe(access))
+	}
+	return nil
 }
 
 // mayDeploy reports whether u is somebody who runs things here, and so somebody

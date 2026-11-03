@@ -154,17 +154,43 @@ func TestATokenFromAnAPIKeyIsNotRefreshed(t *testing.T) {
 
 // A machine token renews itself without asking after any key, so one lent from a
 // key's token would keep the key's reach alive after the key is revoked.
-func TestATokenFromAnAPIKeyCannotMintAMachineToken(t *testing.T) {
-	h := newHarness(t)
-	h.keyFor(t, "provider|abc123", "owner@example.com", user.RoleDeveloper)
-
+// tokenFor exchanges testKey and returns the platform token it buys.
+func (h *harness) tokenFor(t *testing.T) string {
+	t.Helper()
 	rec := h.post(t, "Bearer "+testKey)
 	var got authResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+	return got.Token
+}
 
-	if rec := h.postMachine(t, "Bearer "+got.Token, "billing"); rec.Code != http.StatusForbidden {
+// A key that does not ship cannot lend a deployment an identity at all.
+func TestADeveloperKeyCannotMintAMachineToken(t *testing.T) {
+	h := newHarness(t)
+	h.keyFor(t, "provider|abc123", "owner@example.com", user.RoleDeveloper)
+
+	if rec := h.postMachine(t, "Bearer "+h.tokenFor(t), "billing"); rec.Code != http.StatusForbidden {
 		t.Fatalf("POST /auth/machine = %d (%s), want 403", rec.Code, rec.Body.String())
+	}
+}
+
+// A pipeline's key deploys with the basic identity, and never grants access: what
+// it lends outlives the key, so a grant takes a signed-in person.
+func TestACICDKeyLendsOnlyTheBasicIdentity(t *testing.T) {
+	h := newHarness(t)
+	h.keyFor(t, "provider|abc123", "owner@example.com", user.RoleCICD)
+	token := h.tokenFor(t)
+
+	rec := h.postMachine(t, "Bearer "+token, "billing")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("basic identity: POST /auth/machine = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if _, private := h.claimsOf(t, decodeToken(t, rec).Token); !slices.Equal(private.Roles, []user.Role{user.RoleRuntime}) {
+		t.Errorf("roles = %v, want only runtime", private.Roles)
+	}
+	rec = h.postMachineWith(t, "Bearer "+token, "billing", AccessOperator)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "sign in to grant") {
+		t.Fatalf("with access: POST /auth/machine = %d (%s), want 403 saying to sign in", rec.Code, rec.Body)
 	}
 }
