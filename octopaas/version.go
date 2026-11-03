@@ -2,4 +2,4 @@ package main
 
 // Version is octopaas's release, stamped by release-please with every other
 // component's.
-const Version = "0.11.14" // x-release-please-version
+const Version = "0.11.15" // x-release-please-version

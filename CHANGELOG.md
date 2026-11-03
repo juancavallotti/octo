@@ -1,5 +1,112 @@
 # Changelog
 
+## [0.11.15](https://github.com/juancavallotti/octo/compare/v0.11.14...v0.11.15) (2026-11-03)
+
+
+### Features
+
+* a test run older than the last rollout is stale ([390071e](https://github.com/juancavallotti/octo/commit/390071eba445b25cb55fc4c57f2bc10761626ccc))
+* **api:** relay runtime pins, runtimes, upgrades and test runs ([1969ba6](https://github.com/juancavallotti/octo/commit/1969ba6c2f3b341b363e01674c9edce945959d3a))
+* **iam:** a CI/CD or operator key may deploy with the basic identity ([f3ec65d](https://github.com/juancavallotti/octo/commit/f3ec65db0c0c1cc20932e75eb9c012f5cc3da8fb))
+* **iam:** a key-only CI/CD role ([7a99429](https://github.com/juancavallotti/octo/commit/7a994295ebfb8638e2123cba87fd8b5f6c8fa533))
+* **iam:** a key's token carries only the roles its owner still reaches ([62e43f5](https://github.com/juancavallotti/octo/commit/62e43f5817c111cf745d0f521122003d9e557c06))
+* **iam:** api keys carry their own roles and a chosen expiry date ([ce2c2cb](https://github.com/juancavallotti/octo/commit/ce2c2cb831301ce1d4e460d8adda9a928d7a4fd6))
+* **mcp:** delete a flow's test suite with delete_file ([58ae0d3](https://github.com/juancavallotti/octo/commit/58ae0d3fa336eeb290e06aeb1f109e0814555ae6))
+* **mcp:** delete a flow's test suite with delete_file ([7a21532](https://github.com/juancavallotti/octo/commit/7a2153210fe377d62239eec46c12b98e39fe7853))
+* **octopaas:** explain a scoped key's refusal ([364a586](https://github.com/juancavallotti/octo/commit/364a586c01fc482214ea5402ac48644fff50a7b7))
+* **octopaas:** outdated deployments, test runs and runtime pins ([ccd817f](https://github.com/juancavallotti/octo/commit/ccd817f0696281f053ac559b7892862644aa1bb9))
+* **octopaas:** outdated deployments, test runs and runtime pins from the CLI and public API ([11f0b5f](https://github.com/juancavallotti/octo/commit/11f0b5ff6229ce8e7b24125ae8e8376d852e20d6))
+* **orchestrator,observability:** admit the CI/CD role where shipping needs it ([76cf8cb](https://github.com/juancavallotti/octo/commit/76cf8cb49da22644424c51e2dd502855112ef02b))
+* **orchestrator:** GET /upgrades ([a563efa](https://github.com/juancavallotti/octo/commit/a563efa9a864052ea9d69c86e113927e55314ab0))
+* **orchestrator:** pin a deployment's runtime ([90a1e25](https://github.com/juancavallotti/octo/commit/90a1e252821e952969afa46888da71b1aabb84b5))
+* **orchestrator:** recognise stored test suites with projectfile.IsSuite ([4d84017](https://github.com/juancavallotti/octo/commit/4d84017be0baf9580e41108dda8f72cb1d34a3b0))
+* **orchestrator:** report the version a deployment runs by id ([9654aa7](https://github.com/juancavallotti/octo/commit/9654aa7ba0fde0c4bee66d7134272407edcd33ba))
+* **orchestrator:** run a deployment's test suites as a Job ([9eb2b7d](https://github.com/juancavallotti/octo/commit/9eb2b7d141becc74ced279fda86facb1855b5156))
+* **orchestrator:** runtimes to pin to, and pinned deployments in upgrades ([d8f2d71](https://github.com/juancavallotti/octo/commit/d8f2d714de5c607334be061006d9a6872112b213))
+* pin only to supported runtime releases ([f8ddf34](https://github.com/juancavallotti/octo/commit/f8ddf3488a484ac6c461e7055e4d893d2fe19b52))
+* **platform:** a clearer version menu in the rollout dialog ([c19c4d3](https://github.com/juancavallotti/octo/commit/c19c4d3cfc62ea46a8c75f38413a4daa3a86454c))
+* **platform:** a hover card for each key role ([20161af](https://github.com/juancavallotti/octo/commit/20161af6af7c23a08942b96a868383b5a007076d))
+* **platform:** explain key roles and clear expired keys ([b48d73f](https://github.com/juancavallotti/octo/commit/b48d73f66c4d7725bc83cdb4598f29a818af4797))
+* **platform:** label the runtime dropdown ([44f91b3](https://github.com/juancavallotti/octo/commit/44f91b3389f38ce78241bf503c7f12a48987fa5b))
+* **platform:** offer the CI/CD role on a new key ([862dd5b](https://github.com/juancavallotti/octo/commit/862dd5b2c536cc98f1f05a3bc07b7b656b74eced))
+* **platform:** one kind of picker for version and runtime ([49a6f16](https://github.com/juancavallotti/octo/commit/49a6f162ae61c541e791ef713ca7be7350c6aa40))
+* **platform:** pick a deployment's runtime when deploying and rolling out ([8a2f7da](https://github.com/juancavallotti/octo/commit/8a2f7daeae05c7eca4fa359810c004edd38181a5))
+* **platform:** pinned deployments on the upgrades page and dashboard ([e17fbb6](https://github.com/juancavallotti/octo/commit/e17fbb6f57469ea4e7c592029e2f0e265095ccdc))
+* **platform:** runtime versions as pills on the upgrades page ([ca00496](https://github.com/juancavallotti/octo/commit/ca0049670b43b281dee89095cc54530da635841f))
+* **platform:** scope and date a new API key ([deb3a5f](https://github.com/juancavallotti/octo/commit/deb3a5faf0a72c21bcb64d1e84fd290aab3f85a1))
+* **platform:** test & roll out ([48e6834](https://github.com/juancavallotti/octo/commit/48e6834eecf7f3c8c3de1475270e2fa616fb7d21))
+* **platform:** test & upgrade all, and the editor on a failing run ([41acd7b](https://github.com/juancavallotti/octo/commit/41acd7b0bb312528318db032fe1534357882c491))
+* **platform:** upgrade notice on the dashboard ([29f43a8](https://github.com/juancavallotti/octo/commit/29f43a89daf4d1739a488e3fbd6dcdf020387fd7))
+* **platform:** upgrades page ([5d025a0](https://github.com/juancavallotti/octo/commit/5d025a0fda443ab4043cf270cec85e188db81521))
+* restricted API keys with per-key roles, dated expiry and a CI/CD role ([f08c94d](https://github.com/juancavallotti/octo/commit/f08c94d63b0d92ef95d5664253d9cbd2e12cd42c))
+* **runtime:** ship dolphin in the standalone runtime image ([817acad](https://github.com/juancavallotti/octo/commit/817acad871e85ddfea66f9c62085f95690db84d8))
+* **standalone:** show progress on the restart-to-update button ([38f1d1e](https://github.com/juancavallotti/octo/commit/38f1d1eae7eb6bde38458a989048eae1a670e806))
+* **standalone:** show progress on the restart-to-update button ([1e4cc80](https://github.com/juancavallotti/octo/commit/1e4cc808048fef23d5aa75ecce304979b0296f90))
+
+
+### Bug Fixes
+
+* **api:** relay iam's reason for a 403 ([ee9dee8](https://github.com/juancavallotti/octo/commit/ee9dee8a10760e156a174ebcf35b2a1b1170a616))
+* **deps:** update module golang.org/x/net to v0.62.0 [security] ([45ab796](https://github.com/juancavallotti/octo/commit/45ab796ec534546f911f46cbe9fa56d02726f83d))
+* **deps:** update module golang.org/x/net to v0.62.0 [security] ([0b0f425](https://github.com/juancavallotti/octo/commit/0b0f42549bcfa2303ec687a62a3315305f7259d9))
+* **deps:** update module golang.org/x/text to v0.41.0 [security] ([282095d](https://github.com/juancavallotti/octo/commit/282095df723f878fa9471e4074617bfce97c93fa))
+* **deps:** update module golang.org/x/text to v0.41.0 [security] ([a9b3fc8](https://github.com/juancavallotti/octo/commit/a9b3fc8f09a8d7011f3a5842c8093f299cb9a5f2))
+* **deps:** update pnpm to v10.34.5 [security] ([a377669](https://github.com/juancavallotti/octo/commit/a377669135bae06ed09c6de8d72acde9eac55889))
+* **deps:** update pnpm to v10.34.5 [security] ([ac163ed](https://github.com/juancavallotti/octo/commit/ac163ed12063447cb707afbc08d94f2deb04c263))
+* **iam:** roles are not a ladder ([3f81451](https://github.com/juancavallotti/octo/commit/3f81451a4d434dea80c1d804e920b190906c5d69))
+* key rules, schema guard and CLI hint per the PR review ([451f978](https://github.com/juancavallotti/octo/commit/451f97826c0290af193f7e5f816584cbcb079526))
+* **mcp:** refuse delete_file when a suite file name is ambiguous ([c5cac29](https://github.com/juancavallotti/octo/commit/c5cac29105384492b5498749bd515f5f7c292f4d))
+* **octopaas:** upgrade commands per the CodeRabbit review ([6a11675](https://github.com/juancavallotti/octo/commit/6a116757be43ace67f4cb3e112eede2a9089a934))
+* **octopaas:** upgrades leave the version to the platform ([3659a5b](https://github.com/juancavallotti/octo/commit/3659a5bacb35bed41dd7fab3359eee38b88a916c))
+* **orchestrator,observability:** confine CI/CD to rolling out ([8b69c80](https://github.com/juancavallotti/octo/commit/8b69c805dccff82bf4ded0c6e9983463cf960999))
+* **orchestrator:** a rollout without a version keeps the one it runs ([cf3b756](https://github.com/juancavallotti/octo/commit/cf3b756a75efc6169563871a6aecff4c4757c8f8))
+* **orchestrator:** commit the test pod output fixtures ([5573bd0](https://github.com/juancavallotti/octo/commit/5573bd066624a308ead6684798f47d315e52c938))
+* **orchestrator:** report iam's refusal to lend an identity as a 403 ([0b2711c](https://github.com/juancavallotti/octo/commit/0b2711ce68c2ec0b5f09d83280a25902b27eefdc))
+* **orchestrator:** test runs per the CodeRabbit review ([338d59f](https://github.com/juancavallotti/octo/commit/338d59f756d6b4046e2b0a508b16207b0a6296ea))
+* **orchestrator:** trim a requested runtime pin before validating it ([d773267](https://github.com/juancavallotti/octo/commit/d773267c8dc22e0e283dc029858692ff0e0589e0))
+* **platform:** keep polling a test run after repeated identical failures ([5ccc24d](https://github.com/juancavallotti/octo/commit/5ccc24dcc0054d8403062afa0e792356cfca33f1))
+* **platform:** keep upgrade rows in name order across polls ([73acaf9](https://github.com/juancavallotti/octo/commit/73acaf900f02fff0dea3d380a14483ed4330e157))
+* **platform:** key expiry dates and role descriptions per the PR review ([65abd6d](https://github.com/juancavallotti/octo/commit/65abd6d68c23dff3bd548d10b1365fe741ea8c3b))
+* **platform:** key roles are facets, not a ladder ([2169e62](https://github.com/juancavallotti/octo/commit/2169e625b982dbba440bf74cf190c9d3e252638f))
+* **platform:** report a partial bulk delete of expired keys ([f8dcb4d](https://github.com/juancavallotti/octo/commit/f8dcb4d57db997bfb2d87cbc05e4fb3c1bbc95ed))
+* **platform:** roll out opens on the deployed version ([d994b17](https://github.com/juancavallotti/octo/commit/d994b175afa06dde73d8ee23a87b670e1c0af88d))
+* **platform:** test & upgrade all tests pinned deployments without upgrading them ([af12e40](https://github.com/juancavallotti/octo/commit/af12e402f43b02d5cbdcb4798887da06d9f180f4))
+* **platform:** the version menu floats over the dialog instead of being clipped by it ([c37c274](https://github.com/juancavallotti/octo/commit/c37c274d9c5e85527e84e3642728aefa2276fbe3))
+* **platform:** upgrades page per the CodeRabbit review ([367aec4](https://github.com/juancavallotti/octo/commit/367aec44ae725d5b4765ecaeac3bee385eb6f09e))
+
+
+### Refactoring
+
+* **iam:** one containment rule for roles ([3d661b5](https://github.com/juancavallotti/octo/commit/3d661b53ed03128a862c92d9726ca6d544cd6428))
+* **orchestrator:** own runtime-behind on deployment responses ([28da5a7](https://github.com/juancavallotti/octo/commit/28da5a71f6a8632cad2373fccd707d4c12f5e1b4))
+* **platform:** the upgrade row's run verdict helpers in their own module ([6c3485c](https://github.com/juancavallotti/octo/commit/6c3485c9bf72160bd9e255bc232c8e6dfb31b4fa))
+
+
+### Documentation
+
+* a deployment outlives whoever deployed it ([e259031](https://github.com/juancavallotti/octo/commit/e2590317909c46dfa7af30e00ed2452ef2b52c46))
+* CI/CD keys are broad today, narrower ones are planned ([19b5c1e](https://github.com/juancavallotti/octo/commit/19b5c1e93dee17a8f89de38f226317c758d45629))
+* **editor:** a keyboard shortcuts page ([1676375](https://github.com/juancavallotti/octo/commit/1676375fa32aafb0b87ebdd776f0de85cacb63dc))
+* go to the end of an agreed plan and gate PRs on an e2e test plan ([2ca4264](https://github.com/juancavallotti/octo/commit/2ca42643f6bf1b3de4a2a683f03cc12a73065058))
+* go to the end of an agreed plan, gate PRs on an e2e test plan ([a73dcff](https://github.com/juancavallotti/octo/commit/a73dcffca96e78aa5f05658463dee8d957bf8976))
+* key rules per the CodeRabbit review ([ccfe8d3](https://github.com/juancavallotti/octo/commit/ccfe8d3a1fd71684bfa74d5b415a484c936c3879))
+* **octopaas:** a CI/CD key may roll out and upgrade ([adae2c4](https://github.com/juancavallotti/octo/commit/adae2c45ffd2733d1aab953f8514207df8bab637))
+* **octopaas:** upgrading needs a signed-in session, not an API key ([df36409](https://github.com/juancavallotti/octo/commit/df36409dd4ee625570f9664ea9cddc087c4b181d))
+* pinning a deployment's runtime ([5859de3](https://github.com/juancavallotti/octo/commit/5859de379e1daba4a9681bbfeeb7b21b32ae3fe7))
+* **platform:** retake the platform screenshots against the current UI ([c5264a2](https://github.com/juancavallotti/octo/commit/c5264a28429ef9d77208b9ca311eff30cdccca61))
+* **platform:** show the Platform services check ([14c3bd7](https://github.com/juancavallotti/octo/commit/14c3bd77a4573a661193093d413036b4e7c32587))
+* point Renovate troubleshooting at the Mend job logs ([03fd853](https://github.com/juancavallotti/octo/commit/03fd8534db46a54d32d37b3a90d8a095ea23a5b9))
+* refresh platform screenshots and add a keyboard shortcuts page ([f39c830](https://github.com/juancavallotti/octo/commit/f39c830c07273093f123cb9d0e7d6a888f080c14))
+* restricted API keys for CI ([3d35b97](https://github.com/juancavallotti/octo/commit/3d35b97209b95b1082ebd3cc791af2fb5201ba5d))
+* retake the API keys screenshot with scoped keys ([355e91f](https://github.com/juancavallotti/octo/commit/355e91fd935dbf6d22028d6a99f0a9c9e11d0df9))
+* retake the rollout dialog screenshots with the new pickers ([42190da](https://github.com/juancavallotti/octo/commit/42190dadaf10f5928812c5a5738bdda3fd0d4dae))
+* runtime upgrades and test runs ([4cb973e](https://github.com/juancavallotti/octo/commit/4cb973eb4682414a94f7cea496e57326765f3ff0))
+* say how to tell Renovate is actually running ([74f4664](https://github.com/juancavallotti/octo/commit/74f46645c379c1d47dd54ca8032e54ac17fd73f6))
+* screenshots of runtime pinning and the pill styling ([ba7023f](https://github.com/juancavallotti/octo/commit/ba7023f2728bb4ebc91d226db507c293f4a29f96))
+* screenshots of the upgrade flow ([882ce4e](https://github.com/juancavallotti/octo/commit/882ce4ebf0f067c18b116218f59d51a807bf447d))
+* upgrades from the CLI and the public API ([29310e2](https://github.com/juancavallotti/octo/commit/29310e21561451bfa4026ac40e530f65d4a5d0cf))
+* what the CI/CD role can and cannot do ([03fed33](https://github.com/juancavallotti/octo/commit/03fed3346368582d65fda6f49129d84208eb0d57))
+
 ## [0.11.14](https://github.com/juancavallotti/octo/compare/v0.11.13...v0.11.14) (2026-11-03)
 
 
