@@ -7,7 +7,13 @@ a pull request and goes through `validate.yml` like any other.
 ## Renovate
 
 [Renovate](https://docs.renovatebot.com/) runs as the Mend Renovate GitHub App,
-configured by [`renovate.json5`](../renovate.json5). It watches:
+configured by [`renovate.json5`](../renovate.json5). The config does nothing until
+the app is installed on the repository (github.com/apps/renovate, with this repo
+selected) and the repository is set to open PRs, not *Silent*, in the Mend
+developer portal. The first sign of life is the *Dependency Dashboard* issue; if
+it is missing, the app is not running here. Validate a config change with
+`npx --package renovate@latest -- renovate-config-validator --strict renovate.json5`
+— an older Renovate rejects options the current one accepts. It watches:
 
 | Ecosystem | Where |
 | --- | --- |
