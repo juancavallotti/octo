@@ -1,0 +1,37 @@
+# The test-run relay passes the orchestrator's answer through, 202 included: a
+# run is accepted and watched, not finished, when the route returns.
+flow: start-test-run
+
+env:
+  IAM_URL: http://iam.test
+  ORCHESTRATOR_URL: http://orchestrator.test
+  OBSERVABILITY_URL: http://observability.test
+  API_RESOURCE_URL: https://api.example.com
+  OIDC_ISSUER: https://idp.example.com
+
+mocks:
+  authenticate.exchange[body].call-iam:
+    default:
+      body: { token: platform-jwt, user: { id: user-1 } }
+      vars: { statusCode: 200 }
+  start-test-run.relay:
+    default:
+      body: { id: run-1, status: running, rolloutOnPass: true }
+      vars: { statusCode: 202 }
+
+cases:
+  - name: a run is relayed and accepted
+    input:
+      data: { rolloutOnPass: true }
+      vars: { id: d1, Authorization: "Bearer octo_key" }
+    expect:
+      vars: { httpStatus: 202 }
+    spies:
+      start-test-run.relay: { count: 1 }
+
+  - name: an empty body runs the suites without rolling out
+    input:
+      data: {}
+      vars: { id: d1, Authorization: "Bearer octo_key" }
+    expect:
+      vars: { httpStatus: 202 }

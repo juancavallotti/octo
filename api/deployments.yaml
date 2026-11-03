@@ -268,7 +268,8 @@ flows:
              ?"env": body.?env,
              ?"tracing": body.?tracing,
              ?"access": body.?access,
-             ?"runner": body.?runner}
+             ?"runner": body.?runner,
+             ?"runtimeVersion": body.?runtimeVersion}
           failOnError: false
       - ref: relay-status
 
@@ -337,7 +338,7 @@ flows:
           failOnError: false
       - ref: relay-status
 
-  # POST /v1/deployments/{id}/rollout  {"snapshotId": "...", "env": {...}, "tracing": true}
+  # POST /v1/deployments/{id}/rollout  {"snapshotId": "...", "env": {...}, "tracing": true, "runtimeVersion": "0.11.13"}
   #
   # Moves a running deployment onto another version in place. A field left out
   # keeps what the deployment already has, so it is only sent when given.
@@ -366,7 +367,144 @@ flows:
           body: >-
             {?"snapshotId": body.?snapshotId,
              ?"env": body.?env,
-             ?"tracing": body.?tracing}
+             ?"tracing": body.?tracing,
+             ?"runtimeVersion": body.?runtimeVersion}
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/runtimes — the runtime releases a deployment can be pinned to.
+  - name: list-runtimes
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/runtimes
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/runtimes"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/upgrades — every deployment, with the runtime it runs, the newer one
+  # a rollout would move it onto, whether it has test suites, and its last run.
+  - name: list-upgrades
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/upgrades
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/upgrades"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # POST /v1/deployments/{id}/testruns  {"snapshotId": "...", "rolloutOnPass": true}
+  #
+  # Runs the deployment's test suites on the runtime this install deploys.
+  - name: start-test-run
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/testruns
+        methods: [POST]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"POST"'
+          path: '"/deployments/" + vars.id + "/testruns"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          body: >-
+            {?"snapshotId": body.?snapshotId,
+             "rolloutOnPass": body.?rolloutOnPass.orValue(false)}
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/deployments/{id}/testruns — its most recent test runs, newest first.
+  - name: list-test-runs
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/testruns
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/deployments/" + vars.id + "/testruns"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status
+
+  # GET /v1/deployments/{id}/testruns/{runId} — one test run, with its report.
+  - name: get-test-run
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/deployments/{id}/testruns/{runId}
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/deployments/" + vars.id + "/testruns/" + vars.runId'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
           failOnError: false
       - ref: relay-status
 
