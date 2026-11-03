@@ -1,0 +1,133 @@
+package cmd
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// fakeAPI serves the routes the upgrade commands call, recording what reached it.
+type fakeAPI struct {
+	mu        sync.Mutex
+	started   []map[string]any
+	rollouts  []map[string]any
+	reads     int
+	verdict   string
+	deployRow map[string]any
+}
+
+func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	write := func(status int, v any) {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(v)
+	}
+	body := map[string]any{}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	switch {
+	case r.URL.Path == "/v1/upgrades":
+		write(200, map[string]any{"runtimeVersion": "0.11.14", "deployments": []any{
+			map[string]any{"deploymentId": "d1", "name": "billing", "tag": "v1.0.0", "runtimeVersion": "0.11.13", "upgradeTo": "0.11.14", "hasSuites": true},
+			map[string]any{"deploymentId": "d2", "name": "timer", "runtimeVersion": "0.11.13", "upgradeTo": "0.11.14", "hasSuites": false, "pinned": true},
+		}})
+	case r.URL.Path == "/v1/deployments" && r.Method == http.MethodGet:
+		write(200, []any{f.deployRow})
+	case r.URL.Path == "/v1/deployments/d1" && r.Method == http.MethodGet:
+		write(200, f.deployRow)
+	case r.URL.Path == "/v1/deployments/d1/testruns" && r.Method == http.MethodPost:
+		f.started = append(f.started, body)
+		write(202, map[string]any{"id": "r1", "deploymentId": "d1", "status": "running", "runtimeVersion": "0.11.14"})
+	case r.URL.Path == "/v1/deployments/d1/testruns/r1":
+		f.reads++
+		write(200, map[string]any{"id": "r1", "deploymentId": "d1", "status": f.verdict, "runtimeVersion": "0.11.14",
+			"report": map[string]any{"totals": map[string]any{"cases": 1, "failed": 1}, "suites": []any{
+				map[string]any{"path": "t_test.yaml", "cases": []any{map[string]any{"name": "it prices", "status": f.verdict, "summary": "want USD"}}},
+			}}})
+	case r.URL.Path == "/v1/deployments/d1/rollout":
+		f.rollouts = append(f.rollouts, body)
+		write(200, f.deployRow)
+	default:
+		write(404, map[string]any{"error": "not found: " + r.Method + " " + r.URL.Path})
+	}
+}
+
+// run executes octopaas against api with args, returning its status and output.
+func run(t *testing.T, api *fakeAPI, args ...string) (int, string) {
+
+	t.Helper()
+	srv := httptest.NewServer(api)
+	t.Cleanup(srv.Close)
+	env := map[string]string{
+		"OCTOPAAS_URL":  srv.URL,
+		"OCTOPAAS_KEY":  "octo_test",
+		"OCTOPAAS_HOME": t.TempDir(),
+	}
+	var out, errOut bytes.Buffer
+	app := &App{Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errOut, Getenv: func(k string) string { return env[k] }}
+	status := Execute(context.Background(), app, args)
+	return status, out.String() + errOut.String()
+}
+
+func TestOutdatedListsBehindAndUntested(t *testing.T) {
+
+	status, out := run(t, &fakeAPI{}, "deployments", "outdated", "--plain")
+	if status != 0 {
+		t.Fatalf("status %d: %s", status, out)
+	}
+	for _, want := range []string{"billing", "0.11.13 → 0.11.14", "not tested on 0.11.14", "pinned", "No test suites", "timer"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestTestWaitsForTheVerdictAndFailsOnAFailure(t *testing.T) {
+
+	api := &fakeAPI{verdict: "failed", deployRow: map[string]any{"id": "d1", "name": "billing"}}
+	status, out := run(t, api, "deployments", "test", "billing", "--upgrade", "--plain")
+	if status != 1 {
+		t.Fatalf("status %d, want 1 for failing suites: %s", status, out)
+	}
+	if len(api.started) != 1 || api.started[0]["rolloutOnPass"] != true {
+		t.Errorf("started = %v, want one run with rolloutOnPass", api.started)
+	}
+	if !strings.Contains(out, "it prices") || !strings.Contains(out, "want USD") {
+		t.Errorf("the failing case is not reported:\n%s", out)
+	}
+}
+
+func TestTestPasses(t *testing.T) {
+
+	api := &fakeAPI{verdict: "passed", deployRow: map[string]any{"id": "d1", "name": "billing"}}
+	if status, out := run(t, api, "deployments", "test", "billing", "--plain"); status != 0 {
+		t.Fatalf("status %d: %s", status, out)
+	}
+	if api.started[0]["rolloutOnPass"] != false {
+		t.Errorf("a plain test asked for a rollout: %v", api.started[0])
+	}
+}
+
+// A pinned deployment is upgraded by moving its pin; it stays pinned.
+func TestUpgradeKeepsAPinPinned(t *testing.T) {
+
+	api := &fakeAPI{deployRow: map[string]any{
+		"id": "d1", "name": "billing", "snapshotId": "s1", "status": "running",
+		"replicas": 1, "readyReplicas": 1, "desiredReplicas": 1,
+		"upgradeTo": "0.11.14", "runtimePin": "0.11.13",
+	}}
+	if status, out := run(t, api, "deployments", "upgrade", "billing", "--no-wait", "--plain"); status != 0 {
+		t.Fatalf("status %d: %s", status, out)
+	}
+	if len(api.rollouts) != 1 || api.rollouts[0]["snapshotId"] != "s1" || api.rollouts[0]["runtimeVersion"] != "0.11.14" {
+		t.Errorf("rollouts = %v, want snapshot s1 re-pinned to 0.11.14", api.rollouts)
+	}
+}
