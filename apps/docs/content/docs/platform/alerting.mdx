@@ -35,7 +35,7 @@ A watch has between one and ten **conditions**, combined with `all` or `any`. Th
 | `logs` | `error_rate` | ratio | error and fatal ÷ all levels |
 | `pod_stats` | *any exported metric* | max, avg, sum, min | what the [stats sidecar](/platform/pod-stats) recorded |
 
-The trace and log catalogues are closed. Pod-stat metric names are whatever the runtime exports, and you find them with `GET /stats/{deploymentId}/metrics`.
+The trace and log catalogues are closed. Pod-stat metric names are whatever the runtime exports, and you find them with `GET /stats/{deploymentId}/metrics`. A histogram is stored as its `_bucket`, `_sum` and `_count` series and never under its own name, so a watch names one of those: `octo_flow_duration_seconds_sum` grows by the seconds flows spent processing in each window.
 
 A **scope** narrows the rows: a deployment, an integration, an app name or version; for logs also levels and a message substring; for pod stats a set of pods or labels.
 

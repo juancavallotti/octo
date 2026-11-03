@@ -127,8 +127,10 @@ to stdout:
 
 ### Watch mode
 
-With `--watch`, the runtime watches the config path (and the `.env` files it
-consults) and rebuilds on every change: the current generation is stopped, the
+With `--watch`, the runtime watches the config path, the `.env` files it
+consults and the resources the running config read, and rebuilds on every
+change to them. Other files written beside them, such as a log or a trace file,
+are ignored. On a change the current generation is stopped, the
 config is reloaded, and a new generation starts. Failures are not fatal. A config
 that fails to load, build, or start logs an error and waits for the next change.
 Runtime services (connections, leases) are built once and reused across

@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -19,32 +23,32 @@ import (
 const watchDebounce = 200 * time.Millisecond
 
 // watchConfig watches the config path for changes, emitting on the returned
-// channel (debounced) whenever the file or directory contents change. When path
-// is a directory the directory itself is watched, so added/removed config files
-// are noticed too. The .env files consulted during loading are watched as well, so
+// channel (debounced) whenever the config changes — see watchScope for what that
+// covers. When path is a directory, config files added to or removed from it are
+// noticed too. The .env files consulted during loading are watched as well, so
 // editing them triggers the same full restart as a config change. When resources
 // is non-nil and supports change notification, its resource edits feed the same
-// debounced channel, so an imported env file or template change reloads too. The
+// debounced channel, so an imported env file or template change reloads too —
+// but only for a resource the running generation read, as recorded in reads. The
 // watcher runs until ctx is cancelled.
-func watchConfig(ctx context.Context, path string, resources core.ResourceLoader) (<-chan struct{}, error) {
+func watchConfig(
+	ctx context.Context, path string, resources core.ResourceLoader, reads *resourceReads,
+) (<-chan struct{}, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("new watcher: %w", err)
 	}
 
-	// Register the config target plus each .env directory, deduping so a .env that
-	// sits beside the config does not error on a repeat Add.
-	targets := append([]string{watchTarget(path)}, dotEnvTargets()...)
-	added := make(map[string]struct{}, len(targets))
-	for _, target := range targets {
-		if _, dup := added[target]; dup {
-			continue
-		}
+	scope, err := newWatchScope(path, runtime.DotEnvPaths())
+	if err != nil {
+		_ = watcher.Close()
+		return nil, err
+	}
+	for _, target := range scope.targets() {
 		if err := watcher.Add(target); err != nil {
 			_ = watcher.Close()
 			return nil, fmt.Errorf("watch %q: %w", target, err)
 		}
-		added[target] = struct{}{}
 	}
 
 	changed := make(chan struct{}, 1)
@@ -55,40 +59,96 @@ func watchConfig(ctx context.Context, path string, resources core.ResourceLoader
 	var resourceCh chan struct{}
 	if w, ok := resources.(core.ResourceWatcher); ok {
 		resourceCh = make(chan struct{}, 1)
-		if err := w.OnChange(ctx, func(core.ResourceKind, string) { notify(resourceCh) }); err != nil {
+		onChange := func(_ core.ResourceKind, id string) {
+			if reads.has(id) {
+				notify(resourceCh)
+			}
+		}
+		if err := w.OnChange(ctx, onChange); err != nil {
 			_ = watcher.Close()
 			return nil, fmt.Errorf("watch resources: %w", err)
 		}
 	}
 
-	go watchLoop(ctx, watcher, resourceCh, changed)
+	go watchLoop(ctx, watcher, scope, resourceCh, changed)
 	return changed, nil
 }
 
-// dotEnvTargets returns the directories to watch for .env changes, using the same
-// parent-directory trick as watchTarget so atomic-rename saves are observed. A path
-// whose parent directory does not exist is skipped (the file cannot appear there).
-func dotEnvTargets() []string {
-	var targets []string
-	for _, path := range runtime.DotEnvPaths() {
-		dir := filepath.Dir(path)
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-			continue
-		}
-		targets = append(targets, dir)
-	}
-	return targets
+// watchScope is what a reload depends on: the config file or directory and the
+// .env files consulted while loading it.
+//
+// The watcher has to register directories rather than files, because an editor
+// that saves by writing a temporary file and renaming it over the original
+// replaces the file a file-level watch was attached to. A directory sees every
+// write inside it, though — the working directory, where ./.env lives, is also
+// where a redirected log or the default trace file is written — so each event is
+// checked against the files that actually matter before it counts as a change.
+// Without that, a runtime writing into its own working directory reloads itself
+// in a loop.
+type watchScope struct {
+	// files are the individual files a change to which reloads.
+	files map[string]struct{}
+	// configDir is set when the config is a directory: any file in it the loader
+	// would read counts.
+	configDir string
 }
 
-// watchTarget returns the path to register with the watcher. For a file we watch
-// its parent directory so atomic-rename saves (editors replacing rather than
-// writing in place) are still observed; for a directory we watch it directly.
-func watchTarget(path string) string {
-	info, err := os.Stat(path)
-	if err == nil && !info.IsDir() {
-		return filepath.Dir(path)
+// newWatchScope resolves the config path and .env paths to absolute paths, so
+// they compare equal to the event names fsnotify reports for the directories
+// registered from them.
+func newWatchScope(configPath string, dotEnvPaths []string) (watchScope, error) {
+	scope := watchScope{files: map[string]struct{}{}}
+	config, err := filepath.Abs(configPath)
+	if err != nil {
+		return watchScope{}, fmt.Errorf("resolve config path %q: %w", configPath, err)
 	}
-	return path
+	if info, statErr := os.Stat(config); statErr == nil && info.IsDir() {
+		scope.configDir = config
+	} else {
+		scope.files[config] = struct{}{}
+	}
+	for _, path := range dotEnvPaths {
+		abs, absErr := filepath.Abs(path)
+		if absErr != nil {
+			return watchScope{}, fmt.Errorf("resolve .env path %q: %w", path, absErr)
+		}
+		scope.files[abs] = struct{}{}
+	}
+	return scope, nil
+}
+
+// targets returns the directories to register, once each. A .env whose directory
+// does not exist is skipped: the file cannot appear there.
+func (s watchScope) targets() []string {
+	seen := map[string]struct{}{}
+	var ret []string
+	add := func(dir string) {
+		if _, dup := seen[dir]; dup {
+			return
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			return
+		}
+		seen[dir] = struct{}{}
+		ret = append(ret, dir)
+	}
+	if s.configDir != "" {
+		add(s.configDir)
+	}
+	for file := range s.files {
+		add(filepath.Dir(file))
+	}
+	slices.Sort(ret)
+	return ret
+}
+
+// covers reports whether an event on name is a change a reload depends on.
+func (s watchScope) covers(name string) bool {
+	name = filepath.Clean(name)
+	if _, ok := s.files[name]; ok {
+		return true
+	}
+	return s.configDir != "" && filepath.Dir(name) == s.configDir && runtime.IsConfigFile(filepath.Base(name))
 }
 
 // watchLoop forwards debounced change notifications until ctx is cancelled or the
@@ -96,7 +156,8 @@ func watchTarget(path string) string {
 // events (resourceCh, nil when no ResourceWatcher is wired) share one debounce
 // timer, so a burst across both coalesces into a single reload.
 func watchLoop(
-	ctx context.Context, watcher *fsnotify.Watcher, resourceCh <-chan struct{}, changed chan<- struct{},
+	ctx context.Context, watcher *fsnotify.Watcher, scope watchScope, resourceCh <-chan struct{},
+	changed chan<- struct{},
 ) {
 	defer func() { _ = watcher.Close() }()
 	var timer *time.Timer
@@ -105,11 +166,13 @@ func watchLoop(
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-watcher.Events:
+		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			timer, timerC = armDebounce(timer)
+			if scope.covers(event.Name) {
+				timer, timerC = armDebounce(timer)
+			}
 		case <-resourceCh:
 			timer, timerC = armDebounce(timer)
 		case err, ok := <-watcher.Errors:
@@ -140,4 +203,88 @@ func notify(changed chan<- struct{}) {
 	case changed <- struct{}{}:
 	default:
 	}
+}
+
+// resourceReads records which resources the current generation read, so a
+// resource change reloads only when it can change what is running.
+//
+// The resource loader notifies of every file under its root, and the root is the
+// config directory — where a redirected log or the default trace file is written
+// when the runtime runs from there. Declared resources are not the whole set
+// either: a block may name a template by id without declaring it. Every read
+// goes through the loader, though, so recording reads catches both, and a file
+// nothing has read yet is read fresh the first time it is used.
+type resourceReads struct {
+	mu  sync.Mutex
+	ids map[string]struct{}
+}
+
+func newResourceReads() *resourceReads {
+	return &resourceReads{ids: map[string]struct{}{}}
+}
+
+// reset forgets the previous generation's reads; the next one records its own.
+func (r *resourceReads) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	clear(r.ids)
+}
+
+func (r *resourceReads) record(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ids[resourceKey(id)] = struct{}{}
+}
+
+func (r *resourceReads) has(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.ids[resourceKey(id)]
+	return ok
+}
+
+// resourceKey puts an id in the form the loader reports changes in: slash
+// separated and relative to the root, so "./templates/a.tmpl" and the
+// notification for that file meet.
+func resourceKey(id string) string {
+	return strings.TrimPrefix(path.Clean("/"+filepath.ToSlash(id)), "/")
+}
+
+// services returns svc with its resource loader recording every read, missing
+// files included: a declared resource created later is a change worth a reload.
+//
+//nolint:ireturn // the generation runs against the RuntimeServices interface
+func (r *resourceReads) services(svc core.RuntimeServices) core.RuntimeServices {
+	return recordingServices{RuntimeServices: svc, loader: recordingLoader{ResourceLoader: svc.Resources(), reads: r}}
+}
+
+type recordingServices struct {
+	core.RuntimeServices
+	loader recordingLoader
+}
+
+//nolint:ireturn // implements core.RuntimeServices
+func (s recordingServices) Resources() core.ResourceLoader { return s.loader }
+
+// LogSink carries the optional core.LogShipper facet through the wrapper, which
+// embedding the interface alone would hide from the logger connector. A nil
+// handler is how a module that ships no logs answers, so it stands in for a
+// module that does not implement the facet at all.
+//
+//nolint:ireturn // implements core.LogShipper
+func (s recordingServices) LogSink() slog.Handler {
+	if shipper, ok := s.RuntimeServices.(core.LogShipper); ok {
+		return shipper.LogSink()
+	}
+	return nil
+}
+
+type recordingLoader struct {
+	core.ResourceLoader
+	reads *resourceReads
+}
+
+func (l recordingLoader) Load(ctx context.Context, kind core.ResourceKind, id string) ([]byte, error) {
+	l.reads.record(id)
+	return l.ResourceLoader.Load(ctx, kind, id) //nolint:wrapcheck // the loader's own error, passed through
 }
