@@ -48,6 +48,7 @@ export default function RolloutDialog({
           <TestRunPanel
             key={rollout.testRun.id}
             initial={rollout.testRun}
+            editorHref={`/platform/i/${encodeURIComponent(target.integrationId)}`}
             onFinished={rollout.testFinished}
             onClose={rollout.close}
           />

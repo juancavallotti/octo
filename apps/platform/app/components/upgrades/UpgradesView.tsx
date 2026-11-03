@@ -5,6 +5,7 @@ import {
   CircleCheck,
   FlaskConical,
   FlaskConicalOff,
+  GitCompareArrows,
   RefreshCw,
 } from "lucide-react";
 import { useRoles } from "@/app/auth/RolesContext";
@@ -59,16 +60,30 @@ export default function UpgradesView() {
             </span>
           )}
           {testable.length > 1 && (
-            <button
-              type="button"
-              disabled={!can.deploy}
+            <div
+              className="ml-auto flex items-center gap-1.5"
               title={can.deploy ? undefined : CAPABILITY_REASONS.deploy}
-              onClick={() => void u.testAll()}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-black/10 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-black/[0.04] disabled:opacity-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
             >
-              <FlaskConical size={13} />
-              Test all
-            </button>
+              <button
+                type="button"
+                disabled={!can.deploy}
+                onClick={() => void u.testAll(false)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-black/10 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-black/[0.04] disabled:opacity-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+              >
+                <FlaskConical size={13} />
+                Test all
+              </button>
+              <button
+                type="button"
+                disabled={!can.deploy}
+                title="Test every deployment with suites, and upgrade each one whose suites pass."
+                onClick={() => void u.testAll(true)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+              >
+                <GitCompareArrows size={13} />
+                Test &amp; upgrade all
+              </button>
+            </div>
           )}
         </div>
         {u.view === null ? (

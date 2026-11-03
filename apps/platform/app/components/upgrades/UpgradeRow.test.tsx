@@ -74,6 +74,28 @@ describe("UpgradeRow", () => {
     expect(screen.getByText("2 failing cases")).toBeInTheDocument();
   });
 
+  it("offers the editor once a failed run's report is open", async () => {
+    renderRow({
+      ...BASE,
+      latestRun: {
+        id: "r",
+        deploymentId: "dep-1",
+        snapshotId: "snap-1",
+        runtimeVersion: "0.11.14",
+        status: "errored",
+        rolloutOnPass: false,
+        createdAt: "",
+        error: "a suite or the integration's config could not be run",
+      },
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Could not run/ }),
+    );
+    expect(
+      screen.getByRole("link", { name: /Open in the editor/ }),
+    ).toHaveAttribute("href", "/platform/i/int-1");
+  });
+
   it("ignores a run on another runtime", () => {
     renderRow({
       ...BASE,

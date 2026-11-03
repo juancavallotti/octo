@@ -7,10 +7,13 @@ import { useTestRun } from "./useTestRun";
 /** A dialog body following a test run to its end. */
 export default function TestRunPanel({
   initial,
+  editorHref,
   onFinished,
   onClose,
 }: {
   initial: TestRun;
+  /** Where the integration opens in the editor, offered when the run does not pass. */
+  editorHref?: string;
   onFinished?: (run: TestRun) => void;
   onClose: () => void;
 }) {
@@ -18,7 +21,7 @@ export default function TestRunPanel({
   return (
     <>
       <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto px-4 py-4">
-        <TestRunReport run={run} />
+        <TestRunReport run={run} editorHref={editorHref} />
         {run.status === "running" && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             {run.rolloutOnPass

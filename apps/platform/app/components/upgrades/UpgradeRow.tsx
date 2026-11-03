@@ -158,7 +158,10 @@ export default function UpgradeRow({
       </div>
       {open && run && (
         <div className="border-t border-black/10 px-4 py-3 dark:border-white/10">
-          <TestRunReport run={run} />
+          <TestRunReport
+            run={run}
+            editorHref={`/platform/i/${encodeURIComponent(d.integrationId)}`}
+          />
         </div>
       )}
     </li>

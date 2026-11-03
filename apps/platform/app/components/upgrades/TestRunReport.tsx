@@ -1,6 +1,13 @@
 "use client";
 
-import { CheckCircle2, CircleAlert, Loader2, XCircle } from "lucide-react";
+import Link from "next/link";
+import {
+  CheckCircle2,
+  CircleAlert,
+  Loader2,
+  PencilLine,
+  XCircle,
+} from "lucide-react";
 import { SuiteResults, TestTally } from "@octo/editor";
 import type { TestReport, TestRun, TestRunStatus } from "@/app/model/upgrades";
 
@@ -54,11 +61,28 @@ export function TestRunStatusLabel({ run }: { run: TestRun }) {
   );
 }
 
+/** Whether a finished run calls for someone to look at the suites or the flows. */
+export function needsAttention(run: TestRun): boolean {
+  return (
+    run.status === "failed" ||
+    run.status === "errored" ||
+    run.status === "timed_out"
+  );
+}
+
 /**
  * A test run's outcome: its status, what it added up to, every suite and case,
- * and what became of the rollout it asked for.
+ * and what became of the rollout it asked for. `editorHref`, when given, is
+ * offered on a run that did not pass, since the editor is where suites and
+ * flows are fixed.
  */
-export default function TestRunReport({ run }: { run: TestRun }) {
+export default function TestRunReport({
+  run,
+  editorHref,
+}: {
+  run: TestRun;
+  editorHref?: string;
+}) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -69,6 +93,15 @@ export default function TestRunReport({ run }: { run: TestRun }) {
         <p className="text-sm text-emerald-700 dark:text-emerald-400">
           Rolled out onto the tested version.
         </p>
+      )}
+      {editorHref && needsAttention(run) && (
+        <Link
+          href={editorHref}
+          className="inline-flex w-fit items-center gap-1.5 rounded-md border border-black/10 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-black/[0.04] dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+        >
+          <PencilLine size={13} />
+          Open in the editor
+        </Link>
       )}
       {run.error && (
         <p className="whitespace-pre-wrap text-sm text-red-500">{run.error}</p>

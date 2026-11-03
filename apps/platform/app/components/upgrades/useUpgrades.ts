@@ -28,7 +28,9 @@ export interface UpgradesController {
   test: (d: NamedDeploymentUpgrade, rolloutOnPass: boolean) => Promise<void>;
   /** Roll a deployment onto the version it runs, which moves it to this runtime. */
   upgrade: (d: NamedDeploymentUpgrade) => Promise<void>;
-  testAll: () => Promise<void>;
+  /** Test every behind deployment that has suites; with `rolloutOnPass`, each one
+   * whose suites pass is upgraded. */
+  testAll: (rolloutOnPass: boolean) => Promise<void>;
 }
 
 export function useUpgrades(): UpgradesController {
@@ -111,12 +113,15 @@ export function useUpgrades(): UpgradesController {
     [view],
   );
 
-  const testAll = useCallback(async () => {
-    for (const d of behind) {
-      if (d.hasSuites && d.latestRun?.status !== "running")
-        await test(d, false);
-    }
-  }, [behind, test]);
+  const testAll = useCallback(
+    async (rolloutOnPass: boolean) => {
+      for (const d of behind) {
+        if (d.hasSuites && d.latestRun?.status !== "running")
+          await test(d, rolloutOnPass);
+      }
+    },
+    [behind, test],
+  );
 
   return {
     view,
