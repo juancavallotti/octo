@@ -59,6 +59,8 @@ export interface DeploymentUpgrade {
   /** The deployment was deployed or rolled out after its latest run, so that run
    * no longer speaks for what it runs. */
   latestRunStale?: boolean;
+  /** Pinned to its runtime release: upgraded only by moving its pin. */
+  pinned?: boolean;
 }
 
 /** Every deployment as an upgrade sees it, and the runtime this install deploys. */

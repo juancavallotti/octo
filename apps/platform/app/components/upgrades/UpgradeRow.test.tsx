@@ -141,4 +141,16 @@ describe("UpgradeRow", () => {
       screen.getByText("Not tested since the last rollout"),
     ).toBeInTheDocument();
   });
+
+  it("offers a pinned deployment a test and a manual move of its pin", async () => {
+    const { onTest, onUpgrade } = renderRow({ ...BASE, pinned: true });
+    expect(screen.getByText("Pinned")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Test & upgrade/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Test" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Move pin to 0.11.14/ }),
+    );
+    expect(onTest).toHaveBeenCalledWith(false);
+    expect(onUpgrade).toHaveBeenCalled();
+  });
 });

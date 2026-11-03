@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FlaskConical,
   GitCompareArrows,
+  Pin,
 } from "lucide-react";
 import type { NamedDeploymentUpgrade, TestRun } from "@/app/model/upgrades";
 import TestRunReport, { StatusIcon, failingCases } from "./TestRunReport";
@@ -95,6 +96,12 @@ export default function UpgradeRow({
           </Link>
           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
             {d.tag && <span className="font-mono">{d.tag}</span>}
+            {d.pinned && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-400">
+                <Pin size={10} />
+                Pinned
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 font-mono">
               {d.runtimeVersion ?? "unknown"}
               <ArrowRight size={11} />
@@ -131,7 +138,31 @@ export default function UpgradeRow({
           className="flex items-center gap-1.5"
           title={canDeploy ? undefined : deniedReason}
         >
-          {d.hasSuites ? (
+          {d.pinned ? (
+            <>
+              {d.hasSuites && (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onTest(false)}
+                  className={`${BUTTON} border border-black/10 text-zinc-700 hover:bg-black/[0.04] dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/[0.06]`}
+                >
+                  <FlaskConical size={13} />
+                  Test
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={onUpgrade}
+                title="Pinned deployments are upgraded by hand: this moves the pin, without testing."
+                className={`${BUTTON} border border-black/10 text-zinc-700 hover:bg-black/[0.04] dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/[0.06]`}
+              >
+                <Pin size={13} />
+                Move pin to {d.upgradeTo}
+              </button>
+            </>
+          ) : d.hasSuites ? (
             <>
               <button
                 type="button"

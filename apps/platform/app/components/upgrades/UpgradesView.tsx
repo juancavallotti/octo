@@ -89,7 +89,7 @@ export default function UpgradesView() {
               <button
                 type="button"
                 disabled={bulkDisabled}
-                title="Test every deployment with suites, and upgrade each one whose suites pass."
+                title="Test every deployment with suites, and upgrade each one whose suites pass. Pinned deployments are tested, not upgraded."
                 onClick={() => void u.testAll(true)}
                 className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
               >

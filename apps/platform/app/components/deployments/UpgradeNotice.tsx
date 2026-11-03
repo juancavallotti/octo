@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUp, ChevronRight } from "lucide-react";
+import { ArrowUp, ChevronRight, Pin } from "lucide-react";
 import type { DeployedTile } from "@/app/(session)/platform/DashboardTiles";
 
 /**
@@ -54,6 +54,13 @@ export default function UpgradeNotice({
               title={`Roll ${d.integrationName} over to ${currentRuntime}`}
               className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-white/50 px-2 py-0.5 text-xs text-zinc-700 transition-colors hover:bg-amber-500/10 disabled:cursor-default disabled:opacity-60 dark:bg-transparent dark:text-zinc-200"
             >
+              {d.runtimePin && (
+                <Pin
+                  size={10}
+                  aria-label="pinned"
+                  className="text-amber-700 dark:text-amber-400"
+                />
+              )}
               <span className="max-w-[14rem] truncate">
                 {d.integrationName}
               </span>

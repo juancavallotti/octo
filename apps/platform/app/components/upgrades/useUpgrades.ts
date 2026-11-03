@@ -32,7 +32,8 @@ export interface UpgradesController {
   bulkRunning: boolean;
   refresh: () => Promise<void>;
   test: (d: NamedDeploymentUpgrade, rolloutOnPass: boolean) => Promise<void>;
-  /** Roll a deployment onto the version it runs, which moves it to this runtime. */
+  /** Roll a deployment onto the version it runs, which moves it to this runtime;
+   * a pinned one is re-pinned to it. */
   upgrade: (d: NamedDeploymentUpgrade) => Promise<void>;
   /** Test every behind deployment that has suites; with `rolloutOnPass`, each one
    * whose suites pass is upgraded. Ignored while a batch is already going. */
@@ -95,7 +96,11 @@ export function useUpgrades(): UpgradesController {
           throw new Error(
             `${d.integrationName} runs no version tag to roll out`,
           );
-        await rolloutDeployment(d.deploymentId, { snapshotId: d.snapshotId });
+        // A pinned deployment stays pinned: its pin moves to the new release.
+        await rolloutDeployment(d.deploymentId, {
+          snapshotId: d.snapshotId,
+          ...(d.pinned && d.upgradeTo ? { runtimeVersion: d.upgradeTo } : {}),
+        });
       }),
     [act],
   );
@@ -118,6 +123,8 @@ export function useUpgrades(): UpgradesController {
       setBulkRunning(true);
       try {
         for (const d of behind) {
+          // A pinned deployment is tested, but never upgraded in bulk.
+          if (rolloutOnPass && d.pinned) continue;
           if (d.hasSuites && d.latestRun?.status !== "running")
             await test(d, rolloutOnPass);
         }
