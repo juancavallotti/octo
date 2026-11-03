@@ -124,6 +124,8 @@ A key makes this easier to abuse, because it is a standing secret that lives in 
 - Mint one key per pipeline, with only the roles that pipeline needs and the shortest expiry you can live with.
 - Rotate it on a schedule, and revoke it as soon as a pipeline stops using it.
 - If a key leaks, revoke it, then review the deployments it may have touched and remove or roll back anything you did not ship. Do the same when somebody who deploys leaves.
+
+CI/CD is deliberately broad today: it covers every integration and every deployment on the installation, not only the ones its owner works on. Narrower keys are planned, scoped to the exact integrations and steps a pipeline runs. Until then, weigh this risk before you mint one.
 </Callout>
 
 - Re-checked on every use: a key's token carries only the key's roles that its owner still holds. Revoke a role from someone and their keys lose it within one token lifetime. A key left with no role is refused with a `403`.
