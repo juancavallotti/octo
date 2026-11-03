@@ -525,6 +525,10 @@
                     "runtimeVersion": {
                         "type": "string"
                     },
+                    "snapshotId": {
+                        "description": "SnapshotID is the version the deployment runs, by id: what a rollout that\nchanges only env, tracing or runtime rolls it onto again.",
+                        "type": "string"
+                    },
                     "status": {
                         "type": "string"
                     },

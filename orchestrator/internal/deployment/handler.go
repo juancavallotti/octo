@@ -101,6 +101,9 @@ type deploymentResponse struct {
 	IntegrationID   string        `json:"integrationId"`
 	Name            string        `json:"name"`
 	Tag             string        `json:"tag,omitempty"`
+	// SnapshotID is the version the deployment runs, by id: what a rollout that
+	// changes only env, tracing or runtime rolls it onto again.
+	SnapshotID string `json:"snapshotId,omitempty"`
 	Status          string        `json:"status"`
 	Replicas        int           `json:"replicas"`
 	ReadyReplicas   int32         `json:"readyReplicas"`
@@ -156,6 +159,7 @@ func toResponse(d Deployment, current string) deploymentResponse {
 		IntegrationID:   d.IntegrationID,
 		Name:            meta.Name,
 		Tag:             meta.Tag,
+		SnapshotID:      meta.SnapshotID,
 		Status:          d.Status,
 		Replicas:        replicas,
 		ReadyReplicas:   d.Detail.ReadyReplicas,
