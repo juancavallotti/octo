@@ -43,16 +43,17 @@ const KEY_ROLE_ABILITIES: Record<string, KeyRoleAbility> = {
     cannot: ["Change secrets, settings or roles"],
   },
   [PLATFORM_CICD]: {
-    summary: "Shipping from a pipeline",
+    summary: "Rolling out from a pipeline",
     can: [
-      "Upload code and tag versions",
+      "Push code to an existing integration",
+      "Tag versions",
       "Run a deployment's tests",
-      "Deploy and roll out with the basic identity",
-      "Read deployments and their logs",
+      "Roll out an existing deployment",
     ],
     cannot: [
-      "Grant a deployment access, which takes a signed-in person",
-      "Use the editor, dev runs, secrets or settings",
+      "Create or delete integrations or deployments",
+      "Scale deployments or grant them access",
+      "Read logs, resources, bundles or agent memory",
     ],
   },
 };

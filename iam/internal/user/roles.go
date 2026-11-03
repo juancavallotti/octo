@@ -38,9 +38,9 @@ const (
 	// whoever it was minted on behalf of.
 	RoleRuntime Role = "platform:runtime"
 
-	// RoleCICD is what a pipeline's API key carries to ship integrations: upload
-	// code, tag versions, run their tests, deploy and roll out. It belongs to keys
-	// and never to a person, so it is absent from allRoles and present in keyRoles.
+	// RoleCICD is what a pipeline's API key carries to roll out new versions of
+	// integrations that already exist. It belongs to keys and never to a person,
+	// so it is absent from allRoles and present in keyRoles.
 	RoleCICD Role = "platform:cicd"
 )
 
