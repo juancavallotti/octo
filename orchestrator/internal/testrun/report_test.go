@@ -3,6 +3,7 @@ package testrun
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 )
 
@@ -47,4 +48,38 @@ func TestExtractReport(t *testing.T) {
 			t.Errorf("err = %v, want errNoReport", err)
 		}
 	})
+}
+
+// The fixtures are a test pod's real output: the console summary, the report on
+// stdout, and — for the failing run — dolphin's exit message on stderr after it.
+func TestExtractReportFromPodOutput(t *testing.T) {
+	cases := []struct {
+		file           string
+		passed, failed int
+	}{
+		{"testdata/passed.log", 3, 0},
+		{"testdata/failed.log", 2, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			logs, err := os.ReadFile(tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := extractReport(logs)
+			if err != nil {
+				t.Fatalf("extractReport: %v", err)
+			}
+			var doc struct {
+				Totals struct{ Passed, Failed int } `json:"totals"`
+				Suites []json.RawMessage            `json:"suites"`
+			}
+			if err := json.Unmarshal(got, &doc); err != nil {
+				t.Fatal(err)
+			}
+			if doc.Totals.Passed != tc.passed || doc.Totals.Failed != tc.failed || len(doc.Suites) != 1 {
+				t.Errorf("totals = %+v, suites %d", doc.Totals, len(doc.Suites))
+			}
+		})
+	}
 }
