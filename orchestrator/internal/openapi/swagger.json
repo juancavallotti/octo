@@ -3129,13 +3129,13 @@
                                     {
                                         "$ref": "#/components/schemas/deployment.rolloutRequest",
                                         "summary": "body",
-                                        "description": "Target tag, and optionally env and tracing"
+                                        "description": "Target tag (omitted keeps the one it runs), and optionally env, tracing and runtime"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Target tag, and optionally env and tracing",
+                    "description": "Target tag (omitted keeps the one it runs), and optionally env, tracing and runtime",
                     "required": true
                 },
                 "responses": {

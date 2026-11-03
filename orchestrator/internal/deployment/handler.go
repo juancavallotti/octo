@@ -474,7 +474,7 @@ type rolloutRequest struct {
 //	@Accept			json
 //	@Produce		json
 //	@Param			id		path		string			true	"Deployment id"
-//	@Param			body	body		rolloutRequest	true	"Target tag, and optionally env and tracing"
+//	@Param			body	body		rolloutRequest	true	"Target tag (omitted keeps the one it runs), and optionally env, tracing and runtime"
 //	@Success		200		{object}	deploymentResponse
 //	@Failure		400		{object}	httpx.ErrorResponse	"a topology change or an unbound required env var"
 //	@Failure		404		{object}	httpx.ErrorResponse

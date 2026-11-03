@@ -827,7 +827,13 @@ func (s *Service) Rollout(ctx context.Context, id string, change RolloutChange) 
 	if err != nil {
 		return Deployment{}, err
 	}
-	snap, err := s.resolveSnapshot(ctx, dep.IntegrationID, change.SnapshotID)
+	// No version asked for keeps the one the deployment runs, read from its row
+	// here rather than from what a caller read earlier, which may be stale.
+	snapshotID := change.SnapshotID
+	if snapshotID == "" {
+		snapshotID = ParseSettings(dep.Settings).SnapshotID
+	}
+	snap, err := s.resolveSnapshot(ctx, dep.IntegrationID, snapshotID)
 	if err != nil {
 		return Deployment{}, err
 	}

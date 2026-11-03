@@ -77,3 +77,24 @@ func TestRolloutRefusesAnUnsupportedRuntime(t *testing.T) {
 		}
 	}
 }
+
+// A rollout that names no version keeps the one the deployment's row records.
+func TestRolloutWithoutAVersionKeepsTheStoredOne(t *testing.T) {
+	repo := &fakeRepo{getRet: Deployment{
+		ID: "dep-1", IntegrationID: "int-1",
+		Settings: json.RawMessage(`{"replicas":1,"snapshotId":"snap-2"}`),
+		Metadata: json.RawMessage(`{"slug":"orders"}`),
+	}}
+	snaps := &fakeSnapshots{ret: snapshot.Snapshot{
+		ID: "snap-2", IntegrationID: "int-1", Tag: "v2.0", Definition: exposableDef,
+	}}
+	kc := &fakeKube{status: kube.StatusRunning, runtimeVersion: "0.11.14"}
+	svc := NewService(repo, &fakeIntegrations{}, kc, WithSnapshots(snaps))
+	on := true
+	if _, err := svc.Rollout(context.Background(), "dep-1", RolloutChange{Tracing: &on}); err != nil {
+		t.Fatalf("Rollout: %v", err)
+	}
+	if kc.gotSpec.SnapshotID != "snap-2" {
+		t.Errorf("rolled onto %q, want the stored snap-2", kc.gotSpec.SnapshotID)
+	}
+}

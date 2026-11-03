@@ -682,7 +682,7 @@ paths:
             schema:
               type: object
               properties:
-                snapshotId: { type: string, description: The version to run. }
+                snapshotId: { type: string, description: The version to run; left out keeps the one it runs. }
                 env: { $ref: "#/components/schemas/EnvBindings" }
                 tracing: { type: boolean }
                 runtimeVersion:

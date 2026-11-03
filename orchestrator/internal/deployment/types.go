@@ -99,6 +99,7 @@ const RuntimeLatest = "latest"
 // RolloutChange is what a rollout changes about a deployment. A nil field keeps
 // the deployment's stored value; SnapshotID is the version to roll onto.
 type RolloutChange struct {
+	// SnapshotID is the version to roll onto; empty keeps the one it runs.
 	SnapshotID string
 	// Env replaces the stored bindings wholesale, even when empty.
 	Env     map[string]EnvBinding
