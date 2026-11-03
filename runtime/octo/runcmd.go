@@ -178,10 +178,22 @@ func runOnce(
 	announceConfig(hosted, config)
 
 	service := runtime.NewService(config, core.DefaultRegistry(), runtime.WithRuntimeServices(svc))
-	go announceWhenReady(ctx, service, hosted, health, config)
-	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	announced := make(chan struct{})
+	go func() {
+		defer close(announced)
+		announceWhenReady(runCtx, service, hosted, health, config)
+	}()
+	runErr := service.Run(runCtx)
+	// The announcer must be done before the flows are withdrawn, or a late
+	// announcement could hand them back after they stopped.
+	cancel()
+	<-announced
+	announceRunning(hosted, nil)
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
 		health.SetState(services.StateStopped)
-		return err
+		return runErr
 	}
 	health.SetState(services.StateStopped)
 	slog.Info("runtime stopped")

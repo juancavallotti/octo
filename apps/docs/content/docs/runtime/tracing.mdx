@@ -214,6 +214,9 @@ entries rather than the map. Variables are admitted smallest first while they fi
 any left out are named with their sizes in the `varsDropped` attribute — for
 example `{"responseMedia": 1483920}` — and the record is flagged `truncated`. One
 generated image in a variable costs the trace that variable, not every other one.
+A variable that cannot be encoded as JSON at all, such as a function a block put
+there, is left out the same way and named with its error in the `varsError`
+attribute.
 
 <Callout type="warn">
 Bodies and variables can carry personal data and credentials: the `http` source

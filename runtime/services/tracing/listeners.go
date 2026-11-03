@@ -200,8 +200,7 @@ func (s *Service) captureVars(record *types.TraceEvent, msg *types.Message) {
 	})
 	owned := make(map[string]any, len(encoded))
 	dropped := map[string]int{}
-	// The map's braces cost two bytes, and the last entry has no comma.
-	budget := s.maxPayload - 1
+	budget := varsBudget(s.maxPayload)
 	for _, v := range encoded {
 		if v.cost > budget {
 			dropped[v.name] = len(v.raw)
@@ -224,6 +223,16 @@ func (s *Service) captureVars(record *types.TraceEvent, msg *types.Message) {
 	if len(owned) > 0 {
 		record.Vars = owned
 	}
+}
+
+// varsBudget is how many bytes of entries fit under the cap: the map's braces
+// cost two bytes, and the last entry has no comma. A cap with no room admits
+// nothing, and must not wrap around to room for everything.
+func varsBudget(maxPayload int) int {
+	if maxPayload <= 0 {
+		return 0
+	}
+	return maxPayload - 1
 }
 
 // varFraming is what an entry costs in the map beyond its encoded name and value:

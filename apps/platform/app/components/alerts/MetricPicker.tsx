@@ -30,7 +30,7 @@ const KNOWN: { name: string; hint: string }[] = [
   },
   {
     name: "octo_flow_errors_total",
-    hint: "Unhandled failures, by the block they came from. A block's series starts at its first failure, so rates miss that one; alert on messages_total{outcome=failed}.",
+    hint: "Unhandled failures, by the block they came from. A block's series starts at its first failure, so a rate misses that one; the Failed runs measure catches it.",
   },
   {
     name: "octo_flow_duration_seconds_sum",

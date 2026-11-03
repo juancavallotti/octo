@@ -146,13 +146,13 @@ type TraceEvent struct {
 	// did not fit under the cap is left out on its own — see Truncated.
 	Vars map[string]any `json:"vars,omitempty"`
 
-	// Truncated reports that a payload was dropped for exceeding the cap. A body
-	// is omitted whole rather than cut short: a sliced JSON document is not JSON,
-	// and one in the stream poisons every reader downstream of it. Vars keeps the
-	// entries that fit and leaves out only those that do not. Attrs carries what
-	// was refused: bodyBytes for the body, varsDropped naming each variable left
-	// out with its size, and varsError naming each variable that would not
-	// marshal with its error.
+	// Truncated reports that a payload was dropped, for exceeding the cap or for
+	// failing to marshal. A body is omitted whole rather than cut short: a sliced
+	// JSON document is not JSON, and one in the stream poisons every reader
+	// downstream of it. Vars keeps the entries that fit and leaves out only those
+	// that do not. Attrs carries what was refused: bodyBytes or bodyError for the
+	// body, varsDropped naming each variable left out with its size, and
+	// varsError naming each variable that would not marshal with its error.
 	Truncated bool `json:"truncated,omitempty"`
 
 	// Attrs carries whatever is specific to this record's kind — the model and

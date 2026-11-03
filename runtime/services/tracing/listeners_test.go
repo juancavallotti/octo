@@ -333,3 +333,24 @@ func TestUnmarshallableVariableIsNamedAndFlagged(t *testing.T) {
 		t.Errorf("varsError = %v, want callback named", record.Attrs["varsError"])
 	}
 }
+
+// The cap counts what the map costs encoded — each name's quotes and the
+// punctuation between entries — not just the values: these two fit on their raw
+// values alone and do not fit as a map.
+func TestVariableCapCountsEncodedNames(t *testing.T) {
+	c := collecting(t)
+	s := &Service{enabled: true, vars: true, maxPayload: 64}
+	msg := traceMessage(t, nil)
+	msg.Variables.Set("tenantRegion", strings.Repeat("a", 18))
+	msg.Variables.Set("customerTier", strings.Repeat("b", 18))
+
+	s.onBlockEvent(context.Background(), blockEvent(msg))
+	record := c.only(t)
+
+	if len(record.Vars) != 1 {
+		t.Errorf("Vars = %v, want one of the two once names are counted", record.Vars)
+	}
+	if !record.Truncated {
+		t.Error("the variable left out was not flagged")
+	}
+}
