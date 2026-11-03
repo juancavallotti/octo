@@ -2,7 +2,7 @@
 
 import { Pin } from "lucide-react";
 import { RUNTIME_LATEST, type Runtimes } from "@/app/model/orchestratorTypes";
-import { INPUT } from "./inputStyles";
+import MenuButton, { MenuDivider, MenuItem } from "./MenuButton";
 
 /**
  * Which runtime a deployment runs: "latest", which follows this install's
@@ -27,33 +27,53 @@ export default function RuntimeMenu({
     value !== RUNTIME_LATEST && !versions.includes(value)
       ? [value, ...versions]
       : versions;
+  const latest = `Latest${runtimes?.current ? ` (${runtimes.current})` : ""}`;
+  const pinned = value !== RUNTIME_LATEST;
   return (
-    <label className="inline-flex items-center gap-1.5">
-      <Pin
-        size={14}
-        className={
-          value === RUNTIME_LATEST
-            ? "text-zinc-400"
-            : "text-amber-600 dark:text-amber-400"
-        }
-      />
+    <div className="inline-flex items-center gap-1.5">
       <span className="text-sm text-zinc-500 dark:text-zinc-400">Runtime</span>
-      <select
-        aria-label="Runtime"
-        value={value}
+      <MenuButton
+        icon={
+          <Pin
+            size={14}
+            className={
+              pinned ? "text-amber-600 dark:text-amber-400" : "text-zinc-400"
+            }
+          />
+        }
+        label={pinned ? `Pinned to ${value}` : latest}
+        ariaLabel="Runtime"
+        title="Select runtime"
         disabled={disabled || runtimes === null}
-        onChange={(e) => onChange(e.target.value)}
-        className={INPUT}
+        align="start"
       >
-        <option value={RUNTIME_LATEST}>
-          Latest{runtimes?.current ? ` (${runtimes.current})` : ""}
-        </option>
-        {options.map((v) => (
-          <option key={v} value={v}>
-            Pin to {v}
-          </option>
-        ))}
-      </select>
-    </label>
+        {(close) => (
+          <>
+            <MenuItem
+              checked={!pinned}
+              onSelect={() => {
+                onChange(RUNTIME_LATEST);
+                close();
+              }}
+            >
+              {latest}
+            </MenuItem>
+            {options.length > 0 && <MenuDivider />}
+            {options.map((v) => (
+              <MenuItem
+                key={v}
+                checked={value === v}
+                onSelect={() => {
+                  onChange(v);
+                  close();
+                }}
+              >
+                Pin to {v}
+              </MenuItem>
+            ))}
+          </>
+        )}
+      </MenuButton>
+    </div>
   );
 }

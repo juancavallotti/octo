@@ -151,9 +151,12 @@ describe("DeployModal tracing", () => {
 describe("DeployModal runtime", () => {
   it("pins the deployment to the picked runtime", async () => {
     const onSubmit = renderModal();
-    const menu = await screen.findByRole("combobox", { name: "Runtime" });
+    const menu = await screen.findByRole("button", { name: "Runtime" });
     await waitFor(() => expect(menu).toBeEnabled());
-    await userEvent.selectOptions(menu, "0.11.13");
+    await userEvent.click(menu);
+    await userEvent.click(
+      screen.getByRole("menuitemradio", { name: "Pin to 0.11.13" }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ runtimeVersion: "0.11.13" }),

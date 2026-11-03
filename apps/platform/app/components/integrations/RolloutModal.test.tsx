@@ -237,9 +237,12 @@ describe("RolloutModal", () => {
 
   it("pins on roll out, which a test run would not carry", async () => {
     const onSubmit = renderModal(vi.fn(), { onTestSubmit: vi.fn() });
-    const menu = await screen.findByRole("combobox", { name: "Runtime" });
+    const menu = await screen.findByRole("button", { name: "Runtime" });
     await waitFor(() => expect(menu).toBeEnabled());
-    await userEvent.selectOptions(menu, "0.11.13");
+    await userEvent.click(menu);
+    await userEvent.click(
+      screen.getByRole("menuitemradio", { name: "Pin to 0.11.13" }),
+    );
     expect(
       screen.getByRole("button", { name: "Test & roll out" }),
     ).toBeDisabled();
@@ -256,8 +259,9 @@ describe("RolloutModal", () => {
       onTestSubmit: vi.fn(),
       deployments: [{ ...DEPLOYMENT, runtimePin: "0.11.13" }],
     });
-    const menu = await screen.findByRole("combobox", { name: "Runtime" });
-    expect(menu).toHaveValue("0.11.13");
+    expect(
+      await screen.findByRole("button", { name: "Runtime" }),
+    ).toHaveTextContent("Pinned to 0.11.13");
     expect(
       screen.getByRole("button", { name: "Test & roll out" }),
     ).toBeDisabled();
