@@ -17,6 +17,9 @@ export function useTestRun(
 ): { run: TestRun; error: string | null } {
   const [run, setRun] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  // Counts failed reads, so every failure schedules the next one: two failures
+  // with the same message would leave `error` unchanged and stop the polling.
+  const [failures, setFailures] = useState(0);
 
   useEffect(() => {
     if (isFinished(run)) {
@@ -29,14 +32,17 @@ export function useTestRun(
           setError(null);
           setRun(next);
         },
-        (e) => setError((e as Error).message),
+        (e) => {
+          setError((e as Error).message);
+          setFailures((n) => n + 1);
+        },
       );
     }, POLL_MS);
     return () => clearTimeout(timer);
     // onFinished is deliberately not a dependency: a caller's new closure must not
     // re-announce a run that already finished.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run, error]);
+  }, [run, failures]);
 
   return { run, error };
 }
