@@ -753,14 +753,14 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 				publisher.Publish(deployment.DeploymentsSubject(integrationID), data)
 			})
 			deployment.NewHandler(deploymentSvc).Register(mux)
-			testrunSvc := testrun.NewService(testrun.NewRepo(database.Pool()), deploymentSvc, kubeClient)
+			testrunSvc := testrun.NewService(testrun.NewRepo(database.Pool()), deploymentSvc, snapshotSvc, kubeClient)
 			testrun.NewHandler(testrunSvc).Register(mux)
 			if testrunSvc.Enabled() {
 				startTestRunSweeper(ctx, testrunSvc)
 			}
 			slog.Info("test run routes registered", "enabled", testrunSvc.Enabled(),
 				"testImage", kubeClient.TestImage(),
-				"endpoints", "POST/GET /deployments/{id}/testruns, GET /deployments/{id}/testruns/{runId}")
+				"endpoints", "POST/GET /deployments/{id}/testruns, GET /deployments/{id}/testruns/{runId}, GET /upgrades")
 			slog.Info("deployment routes registered",
 				"namespace", kubeClient.Namespace(), "runtimeImage", kc.RuntimeImage,
 				"baseDomain", kc.BaseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),

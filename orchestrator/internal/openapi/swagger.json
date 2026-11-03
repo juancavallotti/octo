@@ -1383,6 +1383,7 @@
                 "type": "object"
             },
             "testrun.runResponse": {
+                "description": "LatestRun is its most recent test run; absent when it has none.",
                 "properties": {
                     "createdAt": {
                         "type": "string"
@@ -1436,6 +1437,60 @@
                     },
                     "snapshotId": {
                         "description": "SnapshotID is the version to test; empty tests the one the deployment runs.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "testrun.upgradeResponse": {
+                "properties": {
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "hasSuites": {
+                        "description": "HasSuites says whether the version it runs has test suites to run.",
+                        "type": "boolean"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "latestRun": {
+                        "$ref": "#/components/schemas/testrun.runResponse"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion is the runtime release the deployment's pods run.",
+                        "type": "string"
+                    },
+                    "snapshotId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "tag": {
+                        "type": "string"
+                    },
+                    "upgradeTo": {
+                        "description": "UpgradeTo is the newer release a rollout would move it onto; absent when\nit is current.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "testrun.upgradesResponse": {
+                "properties": {
+                    "deployments": {
+                        "items": {
+                            "$ref": "#/components/schemas/testrun.upgradeResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion is the runtime release this install deploys; empty when it\ncannot say.",
                         "type": "string"
                     }
                 },
@@ -7475,6 +7530,37 @@
                 "summary": "Read one frozen resource",
                 "tags": [
                     "snapshots"
+                ]
+            }
+        },
+        "/upgrades": {
+            "get": {
+                "description": "The runtime release this install deploys, and every deployment with the release it\nruns, the newer one a rollout would move it onto, whether it has test suites to prove\nthat move, and its most recent test run.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/testrun.upgradesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List deployments as an upgrade sees them",
+                "tags": [
+                    "deployments"
                 ]
             }
         }

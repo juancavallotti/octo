@@ -10,6 +10,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
+	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
 const (
@@ -46,6 +47,13 @@ type deployments interface {
 		ctx context.Context, id, snapshotID string, env map[string]deployment.EnvBinding, tracing *bool, runner *string,
 	) (deployment.Deployment, error)
 	CurrentRuntime() string
+	List(ctx context.Context) ([]deployment.Deployment, error)
+}
+
+// snapshots reads the files frozen under a snapshot. *snapshot.Service
+// satisfies it.
+type snapshots interface {
+	ListResources(ctx context.Context, snapshotID string) ([]snapshot.Resource, error)
 }
 
 // cluster is the Kubernetes surface a test run drives. *kube.Client satisfies it.
@@ -61,6 +69,7 @@ type cluster interface {
 type Service struct {
 	repo        repository
 	deployments deployments
+	snapshots   snapshots
 	cluster     cluster
 	now         func() time.Time
 	poll        time.Duration
@@ -79,8 +88,8 @@ func WithClock(now func() time.Time, poll time.Duration) Option {
 
 // NewService returns a Service. cluster may be nil, in which case every run is
 // refused with ErrUnavailable.
-func NewService(repo repository, deps deployments, cl cluster, opts ...Option) *Service {
-	s := &Service{repo: repo, deployments: deps, cluster: cl, now: time.Now, poll: pollInterval}
+func NewService(repo repository, deps deployments, snaps snapshots, cl cluster, opts ...Option) *Service {
+	s := &Service{repo: repo, deployments: deps, snapshots: snaps, cluster: cl, now: time.Now, poll: pollInterval}
 	for _, opt := range opts {
 		opt(s)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 )
 
 // Deployment is one deployed instance of an integration. IDs are UUIDs in
@@ -170,4 +171,31 @@ func ParseSettings(raw json.RawMessage) Settings {
 	}
 	_ = json.Unmarshal(raw, &s)
 	return s
+}
+
+// Runtime is the octo runtime image a deployment is on and which release that
+// is, "" for either when nothing knows.
+//
+// What the pods report wins over what was recorded at deploy time: during a
+// rollout, or while a new image will not pull, the recorded image is already the
+// new one while the old one is still serving. The recorded image answers when
+// the cluster cannot.
+//
+// The release is the tag on that image first, then the version recorded at deploy
+// time, which is what carries a digest-pinned install whose reference has no tag
+// in it. A deployment made before either was recorded says nothing rather than
+// guessing.
+func (d Deployment) Runtime() (image, version string) {
+	meta := ParseMetadata(d.Metadata)
+	image = meta.RuntimeImage
+	if d.Detail.RuntimeImage != "" {
+		image = d.Detail.RuntimeImage
+	}
+	if version = runtimeversion.ImageTag(image); version != "" {
+		return image, version
+	}
+	if meta.RuntimeVersion != "" {
+		return image, meta.RuntimeVersion
+	}
+	return image, runtimeversion.ImageTag(meta.RuntimeImage)
 }

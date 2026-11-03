@@ -90,6 +90,7 @@ func (f *fakeRepo) get(id string) Run {
 type fakeDeployments struct {
 	mu        sync.Mutex
 	plan      deployment.TestPlan
+	all       []deployment.Deployment
 	rollouts  int
 	rolloutTo string
 }
@@ -109,6 +110,8 @@ func (f *fakeDeployments) Rollout(
 }
 
 func (f *fakeDeployments) CurrentRuntime() string { return "0.11.14" }
+
+func (f *fakeDeployments) List(context.Context) ([]deployment.Deployment, error) { return f.all, nil }
 
 func (f *fakeDeployments) count() int {
 	f.mu.Lock()
@@ -155,7 +158,7 @@ func suite(name string) snapshot.Resource {
 
 func TestStartRefusesAnIntegrationWithoutSuites(t *testing.T) {
 	deps := &fakeDeployments{plan: plan(snapshot.Resource{Name: "templates/a.tmpl"})}
-	svc := NewService(newFakeRepo(), deps, &fakeCluster{})
+	svc := NewService(newFakeRepo(), deps, nil, &fakeCluster{})
 	if _, err := svc.Start(context.Background(), "dep-1", "", false, "u"); !errors.Is(err, ErrNoSuites) {
 		t.Fatalf("err = %v, want ErrNoSuites", err)
 	}
@@ -165,7 +168,7 @@ func TestStartShipsTheSnapshotAndRunsItsSuites(t *testing.T) {
 	repo := newFakeRepo()
 	cl := &fakeCluster{state: kube.TestRunState{Phase: kube.TestRunExited, ExitCode: 0, Pod: "p"}, logs: report}
 	deps := &fakeDeployments{plan: plan(suite("orders_test.yaml"), snapshot.Resource{Name: "templates/a.tmpl", Content: "hi"})}
-	svc := NewService(repo, deps, cl, WithClock(time.Now, time.Millisecond))
+	svc := NewService(repo, deps, nil, cl, WithClock(time.Now, time.Millisecond))
 
 	run, err := svc.Start(context.Background(), "dep-1", "", true, "u")
 	if err != nil {
@@ -206,7 +209,7 @@ func TestVerdict(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := NewService(newFakeRepo(), &fakeDeployments{}, &fakeCluster{logs: tc.logs})
+			svc := NewService(newFakeRepo(), &fakeDeployments{}, nil, &fakeCluster{logs: tc.logs})
 			got := svc.verdict(context.Background(), Run{ID: "r"}, tc.state)
 			if got.Status != tc.want {
 				t.Errorf("status = %s, want %s (error %q)", got.Status, tc.want, got.Error)
@@ -223,7 +226,7 @@ func TestCompleteRollsOutOnce(t *testing.T) {
 	repo := newFakeRepo()
 	deps := &fakeDeployments{}
 	cl := &fakeCluster{logs: report}
-	svc := NewService(repo, deps, cl)
+	svc := NewService(repo, deps, nil, cl)
 	run, _ := repo.Create(context.Background(), Run{DeploymentID: "dep-1", SnapshotID: "snap-1", RolloutOnPass: true})
 	state := kube.TestRunState{Phase: kube.TestRunExited, ExitCode: 0, Pod: "p"}
 
@@ -246,7 +249,7 @@ func TestSweepFinishesWithoutRollingOut(t *testing.T) {
 	deps := &fakeDeployments{}
 	cl := &fakeCluster{state: kube.TestRunState{Phase: kube.TestRunExited, ExitCode: 0, Pod: "p"}, logs: report}
 	later := func() time.Time { return time.Now().Add(time.Hour) }
-	svc := NewService(repo, deps, cl, WithClock(later, time.Millisecond))
+	svc := NewService(repo, deps, nil, cl, WithClock(later, time.Millisecond))
 	run, _ := repo.Create(context.Background(), Run{DeploymentID: "dep-1", SnapshotID: "snap-1", RolloutOnPass: true})
 
 	n, err := svc.Sweep(context.Background())
@@ -267,5 +270,52 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("condition not met")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// fakeSnapshots serves each snapshot's frozen files.
+type fakeSnapshots map[string][]snapshot.Resource
+
+func (f fakeSnapshots) ListResources(_ context.Context, id string) ([]snapshot.Resource, error) {
+	return f[id], nil
+}
+
+func TestUpgrades(t *testing.T) {
+	dep := func(id, snap, image string) deployment.Deployment {
+		meta, _ := json.Marshal(deployment.Metadata{Name: id, RuntimeImage: image})
+		settings, _ := json.Marshal(deployment.Settings{SnapshotID: snap})
+		return deployment.Deployment{ID: id, Metadata: meta, Settings: settings}
+	}
+	deps := &fakeDeployments{all: []deployment.Deployment{
+		dep("behind-tested", "s1", "octo-runtime:0.11.13"),
+		dep("behind-untested", "s2", "octo-runtime:0.11.13"),
+		dep("current", "s1", "octo-runtime:0.11.14"),
+	}}
+	snaps := fakeSnapshots{
+		"s1": {suite("orders_test.yaml")},
+		"s2": {{Name: "templates/a.tmpl"}},
+	}
+	svc := NewService(newFakeRepo(), deps, snaps, &fakeCluster{})
+
+	current, got, err := svc.Upgrades(context.Background())
+	if err != nil {
+		t.Fatalf("Upgrades: %v", err)
+	}
+	if current != "0.11.14" || len(got) != 3 {
+		t.Fatalf("current %q, %d upgrades", current, len(got))
+	}
+	want := map[string]struct {
+		upgradeTo string
+		suites    bool
+	}{
+		"behind-tested":   {"0.11.14", true},
+		"behind-untested": {"0.11.14", false},
+		"current":         {"", true},
+	}
+	for _, u := range got {
+		w := want[u.Name]
+		if u.UpgradeTo != w.upgradeTo || u.HasSuites != w.suites {
+			t.Errorf("%s: upgradeTo %q hasSuites %v, want %q %v", u.Name, u.UpgradeTo, u.HasSuites, w.upgradeTo, w.suites)
+		}
 	}
 }

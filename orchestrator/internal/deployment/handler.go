@@ -137,16 +137,7 @@ func toResponse(d Deployment, current string) deploymentResponse {
 		Access:          settings.Access,
 		Runner:          settings.Runner,
 	}
-	// What the pods report wins over what was recorded at deploy time: during a
-	// rollout, or while a new image will not pull, the recorded image is already
-	// the new one while the old one is still serving. The recorded image is what
-	// answers when the cluster cannot — an unreachable or torn-down workload — and
-	// is the only answer for a deployment whose pods have not started yet.
-	resp.RuntimeImage = meta.RuntimeImage
-	if d.Detail.RuntimeImage != "" {
-		resp.RuntimeImage = d.Detail.RuntimeImage
-	}
-	resp.RuntimeVersion = runtimeVersion(resp.RuntimeImage, meta)
+	resp.RuntimeImage, resp.RuntimeVersion = d.Runtime()
 	if runtimeversion.Behind(resp.RuntimeVersion, current) {
 		resp.UpgradeTo = current
 	}
@@ -166,25 +157,6 @@ func toResponse(d Deployment, current string) deploymentResponse {
 	return resp
 }
 
-// runtimeVersion is which octo a deployment is running, from the best source that
-// has an answer.
-//
-// The tag on the image actually in play comes first: it describes what is
-// running, and during a rollout it is the only one that is current. The version
-// recorded at deploy time comes next, and it is what carries a digest-pinned
-// install — there the reference is `repo@sha256:…`, and no amount of parsing
-// produces a version from it because the version was never in it. A deployment
-// made before either was recorded has neither, and says nothing rather than
-// guessing from the release the orchestrator happens to be on now.
-func runtimeVersion(image string, meta Metadata) string {
-	if tag := runtimeversion.ImageTag(image); tag != "" {
-		return tag
-	}
-	if meta.RuntimeVersion != "" {
-		return meta.RuntimeVersion
-	}
-	return runtimeversion.ImageTag(meta.RuntimeImage)
-}
 
 // deploy godoc
 //

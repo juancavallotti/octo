@@ -32,6 +32,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /deployments/{id}/testruns", h.start)
 	mux.HandleFunc("GET /deployments/{id}/testruns", h.list)
 	mux.HandleFunc("GET /deployments/{id}/testruns/{runId}", h.get)
+	mux.HandleFunc("GET /upgrades", h.upgrades)
 }
 
 // runResponse is the wire representation of a test run.
@@ -199,4 +200,73 @@ func writeError(w http.ResponseWriter, err error) {
 		slog.Error("test run handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 	}
+}
+
+// upgradeResponse is one deployment as an upgrade sees it.
+type upgradeResponse struct {
+	DeploymentID  string `json:"deploymentId"`
+	IntegrationID string `json:"integrationId"`
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	Tag           string `json:"tag,omitempty"`
+	SnapshotID    string `json:"snapshotId,omitempty"`
+	// RuntimeVersion is the runtime release the deployment's pods run.
+	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// UpgradeTo is the newer release a rollout would move it onto; absent when
+	// it is current.
+	UpgradeTo string `json:"upgradeTo,omitempty"`
+	// HasSuites says whether the version it runs has test suites to run.
+	HasSuites bool `json:"hasSuites"`
+	// LatestRun is its most recent test run; absent when it has none.
+	LatestRun *runResponse `json:"latestRun,omitempty"`
+}
+
+// upgradesResponse is every deployment as an upgrade sees it.
+type upgradesResponse struct {
+	// RuntimeVersion is the runtime release this install deploys; empty when it
+	// cannot say.
+	RuntimeVersion string            `json:"runtimeVersion,omitempty"`
+	Deployments    []upgradeResponse `json:"deployments"`
+}
+
+// upgrades godoc
+//
+//	@Summary		List deployments as an upgrade sees them
+//	@Description	The runtime release this install deploys, and every deployment with the release it
+//	@Description	runs, the newer one a rollout would move it onto, whether it has test suites to prove
+//	@Description	that move, and its most recent test run.
+//	@Tags			deployments
+//	@Produce		json
+//	@Success		200	{object}	upgradesResponse
+//	@Failure		500	{object}	httpx.ErrorResponse
+//	@Router			/upgrades [get]
+func (h *Handler) upgrades(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	current, items, err := h.svc.Upgrades(ctx)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := upgradesResponse{RuntimeVersion: current, Deployments: make([]upgradeResponse, 0, len(items))}
+	for _, u := range items {
+		resp := upgradeResponse{
+			DeploymentID:   u.Deployment.ID,
+			IntegrationID:  u.Deployment.IntegrationID,
+			Name:           u.Name,
+			Status:         u.Deployment.Status,
+			Tag:            u.Tag,
+			SnapshotID:     u.SnapshotID,
+			RuntimeVersion: u.RuntimeVersion,
+			UpgradeTo:      u.UpgradeTo,
+			HasSuites:      u.HasSuites,
+		}
+		if u.LatestRun != nil {
+			run := toResponse(*u.LatestRun)
+			resp.LatestRun = &run
+		}
+		out.Deployments = append(out.Deployments, resp)
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
