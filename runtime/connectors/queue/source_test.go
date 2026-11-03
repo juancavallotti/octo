@@ -129,3 +129,12 @@ func TestHandleStopUnblocksParkedHandler(t *testing.T) {
 		t.Fatal("handle did not return after stop")
 	}
 }
+
+func TestSourceCapacityDefaultsToQueueListeners(t *testing.T) {
+	if got := (&source{}).Capacity().Limit; got != core.DefaultListeners {
+		t.Errorf("unset listeners capacity = %d, want %d", got, core.DefaultListeners)
+	}
+	if got := (&source{listeners: 64}).Capacity().Limit; got != 64 {
+		t.Errorf("configured listeners capacity = %d, want 64", got)
+	}
+}

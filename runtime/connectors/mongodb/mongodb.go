@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -147,6 +148,8 @@ type Connector struct {
 	// run, and only read afterwards.
 	database  string
 	canonical bool
+	// maxPool is the resolved pool cap, 0 when the driver's pool is unbounded.
+	maxPool int
 }
 
 var _ core.Connector = (*Connector)(nil)
@@ -197,11 +200,19 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 
 	c.database = set.Database
 	c.canonical = canonical
+	if opts.MaxPoolSize != nil {
+		c.maxPool = int(min(*opts.MaxPoolSize, math.MaxInt32))
+	}
 	c.client.Store(client)
 	slog.Info("mongodb connector started",
 		"connector", config.Name, "database", set.Database,
 		"canonicalExtendedJSON", canonical, "verified", verify)
 	return nil
+}
+
+// Capacity reports the pool cap the connector's blocks share.
+func (c *Connector) Capacity() core.Capacity {
+	return core.Capacity{Limit: c.maxPool, Setting: "maxPoolSize"}
 }
 
 // Stop disconnects the client opened by Start. It takes the client before
