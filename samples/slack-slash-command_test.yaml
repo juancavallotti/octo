@@ -1,0 +1,53 @@
+# Tests the slash command's front door and reply: every request is authenticated
+# before anything else runs, and a verified /deploy is answered ephemerally.
+#
+# Sources do not run under invoke, so each case seeds what the http source would
+# have produced: the declared signature headers as vars, and the raw-content
+# envelope {contentType, rawData} as the input data.
+#
+# As in samples/slack-bot_test.yaml, the ACCEPTED cases mock `verify`: Slack's
+# signature covers a timestamp the block rejects once it is more than 5 minutes
+# old, so no committed signature stays valid. The mock hands back the body the
+# real block parses out of the form — the field map — and everything after it is
+# the real flow. The parsing itself is covered by the slack connector's Go tests.
+flow: slash-command
+
+cases:
+  - name: an unsigned command is rejected and never answered
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: command=%2Fdeploy&text=staging&user_id=U1
+    expect:
+      error: invalid request signature
+    spies:
+      slash-command.known-command[then].ack: { count: 0 }
+      slash-command.known-command[else].usage: { count: 0 }
+
+  - name: a verified /deploy is acknowledged ephemerally
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: command=%2Fdeploy&text=staging&user_id=U1
+    mocks:
+      slash-command.verify:
+        default:
+          body: { command: /deploy, text: staging, user_id: U1 }
+    expect:
+      body:
+        response_type: ephemeral
+        text: Deploy to staging requested by <@U1>
+
+  - name: a /deploy without an environment gets the usage hint
+    input:
+      data:
+        contentType: application/x-www-form-urlencoded
+        rawData: command=%2Fdeploy&text=&user_id=U1
+    mocks:
+      slash-command.verify:
+        default:
+          body: { command: /deploy, text: "", user_id: U1 }
+    expect:
+      body:
+        response_type: ephemeral
+        text: "Usage: /deploy <environment>"

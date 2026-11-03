@@ -123,6 +123,10 @@ always volatile and have no setting for it.
 
 **Slack:** `slack-verify-request`, `slack-event`, `slack-send-message`,
 `slack-update-message`, `slack-add-reaction`, `slack-lookup-user`.
+Slash commands and interactivity post form-encoded bodies: give the http source
+`rawBody: true`, and `slack-verify-request` parses the verified form into `body`
+(`body.command`, `body.text`, `body.response_url`), or an interactivity
+request's `payload` field into its JSON.
 
 **MongoDB:** `mongodb-find`, `mongodb-insert`, `mongodb-update`, `mongodb-delete`,
 `mongodb-aggregate`.

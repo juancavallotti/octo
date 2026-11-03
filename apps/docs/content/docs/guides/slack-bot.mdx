@@ -160,6 +160,57 @@ To answer in a thread, pass the triggering message's timestamp as `threadTs`:
 For a message that is already in a thread, use its `body.threadTs` so the reply
 lands in the same thread rather than starting a new one.
 
+## Handle a slash command
+
+Slack posts slash commands (`/deploy staging`) and interactivity (buttons,
+modals, shortcuts) form-encoded rather than as JSON, so the http source must
+keep the body as raw content with `rawBody: true`.
+[`samples/slack-slash-command.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/slack-slash-command.yaml)
+answers `/deploy` with a reply only the caller sees:
+
+```yaml title="samples/slack-slash-command.yaml (excerpt)"
+source:
+  connector: api
+  type: http
+  settings:
+    path: /slack/commands
+    headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
+    rawBody: true
+process:
+  - type: slack-verify-request
+    name: verify
+    settings:
+      connector: slack
+  - type: if
+    name: known-command
+    condition: body.command == "/deploy" && body.text != ""
+    then:
+      process:
+        - type: set-payload
+          name: ack
+          settings:
+            value: >-
+              {"response_type": "ephemeral",
+               "text": "Deploy to " + body.text + " requested by <@" + body.user_id + ">"}
+    else:
+      process:
+        - type: set-payload
+          name: usage
+          settings:
+            value: '{"response_type": "ephemeral", "text": "Usage: /deploy <environment>"}'
+```
+
+After verifying the signature, `slack-verify-request` parses the form into
+`body`, so Slack's fields read directly: `body.command`, `body.text`,
+`body.user_id`, `body.channel_id` and `body.response_url`. For an interactivity
+request, which carries a single `payload` field holding JSON, `body` becomes
+that JSON, so `body.type` and `body.actions` read directly too. The flow's
+response body is the reply: `response_type: ephemeral` shows it only to the
+caller, and `in_channel` posts it for everyone.
+
+To try it, add a `/deploy` slash command to your Slack app with its Request URL
+pointing at `/slack/commands`, run the sample, and type `/deploy staging`.
+
 ## Try it
 
 Mention the bot in a channel it has been invited to:
