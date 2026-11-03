@@ -270,6 +270,66 @@ The bot replies in-channel: `thanks Ada Lovelace, you said: <@U123ABC> hello the
   `queue-dispatch`. See [Events and Queues](/guides/events-and-queues).
 </Callout>
 
+## Use Socket Mode instead of a public URL
+
+Socket Mode has Slack deliver events, slash commands and interactivity over a
+websocket your service opens, so there is no Request URL to expose and no
+signature to verify. That suits development without a tunnel, and services
+that cannot accept inbound traffic.
+[`samples/slack-socket-mode.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/slack-socket-mode.yaml)
+answers `/hello` and replies to @-mentions.
+
+Turn on Socket Mode in your Slack app, generate an app-level token with the
+`connections:write` scope, and give it to the connector as `appToken`. The flow
+binds to the `slack` connector's own source instead of an `http` one:
+
+```yaml title="samples/slack-socket-mode.yaml (excerpt)"
+connectors:
+  - name: slack
+    type: slack
+    settings:
+      botToken: ${SLACK_BOT_TOKEN}
+      appToken: ${SLACK_APP_TOKEN}
+
+flows:
+  - name: slack-socket
+    source:
+      connector: slack
+      type: slack
+    process:
+      - type: if
+        name: command-or-event
+        condition: vars.slackEnvelopeType == "slash_commands"
+        then:
+          process:
+            - type: set-payload
+              name: greet
+              settings:
+                value: '{"response_type": "ephemeral", "text": "Hello, <@" + body.user_id + ">!"}'
+        else:
+          process:
+            - type: slack-event
+              name: mentions
+              settings:
+                eventTypes: [app_mention]
+                filter: body.botId == null
+            - type: slack-send-message
+              name: reply
+              settings:
+                connector: slack
+                target: body.channel
+                threadTs: body.ts
+                text: '"Hi <@" + body.user + ">, you said: " + body.text'
+```
+
+Each message's `body` is what an HTTP flow holds after `slack-verify-request`,
+and `vars.slackEnvelopeType` says which kind it is: `events_api`,
+`slash_commands` or `interactive`. There is no verify step and no
+URL-verification handshake. A slash command is acknowledged with the flow's
+final body, which Slack shows as the reply, so it still has to finish within
+3 seconds. Events are acknowledged as soon as they arrive, so the mention
+branch can take as long as it needs.
+
 ## Where to go next
 
 The [Slack AI Agent](/ai/slack-agent) guide keeps this receive-verify-filter

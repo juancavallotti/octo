@@ -1,0 +1,56 @@
+# Tests the Socket Mode bot's routing: slash commands are answered with the
+# flow's body, and @-mentions (never the bot's own) get a threaded reply.
+#
+# Sources do not run under invoke, so each case seeds what the slack source would
+# have produced: the envelope's payload as data, and its kind in
+# vars.slackEnvelopeType. There is no signature in Socket Mode, so nothing here
+# stands in for verification.
+flow: slack-socket
+
+mocks:
+  # The one block that calls Slack's Web API.
+  slack-socket.command-or-event[else].reply:
+    default:
+      body: { ok: true }
+
+cases:
+  - name: a slash command is answered ephemerally and no event handling runs
+    input:
+      data: { command: /hello, text: "", user_id: U1, channel_id: C1 }
+      vars: { slackEnvelopeType: slash_commands }
+    expect:
+      body:
+        response_type: ephemeral
+        text: Hello, <@U1>!
+    spies:
+      slack-socket.command-or-event[else].mentions: { count: 0 }
+      slack-socket.command-or-event[else].reply: { count: 0 }
+
+  - name: an app_mention gets a threaded reply in its channel
+    input:
+      data:
+        type: event_callback
+        team_id: T1
+        event: { type: app_mention, user: U1, channel: C1, text: "<@B1> hi", ts: "1.1" }
+      vars: { slackEnvelopeType: events_api }
+    expect:
+      body: { ok: true }
+    spies:
+      slack-socket.command-or-event[else].reply:
+        count: 1
+        records:
+          - input:
+              # what the reply's target, threadTs and text render from
+              that: ['body.channel == "C1"', 'body.ts == "1.1"', 'body.user == "U1"', 'body.text == "<@B1> hi"']
+
+  # The filter `body.botId == null` keeps the bot from answering itself.
+  - name: the bots own mention is dropped and never answered
+    input:
+      data:
+        type: event_callback
+        event: { type: app_mention, user: U1, channel: C1, text: "<@B1> hi", bot_id: B1 }
+      vars: { slackEnvelopeType: events_api }
+    expect:
+      dropped: true
+    spies:
+      slack-socket.command-or-event[else].reply: { count: 0 }
