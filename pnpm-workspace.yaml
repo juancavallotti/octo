@@ -10,3 +10,10 @@ packages:
 # checks for the prebuilds the package already ships, and falls back to node-gyp.
 onlyBuiltDependencies:
   - electron
+
+# mcp-handler 1.x pins its MCP SDK peer to exactly 1.26.0, which carries open
+# security advisories. 1.32.2 is API-compatible with what it uses; the allowance
+# goes away with the move to mcp-handler 2 and SDK v2.
+peerDependencyRules:
+  allowedVersions:
+    mcp-handler>@modelcontextprotocol/sdk: 1.32.2

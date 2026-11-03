@@ -15,7 +15,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@eetr/react-reducer-utils": "0.1.1",
-    "@modelcontextprotocol/sdk": "1.26.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@nats-io/transport-node": "^3.4.0",
     "@octo/editor": "workspace:*",
     "@octo/events": "workspace:*",
