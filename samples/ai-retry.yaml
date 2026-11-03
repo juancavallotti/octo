@@ -8,8 +8,8 @@ service:
 # (which errors on schema-validation failure) for self-healing.
 #
 #   export ANTHROPIC_API_KEY=sk-ant-...
-#   go run ./cli invoke -config ../samples/ai-retry.yaml -flow charge \
-#     -data '{"order":{"total":"42.00","currency":"usd"}}'
+#   octo invoke --config samples/ai-retry.yaml --flow charge \
+#     --data '{"order":{"total":"42.00","currency":"usd"}}'
 
 env:
   - name: ANTHROPIC_API_KEY

@@ -10,7 +10,7 @@ service:
 #                    flow's body + variables are folded back into the message.
 #
 # Try it:
-#   go run ./cli -config samples/http-orders.yaml
+#   octo run --config samples/http-orders.yaml
 #   curl -s -X POST localhost:8080/api/v1/orders/42 \
 #     -H 'X-Tenant: acme' -H 'X-Request-Id: req-1' \
 #     -d '{"item":"widget","amount":1500}'
@@ -19,7 +19,7 @@ service:
 # ${NAME} in any settings value below. Each resolves as
 # OS environment > .env file (./.env or $OCTO_ENV_FILE) > the default declared here.
 # Override at startup without editing this file, e.g.:
-#   HTTP_PORT=9090 go run ./cli -config samples/http-orders.yaml
+#   HTTP_PORT=9090 octo run --config samples/http-orders.yaml
 # or put the same line in a ./.env file (it hot-reloads with --watch).
 env:
   - name: HTTP_HOST

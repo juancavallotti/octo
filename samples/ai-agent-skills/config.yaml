@@ -9,8 +9,8 @@ service:
 # available just-in-time.
 #
 #   export ANTHROPIC_API_KEY=sk-ant-...
-#   go run ./cli invoke -config ../samples/ai-agent-skills -flow support \
-#     -data '{"question":"Can I get a refund on an order delivered 2 weeks ago?"}'
+#   octo invoke --config samples/ai-agent-skills --flow support \
+#     --data '{"question":"Can I get a refund on an order delivered 2 weeks ago?"}'
 
 env:
   - name: ANTHROPIC_API_KEY

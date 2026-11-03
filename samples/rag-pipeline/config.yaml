@@ -34,7 +34,7 @@ service:
 #        export GEMINI_API_KEY=...
 #        export PINECONE_API_KEY=...
 #        export PINECONE_INDEX=...        # the index name from step 2
-#        go run ./cli run -config ../samples/rag-pipeline
+#        octo run --config samples/rag-pipeline
 #   4. Ingest a couple of documents, then ask about them:
 #        curl -s localhost:8080/documents -d '{
 #          "id": "plateau",
@@ -49,8 +49,8 @@ service:
 #      the ids it used, so you can tell retrieval from invention.
 #
 #   You can also run retrieval alone, without the model deciding anything:
-#        go run ./cli invoke -config ../samples/rag-pipeline -flow search \
-#          -data '{"query": "training plateau"}'
+#        octo invoke --config samples/rag-pipeline --flow search \
+#          --data '{"query": "training plateau"}'
 
 env:
   - name: HTTP_HOST

@@ -10,8 +10,8 @@ service:
 # never finishes within maxIterations.
 #
 #   export ANTHROPIC_API_KEY=sk-ant-...
-#   go run ./cli invoke -config ../samples/ai-agent.yaml -flow enrich \
-#     -data '{"company":"Acme","domain":"acme.example"}'
+#   octo invoke --config samples/ai-agent.yaml --flow enrich \
+#     --data '{"company":"Acme","domain":"acme.example"}'
 
 env:
   - name: ANTHROPIC_API_KEY

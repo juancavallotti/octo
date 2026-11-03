@@ -12,7 +12,7 @@ service:
 #   3. Export the credentials:
 #        export SLACK_BOT_TOKEN=xoxb-...
 #        export SLACK_SIGNING_SECRET=...
-#   4. Run: go run ./cli -config samples/slack-bot.yaml
+#   4. Run: octo run --config samples/slack-bot.yaml
 #
 # Slack expects a 2xx within 3 seconds, so keep the flow fast — offload slow work
 # with queue-dispatch if needed.
