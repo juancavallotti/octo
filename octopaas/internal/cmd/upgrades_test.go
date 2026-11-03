@@ -25,6 +25,8 @@ type fakeAPI struct {
 	runError      string
 	// what reached an integration's routes, which create must not touch first
 	integrationCalls []string
+	// when set, every route answers 403 with this message
+	forbidden string
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +42,8 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	switch {
+	case f.forbidden != "":
+		write(403, map[string]any{"error": f.forbidden})
 	case r.URL.Path == "/v1/upgrades":
 		write(200, map[string]any{"runtimeVersion": "0.11.14", "deployments": []any{
 			map[string]any{"deploymentId": "d1", "name": "billing", "tag": "v1.0.0", "runtimeVersion": "0.11.13", "upgradeTo": "0.11.14", "hasSuites": true},
