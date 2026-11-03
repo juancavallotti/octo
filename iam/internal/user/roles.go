@@ -37,6 +37,11 @@ const (
 	// key/value store, its frozen resources, its agent memory — and nothing else,
 	// whoever it was minted on behalf of.
 	RoleRuntime Role = "platform:runtime"
+
+	// RoleCICD is what a pipeline's API key carries to ship integrations: upload
+	// code, tag versions, run their tests, deploy and roll out. It belongs to keys
+	// and never to a person, so it is absent from allRoles and present in keyRoles.
+	RoleCICD Role = "platform:cicd"
 )
 
 // allRoles is the catalogue in presentation order. Unexported and copied by
@@ -66,14 +71,24 @@ func ValidRole(r Role) bool {
 // hold r themselves, or they are an admin, who can do everything. Roles are not a
 // ladder, so holding one says nothing about another; nothing u gives out may
 // carry a role u could not exercise directly.
+//
+// platform:cicd is held by nobody, and is delegated by an admin or by somebody
+// holding both developer and operator: everything it does, those two together
+// already allow.
 func (u User) MayDelegate(r Role) bool {
-	return ValidRole(r) && (u.HasRole(r) || u.HasRole(RoleAdmin))
+	if u.HasRole(RoleAdmin) {
+		return ValidRole(r) || r == RoleCICD
+	}
+	if r == RoleCICD {
+		return u.HasRole(RoleDeveloper) && u.HasRole(RoleOperator)
+	}
+	return ValidRole(r) && u.HasRole(r)
 }
 
-// keyRoles is what an API key may carry: the catalogue without platform:admin. A
-// standing bearer credential never administers the platform, so granting roles,
-// secrets and settings stay with a signed-in session.
-var keyRoles = []Role{RoleMonitor, RoleDeveloper, RoleOperator}
+// keyRoles is what an API key may carry: the catalogue without platform:admin,
+// plus platform:cicd. A standing bearer credential never administers the
+// platform, so granting roles, secrets and settings stay with a signed-in session.
+var keyRoles = []Role{RoleMonitor, RoleDeveloper, RoleOperator, RoleCICD}
 
 // KeyRoles returns the roles an API key may carry, in presentation order.
 func KeyRoles() []Role {

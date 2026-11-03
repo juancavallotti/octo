@@ -159,6 +159,12 @@ func TestCreateScopesRolesToWhatTheOwnerHolds(t *testing.T) {
 		{"a developer cannot mint operator", developer("d"), []user.Role{user.RoleOperator}, ErrEscalation, nil},
 		{"roles are not a ladder: a developer cannot mint monitor", developer("d"), []user.Role{user.RoleMonitor}, ErrEscalation, nil},
 		{"a developer may mint developer", developer("d"), []user.Role{user.RoleDeveloper}, nil, []user.Role{user.RoleDeveloper}},
+		{"a developer alone cannot mint cicd", developer("d"), []user.Role{user.RoleCICD}, ErrEscalation, nil},
+		{
+			"developer and operator together may mint cicd",
+			user.User{ID: "do", Roles: []user.Role{user.RoleDeveloper, user.RoleOperator}},
+			[]user.Role{user.RoleCICD}, nil, []user.Role{user.RoleCICD},
+		},
 		{
 			"an admin may mint any key role, deduplicated in catalogue order",
 			admin, []user.Role{user.RoleOperator, user.RoleMonitor, user.RoleOperator}, nil,

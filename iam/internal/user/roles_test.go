@@ -84,17 +84,18 @@ func TestMayDelegate(t *testing.T) {
 		held []Role
 		want []Role
 	}{
-		{"admin may delegate every role", []Role{RoleAdmin}, []Role{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor}},
+		{"admin may delegate every role", []Role{RoleAdmin}, []Role{RoleAdmin, RoleOperator, RoleDeveloper, RoleMonitor, RoleCICD}},
 		{"operator only operator", []Role{RoleOperator}, []Role{RoleOperator}},
 		{"developer only developer", []Role{RoleDeveloper}, []Role{RoleDeveloper}},
 		{"monitor only monitor", []Role{RoleMonitor}, []Role{RoleMonitor}},
 		{"nothing", nil, nil},
 		{"each role held", []Role{RoleMonitor, RoleOperator}, []Role{RoleMonitor, RoleOperator}},
+		{"developer and operator together may delegate cicd", []Role{RoleDeveloper, RoleOperator}, []Role{RoleDeveloper, RoleOperator, RoleCICD}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			u := User{Roles: tt.held}
-			for _, r := range append(AllRoles(), RoleRuntime) {
+			for _, r := range append(AllRoles(), RoleRuntime, RoleCICD) {
 				want := slices.Contains(tt.want, r)
 				if got := u.MayDelegate(r); got != want {
 					t.Errorf("holding %v, MayDelegate(%q) = %v, want %v", tt.held, r, got, want)
@@ -104,12 +105,16 @@ func TestMayDelegate(t *testing.T) {
 	}
 }
 
-// A key never carries admin, and every role it may carry is a real one.
+// A key never carries admin, and every role it may carry is a person's role or
+// the one key-only role.
 func TestKeyRoles(t *testing.T) {
 	for _, r := range KeyRoles() {
-		if !ValidRole(r) {
-			t.Errorf("KeyRoles() returned %q, which ValidRole() rejects", r)
+		if !ValidRole(r) && r != RoleCICD {
+			t.Errorf("KeyRoles() returned %q, which is neither a person's role nor cicd", r)
 		}
+	}
+	if ValidRole(RoleCICD) {
+		t.Error("cicd must not be grantable to a person")
 	}
 	if ValidKeyRole(RoleAdmin) || ValidKeyRole(RoleRuntime) {
 		t.Error("admin and runtime must not be carried by a key")
