@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -25,9 +28,12 @@ const watchDebounce = 200 * time.Millisecond
 // noticed too. The .env files consulted during loading are watched as well, so
 // editing them triggers the same full restart as a config change. When resources
 // is non-nil and supports change notification, its resource edits feed the same
-// debounced channel, so an imported env file or template change reloads too. The
+// debounced channel, so an imported env file or template change reloads too —
+// but only for a resource the running generation read, as recorded in reads. The
 // watcher runs until ctx is cancelled.
-func watchConfig(ctx context.Context, path string, resources core.ResourceLoader) (<-chan struct{}, error) {
+func watchConfig(
+	ctx context.Context, path string, resources core.ResourceLoader, reads *resourceReads,
+) (<-chan struct{}, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("new watcher: %w", err)
@@ -53,7 +59,12 @@ func watchConfig(ctx context.Context, path string, resources core.ResourceLoader
 	var resourceCh chan struct{}
 	if w, ok := resources.(core.ResourceWatcher); ok {
 		resourceCh = make(chan struct{}, 1)
-		if err := w.OnChange(ctx, func(core.ResourceKind, string) { notify(resourceCh) }); err != nil {
+		onChange := func(_ core.ResourceKind, id string) {
+			if reads.has(id) {
+				notify(resourceCh)
+			}
+		}
+		if err := w.OnChange(ctx, onChange); err != nil {
 			_ = watcher.Close()
 			return nil, fmt.Errorf("watch resources: %w", err)
 		}
@@ -192,4 +203,88 @@ func notify(changed chan<- struct{}) {
 	case changed <- struct{}{}:
 	default:
 	}
+}
+
+// resourceReads records which resources the current generation read, so a
+// resource change reloads only when it can change what is running.
+//
+// The resource loader notifies of every file under its root, and the root is the
+// config directory — where a redirected log or the default trace file is written
+// when the runtime runs from there. Declared resources are not the whole set
+// either: a block may name a template by id without declaring it. Every read
+// goes through the loader, though, so recording reads catches both, and a file
+// nothing has read yet is read fresh the first time it is used.
+type resourceReads struct {
+	mu  sync.Mutex
+	ids map[string]struct{}
+}
+
+func newResourceReads() *resourceReads {
+	return &resourceReads{ids: map[string]struct{}{}}
+}
+
+// reset forgets the previous generation's reads; the next one records its own.
+func (r *resourceReads) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	clear(r.ids)
+}
+
+func (r *resourceReads) record(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ids[resourceKey(id)] = struct{}{}
+}
+
+func (r *resourceReads) has(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.ids[resourceKey(id)]
+	return ok
+}
+
+// resourceKey puts an id in the form the loader reports changes in: slash
+// separated and relative to the root, so "./templates/a.tmpl" and the
+// notification for that file meet.
+func resourceKey(id string) string {
+	return strings.TrimPrefix(path.Clean("/"+filepath.ToSlash(id)), "/")
+}
+
+// services returns svc with its resource loader recording every read, missing
+// files included: a declared resource created later is a change worth a reload.
+//
+//nolint:ireturn // the generation runs against the RuntimeServices interface
+func (r *resourceReads) services(svc core.RuntimeServices) core.RuntimeServices {
+	return recordingServices{RuntimeServices: svc, loader: recordingLoader{ResourceLoader: svc.Resources(), reads: r}}
+}
+
+type recordingServices struct {
+	core.RuntimeServices
+	loader recordingLoader
+}
+
+//nolint:ireturn // implements core.RuntimeServices
+func (s recordingServices) Resources() core.ResourceLoader { return s.loader }
+
+// LogSink carries the optional core.LogShipper facet through the wrapper, which
+// embedding the interface alone would hide from the logger connector. A nil
+// handler is how a module that ships no logs answers, so it stands in for a
+// module that does not implement the facet at all.
+//
+//nolint:ireturn // implements core.LogShipper
+func (s recordingServices) LogSink() slog.Handler {
+	if shipper, ok := s.RuntimeServices.(core.LogShipper); ok {
+		return shipper.LogSink()
+	}
+	return nil
+}
+
+type recordingLoader struct {
+	core.ResourceLoader
+	reads *resourceReads
+}
+
+func (l recordingLoader) Load(ctx context.Context, kind core.ResourceKind, id string) ([]byte, error) {
+	l.reads.record(id)
+	return l.ResourceLoader.Load(ctx, kind, id) //nolint:wrapcheck // the loader's own error, passed through
 }
