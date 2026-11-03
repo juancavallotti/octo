@@ -293,7 +293,7 @@ func (c *Client) testRunJob(name string, lbls map[string]string, spec TestRunSpe
 					// cluster API, so the pod carries no credential at all.
 					RestartPolicy:                corev1.RestartPolicyNever,
 					AutomountServiceAccountToken: &noToken,
-					ImagePullSecrets: c.pullSecretRefs(),
+					ImagePullSecrets:             c.pullSecretRefs(),
 					Containers: []corev1.Container{{
 						Name:            TestContainer,
 						Image:           c.devRuntimeImage,
