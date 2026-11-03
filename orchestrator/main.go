@@ -45,6 +45,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
 	"github.com/juancavallotti/octo/orchestrator/internal/secret"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
+	"github.com/juancavallotti/octo/orchestrator/internal/testrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/websearch"
 	"github.com/redis/go-redis/v9"
 	corev1 "k8s.io/api/core/v1"
@@ -72,6 +73,10 @@ const (
 	// devRunReapTimeout bounds one sweep, so a wedged API server cannot leave the
 	// reaper's goroutine blocked until the process ends.
 	devRunReapTimeout = 30 * time.Second
+	// testRunSweepInterval is how often abandoned test runs are looked for, and
+	// testRunSweepTimeout bounds one look.
+	testRunSweepInterval = time.Minute
+	testRunSweepTimeout  = 30 * time.Second
 )
 
 func main() {
@@ -748,6 +753,14 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 				publisher.Publish(deployment.DeploymentsSubject(integrationID), data)
 			})
 			deployment.NewHandler(deploymentSvc).Register(mux)
+			testrunSvc := testrun.NewService(testrun.NewRepo(database.Pool()), deploymentSvc, kubeClient)
+			testrun.NewHandler(testrunSvc).Register(mux)
+			if testrunSvc.Enabled() {
+				startTestRunSweeper(ctx, testrunSvc)
+			}
+			slog.Info("test run routes registered", "enabled", testrunSvc.Enabled(),
+				"testImage", kubeClient.TestImage(),
+				"endpoints", "POST/GET /deployments/{id}/testruns, GET /deployments/{id}/testruns/{runId}")
 			slog.Info("deployment routes registered",
 				"namespace", kubeClient.Namespace(), "runtimeImage", kc.RuntimeImage,
 				"baseDomain", kc.BaseDomain, "externalEndpoints", kubeClient.ExternalEnabled(),
@@ -972,6 +985,33 @@ func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 				}
 				if reaped > 0 {
 					slog.Info("idle dev runs reaped", "count", reaped)
+				}
+			}
+		}
+	}()
+}
+
+// startTestRunSweeper finishes abandoned test runs until ctx ends.
+//
+// Every replica runs its own: finishing a run is a conditional write, so two
+// replicas reaching the same run record one verdict between them.
+func startTestRunSweeper(ctx context.Context, svc *testrun.Service) {
+	go func() {
+		ticker := time.NewTicker(testRunSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweep, cancel := context.WithTimeout(ctx, testRunSweepTimeout)
+				swept, err := svc.Sweep(sweep)
+				cancel()
+				if err != nil {
+					slog.Error("test run sweep", "error", err)
+				}
+				if swept > 0 {
+					slog.Info("abandoned test runs finished", "count", swept)
 				}
 			}
 		}

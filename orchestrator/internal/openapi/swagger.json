@@ -1382,6 +1382,65 @@
                 },
                 "type": "object"
             },
+            "testrun.runResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "deploymentId": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "description": "Error says why a run errored, or why a rollout it asked for did not happen.",
+                        "type": "string"
+                    },
+                    "finishedAt": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "report": {
+                        "additionalProperties": {},
+                        "description": "Report is dolphin's JSON report: totals, and every suite and case.",
+                        "type": "object"
+                    },
+                    "rolledOutAt": {
+                        "type": "string"
+                    },
+                    "rolloutOnPass": {
+                        "type": "boolean"
+                    },
+                    "runtimeVersion": {
+                        "description": "RuntimeVersion is the runtime release the suites ran against.",
+                        "type": "string"
+                    },
+                    "snapshotId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is running, passed, failed, errored or timed_out.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "testrun.startRequest": {
+                "properties": {
+                    "rolloutOnPass": {
+                        "description": "RolloutOnPass rolls the deployment onto that version when every case passes,\nkeeping its env and tracing.",
+                        "type": "boolean"
+                    },
+                    "snapshotId": {
+                        "description": "SnapshotID is the version to test; empty tests the one the deployment runs.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "websearch.settingsResponse": {
                 "properties": {
                     "configured": {
@@ -3016,6 +3075,191 @@
                     }
                 },
                 "summary": "Roll a deployment onto a different version, env or tracing setting",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/deployments/{id}/testruns": {
+            "get": {
+                "description": "The most recent runs, newest first.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/testrun.runResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List a deployment's test runs",
+                "tags": [
+                    "deployments"
+                ]
+            },
+            "post": {
+                "description": "Runs the suites frozen under a version of the deployment's integration, with the\ndeployment's env, against the runtime release this install deploys. The run happens in\na Job of its own; poll it for the verdict. With rolloutOnPass, a run in which every case\npasses rolls the deployment onto the tested version.",
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/testrun.startRequest",
+                                        "summary": "body",
+                                        "description": "Version to test, and whether to roll out on pass"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Version to test, and whether to roll out on pass",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/testrun.runResponse"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the version has no test suites"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "this install cannot run tests"
+                    }
+                },
+                "summary": "Run a deployment's test suites",
+                "tags": [
+                    "deployments"
+                ]
+            }
+        },
+        "/deployments/{id}/testruns/{runId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Deployment id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Test run id",
+                        "in": "path",
+                        "name": "runId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/testrun.runResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get a test run",
                 "tags": [
                     "deployments"
                 ]

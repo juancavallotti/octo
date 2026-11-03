@@ -248,6 +248,28 @@ CREATE TABLE IF NOT EXISTS integration_file_snapshots (
 CREATE INDEX IF NOT EXISTS idx_integration_file_snapshots_snapshot
     ON integration_file_snapshots (snapshot_id);
 
+-- deployment_test_runs records each run of a deployment's test suites against the
+-- runtime release the install deploys. The report is dolphin's JSON report as it
+-- was written. rollout_on_pass asks for the deployment to be rolled onto the
+-- tested snapshot when the run passes, and rolled_out_at says it was.
+CREATE TABLE IF NOT EXISTS deployment_test_runs (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    deployment_id   uuid NOT NULL REFERENCES integration_deployments (id) ON DELETE CASCADE,
+    snapshot_id     uuid NOT NULL REFERENCES integration_snapshots (id) ON DELETE CASCADE,
+    runtime_version varchar NOT NULL DEFAULT '',
+    status          varchar NOT NULL DEFAULT 'running',
+    rollout_on_pass boolean NOT NULL DEFAULT false,
+    rolled_out_at   timestamptz,
+    report          jsonb,
+    error           text NOT NULL DEFAULT '',
+    created_by      varchar NOT NULL DEFAULT '',
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    finished_at     timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_deployment_test_runs_deployment
+    ON deployment_test_runs (deployment_id, created_at DESC);
+
 -- Move each integration's definition out of its column and into a file row, so
 -- the definition stops being a single value and becomes what it always was on
 -- disk: a config file sitting beside the resources.
