@@ -24,7 +24,7 @@ Single sign-on is not optional and there is no unauthenticated mode — local de
 | `OIDC_CLIENT_SECRET` | yes | none | Client secret |
 | `OIDC_PROVIDER_NAME` | no | `OIDC` | Name on the sign-in button: "Sign in with …" |
 | `OIDC_PROVIDER_LOGO` | no | the issuer's favicon | Mark on that button; renders without one if it 404s |
-| `OIDC_SCOPES` | no | `openid profile email` | Space-separated scopes requested at sign-in |
+| `OIDC_SCOPES` | no | `openid profile email` | Space-separated scopes requested at sign-in, and advertised to MCP clients as the scopes to request. Keep `email` in it: iam resolves a caller to a user by email. |
 | `OIDC_AUTHORIZATION_URL` | no | discovery | Endpoint override |
 | `OIDC_TOKEN_URL` | no | discovery | Endpoint override |
 | `OIDC_USERINFO_URL` | no | discovery | Endpoint override; also used by `/mcp` |

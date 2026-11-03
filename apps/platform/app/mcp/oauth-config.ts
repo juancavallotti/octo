@@ -41,6 +41,3 @@ export const MCP_RESOURCE =
  */
 export const RESOURCE_METADATA_PATH =
   "/.well-known/oauth-protected-resource/mcp";
-
-/** Whether MCP OAuth can be advertised (issuer + resource both known). */
-export const mcpOauthEnabled = (): boolean => !!MCP_ISSUER && !!MCP_RESOURCE;

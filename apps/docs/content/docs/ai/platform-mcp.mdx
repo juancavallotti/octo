@@ -24,8 +24,9 @@ claude mcp add --transport http octo https://<your-platform-host>/mcp
 
 The first request without a token gets a `401` whose `WWW-Authenticate` header
 points at `/.well-known/oauth-protected-resource/mcp` (RFC 9728); the client
-discovers the authorization server there, signs you in, and retries with a
-bearer access token, the handshake described in
+discovers the authorization server there, along with the scopes to request
+(the platform's `OIDC_SCOPES`), signs you in, and retries with a bearer access
+token, the handshake described in
 [Secure an MCP Server with OAuth](/ai/mcp-auth). That handshake is the only way
 in: `/mcp` verifies access tokens the identity provider minted, and nothing else.
 
