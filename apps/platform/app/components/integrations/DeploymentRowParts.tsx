@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUp, Check, Copy, ExternalLink, Tag, Waypoints } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  Copy,
+  ExternalLink,
+  Tag,
+  Waypoints,
+} from "lucide-react";
 import type { DeploymentStatus } from "@/app/model/orchestrator";
 import type { DeploymentAccess } from "@/app/model/orchestratorTypes";
 import { AccessPill, RunnerPill } from "./PrivilegePills";
@@ -57,6 +64,7 @@ export function RuntimePill({
   version,
   image,
   behind,
+  target,
 }: {
   version: string;
   /** Full image reference, shown on hover; the pill itself wears the tag. */
@@ -66,19 +74,25 @@ export function RuntimePill({
    * presence is what turns the pill into a prompt.
    */
   behind?: string;
+  /** The runtime a rollout would move to, rather than one a deployment runs. */
+  target?: boolean;
 }) {
-  const tone = behind
-    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-    : "bg-zinc-500/15 text-zinc-600 dark:text-zinc-300";
+  const tone = target
+    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+    : behind
+      ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+      : "bg-zinc-500/15 text-zinc-600 dark:text-zinc-300";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
       title={
-        behind
-          ? `Running octo ${version}; this install deploys ${behind}. Roll it out to move it.`
-          : image
-            ? `Runtime image ${image}`
-            : `Runtime ${version}`
+        target
+          ? `This install deploys octo ${version}`
+          : behind
+            ? `Running octo ${version}; this install deploys ${behind}. Roll it out to move it.`
+            : image
+              ? `Runtime image ${image}`
+              : `Runtime ${version}`
       }
     >
       <span aria-hidden>🐙</span>
@@ -150,7 +164,9 @@ export function DeploymentPills({
       )}
       {tracing && <TracedPill />}
       {agentic && <RunnerPill />}
-      {access?.map((grant) => <AccessPill key={grant} grant={grant} />)}
+      {access?.map((grant) => (
+        <AccessPill key={grant} grant={grant} />
+      ))}
     </div>
   );
 }

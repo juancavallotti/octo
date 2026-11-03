@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import type { NamedDeploymentUpgrade, TestRun } from "@/app/model/upgrades";
 import TestRunReport, { StatusIcon, failingCases } from "./TestRunReport";
+import {
+  RuntimePill,
+  VersionPill,
+} from "@/app/components/integrations/DeploymentRowParts";
 
 const BUTTON =
   "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50";
@@ -95,17 +99,20 @@ export default function UpgradeRow({
             {d.integrationName}
           </Link>
           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-            {d.tag && <span className="font-mono">{d.tag}</span>}
+            {d.tag && <VersionPill tag={d.tag} />}
             {d.pinned && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400">
                 <Pin size={10} />
                 Pinned
               </span>
             )}
-            <span className="inline-flex items-center gap-1 font-mono">
-              {d.runtimeVersion ?? "unknown"}
+            <span className="inline-flex items-center gap-1">
+              <RuntimePill
+                version={d.runtimeVersion ?? "unknown"}
+                behind={d.upgradeTo}
+              />
               <ArrowRight size={11} />
-              {d.upgradeTo}
+              {d.upgradeTo && <RuntimePill version={d.upgradeTo} target />}
             </span>
           </div>
         </div>
