@@ -13,7 +13,7 @@ import (
 // apiKeyColumns is the canonical column list (and order) scanAPIKey expects, kept
 // in one place so reads and RETURNING clauses stay in sync. key_hash is never
 // selected — it leaves the database only via the GetByHash lookup predicate.
-const apiKeyColumns = "id, user_id, name, prefix, last4, created_at, expires_at, last_used_at, revoked_at"
+const apiKeyColumns = "id, user_id, name, prefix, last4, roles, created_at, expires_at, last_used_at, revoked_at"
 
 const (
 	// pgForeignKeyViolation is raised when user_id references no user.
@@ -37,10 +37,10 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // persisted row. An unknown (or malformed) user id surfaces as ErrUserNotFound.
 func (r *Repo) Insert(ctx context.Context, k APIKey, keyHash string) (APIKey, error) {
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO api_keys (user_id, name, key_hash, prefix, last4, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO api_keys (user_id, name, key_hash, prefix, last4, roles, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING `+apiKeyColumns,
-		k.UserID, k.Name, keyHash, k.Prefix, k.Last4, k.ExpiresAt,
+		k.UserID, k.Name, keyHash, k.Prefix, k.Last4, k.Roles, k.ExpiresAt,
 	)
 	out, err := scanAPIKey(row)
 	if err != nil {
@@ -127,7 +127,7 @@ func (r *Repo) TouchLastUsed(ctx context.Context, id string) error {
 func scanAPIKey(row pgx.Row) (APIKey, error) {
 	var k APIKey
 	if err := row.Scan(
-		&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.Last4,
+		&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.Last4, &k.Roles,
 		&k.CreatedAt, &k.ExpiresAt, &k.LastUsedAt, &k.RevokedAt,
 	); err != nil {
 		return APIKey{}, err

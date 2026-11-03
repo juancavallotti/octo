@@ -222,7 +222,7 @@ octopaas deployments scale billing 3
 
 Run the test suites frozen under a version of the deployment's integration — by default the version it runs — with the deployment's env, on the runtime release the platform deploys now. With --upgrade, a run in which every case passes rolls the deployment onto that version; a pinned deployment refuses it.
 
-The command waits for the verdict and exits 1 when the suites do not pass. On an install that lends deployments an identity, rolling out needs a signed-in session (octopaas auth login) rather than an API key.
+The command waits for the verdict and exits 1 when the suites do not pass. An API key starts a test run with the CI/CD or operator role. With --upgrade, on an install that lends deployments an identity, the rollout after a pass is refused for a deployment with access grants; sign in for those (octopaas auth login).
 
 ```bash
 octopaas deployments test <deployment> [flags]
@@ -249,7 +249,7 @@ octopaas deployments test billing --version v1.5.0
 
 Roll a deployment onto the runtime release the platform deploys now, keeping its version, env and tracing. A pinned deployment stays pinned, at the new release.
 
-With --test the deployment's suites run first and it is upgraded only when every case passes; a pinned one is tested, then has its pin moved. On an install that lends deployments an identity, upgrading needs a signed-in session (octopaas auth login) rather than an API key.
+With --test the deployment's suites run first and it is upgraded only when every case passes; a pinned one is tested, then has its pin moved. On an install that lends deployments an identity, an API key upgrades only with the CI/CD or operator role, and only a deployment with no access grants; otherwise sign in (octopaas auth login).
 
 ```bash
 octopaas deployments upgrade <deployment> [flags]

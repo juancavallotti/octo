@@ -9,19 +9,27 @@ import (
 
 	"github.com/juancavallotti/octo/iam/internal/authz"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
+	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
 // requestTimeout bounds the database work behind a single request.
 const requestTimeout = 5 * time.Second
 
-// Handler serves the API-key REST endpoints.
-type Handler struct {
-	svc *Service
+// owners reads a key's owner with the roles they hold now. Declared in the
+// consumer so handler tests can substitute a fake; *user.Service satisfies it.
+type owners interface {
+	Get(ctx context.Context, id string) (user.User, error)
 }
 
-// NewHandler returns a Handler backed by svc.
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+// Handler serves the API-key REST endpoints.
+type Handler struct {
+	svc    *Service
+	owners owners
+}
+
+// NewHandler returns a Handler backed by svc, reading owners through users.
+func NewHandler(svc *Service, users owners) *Handler {
+	return &Handler{svc: svc, owners: users}
 }
 
 // Middleware wraps a handler with whatever a caller must satisfy to reach it.
@@ -77,20 +85,22 @@ func ownerOnly(next http.HandlerFunc) http.HandlerFunc {
 
 // createRequest is the body of a create request.
 type createRequest struct {
-	Name       string `json:"name"`
-	TTLSeconds int64  `json:"ttlSeconds"`
+	Name      string      `json:"name"`
+	Roles     []user.Role `json:"roles"`
+	ExpiresAt time.Time   `json:"expiresAt"`
 }
 
 // apiKeyResponse is the wire representation of a key. It carries no secret
 // material — only the non-secret display fragments.
 type apiKeyResponse struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Prefix     string     `json:"prefix"`
-	Last4      string     `json:"last4"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	ExpiresAt  time.Time  `json:"expiresAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt"`
+	ID         string      `json:"id"`
+	Name       string      `json:"name"`
+	Prefix     string      `json:"prefix"`
+	Last4      string      `json:"last4"`
+	Roles      []user.Role `json:"roles"`
+	CreatedAt  time.Time   `json:"createdAt"`
+	ExpiresAt  time.Time   `json:"expiresAt"`
+	LastUsedAt *time.Time  `json:"lastUsedAt"`
 }
 
 // createResponse adds the one-time plaintext token to the key metadata. This is
@@ -106,6 +116,7 @@ func toResponse(k APIKey) apiKeyResponse {
 		Name:       k.Name,
 		Prefix:     k.Prefix,
 		Last4:      k.Last4,
+		Roles:      k.Roles,
 		CreatedAt:  k.CreatedAt,
 		ExpiresAt:  k.ExpiresAt,
 		LastUsedAt: k.LastUsedAt,
@@ -122,8 +133,14 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	k, token, err := h.svc.Create(ctx, r.PathValue("userId"), req.Name,
-		time.Duration(req.TTLSeconds)*time.Second)
+	// The owner's roles come from the database rather than the session token, so
+	// a role revoked since sign-in cannot be minted onto a key.
+	owner, err := h.owners.Get(ctx, r.PathValue("userId"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	k, token, err := h.svc.Create(ctx, owner, req.Name, req.Roles, req.ExpiresAt)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -169,9 +186,15 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidName):
 		httpx.WriteError(w, http.StatusBadRequest, "invalid api key name")
-	case errors.Is(err, ErrInvalidTTL):
-		httpx.WriteError(w, http.StatusBadRequest, "invalid api key expiration")
-	case errors.Is(err, ErrUserNotFound):
+	case errors.Is(err, ErrInvalidExpiry):
+		httpx.WriteError(w, http.StatusBadRequest,
+			"invalid api key expiration: it must be in the future and at most two years away")
+	case errors.Is(err, ErrInvalidRoles):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrEscalation):
+		// The role is named: the caller asked for it and can act on not holding it.
+		httpx.WriteError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, ErrUserNotFound), errors.Is(err, user.ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "user not found")
 	case errors.Is(err, ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, "api key not found")

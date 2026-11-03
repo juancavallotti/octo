@@ -1,5 +1,7 @@
 package user
 
+import "slices"
+
 // The catalogue of what a platform user can be granted. Roles are stored in
 // user_roles, granted and revoked through the user routes, and read back as part
 // of a User.
@@ -35,6 +37,11 @@ const (
 	// key/value store, its frozen resources, its agent memory — and nothing else,
 	// whoever it was minted on behalf of.
 	RoleRuntime Role = "platform:runtime"
+
+	// RoleCICD is what a pipeline's API key carries to roll out new versions of
+	// integrations that already exist. It belongs to keys and never to a person,
+	// so it is absent from allRoles and present in keyRoles.
+	RoleCICD Role = "platform:cicd"
 )
 
 // allRoles is the catalogue in presentation order. Unexported and copied by
@@ -58,6 +65,39 @@ func ValidRole(r Role) bool {
 		}
 	}
 	return false
+}
+
+// MayDelegate reports whether u may hand r on to a credential they give out: they
+// hold r themselves, or they are an admin, who can do everything. Roles are not a
+// ladder, so holding one says nothing about another; nothing u gives out may
+// carry a role u could not exercise directly.
+//
+// platform:cicd is held by nobody, and is delegated by an admin or by somebody
+// holding both developer and operator: everything it does, those two together
+// already allow.
+func (u User) MayDelegate(r Role) bool {
+	if u.HasRole(RoleAdmin) {
+		return ValidRole(r) || r == RoleCICD
+	}
+	if r == RoleCICD {
+		return u.HasRole(RoleDeveloper) && u.HasRole(RoleOperator)
+	}
+	return ValidRole(r) && u.HasRole(r)
+}
+
+// keyRoles is what an API key may carry: the catalogue without platform:admin,
+// plus platform:cicd. A standing bearer credential never administers the
+// platform, so granting roles, secrets and settings stay with a signed-in session.
+var keyRoles = []Role{RoleMonitor, RoleDeveloper, RoleOperator, RoleCICD}
+
+// KeyRoles returns the roles an API key may carry, in presentation order.
+func KeyRoles() []Role {
+	return slices.Clone(keyRoles)
+}
+
+// ValidKeyRole reports whether r may be carried by an API key.
+func ValidKeyRole(r Role) bool {
+	return slices.Contains(keyRoles, r)
 }
 
 // DescribeRole returns a one-line description of r, or "" for a role outside the

@@ -23,6 +23,9 @@ const (
 	// RoleRuntime is what a deployed integration's own token carries. No person
 	// is ever granted it, and it reaches only the routes a running pod needs.
 	RoleRuntime = "platform:runtime"
+	// RoleCICD is what a pipeline's API key carries. No person holds it, and it
+	// appears in no rule below: what it may do is the pipeline allowlist alone.
+	RoleCICD = "platform:cicd"
 )
 
 // anyone is every role a person can hold — a read that tells you nothing you
@@ -83,6 +86,45 @@ var policy = []rule{
 	// through a server somebody else configured is an operating act, and an
 	// unattended run that has just repaired something has to be able to say so.
 	{"email", []string{RoleAdmin, RoleOperator}, []string{RoleAdmin, RoleOperator}},
+}
+
+// pipeline is the whole of what a platform:cicd token may do: roll out a new
+// version of an integration and a deployment that already exist. Each entry is a
+// method and a path matched segment for segment, so nothing beneath an entry is
+// admitted with it — /integrations/* admits reading one integration, not its
+// resources, bundle or agent memory.
+//
+// Creating, renaming or deleting an integration, creating, scaling or removing a
+// deployment, deleting a version and reading logs are absent on purpose: a person
+// sets an integration up once, and a pipeline only ships to it.
+var pipeline = []struct{ method, pattern string }{
+	{"GET", "integrations"},
+	{"GET", "integrations/*"},
+	{"GET", "integrations/*/deployments"},
+	{"GET", "integrations/*/snapshots"},
+	{"PUT", "integrations/*/bundle"},
+	{"POST", "integrations/*/snapshots"},
+	{"GET", "snapshots/*"},
+	{"GET", "deployments"},
+	{"GET", "deployments/*"},
+	{"POST", "deployments/*/rollout"},
+	{"POST", "deployments/*/testruns"},
+	{"GET", "deployments/*/testruns"},
+	{"GET", "deployments/*/testruns/*"},
+	{"GET", "upgrades"},
+	{"GET", "runtimes"},
+}
+
+// pipelineMay reports whether a platform:cicd token may perform method on path.
+func pipelineMay(method, path string) bool {
+	segments := split(path)
+	for _, p := range pipeline {
+		if p.method == method && len(strings.Split(p.pattern, "/")) == len(segments) &&
+			matches(p.pattern, segments) {
+			return true
+		}
+	}
+	return false
 }
 
 // bypass is the set of paths served without a token at all.

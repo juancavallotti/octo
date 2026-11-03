@@ -3,8 +3,12 @@ package apikey
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
 // repository is the persistence surface the service needs. Declared in the
@@ -29,32 +33,67 @@ func NewService(repo repository) *Service {
 	return &Service{repo: repo}
 }
 
-// Create mints a key for userID that expires after ttl. It returns the stored
-// record and the plaintext token; the plaintext is returned here and nowhere else,
-// since only its hash is persisted.
-func (s *Service) Create(ctx context.Context, userID, name string, ttl time.Duration) (APIKey, string, error) {
+// Create mints a key for owner carrying roles, which expires at expiresAt. It
+// returns the stored record and the plaintext token; the plaintext is returned
+// here and nowhere else, since only its hash is persisted.
+//
+// owner must carry the roles they hold now: a key may carry only roles that owner
+// may delegate, so the check is only as current as the user it is given.
+func (s *Service) Create(
+	ctx context.Context, owner user.User, name string, roles []user.Role, expiresAt time.Time,
+) (APIKey, string, error) {
 	if !validName(name) {
 		return APIKey{}, "", ErrInvalidName
 	}
-	if ttl <= 0 || ttl > maxTTL {
-		return APIKey{}, "", ErrInvalidTTL
+	now := time.Now()
+	if !expiresAt.After(now) || expiresAt.Sub(now) > maxTTL {
+		return APIKey{}, "", ErrInvalidExpiry
+	}
+	granted, err := keyRoles(owner, roles)
+	if err != nil {
+		return APIKey{}, "", err
 	}
 	plaintext, hash, prefix, last4, err := generateToken()
 	if err != nil {
 		return APIKey{}, "", err
 	}
 	k := APIKey{
-		UserID:    userID,
+		UserID:    owner.ID,
 		Name:      strings.TrimSpace(name),
 		Prefix:    prefix,
 		Last4:     last4,
-		ExpiresAt: time.Now().Add(ttl),
+		Roles:     granted,
+		ExpiresAt: expiresAt,
 	}
 	stored, err := s.repo.Insert(ctx, k, hash)
 	if err != nil {
 		return APIKey{}, "", err
 	}
 	return stored, plaintext, nil
+}
+
+// keyRoles validates what a key is asked to carry and returns it deduplicated in
+// catalogue order. An empty set, or a role no key may carry, is ErrInvalidRoles;
+// a role owner may not delegate is ErrEscalation, naming it.
+func keyRoles(owner user.User, roles []user.Role) ([]user.Role, error) {
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("%w: a key needs at least one role", ErrInvalidRoles)
+	}
+	for _, r := range roles {
+		if !user.ValidKeyRole(r) {
+			return nil, fmt.Errorf("%w: %q cannot be carried by a key", ErrInvalidRoles, string(r))
+		}
+		if !owner.MayDelegate(r) {
+			return nil, fmt.Errorf("%w: %s", ErrEscalation, r)
+		}
+	}
+	var ret []user.Role
+	for _, r := range user.KeyRoles() {
+		if slices.Contains(roles, r) {
+			ret = append(ret, r)
+		}
+	}
+	return ret, nil
 }
 
 // List returns a user's active keys (no secret material).

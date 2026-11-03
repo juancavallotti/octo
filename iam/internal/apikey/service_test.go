@@ -3,9 +3,12 @@ package apikey
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
 // fakeRepo is an in-memory store keyed by both id and hash. It records the hash it
@@ -77,14 +80,27 @@ func (f *fakeRepo) TouchLastUsed(_ context.Context, id string) error {
 	return nil
 }
 
+// developer is an owner holding platform:developer, and nothing else.
+func developer(id string) user.User {
+	return user.User{ID: id, Roles: []user.Role{user.RoleDeveloper}}
+}
+
+// create mints a developer-scoped key for a developer owner, expiring in an hour.
+func create(t *testing.T, svc *Service, ownerID, name string) (APIKey, string) {
+	t.Helper()
+	k, token, err := svc.Create(context.Background(), developer(ownerID), name,
+		[]user.Role{user.RoleDeveloper}, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	return k, token
+}
+
 func TestCreateReturnsRecognizableTokenAndStoresOnlyHash(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo)
 
-	k, token, err := svc.Create(context.Background(), "user-1", "ci", time.Hour)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
+	k, token := create(t, svc, "user-1", "ci")
 	if !strings.HasPrefix(token, tokenPrefix) {
 		t.Errorf("token %q does not start with %q", token, tokenPrefix)
 	}
@@ -104,23 +120,75 @@ func TestCreateReturnsRecognizableTokenAndStoresOnlyHash(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsBadNameAndTTL(t *testing.T) {
+func TestCreateRejectsBadNameAndExpiry(t *testing.T) {
 	svc := NewService(newFakeRepo())
-	if _, _, err := svc.Create(context.Background(), "u", "  ", time.Hour); !errors.Is(err, ErrInvalidName) {
-		t.Errorf("empty name: err = %v, want ErrInvalidName", err)
+	roles := []user.Role{user.RoleDeveloper}
+	tests := []struct {
+		name      string
+		keyName   string
+		expiresAt time.Time
+		want      error
+	}{
+		{"empty name", "  ", time.Now().Add(time.Hour), ErrInvalidName},
+		{"in the past", "ok", time.Now().Add(-time.Minute), ErrInvalidExpiry},
+		{"beyond the cap", "ok", time.Now().Add(maxTTL + time.Hour), ErrInvalidExpiry},
 	}
-	if _, _, err := svc.Create(context.Background(), "u", "ok", 0); !errors.Is(err, ErrInvalidTTL) {
-		t.Errorf("zero ttl: err = %v, want ErrInvalidTTL", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := svc.Create(context.Background(), developer("u"), tt.keyName, roles, tt.expiresAt)
+			if !errors.Is(err, tt.want) {
+				t.Errorf("err = %v, want %v", err, tt.want)
+			}
+		})
 	}
-	if _, _, err := svc.Create(context.Background(), "u", "ok", maxTTL+time.Hour); !errors.Is(err, ErrInvalidTTL) {
-		t.Errorf("excessive ttl: err = %v, want ErrInvalidTTL", err)
+}
+
+func TestCreateScopesRolesToWhatTheOwnerHolds(t *testing.T) {
+	admin := user.User{ID: "a", Roles: []user.Role{user.RoleAdmin}}
+	tests := []struct {
+		name  string
+		owner user.User
+		roles []user.Role
+		want  error
+		kept  []user.Role
+	}{
+		{"no roles", admin, nil, ErrInvalidRoles, nil},
+		{"admin is never on a key", admin, []user.Role{user.RoleAdmin}, ErrInvalidRoles, nil},
+		{"runtime is never on a key", admin, []user.Role{user.RoleRuntime}, ErrInvalidRoles, nil},
+		{"unknown role", admin, []user.Role{"platform:root"}, ErrInvalidRoles, nil},
+		{"a developer cannot mint operator", developer("d"), []user.Role{user.RoleOperator}, ErrEscalation, nil},
+		{"roles are not a ladder: a developer cannot mint monitor", developer("d"), []user.Role{user.RoleMonitor}, ErrEscalation, nil},
+		{"a developer may mint developer", developer("d"), []user.Role{user.RoleDeveloper}, nil, []user.Role{user.RoleDeveloper}},
+		{"a developer alone cannot mint cicd", developer("d"), []user.Role{user.RoleCICD}, ErrEscalation, nil},
+		{
+			"developer and operator together may mint cicd",
+			user.User{ID: "do", Roles: []user.Role{user.RoleDeveloper, user.RoleOperator}},
+			[]user.Role{user.RoleCICD}, nil, []user.Role{user.RoleCICD},
+		},
+		{
+			"an admin may mint any key role, deduplicated in catalogue order",
+			admin, []user.Role{user.RoleOperator, user.RoleMonitor, user.RoleOperator}, nil,
+			[]user.Role{user.RoleMonitor, user.RoleOperator},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k, _, err := NewService(newFakeRepo()).Create(
+				context.Background(), tt.owner, "ci", tt.roles, time.Now().Add(time.Hour))
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("err = %v, want %v", err, tt.want)
+			}
+			if !slices.Equal(k.Roles, tt.kept) {
+				t.Errorf("roles = %v, want %v", k.Roles, tt.kept)
+			}
+		})
 	}
 }
 
 func TestVerifyHappyPathRecordsUse(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo)
-	k, token, _ := svc.Create(context.Background(), "user-1", "ci", time.Hour)
+	k, token := create(t, svc, "user-1", "ci")
 
 	got, err := svc.Verify(context.Background(), token)
 	if err != nil {
@@ -143,7 +211,7 @@ func TestVerifyRejectsUnknownExpiredAndRevoked(t *testing.T) {
 	}
 
 	// Expired: insert a key whose expiry is already past.
-	_, expiredTok, _ := svc.Create(context.Background(), "user-1", "old", time.Hour)
+	_, expiredTok := create(t, svc, "user-1", "old")
 	for id, k := range repo.byID {
 		k.ExpiresAt = time.Now().Add(-time.Minute)
 		repo.byID[id] = k
@@ -153,7 +221,7 @@ func TestVerifyRejectsUnknownExpiredAndRevoked(t *testing.T) {
 	}
 
 	// Revoked: a deleted key verifies as invalid.
-	k, revokedTok, _ := svc.Create(context.Background(), "user-2", "doomed", time.Hour)
+	k, revokedTok := create(t, svc, "user-2", "doomed")
 	if err := svc.Delete(context.Background(), k.ID, "user-2"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -165,7 +233,7 @@ func TestVerifyRejectsUnknownExpiredAndRevoked(t *testing.T) {
 func TestDeleteIsOwnerScoped(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo)
-	k, _, _ := svc.Create(context.Background(), "owner", "k", time.Hour)
+	k, _ := create(t, svc, "owner", "k")
 
 	// A different user cannot revoke it.
 	if err := svc.Delete(context.Background(), k.ID, "intruder"); !errors.Is(err, ErrNotFound) {
@@ -180,8 +248,8 @@ func TestDeleteIsOwnerScoped(t *testing.T) {
 func TestListReturnsOnlyOwnersActiveKeys(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo)
-	a, _, _ := svc.Create(context.Background(), "owner", "a", time.Hour)
-	_, _, _ = svc.Create(context.Background(), "other", "b", time.Hour)
+	a, _ := create(t, svc, "owner", "a")
+	create(t, svc, "other", "b")
 
 	items, err := svc.List(context.Background(), "owner")
 	if err != nil {

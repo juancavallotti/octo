@@ -7,9 +7,15 @@ var (
 	ErrNotFound = errors.New("api key not found")
 	// ErrInvalidName is returned when a key's label is empty or too long.
 	ErrInvalidName = errors.New("invalid api key name")
-	// ErrInvalidTTL is returned when the requested expiration is non-positive or
-	// beyond the allowed maximum.
-	ErrInvalidTTL = errors.New("invalid api key expiration")
+	// ErrInvalidExpiry is returned when the requested expiration is not in the
+	// future or is beyond the allowed maximum.
+	ErrInvalidExpiry = errors.New("invalid api key expiration")
+	// ErrInvalidRoles is returned when a key is asked for no roles, or for one a
+	// key may not carry.
+	ErrInvalidRoles = errors.New("invalid api key roles")
+	// ErrEscalation is returned when a key is asked for a role its owner does not
+	// reach.
+	ErrEscalation = errors.New("an API key cannot carry a role its owner does not hold")
 	// ErrUserNotFound is returned when creating a key for a user that does not
 	// exist.
 	ErrUserNotFound = errors.New("user not found")

@@ -21,9 +21,10 @@ export async function listApiKeys(): Promise<ActionResult<ApiKey[]>> {
 
 export async function createApiKey(
   name: string,
-  ttlSeconds: number,
+  roles: string[],
+  expiresAt: string,
 ): Promise<ActionResult<CreatedApiKey>> {
-  return withUser((userId) => client.createApiKey(userId, name, ttlSeconds));
+  return withUser((userId) => client.createApiKey(userId, name, roles, expiresAt));
 }
 
 export async function deleteApiKey(id: string): Promise<ActionResult<void>> {

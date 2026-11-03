@@ -159,7 +159,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 	// API keys are mounted behind the same guard: a person manages their own, and
 	// the handler holds every route to the user in its path.
 	apikeySvc := apikey.NewService(apikey.NewRepo(database.Pool()))
-	apikey.NewHandler(apikeySvc).Register(mux, authz.Require(signingSvc))
+	apikey.NewHandler(apikeySvc, userSvc).Register(mux, authz.Require(signingSvc))
 	slog.Info("apikey routes registered",
 		"endpoints", "POST/GET /users/{userId}/apikeys, DELETE /users/{userId}/apikeys/{id}")
 

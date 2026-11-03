@@ -71,24 +71,12 @@ func accessOf(roles []user.Role) []Access {
 	return access
 }
 
-// mayLend reports whether owner may give a deployment this much access.
-//
-// The rule is containment, not the literal role: somebody may lend a deployment no
-// more than they could do themselves. An operator holds no platform:developer row
-// and may nonetheless lend developer access, because an operator reaches
-// everything a developer does.
+// mayLend reports whether owner may give a deployment this much access: only
+// roles they could exercise themselves.
 func mayLend(owner user.User, access []Access) bool {
 	for _, a := range access {
-		switch a {
-		case AccessDeveloper:
-			if !owner.HasRole(user.RoleAdmin) && !owner.HasRole(user.RoleOperator) &&
-				!owner.HasRole(user.RoleDeveloper) {
-				return false
-			}
-		case AccessOperator:
-			if !owner.HasRole(user.RoleAdmin) && !owner.HasRole(user.RoleOperator) {
-				return false
-			}
+		if !owner.MayDelegate(accessRole[a]) {
+			return false
 		}
 	}
 	return true

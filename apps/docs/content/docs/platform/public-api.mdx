@@ -29,7 +29,7 @@ Send a bearer token in `Authorization`. Either kind works on every route:
   3. Read the provider's discovery document from the provider itself, or from this API at `/.well-known/openid-configuration` (also `/.well-known/oauth-authorization-server`). It is relayed unchanged, so its `issuer` is the provider's.
   4. Register at its `registration_endpoint`, sign in through `authorization_endpoint`, and exchange the code at `token_endpoint`, asking for `resource=https://api.octopaas.dev`.
 
-A token the API cannot accept is a `401`. A person the provider vouches for who has no account here is a `403`: ask an administrator to add you.
+A token the API cannot accept is a `401`. A person the provider vouches for who has no account here is a `403`: ask an administrator to add you. An API key reaches only the routes its roles allow, so a route it lacks the role for is a `403` too, and `GET /v1/me` reports the roles the key carries.
 
 <Callout type="info">
 The API checks no credential itself. It hands yours to the platform's iam service on every request, which turns it into a short-lived platform token, so there is one verifier on the installation. Because you only ever hold the key, a revoked API key is refused on your next request.

@@ -39,15 +39,16 @@ cases:
         WWW-Authenticate: 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
       that: ['body.error.contains("bearer token is required")']
 
-  - name: somebody iam knows but will not let in keeps iam's 403
+  - name: somebody iam knows but will not let in keeps iam's 403 and its reason
     input: an upload
     mocks:
       authenticate.exchange[body].call-iam:
         default:
-          body: { error: not provisioned }
+          body: { error: "forbidden: this API key's roles are no longer held by its owner; mint a new key" }
           vars: { statusCode: 403 }
     expect:
       vars: { httpStatus: 403 }
+      that: ['body.error.contains("no longer held by its owner")']
 
   - name: an iam that cannot answer is ours to report, not a bad credential
     input: an upload

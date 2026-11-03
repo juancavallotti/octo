@@ -1,6 +1,7 @@
 // Package apikey holds the per-user bearer tokens iam exchanges for platform
-// tokens. A key belongs to exactly one user and only ever speaks for them: it
-// carries no roles of its own, and what it may do is whatever its owner holds when
+// tokens. A key belongs to exactly one user and only ever speaks for them, with
+// the roles it was minted with: never platform:admin, only roles its owner may
+// delegate (user.MayDelegate), and only those its owner may still delegate when
 // it is presented. The plaintext token is shown exactly once at creation; only its
 // SHA-256 hash is stored, so the database holds no usable credential.
 package apikey
@@ -13,6 +14,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/juancavallotti/octo/iam/internal/user"
 )
 
 // APIKey is a per-user bearer token's metadata. It never carries the plaintext
@@ -24,6 +27,7 @@ type APIKey struct {
 	Name       string
 	Prefix     string
 	Last4      string
+	Roles      []user.Role
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	LastUsedAt *time.Time
@@ -39,7 +43,7 @@ const (
 	// maxNameLen bounds a key's human label.
 	maxNameLen = 200
 	// maxTTL caps how far out a key may be set to expire.
-	maxTTL = 365 * 24 * time.Hour
+	maxTTL = 2 * 365 * 24 * time.Hour
 )
 
 // generateToken mints a new random token. It returns the plaintext (shown to the

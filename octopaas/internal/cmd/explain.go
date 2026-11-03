@@ -67,8 +67,7 @@ func (a *App) explain(err error) {
 	case apiErr.Status == http.StatusUnauthorized:
 		a.ui.Moment(ui.Sleepy, message, a.credentialHint())
 	case apiErr.Status == http.StatusForbidden:
-		a.ui.Moment(ui.Confused, message,
-			"The platform knows who you are, but this needs a role you do not have. Ask an administrator; `octopaas whoami` shows your roles.")
+		a.ui.Moment(ui.Confused, message, a.forbiddenHint())
 	case apiErr.Status == http.StatusNotFound:
 		a.ui.Moment(ui.Searching, message, "Check the id or name. List what there is with the matching `list` command.")
 	case apiErr.Status == http.StatusConflict:
@@ -94,6 +93,19 @@ func (a *App) credentialHint() string {
 	default:
 		return "Your session was refused. Sign in again with `octopaas auth login`."
 	}
+}
+
+// forbiddenHint is what to do about a refusal from a platform that knows who the
+// caller is. An API key carries only the roles it was minted with, and only those
+// its owner may still give it, so its refusal is about the key and not the
+// account; the message above it says which.
+func (a *App) forbiddenHint() string {
+
+	if a.resolved.APIKey != "" {
+		return fmt.Sprintf("API key %s was refused this: its roles do not cover it, or its owner may no longer give them. `octopaas whoami` shows the roles it carries; mint a key that fits on your account page.",
+			config.MaskKey(a.resolved.APIKey))
+	}
+	return "The platform knows who you are, but this needs a role you do not have. Ask an administrator; `octopaas whoami` shows your roles."
 }
 
 func capitalize(s string) string {

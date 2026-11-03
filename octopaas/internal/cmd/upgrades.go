@@ -177,8 +177,10 @@ release the platform deploys now. With --upgrade, a run in which every case
 passes rolls the deployment onto that version; a pinned deployment refuses it.
 
 The command waits for the verdict and exits 1 when the suites do not pass.
-On an install that lends deployments an identity, rolling out needs a
-signed-in session (octopaas auth login) rather than an API key.`,
+An API key starts a test run with the CI/CD or operator role. With --upgrade,
+on an install that lends deployments an identity, the rollout after a pass is
+refused for a deployment with access grants; sign in for those
+(octopaas auth login).`,
 		Example: `  octopaas deployments test billing
   octopaas deployments test billing --upgrade
   octopaas deployments test billing --version v1.5.0`,
@@ -380,8 +382,9 @@ version, env and tracing. A pinned deployment stays pinned, at the new release.
 
 With --test the deployment's suites run first and it is upgraded only when
 every case passes; a pinned one is tested, then has its pin moved. On an
-install that lends deployments an identity, upgrading needs a signed-in
-session (octopaas auth login) rather than an API key.`,
+install that lends deployments an identity, an API key upgrades only with the
+CI/CD or operator role, and only a deployment with no access grants; otherwise
+sign in (octopaas auth login).`,
 		Example: `  octopaas deployments upgrade billing --test
   octopaas deployments upgrade billing`,
 		Args: cobra.ExactArgs(1),

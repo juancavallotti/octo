@@ -75,7 +75,9 @@ func Wrap(v checker, next http.Handler) http.Handler {
 		}
 
 		allowed := required(r.Method, r.URL.Path)
-		if len(allowed) == 0 || !principal.Has(allowed...) {
+		byRole := len(allowed) > 0 && principal.Has(allowed...)
+		byPipeline := principal.Has(RoleCICD) && pipelineMay(r.Method, r.URL.Path)
+		if !byRole && !byPipeline {
 			// The roles are not named. What this install requires is not something an
 			// unauthorized caller should learn by asking.
 			httpx.WriteError(w, http.StatusForbidden,

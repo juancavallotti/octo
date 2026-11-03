@@ -1,0 +1,185 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+const listApiKeys = vi.fn();
+const createApiKey = vi.fn();
+const deleteApiKey = vi.fn();
+vi.mock("@/app/model/apikeys", () => ({
+  listApiKeys: () => listApiKeys(),
+  createApiKey: (name: string, roles: string[], expiresAt: string) =>
+    createApiKey(name, roles, expiresAt),
+  deleteApiKey: (id: string) => deleteApiKey(id),
+}));
+
+import ApiKeysManager from "./ApiKeysManager";
+import { ConfirmProvider } from "@/app/components/ConfirmDialog";
+import { RolesProvider } from "@/app/auth/RolesContext";
+import {
+  PLATFORM_ADMIN,
+  PLATFORM_DEVELOPER,
+  PLATFORM_MONITOR,
+  PLATFORM_OPERATOR,
+} from "@/app/auth/roles";
+
+function renderAs(roles: string[]) {
+  return render(
+    <RolesProvider roles={roles} mayWrite>
+      <ConfirmProvider>
+        <ApiKeysManager />
+      </ConfirmProvider>
+    </RolesProvider>,
+  );
+}
+
+describe("ApiKeysManager", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listApiKeys.mockResolvedValue([]);
+  });
+
+  it("offers an admin every key role but admin", async () => {
+    renderAs([PLATFORM_ADMIN]);
+    await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
+    for (const label of ["Monitor", "Developer", "Operator", "CI/CD"]) {
+      expect(screen.getByRole("checkbox", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("checkbox", { name: "Admin" })).toBeNull();
+  });
+
+  it("offers a developer only developer: roles are facets, not a ladder", async () => {
+    renderAs([PLATFORM_DEVELOPER]);
+    await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
+    expect(screen.getByRole("checkbox", { name: "Developer" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Monitor" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Operator" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "CI/CD" })).toBeNull();
+  });
+
+  it("offers CI/CD to somebody holding both developer and operator", async () => {
+    renderAs([PLATFORM_DEVELOPER, PLATFORM_OPERATOR]);
+    await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
+    expect(screen.getByRole("checkbox", { name: "CI/CD" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Monitor" })).toBeNull();
+  });
+
+  it("creates nothing until a role is ticked, then sends the roles and the date", async () => {
+    const user = userEvent.setup();
+    createApiKey.mockResolvedValue({
+      id: "k1",
+      name: "ci",
+      prefix: "octo_abcd",
+      last4: "wxyz",
+      roles: [PLATFORM_OPERATOR],
+      createdAt: "2026-11-03T00:00:00Z",
+      expiresAt: "2026-12-03T00:00:00Z",
+      token: "octo_secret",
+    });
+    renderAs([PLATFORM_OPERATOR, PLATFORM_MONITOR]);
+    await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
+
+    await user.type(screen.getByPlaceholderText(/Key name/), "ci");
+    const create = screen.getByRole("button", { name: /Create/ });
+    expect(create).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: "Operator" }));
+    await user.click(screen.getByRole("checkbox", { name: "Monitor" }));
+    await user.click(screen.getByRole("button", { name: "7 days" }));
+    await user.click(create);
+
+    await waitFor(() => expect(createApiKey).toHaveBeenCalled());
+    const [name, roles, expiresAt] = createApiKey.mock.calls[0];
+    expect(name).toBe("ci");
+    expect(roles).toEqual([PLATFORM_OPERATOR, PLATFORM_MONITOR]);
+    // Seven days from now, give or take a daylight-saving hour.
+    const days = (new Date(expiresAt).getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(6.95);
+    expect(days).toBeLessThan(7.05);
+  });
+
+  it("keeps Create disabled for an expiry iam would refuse", async () => {
+    const user = userEvent.setup();
+    renderAs([PLATFORM_ADMIN]);
+    await waitFor(() => expect(listApiKeys).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText(/Key name/), "ci");
+    await user.click(screen.getByRole("checkbox", { name: "Monitor" }));
+    const create = screen.getByRole("button", { name: /Create/ });
+    const date = screen.getByLabelText("Expires on");
+
+    expect(create).toBeEnabled();
+    for (const out of ["2020-01-01", "2999-01-01"]) {
+      fireEvent.change(date, { target: { value: out } });
+      expect(create).toBeDisabled();
+    }
+  });
+
+  it("opens a card on each role saying what a key with it may do", async () => {
+    listApiKeys.mockResolvedValue([key("k1", "ci", [PLATFORM_DEVELOPER], 30)]);
+    renderAs([PLATFORM_ADMIN]);
+    await screen.findByText("ci");
+    expect(screen.getByRole("checkbox", { name: "Operator" })).toHaveAccessibleDescription(
+      expect.stringContaining("Deploy, roll out, scale and remove deployments"),
+    );
+    const pill = screen
+      .getAllByText("Developer")
+      .find((el) => el.hasAttribute("aria-describedby"));
+    expect(pill).toHaveAccessibleDescription(expect.stringContaining("Deploy or operate deployments"));
+  });
+
+  it("deletes every expired key, and only those, after confirming", async () => {
+    const user = userEvent.setup();
+    listApiKeys.mockResolvedValue([
+      key("live", "live", [PLATFORM_MONITOR], 30),
+      key("old1", "old1", [PLATFORM_MONITOR], -1),
+      key("old2", "old2", [PLATFORM_MONITOR], -10),
+    ]);
+    deleteApiKey.mockResolvedValue(undefined);
+    renderAs([PLATFORM_ADMIN]);
+
+    await user.click(await screen.findByRole("button", { name: "Delete expired (2)" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteApiKey).toHaveBeenCalledTimes(2));
+    expect(deleteApiKey.mock.calls.map((c) => c[0]).sort()).toEqual(["old1", "old2"]);
+  });
+
+  it("refreshes after a partial bulk delete and names the keys that failed", async () => {
+    const user = userEvent.setup();
+    listApiKeys.mockResolvedValue([
+      key("old1", "old1", [PLATFORM_MONITOR], -1),
+      key("old2", "old2", [PLATFORM_MONITOR], -10),
+    ]);
+    deleteApiKey.mockImplementation((id: string) =>
+      id === "old2" ? Promise.reject(new Error("boom")) : Promise.resolve(),
+    );
+    renderAs([PLATFORM_ADMIN]);
+
+    await user.click(await screen.findByRole("button", { name: "Delete expired (2)" }));
+    const calls = listApiKeys.mock.calls.length;
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText('Could not delete "old2".')).toBeInTheDocument();
+    expect(listApiKeys.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it("offers no bulk delete when nothing has expired", async () => {
+    listApiKeys.mockResolvedValue([key("live", "live", [PLATFORM_MONITOR], 30)]);
+    renderAs([PLATFORM_ADMIN]);
+    await screen.findByText("live");
+    expect(screen.queryByRole("button", { name: /Delete expired/ })).toBeNull();
+  });
+});
+
+/** A listed key expiring `days` from now (negative for one already expired). */
+function key(id: string, name: string, roles: string[], days: number) {
+  return {
+    id,
+    name,
+    prefix: "octo_abcd",
+    last4: "wxyz",
+    roles,
+    createdAt: "2026-01-01T00:00:00Z",
+    expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+    lastUsedAt: null,
+  };
+}
