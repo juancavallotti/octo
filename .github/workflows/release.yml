@@ -682,3 +682,18 @@ jobs:
           # Pin the version goreleaser builds rather than letting it infer one with
           # `git describe`, which also covers the workflow_dispatch path.
           GORELEASER_CURRENT_TAG: ${{ inputs.tag || github.ref_name }}
+      # octopaas is its own module in a subdirectory, so `go install
+      # .../octopaas@vX.Y.Z` resolves the tag octopaas/vX.Y.Z, not vX.Y.Z. It runs
+      # after GoReleaser so the extra tag on this commit cannot change which tag
+      # GoReleaser picks, and a re-run that finds it already pushed leaves it be.
+      - name: Tag the octopaas module
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          module_tag="octopaas/$TAG"
+          if git ls-remote --exit-code --tags origin "refs/tags/$module_tag" >/dev/null; then
+            echo "$module_tag already exists"
+            exit 0
+          fi
+          git tag "$module_tag" HEAD
+          git push origin "refs/tags/$module_tag"
