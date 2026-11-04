@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.16](https://github.com/juancavallotti/octo/compare/v0.11.15...v0.11.16) (2026-11-04)
+
+
+### Bug Fixes
+
+* **ci:** check the octopaas tag locally and against the release commit ([c2ece76](https://github.com/juancavallotti/octo/commit/c2ece7657e87b9405c3cad7109628f48e389d2c6))
+* **ci:** tag the octopaas module on every release ([a0a37d1](https://github.com/juancavallotti/octo/commit/a0a37d1382ab95d9b69a9eb455d99baea3b89d28))
+* **ci:** tag the octopaas module on every release ([b34965c](https://github.com/juancavallotti/octo/commit/b34965cfc1204e5554363e9eebf2ced75edcb12d))
+
 ## [0.11.15](https://github.com/juancavallotti/octo/compare/v0.11.14...v0.11.15) (2026-11-03)
 
 
