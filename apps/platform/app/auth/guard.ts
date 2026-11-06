@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth } from "@/auth";
 import { PLATFORM_ADMIN, PLATFORM_DEVELOPER, PLATFORM_OPERATOR } from "./roles";
+import { callerEnvironment } from "./callerEnvironment";
+import { rolesIn } from "@/app/lib/environment";
 
 /**
  * Role checks for server actions and route handlers. Each requires a session and,
@@ -31,6 +33,11 @@ export const writeRoles = ((): string[] => {
 export class AuthError extends Error {} // → 401
 export class ForbiddenError extends Error {} // → 403
 
+/** The roles `session` holds in the environment the caller has chosen. */
+export async function effectiveRoles(session: Session): Promise<string[]> {
+  return rolesIn(session.user.roles ?? [], session.user.envRoles, await callerEnvironment());
+}
+
 /** Require an authenticated session, or throw AuthError. */
 export async function requireSession(): Promise<Session> {
   const session = await auth();
@@ -42,7 +49,9 @@ export async function requireSession(): Promise<Session> {
 export async function requireRole(...roles: string[]): Promise<Session> {
   const session = await requireSession();
   if (roles.length === 0) return session;
-  const have = new Set(session.user.roles ?? []);
+  // Judged in the environment the caller has chosen, the same way the services
+  // will judge the token: what this person may do there, not in the default.
+  const have = new Set(await effectiveRoles(session));
   if (!roles.some((r) => have.has(r))) throw new ForbiddenError("forbidden");
   return session;
 }

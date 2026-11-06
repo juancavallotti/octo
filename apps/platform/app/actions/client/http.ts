@@ -20,7 +20,9 @@ import {
   type ActionResult,
   type RequestOptions,
 } from "@octo/http";
+import { callerEnvironment } from "@/app/auth/callerEnvironment";
 import { callerToken } from "@/app/auth/callerToken";
+import { ENVIRONMENT_HEADER } from "@/app/lib/environment";
 
 export type { ActionResult } from "@octo/http";
 
@@ -138,14 +140,18 @@ function unconfigured(): { ok: false; error: string } {
 }
 
 /**
- * The caller's credential, as request options.
+ * The caller's credential and environment, as request options.
  *
- * Absent when there is none — an install with no identity provider, or a call
- * made outside any request. That is not an error here: the orchestrator decides
- * what it will do without one, and an install that is not enforcing will do it
- * happily.
+ * The credential is absent when there is none — an install with no identity
+ * provider, or a call made outside any request. That is not an error here: the
+ * orchestrator decides what it will do without one, and an install that is not
+ * enforcing will do it happily. The environment is absent for the default,
+ * which is what the orchestrator reads a missing header as.
  */
 async function authorized(): Promise<RequestOptions | undefined> {
-  const token = await callerToken();
-  return token ? { headers: { Authorization: `Bearer ${token}` } } : undefined;
+  const [token, environment] = await Promise.all([callerToken(), callerEnvironment()]);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (environment) headers[ENVIRONMENT_HEADER] = environment;
+  return Object.keys(headers).length > 0 ? { headers } : undefined;
 }

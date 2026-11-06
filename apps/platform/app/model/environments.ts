@@ -51,6 +51,11 @@ export async function updateEnvironment(
   return unwrap(await actions.updateEnvironment(name, patch));
 }
 
+/** Work in `name` from now on ("" or "octo" for the default). */
+export async function selectEnvironment(name: string): Promise<void> {
+  return unwrap(await actions.selectEnvironment(name));
+}
+
 export async function deleteEnvironment(name: string): Promise<void> {
   return unwrap(await actions.deleteEnvironment(name));
 }

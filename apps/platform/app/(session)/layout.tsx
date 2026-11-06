@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { RolesProvider } from "@/app/auth/RolesContext";
+import { EnvironmentProvider } from "@/app/auth/EnvironmentContext";
+import { callerEnvironment } from "@/app/auth/callerEnvironment";
+import { rolesIn } from "@/app/lib/environment";
 import { writeRoles } from "@/app/auth/guard";
 import AgentChatLauncher from "@/app/components/agent/AgentChatLauncher";
 
@@ -33,12 +36,19 @@ export default async function SessionLayout({
   // actually trusts is read server-side by the chat route.
   const userKey = session.user.id ?? session.user.email ?? "user";
   const roles = session.user.roles ?? [];
+  const envRoles = session.user.envRoles ?? {};
+  // Every screen is in the environment the caller chose, so the roles the client
+  // tree is given are the ones held there.
+  const environment = await callerEnvironment();
+  const effective = rolesIn(roles, envRoles, environment);
   return (
-    <RolesProvider
-      roles={roles}
-      mayWrite={roles.some((role) => writeRoles.includes(role))}
-    >
-      <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>
-    </RolesProvider>
+    <EnvironmentProvider value={{ environment, roles, envRoles }}>
+      <RolesProvider
+        roles={effective}
+        mayWrite={effective.some((role) => writeRoles.includes(role))}
+      >
+        <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>
+      </RolesProvider>
+    </EnvironmentProvider>
   );
 }

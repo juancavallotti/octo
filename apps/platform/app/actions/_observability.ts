@@ -14,7 +14,9 @@
  */
 
 import { requestJson, type ActionResult, type RequestOptions } from "@octo/http";
+import { callerEnvironment } from "@/app/auth/callerEnvironment";
 import { callerToken } from "@/app/auth/callerToken";
+import { ENVIRONMENT_HEADER } from "@/app/lib/environment";
 
 /** The env var that carries the address — the chart sets it; `pnpm dev` needs a port-forward. */
 const envVar = "OBSERVABILITY_URL";
@@ -53,6 +55,9 @@ export async function observabilityCall<T>(
  * the service's decision.
  */
 async function authorized(): Promise<RequestOptions | undefined> {
-  const token = await callerToken();
-  return token ? { headers: { Authorization: `Bearer ${token}` } } : undefined;
+  const [token, environment] = await Promise.all([callerToken(), callerEnvironment()]);
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (environment) headers[ENVIRONMENT_HEADER] = environment;
+  return Object.keys(headers).length > 0 ? { headers } : undefined;
 }

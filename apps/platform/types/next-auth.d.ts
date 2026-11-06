@@ -18,7 +18,10 @@ declare module "next-auth" {
   interface Session {
     user: {
       id?: string;
+      /** Roles in the default environment. */
       roles: string[];
+      /** Roles in each other environment, by name. */
+      envRoles?: Record<string, string[]>;
     } & DefaultSession["user"];
   }
 }
