@@ -31,11 +31,9 @@ CREATE TABLE IF NOT EXISTS integrations (
     last_updated timestamptz NOT NULL DEFAULT now()
 );
 
--- Integration names are unique case-insensitively (global scope). The service
--- pre-checks for a clean error; this index is the backstop against races and
--- direct writes. Creation fails if pre-existing duplicates exist.
-CREATE UNIQUE INDEX IF NOT EXISTS integrations_name_lower_uniq
-    ON integrations (lower(name));
+-- Integration names are unique case-insensitively within an environment. The
+-- index lives beside the environment column it leads with, after the
+-- environments table — see "Environment scoping" below.
 
 -- An intentionally chosen icon for the integration, as a name from the editor's
 -- icon registry. Empty means "derive it from the definition", which is what the
@@ -74,7 +72,7 @@ ALTER TABLE integration_deployments
 -- records each name and its timestamps so the UI can list secrets and show when
 -- they were last set. `last_updated` is stamped by the application on every set.
 CREATE TABLE IF NOT EXISTS cluster_secrets (
-    name         varchar PRIMARY KEY,
+    name         varchar NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     last_updated timestamptz NOT NULL DEFAULT now()
 );
@@ -1077,11 +1075,8 @@ CREATE TABLE IF NOT EXISTS alert_watches (
     updated_by       uuid REFERENCES users (id) ON DELETE SET NULL
 );
 
--- Watch names are unique case-insensitively, on the same terms integrations are:
--- the service pre-checks for a clean error and this index is the backstop against
--- races and direct writes.
-CREATE UNIQUE INDEX IF NOT EXISTS alert_watches_name_lower_uniq
-    ON alert_watches (lower(name));
+-- Watch names are unique case-insensitively within an environment, on the same
+-- terms integrations are; the index is under "Environment scoping" below.
 
 -- alert_watch_state is exactly one row per watch: where the state machine got to.
 --
@@ -1310,6 +1305,58 @@ CREATE TABLE IF NOT EXISTS environments (
     created_at   timestamptz NOT NULL DEFAULT now(),
     created_by   uuid REFERENCES users (id) ON DELETE SET NULL
 );
+
+-- Environment scoping. The tables at the top of each tree of platform data carry
+-- the environment they belong to, NULL for the default — which is what every row
+-- written before environments existed belongs to, so an upgrade changes nothing
+-- anybody can see. Everything beneath them (snapshots, files, test runs, KV,
+-- agent memory, alert state) is reached through one of these and inherits it.
+--
+-- integration_deployments repeats its integration's environment so a listing of
+-- deployments, and the sweeps that walk them per namespace, filter without a join.
+-- logs, traces and trace_summaries repeat their deployment's for the same reason,
+-- at a volume where the join would be the cost; they take no foreign key, like
+-- their deployment_id, because telemetry outlives what emitted it.
+--
+-- Integrations and deployments RESTRICT: an environment is deleted only once
+-- nothing runs or is defined in it, and this is the backstop to the
+-- orchestrator's own check. Folders, the secret catalogue and alert watches go
+-- with it.
+ALTER TABLE integrations
+    ADD COLUMN IF NOT EXISTS environment varchar REFERENCES environments (name) ON DELETE RESTRICT;
+ALTER TABLE integration_deployments
+    ADD COLUMN IF NOT EXISTS environment varchar REFERENCES environments (name) ON DELETE RESTRICT;
+ALTER TABLE integration_idx_structure
+    ADD COLUMN IF NOT EXISTS environment varchar REFERENCES environments (name) ON DELETE CASCADE;
+ALTER TABLE cluster_secrets
+    ADD COLUMN IF NOT EXISTS environment varchar REFERENCES environments (name) ON DELETE CASCADE;
+ALTER TABLE alert_watches
+    ADD COLUMN IF NOT EXISTS environment varchar REFERENCES environments (name) ON DELETE CASCADE;
+ALTER TABLE logs ADD COLUMN IF NOT EXISTS environment varchar;
+ALTER TABLE traces ADD COLUMN IF NOT EXISTS environment varchar;
+ALTER TABLE trace_summaries ADD COLUMN IF NOT EXISTS environment varchar;
+
+-- Names unique per environment. The global indexes they replace are dropped
+-- after the new ones exist, so there is no moment without a backstop; both
+-- statements are no-ops once applied.
+CREATE UNIQUE INDEX IF NOT EXISTS integrations_environment_name_uniq
+    ON integrations (COALESCE(environment, ''), lower(name));
+DROP INDEX IF EXISTS integrations_name_lower_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS alert_watches_environment_name_uniq
+    ON alert_watches (COALESCE(environment, ''), lower(name));
+DROP INDEX IF EXISTS alert_watches_name_lower_uniq;
+-- A secret's name was its primary key; it is now unique per environment, since
+-- each environment has its own octo-secrets Secret in its own namespace.
+CREATE UNIQUE INDEX IF NOT EXISTS cluster_secrets_environment_name_uniq
+    ON cluster_secrets (COALESCE(environment, ''), name);
+ALTER TABLE cluster_secrets DROP CONSTRAINT IF EXISTS cluster_secrets_pkey;
+
+CREATE INDEX IF NOT EXISTS idx_integration_deployments_environment
+    ON integration_deployments (environment);
+CREATE INDEX IF NOT EXISTS idx_logs_environment_ts_id ON logs (environment, ts DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_environment_ts ON traces (environment, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_trace_summaries_environment_started
+    ON trace_summaries (environment, started_at DESC, trace_id DESC);
 
 -- A key may be bound to one environment, and its token then acts there and
 -- nowhere else. NULL is the default environment, which is what every key minted
