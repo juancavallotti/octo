@@ -31,6 +31,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/email"
 	"github.com/juancavallotti/octo/orchestrator/internal/embedding"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	"github.com/juancavallotti/octo/orchestrator/internal/health"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
@@ -245,6 +246,13 @@ func kubeConfig() (kube.Config, error) {
 		},
 		ImagePullSecrets: imagePullSecretsConfig(),
 		RuntimeServices:  runtimeServicesConfig(),
+		// What an environment's namespace is wired with. The chart sets all three
+		// together; any one unset leaves environments unmanageable.
+		Environments: kube.EnvironmentRBAC{
+			OrchestratorServiceAccount: os.Getenv("ORCHESTRATOR_SERVICE_ACCOUNT"),
+			WorkloadClusterRole:        os.Getenv("ENVIRONMENT_WORKLOAD_CLUSTER_ROLE"),
+			RuntimeClusterRole:         os.Getenv("ENVIRONMENT_RUNTIME_CLUSTER_ROLE"),
+		},
 	}
 	if err := cfg.Validate(); err != nil {
 		return kube.Config{}, err
@@ -579,6 +587,19 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		slog.Info("folder routes registered",
 			"endpoints", "POST/GET /folders, GET/PUT/DELETE /folders/{id}, "+
 				"GET /folders/{id}/integrations, PUT/DELETE /folders/{id}/integrations/{integrationId}")
+
+		// Environments are listed wherever there is a database, since every screen
+		// is scoped by one. Creating and deleting them provisions namespaces, so
+		// that needs a cluster and the chart's environment RBAC; without either the
+		// service is built with no namespace driver and refuses those two.
+		var namespaces *kube.Client
+		if kubeClient != nil && kubeClient.EnvironmentsEnabled() {
+			namespaces = kubeClient
+		}
+		environmentSvc := newEnvironmentService(database, namespaces, kc.Namespace)
+		environment.NewHandler(environmentSvc).Register(mux)
+		slog.Info("environment routes registered", "manageable", environmentSvc.Enabled(),
+			"endpoints", "GET/POST /environments, GET/PATCH/DELETE /environments/{name}")
 
 		// Version tags. Snapshotting needs only the database (not Kubernetes), so it
 		// is registered outside the deployment/kube gate below — tags can be created
@@ -926,6 +947,16 @@ func newKubeClient(ctx context.Context, kc kube.Config) (*kube.Client, error) {
 		return nil, err
 	}
 	return client, nil
+}
+
+// newEnvironmentService builds the environment service. A nil client is passed
+// on as a nil interface, not as a typed nil, so the service sees no driver.
+func newEnvironmentService(database *db.DB, client *kube.Client, defaultNamespace string) *environment.Service {
+	repo := environment.NewRepo(database.Pool())
+	if client == nil {
+		return environment.NewService(repo, nil, defaultNamespace)
+	}
+	return environment.NewService(repo, client, defaultNamespace)
 }
 
 // newDevRunService builds the dev-run service, or a nil one when dev runs are not

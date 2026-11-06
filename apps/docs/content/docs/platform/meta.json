@@ -9,6 +9,7 @@
     "resources-and-secrets",
     "kv-and-storage",
     "agent-memory",
+    "environments",
     "users-and-api-keys",
     "admin-settings",
     "public-api",

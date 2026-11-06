@@ -202,3 +202,7 @@ Two behaviours are explained in [Traces](/platform/traces#retention): a trace is
 Each check is **one round trip**: it proves a dependency answered and no more. Postgres answering says nothing about replication lag, and Redis answering says nothing about how full it is.
 
 There are three results. **Not configured** is neutral rather than a warning, because running an orchestrator without cluster access, or without embeddings, is a supported way to run. **Unreachable** shows the transport error verbatim, the string you would otherwise go to the pod logs for. It checks on load and on **Check again**, and does not poll.
+
+## Environments
+
+`/platform/admin/environments` creates and deletes environments, each in a Kubernetes namespace of its own. See [Environments](/platform/environments).

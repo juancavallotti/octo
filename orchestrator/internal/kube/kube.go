@@ -136,6 +136,9 @@ type Client struct {
 	// implementation it holds — Ingress or Gateway API HTTPRoute — is the only
 	// place the two differ; see endpoint.go.
 	endpoints endpointPublisher
+	// environments names the identities and ClusterRoles bound into each
+	// environment's namespace; see environment.go.
+	environments EnvironmentRBAC
 	// imagePullSecrets names Secrets in this namespace that authenticate the pull
 	// of runtimeImage. Nil is the normal case — the image is public, or the nodes
 	// carry credentials — and anything else mirrors what the chart puts on its own
@@ -285,6 +288,10 @@ type Config struct {
 	Gateway           GatewayRef
 	ImagePullSecrets  []string
 	RuntimeServices   RuntimeServices
+	// Environments is what provisioning an environment's namespace needs. Its
+	// zero value leaves environments unavailable, which is every install whose
+	// chart has not granted the cluster-scoped rules that provisioning takes.
+	Environments EnvironmentRBAC
 }
 
 // Validate reports configuration that cannot work, before anything is built from
@@ -362,6 +369,7 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		baseDomain:         cfg.BaseDomain,
 		imagePullSecrets:   cfg.ImagePullSecrets,
 		runtimeServices:    cfg.RuntimeServices,
+		environments:       cfg.Environments,
 	}
 	if c.sidecarPort == 0 {
 		c.sidecarPort = defaultSidecarPort
