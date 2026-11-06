@@ -9,6 +9,7 @@
  */
 
 import type {
+  Promotion,
   Snapshot,
   SnapshotDetail,
   SnapshotResource,
@@ -35,6 +36,18 @@ export async function createSnapshot(
   tag: string,
 ): Promise<ActionResult<Snapshot>> {
   return withWrite(() => client.createSnapshot(integrationId, tag));
+}
+
+/**
+ * Promote a version into another environment. Read access is all this boundary
+ * asks for: the orchestrator judges the write by the caller's roles in the
+ * target, which only it can see from the token.
+ */
+export async function promoteSnapshot(
+  id: string,
+  environment: string,
+): Promise<ActionResult<Promotion>> {
+  return withRead(() => client.promoteSnapshot(id, environment));
 }
 
 export async function deleteSnapshot(id: string): Promise<ActionResult<void>> {

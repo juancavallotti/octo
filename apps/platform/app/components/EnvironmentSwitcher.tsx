@@ -7,6 +7,7 @@ import { listEnvironments, selectEnvironment } from "@/app/model/environments";
 import EnvironmentMenu from "./EnvironmentMenu";
 import {
   landingAfterSwitch,
+  reloadAt,
   visibleEnvironments,
   type EnvironmentOption,
 } from "./environmentSwitch";
@@ -35,7 +36,7 @@ export default function EnvironmentSwitcher() {
         if (!live) return;
         const current = context.environment;
         if (current !== "" && !all.some((e) => e.name === current)) {
-          selectEnvironment("").then(() => window.location.assign(landingAfterSwitch(pathname)));
+          selectEnvironment("").then(() => reloadAt(landingAfterSwitch(pathname)));
           return;
         }
         setOptions(visibleEnvironments(all, context.roles, context.envRoles));
@@ -55,7 +56,7 @@ export default function EnvironmentSwitcher() {
     setBusy(true);
     try {
       await selectEnvironment(name);
-      window.location.assign(landingAfterSwitch(pathname));
+      reloadAt(landingAfterSwitch(pathname));
     } catch {
       setBusy(false);
     }

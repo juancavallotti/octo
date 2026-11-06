@@ -36,6 +36,17 @@ export interface Integration {
 }
 
 /** A version tag: a frozen snapshot of an integration, as the list names it. */
+/** What promoting a version produced in the target environment. */
+export interface Promotion {
+  /** The target's integration: the one already there, or the one this created. */
+  integrationId: string;
+  /** Whether this promotion created that integration. */
+  created: boolean;
+  /** The target environment's name ("octo" for the default). */
+  environment: string;
+  snapshot: { id: string; integrationId: string; tag: string; createdAt: string };
+}
+
 export interface Snapshot {
   id: string;
   integrationId: string;
