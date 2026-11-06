@@ -10,6 +10,7 @@ import type {
   IntegrationInput,
   IntegrationRename,
   Resource,
+  Promotion,
   Snapshot,
   SnapshotDetail,
   SnapshotResource,
@@ -91,6 +92,11 @@ export function createSnapshot(
       tag,
     },
   );
+}
+
+/** Copy a version, under the same tag, into another environment. */
+export function promoteSnapshot(id: string, environment: string): Promise<ActionResult<Promotion>> {
+  return call<Promotion>("POST", `/snapshots/${enc(id)}/promote`, { environment });
 }
 
 export function deleteSnapshot(id: string): Promise<ActionResult<void>> {

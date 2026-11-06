@@ -50,3 +50,12 @@ export function landingAfterSwitch(pathname: string): string {
   if (["integrations", "metrics", "traces", "logs"].includes(section)) return `/platform/${section}`;
   return pathname;
 }
+
+/**
+ * Load `path` afresh in the browser. Switching environments uses this instead of
+ * client-side navigation because every list a page holds was read in the
+ * environment being left, and only a full load is sure to drop all of them.
+ */
+export function reloadAt(path: string): void {
+  window.location.assign(path);
+}

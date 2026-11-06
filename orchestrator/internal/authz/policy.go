@@ -70,6 +70,10 @@ var policy = []rule{
 	{"runtimes", anyone, nil},
 
 	// --- building -------------------------------------------------------
+	// Promoting a version reads it here and writes it in another environment.
+	// Reading takes any role in this one; the handler judges the write by the
+	// caller's roles in the target, which this table cannot see.
+	{"snapshots/*/promote", anyone, anyone},
 	{"integrations", anyone, builds},
 	{"folders", anyone, builds},
 	{"snapshots", anyone, builds},

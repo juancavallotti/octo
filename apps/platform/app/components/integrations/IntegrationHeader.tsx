@@ -9,6 +9,7 @@ import type { Integration, Snapshot } from "@/app/model/orchestrator";
 import DownloadMenu from "./DownloadMenu";
 import HeaderName from "./HeaderName";
 import IconPicker from "./IconPicker";
+import PromoteButton from "./PromoteButton";
 import VersionMenu from "./VersionMenu";
 import { downloadDefinition } from "./files";
 
@@ -122,6 +123,7 @@ export default function IntegrationHeader({
           Edit
         </button>
       )}
+      <PromoteButton snapshot={activeSnapshot} busy={busy} />
       <button
         type="button"
         onClick={onCopy}

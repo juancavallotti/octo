@@ -30,6 +30,7 @@ import type {
   IntegrationProject,
   IntegrationRename,
   IntegrationTree,
+  Promotion,
   Snapshot,
   SnapshotDetail,
   SnapshotResource,
@@ -264,6 +265,11 @@ export async function createSnapshot(
 }
 
 /** Delete a version tag (refused by the orchestrator if currently deployed). */
+/** Copy a version, under the same tag, into another environment. */
+export async function promoteSnapshot(id: string, environment: string): Promise<Promotion> {
+  return unwrap(await snapshotActions.promoteSnapshot(id, environment));
+}
+
 export async function deleteSnapshot(id: string): Promise<void> {
   return unwrap(await snapshotActions.deleteSnapshot(id));
 }
