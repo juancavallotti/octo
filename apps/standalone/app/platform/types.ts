@@ -19,6 +19,10 @@ export interface Installation {
   current: boolean;
   /** How it signs in, in octopaas's words. */
   auth: string;
+  /** The environment it acts in; "octo" is the default. */
+  environment: string;
+  /** The environments the installation has; null until it has answered. */
+  environments: string[] | null;
   identity: Identity;
 }
 
@@ -28,6 +32,8 @@ export interface FolderLink {
   url: string;
   integrationId: string;
   integrationName: string;
+  /** The environment it came from; absent on a link written before environments, which is the default's. */
+  environment?: string;
   pulledTag?: string;
   linkedAt: number;
 }
@@ -137,6 +143,7 @@ export interface PaasBridge {
   addProfile(name: string, url: string, key?: string): Promise<PlatformState>;
   setKey(name: string, key: string): Promise<PlatformState>;
   useProfile(name: string): Promise<PlatformState>;
+  useEnvironment(name: string, environment: string): Promise<PlatformState>;
   removeProfile(name: string): Promise<PlatformState>;
   signIn(name: string): Promise<PlatformState>;
   signOut(name: string): Promise<PlatformState>;

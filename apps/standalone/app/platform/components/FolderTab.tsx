@@ -31,7 +31,8 @@ export default function FolderTab({ state, profile }: { state: PlatformState; pr
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{vault.name}</div>
             <div className={`${MUTED} truncate`} title={vault.path}>
-              {link.integrationName} on {link.profile} · {link.url}
+              {link.integrationName} on {link.profile}
+              {link.environment && link.environment !== "octo" ? ` (${link.environment})` : ""} · {link.url}
               {link.pulledTag ? ` · pulled from ${link.pulledTag}` : ""}
             </div>
           </div>
