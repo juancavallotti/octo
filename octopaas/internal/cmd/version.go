@@ -38,6 +38,10 @@ func environmentTopic() *cobra.Command {
                     profile's key and any signed-in session.
   OCTOPAAS_PROFILE  The profile to use, for one shell or one job, without
                     changing the current one. --profile overrides it.
+  OCTOPAAS_ENVIRONMENT
+                    The environment to act in, such as staging. Overrides the
+                    profile's; --environment overrides it. Unset, and with no
+                    profile environment, commands act in the default, octo.
   OCTOPAAS_HOME     Where config.yaml and credentials.yaml live
                     (default ~/.octopaas).
   NO_COLOR, CI      Either one switches off colours and animations.

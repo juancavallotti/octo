@@ -28,10 +28,11 @@ type App struct {
 	Getenv func(string) string
 
 	// flags every command takes
-	profile string
-	url     string
-	output  string
-	plain   bool
+	profile     string
+	url         string
+	environment string
+	output      string
+	plain       bool
 
 	ui   *ui.UI
 	home string
@@ -127,6 +128,7 @@ OCTOPAAS_KEY instead and no sign-in or config file is needed.`,
 	flags := root.PersistentFlags()
 	flags.StringVarP(&app.profile, "profile", "p", "", "the profile to use (default: $OCTOPAAS_PROFILE, then the config's current one)")
 	flags.StringVar(&app.url, "url", "", "the API to talk to, overriding the profile (default: $OCTOPAAS_URL)")
+	flags.StringVar(&app.environment, "environment", "", "the environment to act in (default: $OCTOPAAS_ENVIRONMENT, then the profile's, then octo)")
 	flags.StringVarP(&app.output, "output", "o", outputTable, "how to print results: table, json or yaml")
 	flags.BoolVar(&app.plain, "plain", false, "no colours, animations or art, even in a terminal")
 
@@ -139,7 +141,7 @@ OCTOPAAS_KEY instead and no sign-in or config file is needed.`,
 	root.SetHelpCommandGroupID("more")
 	root.SetCompletionCommandGroupID("more")
 
-	for _, c := range []*cobra.Command{app.authCommand(), app.whoamiCommand(), app.profileCommand(), app.configCommand()} {
+	for _, c := range []*cobra.Command{app.authCommand(), app.whoamiCommand(), app.profileCommand(), app.environmentsCommand(), app.configCommand()} {
 		c.GroupID = "account"
 		root.AddCommand(c)
 	}
@@ -208,7 +210,7 @@ func (a *App) welcome() {
 // resolve settles which profile, URL and credential this command uses.
 func (a *App) resolve() (config.Resolved, error) {
 
-	r, err := config.Resolve(a.cfg, config.Overrides{Profile: a.profile, URL: a.url}, a.Getenv)
+	r, err := config.Resolve(a.cfg, a.overrides(), a.Getenv)
 	if err != nil {
 		return r, usageError{err}
 	}
@@ -227,8 +229,13 @@ func (a *App) client() (*client.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.api = client.New(r.URL, a.bearer(r), a.userAgent())
+	a.api = client.New(r.URL, a.bearer(r), a.userAgent()).InEnvironment(r.Environment)
 	return a.api, nil
+}
+
+// overrides are what this command's flags asked for.
+func (a *App) overrides() config.Overrides {
+	return config.Overrides{Profile: a.profile, URL: a.url, Environment: a.environment}
 }
 
 func (a *App) userAgent() string {

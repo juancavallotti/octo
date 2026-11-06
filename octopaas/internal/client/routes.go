@@ -70,6 +70,8 @@ var (
 	deleteDeployment           = route{"deleteDeployment", http.MethodDelete, "/v1/deployments/{id}"}
 	rolloutDeployment          = route{"rolloutDeployment", http.MethodPost, "/v1/deployments/{id}/rollout"}
 
+	listEnvironments = route{"listEnvironments", http.MethodGet, "/v1/environments"}
+
 	listRuntimes = route{"listRuntimes", http.MethodGet, "/v1/runtimes"}
 	listUpgrades = route{"listUpgrades", http.MethodGet, "/v1/upgrades"}
 	startTestRun = route{"startTestRun", http.MethodPost, "/v1/deployments/{id}/testruns"}
@@ -96,7 +98,7 @@ var routes = []route{
 	listVersions, createVersion, getVersion, deleteVersion, downloadVersionBundle,
 	listDeployments, listIntegrationDeployments, createDeployment, deploymentOptions,
 	getDeployment, scaleDeployment, deleteDeployment, rolloutDeployment,
-	listRuntimes, listUpgrades, startTestRun, listTestRuns, getTestRun,
+	listEnvironments, listRuntimes, listUpgrades, startTestRun, listTestRuns, getTestRun,
 	deploymentLogs, podLogs, streamPodLogs,
 	openAPI, healthz, protectedResourceMetadata, openidConfiguration, authorizationServerMetadata,
 }

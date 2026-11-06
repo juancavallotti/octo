@@ -309,6 +309,14 @@ func (c *Client) ListRuntimes(ctx context.Context) (Runtimes, error) {
 	return ret, err
 }
 
+// ListEnvironments lists the environments, the default first.
+func (c *Client) ListEnvironments(ctx context.Context) ([]Environment, error) {
+
+	var ret []Environment
+	err := c.call(ctx, request{route: listEnvironments}, &ret)
+	return ret, err
+}
+
 // ListUpgrades lists every deployment as an upgrade sees it.
 func (c *Client) ListUpgrades(ctx context.Context) (Upgrades, error) {
 
