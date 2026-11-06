@@ -1336,6 +1336,27 @@ ALTER TABLE logs ADD COLUMN IF NOT EXISTS environment varchar;
 ALTER TABLE traces ADD COLUMN IF NOT EXISTS environment varchar;
 ALTER TABLE trace_summaries ADD COLUMN IF NOT EXISTS environment varchar;
 
+-- Telemetry learns its environment from the deployment that emitted it, as it
+-- is written. A trigger rather than the ingest code because records arrive by
+-- single insert, by COPY and by upsert, and the deployment row is the one
+-- place the answer lives; it is one primary-key read per row. A record from a
+-- deployment already deleted stays NULL.
+CREATE OR REPLACE FUNCTION stamp_deployment_environment() RETURNS trigger AS $$
+BEGIN
+    IF NEW.environment IS NULL THEN
+        SELECT d.environment INTO NEW.environment
+          FROM integration_deployments d WHERE d.id = NEW.deployment_id;
+    END IF;
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE TRIGGER logs_stamp_environment
+    BEFORE INSERT ON logs FOR EACH ROW EXECUTE FUNCTION stamp_deployment_environment();
+CREATE OR REPLACE TRIGGER traces_stamp_environment
+    BEFORE INSERT ON traces FOR EACH ROW EXECUTE FUNCTION stamp_deployment_environment();
+CREATE OR REPLACE TRIGGER trace_summaries_stamp_environment
+    BEFORE INSERT ON trace_summaries FOR EACH ROW EXECUTE FUNCTION stamp_deployment_environment();
+
 -- Names unique per environment. The global indexes they replace are dropped
 -- after the new ones exist, so there is no moment without a backstop; both
 -- statements are no-ops once applied.
