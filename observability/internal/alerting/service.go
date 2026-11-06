@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/juancavallotti/octo/observability/internal/environment/current"
 )
 
 // MaxWatches bounds an installation. Refusing the next one beats answering
@@ -124,7 +126,10 @@ func (s *Service) Preview(ctx context.Context, w Watch) (Evaluation, error) {
 	if err := s.check(w); err != nil {
 		return Evaluation{}, err
 	}
-	return s.preview.Preview(ctx, normalize(w))
+	w = normalize(w)
+	w.Environment = current.From(ctx)
+	w.BindEnvironment()
+	return s.preview.Preview(ctx, w)
 }
 
 // Mute suppresses a watch's notifications until the given time, without stopping

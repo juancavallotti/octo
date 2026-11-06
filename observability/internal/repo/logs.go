@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/juancavallotti/octo/observability/internal/ingest"
+
+	"github.com/juancavallotti/octo/observability/internal/environment/current"
 )
 
 // Logs reads and writes the logs table.
@@ -111,6 +113,13 @@ func (r *Logs) Query(ctx context.Context, f LogFilter) ([]LogRow, error) {
 			placeholders[i] = len(args)
 		}
 		where = append(where, fmt.Sprintf(cond, placeholders...))
+	}
+	// Only the environment the request acts in. Spelled IS NULL for the default
+	// rather than IS NOT DISTINCT FROM, which no index serves.
+	if environment := current.From(ctx); environment == "" {
+		where = append(where, "environment IS NULL")
+	} else {
+		add("environment = $%d", environment)
 	}
 	if f.DeploymentID != "" {
 		add("deployment_id = $%d::uuid", f.DeploymentID)

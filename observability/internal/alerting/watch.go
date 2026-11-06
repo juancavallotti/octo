@@ -62,6 +62,19 @@ type Watch struct {
 	DefinitionHash string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+
+	// Environment is the one the watch belongs to and reads from, "" for the
+	// default.
+	Environment string
+}
+
+// BindEnvironment confines every condition to the watch's own environment. The
+// store calls it on every watch it reads, and a preview on the watch it is
+// given, so no evaluation runs with a scope that could read another's records.
+func (w *Watch) BindEnvironment() {
+	for i := range w.Conditions {
+		w.Conditions[i].Scope.Environment = w.Environment
+	}
 }
 
 // HoldEvaluations is how many consecutive firing evaluations For amounts to.

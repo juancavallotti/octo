@@ -178,6 +178,14 @@ func scopeSQL(src alerting.Source, scope alerting.Scope, args []any) (string, []
 		args = append(args, value)
 		fmt.Fprintf(&b, " AND "+format, len(args))
 	}
+	// The watch's own environment, always: an unscoped query here would read
+	// every environment's records. Spelled IS NULL for the default so the
+	// (environment, ts) index serves it.
+	if scope.Environment == "" {
+		b.WriteString(" AND environment IS NULL")
+	} else {
+		add("environment = $%d", scope.Environment)
+	}
 	if scope.DeploymentID != "" {
 		// Cast explicitly: the column is uuid and the scope carries text, and an
 		// inference that happens to work is not the same as one that is written

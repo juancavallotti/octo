@@ -406,10 +406,13 @@ func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) htt
 	// roles in it, and checked after, so an unauthenticated caller cannot use the
 	// header to learn which environments exist.
 	var environments current.Lookup = onlyTheDefault{}
+	var handler http.Handler = mux
 	if database != nil {
-		environments = current.Cached(repo.NewEnvironments(database.Pool()), environmentLookupTTL)
+		lookup := repo.NewEnvironments(database.Pool())
+		environments = current.Cached(lookup, environmentLookupTTL)
+		handler = current.Confine(lookup, mux)
 	}
-	return current.Parse(guard(current.Require(environments, mux)))
+	return current.Parse(guard(current.Require(environments, handler)))
 }
 
 // environmentLookupTTL is how long a request's environment is taken on trust

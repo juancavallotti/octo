@@ -20,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/juancavallotti/octo/observability/internal/alerting"
+
+	"github.com/juancavallotti/octo/observability/internal/environment/current"
 )
 
 // uniqueViolation is the SQLSTATE the case-insensitive name index raises. The
@@ -43,7 +45,7 @@ const watchColumns = `
     w.id, w.name, w.description, w.enabled, w.severity,
     w.combinator, w.conditions, w.actions, w.on_no_data,
     w.step_seconds, w.interval_seconds, w.for_seconds, w.cooldown_seconds,
-    w.definition_hash, w.created_at, w.updated_at`
+    w.definition_hash, w.created_at, w.updated_at, COALESCE(w.environment, '')`
 
 func scanWatch(row pgx.Row) (alerting.Watch, error) {
 	var w alerting.Watch
@@ -52,7 +54,7 @@ func scanWatch(row pgx.Row) (alerting.Watch, error) {
 	err := row.Scan(&w.ID, &w.Name, &w.Description, &w.Enabled, &w.Severity,
 		&w.Combinator, &conditions, &actions, &w.OnNoData,
 		&step, &interval, &hold, &cooldown,
-		&w.DefinitionHash, &w.CreatedAt, &w.UpdatedAt)
+		&w.DefinitionHash, &w.CreatedAt, &w.UpdatedAt, &w.Environment)
 	if err != nil {
 		return alerting.Watch{}, err
 	}
@@ -70,6 +72,7 @@ func scanWatch(row pgx.Row) (alerting.Watch, error) {
 	if err := json.Unmarshal(actions, &w.Actions); err != nil {
 		return alerting.Watch{}, fmt.Errorf("store: decode the actions of watch %s: %w", w.ID, err)
 	}
+	w.BindEnvironment()
 	return w, nil
 }
 
@@ -106,13 +109,13 @@ func (s *Store) Create(ctx context.Context, w alerting.Watch, createdBy string) 
 			INSERT INTO alert_watches (name, description, enabled, severity, combinator,
 			                           conditions, actions, on_no_data, step_seconds,
 			                           interval_seconds, for_seconds, cooldown_seconds,
-			                           definition_hash, created_by, updated_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,`+nullableUUID(14)+`,`+nullableUUID(14)+`)
+			                           definition_hash, created_by, updated_by, environment)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,`+nullableUUID(14)+`,`+nullableUUID(14)+`,$15)
 			RETURNING `+strip(watchColumns),
 			w.Name, w.Description, w.Enabled, w.Severity, w.Combinator,
 			conditions, actions, w.OnNoData, seconds(w.Step),
 			seconds(w.Interval), seconds(w.For), seconds(w.Cooldown),
-			hash, nullOrString(createdBy))
+			hash, nullOrString(createdBy), current.Column(ctx))
 		created, err := scanWatch(row)
 		if err != nil {
 			return err
@@ -158,12 +161,12 @@ func (s *Store) Update(
 		       interval_seconds = $11, for_seconds = $12, cooldown_seconds = $13,
 		       definition_hash = $14, updated_at = now(),
 		       updated_by = `+nullableUUID(15)+`
-		 WHERE w.id = $1::uuid
+		 WHERE w.id = $1::uuid AND w.environment IS NOT DISTINCT FROM $16
 		RETURNING `+watchColumns,
 			w.ID, w.Name, w.Description, w.Enabled, w.Severity, w.Combinator,
 			conditions, actions, w.OnNoData, seconds(w.Step),
 			seconds(w.Interval), seconds(w.For), seconds(w.Cooldown),
-			hash, nullOrString(updatedBy))
+			hash, nullOrString(updatedBy), current.Column(ctx))
 
 		saved, err := scanWatch(row)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -193,7 +196,8 @@ func (s *Store) Update(
 // Get reads one watch.
 func (s *Store) Get(ctx context.Context, id string) (alerting.Watch, error) {
 	w, err := scanWatch(s.pool.QueryRow(ctx,
-		`SELECT `+watchColumns+` FROM alert_watches AS w WHERE w.id = $1::uuid`, id))
+		`SELECT `+watchColumns+` FROM alert_watches AS w
+		 WHERE w.id = $1::uuid AND w.environment IS NOT DISTINCT FROM $2`, id, current.Column(ctx)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return alerting.Watch{}, alerting.ErrWatchNotFound
 	}
@@ -206,7 +210,8 @@ func (s *Store) Get(ctx context.Context, id string) (alerting.Watch, error) {
 // Delete removes a watch. Its state, episodes and history go with it, by cascade:
 // an incident that outlives its watch has nothing left that could resolve it.
 func (s *Store) Delete(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM alert_watches WHERE id = $1::uuid`, id)
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM alert_watches WHERE id = $1::uuid AND environment IS NOT DISTINCT FROM $2`, id, current.Column(ctx))
 	if err != nil {
 		return fmt.Errorf("store: delete watch %s: %w", id, err)
 	}
@@ -222,7 +227,8 @@ func (s *Store) List(ctx context.Context) ([]alerting.Due, error) {
 		SELECT `+watchColumns+`, `+stateColumns+`
 		  FROM alert_watches AS w
 		  LEFT JOIN alert_watch_state AS s ON s.watch_id = w.id
-		 ORDER BY w.created_at DESC, w.id DESC`)
+		 WHERE w.environment IS NOT DISTINCT FROM $1
+		 ORDER BY w.created_at DESC, w.id DESC`, current.Column(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("store: list watches: %w", err)
 	}
