@@ -14,6 +14,7 @@ import type { ApiKey, CreatedApiKey } from "@/app/model/apikeys";
 import type { ActionResult } from "@octo/http";
 import * as client from "./client/apikeys";
 import { withUser } from "./_auth";
+import { callerEnvironment } from "@/app/auth/callerEnvironment";
 
 export async function listApiKeys(): Promise<ActionResult<ApiKey[]>> {
   return withUser((userId) => client.listApiKeys(userId));
@@ -24,7 +25,10 @@ export async function createApiKey(
   roles: string[],
   expiresAt: string,
 ): Promise<ActionResult<CreatedApiKey>> {
-  return withUser((userId) => client.createApiKey(userId, name, roles, expiresAt));
+  // Bound to the environment the caller is working in, which is also where the
+  // roles they were offered are held: a key acts there and nowhere else.
+  const environment = await callerEnvironment();
+  return withUser((userId) => client.createApiKey(userId, name, roles, expiresAt, environment));
 }
 
 export async function deleteApiKey(id: string): Promise<ActionResult<void>> {

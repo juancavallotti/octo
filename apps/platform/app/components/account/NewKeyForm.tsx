@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { useRoles } from "@/app/auth/RolesContext";
+import { useEnvironment } from "@/app/auth/EnvironmentContext";
 import { KEY_ROLES, ROLE_LABELS, mayDelegate } from "@/app/auth/roles";
 import HoverCard from "@/app/components/HoverCard";
 import { keyRoleCard } from "./keyRoles";
@@ -56,6 +57,7 @@ export default function NewKeyForm({
   onCreate: (name: string, roles: string[], expiresAt: string) => Promise<boolean>;
 }) {
   const { roles: held } = useRoles();
+  const environment = useEnvironment()?.environment ?? "";
   const offered = KEY_ROLES.filter((r) => mayDelegate(held, r));
   const [name, setName] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
@@ -144,6 +146,12 @@ export default function NewKeyForm({
           ))
         )}
       </fieldset>
+      {environment && (
+        <p className="w-full text-xs text-zinc-500">
+          This key acts in the <span className="font-medium">{environment}</span> environment
+          only, with the roles you hold there.
+        </p>
+      )}
     </div>
   );
 }
