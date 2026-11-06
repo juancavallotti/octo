@@ -30,7 +30,10 @@ type Client struct {
 	baseURL  string
 	devRunID string
 	token    string
-	http     *http.Client
+	// environment is sent back with every call so it reaches the namespace this
+	// dev run lives in; empty is the default environment.
+	environment string
+	http        *http.Client
 }
 
 // NewClient returns a Client for devRunID against the orchestrator at baseURL.
@@ -49,6 +52,13 @@ func NewClient(baseURL, devRunID, token string) *Client {
 // mapping is explicit rather than incidental: 404 is {@link ErrGone} (terminal),
 // 401/403 is ErrUnauthorized (retry, loudly), and everything else — including any
 // 5xx and any transport failure — is an ordinary error the caller should retry.
+// InEnvironment makes every call name environment, the one the dev run was
+// created in. Empty is the default and sends nothing.
+func (c *Client) InEnvironment(environment string) *Client {
+	c.environment = environment
+	return c
+}
+
 func (c *Client) Fetch(ctx context.Context) (Bundle, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "bundle")
 	if err != nil {
@@ -116,6 +126,9 @@ func (c *Client) newRequest(ctx context.Context, method, action string) (*http.R
 		return nil, fmt.Errorf("build %s request: %w", action, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	if c.environment != "" {
+		req.Header.Set("X-Octo-Environment", c.environment)
+	}
 	return req, nil
 }
 
