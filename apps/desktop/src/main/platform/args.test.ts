@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apiUrl, deployArgs, failure, rolloutArgs, scaleArgs, signInLink, word } from "./args";
+import { apiUrl, cacheKey, common, deployArgs, failure, rolloutArgs, scaleArgs, signInLink, word } from "./args";
 
 /**
  * Every value here comes from a form, and ends up on octopaas's command line: what
@@ -109,5 +109,30 @@ describe("scaleArgs", () => {
     expect(scaleArgs("dep_1", 3)).toEqual(["deployments", "scale", "dep_1", "3"]);
     expect(() => scaleArgs("dep_1", 1.5)).toThrow();
     expect(() => scaleArgs("dep_1", -1)).toThrow();
+  });
+});
+
+describe("common", () => {
+  it("pins an environment when one is given", () => {
+    expect(common("prod", "staging")).toEqual(["--profile", "prod", "--environment", "staging", "--plain", "-o", "json"]);
+  });
+
+  it("leaves the profile's environment alone when none is", () => {
+    expect(common("prod")).toEqual(["--profile", "prod", "--plain", "-o", "json"]);
+  });
+
+  it("refuses an environment that would read as a flag", () => {
+    expect(() => common("prod", "--url=x")).toThrow();
+  });
+});
+
+describe("cacheKey", () => {
+  it("keeps the default environment under the profile alone, as it always was", () => {
+    expect(cacheKey("prod", "octo")).toBe("prod");
+    expect(cacheKey("prod", undefined)).toBe("prod");
+  });
+
+  it("keeps every other environment apart", () => {
+    expect(cacheKey("prod", "staging")).toBe("prod@staging");
   });
 });

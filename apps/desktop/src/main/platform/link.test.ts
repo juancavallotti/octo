@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { linkFile, readLink, removeLink, writeLink, type Link } from "./link";
+import { linkEnvironment, linkFile, readLink, removeLink, writeLink, type Link } from "./link";
 
 const dirs: string[] = [];
 function scratch(): string {
@@ -44,5 +44,21 @@ describe("link", () => {
     expect(readLink(dir)).toBeNull();
     writeFileSync(linkFile(dir), "not json");
     expect(readLink(dir)).toBeNull();
+  });
+});
+
+describe("linkEnvironment", () => {
+  it("keeps the environment a folder came from", () => {
+    const dir = scratch();
+    writeLink(dir, { ...link, environment: "staging" });
+    const read = readLink(dir);
+    expect(read?.environment).toBe("staging");
+    expect(linkEnvironment(read!)).toBe("staging");
+  });
+
+  // A folder linked before environments existed goes back to the default, even
+  // after its installation has been switched to another.
+  it("is the default for a link that names none", () => {
+    expect(linkEnvironment(link)).toBe("octo");
   });
 });

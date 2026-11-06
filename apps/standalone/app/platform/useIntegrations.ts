@@ -12,14 +12,15 @@ interface Loaded {
 }
 
 /**
- * One installation's integrations, read again when it changes or when asked. What was
- * read is kept with the request it answered, so another installation's list is never
- * shown under this one while its own loads.
+ * One installation's integrations, in the environment it acts in, read again when
+ * either changes or when asked. What was read is kept with the request it answered,
+ * so another installation's or environment's list is never shown under this one
+ * while its own loads.
  */
-export function useIntegrations(profile: string | null, signedIn: boolean) {
+export function useIntegrations(profile: string | null, signedIn: boolean, environment = "octo") {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [nonce, setNonce] = useState(0);
-  const key = `${profile}#${nonce}`;
+  const key = `${profile}@${environment}#${nonce}`;
 
   useEffect(() => {
     const paas = paasBridge();

@@ -268,6 +268,7 @@ export function registerIpc(): void {
   handle("octo:paas:addProfile", (_event, name, url, key) => paas.addProfile(name, url, key));
   handle("octo:paas:setKey", (_event, name, key) => paas.setKey(name, key));
   handle("octo:paas:useProfile", (_event, name) => paas.useProfile(name));
+  handle("octo:paas:useEnvironment", (_event, name, environment) => paas.useEnvironment(name, environment));
   handle("octo:paas:removeProfile", (_event, name) => paas.removeProfile(name));
   handle("octo:paas:signIn", (_event, name) => paas.signIn(name));
   handle("octo:paas:signOut", (_event, name) => paas.signOut(name));

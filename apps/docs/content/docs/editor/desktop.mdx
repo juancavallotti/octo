@@ -202,6 +202,8 @@ Installation**, or in the Platform window's header. It is the CLI's current
 profile too, so a terminal that does not pass `--profile` follows the switch.
 **Platform → Sign In…** and **Sign Out** act on the current installation.
 
+An installation acts in one [environment](/platform/environments) at a time, `octo` (the default) unless you choose another. When it has more than one, the Platform window's header shows an **Environment** picker beside the installation. The choice is saved on the CLI profile, as `octopaas environments use` saves it, so the terminal follows it too. The integrations you see, and the ones the editor's cloud profile lists, are the chosen environment's.
+
 ### Pull an integration and open it
 
 1. Open the folder picker. Under *installation* **cloud profile** it lists the
@@ -234,6 +236,8 @@ its folder here stands against it:
 | ↓ | The draft has changed on the platform. | Pulls the draft over the folder. |
 | ↕ | Both have changed. | Asks whether to push or pull. |
 | Download | The integration is not on this machine. | Pulls it into a new folder. |
+
+A folder remembers the environment it was pulled from or imported into, and its pushes, versions, deploys and logs always go there, even after the installation is switched to another environment. The folder tab names that environment when it is not the default. A folder linked before environments existed belongs to the default.
 
 A folder syncs when you pull, push or import it. A pull over an existing folder
 replaces what a push would send, so a file deleted on the platform is deleted here

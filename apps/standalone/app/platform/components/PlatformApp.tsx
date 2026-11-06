@@ -43,10 +43,19 @@ export default function PlatformApp({ focus }: { focus?: string }) {
 
   const profile = state?.profiles.find((p) => p.current)?.name ?? state?.profiles[0]?.name ?? null;
   const use = (name: string) => void paasBridge()?.useProfile(name).catch(() => {});
+  const useEnvironment = (environment: string) =>
+    profile && void paasBridge()?.useEnvironment(profile, environment).catch(() => {});
 
   return (
     <div className="flex h-full flex-col">
-      <PlatformHeader state={state} profile={profile} onProfile={use} tab={tab} onTab={setTab} />
+      <PlatformHeader
+        state={state}
+        profile={profile}
+        onProfile={use}
+        onEnvironment={useEnvironment}
+        tab={tab}
+        onTab={setTab}
+      />
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
           {state?.cliError && (
