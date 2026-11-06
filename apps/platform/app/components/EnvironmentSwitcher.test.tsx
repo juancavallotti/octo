@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const listEnvironments = vi.fn();
@@ -15,7 +15,7 @@ import { EnvironmentProvider, type EnvironmentContextValue } from "@/app/auth/En
 
 const ENVIRONMENTS = [
   { name: "octo", namespace: "octo", displayName: "Default", description: "", default: true },
-  { name: "staging", namespace: "octo-staging", displayName: "Staging", description: "", default: false },
+  { name: "staging", namespace: "octo-staging", displayName: "Staging", description: "Pre-production", default: false },
 ];
 
 function renderIn(value: EnvironmentContextValue) {
@@ -35,24 +35,47 @@ describe("EnvironmentSwitcher", () => {
     Object.defineProperty(window, "location", { value: { assign }, writable: true });
   });
 
-  it("offers an administrator every environment, showing the current one", async () => {
+  it("shows the current environment's display name on the chip", async () => {
+    renderIn({ environment: "staging", roles: ["platform:admin"], envRoles: {} });
+    expect((await screen.findByRole("button", { name: "Environment" })).textContent).toContain("Staging");
+  });
+
+  it("lists each environment with its name, namespace and description, the current one checked", async () => {
+    const person = userEvent.setup();
     renderIn({ environment: "", roles: ["platform:admin"], envRoles: {} });
-    const select = await screen.findByRole("combobox", { name: "Environment" });
-    expect(select).toHaveProperty("value", "");
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Default", "Staging"]);
+    await person.click(await screen.findByRole("button", { name: "Environment" }));
+
+    const menu = screen.getByRole("menu", { name: "Environments" });
+    const items = within(menu).getAllByRole("menuitemradio");
+    expect(items).toHaveLength(2);
+    expect(items[0].getAttribute("aria-checked")).toBe("true");
+    expect(items[1].textContent).toContain("staging · octo-staging");
+    expect(items[1].textContent).toContain("Pre-production");
+    expect(within(menu).getByRole("link", { name: /Manage environments/ }).getAttribute("href")).toBe(
+      "/platform/admin/environments",
+    );
   });
 
   it("switches, then lands at the top of the section", async () => {
+    const person = userEvent.setup();
     renderIn({ environment: "", roles: ["platform:admin"], envRoles: {} });
-    await userEvent.selectOptions(await screen.findByRole("combobox"), "staging");
+    await person.click(await screen.findByRole("button", { name: "Environment" }));
+    await person.click(screen.getByRole("menuitemradio", { name: /Staging/ }));
     await waitFor(() => expect(selectEnvironment).toHaveBeenCalledWith("staging"));
     await waitFor(() => expect(assign).toHaveBeenCalledWith("/platform/integrations"));
+  });
+
+  it("offers no management link to anybody but an administrator", async () => {
+    const person = userEvent.setup();
+    renderIn({ environment: "", roles: ["platform:developer"], envRoles: { staging: ["platform:developer"] } });
+    await person.click(await screen.findByRole("button", { name: "Environment" }));
+    expect(screen.queryByRole("link", { name: /Manage environments/ })).toBeNull();
   });
 
   it("stays out of the way of somebody with only one environment", async () => {
     renderIn({ environment: "", roles: ["platform:developer"], envRoles: {} });
     await waitFor(() => expect(listEnvironments).toHaveBeenCalled());
-    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Environment" })).toBeNull();
   });
 
   it("puts a deleted choice back to the default", async () => {

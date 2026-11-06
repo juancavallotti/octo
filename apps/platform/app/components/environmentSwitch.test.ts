@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { landingAfterSwitch, visibleEnvironments } from "./environmentSwitch";
 
 const all = [
-  { name: "octo", displayName: "Default", default: true },
-  { name: "staging", displayName: "Staging", default: false },
-  { name: "qa", displayName: "", default: false },
+  { name: "octo", displayName: "Default", namespace: "octo", description: "", default: true },
+  { name: "staging", displayName: "Staging", namespace: "octo-staging", description: "pre-prod", default: false },
+  { name: "qa", displayName: "", namespace: "octo-qa", description: "", default: false },
 ];
 
 describe("visibleEnvironments", () => {
@@ -18,12 +18,22 @@ describe("visibleEnvironments", () => {
 
   it("offers anybody else only where they hold a role", () => {
     const got = visibleEnvironments(all, [], { staging: ["platform:developer"] });
-    expect(got).toEqual([{ name: "staging", label: "Staging" }]);
+    expect(got).toEqual([
+      {
+        name: "staging",
+        label: "Staging",
+        slug: "staging",
+        namespace: "octo-staging",
+        description: "pre-prod",
+        isDefault: false,
+      },
+    ]);
   });
 
   it("labels an environment by its name when it has no display name", () => {
     const got = visibleEnvironments(all, ["platform:admin"], {});
-    expect(got[2]).toEqual({ name: "qa", label: "qa" });
+    expect(got[2]).toMatchObject({ name: "qa", label: "qa", namespace: "octo-qa" });
+    expect(got[0]).toMatchObject({ name: "", slug: "octo", isDefault: true });
   });
 });
 
