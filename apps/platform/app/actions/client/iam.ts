@@ -42,6 +42,8 @@ export interface PlatformUser {
   email: string;
   name: string;
   roles: string[];
+  /** Roles in each environment other than the default, by name. */
+  envRoles?: Record<string, string[]>;
   createdAt: string;
   /** Null for somebody provisioned who has never signed in. */
   lastLoginAt: string | null;
