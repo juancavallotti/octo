@@ -52,7 +52,8 @@ type endpointPublisher interface {
 // requires. None of that is part of a route in the Gateway API path.
 type ingressPublisher struct {
 	clientset kubernetes.Interface
-	namespace string
+	// ns is the namespace an Ingress goes in: the environment's the request acts in.
+	ns func(context.Context) string
 	// clusterIssuer names a cert-manager ClusterIssuer for per-host TLS. Empty =
 	// no annotation and no per-host cert.
 	clusterIssuer string
@@ -71,7 +72,7 @@ type ingressPublisher struct {
 }
 
 func (p *ingressPublisher) publish(ctx context.Context, ep endpoint) error {
-	_, err := p.clientset.NetworkingV1().Ingresses(p.namespace).Create(ctx, p.ingress(ep), metav1.CreateOptions{})
+	_, err := p.clientset.NetworkingV1().Ingresses(p.ns(ctx)).Create(ctx, p.ingress(ep), metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("create ingress: %w", err)
 	}
@@ -79,7 +80,7 @@ func (p *ingressPublisher) publish(ctx context.Context, ep endpoint) error {
 }
 
 func (p *ingressPublisher) withdraw(ctx context.Context, name string) error {
-	err := p.clientset.NetworkingV1().Ingresses(p.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	err := p.clientset.NetworkingV1().Ingresses(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
 	if err := ignoreNotFound(err); err != nil {
 		return fmt.Errorf("delete ingress: %w", err)
 	}

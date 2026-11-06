@@ -46,6 +46,18 @@ func (f *Fetcher) fetchPodStats(ctx context.Context, q alerting.Query) (alerting
 		return alerting.Series{}, fmt.Errorf(
 			"source: %w: a pod-stat condition must name a deployment", alerting.ErrInvalidParams)
 	}
+	// Pod stats carry no environment of their own, so the deployment row decides:
+	// a watch reads only its own environment's pods.
+	if f.pool != nil {
+		var environment string
+		err := f.pool.QueryRow(ctx,
+			`SELECT COALESCE(environment, '') FROM integration_deployments WHERE id = $1::uuid`,
+			q.Scope.DeploymentID).Scan(&environment)
+		if err == nil && environment != q.Scope.Environment {
+			return alerting.Series{}, fmt.Errorf(
+				"source: %w: the deployment is not in this watch's environment", alerting.ErrInvalidParams)
+		}
+	}
 
 	result, err := f.stats.Series(ctx, podstats.Query{
 		DeploymentID: q.Scope.DeploymentID,

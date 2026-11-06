@@ -249,7 +249,7 @@ func (f *fakeKube) DeploymentExists(_ context.Context, id string) (bool, error) 
 	return f.liveIDs[id], nil
 }
 
-func (f *fakeKube) InternalURL(slug string, port int) string {
+func (f *fakeKube) InternalURL(_ context.Context, slug string, port int) string {
 	if slug == "" {
 		return ""
 	}

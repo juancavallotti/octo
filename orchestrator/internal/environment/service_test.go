@@ -13,7 +13,12 @@ import (
 // fakeRepo is an in-memory environments table holding the same two uniqueness
 // rules as the real one: name and namespace.
 type fakeRepo struct {
-	rows map[string]Environment
+	rows         map[string]Environment
+	integrations map[string]bool
+}
+
+func (f *fakeRepo) HasIntegrations(_ context.Context, name string) (bool, error) {
+	return f.integrations[name], nil
 }
 
 func newFakeRepo() *fakeRepo { return &fakeRepo{rows: map[string]Environment{}} }
@@ -266,6 +271,21 @@ func TestDeleteRefusesWhileWorkloadsRun(t *testing.T) {
 	}
 }
 
+func TestDeleteRefusesWhileIntegrationsAreDefined(t *testing.T) {
+	svc, repo, k := newTestService()
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, Input{Name: "staging"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	repo.integrations = map[string]bool{"staging": true}
+	if err := svc.Delete(ctx, "staging"); !errors.Is(err, ErrInUse) {
+		t.Fatalf("err = %v, want ErrInUse", err)
+	}
+	if _, ok := k.provisioned["octo-staging"]; !ok {
+		t.Error("a refused delete removed the namespace")
+	}
+}
+
 func TestDeleteLeavesAForeignNamespaceButRemovesTheRow(t *testing.T) {
 	svc, repo, k := newTestService()
 	ctx := context.Background()
@@ -307,5 +327,47 @@ func TestExists(t *testing.T) {
 		if got, err := svc.Exists(ctx, name); err != nil || got != want {
 			t.Errorf("Exists(%q) = %v, %v; want %v", name, got, err, want)
 		}
+	}
+}
+
+type recordingRegistry map[string]string
+
+func (r recordingRegistry) RegisterEnvironment(environment, namespace string) {
+	r[environment] = namespace
+}
+func (r recordingRegistry) ForgetEnvironment(environment string) { delete(r, environment) }
+
+func TestTheRegistryFollowsEnvironments(t *testing.T) {
+	svc, repo, _ := newTestService()
+	ctx := context.Background()
+	repo.rows["existing"] = Environment{Name: "existing", Namespace: "octo-existing"}
+	reg := recordingRegistry{}
+	svc.WithRegistry(reg)
+
+	if err := svc.Register(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if reg["existing"] != "octo-existing" {
+		t.Errorf("a stored environment was not registered: %v", reg)
+	}
+	if _, err := svc.Create(ctx, Input{Name: "staging"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if reg["staging"] != "octo-staging" {
+		t.Errorf("a created environment was not registered: %v", reg)
+	}
+	if err := svc.Delete(ctx, "staging"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reg["staging"]; ok {
+		t.Errorf("a deleted environment is still registered: %v", reg)
+	}
+
+	ns, ok, err := svc.Namespace(ctx, "existing")
+	if err != nil || !ok || ns != "octo-existing" {
+		t.Errorf("Namespace(existing) = %q, %v, %v", ns, ok, err)
+	}
+	if _, ok, _ := svc.Namespace(ctx, "missing"); ok {
+		t.Error("Namespace found a missing environment")
 	}
 }

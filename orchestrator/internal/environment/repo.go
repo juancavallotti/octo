@@ -13,8 +13,12 @@ import (
 // environmentColumns is the canonical column list (and order) scanEnvironment expects.
 const environmentColumns = "name, namespace, display_name, description, created_at, created_by::text"
 
-// uniqueViolation is Postgres's SQLSTATE for a unique constraint violation.
-const uniqueViolation = "23505"
+// uniqueViolation and foreignKeyViolation are Postgres's SQLSTATEs for the two
+// constraints these writes can trip.
+const (
+	uniqueViolation     = "23505"
+	foreignKeyViolation = "23503"
+)
 
 // Repo persists environments to Postgres.
 type Repo struct {
@@ -100,10 +104,28 @@ func (r *Repo) Update(ctx context.Context, name string, p Patch) (Environment, e
 	return e, nil
 }
 
+// HasIntegrations reports whether any integration still belongs to the
+// environment named name. Deployments belong to an integration, so this covers
+// them too.
+func (r *Repo) HasIntegrations(ctx context.Context, name string) (bool, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM integrations WHERE environment = $1)`, name).Scan(&exists); err != nil {
+		return false, fmt.Errorf("environment repo: has integrations: %w", err)
+	}
+	return exists, nil
+}
+
 // Delete removes the environment named name. Returns ErrNotFound if no row was deleted.
 func (r *Repo) Delete(ctx context.Context, name string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM environments WHERE name = $1`, name)
 	if err != nil {
+		// The foreign keys from integrations and deployments, the backstop to
+		// HasIntegrations against one created between the check and this delete.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
+			return ErrInUse
+		}
 		return fmt.Errorf("environment repo: delete: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
@@ -126,4 +148,31 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// ownerQueries reads the environment of one row of each kind current.Confine
+// asks about. A snapshot belongs to its integration's environment.
+var ownerQueries = map[string]string{
+	"integrations": `SELECT environment FROM integrations WHERE id = $1`,
+	"deployments":  `SELECT environment FROM integration_deployments WHERE id = $1`,
+	"folders":      `SELECT environment FROM integration_idx_structure WHERE id = $1`,
+	"snapshots": `SELECT i.environment FROM integration_snapshots s
+	              JOIN integrations i ON i.id = s.integration_id WHERE s.id = $1`,
+}
+
+// EnvironmentOf returns the environment ("" for the default) of the row of kind
+// with id, and whether there is one.
+func (r *Repo) EnvironmentOf(ctx context.Context, kind, id string) (string, bool, error) {
+	query, ok := ownerQueries[kind]
+	if !ok {
+		return "", false, fmt.Errorf("environment repo: no owner query for %q", kind)
+	}
+	var environment *string
+	if err := r.pool.QueryRow(ctx, query, id).Scan(&environment); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("environment repo: environment of %s: %w", kind, err)
+	}
+	return deref(environment), true, nil
 }

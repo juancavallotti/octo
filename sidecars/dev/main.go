@@ -78,6 +78,8 @@ type config struct {
 	devRunID     string
 	devRunToken  string
 	sidecarToken string
+	// environment is the one the dev run is in; empty is the default.
+	environment string
 }
 
 // loadConfig reads and validates the environment.
@@ -95,6 +97,7 @@ func loadConfig() (config, error) {
 		orchestrator: os.Getenv("ORCHESTRATOR_URL"),
 		devRunID:     os.Getenv("DEV_RUN_ID"),
 		devRunToken:  os.Getenv("DEV_RUN_TOKEN"),
+		environment:  os.Getenv("OCTO_ENVIRONMENT"),
 		sidecarToken: os.Getenv("SIDECAR_TOKEN"),
 	}
 
@@ -137,7 +140,8 @@ func run() error {
 		return err
 	}
 
-	client := bundle.NewClient(cfg.orchestrator, cfg.devRunID, cfg.devRunToken)
+	client := bundle.NewClient(cfg.orchestrator, cfg.devRunID, cfg.devRunToken).
+		InEnvironment(cfg.environment)
 	coordinator := reload.New(client, ws)
 	prober := runtimeprobe.New(cfg.runtimeAdmin)
 

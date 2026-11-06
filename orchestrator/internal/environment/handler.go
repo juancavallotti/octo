@@ -228,7 +228,7 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrDefault):
 		httpx.WriteError(w, http.StatusConflict, "the default environment cannot be changed or deleted")
 	case errors.Is(err, ErrInUse):
-		httpx.WriteError(w, http.StatusConflict, "the environment still has workloads; delete them first")
+		httpx.WriteError(w, http.StatusConflict, "the environment still has integrations or workloads; delete them first")
 	case errors.Is(err, ErrUnavailable):
 		httpx.WriteError(w, http.StatusServiceUnavailable, "environments are not available on this installation")
 	default:

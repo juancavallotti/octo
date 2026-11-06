@@ -12,7 +12,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -77,29 +76,29 @@ func (c *Client) Status(ctx context.Context, deploymentID string) (Status, error
 // and falls back to direct API reads.
 func (c *Client) fetchWorkload(ctx context.Context, deploymentID string) (*appsv1.Deployment, []*corev1.Pod, error) {
 	name := resourceName(deploymentID)
-	if c.synced != nil && c.synced() {
-		dep, err := c.depLister.Get(name)
+	if w := c.cache(ctx); w != nil {
+		dep, err := w.deps.Get(name)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				return nil, nil, nil
 			}
 			return nil, nil, fmt.Errorf("kube: lister get deployment: %w", err)
 		}
-		pods, err := c.podLister.List(labels.Set{labelDeploymentID: deploymentID}.AsSelector())
+		pods, err := w.pods.List(labels.Set{labelDeploymentID: deploymentID}.AsSelector())
 		if err != nil {
 			return nil, nil, fmt.Errorf("kube: lister list pods: %w", err)
 		}
 		return dep, pods, nil
 	}
 
-	dep, err := c.clientset.AppsV1().Deployments(c.namespace).Get(ctx, name, metav1.GetOptions{})
+	dep, err := c.clientset.AppsV1().Deployments(c.ns(ctx)).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil, nil
 		}
 		return nil, nil, fmt.Errorf("kube: get deployment: %w", err)
 	}
-	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx,
+	list, err := c.clientset.CoreV1().Pods(c.ns(ctx)).List(ctx,
 		metav1.ListOptions{LabelSelector: selector(deploymentID)})
 	if err != nil {
 		return nil, nil, fmt.Errorf("kube: list pods: %w", err)
@@ -194,70 +193,6 @@ func computeStatus(dep *appsv1.Deployment, pods []*corev1.Pod) Status {
 		st.Phase = StatusFailed
 	}
 	return st
-}
-
-// StartInformers begins watching the orchestrator-managed Deployments and Pods in
-// the namespace and invokes onChange(integrationID) whenever one changes, so the
-// caller can push live updates. It also wires the lister-backed read path used by
-// Status. The informers run until ctx is cancelled.
-func (c *Client) StartInformers(ctx context.Context, onChange func(integrationID string)) {
-	factory := informers.NewSharedInformerFactoryWithOptions(
-		c.clientset, informerResync,
-		informers.WithNamespace(c.namespace),
-		informers.WithTweakListOptions(func(o *metav1.ListOptions) {
-			o.LabelSelector = labelManagedBy + "=" + managedByValue
-		}),
-	)
-	depInformer := factory.Apps().V1().Deployments()
-	podInformer := factory.Core().V1().Pods()
-	c.depLister = depInformer.Lister().Deployments(c.namespace)
-	c.podLister = podInformer.Lister().Pods(c.namespace)
-
-	handler := cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj any) { notifyIntegration(obj, onChange) },
-		UpdateFunc: func(_, obj any) { notifyIntegration(obj, onChange) },
-		DeleteFunc: func(obj any) { notifyIntegration(obj, onChange) },
-	}
-	// AddEventHandler can only fail before the informer starts; ignore the
-	// registration handle since handlers live for the informer's lifetime.
-	_, _ = depInformer.Informer().AddEventHandler(handler)
-	_, _ = podInformer.Informer().AddEventHandler(handler)
-
-	factory.Start(ctx.Done())
-	c.synced = func() bool {
-		return depInformer.Informer().HasSynced() && podInformer.Informer().HasSynced()
-	}
-}
-
-// WaitForCacheSync blocks until the informer caches have loaded, or ctx ends.
-//
-// It exists for callers that must not act on an empty cache — the reconciler
-// decides what to delete, and an unloaded cache and an empty cluster look
-// identical. Everything else here treats an unsynced cache as a reason to read
-// the API server directly, which is fine when the question is about one named
-// object and not fine when it is "what is there".
-//
-// False means the caches never synced: informers were not started, or ctx ended
-// first. Both mean the same thing to a caller — do not act.
-func (c *Client) WaitForCacheSync(ctx context.Context) bool {
-	if c.synced == nil {
-		return false
-	}
-	// A short poll rather than cache.WaitForCacheSync, which takes a stop channel
-	// and would need one derived from ctx. The wait happens once, at startup, and
-	// half a second of latency on it costs nothing.
-	ticker := time.NewTicker(cacheSyncPoll)
-	defer ticker.Stop()
-	for {
-		if c.synced() {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-ticker.C:
-		}
-	}
 }
 
 // notifyIntegration extracts the integration-id label from a changed object (or
@@ -357,8 +292,8 @@ func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, erro
 	}
 
 	var deployments []*appsv1.Deployment
-	if c.synced != nil && c.synced() {
-		deployments, err = c.depLister.List(sel)
+	if w := c.cache(ctx); w != nil {
+		deployments, err = w.deps.List(sel)
 		if err != nil {
 			return nil, false, fmt.Errorf("kube: lister list deployments: %w", err)
 		}
@@ -368,7 +303,7 @@ func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, erro
 		// (a test, a one-shot); in both cases the API server can still answer, and
 		// answering from it is more useful than reporting the whole namespace
 		// unknowable.
-		list, lerr := c.clientset.AppsV1().Deployments(c.namespace).List(ctx,
+		list, lerr := c.clientset.AppsV1().Deployments(c.ns(ctx)).List(ctx,
 			metav1.ListOptions{LabelSelector: sel.String()})
 		if lerr != nil {
 			return nil, false, fmt.Errorf("kube: list deployments: %w", lerr)
@@ -402,7 +337,7 @@ func (c *Client) DeploymentIDs(ctx context.Context) (map[string]bool, bool, erro
 func (c *Client) DeploymentExists(ctx context.Context, deploymentID string) (bool, error) {
 	// Deliberately not the lister: this is the confirmation step for a destructive
 	// action, and a cache is a copy of what was true a moment ago.
-	_, err := c.clientset.AppsV1().Deployments(c.namespace).Get(ctx,
+	_, err := c.clientset.AppsV1().Deployments(c.ns(ctx)).Get(ctx,
 		resourceName(deploymentID), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return false, nil

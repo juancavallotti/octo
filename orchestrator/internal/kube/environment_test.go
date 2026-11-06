@@ -9,6 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 )
 
 func environmentClient(objects ...runtime.Object) *Client {
@@ -135,5 +137,73 @@ func TestEnvironmentsEnabledNeedsEveryPart(t *testing.T) {
 	cfg.Environments = EnvironmentRBAC{OrchestratorServiceAccount: "octo-orchestrator"}
 	if testClientFor(cfg).EnvironmentsEnabled() {
 		t.Error("partly configured client reports environments enabled")
+	}
+}
+
+func TestNamespaceFollowsTheEnvironmentOnTheContext(t *testing.T) {
+	c := environmentClient()
+	ctx := context.Background()
+	c.RegisterEnvironment("staging", "octo-staging")
+	c.ResolveEnvironmentsWith(func(_ context.Context, environment string) (string, bool, error) {
+		if environment == "elsewhere" {
+			return "octo-elsewhere", true, nil
+		}
+		return "", false, nil
+	})
+
+	cases := map[string]string{
+		"":          testNamespace,
+		"staging":   "octo-staging",
+		"elsewhere": "octo-elsewhere",
+		"unknown":   unresolvedNamespace,
+	}
+	for environment, want := range cases {
+		if got := c.ns(current.With(ctx, environment, true)); got != want {
+			t.Errorf("ns(%q) = %q, want %q", environment, got, want)
+		}
+	}
+	if ns, ok := c.environmentNamespaces.get("elsewhere"); !ok || ns != "octo-elsewhere" {
+		t.Error("a resolved environment was not registered")
+	}
+	c.ForgetEnvironment("staging")
+	if got := c.ns(current.With(ctx, "staging", true)); got != unresolvedNamespace {
+		t.Errorf("after forgetting, ns(staging) = %q", got)
+	}
+}
+
+// A deploy in an environment lands in its namespace and nowhere else.
+func TestApplyLandsInTheEnvironmentsNamespace(t *testing.T) {
+	c := environmentClient()
+	c.RegisterEnvironment("staging", "octo-staging")
+	ctx := current.With(context.Background(), "staging", true)
+	if err := c.Apply(ctx, Spec{ID: "dep-1", IntegrationID: "int-1", Definition: "flows: []"}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if _, err := c.clientset.AppsV1().Deployments("octo-staging").Get(ctx, resourceName("dep-1"), metav1.GetOptions{}); err != nil {
+		t.Errorf("the deployment is not in octo-staging: %v", err)
+	}
+	if _, err := c.clientset.AppsV1().Deployments(testNamespace).Get(ctx, resourceName("dep-1"), metav1.GetOptions{}); err == nil {
+		t.Error("the deployment also landed in the release namespace")
+	}
+}
+
+func TestTheReleaseNamespaceAndEnvironmentsShareTheReleaseLabel(t *testing.T) {
+	ctx := context.Background()
+	release := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}}
+	c := environmentClient(release)
+	if err := c.LabelReleaseNamespace(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{testNamespace, "octo-staging"} {
+		ns, err := c.clientset.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ns.Labels[labelRelease] != testNamespace {
+			t.Errorf("%s: %s = %q, want %q", name, labelRelease, ns.Labels[labelRelease], testNamespace)
+		}
 	}
 }

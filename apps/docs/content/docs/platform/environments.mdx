@@ -9,9 +9,19 @@ An environment is a named slice of the platform that runs in its own Kubernetes 
 
 Every installation has the **default environment**, `octo`. It is the namespace the platform itself is installed in. It always exists, and you cannot rename or delete it.
 
-<Callout type="warn">
-Requests are already authorized per environment, but integrations, deployments and secrets are not yet stored per environment: everything still lives in the default one.
-</Callout>
+## What belongs to an environment
+
+| Per environment | Shared by the whole installation |
+| --- | --- |
+| Integrations, their files, resources and versions | People and their API keys |
+| Folders | Installation settings (email, LLM providers, the platform agent) |
+| Deployments, their pods, test runs and dev runs | Subdomains: a subdomain is unique across every environment |
+| Cluster secrets (each namespace has its own `octo-secrets`) | Model prices |
+| Logs, traces, pod stats and alert watches | |
+
+Names are unique within an environment, so `staging` and the default environment can each have an integration called `orders`.
+
+An integration, deployment, version or folder from one environment is invisible from another. Asking for one by ID from the wrong environment answers `404`, exactly as if it did not exist. Every row written before environments existed belongs to the default environment.
 
 ## Choose an environment on a request
 
@@ -33,7 +43,10 @@ The orchestrator creates the namespace and labels it `octo.dev/environment=<name
 
 - binds its own service account to the rules it already has in the release namespace;
 - creates the runtime service account and binds it to the runtime's Lease rules;
-- copies the image pull secrets that runtime pods use (`runtime.imagePullSecrets`).
+- copies the image pull secrets that runtime pods use (`runtime.imagePullSecrets`), and the Secret holding a managed Redis URL (`externalRedis.existingSecret`).
+- labels the namespace `octo.dev/release=<release namespace>`. The orchestrator puts the same label on the release namespace at startup.
+
+Deployments made in the environment then run in its namespace, and their external endpoints are published from there.
 
 <Callout>
 The namespace cannot be changed after creation. A namespace that already exists is refused unless it already carries this environment's label, so creating an environment never takes over a namespace somebody else owns.
@@ -43,7 +56,7 @@ The namespace cannot be changed after creation. A namespace that already exists 
 
 Edit an environment to change its display name or description. Its name and namespace are fixed.
 
-When you delete an environment, its namespace is deleted with it. The delete is refused while the namespace still runs a deployment, a test run or a dev run.
+When you delete an environment, its namespace is deleted with it, along with its folders, cluster secrets, alert watches and the API keys bound to it. The delete is refused while an integration is still defined in the environment, or while the namespace still runs a deployment, a test run or a dev run.
 
 ## Cluster permissions
 
@@ -57,7 +70,9 @@ Provisioning namespaces is the one thing the chart grants beyond the release nam
 
 Kubernetes refuses a RoleBinding to any role its writer neither holds nor may bind. So an environment's namespace receives nothing beyond what the release namespace already has.
 
-Turn it off on a cluster where the release may not hold cluster-scoped RBAC:
+With environments on, the chart's own Gateway (`networking.gateway.create`) admits integration routes from every namespace labelled `octo.dev/release=<release namespace>`. If you bring your own Gateway, give its wildcard listener the same selector in `allowedRoutes`, or endpoints in environments other than the default attach to nothing.
+
+Turn environments off on a cluster where the release may not hold cluster-scoped RBAC:
 
 ```yaml
 orchestrator:

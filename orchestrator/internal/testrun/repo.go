@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 )
 
 // runColumns is the column list (and order) scanRun expects.
@@ -69,15 +71,19 @@ func (r *Repo) ListByDeployment(ctx context.Context, deploymentID string, limit 
 func (r *Repo) Latest(ctx context.Context) ([]Run, error) {
 	return r.list(ctx, "latest",
 		`SELECT DISTINCT ON (deployment_id) `+runColumns+` FROM deployment_test_runs
-		 ORDER BY deployment_id, created_at DESC, id DESC`)
+		 WHERE deployment_id IN (SELECT id FROM integration_deployments
+		                         WHERE environment IS NOT DISTINCT FROM $1)
+		 ORDER BY deployment_id, created_at DESC, id DESC`, current.Column(ctx))
 }
 
 // ListRunningSince returns the runs still running that were created before t.
 func (r *Repo) ListRunningSince(ctx context.Context, t time.Time) ([]Run, error) {
 	return r.list(ctx, "list running",
 		`SELECT `+runColumns+` FROM deployment_test_runs
-		 WHERE status = $1 AND created_at < $2`,
-		StatusRunning, t)
+		 WHERE status = $1 AND created_at < $2
+		   AND deployment_id IN (SELECT id FROM integration_deployments
+		                         WHERE environment IS NOT DISTINCT FROM $3)`,
+		StatusRunning, t, current.Column(ctx))
 }
 
 // Finish records a running run's verdict, and reports whether this call was the

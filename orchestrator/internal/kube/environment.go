@@ -9,12 +9,19 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // labelEnvironment marks a namespace as an environment's, naming which one. It
 // is what DeleteNamespace checks before deleting anything, so a namespace this
 // orchestrator did not create is never one it removes.
 const labelEnvironment = "octo.dev/environment"
+
+// labelRelease marks a namespace as belonging to the installation whose release
+// namespace is its value: every environment's, and the release namespace
+// itself. It is what a Gateway listener selects on to admit routes from all of
+// an installation's environments and nobody else's.
+const labelRelease = "octo.dev/release"
 
 // environmentBinding names the RoleBindings provisioning writes into an
 // environment's namespace. One name for both, since each lives in its own
@@ -98,6 +105,26 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 		if err := c.copySecret(ctx, name, namespace, environment); err != nil {
 			return err
 		}
+	}
+	// A managed Redis URL is referenced from the pod rather than written into it,
+	// and a reference resolves only within the pod's own namespace.
+	if ref := c.runtimeServices.RedisSecret; ref.set() {
+		if err := c.copySecret(ctx, ref.Name, namespace, environment); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LabelReleaseNamespace puts labelRelease on the release namespace, so the
+// selector that admits environments' routes to the installation's Gateway
+// admits its own as well.
+func (c *Client) LabelReleaseNamespace(ctx context.Context) error {
+	patch := fmt.Sprintf(`{"metadata":{"labels":{%q:%q}}}`, labelRelease, c.namespace)
+	_, err := c.clientset.CoreV1().Namespaces().Patch(ctx, c.namespace, types.MergePatchType,
+		[]byte(patch), metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("kube: label the release namespace: %w", err)
 	}
 	return nil
 }
@@ -198,7 +225,11 @@ func (c *Client) DeleteNamespace(ctx context.Context, environment, namespace str
 }
 
 func (c *Client) environmentLabels(environment string) map[string]string {
-	return map[string]string{labelManagedBy: managedByValue, labelEnvironment: environment}
+	return map[string]string{
+		labelManagedBy:   managedByValue,
+		labelEnvironment: environment,
+		labelRelease:     c.namespace,
+	}
 }
 
 // roleBinding binds the ServiceAccount account (in accountNamespace) to the

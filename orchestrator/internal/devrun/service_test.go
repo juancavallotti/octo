@@ -164,7 +164,7 @@ func (f *fakeCluster) withPods(devRunID string, pods ...kube.PodStatus) {
 	f.runs[devRunID] = run
 }
 
-func (f *fakeCluster) SidecarURL(devRunID string) string {
+func (f *fakeCluster) SidecarURL(_ context.Context, devRunID string) string {
 	return "http://octo-dev-" + devRunID + ".octo:8099"
 }
 
@@ -537,7 +537,7 @@ func TestReloadPublishesBeforeForwarding(t *testing.T) {
 	if err := svc.Reload(context.Background(), "u1", run.ID); err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	publish, forward := indexOf(cluster.calls, "publish "+run.ID), indexOf(cluster.calls, "sidecar-reload "+cluster.SidecarURL(run.ID))
+	publish, forward := indexOf(cluster.calls, "publish "+run.ID), indexOf(cluster.calls, "sidecar-reload "+cluster.SidecarURL(context.Background(), run.ID))
 	if publish < 0 {
 		t.Fatalf("endpoint was not published on the flip to networked; calls: %v", cluster.calls)
 	}
