@@ -26,7 +26,7 @@ func (c *Client) PodLogs(
 	if tail > 0 {
 		opts.TailLines = &tail
 	}
-	return c.clientset.CoreV1().Pods(c.namespace).GetLogs(podName, opts).Stream(ctx)
+	return c.clientset.CoreV1().Pods(c.ns(ctx)).GetLogs(podName, opts).Stream(ctx)
 }
 
 // RuntimeContainer is the container in a workload pod running octo. Exported

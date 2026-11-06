@@ -18,13 +18,15 @@ import (
 // any controller-specific behaviour belong to the Gateway's listener, so none of it
 // has to be handed to this orchestrator as configuration.
 type routePublisher struct {
-	client    gatewayclient.Interface
-	namespace string
-	gateway   GatewayRef
+	client gatewayclient.Interface
+	// ns is the namespace a route goes in: the environment's the request acts in.
+	ns      func(context.Context) string
+	gateway GatewayRef
 }
 
 func (p *routePublisher) publish(ctx context.Context, ep endpoint) error {
-	_, err := p.client.GatewayV1().HTTPRoutes(p.namespace).Create(ctx, p.route(ep), metav1.CreateOptions{})
+	namespace := p.ns(ctx)
+	_, err := p.client.GatewayV1().HTTPRoutes(namespace).Create(ctx, p.route(namespace, ep), metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("create httproute: %w", err)
 	}
@@ -32,7 +34,7 @@ func (p *routePublisher) publish(ctx context.Context, ep endpoint) error {
 }
 
 func (p *routePublisher) withdraw(ctx context.Context, name string) error {
-	err := p.client.GatewayV1().HTTPRoutes(p.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	err := p.client.GatewayV1().HTTPRoutes(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
 	if err := ignoreNotFound(err); err != nil {
 		return fmt.Errorf("delete httproute: %w", err)
 	}
@@ -73,12 +75,12 @@ func (p *routePublisher) preflight(context.Context) error {
 // A cross-namespace *parent* — a Gateway in the ingress team's namespace, which
 // is the usual arrangement — needs no grant either; the Gateway's listener says
 // which namespaces may attach to it, via allowedRoutes.
-func (p *routePublisher) route(ep endpoint) *gatewayv1.HTTPRoute {
+func (p *routePublisher) route(namespace string, ep endpoint) *gatewayv1.HTTPRoute {
 	parent := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(p.gateway.Name)}
 	// Namespace is left unset when the Gateway shares ours, which is what "the
 	// route's own namespace" already means — setting it changes nothing and makes
 	// the two cases render differently for no reason.
-	if p.gateway.Namespace != "" && p.gateway.Namespace != p.namespace {
+	if p.gateway.Namespace != "" && p.gateway.Namespace != namespace {
 		ns := gatewayv1.Namespace(p.gateway.Namespace)
 		parent.Namespace = &ns
 	}

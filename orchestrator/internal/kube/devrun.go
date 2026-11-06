@@ -14,6 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 )
 
 // A dev run is one pod per (user, integration): an octo runtime in hot-reload mode
@@ -94,6 +96,9 @@ const (
 	envDevRunID     = "DEV_RUN_ID"
 	envDevRunToken  = "DEV_RUN_TOKEN"
 	envSidecarToken = "SIDECAR_TOKEN"
+	// envEnvironment names the environment the dev run runs in, which the sidecar
+	// sends back with its bundle pulls so they reach this namespace's run.
+	envEnvironment = "OCTO_ENVIRONMENT"
 
 	// sidecarStartupFailureThresh bounds how long the runtime container waits for the
 	// sidecar's first pull before the kubelet gives up on it: threshold × period. Set
@@ -121,6 +126,8 @@ type DevRunSpec struct {
 	Networked     bool      // the definition declares an HTTP_PORT
 	Subdomain     string    // derived host label; the endpoint host is {Subdomain}.{baseDomain}
 	LastActivity  time.Time // seeds the idle-reaper annotation
+	// Environment is the one the run is in; ApplyDevRun fills it from ctx.
+	Environment string
 }
 
 // ApplyDevRun creates the dev-run workload, and its Service and external endpoint
@@ -133,8 +140,11 @@ type DevRunSpec struct {
 func (c *Client) ApplyDevRun(ctx context.Context, spec DevRunSpec) error {
 	name := devRunName(spec.ID)
 	lbls := c.devRunLabels(spec)
+	if spec.Environment == "" {
+		spec.Environment = current.From(ctx)
+	}
 
-	deps := c.clientset.AppsV1().Deployments(c.namespace)
+	deps := c.clientset.AppsV1().Deployments(c.ns(ctx))
 	if _, err := deps.Create(ctx, c.devRunDeployment(name, lbls, spec), metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return ErrDevRunExists
@@ -174,7 +184,7 @@ func (c *Client) ensureDevRunService(ctx context.Context, spec DevRunSpec, lbls 
 			TargetPort: intstr.FromInt(devRuntimePort),
 		})
 	}
-	_, err := c.clientset.CoreV1().Services(c.namespace).Create(ctx, &corev1.Service{
+	_, err := c.clientset.CoreV1().Services(c.ns(ctx)).Create(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: devRunName(spec.ID), Labels: lbls},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
@@ -195,7 +205,7 @@ func (c *Client) ReconcileDevRunService(ctx context.Context, spec DevRunSpec) er
 	if !spec.Networked {
 		return nil
 	}
-	svcs := c.clientset.CoreV1().Services(c.namespace)
+	svcs := c.clientset.CoreV1().Services(c.ns(ctx))
 	svc, err := svcs.Get(ctx, devRunName(spec.ID), metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("kube: get dev run service: %w", err)
@@ -260,10 +270,10 @@ func (c *Client) DeleteDevRun(ctx context.Context, devRunID string) error {
 	if err := c.endpoints.withdraw(ctx, name); err != nil {
 		errs = append(errs, err)
 	}
-	if err := c.clientset.AppsV1().Deployments(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
+	if err := c.clientset.AppsV1().Deployments(c.ns(ctx)).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete deployment: %w", err))
 	}
-	if err := c.clientset.CoreV1().Services(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
+	if err := c.clientset.CoreV1().Services(c.ns(ctx)).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete service: %w", err))
 	}
 	if len(errs) > 0 {
@@ -282,7 +292,7 @@ func (c *Client) DeleteDevRun(ctx context.Context, devRunID string) error {
 func (c *Client) TouchDevRun(ctx context.Context, devRunID string, at time.Time) error {
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%q}}}`,
 		annLastActivity, at.UTC().Format(time.RFC3339))
-	_, err := c.clientset.AppsV1().Deployments(c.namespace).Patch(
+	_, err := c.clientset.AppsV1().Deployments(c.ns(ctx)).Patch(
 		ctx, devRunName(devRunID), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
 	if err != nil {
 		return fmt.Errorf("kube: touch dev run: %w", err)
@@ -302,7 +312,7 @@ func (c *Client) SetDevRunHost(ctx context.Context, devRunID, host string) error
 		value = fmt.Sprintf("%q", host)
 	}
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%s}}}`, annHost, value)
-	_, err := c.clientset.AppsV1().Deployments(c.namespace).Patch(
+	_, err := c.clientset.AppsV1().Deployments(c.ns(ctx)).Patch(
 		ctx, devRunName(devRunID), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
 	if err != nil {
 		return fmt.Errorf("kube: set dev run host: %w", err)
@@ -369,24 +379,24 @@ func (c *Client) ListDevRuns(ctx context.Context, sel DevRunSelector) ([]DevRun,
 func (c *Client) listDevRunWorkloads(
 	ctx context.Context, selector labels.Selector,
 ) ([]*appsv1.Deployment, []*corev1.Pod, error) {
-	if c.synced != nil && c.synced() {
-		deps, err := c.depLister.List(selector)
+	if w := c.cache(ctx); w != nil {
+		deps, err := w.deps.List(selector)
 		if err != nil {
 			return nil, nil, fmt.Errorf("kube: lister list dev runs: %w", err)
 		}
-		pods, err := c.podLister.List(selector)
+		pods, err := w.pods.List(selector)
 		if err != nil {
 			return nil, nil, fmt.Errorf("kube: lister list dev run pods: %w", err)
 		}
 		return deps, pods, nil
 	}
 
-	depList, err := c.clientset.AppsV1().Deployments(c.namespace).List(ctx,
+	depList, err := c.clientset.AppsV1().Deployments(c.ns(ctx)).List(ctx,
 		metav1.ListOptions{LabelSelector: selector.String()})
 	if err != nil {
 		return nil, nil, fmt.Errorf("kube: list dev runs: %w", err)
 	}
-	podList, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx,
+	podList, err := c.clientset.CoreV1().Pods(c.ns(ctx)).List(ctx,
 		metav1.ListOptions{LabelSelector: selector.String()})
 	if err != nil {
 		return nil, nil, fmt.Errorf("kube: list dev run pods: %w", err)
@@ -628,6 +638,7 @@ func (c *Client) sidecarEnv(spec DevRunSpec) []corev1.EnvVar {
 		{Name: envRuntimeAdmin, Value: fmt.Sprintf("127.0.0.1:%d", adminPort)},
 		{Name: envOrchestrator, Value: c.orchestratorURL},
 		{Name: envDevRunID, Value: spec.ID},
+		{Name: envEnvironment, Value: spec.Environment},
 		{Name: envDevRunToken, Value: spec.DevRunToken},
 		{Name: envSidecarToken, Value: spec.SidecarToken},
 	}
@@ -648,8 +659,8 @@ func (c *Client) devRunLabels(spec DevRunSpec) map[string]string {
 // SidecarURL is the in-cluster address of a dev run's sidecar API. The Service
 // fronts the runtime's HTTP port, not the sidecar's, so commands address the pod
 // through the headless-style per-dev-run Service name on the sidecar port.
-func (c *Client) SidecarURL(devRunID string) string {
-	return fmt.Sprintf("http://%s.%s:%d", devRunName(devRunID), c.namespace, c.sidecarPort)
+func (c *Client) SidecarURL(ctx context.Context, devRunID string) string {
+	return fmt.Sprintf("http://%s.%s:%d", devRunName(devRunID), c.ns(ctx), c.sidecarPort)
 }
 
 // devRunName is the deterministic name shared by a dev run's objects. "octo-dev-"

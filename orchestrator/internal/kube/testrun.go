@@ -114,7 +114,7 @@ func (c *Client) ApplyTestRun(ctx context.Context, spec TestRunSpec) error {
 		labelTestOf:        spec.DeploymentID,
 		labelIntegrationID: spec.IntegrationID,
 	}
-	job, err := c.clientset.BatchV1().Jobs(c.namespace).Create(ctx, c.testRunJob(name, lbls, spec, items), metav1.CreateOptions{})
+	job, err := c.clientset.BatchV1().Jobs(c.ns(ctx)).Create(ctx, c.testRunJob(name, lbls, spec, items), metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("kube: create test job: %w", err)
 	}
@@ -124,7 +124,7 @@ func (c *Client) ApplyTestRun(ctx context.Context, spec TestRunSpec) error {
 		Name:       job.Name,
 		UID:        job.UID,
 	}
-	if _, err := c.clientset.CoreV1().ConfigMaps(c.namespace).Create(ctx, &corev1.ConfigMap{
+	if _, err := c.clientset.CoreV1().ConfigMaps(c.ns(ctx)).Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: lbls, OwnerReferences: []metav1.OwnerReference{owner}},
 		Data:       data,
 	}, metav1.CreateOptions{}); err != nil {
@@ -137,14 +137,14 @@ func (c *Client) ApplyTestRun(ctx context.Context, spec TestRunSpec) error {
 // TestRunState reads where a test run is. A Job that no longer exists is
 // TestRunGone rather than an error, since a TTL'd Job is an expected end.
 func (c *Client) TestRunState(ctx context.Context, runID string) (TestRunState, error) {
-	job, err := c.clientset.BatchV1().Jobs(c.namespace).Get(ctx, testRunName(runID), metav1.GetOptions{})
+	job, err := c.clientset.BatchV1().Jobs(c.ns(ctx)).Get(ctx, testRunName(runID), metav1.GetOptions{})
 	if err != nil {
 		if ignoreNotFound(err) == nil {
 			return TestRunState{Phase: TestRunGone}, nil
 		}
 		return TestRunState{}, fmt.Errorf("kube: get test job: %w", err)
 	}
-	pods, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+	pods, err := c.clientset.CoreV1().Pods(c.ns(ctx)).List(ctx, metav1.ListOptions{
 		LabelSelector: labelTestRunID + "=" + runID,
 	})
 	if err != nil {
@@ -171,7 +171,7 @@ func (c *Client) TestRunLogs(ctx context.Context, pod string) ([]byte, error) {
 // ConfigMap. A run already gone is not an error.
 func (c *Client) DeleteTestRun(ctx context.Context, runID string) error {
 	background := metav1.DeletePropagationBackground
-	err := c.clientset.BatchV1().Jobs(c.namespace).Delete(ctx, testRunName(runID), metav1.DeleteOptions{
+	err := c.clientset.BatchV1().Jobs(c.ns(ctx)).Delete(ctx, testRunName(runID), metav1.DeleteOptions{
 		PropagationPolicy: &background,
 	})
 	return ignoreNotFound(err)

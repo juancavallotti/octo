@@ -23,7 +23,7 @@ const secretsName = "octo-secrets"
 // on a conflict (another writer updated the Secret) or an AlreadyExists race (two
 // first-time creates), so different keys set in parallel all land.
 func (c *Client) SetSecret(ctx context.Context, name, value string) error {
-	secrets := c.clientset.CoreV1().Secrets(c.namespace)
+	secrets := c.clientset.CoreV1().Secrets(c.ns(ctx))
 	retriable := func(err error) bool {
 		return apierrors.IsConflict(err) || apierrors.IsAlreadyExists(err)
 	}
@@ -56,7 +56,7 @@ func (c *Client) SetSecret(ctx context.Context, name, value string) error {
 // missing Secret or a missing key is a no-op. The read-modify-write is retried on
 // a conflict so a concurrent set/delete does not lose the update.
 func (c *Client) DeleteSecretKey(ctx context.Context, name string) error {
-	secrets := c.clientset.CoreV1().Secrets(c.namespace)
+	secrets := c.clientset.CoreV1().Secrets(c.ns(ctx))
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		sec, err := secrets.Get(ctx, secretsName, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
@@ -77,7 +77,7 @@ func (c *Client) DeleteSecretKey(ctx context.Context, name string) error {
 // SecretKeyExists reports whether key name is present in the shared cluster-secrets
 // Secret. A missing Secret reads as "not present". It never returns the value.
 func (c *Client) SecretKeyExists(ctx context.Context, name string) (bool, error) {
-	sec, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, secretsName, metav1.GetOptions{})
+	sec, err := c.clientset.CoreV1().Secrets(c.ns(ctx)).Get(ctx, secretsName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return false, nil
 	}
@@ -99,7 +99,7 @@ func (c *Client) SecretKeyExists(ctx context.Context, name string) (bool, error)
 // recreated. A caller asking twice could see it present, then missing, and read the
 // empty list as "every name was removed"; one Get cannot produce that pair.
 func (c *Client) StoredSecretNames(ctx context.Context) ([]string, bool, error) {
-	sec, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, secretsName, metav1.GetOptions{})
+	sec, err := c.clientset.CoreV1().Secrets(c.ns(ctx)).Get(ctx, secretsName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil, false, nil
 	}

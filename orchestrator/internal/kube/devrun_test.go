@@ -702,7 +702,7 @@ func TestSidecarPortDefaults(t *testing.T) {
 func TestSidecarURL(t *testing.T) {
 	c := devRunClient()
 	want := "http://octo-dev-run-a." + testNamespace + ":8099"
-	if got := c.SidecarURL("run-a"); got != want {
+	if got := c.SidecarURL(context.Background(), "run-a"); got != want {
 		t.Errorf("SidecarURL = %q, want %q", got, want)
 	}
 }

@@ -74,7 +74,7 @@ type kubeClient interface {
 	PodLogs(ctx context.Context, podName, container string, follow bool, tail int64) (io.ReadCloser, error)
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
-	InternalURL(slug string, port int) string
+	InternalURL(ctx context.Context, slug string, port int) string
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
 	RunnerEnabled(runner kube.Runner) bool
@@ -340,7 +340,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		if err != nil {
 			return Deployment{}, err
 		}
-		internalURL = s.kube.InternalURL(slug, port)
+		internalURL = s.kube.InternalURL(ctx, slug, port)
 	}
 
 	// Optional external endpoint: validate up front so a bad request fails before

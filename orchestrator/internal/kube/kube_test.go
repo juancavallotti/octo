@@ -674,13 +674,13 @@ func TestApplyNoIngressWithoutBaseDomain(t *testing.T) {
 
 func TestInternalURL(t *testing.T) {
 	c := testClientFor(testConfig(""))
-	if got := c.InternalURL("", 0); got != "" {
+	if got := c.InternalURL(context.Background(), "", 0); got != "" {
 		t.Errorf("empty slug should yield empty URL, got %q", got)
 	}
-	if got := c.InternalURL("orders", 0); got != "http://octo-int-orders.octo-dev:8080" {
+	if got := c.InternalURL(context.Background(), "orders", 0); got != "http://octo-int-orders.octo-dev:8080" {
 		t.Errorf("default port URL = %q", got)
 	}
-	if got := c.InternalURL("orders", 9090); got != "http://octo-int-orders.octo-dev:9090" {
+	if got := c.InternalURL(context.Background(), "orders", 9090); got != "http://octo-int-orders.octo-dev:9090" {
 		t.Errorf("declared port URL = %q", got)
 	}
 }
