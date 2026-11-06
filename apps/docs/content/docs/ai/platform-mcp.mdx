@@ -37,18 +37,9 @@ refreshes and reconnects. A long-running [dev run](/platform/dev-runs) belongs
 to you and one integration, so a second client running the same integration
 attaches to the run already up.
 
-### Choose an environment
+### Environments
 
-A connection acts in one [environment](/platform/environments). The default is `octo`. To work in another, send the `X-Octo-Environment` header, or add `?environment=` to the URL for a client that can only be given an address:
-
-```bash
-claude mcp add --transport http octo-staging "https://<your-platform-host>/mcp?environment=staging"
-# or, with a client that sends headers
-claude mcp add --transport http octo-staging https://<your-platform-host>/mcp \
-  --header "X-Octo-Environment: staging"
-```
-
-Every tool then reads and writes that environment's integrations, resources, tests and dev runs, judged by your roles there. A name that is not an environment, or one you hold nothing in, is refused on the first call. Add one connection per environment you work in.
+The platform has one or more [environments](/platform/environments), each with its own integrations, resources, tests and runs. `list_environments` lists them. Every tool that reads or writes the platform's data takes an optional `environment` argument naming one; without it, the tool acts in the default environment, `octo`. Integration ids belong to one environment, so pass the same `environment` on every call about the same integration. Each call is judged by your roles in the environment it names, and one you hold nothing in is refused.
 
 <Callout type="info">
   The **standalone app** and the **desktop app** expose the same MCP handler,
@@ -59,6 +50,12 @@ Every tool then reads and writes that environment's integrations, resources, tes
 </Callout>
 
 ## What the server exposes
+
+### Environment tools
+
+| Tool | Description |
+|------|-------------|
+| `list_environments` | The environments, as `{ name, displayName, description, default }`. Pass a `name` as any other tool's `environment` argument. Offered only by the platform, not by the standalone or desktop app. |
 
 ### Authoring tools
 
