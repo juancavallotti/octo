@@ -140,6 +140,32 @@ export async function resolveRuntimeSchema(
     : source;
 }
 
+/** One environment, as `list_environments` reports it. */
+export interface EnvironmentRecord {
+  name: string;
+  displayName: string;
+  description: string;
+  /** True for the default environment, which a tool called without one acts in. */
+  default: boolean;
+}
+
+/**
+ * The host's environments: isolated slices of its platform, each with its own
+ * integrations, resources, tests and runs. Supplying it adds an optional
+ * `environment` argument to every tool that reads or writes the host's data, and
+ * the `list_environments` tool. A host without environments omits it.
+ */
+export interface EnvironmentScope {
+  /** Every environment the caller can name, the default first. */
+  list(): Promise<EnvironmentRecord[]>;
+  /**
+   * Run `fn` acting in `environment` ("" for the default). The host makes every
+   * store call `fn` makes act there; refusing an environment the caller may not
+   * use is the host's, and arrives as a failed store call.
+   */
+  run<T>(environment: string, fn: () => Promise<T>): Promise<T>;
+}
+
 export interface OctoMcpConfig {
   /** The integration store backing list/open/create/update. */
   store: IntegrationStore;
@@ -219,4 +245,6 @@ export interface OctoMcpConfig {
    * `create-integration` prompt points the LLM at it. Omit to leave it out.
    */
   docsUrl?: string;
+  /** The host's environments; see {@link EnvironmentScope}. Omit on a host without them. */
+  environments?: EnvironmentScope;
 }

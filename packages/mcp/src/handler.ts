@@ -14,6 +14,7 @@ import {
   registerRuntimeSchemaResource,
 } from "./resource";
 import { registerPrompts } from "./prompts";
+import { inEnvironments, registerEnvironmentTools } from "./environment";
 import { OCTO_ICON_DATA_URI } from "./icon";
 
 /**
@@ -80,6 +81,9 @@ export interface OctoMcpHandlerOptions {
  * mounts it at. It speaks the stateless 2026-07-28 protocol and answers 2025-era
  * streamable HTTP clients from the same handler.
  */
+/** Tools registered through a scoped group that touch none of the host's data. */
+const UNSCOPED_TOOLS: ReadonlySet<string> = new Set(["evaluate_cel"]);
+
 export function createOctoMcpHandler(
   config: OctoMcpConfig,
   options: OctoMcpHandlerOptions,
@@ -89,11 +93,16 @@ export function createOctoMcpHandler(
 
   return createMcpHandler(
     (server) => {
-      registerIntegrationTools(server, config);
-      registerResourceTools(server, config);
-      registerMetaTools(server, config);
-      registerRunTools(server, config, runHost, resolveNamespace);
-      registerSuiteTools(server, config, runHost, resolveNamespace);
+      // Every tool that reads or writes the host's data takes an optional
+      // environment when the host has them. evaluate_cel and the docs tools read
+      // nothing of the host's, so they take none.
+      const scoped = inEnvironments(server, config.environments, UNSCOPED_TOOLS);
+      registerEnvironmentTools(server, config.environments);
+      registerIntegrationTools(scoped, config);
+      registerResourceTools(scoped, config);
+      registerMetaTools(scoped, config);
+      registerRunTools(scoped, config, runHost, resolveNamespace);
+      registerSuiteTools(scoped, config, runHost, resolveNamespace);
       registerDocsTools(server, config);
       registerRuntimeSchemaResource(server, config);
       registerExampleResources(server);
