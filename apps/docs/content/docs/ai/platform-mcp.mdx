@@ -37,6 +37,10 @@ refreshes and reconnects. A long-running [dev run](/platform/dev-runs) belongs
 to you and one integration, so a second client running the same integration
 attaches to the run already up.
 
+### Environments
+
+The platform has one or more [environments](/platform/environments), each with its own integrations, resources, tests and runs. `list_environments` lists them. Every tool that reads or writes the platform's data takes an optional `environment` argument naming one; without it, the tool acts in the default environment, `octo`. Integration ids belong to one environment, so pass the same `environment` on every call about the same integration. Each call is judged by your roles in the environment it names, and one you hold nothing in is refused.
+
 <Callout type="info">
   The **standalone app** and the **desktop app** expose the same MCP handler,
   unauthenticated, at `http://localhost:<port>/mcp`. Every tool below works the
@@ -46,6 +50,12 @@ attaches to the run already up.
 </Callout>
 
 ## What the server exposes
+
+### Environment tools
+
+| Tool | Description |
+|------|-------------|
+| `list_environments` | The environments, as `{ name, displayName, description, default }`. Pass a `name` as any other tool's `environment` argument. Offered only by the platform, not by the standalone or desktop app. |
 
 ### Authoring tools
 

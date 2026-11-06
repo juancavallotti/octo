@@ -245,7 +245,8 @@ func startAlerting(
 	)
 	go runner.Run(ctx)
 	slog.Info("evaluating alerting watches", "identity", elector.Identity())
-	return alerting.NewService(store, runner, alertaction.Validate), nil
+	return alerting.NewService(store, runner, alertaction.Validate).
+		WithDeployments(repo.NewEnvironments(pool)), nil
 }
 
 // startTraces publishes a rate card and subscribes the trace consumer to it.

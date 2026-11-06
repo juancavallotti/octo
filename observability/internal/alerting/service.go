@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -47,6 +48,20 @@ type Service struct {
 	preview  previewer
 	validate func(Watch) error
 	now      func() time.Time
+	// deployments answers which environment a deployment is in, so a watch can
+	// only hand its alerts to an app in its own environment. Nil skips the check.
+	deployments deploymentEnvironments
+}
+
+// deploymentEnvironments answers which environment a deployment belongs to.
+type deploymentEnvironments interface {
+	DeploymentEnvironment(ctx context.Context, id string) (environment string, found bool, err error)
+}
+
+// WithDeployments has topic actions checked against the watch's environment.
+func (s *Service) WithDeployments(d deploymentEnvironments) *Service {
+	s.deployments = d
+	return s
 }
 
 // NewService wires the service. validateActions may be nil in a process that
@@ -61,6 +76,9 @@ func NewService(store watchStore, preview previewer, validateActions func(Watch)
 // Create validates and stores a new watch.
 func (s *Service) Create(ctx context.Context, w Watch, userID string) (Watch, error) {
 	if err := s.check(w); err != nil {
+		return Watch{}, err
+	}
+	if err := s.actionsStayInEnvironment(ctx, w); err != nil {
 		return Watch{}, err
 	}
 	count, err := s.store.Count(ctx)
@@ -82,6 +100,9 @@ func (s *Service) Create(ctx context.Context, w Watch, userID string) (Watch, er
 // the dashboard.
 func (s *Service) Update(ctx context.Context, w Watch, userID string) (Watch, error) {
 	if err := s.check(w); err != nil {
+		return Watch{}, err
+	}
+	if err := s.actionsStayInEnvironment(ctx, w); err != nil {
 		return Watch{}, err
 	}
 	// The retirement happens inside the store's transaction, not here after it.
@@ -166,6 +187,38 @@ func (s *Service) check(w Watch) error {
 		return err
 	}
 	return searchNeedsAScope(w)
+}
+
+// actionsStayInEnvironment refuses a topic action that publishes to an app in
+// another environment. The receiving app acts on the alert with its own
+// identity, which is bound to the environment it runs in: one elsewhere could not
+// see what the alert is about, and would be handed another environment's alerts
+// regardless. An app in the watch's own environment is the one that can act.
+func (s *Service) actionsStayInEnvironment(ctx context.Context, w Watch) error {
+	if s.deployments == nil {
+		return nil
+	}
+	environment := current.From(ctx)
+	for _, a := range w.Actions {
+		if a.Type != ActionTypeTopic {
+			continue
+		}
+		var target struct {
+			DeploymentID string `json:"deploymentId"`
+		}
+		if err := json.Unmarshal(a.Params, &target); err != nil || strings.TrimSpace(target.DeploymentID) == "" {
+			continue // the action's own validation names this
+		}
+		got, found, err := s.deployments.DeploymentEnvironment(ctx, strings.TrimSpace(target.DeploymentID))
+		if err != nil {
+			return err
+		}
+		if found && got != environment {
+			return fmt.Errorf("alerting: %w: a topic action publishes to an app in this watch's own environment",
+				ErrInvalidParams)
+		}
+	}
+	return nil
 }
 
 // searchNeedsAScope refuses a log search that would scan the whole table.
