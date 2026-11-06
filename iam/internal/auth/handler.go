@@ -112,8 +112,11 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 // machineRequest names the deployed integration a token is being minted for, and
 // what it is being lent beyond its own stores. An absent set asks for nothing.
 type machineRequest struct {
-	Deployment string   `json:"deployment"`
-	Access     []Access `json:"access,omitempty"`
+	Deployment string `json:"deployment"`
+	// Environment is the one the deployment runs in, and the only one its token
+	// will act in. Empty or "octo" is the default.
+	Environment string   `json:"environment,omitempty"`
+	Access      []Access `json:"access,omitempty"`
 }
 
 // machine issues a token for a deployed integration, on the authority of the
@@ -146,7 +149,7 @@ func (h *Handler) machine(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 
-	result, err := h.svc.MintMachine(ctx, token, req.Deployment, req.Access)
+	result, err := h.svc.MintMachine(ctx, token, req.Deployment, req.Environment, req.Access)
 	if err != nil {
 		h.writeError(w, err)
 		return
