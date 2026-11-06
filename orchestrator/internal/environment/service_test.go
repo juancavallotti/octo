@@ -329,3 +329,45 @@ func TestExists(t *testing.T) {
 		}
 	}
 }
+
+type recordingRegistry map[string]string
+
+func (r recordingRegistry) RegisterEnvironment(environment, namespace string) {
+	r[environment] = namespace
+}
+func (r recordingRegistry) ForgetEnvironment(environment string) { delete(r, environment) }
+
+func TestTheRegistryFollowsEnvironments(t *testing.T) {
+	svc, repo, _ := newTestService()
+	ctx := context.Background()
+	repo.rows["existing"] = Environment{Name: "existing", Namespace: "octo-existing"}
+	reg := recordingRegistry{}
+	svc.WithRegistry(reg)
+
+	if err := svc.Register(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if reg["existing"] != "octo-existing" {
+		t.Errorf("a stored environment was not registered: %v", reg)
+	}
+	if _, err := svc.Create(ctx, Input{Name: "staging"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if reg["staging"] != "octo-staging" {
+		t.Errorf("a created environment was not registered: %v", reg)
+	}
+	if err := svc.Delete(ctx, "staging"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reg["staging"]; ok {
+		t.Errorf("a deleted environment is still registered: %v", reg)
+	}
+
+	ns, ok, err := svc.Namespace(ctx, "existing")
+	if err != nil || !ok || ns != "octo-existing" {
+		t.Errorf("Namespace(existing) = %q, %v, %v", ns, ok, err)
+	}
+	if _, ok, _ := svc.Namespace(ctx, "missing"); ok {
+		t.Error("Namespace found a missing environment")
+	}
+}

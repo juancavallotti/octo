@@ -28,11 +28,19 @@ type namespaces interface {
 	DeleteNamespace(ctx context.Context, environment, namespace string) error
 }
 
+// registry is told which namespace each environment runs in, so workloads
+// for a request in that environment land there. *kube.Client satisfies it.
+type registry interface {
+	RegisterEnvironment(environment, namespace string)
+	ForgetEnvironment(environment string)
+}
+
 // Service holds environment lifecycle logic: it records environments in the
 // database and provisions and removes their namespaces.
 type Service struct {
-	repo repository
-	kube namespaces
+	registry registry
+	repo     repository
+	kube     namespaces
 	// defaultNamespace is the release namespace, which the default environment
 	// runs in and no other environment may claim.
 	defaultNamespace string
@@ -42,6 +50,40 @@ type Service struct {
 // be listed but not created or deleted (ErrUnavailable).
 func NewService(repo repository, kube namespaces, defaultNamespace string) *Service {
 	return &Service{repo: repo, kube: kube, defaultNamespace: defaultNamespace}
+}
+
+// WithRegistry has every environment registered with r: those stored now
+// (Register), and each one created or deleted from then on.
+func (s *Service) WithRegistry(r registry) *Service {
+	s.registry = r
+	return s
+}
+
+// Register tells the registry about every stored environment.
+func (s *Service) Register(ctx context.Context) error {
+	if s.registry == nil {
+		return nil
+	}
+	stored, err := s.repo.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, e := range stored {
+		s.registry.RegisterEnvironment(e.Name, e.Namespace)
+	}
+	return nil
+}
+
+// Namespace returns the namespace environment runs in, and whether it is one.
+func (s *Service) Namespace(ctx context.Context, environment string) (string, bool, error) {
+	e, err := s.Get(ctx, environment)
+	if errors.Is(err, ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return e.Namespace, true, nil
 }
 
 // Enabled reports whether environments can be created and deleted here.
@@ -139,6 +181,9 @@ func (s *Service) Create(ctx context.Context, in Input, createdBy string) (Envir
 		}
 		return Environment{}, err
 	}
+	if s.registry != nil {
+		s.registry.RegisterEnvironment(created.Name, created.Namespace)
+	}
 	return created, nil
 }
 
@@ -189,6 +234,9 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 		}
 		slog.Warn("environment delete: the namespace is not labelled as this environment's; leaving it",
 			"environment", e.Name, "namespace", e.Namespace)
+	}
+	if s.registry != nil {
+		s.registry.ForgetEnvironment(e.Name)
 	}
 	return s.repo.Delete(ctx, e.Name)
 }
