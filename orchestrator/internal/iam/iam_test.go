@@ -24,7 +24,7 @@ func TestMintMachineSendsTheCallerTokenAndTheDeployment(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	token, err := New(srv.URL).MintMachine(context.Background(), "caller.token", "dep-1", nil)
+	token, err := New(srv.URL).MintMachine(context.Background(), "caller.token", "dep-1", "", nil)
 	if err != nil {
 		t.Fatalf("MintMachine: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestMintMachineTrimsTheAddress(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL+"/").MintMachine(context.Background(), "c", "dep-1", nil); err != nil {
+	if _, err := New(srv.URL+"/").MintMachine(context.Background(), "c", "dep-1", "", nil); err != nil {
 		t.Fatalf("MintMachine: %v", err)
 	}
 	if gotPath != "/auth/machine" {
@@ -70,7 +70,7 @@ func TestMintMachineReportsWhatIAMSaid(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", nil)
+	_, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", "", nil)
 	if err == nil {
 		t.Fatal("MintMachine succeeded against a 403")
 	}
@@ -88,7 +88,7 @@ func TestMintMachineRefusesWithoutACallerToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL).MintMachine(context.Background(), "  ", "dep-1", nil); err == nil {
+	if _, err := New(srv.URL).MintMachine(context.Background(), "  ", "dep-1", "", nil); err == nil {
 		t.Error("MintMachine accepted an empty caller token")
 	}
 }
@@ -98,7 +98,7 @@ func TestUnconfiguredClientMintsNothing(t *testing.T) {
 	if c.Configured() {
 		t.Error("Configured() is true with no address")
 	}
-	if _, err := c.MintMachine(context.Background(), "c", "dep-1", nil); err == nil {
+	if _, err := c.MintMachine(context.Background(), "c", "dep-1", "", nil); err == nil {
 		t.Error("MintMachine succeeded with no address")
 	}
 }
@@ -111,7 +111,7 @@ func TestMintMachineRefusesAnEmptyToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", nil); err == nil {
+	if _, err := New(srv.URL).MintMachine(context.Background(), "c", "dep-1", "", nil); err == nil {
 		t.Error("MintMachine accepted a reply with no token")
 	}
 }
@@ -129,8 +129,35 @@ func TestMintMachineRefusesARedirect(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	token, err := New(srv.URL).MintMachine(context.Background(), "caller.token", "dep-1", nil)
+	token, err := New(srv.URL).MintMachine(context.Background(), "caller.token", "dep-1", "", nil)
 	if err == nil {
 		t.Fatalf("MintMachine = %q, want an error for the redirect", token)
+	}
+}
+
+// The deployment's environment travels to iam, which binds the token to it; the
+// default is sent as nothing at all, which iam reads the same way.
+func TestMintMachineNamesTheEnvironment(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": "t"})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	if _, err := c.MintMachine(context.Background(), "c", "dep-1", "staging", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.MintMachine(context.Background(), "c", "dep-1", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if bodies[0]["environment"] != "staging" {
+		t.Errorf("environment = %v, want staging", bodies[0]["environment"])
+	}
+	if _, sent := bodies[1]["environment"]; sent {
+		t.Errorf("the default was sent as %v, want it omitted", bodies[1]["environment"])
 	}
 }
