@@ -41,6 +41,12 @@ func TestPolicyPlacesEachRouteWhereItBelongs(t *testing.T) {
 		// repair has to be able to report what it did.
 		{"POST", "/email/send", []string{RoleAdmin, RoleOperator}},
 		{"GET", "/settings/email", []string{RoleAdmin}},
+
+		// Everybody chooses an environment; only an admin makes or removes one.
+		{"GET", "/environments", anyone},
+		{"GET", "/environments/staging", anyone},
+		{"POST", "/environments", []string{RoleAdmin}},
+		{"DELETE", "/environments/staging", []string{RoleAdmin}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {

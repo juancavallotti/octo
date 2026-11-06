@@ -86,6 +86,10 @@ var policy = []rule{
 	// through a server somebody else configured is an operating act, and an
 	// unattended run that has just repaired something has to be able to say so.
 	{"email", []string{RoleAdmin, RoleOperator}, []string{RoleAdmin, RoleOperator}},
+	// Environments are readable by anyone who can sign in, because choosing one is
+	// how every other screen is scoped. Creating and deleting them provisions and
+	// removes namespaces, which is the installation's to decide.
+	{"environments", anyone, []string{RoleAdmin}},
 }
 
 // pipeline is the whole of what a platform:cicd token may do: roll out a new

@@ -1293,6 +1293,24 @@ BEGIN
     END IF;
 END $$;
 
+-- environments are the named, isolated slices of the platform, each running in a
+-- Kubernetes namespace of its own. The default environment, "octo", is not a row:
+-- it is the release namespace, and every environment-scoped column spells it NULL.
+-- Keeping it out of this table keeps NULL the only spelling of "default" — a row
+-- for it would be a second one, and every query would have to agree on which.
+--
+-- `namespace` is fixed at creation. The orchestrator provisions it, labels it with
+-- the environment's name, and deletes it with the environment; renaming it would
+-- strand every workload already running there.
+CREATE TABLE IF NOT EXISTS environments (
+    name         varchar PRIMARY KEY,
+    namespace    varchar NOT NULL UNIQUE,
+    display_name varchar NOT NULL DEFAULT '',
+    description  varchar NOT NULL DEFAULT '',
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    created_by   uuid REFERENCES users (id) ON DELETE SET NULL
+);
+
 -- iam_signing_keys holds the keypairs the iam service signs platform tokens with
 -- and publishes as JWKS. It is a table and not a mounted Secret because the key
 -- has to be the same across replicas, survive restarts, and rotate without anyone
