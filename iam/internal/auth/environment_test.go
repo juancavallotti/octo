@@ -214,3 +214,69 @@ func TestWithoutEnvironmentsOnlyTheDefaultMints(t *testing.T) {
 		t.Errorf("the default was refused: %v", err)
 	}
 }
+
+// stagingOperator lets a second person in holding operator and developer in
+// staging and nothing in the default, and returns their sign-in.
+func (h *harness) stagingOperator(t *testing.T) authResponse {
+	t.Helper()
+	ctx := context.Background()
+	admin := h.signIn(t, "provider|admin", "admin@example.com")
+	if _, err := h.users.Create(ctx, "stage@example.com", "", nil, nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stage := h.signIn(t, "provider|stage", "stage@example.com")
+	for _, r := range []user.Role{user.RoleOperator, user.RoleDeveloper} {
+		if err := h.users.GrantIn(ctx, stage.User.ID, "staging", r, &admin.User.ID); err != nil {
+			t.Fatalf("GrantIn: %v", err)
+		}
+	}
+	return h.signIn(t, "provider|stage", "stage@example.com")
+}
+
+// A person's token carries what they hold in every environment, so switching
+// needs no new token.
+func TestAPersonsTokenCarriesTheirRolesInEveryEnvironment(t *testing.T) {
+	h := newHarness(t)
+	stage := h.stagingOperator(t)
+	var private platformClaims
+	if _, err := h.signing.Verify(context.Background(), stage.Token, &private); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(private.Roles) != 0 {
+		t.Errorf("default roles = %v, want none", private.Roles)
+	}
+	if got := private.EnvRoles["staging"]; len(got) != 2 {
+		t.Errorf("envRoles[staging] = %v, want operator and developer", got)
+	}
+	if len(stage.User.EnvRoles["staging"]) != 2 {
+		t.Errorf("the response's user carries envRoles %v", stage.User.EnvRoles)
+	}
+}
+
+// Somebody who operates staging and nothing else may deploy there, and only
+// there.
+func TestAStagingOperatorDeploysInStagingOnly(t *testing.T) {
+	h := newHarness(t)
+	stage := h.stagingOperator(t)
+
+	_, private := h.machineIn(t, stage.Token, "staging", AccessOperator, AccessDeveloper)
+	if private.Environment != "staging" || len(private.Roles) != 3 {
+		t.Errorf("staging machine token: environment %q, roles %v", private.Environment, private.Roles)
+	}
+	if rec := h.postMachineIn(t, "Bearer "+stage.Token, "dep-1", ""); rec.Code != http.StatusForbidden {
+		t.Errorf("deploying in the default = %d (%s), want 403", rec.Code, rec.Body.String())
+	}
+}
+
+// A staging key of somebody who operates staging speaks for that, there.
+func TestAStagingKeyOfAStagingOperator(t *testing.T) {
+	h := newHarness(t)
+	stage := h.stagingOperator(t)
+	staging := "staging"
+	h.keys[testKey] = apikey.APIKey{
+		ID: "key-1", UserID: stage.User.ID, Roles: []user.Role{user.RoleOperator}, Environment: &staging,
+	}
+	if got := h.exchangedRoles(t); len(got) != 1 || got[0] != user.RoleOperator {
+		t.Errorf("exchanged roles = %v, want operator", got)
+	}
+}

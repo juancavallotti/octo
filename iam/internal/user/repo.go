@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -21,12 +22,17 @@ const (
 	// the single NULL row a LEFT JOIN produces for a user with no grants, which
 	// would otherwise aggregate to {NULL} and scan as a one-element slice holding
 	// an empty role.
-	rolesColumn = `COALESCE(array_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}')`
+	rolesColumn = `COALESCE(array_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL AND ur.environment IS NULL), '{}')`
+
+	// envRolesColumn aggregates the grants in every other environment as
+	// "environment<TAB>role" pairs, split apart again by scanUser. A tab cannot
+	// appear in an environment name, which is a DNS label.
+	envRolesColumn = `COALESCE(array_agg(ur.environment || E'\t' || ur.role) FILTER (WHERE ur.environment IS NOT NULL), '{}')`
 
 	// selectUsers is the shared read. Grouping by u.id alone is enough: it is the
 	// primary key, so Postgres knows the other selected columns are functionally
 	// dependent on it.
-	selectUsers = `SELECT ` + userColumns + `, ` + rolesColumn + `
+	selectUsers = `SELECT ` + userColumns + `, ` + rolesColumn + `, ` + envRolesColumn + `
 		 FROM users u LEFT JOIN user_roles ur ON ur.user_id = u.id`
 
 	// bootstrapLockKey keys the advisory lock taken while deciding whether a user
@@ -171,7 +177,7 @@ func (r *Repo) admitNewcomer(
 ) (string, error) {
 	var hasAdmin bool
 	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM user_roles WHERE role = $1)`, string(RoleAdmin),
+		`SELECT EXISTS (SELECT 1 FROM user_roles WHERE role = $1 AND environment IS NULL)`, string(RoleAdmin),
 	).Scan(&hasAdmin); err != nil {
 		return "", fmt.Errorf("user repo: admit: look for an administrator: %w", err)
 	}
@@ -189,7 +195,7 @@ func (r *Repo) admitNewcomer(
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO user_roles (user_id, role) VALUES ($1, $2)
-		 ON CONFLICT (user_id, role) DO NOTHING`,
+		 ON CONFLICT DO NOTHING`,
 		id, string(RoleAdmin),
 	); err != nil {
 		return "", fmt.Errorf("user repo: admit: grant the first administrator: %w", err)
@@ -320,7 +326,7 @@ func (r *Repo) List(
 	rows, err := r.pool.Query(ctx, selectUsers+`
 		 WHERE ($1 = '' OR u.name ILIKE $2 ESCAPE '\' OR u.email ILIKE $2 ESCAPE '\')
 		   AND ($3 = '' OR EXISTS (
-		         SELECT 1 FROM user_roles f WHERE f.user_id = u.id AND f.role = $3))
+		         SELECT 1 FROM user_roles f WHERE f.user_id = u.id AND f.role = $3 AND f.environment IS NULL))
 		   AND ($4::timestamptz IS NULL OR (u.created_at, u.id) > ($4, $5::uuid))
 		 GROUP BY u.id ORDER BY u.created_at, u.id LIMIT $6`,
 		query, pattern, string(role), after.createdAt, after.id, limit+1)
@@ -356,11 +362,17 @@ func (r *Repo) List(
 // rather than pre-checked, so a user deleted between the check and the write
 // cannot produce a grant pointing at nothing.
 func (r *Repo) Grant(ctx context.Context, userID string, granted Role, grantedBy *string) error {
+	return r.GrantIn(ctx, userID, "", granted, grantedBy)
+}
+
+// GrantIn is Grant in environment ("" for the default). An environment that
+// does not exist is ErrInvalid, from its foreign key.
+func (r *Repo) GrantIn(ctx context.Context, userID, environment string, granted Role, grantedBy *string) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO user_roles (user_id, role, granted_by)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (user_id, role) DO NOTHING`,
-		userID, string(granted), grantedBy,
+		`INSERT INTO user_roles (user_id, role, granted_by, environment)
+		 VALUES ($1, $2, $3, NULLIF($4, ''))
+		 ON CONFLICT DO NOTHING`,
+		userID, string(granted), grantedBy, environment,
 	)
 	if err != nil {
 		// Two foreign keys can refuse this row and they mean opposite things: the
@@ -368,6 +380,9 @@ func (r *Repo) Grant(ctx context.Context, userID string, granted Role, grantedBy
 		// error names the wrong user.
 		if violated(err, grantedByConstraint) {
 			return ErrGranterGone
+		}
+		if violated(err, environmentConstraint) {
+			return fmt.Errorf("%w: %q is not an environment", ErrInvalid, environment)
 		}
 		if isForeignKeyViolation(err) || isInvalidTextRepresentation(err) {
 			return ErrNotFound
@@ -394,10 +409,26 @@ func (r *Repo) Revoke(ctx context.Context, userID string, revoked Role) error {
 	})
 }
 
+// RevokeIn removes the role r from userID in environment, which is never the
+// default: the default's roles, admin among them, go through Revoke and its
+// last-administrator guard.
+func (r *Repo) RevokeIn(ctx context.Context, userID, environment string, revoked Role) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM user_roles WHERE user_id = $1 AND role = $2 AND environment = $3`,
+		userID, string(revoked), environment,
+	); err != nil {
+		if isInvalidTextRepresentation(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("user repo: revoke in an environment: %w", err)
+	}
+	return nil
+}
+
 // revoke performs the deletion itself, against a pool or a transaction.
 func (r *Repo) revoke(ctx context.Context, q execer, userID string, revoked Role) error {
 	if _, err := q.Exec(ctx,
-		`DELETE FROM user_roles WHERE user_id = $1 AND role = $2`,
+		`DELETE FROM user_roles WHERE user_id = $1 AND role = $2 AND environment IS NULL`,
 		userID, string(revoked),
 	); err != nil {
 		if isInvalidTextRepresentation(err) {
@@ -437,8 +468,8 @@ func (r *Repo) underAdminLock(ctx context.Context, what string, fn func(pgx.Tx) 
 func lastAdminCheck(ctx context.Context, tx pgx.Tx, userID string) error {
 	var last bool
 	err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2)
-		    AND (SELECT count(*) FROM user_roles WHERE role = $2) <= 1`,
+		`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2 AND environment IS NULL)
+		    AND (SELECT count(*) FROM user_roles WHERE role = $2 AND environment IS NULL) <= 1`,
 		userID, string(RoleAdmin),
 	).Scan(&last)
 	if err != nil {
@@ -457,7 +488,7 @@ func lastAdminCheck(ctx context.Context, tx pgx.Tx, userID string) error {
 func (r *Repo) CountWithRole(ctx context.Context, held Role) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM user_roles WHERE role = $1`, string(held),
+		`SELECT count(*) FROM user_roles WHERE role = $1 AND environment IS NULL`, string(held),
 	).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("user repo: count with role: %w", err)
@@ -474,17 +505,28 @@ type execer interface {
 // scanUser reads one row in selectUsers' column order.
 func scanUser(row pgx.Row) (User, error) {
 	var (
-		u     User
-		roles []string
+		u        User
+		roles    []string
+		envRoles []string
 	)
 	if err := row.Scan(
-		&u.ID, &u.Subject, &u.Email, &u.Name, &u.CreatedAt, &u.LastLoginAt, &roles,
+		&u.ID, &u.Subject, &u.Email, &u.Name, &u.CreatedAt, &u.LastLoginAt, &roles, &envRoles,
 	); err != nil {
 		return User{}, err
 	}
 	u.Roles = make([]Role, 0, len(roles))
 	for _, r := range roles {
 		u.Roles = append(u.Roles, Role(r))
+	}
+	for _, pair := range envRoles {
+		environment, role, ok := strings.Cut(pair, "\t")
+		if !ok {
+			continue
+		}
+		if u.EnvRoles == nil {
+			u.EnvRoles = map[string][]Role{}
+		}
+		u.EnvRoles[environment] = append(u.EnvRoles[environment], Role(role))
 	}
 	return u, nil
 }
@@ -497,6 +539,9 @@ const pgForeignKeyViolation = "23503"
 // made it. Postgres names it by its table and column, and it is named here so the
 // two keys on user_roles can be told apart.
 const grantedByConstraint = "user_roles_granted_by_fkey"
+
+// environmentConstraint is the foreign key from a grant to its environment.
+const environmentConstraint = "user_roles_environment_fkey"
 
 // violated reports whether err is Postgres refusing a row because of the named
 // constraint.

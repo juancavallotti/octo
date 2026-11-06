@@ -50,6 +50,9 @@ func (h *Handler) Register(mux *http.ServeMux, signedIn, admin Middleware) {
 		"DELETE /users/{id}":              h.delete,
 		"PUT /users/{id}/roles/{role}":    h.grant,
 		"DELETE /users/{id}/roles/{role}": h.revoke,
+		// The same, in one environment other than the default.
+		"PUT /users/{id}/environments/{environment}/roles/{role}":    h.grant,
+		"DELETE /users/{id}/environments/{environment}/roles/{role}": h.revoke,
 	} {
 		mux.Handle(pattern, admin(handler))
 	}
@@ -65,11 +68,14 @@ func (h *Handler) Register(mux *http.ServeMux, signedIn, admin Middleware) {
 type Response struct {
 	ID string `json:"id"`
 	// Subject is empty for somebody provisioned who has not signed in yet.
-	Subject   string    `json:"subject"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	Roles     []Role    `json:"roles"`
-	CreatedAt time.Time `json:"createdAt"`
+	Subject string `json:"subject"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+	Roles   []Role `json:"roles"`
+	// EnvRoles is what they hold in each environment other than the default,
+	// whose roles are Roles. Always present, empty rather than absent.
+	EnvRoles  map[string][]Role `json:"envRoles"`
+	CreatedAt time.Time         `json:"createdAt"`
 	// LastLoginAt is null for somebody provisioned who has not arrived yet, which
 	// is why it is a pointer: zero time would render as a date in the year 1 and
 	// read as data.
@@ -84,12 +90,17 @@ func ToResponse(u User) Response {
 		// rendered as `null`.
 		roles = []Role{}
 	}
+	envRoles := u.EnvRoles
+	if envRoles == nil {
+		envRoles = map[string][]Role{}
+	}
 	return Response{
 		ID:          u.ID,
 		Subject:     u.Subject,
 		Email:       u.Email,
 		Name:        u.Name,
 		Roles:       roles,
+		EnvRoles:    envRoles,
 		CreatedAt:   u.CreatedAt,
 		LastLoginAt: u.LastLoginAt,
 	}
@@ -250,7 +261,9 @@ func (h *Handler) grant(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	if err := h.svc.Grant(ctx, id, Role(r.PathValue("role")), &caller.Subject); err != nil {
+	// PathValue is empty on the default-environment route, which is what GrantIn
+	// reads as the default.
+	if err := h.svc.GrantIn(ctx, id, r.PathValue("environment"), Role(r.PathValue("role")), &caller.Subject); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -262,7 +275,7 @@ func (h *Handler) revoke(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	id := r.PathValue("id")
-	if err := h.svc.Revoke(ctx, id, Role(r.PathValue("role"))); err != nil {
+	if err := h.svc.RevokeIn(ctx, id, r.PathValue("environment"), Role(r.PathValue("role"))); err != nil {
 		h.writeError(w, err)
 		return
 	}
