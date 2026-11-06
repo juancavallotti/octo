@@ -64,6 +64,7 @@ export interface PaasBridge {
   addProfile(name: string, url: string, key?: string): Promise<unknown>;
   setKey(name: string, key: string): Promise<unknown>;
   useProfile(name: string): Promise<unknown>;
+  useEnvironment(name: string, environment: string): Promise<unknown>;
   removeProfile(name: string): Promise<unknown>;
   signIn(name: string): Promise<unknown>;
   signOut(name: string): Promise<unknown>;
@@ -113,6 +114,7 @@ const paas: PaasBridge = {
   addProfile: (name, url, key) => ipcRenderer.invoke("octo:paas:addProfile", name, url, key),
   setKey: (name, key) => ipcRenderer.invoke("octo:paas:setKey", name, key),
   useProfile: (name) => ipcRenderer.invoke("octo:paas:useProfile", name),
+  useEnvironment: (name, environment) => ipcRenderer.invoke("octo:paas:useEnvironment", name, environment),
   removeProfile: (name) => ipcRenderer.invoke("octo:paas:removeProfile", name),
   signIn: (name) => ipcRenderer.invoke("octo:paas:signIn", name),
   signOut: (name) => ipcRenderer.invoke("octo:paas:signOut", name),

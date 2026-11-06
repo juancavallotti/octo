@@ -6,9 +6,20 @@ import { ensureSaved } from "../editorStatus";
 import { stateDir } from "../paths";
 import { mainWindow } from "../window";
 import { openVault, recents, rememberVault, switchTo } from "../vault";
-import { apiUrl, deployArgs, id, rolloutArgs, scaleArgs, signInLink, word, type DeployForm } from "./args";
+import {
+  DEFAULT_ENVIRONMENT,
+  apiUrl,
+  cacheKey,
+  deployArgs,
+  id,
+  rolloutArgs,
+  scaleArgs,
+  signInLink,
+  word,
+  type DeployForm,
+} from "./args";
 import { CliError, list, run, stream } from "./cli";
-import { readLink, removeLink, writeLink, type Link } from "./link";
+import { linkEnvironment, readLink, removeLink, writeLink, type Link } from "./link";
 import { projectsDir, setProjectsDir } from "./projects";
 import { cachedRows, storeRows, type CachedIntegration } from "./cache";
 import { folderDigest, replaceContents, syncState, type SyncState } from "./sync";
@@ -28,6 +39,10 @@ export interface ProfileView {
   current: boolean;
   /** How it signs in, in octopaas's words: "API key oct_…", "signed in with …". */
   auth: string;
+  /** The environment the profile acts in; "octo" is the default. */
+  environment: string;
+  /** The environments the installation has, by name; null until it has answered. */
+  environments: string[] | null;
   identity:
     | { state: "checking" }
     | { state: "signed-out" }
@@ -148,6 +163,18 @@ interface ProfileRow {
   url: string;
   current: boolean;
   auth: string;
+  environment?: string;
+}
+
+/** Where an operation acts: an installation, and the environment pinned for it. */
+interface Target {
+  profile: string;
+  environment: string;
+}
+
+/** A linked folder's target: its installation, in the environment it came from. */
+function at(link: Link): Target {
+  return { profile: link.profile, environment: linkEnvironment(link) };
 }
 
 interface StatusReport {
@@ -187,8 +214,19 @@ async function check(name: string): Promise<void> {
   profiles = profiles.map((p) => (p.name === name ? { ...p, identity: { state: "checking" } } : p));
   publish();
   const identity = await identityOf(name);
-  profiles = profiles.map((p) => (p.name === name ? { ...p, identity } : p));
+  const environments = identity.state === "signed-in" ? await environmentsOf(name) : null;
+  profiles = profiles.map((p) => (p.name === name ? { ...p, identity, environments } : p));
   publish();
+}
+
+/** The environments an installation has; null when it could not say. */
+async function environmentsOf(name: string): Promise<string[] | null> {
+  try {
+    const rows = await list<{ name: string }>(["environments", "list"], { profile: name, signal: AbortSignal.timeout(15000) });
+    return rows.map((r) => r.name);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -201,11 +239,14 @@ export async function refresh(): Promise<PlatformState> {
     const rows = await list<ProfileRow>(["profile", "list"], { profile: null });
     cliError = null;
     const before = new Map(profiles.map((p) => [p.name, p.identity]));
+    const known = new Map(profiles.map((p) => [p.name, p.environments]));
     profiles = rows.map((r) => ({
       name: r.name,
       url: r.url,
       current: r.current,
       auth: r.auth,
+      environment: r.environment || DEFAULT_ENVIRONMENT,
+      environments: known.get(r.name) ?? null,
       identity: before.get(r.name) ?? { state: "checking" },
     }));
   } catch (err) {
@@ -237,6 +278,13 @@ export async function setKey(name: unknown, key: unknown): Promise<PlatformState
 
 export async function useProfile(name: unknown): Promise<PlatformState> {
   await run(["profile", "use", profile(name)], { profile: null });
+  return refresh();
+}
+
+/** Make an installation act in an environment from now on, here and in the CLI. */
+export async function useEnvironment(name: unknown, environment: unknown): Promise<PlatformState> {
+  const n = profile(name);
+  await run(["environments", "use", word(environment, "The environment")], { profile: n });
   return refresh();
 }
 
@@ -324,16 +372,23 @@ export interface IntegrationView {
   sync?: SyncState;
 }
 
-/** Folders the app knows that are linked to an integration on `profileName`. */
-function localCopies(profileName: string): Map<string, string> {
+/** Folders the app knows that are linked to an integration on `profileName`, in `environment`. */
+function localCopies(profileName: string, environment: string): Map<string, string> {
   const out = new Map<string, string>();
   const vault = openVault();
   const dirs = [...(vault ? [vault.path] : []), ...recents().map((v) => v.path)];
   for (const dir of dirs) {
     const link = readLink(dir);
-    if (link?.profile === profileName && !out.has(link.integrationId)) out.set(link.integrationId, dir);
+    if (link?.profile === profileName && linkEnvironment(link) === environment && !out.has(link.integrationId)) {
+      out.set(link.integrationId, dir);
+    }
   }
   return out;
+}
+
+/** The environment an installation acts in now. */
+function environmentOf(profileName: string): string {
+  return profiles.find((p) => p.name === profileName)?.environment ?? DEFAULT_ENVIRONMENT;
 }
 
 /** What an installation lists now. Each answer is kept, for `cachedIntegrations`. */
@@ -345,7 +400,7 @@ export async function integrations(name: unknown): Promise<IntegrationView[]> {
   if (url) {
     storeRows(
       stateDir(),
-      n,
+      cacheKey(n, environmentOf(n)),
       url,
       rows.map((r) => ({
         id: r.id,
@@ -368,13 +423,13 @@ export async function cachedIntegrations(name: unknown): Promise<IntegrationView
   const n = profile(name);
   await loaded();
   const url = profiles.find((p) => p.name === n)?.url;
-  const rows = url ? cachedRows(stateDir(), n, url) : null;
+  const rows = url ? cachedRows(stateDir(), cacheKey(n, environmentOf(n)), url) : null;
   return rows ? withLocal(n, rows) : null;
 }
 
 /** The integrations, each with the folder here linked to it and how that folder stands. */
 function withLocal(n: string, rows: CachedIntegration[]): IntegrationView[] {
-  const local = localCopies(n);
+  const local = localCopies(n, environmentOf(n));
   return rows.map((r) => {
     const dir = local.get(r.id);
     const sync = dir ? standing(dir, r.lastUpdated) : null;
@@ -404,8 +459,8 @@ function recordSync(dir: string, link: Link, lastUpdated: string): void {
 }
 
 /** The integration's lastUpdated, asked for after an operation that does not print it. */
-async function lastUpdatedOf(profileName: string, integrationId: string): Promise<string> {
-  const got = await run<{ lastUpdated: string }>(["integrations", "get", integrationId], { profile: profileName });
+async function lastUpdatedOf(target: Target, integrationId: string): Promise<string> {
+  const got = await run<{ lastUpdated: string }>(["integrations", "get", integrationId], target);
   if (!got) throw new Error("octopaas did not say when the integration changed");
   return got.lastUpdated;
 }
@@ -442,7 +497,13 @@ async function pickTarget(name: string, profileName: string): Promise<string | n
  * Pull an integration, or one of its versions, into a folder and open it. The folder
  * is linked first, so it is the integration's even if the switch is declined.
  */
-export async function pull(name: unknown, integrationId: unknown, integrationName: unknown, tag: unknown): Promise<boolean> {
+export async function pull(
+  name: unknown,
+  integrationId: unknown,
+  integrationName: unknown,
+  tag: unknown,
+  pinned?: string,
+): Promise<boolean> {
   const n = profile(name);
   const intId = id(integrationId, "The integration");
   const label = typeof integrationName === "string" && integrationName !== "" ? integrationName : intId;
@@ -451,14 +512,17 @@ export async function pull(name: unknown, integrationId: unknown, integrationNam
   known(n);
   const target = await pickTarget(version ? `${label}-${version}` : label, n);
   if (!target) return false;
+  // Pulled from the environment the installation acts in now, unless a folder
+  // pinned one; the link records it, so the folder goes back there.
+  const where: Target = { profile: n, environment: pinned ?? environmentOf(n) };
 
   // Before the pull: a push landing in between then reads as the platform being
   // ahead, rather than as a folder in step that is not. Without it the folder still
   // opens, with no sync recorded.
-  const lastUpdated = await lastUpdatedOf(n, intId).catch(() => null);
+  const lastUpdated = await lastUpdatedOf(where, intId).catch(() => null);
   await exclusive(`Pulling ${label}${version ? ` ${version}` : ""} from ${n}`, (signal) =>
     run(version ? ["versions", "pull", intId, version, target] : ["integrations", "pull", intId, target], {
-      profile: n,
+      ...where,
       signal,
     }),
   );
@@ -467,6 +531,7 @@ export async function pull(name: unknown, integrationId: unknown, integrationNam
     url: known(n).url,
     integrationId: intId,
     integrationName: label,
+    environment: where.environment,
     ...(version ? { pulledTag: version } : {}),
     linkedAt: Date.now(),
   };
@@ -510,7 +575,7 @@ async function saved(): Promise<void> {
 async function pushFolder(dir: string, link: Link, signal: AbortSignal): Promise<void> {
   if (dir === openVault()?.path) await saved();
   const pushed = await run<{ lastUpdated: string }>(["integrations", "push", link.integrationId, dir], {
-    profile: link.profile,
+    ...at(link),
     signal,
   });
   if (pushed) recordSync(dir, link, pushed.lastUpdated);
@@ -539,6 +604,7 @@ export async function importVault(name: unknown, integrationName: unknown): Prom
     await saved();
     return run<{ id: string; name: string; lastUpdated: string }>(["integrations", "import", vault.path, `--name=${wanted}`], {
       profile: n,
+      environment: environmentOf(n),
       signal,
     });
   });
@@ -548,6 +614,7 @@ export async function importVault(name: unknown, integrationName: unknown): Prom
     url: known(n).url,
     integrationId: created.id,
     integrationName: created.name,
+    environment: environmentOf(n),
     linkedAt: Date.now(),
   };
   writeLink(vault.path, link);
@@ -573,7 +640,7 @@ export async function unlink(): Promise<PlatformState> {
 /** The open folder's versions. */
 export async function linkedVersions(): Promise<VersionView[]> {
   const { link } = await linked();
-  return versions(link.profile, link.integrationId);
+  return list<VersionView>(["versions", "list", link.integrationId], at(link));
 }
 
 /**
@@ -585,7 +652,7 @@ export async function createVersion(tag: unknown, pushFirst: unknown): Promise<P
   const { dir, link } = await linked();
   await exclusive(`Creating ${link.integrationName} ${t}`, async (signal) => {
     if (pushFirst === true) await pushFolder(dir, link, signal);
-    await run(["versions", "create", link.integrationId, t], { profile: link.profile, signal });
+    await run(["versions", "create", link.integrationId, t], { ...at(link), signal });
   });
   return state();
 }
@@ -596,7 +663,7 @@ export async function removeVersion(tag: unknown): Promise<PlatformState> {
   const ok = await confirm(`Delete ${link.integrationName} ${t}?`, "A deployment running it keeps running.", "Delete");
   if (ok) {
     await exclusive(`Deleting ${t}`, (signal) =>
-      run(["versions", "rm", link.integrationId, t, "--yes"], { profile: link.profile, signal }),
+      run(["versions", "rm", link.integrationId, t, "--yes"], { ...at(link), signal }),
     );
   }
   return state();
@@ -640,7 +707,7 @@ async function planSync(
   // Unsaved edits are changes the folder has, and the comparison reads the disk.
   if (folder === openVault()?.path) await saved();
 
-  const lastUpdated = await lastUpdatedOf(link.profile, link.integrationId);
+  const lastUpdated = await lastUpdatedOf(at(link), link.integrationId);
   const now = syncState(link.synced, folderDigest(folder), lastUpdated);
   let chosen: "push" | "pull" | null;
   if (direction === "ask") {
@@ -703,7 +770,7 @@ async function pullOver(dir: string, link: Link, lastUpdated: string, signal: Ab
   const scratch = mkdtempSync(path.join(tmpdir(), "octo-pull-"));
   try {
     const into = path.join(scratch, "pulled");
-    await run(["integrations", "pull", link.integrationId, into], { profile: link.profile, signal });
+    await run(["integrations", "pull", link.integrationId, into], { ...at(link), signal });
     replaceContents(into, dir);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
@@ -714,7 +781,7 @@ async function pullOver(dir: string, link: Link, lastUpdated: string, signal: Ab
 /** Open one of the open folder's versions in a folder of its own. */
 export async function pullVersion(tag: unknown): Promise<boolean> {
   const { link } = await linked();
-  return pull(link.profile, link.integrationId, link.integrationName, tag);
+  return pull(link.profile, link.integrationId, link.integrationName, tag, linkEnvironment(link));
 }
 
 // Deployments -----------------------------------------------------------------
@@ -734,9 +801,7 @@ export interface DeploymentView {
 
 export async function deployments(): Promise<DeploymentView[]> {
   const { link } = await linked();
-  const rows = await list<DeploymentView>(["deployments", "list", "-i", link.integrationId], {
-    profile: link.profile,
-  });
+  const rows = await list<DeploymentView>(["deployments", "list", "-i", link.integrationId], at(link));
   return rows.map((d) => ({
     id: d.id,
     name: d.name,
@@ -752,10 +817,10 @@ export async function deployments(): Promise<DeploymentView[]> {
 }
 
 /** Streamed: octopaas waits for a deployment to settle, saying how it is going. */
-async function settle(label: string, profileName: string, args: string[], before?: (s: AbortSignal) => Promise<void>) {
+async function settle(label: string, target: Target, args: string[], before?: (s: AbortSignal) => Promise<void>) {
   await exclusive(label, async (signal) => {
     await before?.(signal);
-    await stream(args, { profile: profileName, signal, onLine: output });
+    await stream(args, { ...target, signal, onLine: output });
   });
   return state();
 }
@@ -770,7 +835,7 @@ export async function deploy(form: unknown, pushFirst: unknown): Promise<Platfor
   const args = deployArgs(link.integrationId, f);
   return settle(
     `Deploying ${link.integrationName}${f.version ? ` ${f.version}` : ""} on ${link.profile}`,
-    link.profile,
+    at(link),
     args,
     pushFirst === true && !f.version ? (signal) => pushFolder(dir, link, signal) : undefined,
   );
@@ -778,12 +843,12 @@ export async function deploy(form: unknown, pushFirst: unknown): Promise<Platfor
 
 export async function rollout(deploymentId: unknown, form: unknown): Promise<PlatformState> {
   const { link } = await linked();
-  return settle(`Rolling out ${link.integrationName}`, link.profile, rolloutArgs(deploymentId as string, (form ?? {}) as DeployForm));
+  return settle(`Rolling out ${link.integrationName}`, at(link), rolloutArgs(deploymentId as string, (form ?? {}) as DeployForm));
 }
 
 export async function scale(deploymentId: unknown, replicas: unknown): Promise<PlatformState> {
   const { link } = await linked();
-  return settle(`Scaling ${link.integrationName} to ${replicas}`, link.profile, scaleArgs(deploymentId as string, replicas));
+  return settle(`Scaling ${link.integrationName} to ${replicas}`, at(link), scaleArgs(deploymentId as string, replicas));
 }
 
 export async function undeploy(deploymentId: unknown, name: unknown): Promise<PlatformState> {
@@ -793,7 +858,7 @@ export async function undeploy(deploymentId: unknown, name: unknown): Promise<Pl
   const ok = await confirm(`Remove the deployment ${label}?`, "Its pods are stopped. The version stays.", "Remove");
   if (!ok) return state();
   await exclusive(`Removing ${label}`, (signal) =>
-    run(["deployments", "rm", d, "--yes"], { profile: link.profile, signal }),
+    run(["deployments", "rm", d, "--yes"], { ...at(link), signal }),
   );
   return state();
 }
@@ -810,7 +875,7 @@ export interface LogEntry {
 /** The deployment's stored log, oldest first. */
 export async function logs(deploymentId: unknown): Promise<LogEntry[]> {
   const { link } = await linked();
-  return list<LogEntry>(["logs", id(deploymentId, "The deployment"), "--limit=300"], { profile: link.profile });
+  return list<LogEntry>(["logs", id(deploymentId, "The deployment"), "--limit=300"], at(link));
 }
 
 /**
@@ -824,7 +889,7 @@ export async function follow(deploymentId: unknown): Promise<void> {
   const controller = new AbortController();
   following = controller;
   stream(["logs", d, "-f"], {
-    profile: link.profile,
+    ...at(link),
     signal: controller.signal,
     onLine: (line, source) => push("octo:paas:log", { deploymentId: d, line, stream: source }),
   })
