@@ -363,7 +363,12 @@ flows:
         # of the caller's token — a header reaches an expression by becoming one —
         # and it is the reason `authToken` is a name worth recognising: redacting
         # credentials at the trace sink starts by knowing what they are called.
-        headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth, X-Agent-Caller-Token]
+        #
+        # X-Agent-Environment is the environment the person chose in the platform,
+        # resolved the same way into `environment`, and every tool sends it beside
+        # the credential: the agent works in the environment its caller is looking
+        # at, and their roles are judged there.
+        headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth, X-Agent-Caller-Token, X-Agent-Environment]
         # Sixteen mebibytes, because this route carries files now.
         #
         # Required rather than tuning: the default is one mebibyte, which a single
@@ -426,6 +431,12 @@ flows:
               value: >-
                 "X-Agent-Caller-Token" in vars
                   ? vars["X-Agent-Caller-Token"] : ""
+            # The environment every tool acts in: the one the person chatting has
+            # chosen. Empty is the default, which every tool sends as no choice.
+            - setVar: environment
+              value: >-
+                "X-Agent-Environment" in vars
+                  ? vars["X-Agent-Environment"] : ""
 
       # The agent's input, stated rather than inherited. The email is dropped — it
       # identifies a real person to an external provider and nothing in the prompt
@@ -780,7 +791,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
-                  headers: '{"Authorization": "Bearer " + vars.authToken}'
+                  headers: '{"Authorization": "Bearer " + vars.authToken, "X-Octo-Environment": vars.?environment.orValue("")}'
                   method: '"GET"'
                   path: body.path
                   allowMethods: [GET]
@@ -949,6 +960,7 @@ flows:
                   connector: octo
                   headers:
                     Authorization: '"Bearer " + vars.authToken'
+                    X-Octo-Environment: 'vars.?environment.orValue("")'
                   method: POST
                   path: /email/send
                   body: >-
@@ -1646,7 +1658,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
-                  headers: '{"Authorization": "Bearer " + vars.authToken}'
+                  headers: '{"Authorization": "Bearer " + vars.authToken, "X-Octo-Environment": vars.?environment.orValue("")}'
                   method: '"GET"'
                   path: body.path
                   allowMethods: [GET]
@@ -1890,7 +1902,7 @@ flows:
               - type: rest-dynamic
                 settings:
                   connector: octo
-                  headers: '{"Authorization": "Bearer " + vars.authToken}'
+                  headers: '{"Authorization": "Bearer " + vars.authToken, "X-Octo-Environment": vars.?environment.orValue("")}'
                   method: body.method
                   path: body.path
                   query: 'has(body.query) ? body.query : {}'
@@ -1997,7 +2009,7 @@ flows:
                         path: body.path
                         allowMethods: [GET]
                         query: 'has(body.query) ? body.query : {}'
-                        headers: '{"Authorization": "Bearer " + vars.authToken}'
+                        headers: '{"Authorization": "Bearer " + vars.authToken, "X-Octo-Environment": vars.?environment.orValue("")}'
                         failOnError: false
                 else:
                   process:
@@ -2047,7 +2059,7 @@ flows:
                         allowMethods: [GET, POST, PUT, DELETE]
                         query: 'has(body.query) ? body.query : {}'
                         body: 'has(body.body) ? body.body : {}'
-                        headers: '{"Authorization": "Bearer " + vars.authToken}'
+                        headers: '{"Authorization": "Bearer " + vars.authToken, "X-Octo-Environment": vars.?environment.orValue("")}'
                         failOnError: false
                 else:
                   process:
@@ -2244,6 +2256,11 @@ flows:
             # valid. Empty where there is none, which the API refuses.
             - setVar: authToken
               value: 'has(env.PLATFORM_TOKEN) ? env.PLATFORM_TOKEN : ""'
+            # This deployment's own identity is bound to the environment it runs
+            # in, and acts there without naming it; naming any other would be
+            # refused. So this flow names none.
+            - setVar: environment
+              value: '""'
             - setVar: reportTo
               value: 'has(body.reportTo) ? body.reportTo : []'
             - setVar: watchName
@@ -2620,6 +2637,7 @@ flows:
                   connector: octo
                   headers:
                     Authorization: '"Bearer " + vars.authToken'
+                    X-Octo-Environment: 'vars.?environment.orValue("")'
                   method: POST
                   path: /email/send
                   body: >-
@@ -2816,6 +2834,7 @@ flows:
           connector: octo
           headers:
             Authorization: '"Bearer " + vars.authToken'
+            X-Octo-Environment: 'vars.?environment.orValue("")'
           method: POST
           path: /email/send
           body: 'body'

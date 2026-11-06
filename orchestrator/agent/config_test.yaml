@@ -248,6 +248,30 @@ cases:
       # names a fact, the flow decides whose.
       vars: { threadKey: "u-2/t-1", userKey: "u-2" }
 
+  # The environment the person chose in the platform arrives as a header and is
+  # what every tool sends on, so the agent works where its caller is looking.
+  # Without one it is the default, which the tools send as no choice at all.
+  - name: the caller's environment is the one the tools act in
+    input:
+      data: { threadId: t-1, message: hello, user: { id: u-1 } }
+      vars: { X-Agent-Environment: staging }
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    expect:
+      vars: { environment: staging }
+
+  - name: no environment header is the default
+    input:
+      data: { threadId: t-1, message: hello, user: { id: u-1 } }
+    mocks:
+      chat.dr-octo:
+        default:
+          body: { answer: ok }
+    expect:
+      vars: { environment: "" }
+
   # A conversation with no user block is the local-development case: authentication
   # is off, so the session carries no name or email. The flow must not care.
   - name: a request with no user block still reaches the agent
