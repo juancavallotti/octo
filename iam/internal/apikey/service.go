@@ -22,15 +22,36 @@ type repository interface {
 	TouchLastUsed(ctx context.Context, id string) error
 }
 
+// environments answers whether a name is an environment. The orchestrator owns
+// the table; iam only refuses to bind a key to a name that is not in it.
+type environments interface {
+	Exists(ctx context.Context, name string) (bool, error)
+}
+
 // Service holds API-key lifecycle logic: minting, listing, revoking, and verifying
 // bearer tokens.
 type Service struct {
 	repo repository
+	// environments checks a key's environment; nil allows only the default.
+	environments environments
+}
+
+// Option configures a Service.
+type Option func(*Service)
+
+// WithEnvironments lets keys be bound to environments other than the default,
+// checked against e.
+func WithEnvironments(e environments) Option {
+	return func(s *Service) { s.environments = e }
 }
 
 // NewService returns a Service backed by repo.
-func NewService(repo repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo repository, opts ...Option) *Service {
+	s := &Service{repo: repo}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Create mints a key for owner carrying roles, which expires at expiresAt. It
@@ -42,6 +63,16 @@ func NewService(repo repository) *Service {
 func (s *Service) Create(
 	ctx context.Context, owner user.User, name string, roles []user.Role, expiresAt time.Time,
 ) (APIKey, string, error) {
+	return s.CreateIn(ctx, owner, "", name, roles, expiresAt)
+}
+
+// CreateIn is Create for a key bound to environment ("" or "octo" for the
+// default). The roles are checked against what owner may delegate in that
+// environment, which is all the key will ever speak for.
+func (s *Service) CreateIn(
+	ctx context.Context, owner user.User, environment, name string, roles []user.Role, expiresAt time.Time,
+) (APIKey, string, error) {
+	environment = user.NormalizeEnvironment(strings.TrimSpace(environment))
 	if !validName(name) {
 		return APIKey{}, "", ErrInvalidName
 	}
@@ -49,7 +80,10 @@ func (s *Service) Create(
 	if !expiresAt.After(now) || expiresAt.Sub(now) > maxTTL {
 		return APIKey{}, "", ErrInvalidExpiry
 	}
-	granted, err := keyRoles(owner, roles)
+	if err := s.environmentExists(ctx, environment); err != nil {
+		return APIKey{}, "", err
+	}
+	granted, err := keyRoles(owner.In(environment), roles)
 	if err != nil {
 		return APIKey{}, "", err
 	}
@@ -65,11 +99,33 @@ func (s *Service) Create(
 		Roles:     granted,
 		ExpiresAt: expiresAt,
 	}
+	if environment != "" {
+		k.Environment = &environment
+	}
 	stored, err := s.repo.Insert(ctx, k, hash)
 	if err != nil {
 		return APIKey{}, "", err
 	}
 	return stored, plaintext, nil
+}
+
+// environmentExists refuses a name that is not an environment. Without a way to
+// ask, only the default is one.
+func (s *Service) environmentExists(ctx context.Context, environment string) error {
+	if environment == "" {
+		return nil
+	}
+	if s.environments == nil {
+		return fmt.Errorf("%w: environments are not available here", ErrUnknownEnvironment)
+	}
+	ok, err := s.environments.Exists(ctx, environment)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrUnknownEnvironment, environment)
+	}
+	return nil
 }
 
 // keyRoles validates what a key is asked to carry and returns it deduplicated in

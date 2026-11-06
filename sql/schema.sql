@@ -1311,6 +1311,15 @@ CREATE TABLE IF NOT EXISTS environments (
     created_by   uuid REFERENCES users (id) ON DELETE SET NULL
 );
 
+-- A key may be bound to one environment, and its token then acts there and
+-- nowhere else. NULL is the default environment, which is what every key minted
+-- before environments existed was, so they keep exactly the reach they had.
+-- Deleting an environment deletes the keys bound to it: a key for an environment
+-- that no longer exists has nothing left to do, and leaving it would let it wake
+-- up if somebody later created one by the same name.
+ALTER TABLE api_keys
+    ADD COLUMN IF NOT EXISTS environment varchar REFERENCES environments (name) ON DELETE CASCADE;
+
 -- iam_signing_keys holds the keypairs the iam service signs platform tokens with
 -- and publishes as JWKS. It is a table and not a mounted Secret because the key
 -- has to be the same across replicas, survive restarts, and rotate without anyone

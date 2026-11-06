@@ -30,6 +30,7 @@ import (
 	"github.com/juancavallotti/octo/iam/internal/auth"
 	"github.com/juancavallotti/octo/iam/internal/authz"
 	"github.com/juancavallotti/octo/iam/internal/db"
+	"github.com/juancavallotti/octo/iam/internal/environment"
 	httpx "github.com/juancavallotti/octo/iam/internal/http"
 	"github.com/juancavallotti/octo/iam/internal/signing"
 	"github.com/juancavallotti/octo/iam/internal/user"
@@ -158,7 +159,10 @@ func newServer(database *db.DB) (http.Handler, error) {
 
 	// API keys are mounted behind the same guard: a person manages their own, and
 	// the handler holds every route to the user in its path.
-	apikeySvc := apikey.NewService(apikey.NewRepo(database.Pool()))
+	// Keys and machine tokens may be bound to an environment the orchestrator has
+	// created; both check the name against the same table.
+	environments := environment.NewRepo(database.Pool())
+	apikeySvc := apikey.NewService(apikey.NewRepo(database.Pool()), apikey.WithEnvironments(environments))
 	apikey.NewHandler(apikeySvc, userSvc).Register(mux, authz.Require(signingSvc))
 	slog.Info("apikey routes registered",
 		"endpoints", "POST/GET /users/{userId}/apikeys, DELETE /users/{userId}/apikeys/{id}")
@@ -170,7 +174,7 @@ func newServer(database *db.DB) (http.Handler, error) {
 
 	// A nil service is the "no provider configured" state; see auth.Handler for why
 	// the route is registered either way.
-	auth.NewHandler(newAuthService(userSvc, signingSvc, apikeySvc)).Register(mux)
+	auth.NewHandler(newAuthService(userSvc, signingSvc, apikeySvc, environments)).Register(mux)
 	slog.Info("auth routes registered",
 		"oidcIssuer", os.Getenv("OIDC_ISSUER"),
 		"endpoints", "POST /auth, POST /auth/refresh, POST /auth/machine")
@@ -185,7 +189,9 @@ func newServer(database *db.DB) (http.Handler, error) {
 // install has one identity provider. IAM_ACCEPTED_AUDIENCES widens what the
 // exchange will take beyond the client id, for an install that presents more than
 // one audience to the provider.
-func newAuthService(users *user.Service, signer *signing.Service, keys *apikey.Service) *auth.Service {
+func newAuthService(
+	users *user.Service, signer *signing.Service, keys *apikey.Service, environments *environment.Repo,
+) *auth.Service {
 	issuer, clientID := os.Getenv("OIDC_ISSUER"), os.Getenv("OIDC_CLIENT_ID")
 	if issuer == "" || clientID == "" {
 		// Named individually, because either one missing disables the exchange and
@@ -195,7 +201,8 @@ func newAuthService(users *user.Service, signer *signing.Service, keys *apikey.S
 		return nil
 	}
 	audiences := acceptedAudiences(clientID, os.Getenv("IAM_ACCEPTED_AUDIENCES"))
-	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer, keys)
+	svc, err := auth.NewService(auth.NewVerifier(issuer, audiences), users, signer, keys,
+		auth.WithEnvironments(environments))
 	if err != nil {
 		// Unreachable given the guard above, and reported rather than ignored so it
 		// cannot become a silent nil if the constructor grows a requirement.
