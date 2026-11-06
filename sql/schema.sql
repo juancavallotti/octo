@@ -1375,6 +1375,16 @@ CREATE OR REPLACE TRIGGER traces_stamp_environment
 CREATE OR REPLACE TRIGGER trace_summaries_stamp_environment
     BEFORE INSERT ON trace_summaries FOR EACH ROW EXECUTE FUNCTION stamp_deployment_environment();
 
+-- Promotion: an integration promoted into another environment remembers the one
+-- its family started from, so the next promotion of any of them lands on the
+-- same integration there rather than a new one, whatever either has been
+-- renamed to since. One per family per environment; the family's root is its
+-- own, and losing the root (it was deleted) only ends the link.
+ALTER TABLE integrations
+    ADD COLUMN IF NOT EXISTS promoted_from uuid REFERENCES integrations (id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS integrations_promoted_from_environment_uniq
+    ON integrations (promoted_from, COALESCE(environment, '')) WHERE promoted_from IS NOT NULL;
+
 -- Names unique per environment. The global indexes they replace are dropped
 -- after the new ones exist, so there is no moment without a backstop; both
 -- statements are no-ops once applied.

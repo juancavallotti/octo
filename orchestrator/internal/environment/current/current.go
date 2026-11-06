@@ -73,6 +73,15 @@ func Normalize(environment string) string {
 	return environment
 }
 
+// DisplayName names an environment for people and the wire: the default's name
+// for "".
+func DisplayName(environment string) string {
+	if environment == "" {
+		return Default
+	}
+	return environment
+}
+
 // Parse reads the header onto the request's context. It refuses nothing; see
 // Require.
 func Parse(next http.Handler) http.Handler {

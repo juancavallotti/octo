@@ -27,6 +27,7 @@ type repository interface {
 	ListResources(ctx context.Context, snapshotID string) ([]Resource, error)
 	ConfigFiles(ctx context.Context, snapshotID string) ([]projectfile.File, error)
 	ResourceContent(ctx context.Context, snapshotID, kind, name string) ([]byte, bool, error)
+	Promote(ctx context.Context, snapshotID, target, actorID string) (Promotion, error)
 }
 
 // integrationStore is the slice of the integration repository the service needs
@@ -40,6 +41,8 @@ type integrationStore interface {
 type Service struct {
 	repo         repository
 	integrations integrationStore
+	// environments checks a promotion's target; nil refuses every promotion.
+	environments environments
 }
 
 // NewService returns a Service backed by repo and the integration store.

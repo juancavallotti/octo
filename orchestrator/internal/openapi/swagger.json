@@ -1418,6 +1418,31 @@
                 },
                 "type": "object"
             },
+            "snapshot.promoteRequest": {
+                "properties": {
+                    "environment": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "snapshot.promoteResponse": {
+                "properties": {
+                    "created": {
+                        "type": "boolean"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "snapshot": {
+                        "$ref": "#/components/schemas/snapshot.summaryResponse"
+                    }
+                },
+                "type": "object"
+            },
             "snapshot.resourceResponse": {
                 "properties": {
                     "createdAt": {
@@ -7812,6 +7837,98 @@
                 "summary": "Download a version tag as a bundle",
                 "tags": [
                     "bundles"
+                ]
+            }
+        },
+        "/snapshots/{id}/promote": {
+            "post": {
+                "description": "Copies the version, under the same tag, onto the integration's member of its\nfamily in the target environment, creating that integration the first time.\nFlows and templates come from the version; env files stay the target's own.\nReading the version takes any role in its environment; writing it takes\ndeveloper, operator or admin in the target.",
+                "parameters": [
+                    {
+                        "description": "Snapshot id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/snapshot.promoteRequest",
+                                        "summary": "body",
+                                        "description": "The target environment"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The target environment",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/snapshot.promoteResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the same environment, or not an environment"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no role that builds in the target"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the tag is already there, or the name is taken"
+                    }
+                },
+                "summary": "Promote a version into another environment",
+                "tags": [
+                    "snapshots"
                 ]
             }
         },

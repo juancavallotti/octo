@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/authz"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 )
 
@@ -60,6 +61,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /integrations/{id}/snapshots", h.listByIntegration)
 	mux.HandleFunc("GET /snapshots/{id}", h.get)
 	mux.HandleFunc("DELETE /snapshots/{id}", h.delete)
+	mux.HandleFunc("POST /snapshots/{id}/promote", h.promote)
 	mux.HandleFunc("GET /snapshots/{id}/resources", h.listResources)
 	mux.HandleFunc("GET /snapshots/{id}/resources/content", h.resourceContent)
 }
@@ -68,6 +70,82 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // under.
 type createRequest struct {
 	Tag string `json:"tag"`
+}
+
+// promoteRequest names the environment a version is promoted into.
+type promoteRequest struct {
+	Environment string `json:"environment"`
+}
+
+// promoteResponse is what a promotion produced in the target environment.
+type promoteResponse struct {
+	IntegrationID string          `json:"integrationId"`
+	Created       bool            `json:"created"`
+	Environment   string          `json:"environment"`
+	Snapshot      summaryResponse `json:"snapshot"`
+}
+
+// builders are the roles that may create integrations and versions.
+var builders = []string{authz.RoleAdmin, authz.RoleOperator, authz.RoleDeveloper}
+
+// promote godoc
+//
+//	@Summary		Promote a version into another environment
+//	@Description	Copies the version, under the same tag, onto the integration's member of its
+//	@Description	family in the target environment, creating that integration the first time.
+//	@Description	Flows and templates come from the version; env files stay the target's own.
+//	@Description	Reading the version takes any role in its environment; writing it takes
+//	@Description	developer, operator or admin in the target.
+//	@Tags			snapshots
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Snapshot id"
+//	@Param			body	body		promoteRequest	true	"The target environment"
+//	@Success		201		{object}	promoteResponse
+//	@Failure		400		{object}	httpx.ErrorResponse	"the same environment, or not an environment"
+//	@Failure		403		{object}	httpx.ErrorResponse	"no role that builds in the target"
+//	@Failure		404		{object}	httpx.ErrorResponse
+//	@Failure		409		{object}	httpx.ErrorResponse	"the tag is already there, or the name is taken"
+//	@Router			/snapshots/{id}/promote [post]
+func (h *Handler) promote(w http.ResponseWriter, r *http.Request) {
+	var req promoteRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	// Judged by the caller's roles in the target, which the guard did not see:
+	// it judged them in the source. Without a guard there is no caller to judge.
+	actor, mayBuild := "", true
+	if p, ok := authz.FromContext(ctx); ok {
+		actor = p.Subject
+		mayBuild = holdsAny(p.RolesIn(current.Normalize(req.Environment)), builders)
+	}
+	out, err := h.svc.Promote(ctx, r.PathValue("id"), req.Environment, actor, mayBuild)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, promoteResponse{
+		IntegrationID: out.IntegrationID,
+		Created:       out.Created,
+		Environment:   current.DisplayName(out.Environment),
+		Snapshot:      toSummaryResponse(out.Snapshot),
+	})
+}
+
+func holdsAny(held, wanted []string) bool {
+	for _, w := range wanted {
+		for _, h := range held {
+			if h == w {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // snapshotResponse is the wire representation of one snapshot, with its frozen
@@ -309,6 +387,12 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ErrSnapshotInUse):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrSameEnvironment), errors.Is(err, ErrUnknownEnvironment):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrNameTaken):
+		httpx.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrMayNotBuild):
+		httpx.WriteError(w, http.StatusForbidden, err.Error())
 	default:
 		slog.Error("snapshot handler", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")

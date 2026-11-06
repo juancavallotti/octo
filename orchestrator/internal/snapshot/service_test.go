@@ -177,3 +177,7 @@ func TestDelete(t *testing.T) {
 		}
 	})
 }
+
+func (f *fakeRepo) Promote(_ context.Context, snapshotID, target, _ string) (Promotion, error) {
+	return Promotion{IntegrationID: "target-of-" + snapshotID, Created: true, Environment: target}, nil
+}

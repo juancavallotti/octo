@@ -630,7 +630,10 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// Version tags. Snapshotting needs only the database (not Kubernetes), so it
 		// is registered outside the deployment/kube gate below — tags can be created
 		// and managed even where deploys are unavailable.
-		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc)
+		// Versions are promoted between environments, so the service checks a
+		// target against the same environments every request is checked against.
+		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc).
+			WithEnvironments(environmentSvc)
 		snapshotHandler := snapshot.NewHandler(snapshotSvc)
 		snapshotHandler.Register(mux)
 		slog.Info("snapshot routes registered",
