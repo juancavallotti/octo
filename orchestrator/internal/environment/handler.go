@@ -148,12 +148,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if p, ok := authz.FromContext(ctx); ok {
 		createdBy = p.Subject
 	}
-	e, err := h.svc.Create(ctx, Input{
-		Name:        req.Name,
-		Namespace:   req.Namespace,
-		DisplayName: req.DisplayName,
-		Description: req.Description,
-	}, createdBy)
+	e, err := h.svc.Create(ctx, Input(req), createdBy)
 	if err != nil {
 		h.writeError(w, err)
 		return
