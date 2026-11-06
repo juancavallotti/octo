@@ -15,7 +15,7 @@ flows:
       settings:
         path: /v1/integrations
         methods: [GET]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -29,7 +29,7 @@ flows:
           connector: orchestrator
           method: '"GET"'
           path: '"/integrations"'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -41,7 +41,7 @@ flows:
       settings:
         path: /v1/integrations
         methods: [POST]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -55,7 +55,7 @@ flows:
           connector: orchestrator
           method: '"POST"'
           path: '"/integrations"'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           body: >-
             {"name": body.?name.orValue(""),
              "definition": body.?definition.orValue(""),
@@ -71,7 +71,7 @@ flows:
       settings:
         path: /v1/integrations/{id}
         methods: [GET]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -85,7 +85,7 @@ flows:
           connector: orchestrator
           method: '"GET"'
           path: '"/integrations/" + vars.id'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -100,7 +100,7 @@ flows:
       settings:
         path: /v1/integrations/{id}
         methods: [PATCH]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -114,7 +114,7 @@ flows:
           connector: orchestrator
           method: '"PUT"'
           path: '"/integrations/" + vars.id'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           body: '{"name": body.?name.orValue(""), "actorId": vars.userId}'
           failOnError: false
       - ref: relay-status
@@ -127,7 +127,7 @@ flows:
       settings:
         path: /v1/integrations/{id}
         methods: [DELETE]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -141,7 +141,7 @@ flows:
           connector: orchestrator
           method: '"DELETE"'
           path: '"/integrations/" + vars.id'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -154,7 +154,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/bundle
         methods: [GET]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate, Content-Disposition]
     error:
       - ref: log-relay-failure
@@ -168,7 +168,7 @@ flows:
           connector: orchestrator
           method: '"GET"'
           path: '"/integrations/" + vars.id + "/bundle"'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
       # The orchestrator's own header does not survive the relay, so a client
@@ -187,7 +187,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/bundle
         methods: [PUT]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
         rawBody: true
         maxBodyBytes: 8388608
@@ -206,7 +206,8 @@ flows:
           query: '{"actorId": vars.userId}'
           headers: >-
             {"Authorization": "Bearer " + vars.platformToken,
-             "Content-Type": "application/zip"}
+             "Content-Type": "application/zip",
+             "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}
           body: 'body.rawData'
           failOnError: false
       - ref: relay-status
@@ -219,7 +220,7 @@ flows:
       settings:
         path: /v1/integrations/bundle
         methods: [POST]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
         rawBody: true
         maxBodyBytes: 8388608
@@ -238,7 +239,8 @@ flows:
           query: '{"name": vars.query.?name.orValue(""), "actorId": vars.userId}'
           headers: >-
             {"Authorization": "Bearer " + vars.platformToken,
-             "Content-Type": "application/zip"}
+             "Content-Type": "application/zip",
+             "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}
           body: 'body.rawData'
           failOnError: false
       - ref: relay-status
@@ -251,7 +253,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/files
         methods: [GET]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -265,7 +267,7 @@ flows:
           connector: orchestrator
           method: '"GET"'
           path: '"/integrations/" + vars.id + "/files"'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -280,7 +282,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/files
         methods: [PUT]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
     error:
@@ -295,7 +297,7 @@ flows:
           connector: orchestrator
           method: '"PUT"'
           path: '"/integrations/" + vars.id + "/files"'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           body: >-
             {"files": body.?files.orValue([]).map(f,
                {"path": f.?path.orValue(""), "content": f.?content.orValue("")}),
@@ -314,7 +316,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/files/content
         methods: [GET]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -329,7 +331,7 @@ flows:
           method: '"GET"'
           path: '"/integrations/" + vars.id + "/files/content"'
           query: '{"path": vars.query.?path.orValue("")}'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -341,7 +343,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/files/content
         methods: [PUT]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
     error:
@@ -357,7 +359,7 @@ flows:
           method: '"PUT"'
           path: '"/integrations/" + vars.id + "/files/content"'
           query: '{"path": vars.query.?path.orValue("")}'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           body: '{"content": body.?content.orValue(""), "actorId": vars.userId}'
           failOnError: false
       - ref: relay-status
@@ -370,7 +372,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/files/content
         methods: [DELETE]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -385,7 +387,7 @@ flows:
           method: '"DELETE"'
           path: '"/integrations/" + vars.id + "/files/content"'
           query: '{"path": vars.query.?path.orValue(""), "actorId": vars.userId}'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -397,7 +399,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/resources
         methods: [GET]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -411,7 +413,7 @@ flows:
           connector: orchestrator
           method: '"GET"'
           path: '"/integrations/" + vars.id + "/resources"'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -423,7 +425,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/resources
         methods: [POST]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
     error:
@@ -438,7 +440,7 @@ flows:
           connector: orchestrator
           method: '"POST"'
           path: '"/integrations/" + vars.id + "/resources"'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           body: >-
             {"kind": body.?kind.orValue(""),
              "name": body.?name.orValue(""),
@@ -455,7 +457,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/resources/{resourceId}
         methods: [GET]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -469,7 +471,7 @@ flows:
           connector: orchestrator
           method: '"GET"'
           path: '"/integrations/" + vars.id + "/resources/" + vars.resourceId'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status
 
@@ -481,7 +483,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/resources/{resourceId}
         methods: [PUT]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
         maxBodyBytes: 8388608
     error:
@@ -496,7 +498,7 @@ flows:
           connector: orchestrator
           method: '"PUT"'
           path: '"/integrations/" + vars.id + "/resources/" + vars.resourceId'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           body: >-
             {"kind": body.?kind.orValue(""),
              "name": body.?name.orValue(""),
@@ -513,7 +515,7 @@ flows:
       settings:
         path: /v1/integrations/{id}/resources/{resourceId}
         methods: [DELETE]
-        headers: [Authorization]
+        headers: [Authorization, X-Octo-Environment]
         responseHeaders: [WWW-Authenticate]
     error:
       - ref: log-relay-failure
@@ -527,6 +529,6 @@ flows:
           connector: orchestrator
           method: '"DELETE"'
           path: '"/integrations/" + vars.id + "/resources/" + vars.resourceId'
-          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          headers: '{"Authorization": "Bearer " + vars.platformToken, "X-Octo-Environment": vars[?"X-Octo-Environment"].orValue("")}'
           failOnError: false
       - ref: relay-status

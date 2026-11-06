@@ -75,6 +75,18 @@ func (s *Service) Get(ctx context.Context, name string) (Environment, error) {
 	return s.repo.Get(ctx, name)
 }
 
+// Exists reports whether name is an environment; "" and Default always are.
+func (s *Service) Exists(ctx context.Context, name string) (bool, error) {
+	if name == "" || name == Default {
+		return true, nil
+	}
+	_, err := s.repo.Get(ctx, name)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // Create records a new environment and provisions its namespace.
 //
 // The row is written first: its primary key and unique namespace are what make

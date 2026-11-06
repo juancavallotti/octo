@@ -10,8 +10,17 @@ An environment is a named slice of the platform that runs in its own Kubernetes 
 Every installation has the **default environment**, `octo`. It is the namespace the platform itself is installed in. It always exists, and you cannot rename or delete it.
 
 <Callout type="warn">
-This release adds environments and their namespaces. Integrations, deployments and secrets are not yet scoped to an environment: everything still lives in the default one.
+Requests are already authorized per environment, but integrations, deployments and secrets are not yet stored per environment: everything still lives in the default one.
 </Callout>
+
+## Choose an environment on a request
+
+The orchestrator, the observability service and the [public API](/platform/public-api) read the environment from the `X-Octo-Environment` header. Without the header, or with `octo`, a request acts in the default environment, so existing clients keep working unchanged.
+
+- **Roles are checked in that environment.** A person holds their default roles in `octo`, and the roles granted per environment elsewhere. `platform:admin` applies in every environment.
+- **Unknown names are refused** with `404 unknown environment`. The check runs after authentication, so a caller without a token cannot probe which environments exist.
+- **Bound tokens stay in their environment.** A deployment's own token and a token from an environment-bound API key act in their environment when no header is sent. Naming any other environment is refused with `403`.
+- **The `/environments` routes ignore the header.** A client with a stale selection can always list what exists.
 
 ## Create an environment
 

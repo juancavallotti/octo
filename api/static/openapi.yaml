@@ -59,6 +59,8 @@ paths:
         "503": { $ref: "#/components/responses/Unavailable" }
 
   /v1/integrations:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [integrations]
       operationId: listIntegrations
@@ -103,6 +105,7 @@ paths:
   /v1/integrations/{id}:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [integrations]
       operationId: getIntegration
@@ -159,6 +162,7 @@ paths:
   /v1/integrations/{id}/bundle:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [integrations]
       operationId: downloadBundle
@@ -200,6 +204,8 @@ paths:
         "413": { description: The bundle is larger than 8 MiB. }
 
   /v1/integrations/bundle:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
     post:
       tags: [integrations]
       operationId: importBundle
@@ -230,6 +236,7 @@ paths:
   /v1/integrations/{id}/files:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [files]
       operationId: listFiles
@@ -283,6 +290,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
       - name: path
+      - $ref: "#/components/parameters/Environment"
         in: query
         required: true
         description: The file's path. A query parameter because it contains slashes.
@@ -343,6 +351,7 @@ paths:
   /v1/integrations/{id}/resources:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [resources]
       operationId: listResources
@@ -385,6 +394,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
       - name: resourceId
+      - $ref: "#/components/parameters/Environment"
         in: path
         required: true
         schema: { type: string }
@@ -439,6 +449,7 @@ paths:
   /v1/integrations/{id}/versions:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [versions]
       operationId: listVersions
@@ -484,6 +495,7 @@ paths:
   /v1/versions/{id}:
     parameters:
       - $ref: "#/components/parameters/VersionId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [versions]
       operationId: getVersion
@@ -515,6 +527,7 @@ paths:
   /v1/versions/{id}/bundle:
     parameters:
       - $ref: "#/components/parameters/VersionId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [versions]
       operationId: downloadVersionBundle
@@ -532,6 +545,8 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/deployments:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [deployments]
       operationId: listDeployments
@@ -550,6 +565,7 @@ paths:
   /v1/integrations/{id}/deployments:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [deployments]
       operationId: listIntegrationDeployments
@@ -591,6 +607,7 @@ paths:
   /v1/integrations/{id}/deployments/options:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [deployments]
       operationId: deploymentOptions
@@ -615,6 +632,7 @@ paths:
   /v1/deployments/{id}:
     parameters:
       - $ref: "#/components/parameters/DeploymentId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [deployments]
       operationId: getDeployment
@@ -670,6 +688,7 @@ paths:
   /v1/deployments/{id}/rollout:
     parameters:
       - $ref: "#/components/parameters/DeploymentId"
+      - $ref: "#/components/parameters/Environment"
     post:
       tags: [deployments]
       operationId: rolloutDeployment
@@ -702,6 +721,8 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/runtimes:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [upgrades]
       operationId: listRuntimes
@@ -719,6 +740,8 @@ paths:
         "503": { $ref: "#/components/responses/Unavailable" }
 
   /v1/upgrades:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [upgrades]
       operationId: listUpgrades
@@ -738,6 +761,7 @@ paths:
   /v1/deployments/{id}/testruns:
     parameters:
       - $ref: "#/components/parameters/DeploymentId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [upgrades]
       operationId: listTestRuns
@@ -787,6 +811,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/DeploymentId"
       - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [upgrades]
       operationId: getTestRun
@@ -806,6 +831,7 @@ paths:
   /v1/deployments/{id}/logs:
     parameters:
       - $ref: "#/components/parameters/DeploymentId"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [logs]
       operationId: deploymentLogs
@@ -838,6 +864,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/DeploymentId"
       - $ref: "#/components/parameters/Pod"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [logs]
       operationId: podLogs
@@ -860,6 +887,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/DeploymentId"
       - $ref: "#/components/parameters/Pod"
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [logs]
       operationId: streamPodLogs
@@ -969,6 +997,16 @@ components:
       description: An `octo_…` API key, or an OAuth access token from the installation's identity provider.
 
   parameters:
+    Environment:
+      name: X-Octo-Environment
+      in: header
+      required: false
+      description: |
+        The environment to act in. Absent, or `octo`, is the default
+        environment. A name that is not an environment is refused with a 404.
+        A token from an API key bound to an environment acts there; naming
+        another is refused with a 403.
+      schema: { type: string }
     IntegrationId:
       name: id
       in: path

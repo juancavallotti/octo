@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/caller"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
@@ -115,7 +116,7 @@ type Service struct {
 // in the consumer and one method wide; *iam.Client satisfies it.
 type identityMinter interface {
 	Configured() bool
-	MintMachine(ctx context.Context, callerToken, deployment string, access []string) (string, error)
+	MintMachine(ctx context.Context, callerToken, deployment, environment string, access []string) (string, error)
 }
 
 // Option customizes a Service at construction.
@@ -179,7 +180,9 @@ func (s *Service) identityFor(ctx context.Context, deploymentID string, access [
 		return "", fmt.Errorf(
 			"this deployment needs an identity and the request carried no credential to mint it with")
 	}
-	minted, err := s.identities.MintMachine(ctx, token, deploymentID, access)
+	// Minted for the environment the request acts in, which is where the
+	// deployment runs: its token will act there and nowhere else.
+	minted, err := s.identities.MintMachine(ctx, token, deploymentID, current.From(ctx), access)
 	var refused interface{ Refusal() string }
 	if errors.As(err, &refused) {
 		return "", &IdentityRefusedError{Reason: refused.Refusal()}
