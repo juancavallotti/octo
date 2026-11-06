@@ -720,6 +720,27 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/environments:
+    get:
+      tags: [account]
+      operationId: listEnvironments
+      summary: List the environments
+      description: |
+        The default environment first, then every one an administrator has
+        created. Name one in the `X-Octo-Environment` header of any other route
+        to act in it.
+      responses:
+        "200":
+          description: The environments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Environment" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+
   /v1/runtimes:
     parameters:
       - $ref: "#/components/parameters/Environment"
@@ -1164,6 +1185,16 @@ components:
         runtimeVersion:
           type: string
           description: A supported runtime release to pin the deployment to (see /v1/runtimes), or `latest` to follow the install.
+
+    Environment:
+      type: object
+      properties:
+        name: { type: string, description: What the X-Octo-Environment header names it by. }
+        namespace: { type: string, description: The Kubernetes namespace it runs in. }
+        displayName: { type: string }
+        description: { type: string }
+        default: { type: boolean, description: True for the default environment, octo. }
+        createdAt: { type: string, format: date-time }
 
     Runtimes:
       type: object

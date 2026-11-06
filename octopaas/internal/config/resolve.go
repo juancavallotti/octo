@@ -19,8 +19,9 @@ const (
 
 // Overrides are what the command line asked for. Empty means not asked.
 type Overrides struct {
-	Profile string
-	URL     string
+	Profile     string
+	URL         string
+	Environment string
 }
 
 // Resolved is the platform a command talks to and how it authenticates.
@@ -32,6 +33,9 @@ type Resolved struct {
 	// APIKey is empty when the command should use the profile's OAuth session.
 	APIKey    string
 	KeySource Source
+	// Environment is the one the command acts in, "" for the default.
+	Environment       string
+	EnvironmentSource Source
 }
 
 // Resolve picks the profile, URL and key a command uses. Flags beat the
@@ -81,7 +85,37 @@ func Resolve(f *File, o Overrides, getenv func(string) string) (Resolved, error)
 	case p.APIKey != "":
 		ret.APIKey, ret.KeySource = p.APIKey, FromConfig
 	}
+
+	switch {
+	case o.Environment != "":
+		ret.Environment, ret.EnvironmentSource = o.Environment, FromFlag
+	case getenv(EnvEnvironment) != "":
+		ret.Environment, ret.EnvironmentSource = getenv(EnvEnvironment), FromEnv
+	case p.Environment != "":
+		ret.Environment, ret.EnvironmentSource = p.Environment, FromConfig
+	default:
+		ret.EnvironmentSource = FromDefault
+	}
+	ret.Environment = NormalizeEnvironment(ret.Environment)
 	return ret, nil
+}
+
+// NormalizeEnvironment spells the default environment as the empty string,
+// whichever way it was named.
+func NormalizeEnvironment(environment string) string {
+	environment = strings.TrimSpace(environment)
+	if environment == DefaultEnvironment {
+		return ""
+	}
+	return environment
+}
+
+// DisplayEnvironment names an environment for a person, spelling the default.
+func DisplayEnvironment(environment string) string {
+	if environment == "" {
+		return DefaultEnvironment
+	}
+	return environment
 }
 
 // envOnly is the CI shape: everything a command needs is in the environment, so

@@ -303,14 +303,17 @@ there too if this is a shared machine.`,
 
 // statusReport is `auth status` for machines.
 type statusReport struct {
-	Profile       string       `json:"profile"`
-	ProfileSource string       `json:"profileSource"`
-	URL           string       `json:"url"`
-	URLSource     string       `json:"urlSource"`
-	Credential    string       `json:"credential"`
-	Source        string       `json:"credentialSource,omitempty"`
-	Expiry        *time.Time   `json:"expiresAt,omitempty"`
-	User          *client.User `json:"user,omitempty"`
+	Profile       string `json:"profile"`
+	ProfileSource string `json:"profileSource"`
+	URL           string `json:"url"`
+	URLSource     string `json:"urlSource"`
+	Environment   string `json:"environment"`
+	// EnvironmentSource says where the environment came from.
+	EnvironmentSource string       `json:"environmentSource"`
+	Credential        string       `json:"credential"`
+	Source            string       `json:"credentialSource,omitempty"`
+	Expiry            *time.Time   `json:"expiresAt,omitempty"`
+	User              *client.User `json:"user,omitempty"`
 }
 
 func (a *App) whoamiCommand() *cobra.Command {
@@ -347,7 +350,10 @@ func (a *App) status(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	report := statusReport{Profile: r.Profile, ProfileSource: string(r.ProfileSource), URL: r.URL, URLSource: string(r.URLSource)}
+	report := statusReport{
+		Profile: r.Profile, ProfileSource: string(r.ProfileSource), URL: r.URL, URLSource: string(r.URLSource),
+		Environment: config.DisplayEnvironment(r.Environment), EnvironmentSource: string(r.EnvironmentSource),
+	}
 
 	if r.APIKey != "" {
 		report.Credential = "apiKey"
@@ -399,6 +405,7 @@ func (a *App) status(ctx context.Context) error {
 		pairs := [][2]string{
 			{"Profile", fmt.Sprintf("%s %s", r.Profile, a.ui.Dim("("+string(r.ProfileSource)+")"))},
 			{"Platform", fmt.Sprintf("%s %s", r.URL, a.ui.Dim("("+string(r.URLSource)+")"))},
+			{"Environment", fmt.Sprintf("%s %s", config.DisplayEnvironment(r.Environment), a.ui.Dim("("+string(r.EnvironmentSource)+")"))},
 			{"Credential", credential},
 		}
 		if report.User != nil {

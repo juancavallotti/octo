@@ -30,13 +30,21 @@ const (
 	EnvProfile = "OCTOPAAS_PROFILE"
 	EnvURL     = "OCTOPAAS_URL"
 	EnvKey     = "OCTOPAAS_KEY"
+	// EnvEnvironment names the environment to act in, for one shell or one job.
+	EnvEnvironment = "OCTOPAAS_ENVIRONMENT"
 )
+
+// DefaultEnvironment is the environment every platform has, and the one a
+// command acts in when nothing names another.
+const DefaultEnvironment = "octo"
 
 // Profile is one platform: where its API is, and optionally an API key to call
 // it with. A profile without a key signs in with `octopaas auth login`.
 type Profile struct {
 	URL    string `yaml:"url" json:"url"`
 	APIKey string `yaml:"apiKey,omitempty" json:"apiKey,omitempty"`
+	// Environment is the one the profile acts in; empty is the default.
+	Environment string `yaml:"environment,omitempty" json:"environment,omitempty"`
 }
 
 // File is config.yaml.

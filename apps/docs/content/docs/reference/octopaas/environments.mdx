@@ -1,0 +1,58 @@
+---
+title: "octopaas environments"
+description: "List environments, and choose the one your commands act in"
+---
+
+{/* Generated from the octopaas command tree by `task octopaas:docs`. Edit the commands in octopaas/internal/cmd, not this file. */}
+
+Environments are isolated slices of a platform, each with its own integrations, deployments and secrets. Every command acts in one: --environment when given, then $OCTOPAAS_ENVIRONMENT, then the profile's, then octo, the default.
+
+Also: `envs`.
+
+### `octopaas environments current`
+
+Show the environment commands act in, and why.
+
+```bash
+octopaas environments current
+```
+
+**Examples**
+
+```bash
+octopaas environments current
+```
+
+### `octopaas environments list`
+
+List the platform's environments.
+
+```bash
+octopaas environments list
+```
+
+Also: `ls`.
+
+**Examples**
+
+```bash
+octopaas environments list
+```
+
+### `octopaas environments use`
+
+Make the profile in effect act in an environment from now on, when neither --environment nor $OCTOPAAS_ENVIRONMENT says otherwise. "octo" is the default.
+
+The name is checked against the platform first, so a typo is an error now rather than a refusal on every later command.
+
+```bash
+octopaas environments use <environment>
+```
+
+**Examples**
+
+```bash
+octopaas environments use staging
+octopaas environments use octo
+```
+

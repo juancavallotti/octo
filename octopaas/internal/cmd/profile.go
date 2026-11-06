@@ -30,11 +30,12 @@ OCTOPAAS_PROFILE, then the one ` + "`profile use`" + ` made current.`,
 }
 
 type profileRow struct {
-	Name     string `json:"name"`
-	URL      string `json:"url"`
-	Current  bool   `json:"current"`
-	InEffect bool   `json:"inEffect"`
-	Auth     string `json:"auth"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Environment string `json:"environment"`
+	Current     bool   `json:"current"`
+	InEffect    bool   `json:"inEffect"`
+	Auth        string `json:"auth"`
 }
 
 func (a *App) profileListCommand() *cobra.Command {
@@ -52,7 +53,7 @@ why, and how each signs in.`,
 
 			//an unknown OCTOPAAS_PROFILE should not stop you listing the ones
 			//you do have, so a failed resolve only means nothing is in effect.
-			r, _ := config.Resolve(a.cfg, config.Overrides{Profile: a.profile, URL: a.url}, a.Getenv)
+			r, _ := config.Resolve(a.cfg, a.overrides(), a.Getenv)
 			store, err := credentials.Load(a.home)
 			if err != nil {
 				return err
@@ -67,7 +68,10 @@ why, and how each signs in.`,
 				} else if s, ok := store.Sessions[name]; ok {
 					auth = "signed in with " + s.Issuer
 				}
-				rows = append(rows, profileRow{Name: name, URL: p.URL, Current: name == a.cfg.Current, InEffect: name == r.Profile, Auth: auth})
+				rows = append(rows, profileRow{
+					Name: name, URL: p.URL, Environment: config.DisplayEnvironment(config.NormalizeEnvironment(p.Environment)),
+					Current: name == a.cfg.Current, InEffect: name == r.Profile, Auth: auth,
+				})
 			}
 
 			return a.emit(rows, func() {
@@ -82,9 +86,9 @@ why, and how each signs in.`,
 					case row.Current:
 						mark = "○ current"
 					}
-					table = append(table, []string{row.Name, row.URL, row.Auth, mark})
+					table = append(table, []string{row.Name, row.URL, row.Environment, row.Auth, mark})
 				}
-				a.ui.Table([]string{"PROFILE", "URL", "AUTH", ""}, table)
+				a.ui.Table([]string{"PROFILE", "URL", "ENVIRONMENT", "AUTH", ""}, table)
 				if r.KeySource == config.FromEnv || r.URLSource == config.FromEnv {
 					a.ui.Hint("OCTOPAAS_URL / OCTOPAAS_KEY are set and override the profile in effect.")
 				}
@@ -123,7 +127,7 @@ OCTOPAAS_PROFILE says otherwise.`,
 
 func (a *App) profileAddCommand() *cobra.Command {
 
-	var url string
+	var url, environment string
 	var withKey, use bool
 	cmd := &cobra.Command{
 		Use:   "add <profile>",
@@ -149,6 +153,9 @@ never lands in your shell history.`,
 			}
 			if p.URL == "" {
 				return usageError{fmt.Errorf("a new profile needs --url")}
+			}
+			if environment != "" {
+				p.Environment = config.NormalizeEnvironment(environment)
 			}
 			if withKey {
 				key, err := a.readSecret("API key for " + name)
@@ -179,6 +186,7 @@ never lands in your shell history.`,
 	cmd.Flags().StringVar(&url, "url", "", "the platform's API address, such as https://api.octopaas.dev")
 	cmd.Flags().BoolVar(&withKey, "with-key", false, "store an API key in the profile, read from stdin")
 	cmd.Flags().BoolVar(&use, "use", false, "make it the current profile too")
+	cmd.Flags().StringVar(&environment, "environment", "", "the environment the profile acts in (default octo)")
 	return cmd
 }
 
