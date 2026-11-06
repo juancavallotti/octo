@@ -35,6 +35,18 @@ A token the API cannot accept is a `401`. A person the provider vouches for who 
 The API checks no credential itself. It hands yours to the platform's iam service on every request, which turns it into a short-lived platform token, so there is one verifier on the installation. Because you only ever hold the key, a revoked API key is refused on your next request.
 </Callout>
 
+## Choose an environment
+
+Every route but `/v1/me` acts in one [environment](/platform/environments). Name it in the `X-Octo-Environment` header. Without the header, or with `octo`, the request acts in the default environment:
+
+```bash
+curl https://api.octopaas.dev/v1/integrations \
+  -H "Authorization: Bearer octo_..." \
+  -H "X-Octo-Environment: staging"
+```
+
+Your roles are checked in that environment. A name that is not an environment is a `404`. A key bound to an environment acts there when you send no header, and naming a different one is a `403`.
+
 ## What you can do
 
 The paths below are all under `/v1`. Bodies and answers are JSON unless noted, and failures are `{"error": "..."}`.
