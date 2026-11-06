@@ -1,0 +1,77 @@
+---
+title: "Environments"
+description: "Named, isolated slices of the platform, each running in a Kubernetes namespace of its own."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An environment is a named slice of the platform that runs in its own Kubernetes namespace. Use environments to keep, for example, `staging` workloads apart from production ones on one installation.
+
+Every installation has the **default environment**, `octo`. It is the namespace the platform itself is installed in. It always exists, and you cannot rename or delete it.
+
+<Callout type="warn">
+This release adds environments and their namespaces. Integrations, deployments and secrets are not yet scoped to an environment: everything still lives in the default one.
+</Callout>
+
+## Create an environment
+
+1. Open **Admin → Environments** (`/platform/admin/environments`). The page requires `platform:admin`.
+2. Enter a **name**: lowercase letters, digits and hyphens, at most 30 characters, starting and ending with a letter or digit. `octo` is reserved.
+3. Optionally set a **display name**, a **description** and a **namespace**. The namespace defaults to `octo-<name>`.
+4. Select **Create environment**.
+
+The orchestrator creates the namespace and labels it `octo.dev/environment=<name>`. In the namespace it then:
+
+- binds its own service account to the rules it already has in the release namespace;
+- creates the runtime service account and binds it to the runtime's Lease rules;
+- copies the image pull secrets that runtime pods use (`runtime.imagePullSecrets`).
+
+<Callout>
+The namespace cannot be changed after creation. A namespace that already exists is refused unless it already carries this environment's label, so creating an environment never takes over a namespace somebody else owns.
+</Callout>
+
+## Change or delete an environment
+
+Edit an environment to change its display name or description. Its name and namespace are fixed.
+
+When you delete an environment, its namespace is deleted with it. The delete is refused while the namespace still runs a deployment, a test run or a dev run.
+
+## Cluster permissions
+
+Provisioning namespaces is the one thing the chart grants beyond the release namespace. With `orchestrator.environments.enabled` (the default), the chart creates:
+
+| Object | Grants |
+| --- | --- |
+| ClusterRole `<release>-orchestrator-environments` | Create, list and delete namespaces. Create RoleBindings. Bind only the two ClusterRoles below. |
+| ClusterRole `<release>-orchestrator-environment-workload` | The orchestrator's usual namespaced rules, bound into each environment's namespace. |
+| ClusterRole `<release>-orchestrator-environment-runtime` | The runtime's Lease rules, bound to the runtime account in each environment's namespace. |
+
+Kubernetes refuses a RoleBinding to any role its writer neither holds nor may bind. So an environment's namespace receives nothing beyond what the release namespace already has.
+
+Turn it off on a cluster where the release may not hold cluster-scoped RBAC:
+
+```yaml
+orchestrator:
+  environments:
+    enabled: false
+```
+
+With it off, environments are still listed but cannot be created or deleted. The API answers `503`.
+
+## API
+
+| Method | Path | Who |
+| --- | --- | --- |
+| `GET` | `/environments` | Any signed-in role. The default environment comes first. |
+| `GET` | `/environments/{name}` | Any signed-in role |
+| `POST` | `/environments` | `platform:admin` |
+| `PATCH` | `/environments/{name}` | `platform:admin`. Changes `displayName` and `description` only. |
+| `DELETE` | `/environments/{name}` | `platform:admin` |
+
+```bash
+curl -sS -X POST "$ORCHESTRATOR_URL/environments" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "staging", "displayName": "Staging"}'
+```
+
+The full request and response shapes are in the [API reference](/platform/api-reference).
