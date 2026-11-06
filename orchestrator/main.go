@@ -540,6 +540,8 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	// Which environments a request may name. Without a database there are none
 	// but the default, which is what onlyTheDefault answers.
 	var environments current.Lookup = onlyTheDefault{}
+	// Which environment each row belongs to. Without a database there are no rows.
+	var owners current.Owners = noRows{}
 
 	if database != nil {
 		// Kubernetes access is built first because of the one dependency cycle in this
@@ -603,6 +605,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		}
 		environmentSvc := newEnvironmentService(database, namespaces, kc.Namespace)
 		environments = current.Cached(environmentSvc, environmentLookupTTL)
+		owners = environment.NewRepo(database.Pool())
 		environment.NewHandler(environmentSvc).Register(mux)
 		slog.Info("environment routes registered", "manageable", environmentSvc.Enabled(),
 			"endpoints", "GET/POST /environments, GET/PATCH/DELETE /environments/{name}")
@@ -885,7 +888,9 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	// The environment is read before the guard, which judges the caller by their
 	// roles in it, and checked after, so an unauthenticated caller cannot use the
 	// header to learn which environments exist.
-	return caller.Middleware(current.Parse(guard(current.Require(environments, mux)))), nil
+	// Confine then refuses a request naming a row in another environment.
+	return caller.Middleware(current.Parse(guard(current.Require(environments,
+		current.Confine(owners, mux))))), nil
 }
 
 // guard wraps the API in the authorization policy, when this install has an iam
@@ -968,6 +973,13 @@ type onlyTheDefault struct{}
 
 func (onlyTheDefault) Exists(_ context.Context, name string) (bool, error) {
 	return name == "", nil
+}
+
+// noRows is the owner lookup of an install with no database.
+type noRows struct{}
+
+func (noRows) EnvironmentOf(context.Context, string, string) (string, bool, error) {
+	return "", false, nil
 }
 
 // newEnvironmentService builds the environment service. A nil client is passed
