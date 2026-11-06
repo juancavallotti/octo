@@ -31,6 +31,19 @@ Picking one reloads the page in that environment. The integration manager, dashb
 
 Dr. Octo's chat follows the same choice: he works in the environment you have picked. Over [MCP](/ai/platform-mcp#environments), `list_environments` lists them and every tool takes an optional `environment` argument.
 
+## Promote a version
+
+A version can be promoted from one environment into another, so what you tested in `staging` is exactly what reaches production. In the integration manager, pick the version in the version menu, then choose **Promote** and the target environment. The working copy is not a version, so pick a tag first.
+
+- **The same integration every time.** The first promotion creates the integration in the target, with its working copy set to the version, and remembers which integration it came from. Every later promotion of that integration lands on the same one there, even if either has been renamed.
+- **Flows and templates travel; env files do not.** An env file holds an environment's own hosts and credentials, so the promoted version takes the target integration's own env files. Fill those in once in the target.
+- **Nothing deploys.** The version appears in the target under the same tag. Deploy or roll it out there as you would any version.
+- **Who may promote.** Any role in the source environment, plus developer, operator or admin in the target.
+
+Promoting a tag the target already has is refused, because tags never change once made. So is creating an integration whose name an unrelated integration in the target already uses.
+
+The API is `POST /snapshots/{id}/promote` with `{"environment": "<target>"}`, sent in the source environment.
+
 ## Choose an environment on a request
 
 The orchestrator, the observability service and the [public API](/platform/public-api) read the environment from the `X-Octo-Environment` header. Without the header, or with `octo`, a request acts in the default environment, so existing clients keep working unchanged.
