@@ -37,6 +37,19 @@ refreshes and reconnects. A long-running [dev run](/platform/dev-runs) belongs
 to you and one integration, so a second client running the same integration
 attaches to the run already up.
 
+### Choose an environment
+
+A connection acts in one [environment](/platform/environments). The default is `octo`. To work in another, send the `X-Octo-Environment` header, or add `?environment=` to the URL for a client that can only be given an address:
+
+```bash
+claude mcp add --transport http octo-staging "https://<your-platform-host>/mcp?environment=staging"
+# or, with a client that sends headers
+claude mcp add --transport http octo-staging https://<your-platform-host>/mcp \
+  --header "X-Octo-Environment: staging"
+```
+
+Every tool then reads and writes that environment's integrations, resources, tests and dev runs, judged by your roles there. A name that is not an environment, or one you hold nothing in, is refused on the first call. Add one connection per environment you work in.
+
 <Callout type="info">
   The **standalone app** and the **desktop app** expose the same MCP handler,
   unauthenticated, at `http://localhost:<port>/mcp`. Every tool below works the
