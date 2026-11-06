@@ -21,6 +21,9 @@ var (
 	ErrUserNotFound = errors.New("user not found")
 	// ErrExpired is returned when a presented token has passed its expiry.
 	ErrExpired = errors.New("api key expired")
+	// ErrUnknownEnvironment is returned when a key is asked to be bound to a name
+	// that is not an environment.
+	ErrUnknownEnvironment = errors.New("unknown environment")
 	// ErrInvalidToken is returned when a presented token matches no active key.
 	ErrInvalidToken = errors.New("invalid api key")
 )

@@ -27,9 +27,13 @@ type User struct {
 	// LastLoginAt is nil for somebody who has never arrived, which is a different
 	// thing from having arrived when the row was written.
 	LastLoginAt *time.Time
-	// Roles is what this user has been granted, populated by the reads that join
-	// user_roles. Nil and empty mean the same thing.
+	// Roles is what this user has been granted in the default environment,
+	// populated by the reads that join user_roles. Nil and empty mean the same
+	// thing.
 	Roles []Role
+	// EnvRoles is what they hold in each other environment, keyed by name. An
+	// administrator needs no entry: platform:admin in Roles reaches every one.
+	EnvRoles map[string][]Role
 }
 
 // HasRole reports whether u holds r.

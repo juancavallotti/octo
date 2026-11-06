@@ -276,3 +276,10 @@ func (k stubKeys) Verify(_ context.Context, plaintext string) (apikey.APIKey, er
 	}
 	return key, nil
 }
+
+// knownEnvironments is the environments table, as far as iam asks it anything.
+type knownEnvironments map[string]bool
+
+func (k knownEnvironments) Exists(_ context.Context, name string) (bool, error) {
+	return name == "" || k[name], nil
+}

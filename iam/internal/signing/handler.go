@@ -65,7 +65,7 @@ func (h *Handler) discovery(w http.ResponseWriter, _ *http.Request) {
 		// registered claims every JWT carries.
 		ClaimsSupported: []string{
 			"iss", "sub", "aud", "iat", "nbf", "exp", "jti",
-			"email", "name", "roles",
+			"email", "name", "roles", "envRoles", "environment",
 		},
 	})
 }

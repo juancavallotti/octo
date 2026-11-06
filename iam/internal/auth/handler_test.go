@@ -42,7 +42,8 @@ func newHarness(t *testing.T, grace ...time.Duration) *harness {
 		t.Fatalf("signing.NewService: %v", err)
 	}
 	keys := stubKeys{}
-	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer, keys)
+	svc, err := NewService(NewVerifier(idp.Issuer(), []string{idp.clientID}), users, signer, keys,
+		WithEnvironments(knownEnvironments{"staging": true}))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -450,7 +451,18 @@ func (h *harness) postMachineWith(
 	t *testing.T, bearer, deployment string, access ...Access,
 ) *httptest.ResponseRecorder {
 	t.Helper()
+	return h.postMachineIn(t, bearer, deployment, "", access...)
+}
+
+/** postMachineIn is postMachineWith binding the token to an environment. */
+func (h *harness) postMachineIn(
+	t *testing.T, bearer, deployment, environment string, access ...Access,
+) *httptest.ResponseRecorder {
+	t.Helper()
 	body := `{"deployment":"` + deployment + `"`
+	if environment != "" {
+		body += `,"environment":"` + environment + `"`
+	}
 	if len(access) > 0 {
 		quoted := make([]string, 0, len(access))
 		for _, a := range access {
@@ -495,8 +507,10 @@ func (h *harness) claimsOf(t *testing.T, token string) (josejwt.Claims, machineP
 }
 
 type machinePrivate struct {
-	Roles      []user.Role `json:"roles"`
-	Deployment string      `json:"deployment"`
+	Roles       []user.Role            `json:"roles"`
+	Deployment  string                 `json:"deployment"`
+	Environment string                 `json:"environment"`
+	EnvRoles    map[string][]user.Role `json:"envRoles"`
 	// Read back so a test can assert their ABSENCE from a machine token, which is
 	// the only reason they are here.
 	Email string `json:"email"`
