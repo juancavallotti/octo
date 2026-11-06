@@ -48,6 +48,11 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "create", "delete"]
+  # Its own namespace only: the octo.dev/release label the Gateway selects on.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["patch"]
+    resourceNames: [{{ .Release.Namespace | quote }}]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["rolebindings"]
     verbs: ["get", "create"]

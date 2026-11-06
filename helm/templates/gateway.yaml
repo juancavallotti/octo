@@ -123,8 +123,20 @@ spec:
       protocol: HTTP
       port: 80
       {{- end }}
+      {{- /* Each environment publishes its endpoints from its own namespace, so
+             with environments on, this listener admits every namespace labelled
+             as this installation's — the release namespace (the orchestrator
+             labels it at startup) and each environment's — and no other. */}}
+      {{- $orch := fromYaml (include "octo-common.componentConfig" (dict "root" $ "component" "orchestrator")) }}
       allowedRoutes:
         namespaces:
+          {{- if and (ne (toString ($orch.rbac | default dict).create) "false") (ne (toString ($orch.environments | default dict).enabled) "false") }}
+          from: Selector
+          selector:
+            matchLabels:
+              octo.dev/release: {{ $.Release.Namespace | quote }}
+          {{- else }}
           from: Same
+          {{- end }}
     {{- end }}
 {{- end }}
