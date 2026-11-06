@@ -13,7 +13,12 @@ import (
 // fakeRepo is an in-memory environments table holding the same two uniqueness
 // rules as the real one: name and namespace.
 type fakeRepo struct {
-	rows map[string]Environment
+	rows         map[string]Environment
+	integrations map[string]bool
+}
+
+func (f *fakeRepo) HasIntegrations(_ context.Context, name string) (bool, error) {
+	return f.integrations[name], nil
 }
 
 func newFakeRepo() *fakeRepo { return &fakeRepo{rows: map[string]Environment{}} }
@@ -263,6 +268,21 @@ func TestDeleteRefusesWhileWorkloadsRun(t *testing.T) {
 	}
 	if _, ok := repo.rows["staging"]; ok {
 		t.Error("the row survived the delete")
+	}
+}
+
+func TestDeleteRefusesWhileIntegrationsAreDefined(t *testing.T) {
+	svc, repo, k := newTestService()
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, Input{Name: "staging"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	repo.integrations = map[string]bool{"staging": true}
+	if err := svc.Delete(ctx, "staging"); !errors.Is(err, ErrInUse) {
+		t.Fatalf("err = %v, want ErrInUse", err)
+	}
+	if _, ok := k.provisioned["octo-staging"]; !ok {
+		t.Error("a refused delete removed the namespace")
 	}
 }
 

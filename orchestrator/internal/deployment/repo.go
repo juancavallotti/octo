@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 )
 
 // deploymentColumns is the canonical column list (and order) that scanDeployment
@@ -28,8 +30,8 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // initial status and metadata; id and last_updated come back via RETURNING.
 func (r *Repo) Create(ctx context.Context, integrationID, status string, settings, metadata json.RawMessage) (Deployment, error) {
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO integration_deployments (integration_id, settings, status, deployment_metadata)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO integration_deployments (integration_id, settings, status, deployment_metadata, environment)
+		 VALUES ($1, $2, $3, $4, (SELECT environment FROM integrations WHERE id = $1))
 		 RETURNING `+deploymentColumns,
 		integrationID, settings, status, metadata,
 	)
@@ -84,7 +86,9 @@ func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]D
 // things happened.
 func (r *Repo) ListAll(ctx context.Context) ([]Deployment, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT `+deploymentColumns+` FROM integration_deployments ORDER BY last_updated ASC`,
+		`SELECT `+deploymentColumns+` FROM integration_deployments
+		 WHERE environment IS NOT DISTINCT FROM $1 ORDER BY last_updated ASC`,
+		current.Column(ctx),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("deployment repo: list all: %w", err)
@@ -147,8 +151,9 @@ func (r *Repo) SecretReferenced(ctx context.Context, name string) (bool, error) 
 		`SELECT EXISTS (
 			SELECT 1 FROM integration_deployments
 			WHERE jsonb_path_exists(settings, '$.env.* ? (@.secret == $name)', jsonb_build_object('name', $1::text))
+			  AND environment IS NOT DISTINCT FROM $2
 		)`,
-		name,
+		name, current.Column(ctx),
 	).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("deployment repo: secret referenced: %w", err)

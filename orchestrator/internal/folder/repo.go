@@ -11,6 +11,8 @@ import (
 
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 )
 
 // folderColumns is the canonical column list (and order) that scanFolder expects,
@@ -35,13 +37,21 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // stored row; id is populated by the database via RETURNING.
 func (r *Repo) Create(ctx context.Context, name string, parentID *string) (Folder, error) {
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO integration_idx_structure (parent_id, name, position)
-		 VALUES ($1, $2, COALESCE((SELECT MAX(position) + 1 FROM integration_idx_structure WHERE parent_id IS NOT DISTINCT FROM $1), 0))
+		`INSERT INTO integration_idx_structure (parent_id, name, position, environment)
+		 SELECT $1, $2, COALESCE((SELECT MAX(position) + 1 FROM integration_idx_structure
+		                          WHERE parent_id IS NOT DISTINCT FROM $1 AND environment IS NOT DISTINCT FROM $3), 0), $3
+		 WHERE $1::uuid IS NULL OR EXISTS (
+		     SELECT 1 FROM integration_idx_structure WHERE id = $1 AND environment IS NOT DISTINCT FROM $3)
 		 RETURNING `+folderColumns,
-		parentID, name,
+		parentID, name, current.Column(ctx),
 	)
 	f, err := scanFolder(row)
 	if err != nil {
+		// A parent in another environment inserts nothing: it is as missing as
+		// one that does not exist.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Folder{}, ErrNotFound
+		}
 		if isForeignKeyViolation(err) {
 			return Folder{}, ErrNotFound
 		}
@@ -69,7 +79,9 @@ func (r *Repo) Get(ctx context.Context, id string) (Folder, error) {
 // tree by the service.
 func (r *Repo) List(ctx context.Context) ([]Folder, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT `+folderColumns+` FROM integration_idx_structure ORDER BY position, name`,
+		`SELECT `+folderColumns+` FROM integration_idx_structure
+		 WHERE environment IS NOT DISTINCT FROM $1 ORDER BY position, name`,
+		current.Column(ctx),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("folder repo: list: %w", err)
@@ -90,6 +102,9 @@ func (r *Repo) Update(ctx context.Context, id, name string, parentID *string) (F
 		`UPDATE integration_idx_structure
 		 SET name = $2, parent_id = $3
 		 WHERE id = $1
+		   AND ($3::uuid IS NULL OR EXISTS (
+		       SELECT 1 FROM integration_idx_structure p
+		       WHERE p.id = $3 AND p.environment IS NOT DISTINCT FROM integration_idx_structure.environment))
 		 RETURNING `+folderColumns,
 		id, name, parentID,
 	)
@@ -148,8 +163,9 @@ func (r *Repo) ReorderFolders(ctx context.Context, parentID *string, folderIDs [
 		`UPDATE integration_idx_structure AS f
 		 SET position = o.ord
 		 FROM unnest($2::uuid[]) WITH ORDINALITY AS o(id, ord)
-		 WHERE f.id = o.id AND f.parent_id IS NOT DISTINCT FROM $1`,
-		parentID, folderIDs,
+		 WHERE f.id = o.id AND f.parent_id IS NOT DISTINCT FROM $1
+		   AND f.environment IS NOT DISTINCT FROM $3`,
+		parentID, folderIDs, current.Column(ctx),
 	)
 	if err != nil {
 		return fmt.Errorf("folder repo: reorder folders: %w", err)

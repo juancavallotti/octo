@@ -17,6 +17,7 @@ type repository interface {
 	List(ctx context.Context) ([]Environment, error)
 	Update(ctx context.Context, name string, p Patch) (Environment, error)
 	Delete(ctx context.Context, name string) error
+	HasIntegrations(ctx context.Context, name string) (bool, error)
 }
 
 // namespaces is the Kubernetes surface the service drives. *kube.Client
@@ -150,7 +151,9 @@ func (s *Service) Update(ctx context.Context, name string, p Patch) (Environment
 }
 
 // Delete removes an environment and its namespace. It refuses (ErrInUse) while
-// the namespace still runs a deployment, a test run or a dev run.
+// an integration is still defined there, or the namespace still runs a
+// deployment, a test run or a dev run. Both are asked before anything is
+// deleted, so a refusal leaves the environment exactly as it was.
 //
 // A namespace that turns out not to be this environment's is left standing and
 // the row removed anyway: the environment is what was asked to go, and the
@@ -165,6 +168,13 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 	e, err := s.repo.Get(ctx, name)
 	if err != nil {
 		return err
+	}
+	defined, err := s.repo.HasIntegrations(ctx, e.Name)
+	if err != nil {
+		return err
+	}
+	if defined {
+		return ErrInUse
 	}
 	used, err := s.kube.NamespaceInUse(ctx, e.Namespace)
 	if err != nil {
