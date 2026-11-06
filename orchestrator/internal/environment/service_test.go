@@ -296,3 +296,16 @@ func TestUpdateChangesOnlyWhatIsGiven(t *testing.T) {
 		t.Errorf("after update: %+v", e)
 	}
 }
+
+func TestExists(t *testing.T) {
+	svc, _, _ := newTestService()
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, Input{Name: "staging"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"": true, Default: true, "staging": true, "qa": false} {
+		if got, err := svc.Exists(ctx, name); err != nil || got != want {
+			t.Errorf("Exists(%q) = %v, %v; want %v", name, got, err, want)
+		}
+	}
+}

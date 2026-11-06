@@ -42,3 +42,20 @@ func (p Principal) RolesIn(environment string) []string {
 	}
 	return roles
 }
+
+// AnyRoles returns every role the principal holds in any environment: a bound
+// token's own, or a person's default roles together with every environment's.
+func (p Principal) AnyRoles() []string {
+	if p.Bound() {
+		return p.Roles
+	}
+	roles := slices.Clone(p.Roles)
+	for _, held := range p.EnvRoles {
+		for _, r := range held {
+			if !slices.Contains(roles, r) {
+				roles = append(roles, r)
+			}
+		}
+	}
+	return roles
+}
