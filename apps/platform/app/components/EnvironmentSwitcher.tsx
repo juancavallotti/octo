@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Layers } from "lucide-react";
 import { useEnvironment } from "@/app/auth/EnvironmentContext";
 import { listEnvironments, selectEnvironment } from "@/app/model/environments";
+import EnvironmentMenu from "./EnvironmentMenu";
 import {
   landingAfterSwitch,
   visibleEnvironments,
@@ -52,7 +52,6 @@ export default function EnvironmentSwitcher() {
   if (options.length <= 1 && current === "") return null;
 
   const choose = async (name: string) => {
-    if (name === current) return;
     setBusy(true);
     try {
       await selectEnvironment(name);
@@ -63,22 +62,12 @@ export default function EnvironmentSwitcher() {
   };
 
   return (
-    <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-      <Layers size={14} aria-hidden />
-      <span className="@max-lg:sr-only">Environment</span>
-      <select
-        aria-label="Environment"
-        value={current}
-        disabled={busy}
-        onChange={(e) => choose(e.target.value)}
-        className="rounded-md border border-black/10 bg-transparent px-1.5 py-0.5 text-xs text-zinc-700 outline-none dark:border-white/15 dark:text-zinc-200"
-      >
-        {options.map((o) => (
-          <option key={o.name || "default"} value={o.name}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <EnvironmentMenu
+      options={options}
+      current={current}
+      busy={busy}
+      manageHref={context.roles.includes("platform:admin") ? "/platform/admin/environments" : undefined}
+      onChoose={choose}
+    />
   );
 }
