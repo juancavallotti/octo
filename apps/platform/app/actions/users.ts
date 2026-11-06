@@ -47,13 +47,15 @@ export async function deleteUser(id: string): Promise<ActionResult<void>> {
 export async function grantRole(
   id: string,
   role: string,
+  environment = "",
 ): Promise<ActionResult<PlatformUser>> {
-  return withAdmin(() => iam.grantRole(id, role));
+  return withAdmin(() => iam.grantRole(id, role, environment));
 }
 
 export async function revokeRole(
   id: string,
   role: string,
+  environment = "",
 ): Promise<ActionResult<PlatformUser>> {
-  return withAdmin(() => iam.revokeRole(id, role));
+  return withAdmin(() => iam.revokeRole(id, role, environment));
 }

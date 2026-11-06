@@ -12,6 +12,7 @@ import {
 } from "@/app/model/users";
 import { Field, INPUT } from "../fields";
 import RolePicker from "./RolePicker";
+import EnvironmentRoles, { environmentRoleChanges } from "./EnvironmentRoles";
 
 /**
  * Adding a person, and editing one. One dialog because they are one form: an
@@ -49,6 +50,7 @@ export default function UserModal({
   const [email, setEmail] = useState(person?.email ?? "");
   const [name, setName] = useState(person?.name ?? "");
   const [roles, setRoles] = useState<string[]>(person?.roles ?? []);
+  const [envRoles, setEnvRoles] = useState<Record<string, string[]>>(person?.envRoles ?? {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,6 +78,10 @@ export default function UserModal({
         }
         for (const role of person.roles.filter((r) => !roles.includes(r))) {
           await revokeRole(person.id, role);
+        }
+        for (const change of environmentRoleChanges(person.envRoles ?? {}, envRoles)) {
+          if (change.grant) await grantRole(person.id, change.role, change.environment);
+          else await revokeRole(person.id, change.role, change.environment);
         }
       } else {
         await createUser({ email: email.trim(), name: name.trim(), roles });
@@ -154,6 +160,15 @@ export default function UserModal({
             }
             onChange={setRoles}
           />
+          {editing && (
+            <EnvironmentRoles
+              catalogue={catalogue}
+              held={envRoles}
+              isAdmin={roles.includes("platform:admin")}
+              disabled={isSelf}
+              onChange={setEnvRoles}
+            />
+          )}
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         </div>
 

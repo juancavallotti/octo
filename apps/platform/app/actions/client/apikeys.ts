@@ -18,8 +18,10 @@ export function createApiKey(
   name: string,
   roles: string[],
   expiresAt: string,
+  environment = "",
 ): Promise<ActionResult<CreatedApiKey>> {
-  return managed<CreatedApiKey>("POST", keysPath(userId), { name, roles, expiresAt });
+  const body = environment ? { name, roles, expiresAt, environment } : { name, roles, expiresAt };
+  return managed<CreatedApiKey>("POST", keysPath(userId), body);
 }
 
 export function deleteApiKey(

@@ -1256,8 +1256,7 @@ CREATE TABLE IF NOT EXISTS user_roles (
     user_id    uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     role       varchar NOT NULL,
     granted_at timestamptz NOT NULL DEFAULT now(),
-    granted_by uuid REFERENCES users (id) ON DELETE SET NULL,
-    PRIMARY KEY (user_id, role)
+    granted_by uuid REFERENCES users (id) ON DELETE SET NULL
 );
 
 -- "who holds this role" — the question an admin screen asks, and the one the
@@ -1335,6 +1334,25 @@ ALTER TABLE alert_watches
 ALTER TABLE logs ADD COLUMN IF NOT EXISTS environment varchar;
 ALTER TABLE traces ADD COLUMN IF NOT EXISTS environment varchar;
 ALTER TABLE trace_summaries ADD COLUMN IF NOT EXISTS environment varchar;
+
+-- A role is granted in one environment: NULL is the default, which is what every
+-- grant made before environments existed was in, so everybody keeps exactly the
+-- roles they had. The primary key (user_id, role) becomes unique per
+-- environment, and admin may only be granted in the default — it reaches every
+-- environment from there, and a second spelling of it would be a second place an
+-- administrator could hide.
+ALTER TABLE user_roles
+    ADD COLUMN IF NOT EXISTS environment varchar REFERENCES environments (name) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS user_roles_user_environment_role_uniq
+    ON user_roles (user_id, COALESCE(environment, ''), role);
+ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_pkey;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_roles_admin_in_default') THEN
+        ALTER TABLE user_roles ADD CONSTRAINT user_roles_admin_in_default
+            CHECK (role <> 'platform:admin' OR environment IS NULL);
+    END IF;
+END $$;
 
 -- Telemetry learns its environment from the deployment that emitted it, as it
 -- is written. A trigger rather than the ingest code because records arrive by
@@ -1453,7 +1471,7 @@ BEGIN
     IF COALESCE((SELECT (value->>'version')::int FROM site_settings WHERE key = 'db_version'), 0) < 2 THEN
         INSERT INTO user_roles (user_id, role)
         SELECT id, 'platform:admin' FROM users
-        ON CONFLICT (user_id, role) DO NOTHING;
+        ON CONFLICT DO NOTHING;
 
         INSERT INTO site_settings (key, value)
         VALUES ('db_version', jsonb_build_object('version', 2, 'updated', CURRENT_DATE::text))

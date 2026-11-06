@@ -20,8 +20,10 @@ export interface PlatformUser {
   subject: string;
   email: string;
   name: string;
-  /** The roles they hold. Always present, empty rather than absent. */
+  /** The roles they hold in the default environment. Always present, empty rather than absent. */
   roles: string[];
+  /** The roles they hold in each other environment, by name. */
+  envRoles?: Record<string, string[]>;
   createdAt: string;
   /** Null for somebody provisioned who has never signed in. */
   lastLoginAt: string | null;
@@ -78,10 +80,12 @@ export async function deleteUser(id: string): Promise<void> {
   return unwrap(await actions.deleteUser(id));
 }
 
-export async function grantRole(id: string, role: string): Promise<PlatformUser> {
-  return unwrap(await actions.grantRole(id, role));
+/** Grant `role`, in `environment` ("" for the default). */
+export async function grantRole(id: string, role: string, environment = ""): Promise<PlatformUser> {
+  return unwrap(await actions.grantRole(id, role, environment));
 }
 
-export async function revokeRole(id: string, role: string): Promise<PlatformUser> {
-  return unwrap(await actions.revokeRole(id, role));
+/** Take `role` away, in `environment` ("" for the default). */
+export async function revokeRole(id: string, role: string, environment = ""): Promise<PlatformUser> {
+  return unwrap(await actions.revokeRole(id, role, environment));
 }

@@ -12,11 +12,16 @@ const updateUser = vi.fn();
 vi.mock("@/app/model/users", () => ({
   listUsers: (query: unknown) => listUsers(query),
   listRoles: () => listRoles(),
-  grantRole: (id: string, role: string) => grantRole(id, role),
-  revokeRole: (id: string, role: string) => revokeRole(id, role),
+  grantRole: (...args: unknown[]) => grantRole(...args),
+  revokeRole: (...args: unknown[]) => revokeRole(...args),
   deleteUser: (id: string) => deleteUser(id),
   createUser: (input: unknown) => createUser(input),
   updateUser: (id: string, input: unknown) => updateUser(id, input),
+}));
+
+const listEnvironments = vi.fn();
+vi.mock("@/app/model/environments", () => ({
+  listEnvironments: () => listEnvironments(),
 }));
 
 import UsersManager from "./UsersManager";
@@ -93,6 +98,7 @@ beforeEach(() => {
     { role: PLATFORM_MONITOR, description: "Looks, and nothing else" },
   ]);
   serve([user()]);
+  listEnvironments.mockResolvedValue([]);
 });
 
 describe("the directory", () => {
@@ -284,6 +290,38 @@ describe("editing a person", () => {
 
     await waitFor(() => expect(revokeRole).toHaveBeenCalledWith("u1", PLATFORM_ADMIN));
     expect(grantRole).not.toHaveBeenCalled();
+  });
+
+  it("grants and revokes in another environment", async () => {
+    updateUser.mockResolvedValue({});
+    grantRole.mockResolvedValue({});
+    revokeRole.mockResolvedValue({});
+    listEnvironments.mockResolvedValue([
+      { name: "octo", namespace: "octo", displayName: "Default", description: "", default: true },
+      { name: "staging", namespace: "octo-staging", displayName: "Staging", description: "", default: false },
+    ]);
+    serve([user({ roles: [PLATFORM_MONITOR] })]);
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Edit ada@example.com/ }));
+    const staging = await within(dialog()).findByRole("group", { name: "Staging" });
+    await person.click(within(staging).getByRole("checkbox", { name: /Monitor/ }));
+    await person.click(within(dialog()).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(grantRole).toHaveBeenCalledWith("u1", PLATFORM_MONITOR, "staging"));
+    expect(revokeRole).not.toHaveBeenCalled();
+  });
+
+  it("tells an administrator's editor that admin reaches every environment", async () => {
+    listEnvironments.mockResolvedValue([
+      { name: "staging", namespace: "octo-staging", displayName: "Staging", description: "", default: false },
+    ]);
+    const person = userEvent.setup();
+    renderManager();
+
+    await person.click(await screen.findByRole("button", { name: /Edit ada@example.com/ }));
+    expect(await within(dialog()).findByText(/every role in every environment/)).toBeTruthy();
   });
 
   it("surfaces a refusal from iam rather than swallowing it", async () => {
