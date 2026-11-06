@@ -20,6 +20,8 @@ import {
 } from "./store-adapter";
 import { devRunMcpHost } from "./run-host";
 import { runWithToken } from "@/app/auth/callerToken";
+import { runWithEnvironment } from "@/app/auth/callerEnvironment";
+import { mcpEnvironment } from "./environment";
 import { verifyMcpToken } from "./verify-token";
 import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 
@@ -152,7 +154,8 @@ function asCaller(next: typeof handler) {
   return async (req: Request): Promise<Response> => {
     const token = extraOf(req)?.octoToken;
     if (typeof token !== "string" || token === "") return next(req);
-    return runWithToken(token, () => next(req));
+    const environment = mcpEnvironment(req);
+    return runWithToken(token, () => runWithEnvironment(environment, () => next(req)));
   };
 }
 
