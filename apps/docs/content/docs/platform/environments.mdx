@@ -23,6 +23,16 @@ Names are unique within an environment, so `staging` and the default environment
 
 An integration, deployment, version or folder from one environment is invisible from another. Asking for one by ID from the wrong environment answers `404`, exactly as if it did not exist. Every row written before environments existed belongs to the default environment.
 
+## Switch environments in the platform
+
+When you can work in more than one environment, the top bar of every platform page shows an **Environment** picker beside your account tile. Administrators see every environment; everybody else sees the ones they hold a role in.
+
+Picking one reloads the page in that environment. The integration manager, dashboard, metrics, logs and traces all show only that environment, and the buttons you are offered follow your roles there. A page about one integration or deployment lands at the top of its section instead, because that item does not exist in the other environment. The choice is kept in a cookie until you change it. If the environment you chose is deleted, you are put back in the default.
+
+<Callout>
+The platform agent and the MCP endpoint still act in the default environment.
+</Callout>
+
 ## Choose an environment on a request
 
 The orchestrator, the observability service and the [public API](/platform/public-api) read the environment from the `X-Octo-Environment` header. Without the header, or with `octo`, a request acts in the default environment, so existing clients keep working unchanged.

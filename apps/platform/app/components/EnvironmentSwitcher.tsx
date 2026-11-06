@@ -1,0 +1,84 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Layers } from "lucide-react";
+import { useEnvironment } from "@/app/auth/EnvironmentContext";
+import { listEnvironments, selectEnvironment } from "@/app/model/environments";
+import {
+  landingAfterSwitch,
+  visibleEnvironments,
+  type EnvironmentOption,
+} from "./environmentSwitch";
+
+/**
+ * Which environment every screen is showing, and the control to change it.
+ *
+ * Shown only when there is a choice: a person who works in one environment
+ * sees nothing new. Switching writes the choice server-side and reloads, so no
+ * page keeps showing what it loaded from the environment it just left.
+ *
+ * A chosen environment that has since been deleted is put back to the default
+ * as soon as the list shows it gone, rather than leaving every call refused.
+ */
+export default function EnvironmentSwitcher() {
+  const context = useEnvironment();
+  const pathname = usePathname();
+  const [options, setOptions] = useState<EnvironmentOption[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!context) return;
+    let live = true;
+    listEnvironments().then(
+      (all) => {
+        if (!live) return;
+        const current = context.environment;
+        if (current !== "" && !all.some((e) => e.name === current)) {
+          selectEnvironment("").then(() => window.location.assign(landingAfterSwitch(pathname)));
+          return;
+        }
+        setOptions(visibleEnvironments(all, context.roles, context.envRoles));
+      },
+      () => live && setOptions([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [context, pathname]);
+
+  if (!context || options === null) return null;
+  const current = context.environment;
+  if (options.length <= 1 && current === "") return null;
+
+  const choose = async (name: string) => {
+    if (name === current) return;
+    setBusy(true);
+    try {
+      await selectEnvironment(name);
+      window.location.assign(landingAfterSwitch(pathname));
+    } catch {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+      <Layers size={14} aria-hidden />
+      <span className="@max-lg:sr-only">Environment</span>
+      <select
+        aria-label="Environment"
+        value={current}
+        disabled={busy}
+        onChange={(e) => choose(e.target.value)}
+        className="rounded-md border border-black/10 bg-transparent px-1.5 py-0.5 text-xs text-zinc-700 outline-none dark:border-white/15 dark:text-zinc-200"
+      >
+        {options.map((o) => (
+          <option key={o.name || "default"} value={o.name}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}

@@ -12,6 +12,8 @@ import type {
   EnvironmentInput,
   EnvironmentPatch,
 } from "@/app/model/environments";
+import { cookies } from "next/headers";
+import { ENVIRONMENT_COOKIE, normalizeEnvironment, rolesIn } from "@/app/lib/environment";
 import { withAdmin, withRead } from "./_auth";
 import * as client from "./_client";
 import type { ActionResult } from "./_client";
@@ -35,4 +37,38 @@ export async function updateEnvironment(
 
 export async function deleteEnvironment(name: string): Promise<ActionResult<void>> {
   return withAdmin(() => client.deleteEnvironment(name));
+}
+
+/** A year: the choice is a preference, kept until it is changed. */
+const ENVIRONMENT_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
+
+/**
+ * Work in `name` from now on ("" or "octo" for the default). Refused for an
+ * environment that does not exist or where the caller holds nothing, so the
+ * cookie never names a place every later call would be refused in.
+ */
+export async function selectEnvironment(name: string): Promise<ActionResult<void>> {
+  return withRead(async (session) => {
+    const environment = normalizeEnvironment(name);
+    const jar = await cookies();
+    if (environment === "") {
+      jar.delete(ENVIRONMENT_COOKIE);
+      return { ok: true, data: undefined };
+    }
+    const listed = await client.listEnvironments();
+    if (!listed.ok) return listed;
+    if (!listed.data.some((e) => e.name === environment)) {
+      return { ok: false, error: "unknown environment" };
+    }
+    if (rolesIn(session.user.roles ?? [], session.user.envRoles, environment).length === 0) {
+      return { ok: false, error: "forbidden" };
+    }
+    jar.set(ENVIRONMENT_COOKIE, environment, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: ENVIRONMENT_COOKIE_MAX_AGE,
+    });
+    return { ok: true, data: undefined };
+  });
 }
