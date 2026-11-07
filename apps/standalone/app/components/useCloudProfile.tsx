@@ -1,10 +1,11 @@
 "use client";
 
-import { createElement, useEffect, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, CircleCheck, Download, Workflow } from "lucide-react";
 import type { PickerGroup, PickerItem, PickerRowAction } from "@octo/editor";
 import { resolveIcon } from "@octo/editor/runtime";
 import { paasBridge } from "../desktop";
+import EnvironmentChoice from "./EnvironmentChoice";
 import type { IntegrationSummary, PaasBridge, PlatformState, SyncState } from "../platform/types";
 
 /** An integration's id in the picker, kept apart from the folder paths beside it. */
@@ -98,6 +99,9 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
   // A list belongs to an installation in one environment: switching either shows
   // nothing of the other's while the new one loads.
   const scope = `${profile}@${installation?.environment ?? "octo"}`;
+  // Set when the environment was picked here, so the list asks the platform again
+  // once the new scope arrives rather than settling for the cache.
+  const fetchOnScope = useRef(false);
 
   // The cached list as soon as the installation is known, so the open folder is
   // marked, and the menu filled, before anything asks the platform.
@@ -144,6 +148,13 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
       );
   };
 
+  useEffect(() => {
+    if (!fetchOnScope.current) return;
+    fetchOnScope.current = false;
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is rebuilt every render; the new scope is the trigger.
+  }, [scope]);
+
   if (!paas || !installation || !profile) return { group: null, listed, refresh, select };
 
   const busy = platform?.activity?.state === "running";
@@ -188,7 +199,17 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
           <CloudMark />
           <span className="min-w-0 truncate">
             <b className="font-semibold text-zinc-700 dark:text-zinc-200">{profile}</b> cloud profile
-            {installation.environment && installation.environment !== "octo" ? ` · ${installation.environment}` : ""}
+            <EnvironmentChoice
+              current={installation.environment || "octo"}
+              environments={installation.environments}
+              disabled={busy}
+              onPick={(environment) => {
+                fetchOnScope.current = true;
+                void paas.useEnvironment(profile, environment).catch(() => {
+                  fetchOnScope.current = false;
+                });
+              }}
+            />
             {stale}
           </span>
         </>
