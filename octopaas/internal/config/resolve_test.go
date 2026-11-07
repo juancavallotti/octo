@@ -32,3 +32,24 @@ func TestResolveEnvironment(t *testing.T) {
 		})
 	}
 }
+
+// A named default goes on the wire, so a key bound elsewhere is refused instead
+// of acting in its own; an unnamed one sends nothing.
+func TestEnvironmentHeader(t *testing.T) {
+	cases := []struct {
+		name string
+		r    Resolved
+		want string
+	}{
+		{"nothing named", Resolved{EnvironmentSource: FromDefault}, ""},
+		{"the default named", Resolved{EnvironmentSource: FromFlag}, DefaultEnvironment},
+		{"another named", Resolved{Environment: "stage", EnvironmentSource: FromEnv}, "stage"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.r.EnvironmentHeader(); got != tc.want {
+				t.Errorf("header = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

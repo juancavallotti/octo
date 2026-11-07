@@ -17,7 +17,14 @@ import { withUser } from "./_auth";
 import { callerEnvironment } from "@/app/auth/callerEnvironment";
 
 export async function listApiKeys(): Promise<ActionResult<ApiKey[]>> {
-  return withUser((userId) => client.listApiKeys(userId));
+  // IAM lists every key the caller owns; the page shows the ones that act in the
+  // environment they are working in, the same one a key made here is bound to.
+  const environment = await callerEnvironment();
+  return withUser(async (userId) => {
+    const res = await client.listApiKeys(userId);
+    if (!res.ok) return res;
+    return { ...res, data: res.data.filter((k) => (k.environment ?? "") === environment) };
+  });
 }
 
 export async function createApiKey(
