@@ -229,7 +229,7 @@ func (a *App) client() (*client.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.api = client.New(r.URL, a.bearer(r), a.userAgent()).InEnvironment(r.Environment)
+	a.api = client.New(r.URL, a.bearer(r), a.userAgent()).InEnvironment(r.EnvironmentHeader())
 	return a.api, nil
 }
 

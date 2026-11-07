@@ -62,12 +62,13 @@ type Client struct {
 	http      *http.Client
 	bearer    Bearer
 	userAgent string
-	// environment is named on every request; empty is the default, and sends
-	// no header, which the platform reads the same way.
+	// environment is named on every request; empty sends no header, and the
+	// platform then acts in the default, or in the one environment a bound key
+	// is limited to.
 	environment string
 }
 
-// InEnvironment makes every request act in environment ("" for the default).
+// InEnvironment names environment on every request ("" names none).
 func (c *Client) InEnvironment(environment string) *Client {
 	c.environment = environment
 	return c
