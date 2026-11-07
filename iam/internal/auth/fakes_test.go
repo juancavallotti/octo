@@ -316,6 +316,10 @@ func (m *memUsers) RevokeIn(_ context.Context, userID, environment string, revok
 	if !ok {
 		return user.ErrNotFound
 	}
+	// Revoking what was never granted is a no-op, as the repository's DELETE is.
+	if u.EnvRoles == nil {
+		return nil
+	}
 	var kept []user.Role
 	for _, held := range u.EnvRoles[environment] {
 		if held != revoked {
