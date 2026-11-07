@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/caller"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
@@ -188,6 +189,8 @@ type fakeKube struct {
 	// existsErr makes it fail. Both are states only the confirmation step can see.
 	existsOverride map[string]bool
 	existsErr      error
+	// statusEnvironments is the environment each Status call was made in.
+	statusEnvironments []string
 }
 
 func (f *fakeKube) Apply(_ context.Context, spec kube.Spec) error {
@@ -202,7 +205,8 @@ func (f *fakeKube) Rollout(_ context.Context, spec kube.Spec) error {
 	return f.rolloutErr
 }
 
-func (f *fakeKube) Status(_ context.Context, _ string) (kube.Status, error) {
+func (f *fakeKube) Status(ctx context.Context, _ string) (kube.Status, error) {
+	f.statusEnvironments = append(f.statusEnvironments, current.From(ctx))
 	return kube.Status{Phase: f.status, Pods: f.statusPods}, f.statusErr
 }
 
@@ -324,6 +328,26 @@ func TestScaleUpdatesClusterAndSettings(t *testing.T) {
 	}
 	if d.Status != kube.StatusRunning {
 		t.Errorf("status = %q, want refreshed to running", d.Status)
+	}
+}
+
+// TestListByIntegrationReadsStatusInTheDeploymentsEnvironment pins the live
+// status to the environment the row runs in. Asked from no environment, a
+// staging workload was looked for in the release namespace, not found, and
+// cached as failed while it served.
+func TestListByIntegrationReadsStatusInTheDeploymentsEnvironment(t *testing.T) {
+	repo := &fakeRepo{listRet: []Deployment{
+		{ID: "dep-stage", Status: kube.StatusRunning, Environment: "stage"},
+		{ID: "dep-default", Status: kube.StatusRunning},
+	}}
+	kc := &fakeKube{status: kube.StatusRunning}
+	svc := NewService(repo, &fakeIntegrations{}, kc)
+
+	if _, err := svc.ListByIntegration(context.Background(), "int-1"); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := strings.Join(kc.statusEnvironments, ","); got != "stage," {
+		t.Errorf("status read in environments %q, want each deployment's own (\"stage,\")", got)
 	}
 }
 
