@@ -7,6 +7,10 @@ import EnvironmentSwitcher from "./EnvironmentSwitcher";
  * switcher and account tile on the right. The switcher lives here rather than
  * in each page so every screen built on this bar gets it.
  *
+ * An installation-wide section, such as the admin pages, passes
+ * `environmentAgnostic`: nothing it shows depends on the environment, so it
+ * offers no switcher.
+ *
  * The middle slot owns its own horizontal layout (it is a `flex-1` flex row), so
  * a page can push an action to the far right with `ml-auto`.
  *
@@ -19,12 +23,15 @@ import EnvironmentSwitcher from "./EnvironmentSwitcher";
 export default function AppHeader({
   logoHref,
   userMenu,
+  environmentAgnostic = false,
   children,
 }: {
   /** Override the logo target; defaults to the dashboard. `null` makes it inert. */
   logoHref?: string | null;
   /** Account control slot (server-rendered UserMenu); only visible when SSO is on. */
   userMenu?: React.ReactNode;
+  /** Leave out the environment switcher, for a section that belongs to no environment. */
+  environmentAgnostic?: boolean;
   /** Middle controls (tabs, actions) placed between the logo and the account tile. */
   children?: React.ReactNode;
 }) {
@@ -35,7 +42,7 @@ export default function AppHeader({
         <div className="flex min-w-0 flex-1 items-center gap-3">{children}</div>
       )}
       <div className="ml-auto flex items-center gap-2">
-        <EnvironmentSwitcher />
+        {!environmentAgnostic && <EnvironmentSwitcher />}
         {userMenu}
       </div>
     </header>
