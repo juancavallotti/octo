@@ -14,7 +14,7 @@ import (
 
 // deploymentColumns is the canonical column list (and order) that scanDeployment
 // expects, kept in one place so reads and RETURNING clauses stay in sync.
-const deploymentColumns = "id, integration_id, settings, status, deployment_metadata, last_updated"
+const deploymentColumns = "id, integration_id, settings, status, deployment_metadata, last_updated, COALESCE(environment, '')"
 
 // Repo persists deployments to Postgres.
 type Repo struct {
@@ -253,7 +253,7 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 // scanDeployment reads one row in deploymentColumns order.
 func scanDeployment(row pgx.Row) (Deployment, error) {
 	var d Deployment
-	if err := row.Scan(&d.ID, &d.IntegrationID, &d.Settings, &d.Status, &d.Metadata, &d.LastUpdated); err != nil {
+	if err := row.Scan(&d.ID, &d.IntegrationID, &d.Settings, &d.Status, &d.Metadata, &d.LastUpdated, &d.Environment); err != nil {
 		return Deployment{}, err
 	}
 	return d, nil
