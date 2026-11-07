@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heldIn, normalizeEnvironment, rolesIn } from "./environment";
+import { heldIn, normalizeEnvironment, rolesIn, selectionFromLink } from "./environment";
 
 describe("rolesIn", () => {
   const roles = ["platform:monitor"];
@@ -33,5 +33,21 @@ describe("heldIn", () => {
     expect(rolesIn([], {}, "constructor")).toEqual([]);
     expect(rolesIn(["platform:admin"], {}, "constructor")).toEqual(["platform:admin"]);
     expect(heldIn({ constructor: ["platform:developer"] }, "constructor")).toEqual(["platform:developer"]);
+  });
+});
+
+describe("selectionFromLink", () => {
+  const staging = { staging: ["platform:developer"] };
+  it("chooses the environment a link names, when the person holds a role there", () => {
+    expect(selectionFromLink("staging", undefined, [], staging)).toBe("staging");
+    expect(selectionFromLink("octo", "staging", ["platform:monitor"], staging)).toBe("");
+  });
+  it("changes nothing without a parameter, or for the one already chosen", () => {
+    expect(selectionFromLink(null, "staging", [], staging)).toBeNull();
+    expect(selectionFromLink("staging", "staging", [], staging)).toBeNull();
+    expect(selectionFromLink("octo", undefined, [], staging)).toBeNull();
+  });
+  it("ignores an environment the person holds no role in", () => {
+    expect(selectionFromLink("prod", undefined, [], staging)).toBeNull();
   });
 });
