@@ -102,12 +102,29 @@ func (r *Repo) ListAll(ctx context.Context) ([]Deployment, error) {
 	return items, nil
 }
 
-// IntegrationIDBySlug returns the integration id of any deployment whose metadata
-// slug matches, and whether one was found. Used to keep the internal Service name
-// (octo-int-{slug}) unique across integrations. If several match (the same
-// integration redeployed), any one is returned — they share an integration id.
+// IntegrationIDBySlug returns the integration id of any deployment in the
+// request's environment whose metadata slug matches, and whether one was found.
+// Used to keep the internal Service name (octo-int-{slug}) unique within the
+// environment's namespace, the only place that name has to be unique. If several
+// match (the same integration redeployed), any one is returned — they share an
+// integration id.
 func (r *Repo) IntegrationIDBySlug(ctx context.Context, slug string) (string, bool, error) {
-	return r.integrationIDByMetaField(ctx, "deployment_metadata", "slug", slug)
+	if slug == "" {
+		return "", false, nil
+	}
+	var integrationID string
+	err := r.pool.QueryRow(ctx,
+		`SELECT integration_id FROM integration_deployments
+		 WHERE deployment_metadata->>'slug' = $1 AND environment IS NOT DISTINCT FROM $2 LIMIT 1`,
+		slug, current.Column(ctx),
+	).Scan(&integrationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("deployment repo: integration by slug: %w", err)
+	}
+	return integrationID, true, nil
 }
 
 // IntegrationIDBySubdomain returns the integration id of any deployment using the
