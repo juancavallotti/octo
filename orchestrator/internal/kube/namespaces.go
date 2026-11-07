@@ -56,6 +56,16 @@ func (r *namespaceRegistry) forget(environment string) (string, bool) {
 	return ns, ok
 }
 
+func (r *namespaceRegistry) names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.byName))
+	for name := range r.byName {
+		out = append(out, name)
+	}
+	return out
+}
+
 func (r *namespaceRegistry) all() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -106,8 +116,18 @@ func (c *Client) ResolveEnvironmentsWith(resolve func(ctx context.Context, envir
 // RegisterEnvironment records namespace as environment's and, once informers
 // are running, starts watching it.
 func (c *Client) RegisterEnvironment(environment, namespace string) {
+	// An environment re-created under another namespace moves: the old one is no
+	// longer its, and a sweep reading it would find nothing there.
+	if old, ok := c.environmentNamespaces.get(environment); ok && old != namespace {
+		c.informers.unwatch(old)
+	}
 	c.environmentNamespaces.set(environment, namespace)
 	c.informers.watch(c, namespace)
+}
+
+// RegisteredEnvironments names every environment this client has a namespace for.
+func (c *Client) RegisteredEnvironments() []string {
+	return c.environmentNamespaces.names()
 }
 
 // ForgetEnvironment stops watching environment's namespace and forgets it.
@@ -138,8 +158,12 @@ type informerSet struct {
 // cache returns the synced informer cache for the namespace ctx acts in, or nil
 // when there is none yet — the caller then reads the API server directly.
 func (c *Client) cache(ctx context.Context) *watched {
+	// Resolved before the lock: resolving an environment this replica has not
+	// seen registers it, which starts watching it under the same lock, and a
+	// read lock cannot be upgraded.
+	ns := c.ns(ctx)
 	c.informers.mu.RLock()
-	w := c.informers.byNS[c.ns(ctx)]
+	w := c.informers.byNS[ns]
 	c.informers.mu.RUnlock()
 	if w == nil || !w.synced() {
 		return nil
@@ -235,11 +259,10 @@ func (s *informerSet) allSynced() bool {
 // WaitForCacheSync blocks until every watched namespace's informer caches have
 // loaded, or ctx ends.
 //
-// It exists for callers that must not act on an empty cache — the reconciler
-// decides what to delete, and an unloaded cache and an empty cluster look
-// identical. Everything else here treats an unsynced cache as a reason to read
-// the API server directly, which is fine when the question is about one named
-// object and not fine when it is "what is there".
+// It exists so the reconciler starts from loaded caches where it can. It does not
+// guard against acting on an empty cache: every read here, the reconciler's
+// listing included, treats an unsynced cache as a reason to read the API server
+// directly, which answers authoritatively or fails.
 //
 // False means the caches never synced: informers were not started, or ctx ended
 // first. Both mean the same thing to a caller — do not act.

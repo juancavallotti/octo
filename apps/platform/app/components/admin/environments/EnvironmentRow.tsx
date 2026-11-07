@@ -26,6 +26,14 @@ export default function EnvironmentRow({
   const [description, setDescription] = useState(environment.description);
   const title = environment.displayName || environment.name;
 
+  // The drafts start from what is saved each time, so an edit that was cancelled,
+  // or a value saved since, is not carried into the next one.
+  const startEditing = () => {
+    setDisplayName(environment.displayName);
+    setDescription(environment.description);
+    setEditing(true);
+  };
+
   const save = async () => {
     if (await onUpdate(environment.name, { displayName, description })) setEditing(false);
   };
@@ -58,7 +66,7 @@ export default function EnvironmentRow({
               type="button"
               aria-label={`Edit ${title}`}
               disabled={busy}
-              onClick={() => setEditing(true)}
+              onClick={startEditing}
               className="rounded p-1 text-zinc-500 hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
             >
               <Pencil size={14} />

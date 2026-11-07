@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeEnvironment, rolesIn } from "./environment";
+import { heldIn, normalizeEnvironment, rolesIn } from "./environment";
 
 describe("rolesIn", () => {
   const roles = ["platform:monitor"];
@@ -25,5 +25,13 @@ describe("normalizeEnvironment", () => {
     expect(normalizeEnvironment("octo")).toBe("");
     expect(normalizeEnvironment(undefined)).toBe("");
     expect(normalizeEnvironment(" staging ")).toBe("staging");
+  });
+});
+
+describe("heldIn", () => {
+  it("reads only an environment's own entry, never the prototype's", () => {
+    expect(rolesIn([], {}, "constructor")).toEqual([]);
+    expect(rolesIn(["platform:admin"], {}, "constructor")).toEqual(["platform:admin"]);
+    expect(heldIn({ constructor: ["platform:developer"] }, "constructor")).toEqual(["platform:developer"]);
   });
 });

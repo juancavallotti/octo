@@ -19,6 +19,8 @@ func TestResolveEnvironment(t *testing.T) {
 		{"the flag over both", Overrides{Environment: "prod"}, map[string]string{EnvEnvironment: "qa"}, "prod", FromFlag},
 		{"the default when nothing names one", Overrides{Profile: "other"}, nil, "", FromDefault},
 		{"octo is the default", Overrides{Environment: "octo"}, nil, "", FromFlag},
+		{"a blank variable names nothing", Overrides{}, map[string]string{EnvEnvironment: " "}, "staging", FromConfig},
+		{"a blank flag names nothing", Overrides{Environment: "  "}, nil, "staging", FromConfig},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
