@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -145,15 +146,16 @@ func (a *App) environmentsCurrentCommand() *cobra.Command {
 		Short:   "Show the environment commands act in, and why",
 		Example: `  octopaas environments current`,
 		Args:    cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 
 			r, err := a.resolve()
 			if err != nil {
 				return err
 			}
+			environment, source := a.actsIn(cmd.Context(), r)
 			report := currentEnvironment{
-				Environment: config.DisplayEnvironment(r.Environment),
-				Source:      string(r.EnvironmentSource),
+				Environment: environment,
+				Source:      string(source),
 				Profile:     r.Profile,
 			}
 			return a.emit(report, func() {
@@ -161,4 +163,24 @@ func (a *App) environmentsCurrentCommand() *cobra.Command {
 			})
 		},
 	}
+}
+
+// actsIn is the environment commands act in, and where that came from. Named by a
+// flag, a variable or the profile, it is that. Named by nothing, it is the
+// default for a person; an API key acts in the one environment it is bound to,
+// which the platform lists to it as its only one.
+func (a *App) actsIn(ctx context.Context, r config.Resolved) (string, config.Source) {
+
+	if r.APIKey == "" || r.EnvironmentSource != config.FromDefault {
+		return config.DisplayEnvironment(r.Environment), r.EnvironmentSource
+	}
+	api, err := a.client()
+	if err != nil {
+		return config.DisplayEnvironment(r.Environment), r.EnvironmentSource
+	}
+	environments, err := api.ListEnvironments(ctx)
+	if err != nil || len(environments) != 1 {
+		return config.DisplayEnvironment(r.Environment), r.EnvironmentSource
+	}
+	return environments[0].Name, config.FromKey
 }
