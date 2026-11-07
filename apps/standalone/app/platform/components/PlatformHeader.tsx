@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Layers, Server, Settings2 } from "lucide-react";
 import { WorkspacePicker } from "@octo/editor";
 import type { PlatformState, PlatformTab } from "../types";
+import DefaultPill from "./DefaultPill";
 import IdentityDot from "./IdentityDot";
 
 const TABS: { id: PlatformTab; label: string }[] = [
@@ -70,8 +71,8 @@ export default function PlatformHeader({
             icon={<Layers size={14} className="text-zinc-400" />}
             current={current.environment}
             items={(current.environments ?? [])
-              .filter((e) => e !== current.environment)
-              .map((e) => ({ id: e, name: e }))}
+              .filter((e) => e.name !== current.environment)
+              .map((e) => ({ id: e.name, name: e.name, badge: e.default ? <DefaultPill /> : undefined }))}
             onSelect={onEnvironment}
             searchPlaceholder="Search environments…"
             emptyLabel="No other environments"
