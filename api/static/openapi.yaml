@@ -290,11 +290,11 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
       - name: path
-      - $ref: "#/components/parameters/Environment"
         in: query
         required: true
         description: The file's path. A query parameter because it contains slashes.
         schema: { type: string }
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [files]
       operationId: getFile
@@ -394,10 +394,10 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IntegrationId"
       - name: resourceId
-      - $ref: "#/components/parameters/Environment"
         in: path
         required: true
         schema: { type: string }
+      - $ref: "#/components/parameters/Environment"
     get:
       tags: [resources]
       operationId: getResource

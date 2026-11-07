@@ -106,8 +106,13 @@ func (s *Service) List(ctx context.Context) ([]Due, error) {
 }
 
 // Delete removes a watch, closing any episode first so nothing is left pointing
-// at a watch that no longer exists.
+// at a watch that no longer exists. The watch is read first, in the request's
+// environment, so one in another environment answers not found before anything
+// of it is closed.
 func (s *Service) Delete(ctx context.Context, id string) error {
+	if _, err := s.store.Get(ctx, id); err != nil {
+		return err
+	}
 	if err := s.store.Retire(ctx, id, ClosedDeleted, s.now()); err != nil {
 		return err
 	}

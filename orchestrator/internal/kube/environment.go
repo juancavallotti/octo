@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -12,9 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// labelEnvironment marks a namespace as an environment's, naming which one. It
-// is what DeleteNamespace checks before deleting anything, so a namespace this
-// orchestrator did not create is never one it removes.
+// labelEnvironment marks a namespace as an environment's, naming which one.
+// Together with labelRelease it is what adoption and DeleteNamespace check (see
+// owns), so a namespace this installation did not create is never one it takes
+// over or removes.
 const labelEnvironment = "octo.dev/environment"
 
 // labelRelease marks a namespace as belonging to the installation whose release
@@ -32,9 +34,9 @@ const (
 )
 
 // ErrNamespaceTaken is returned when the namespace an environment asks for
-// already exists and is not that environment's: adopting it would hand octo a
-// namespace somebody else owns, and deleting the environment later would
-// delete their namespace.
+// already exists and is not this installation's environment's: adopting it would
+// hand octo a namespace somebody else owns — another installation's same-named
+// environment included — and deleting the environment later would delete theirs.
 var ErrNamespaceTaken = errors.New("kube: namespace exists and is not this environment's")
 
 // EnvironmentRBAC is what an environment's namespace is wired with. The chart
@@ -74,12 +76,8 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 	if err := c.createNamespace(ctx, environment, namespace); err != nil {
 		return err
 	}
-	rbac := c.clientset.RbacV1().RoleBindings(namespace)
-	if err := createIgnoringExisting(func() error {
-		_, err := rbac.Create(ctx, c.roleBinding(orchestratorBinding, c.environments.WorkloadClusterRole,
-			c.environments.OrchestratorServiceAccount, c.namespace), metav1.CreateOptions{})
-		return err
-	}); err != nil {
+	if err := c.ensureBinding(ctx, namespace, c.roleBinding(orchestratorBinding, c.environments.WorkloadClusterRole,
+		c.environments.OrchestratorServiceAccount, c.namespace)); err != nil {
 		return fmt.Errorf("kube: bind orchestrator in %s: %w", namespace, err)
 	}
 
@@ -92,17 +90,19 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 		}); err != nil {
 			return fmt.Errorf("kube: runtime service account in %s: %w", namespace, err)
 		}
-		if err := createIgnoringExisting(func() error {
-			_, err := rbac.Create(ctx, c.roleBinding(runtimeBinding, c.environments.RuntimeClusterRole,
-				sa, namespace), metav1.CreateOptions{})
-			return err
-		}); err != nil {
+		if err := c.ensureBinding(ctx, namespace, c.roleBinding(runtimeBinding, c.environments.RuntimeClusterRole,
+			sa, namespace)); err != nil {
 			return fmt.Errorf("kube: bind runtime in %s: %w", namespace, err)
 		}
 	}
 
 	for _, name := range c.imagePullSecrets {
 		if err := c.copySecret(ctx, name, namespace, environment); err != nil {
+			return err
+		}
+	}
+	if c.wildcardTLSSecret != "" {
+		if err := c.copySecret(ctx, c.wildcardTLSSecret, namespace, environment); err != nil {
 			return err
 		}
 	}
@@ -146,16 +146,17 @@ func (c *Client) createNamespace(ctx context.Context, environment, namespace str
 	if err != nil {
 		return fmt.Errorf("kube: get namespace %s: %w", namespace, err)
 	}
-	if existing.Labels[labelEnvironment] != environment {
+	if !c.owns(existing, environment) {
 		return ErrNamespaceTaken
 	}
 	return nil
 }
 
-// copySecret copies one Secret from the release namespace into namespace,
-// leaving a copy that is already there alone. A pull secret the release
-// namespace does not have is skipped rather than fatal: the pods it was meant
-// for would fail the same way in the release namespace.
+// copySecret copies one Secret from the release namespace into namespace, and
+// brings a copy already there up to date: a certificate is renewed and a
+// credential rotated in the release namespace, and the copies have to follow. A
+// Secret the release namespace does not have is skipped rather than fatal: the
+// pods it was meant for would fail the same way in the release namespace.
 func (c *Client) copySecret(ctx context.Context, name, namespace, environment string) error {
 	src, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -164,15 +165,30 @@ func (c *Client) copySecret(ctx context.Context, name, namespace, environment st
 	if err != nil {
 		return fmt.Errorf("kube: read secret %s: %w", name, err)
 	}
-	if err := createIgnoringExisting(func() error {
-		_, err := c.clientset.CoreV1().Secrets(namespace).Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Labels: c.environmentLabels(environment)},
-			Type:       src.Type,
-			Data:       src.Data,
-		}, metav1.CreateOptions{})
-		return err
-	}); err != nil {
-		return fmt.Errorf("kube: copy secret %s into %s: %w", name, namespace, err)
+	secrets := c.clientset.CoreV1().Secrets(namespace)
+	dst, err := secrets.Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		if err := createIgnoringExisting(func() error {
+			_, err := secrets.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Labels: c.environmentLabels(environment)},
+				Type:       src.Type,
+				Data:       src.Data,
+			}, metav1.CreateOptions{})
+			return err
+		}); err != nil {
+			return fmt.Errorf("kube: copy secret %s into %s: %w", name, namespace, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("kube: read the copy of %s in %s: %w", name, namespace, err)
+	}
+	if dst.Type == src.Type && reflect.DeepEqual(dst.Data, src.Data) {
+		return nil
+	}
+	dst.Type, dst.Data = src.Type, src.Data
+	if _, err := secrets.Update(ctx, dst, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kube: update the copy of %s in %s: %w", name, namespace, err)
 	}
 	return nil
 }
@@ -181,7 +197,23 @@ func (c *Client) copySecret(ctx context.Context, name, namespace, environment st
 // orchestrator manages: a Deployment, a test-run Job, or a pod such as a dev
 // run. Deleting an environment that does would delete running workloads with it.
 func (c *Client) NamespaceInUse(ctx context.Context, namespace string) (bool, error) {
-	opts := metav1.ListOptions{LabelSelector: labelManagedBy + "=" + managedByValue, Limit: 1}
+	// A namespace that is gone or already terminating holds nothing to protect, and
+	// listing in it would be refused: the orchestrator's rights there come from a
+	// RoleBinding that goes with it. Without this, an environment whose namespace
+	// was deleted before its row could never be deleted.
+	ns, err := c.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("kube: get namespace %s: %w", namespace, err)
+	}
+	if ns.DeletionTimestamp != nil {
+		return false, nil
+	}
+	// No page limit: a limited, filtered list may answer an empty page with more
+	// to come, which would read as not in use. A namespace's managed objects are few.
+	opts := metav1.ListOptions{LabelSelector: labelManagedBy + "=" + managedByValue}
 	deployments, err := c.clientset.AppsV1().Deployments(namespace).List(ctx, opts)
 	if err != nil {
 		return false, fmt.Errorf("kube: list deployments in %s: %w", namespace, err)
@@ -215,10 +247,13 @@ func (c *Client) DeleteNamespace(ctx context.Context, environment, namespace str
 	if err != nil {
 		return fmt.Errorf("kube: get namespace %s: %w", namespace, err)
 	}
-	if existing.Labels[labelEnvironment] != environment {
+	if !c.owns(existing, environment) {
 		return ErrNamespaceTaken
 	}
-	if err := namespaces.Delete(ctx, namespace, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
+	// The object checked is the object deleted, even if the name changed hands in
+	// between.
+	opts := metav1.DeleteOptions{Preconditions: metav1.NewUIDPreconditions(string(existing.UID))}
+	if err := namespaces.Delete(ctx, namespace, opts); ignoreNotFound(err) != nil {
 		return fmt.Errorf("kube: delete namespace %s: %w", namespace, err)
 	}
 	return nil
@@ -246,10 +281,42 @@ func (c *Client) roleBinding(name, clusterRole, account, accountNamespace string
 	}
 }
 
+// ensureBinding creates want in namespace, or replaces a binding of that name
+// that grants something else. A RoleBinding's role cannot be changed in place, and
+// the ClusterRoles it points at are named by the chart, so a binding left from an
+// earlier name would grant a role that no longer exists.
+func (c *Client) ensureBinding(ctx context.Context, namespace string, want *rbacv1.RoleBinding) error {
+	bindings := c.clientset.RbacV1().RoleBindings(namespace)
+	have, err := bindings.Get(ctx, want.Name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		return err
+	case have.RoleRef == want.RoleRef && reflect.DeepEqual(have.Subjects, want.Subjects):
+		return nil
+	default:
+		if err := bindings.Delete(ctx, want.Name, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
+			return err
+		}
+	}
+	return createIgnoringExisting(func() error {
+		_, err := bindings.Create(ctx, want, metav1.CreateOptions{})
+		return err
+	})
+}
+
 // createIgnoringExisting runs create and treats AlreadyExists as success.
 func createIgnoringExisting(create func() error) error {
 	if err := create(); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 	return nil
+}
+
+// owns reports whether ns is this installation's namespace for environment:
+// labelled for that environment, and by this installation's release namespace.
+// Two installations on one cluster both name an environment's namespace
+// octo-<name>, so the environment alone does not say whose it is.
+func (c *Client) owns(ns *corev1.Namespace, environment string) bool {
+	return ns.Labels[labelEnvironment] == environment && ns.Labels[labelRelease] == c.namespace
 }

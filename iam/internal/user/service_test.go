@@ -1022,6 +1022,10 @@ func (m *memRepo) RevokeIn(_ context.Context, userID, environment string, revoke
 	if !ok {
 		return ErrNotFound
 	}
+	// Revoking what was never granted is a no-op, as the repository's DELETE is.
+	if u.EnvRoles == nil {
+		return nil
+	}
 	u.EnvRoles[environment] = slices.DeleteFunc(u.EnvRoles[environment], func(r Role) bool { return r == revoked })
 	return nil
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, Layers, Settings2 } from "lucide-react";
+import { Check, ChevronDown, Layers, Settings2, TriangleAlert } from "lucide-react";
 import type { EnvironmentOption } from "./environmentSwitch";
 
 /**
@@ -15,19 +15,26 @@ export default function EnvironmentMenu({
   options,
   current,
   busy,
+  error,
   manageHref,
   onChoose,
 }: {
   options: EnvironmentOption[];
   current: string;
   busy: boolean;
+  /** Why the last switch was refused, said beside the chip until the next one. */
+  error?: string | null;
   /** Where an administrator manages environments; absent for anybody else. */
   manageHref?: string;
   onChoose(name: string): void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const selected = options.find((o) => o.name === current);
+  // Tinted for any environment but the default, whether or not the list could be
+  // read: the tint is the warning that this is not the default.
+  const elsewhere = selected ? !selected.isDefault : current !== "";
 
   useEffect(() => {
     if (!open) return;
@@ -35,7 +42,10 @@ export default function EnvironmentMenu({
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -46,8 +56,19 @@ export default function EnvironmentMenu({
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative flex items-center gap-2">
+      {error && (
+        <span
+          role="alert"
+          title={error}
+          className="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-0.5 text-xs text-zinc-700 dark:text-zinc-300"
+        >
+          <TriangleAlert size={12} className="shrink-0 text-amber-600 dark:text-amber-500" aria-hidden />
+          Couldn&rsquo;t switch
+        </span>
+      )}
       <button
+        ref={buttonRef}
         type="button"
         aria-label="Environment"
         aria-haspopup="menu"
@@ -55,13 +76,13 @@ export default function EnvironmentMenu({
         disabled={busy}
         onClick={() => setOpen((v) => !v)}
         className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm transition-colors disabled:opacity-60 ${
-          selected && !selected.isDefault
+          elsewhere
             ? "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200"
             : "border-black/10 text-zinc-700 hover:border-black/20 dark:border-white/15 dark:text-zinc-200"
         }`}
       >
         <Layers size={14} className="shrink-0 opacity-70" aria-hidden />
-        <span className="max-w-[10rem] truncate @max-lg:max-w-[6rem]">{selected?.label ?? "Default"}</span>
+        <span className="max-w-[10rem] truncate @max-lg:max-w-[6rem]">{selected?.label ?? (current || "Default")}</span>
         <ChevronDown size={14} className="shrink-0 opacity-60" aria-hidden />
       </button>
       {open && (
