@@ -10,6 +10,35 @@ export const DEFAULT_ENVIRONMENT = "octo";
 /** The cookie the chosen environment is kept in. Absent means the default. */
 export const ENVIRONMENT_COOKIE = "octo-environment";
 
+/** A year: the choice is a preference, kept until it is changed. */
+export const ENVIRONMENT_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
+
+/**
+ * The query parameter a link names an environment in: any platform page with
+ * `?env=<name>` opens there, so a bookmark, a shared link or the agent can say
+ * which environment it means. The cookie stays where the choice is kept.
+ */
+export const ENVIRONMENT_PARAM = "env";
+
+/**
+ * What a request's `?env=` asks of the selection: the environment to choose ("" for
+ * the default), or null when there is nothing to change — no parameter, the one
+ * already chosen, or one the person holds no role in. Pure, so the request proxy
+ * and its tests share it.
+ */
+export function selectionFromLink(
+  param: string | null,
+  chosen: string | undefined,
+  roles: string[],
+  envRoles: Record<string, string[]> | undefined,
+): string | null {
+  if (param === null) return null;
+  const wanted = normalizeEnvironment(param);
+  if (wanted === normalizeEnvironment(chosen)) return null;
+  if (wanted !== "" && rolesIn(roles, envRoles, wanted).length === 0) return null;
+  return wanted;
+}
+
 /** The header every call to the platform names the environment in. */
 export const ENVIRONMENT_HEADER = "X-Octo-Environment";
 
