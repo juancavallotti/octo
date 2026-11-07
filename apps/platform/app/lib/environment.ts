@@ -97,3 +97,12 @@ export function leavesEnvironment(path: string, current: string): boolean {
   const named = new URL(path, "http://site").searchParams.get(ENVIRONMENT_PARAM);
   return named !== null && normalizeEnvironment(named) !== normalizeEnvironment(current);
 }
+
+/** `query` with the environment named in it, as every page outside the default is. */
+export function withEnvironment(query: string, environment: string): string {
+  const params = new URLSearchParams(query);
+  const name = normalizeEnvironment(environment);
+  if (name === "") params.delete(ENVIRONMENT_PARAM);
+  else params.set(ENVIRONMENT_PARAM, name);
+  return params.toString();
+}
