@@ -12,7 +12,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useReplaceQuery } from "@/app/components/useReplaceQuery";
 import { listLogs, type LogEntry } from "@/app/model/logs";
 import type { AppOption, FilterValues } from "./LogsFilters";
 import {
@@ -44,8 +45,7 @@ export interface LogStream {
 }
 
 export function useLogStream(): LogStream {
-  const router = useRouter();
-  const pathname = usePathname();
+  const replaceQuery = useReplaceQuery();
   const searchParams = useSearchParams();
 
   // Initialize filters from the URL once; thereafter the URL follows the filters.
@@ -69,9 +69,8 @@ export function useLogStream(): LogStream {
   // them without re-subscribing) and mirror them into the URL.
   useEffect(() => {
     filtersRef.current = filters;
-    const qs = writeFilters(filters);
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [filters, pathname, router]);
+    replaceQuery(writeFilters(filters));
+  }, [filters, replaceQuery]);
 
   // Accumulate the distinct apps seen so the dropdown stays populated even after the
   // user scopes to one (the results would otherwise narrow to it).
